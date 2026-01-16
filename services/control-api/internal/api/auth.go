@@ -17,8 +17,12 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		auth.POST("/login", login)
 		auth.POST("/refresh", refreshToken)
 		auth.POST("/verify-email", verifyEmail)
+		auth.POST("/verify-email", verifyEmail)
 		auth.POST("/resend-verification", resendVerification)
 	}
+
+	// Register OAuth routes
+	RegisterOAuthRoutes(r)
 }
 
 type registerRequest struct {
