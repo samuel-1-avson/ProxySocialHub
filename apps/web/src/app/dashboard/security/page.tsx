@@ -13,7 +13,7 @@ interface SetupResponse {
 }
 
 export default function SecuritySettingsPage() {
-    const { user, isLoading, isAuthenticated } = useAuth();
+    const { isLoading, isAuthenticated } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -53,7 +53,7 @@ export default function SecuritySettingsPage() {
                 // 2FA not enabled
                 setIs2FAEnabled(false);
             }
-        } catch (err) {
+        } catch {
             // 2FA not enabled or error
             setIs2FAEnabled(false);
         } finally {
@@ -71,7 +71,7 @@ export default function SecuritySettingsPage() {
             }
             const data = await res.json();
             setSetupData(data);
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message);
         }
     };
@@ -102,7 +102,7 @@ export default function SecuritySettingsPage() {
             setSetupData(null);
             setVerificationCode('');
             setSuccess('Two-factor authentication enabled successfully!');
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message);
         }
     };
@@ -132,7 +132,7 @@ export default function SecuritySettingsPage() {
             setDisableCode('');
             setBackupCodesCount(0);
             setSuccess('Two-factor authentication has been disabled');
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message);
         }
     };
@@ -154,7 +154,7 @@ export default function SecuritySettingsPage() {
             setBackupCodesCount(data.backup_codes?.length || 0);
             setShowBackupCodes(true);
             setSuccess('New backup codes generated. Make sure to save them!');
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message);
         }
     };
@@ -221,7 +221,7 @@ export default function SecuritySettingsPage() {
                         <div className="text-center py-4">
                             <p className="text-gray-400 mb-4">
                                 Protect your account with time-based one-time passwords (TOTP).
-                                You'll need an authenticator app like Google Authenticator or Authy.
+                                You&apos;ll need an authenticator app like Google Authenticator or Authy.
                             </p>
                             <button
                                 onClick={handleSetup2FA}
@@ -241,6 +241,7 @@ export default function SecuritySettingsPage() {
                                     Scan this QR code with your authenticator app
                                 </p>
                                 <div className="inline-block p-4 bg-white rounded-lg">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={setupData.qr_code} alt="2FA QR Code" className="w-48 h-48" />
                                 </div>
                             </div>

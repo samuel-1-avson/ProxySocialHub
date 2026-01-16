@@ -8,7 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Navbar } from "@/components/Navbar";
 
 function ProviderDashboardContent() {
-  const { user } = useAuth();
+  const { } = useAuth();
   const [listings, setListings] = useState<Listing[]>([]);
   const [sales, setSales] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,9 +24,8 @@ function ProviderDashboardContent() {
         ]);
         setListings(listingsData.listings || []);
         setSales(salesData.sales || []);
-      } catch (err) {
+      } catch {
         // Handle error silently for now
-        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -146,7 +145,7 @@ function ProviderDashboardContent() {
                 {listings.length === 0 ? (
                   <div className="card text-center py-12">
                     <p className="mb-4" style={{ color: "var(--muted)" }}>
-                      You haven't created any listings yet.
+                      You haven&apos;t created any listings yet.
                     </p>
                     <Link href="/marketplace/create" className="btn btn-primary">
                       Create Your First Listing

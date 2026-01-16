@@ -83,7 +83,7 @@ export default function ListingDetailPage() {
                 await saveListing(listing.id);
             }
             setIsSaved(!isSaved);
-        } catch (err) {
+        } catch {
             // Ignore error, optimistic update
         }
     };

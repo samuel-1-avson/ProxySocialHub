@@ -19,7 +19,7 @@ interface APIKey {
 }
 
 export default function APIKeysPage() {
-    const { user, isLoading, isAuthenticated } = useAuth();
+    const { isLoading, isAuthenticated } = useAuth();
     const router = useRouter();
     const [apiKeys, setApiKeys] = useState<APIKey[]>([]);
     const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export default function APIKeysPage() {
             const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys`);
             const data = await res.json();
             setApiKeys(data.api_keys || []);
-        } catch (err) {
+        } catch {
             setError('Failed to load API keys');
         } finally {
             setLoading(false);
@@ -82,14 +82,14 @@ export default function APIKeysPage() {
 
             const data = await res.json();
             setNewKey(data.api_key);
-            setSuccess('API key created! Copy it now - it won\'t be shown again.');
+            setSuccess('API key created! Copy it now - it won&apos;t be shown again.');
             setShowCreateModal(false);
             setKeyName('');
             setPermissions(['read', 'proxy']);
             setRateLimit(100);
             setExpiresInDays(null);
             await loadAPIKeys();
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message || 'Failed to create API key');
         }
     };
@@ -105,7 +105,7 @@ export default function APIKeysPage() {
             });
             setSuccess('API key revoked successfully');
             await loadAPIKeys();
-        } catch (err) {
+        } catch {
             setError('Failed to revoke API key');
         }
     };
@@ -176,7 +176,7 @@ export default function APIKeysPage() {
                         </div>
                         <div className="flex-1">
                             <h3 className="text-lg font-semibold text-white">Your New API Key</h3>
-                            <p className="text-gray-400 text-sm mt-1">Copy this key now. You won't be able to see it again!</p>
+                            <p className="text-gray-400 text-sm mt-1">Copy this key now. You won&apos;t be able to see it again!</p>
                             <div className="mt-4 flex items-center gap-3">
                                 <code className="flex-1 bg-gray-900 px-4 py-3 rounded font-mono text-green-400 text-sm overflow-x-auto">
                                     {newKey.key}
@@ -295,8 +295,8 @@ export default function APIKeysPage() {
                                             key={perm}
                                             onClick={() => togglePermission(perm)}
                                             className={`px-3 py-1.5 rounded-lg text-sm transition ${permissions.includes(perm)
-                                                    ? 'bg-orange-500 text-white'
-                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                ? 'bg-orange-500 text-white'
+                                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                                                 }`}
                                         >
                                             {perm}

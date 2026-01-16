@@ -29,7 +29,7 @@ export default function ReferralsPage() {
         try {
             await generateReferralCode();
             await loadStats();
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             alert(err.message || 'Failed to generate code');
         } finally {
             setGenerating(false);

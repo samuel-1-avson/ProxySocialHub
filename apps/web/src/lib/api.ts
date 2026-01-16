@@ -193,7 +193,8 @@ export interface UserPreferences {
 }
 
 export interface Recommendation {
-  listing: any; // Using any for brevity, ideal to use ProxyListing interface if available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  listing: any;
   score: number;
   reasons: string[];
 }
@@ -247,6 +248,7 @@ export interface ForumThread {
   title: string;
   slug: string;
   content: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   author: any;
   created_at: string;
   views_count: number;
@@ -259,6 +261,7 @@ export interface ForumThread {
 export interface ForumPost {
   id: string;
   content: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   author: any;
   created_at: string;
   upvotes: number;

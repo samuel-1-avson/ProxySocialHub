@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { getMyProfile, updateProfile, type User } from "@/lib/social-api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Navbar } from "@/components/Navbar";
 
 function EditProfileContent() {
-    const router = useRouter();
+    // const router = useRouter();
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -37,7 +37,7 @@ function EditProfileContent() {
                     website: profile.website || "",
                     avatar_url: profile.avatar_url || "",
                 });
-            } catch (err) {
+            } catch {
                 setError("Failed to load profile");
             } finally {
                 setLoading(false);
@@ -104,7 +104,10 @@ function EditProfileContent() {
                         <div className="flex items-center gap-6">
                             <div className="avatar-lg">
                                 {form.avatar_url ? (
-                                    <img src={form.avatar_url} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                                    <>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={form.avatar_url} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                                    </>
                                 ) : (
                                     <span>{form.display_name?.charAt(0) || user?.email?.charAt(0) || "?"}</span>
                                 )}
