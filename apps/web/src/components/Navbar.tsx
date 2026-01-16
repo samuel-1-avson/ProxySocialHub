@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Button } from "./ui/Button";
+// import { Button } from "./ui/Button";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -42,8 +42,8 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                             key={item.href}
                             href={item.href}
                             className={`text-sm font-medium transition-all hover:-translate-y-0.5 ${isActive(item.href)
-                                    ? "text-[var(--primary)] font-bold decoration-[var(--primary)] underline underline-offset-4"
-                                    : "text-[var(--text-secondary)] hover:text-[var(--primary)]"
+                                ? "text-[var(--primary)] font-bold decoration-[var(--primary)] underline underline-offset-4"
+                                : "text-[var(--text-secondary)] hover:text-[var(--primary)]"
                                 }`}
                         >
                             {item.label}
@@ -99,8 +99,8 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                                 href={item.href}
                                 onClick={() => setMobileMenuOpen(false)}
                                 className={`block px-4 py-3 rounded-[var(--radius)] font-medium transition-colors ${isActive(item.href)
-                                        ? "bg-[var(--primary)] text-white shadow-[var(--shadow-retro)]"
-                                        : "text-[var(--foreground)] hover:bg-black/5 dark:hover:bg-white/5"
+                                    ? "bg-[var(--primary)] text-white shadow-[var(--shadow-retro)]"
+                                    : "text-[var(--foreground)] hover:bg-black/5 dark:hover:bg-white/5"
                                     }`}
                             >
                                 {item.label}

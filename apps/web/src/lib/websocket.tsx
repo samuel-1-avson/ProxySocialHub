@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 interface WebSocketMessage {
   type: string;
   target?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: any;
   timestamp: number;
 }
@@ -21,6 +22,7 @@ export function useWebSocket(url?: string) {
   const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080';
   const wsUrl = url || `${baseWsUrl}/v1/ws`;
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const connect = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     if (!token) return;
@@ -58,7 +60,7 @@ export function useWebSocket(url?: string) {
         console.log('WebSocket disconnected');
         setIsConnected(false);
         // Reconnect after 3 seconds
-        reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        reconnectTimeoutRef.current = setTimeout(() => connect(), 3000);
       };
 
       ws.onerror = (error) => {
@@ -81,6 +83,7 @@ export function useWebSocket(url?: string) {
     }
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const send = useCallback((type: string, data: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type, data, timestamp: Date.now() }));
@@ -141,6 +144,7 @@ import { createContext, useContext, ReactNode } from 'react';
 interface RealtimeContextType {
   isConnected: boolean;
   subscribe: (type: string, handler: MessageHandler) => () => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   send: (type: string, data: any) => void;
 }
 
@@ -169,6 +173,7 @@ export function useRealtime() {
 }
 
 // Hooks for specific message types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useSessionUpdates(onUpdate: (data: any) => void) {
   const { subscribe } = useRealtime();
 
@@ -177,6 +182,7 @@ export function useSessionUpdates(onUpdate: (data: any) => void) {
   }, [subscribe, onUpdate]);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useWalletUpdates(onUpdate: (data: any) => void) {
   const { subscribe } = useRealtime();
 
@@ -185,6 +191,7 @@ export function useWalletUpdates(onUpdate: (data: any) => void) {
   }, [subscribe, onUpdate]);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useNotifications(onNotification: (data: any) => void) {
   const { subscribe } = useRealtime();
 

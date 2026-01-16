@@ -40,7 +40,7 @@ export default function WalletPage() {
         fetchWallet();
         setAction(null);
       }, 3000);
-    } catch (error) {
+    } catch {
       setResult({ success: false, message: 'Deposit failed. Please try again.' });
     } finally {
       setProcessing(false);
@@ -60,7 +60,7 @@ export default function WalletPage() {
         fetchWallet();
         setAction(null);
       }, 3000);
-    } catch (error) {
+    } catch {
       setResult({ success: false, message: 'Withdrawal failed. Please try again.' });
     } finally {
       setProcessing(false);
@@ -158,9 +158,8 @@ export default function WalletPage() {
                 <button
                   type="submit"
                   disabled={processing}
-                  className={`flex-1 px-4 py-3 text-white rounded-lg transition disabled:opacity-50 ${
-                    action === 'deposit' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'
-                  }`}
+                  className={`flex-1 px-4 py-3 text-white rounded-lg transition disabled:opacity-50 ${action === 'deposit' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'
+                    }`}
                 >
                   {processing ? 'Processing...' : action === 'deposit' ? 'Deposit' : 'Withdraw'}
                 </button>
@@ -190,12 +189,11 @@ export default function WalletPage() {
                 {wallet.transactions.map((tx) => (
                   <tr key={tx.id} className="border-b border-gray-700/50">
                     <td className="py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs capitalize ${
-                        tx.type === 'topup' ? 'bg-green-500/20 text-green-400' :
-                        tx.type === 'usage' ? 'bg-orange-500/20 text-orange-400' :
-                        tx.type === 'payout' ? 'bg-blue-500/20 text-blue-400' :
-                        'bg-gray-500/20 text-gray-400'
-                      }`}>
+                      <span className={`px-2 py-1 rounded-full text-xs capitalize ${tx.type === 'topup' ? 'bg-green-500/20 text-green-400' :
+                          tx.type === 'usage' ? 'bg-orange-500/20 text-orange-400' :
+                            tx.type === 'payout' ? 'bg-blue-500/20 text-blue-400' :
+                              'bg-gray-500/20 text-gray-400'
+                        }`}>
                         {tx.type}
                       </span>
                     </td>

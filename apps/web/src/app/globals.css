@@ -6,71 +6,58 @@
 
 :root {
   /* ===========================================
-     Retro Minimal Calm Theme - Palette
+     Retro Minimal Green Theme - Palette
      =========================================== */
 
-  /* Primary Colors - Warm Terracotta & Deep Gunmetal */
-  --primary: #e07a5f;
-  /* Terracotta */
-  --primary-light: #f2cc8f;
-  /* Warm Sand */
-  --primary-dark: #d65d42;
-  /* Deep Terracotta */
+  /* Light Theme (White & Green) */
+  --primary: #16a34a;
+  /* Green-600 */
+  --primary-light: #4ade80;
+  /* Green-400 */
+  --primary-dark: #15803d;
+  /* Green-700 */
 
-  /* Secondary Colors - Muted Blue & Sage */
-  --secondary: #3d5a80;
-  /* Muted Indigo */
-  --secondary-light: #98c1d9;
-  /* Pale Blue */
-  --accent: #ee6c4d;
-  /* Burnt Orange */
+  --secondary: #000000;
+  /* Black */
+  --secondary-light: #525252;
+  /* Neutral-600 */
+  --accent: #22c55e;
+  /* Green-500 */
 
-  /* Neutral Palette - Cream & Charcoal */
-  --background: #fdfbf7;
-  /* Warm Cream */
-  --foreground: #293241;
-  /* Deep Gunmetal */
+  /* Neutral Palette - White & Black */
+  --background: #ffffff;
+  /* Pure White */
+  --foreground: #000000;
+  /* Pure Black */
   --card: #ffffff;
-  /* White */
-  --card-border: #e0e1dd;
-  /* Platinum */
+  --card-border: #e5e5e5;
+  /* Neutral-200 */
 
   /* State Colors */
-  --success: #81b29a;
-  /* Muted Sage */
-  --warning: #f2cc8f;
-  /* Warm Yellow */
-  --error: #e63946;
-  /* Soft Red */
-  --info: #3d5a80;
-  /* Muted Indigo */
+  --success: #16a34a;
+  --warning: #ca8a04;
+  --error: #dc2626;
+  --info: #2563eb;
 
   /* Text Colors */
-  --text-primary: #293241;
-  --text-secondary: #5e6472;
-  --text-muted: #98a0a9;
+  --text-primary: #000000;
+  --text-secondary: #525252;
+  --text-muted: #a3a3a3;
 
   /* Spacing & Radius */
-  --radius: 12px;
-  /* Softer corners */
-  --radius-lg: 16px;
-  --radius-sm: 8px;
+  --radius: 0px;
+  /* Sharp corners for retro feel */
+  --radius-lg: 4px;
+  --radius-sm: 0px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  --shadow-retro: 4px 4px 0px rgba(41, 50, 65, 0.1);
+  --shadow-sm: 2px 2px 0px rgba(0, 0, 0, 0.1);
+  --shadow-md: 4px 4px 0px rgba(0, 0, 0, 0.1);
+  --shadow-retro: 4px 4px 0px #000000;
 }
 
 .dark,
 [data-theme="dark"] {
-  /* Dark Mode - Soft Dark / Night Mode */
-  --background: #1c1c1e;
-  /* Soft Dark */
-  --foreground: #e0e1dd;
-  /* Platinum */
-  --card: #2b2d42;
-  /*  Dark Blue-Grey */
   --card-border: #3d405b;
   /* Muted Dark Blue */
 
@@ -81,7 +68,13 @@
   --text-secondary: #98c1d9;
   --text-muted: #5e6472;
 
-  --shadow-retro: 4px 4px 0px rgba(0, 0, 0, 0.3);
+  --shadow-retro: 4px 4px 0px rgba(0, 0, 0, 0.4);
+}
+
+/* Dark Mode Dot Pattern */
+.dark body,
+[data-theme="dark"] body {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
 }
 
 @theme inline {
@@ -128,8 +121,9 @@ h6 {
 }
 
 .card:hover {
-  border-color: var(--primary);
-  box-shadow: 0 4px 20px rgba(249, 115, 22, 0.1);
+  border-color: var(--foreground);
+  box-shadow: var(--shadow-retro);
+  transform: translate(-2px, -2px);
 }
 
 /* Button Styles */
@@ -155,7 +149,8 @@ h6 {
 
 .btn-primary:hover {
   background: var(--primary-dark);
-  transform: translateY(-1px);
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 var(--foreground);
 }
 
 .btn-secondary {

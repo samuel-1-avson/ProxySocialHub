@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (storedUser && storedTokens) {
       try {
         setUser(JSON.parse(storedUser));
-      } catch (e) {
+      } catch {
         localStorage.removeItem(USER_KEY);
         localStorage.removeItem(TOKEN_KEY);
       }
@@ -113,10 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value= {{ user, isLoading, isAuthenticated: !!user, login, register, logout, getAccessToken }
-}>
-  { children }
-  </AuthContext.Provider>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, register, logout, getAccessToken }
+    }>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

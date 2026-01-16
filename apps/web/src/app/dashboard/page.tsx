@@ -20,7 +20,7 @@ export default function DashboardPage() {
       router.push('/login');
       return;
     }
-    
+
     if (isAuthenticated) {
       loadData();
     }
@@ -35,7 +35,7 @@ export default function DashboardPage() {
       ]);
       setSessions(sessionsData);
       setWallet(walletData);
-    } catch (err) {
+    } catch {
       setError('Failed to load dashboard data');
     } finally {
       setLoading(false);
@@ -58,7 +58,7 @@ export default function DashboardPage() {
     try {
       await terminateSession(sessionId);
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to terminate session');
     }
   };
@@ -183,20 +183,18 @@ export default function DashboardPage() {
                   {sessions.map((session) => (
                     <tr key={session.id} className="hover:bg-gray-800/30">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-                          session.type === 'rotating' 
-                            ? 'bg-orange-500/20 text-orange-400' 
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${session.type === 'rotating'
+                            ? 'bg-orange-500/20 text-orange-400'
                             : 'bg-blue-500/20 text-blue-400'
-                        }`}>
+                          }`}>
                           {session.type}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-                          session.status === 'active' 
-                            ? 'bg-green-500/20 text-green-400' 
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${session.status === 'active'
+                            ? 'bg-green-500/20 text-green-400'
                             : 'bg-gray-500/20 text-gray-400'
-                        }`}>
+                          }`}>
                           {session.status}
                         </span>
                       </td>

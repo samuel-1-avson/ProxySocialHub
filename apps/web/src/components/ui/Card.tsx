@@ -15,7 +15,7 @@ export const Card: React.FC<CardProps> = ({
     const baseStyles = "bg-[var(--card)] border border-[var(--card-border)] rounded-[var(--radius)] p-6 overflow-hidden";
 
     const variants = {
-        default: "shadow-[var(--shadow-sm)]",
+        default: "shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-retro)] hover:border-[var(--foreground)]",
         retro: "shadow-[var(--shadow-retro)] border-2 border-[var(--foreground)]",
     };
 
