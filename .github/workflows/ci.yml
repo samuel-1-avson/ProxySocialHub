@@ -49,7 +49,7 @@ jobs:
 
       - name: Test API
         env:
-          DATABASE_URL: postgres://proxyhubb:password@localhost:5432/proxyhubb?sslmode=disable
+          TEST_DATABASE_URL: postgres://proxyhubb:password@localhost:5432/proxyhubb?sslmode=disable
           REDIS_URL: redis://localhost:6379
         run: |
           cd services/control-api
