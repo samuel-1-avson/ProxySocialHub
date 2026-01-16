@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { Button } from "./ui/Button";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -22,29 +23,28 @@ export function Navbar({ showAuth = true }: NavbarProps) {
     ];
 
     return (
-        <nav className="border-b sticky top-0 z-50 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md" style={{ borderColor: "var(--card-border)" }}>
-            <div className="container flex items-center justify-between py-3">
+        <nav className="sticky top-0 z-50 bg-[var(--background)]/80 backdrop-blur-md border-b" style={{ borderColor: "var(--card-border)" }}>
+            <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6 lg:px-8">
                 {/* Logo */}
-                <Link href="/" className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--primary)" }}>
-                        <span className="text-white font-bold text-sm">PS</span>
+                <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                    <div className="w-10 h-10 rounded-[var(--radius-sm)] flex items-center justify-center shadow-[var(--shadow-retro)]" style={{ background: "var(--primary)" }}>
+                        <span className="text-white font-bold text-lg font-mono">PS</span>
                     </div>
-                    <span className="text-lg font-semibold hidden sm:inline" style={{ color: "var(--foreground)" }}>
-                        ProxySocialHub
+                    <span className="text-xl font-bold tracking-tight hidden sm:inline" style={{ color: "var(--foreground)" }}>
+                        ProxyHub
                     </span>
                 </Link>
 
                 {/* Desktop Navigation */}
-                <div className="hidden md:flex items-center gap-1">
+                <div className="hidden md:flex items-center gap-6">
                     {navItems.map((item) => (
                         <Link
                             key={item.href}
                             href={item.href}
-                            className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                            style={{
-                                color: isActive(item.href) ? "var(--primary)" : "var(--muted)",
-                                background: isActive(item.href) ? "rgba(249, 115, 22, 0.1)" : "transparent",
-                            }}
+                            className={`text-sm font-medium transition-all hover:-translate-y-0.5 ${isActive(item.href)
+                                    ? "text-[var(--primary)] font-bold decoration-[var(--primary)] underline underline-offset-4"
+                                    : "text-[var(--text-secondary)] hover:text-[var(--primary)]"
+                                }`}
                         >
                             {item.label}
                         </Link>
@@ -52,31 +52,33 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                 </div>
 
                 {/* Right Side */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                     {/* Notifications */}
                     <Link
                         href="/notifications"
-                        className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800 hidden md:flex"
+                        className="relative p-2 rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5 hidden md:flex"
                     >
-                        <svg className="w-5 h-5" style={{ color: "var(--foreground)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6" style={{ color: "var(--foreground)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                         </svg>
-                        <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: "var(--primary)" }} />
+                        <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--background)]" style={{ background: "var(--accent)" }} />
                     </Link>
 
                     {/* Profile */}
                     {showAuth && (
-                        <Link href="/profile" className="avatar">
-                            <span>K</span>
+                        <Link href="/profile" className="w-10 h-10 rounded-full overflow-hidden shadow-[var(--shadow-sm)] border-2 border-[var(--card-border)] hover:border-[var(--primary)] transition-colors">
+                            <div className="w-full h-full flex items-center justify-center bg-[var(--primary-light)] text-[var(--primary-dark)] font-bold">
+                                K
+                            </div>
                         </Link>
                     )}
 
                     {/* Mobile Menu Button */}
                     <button
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                        className="p-2 rounded-lg md:hidden hover:bg-gray-100 dark:hover:bg-neutral-800"
+                        className="p-2 md:hidden text-[var(--foreground)]"
                     >
-                        <svg className="w-5 h-5" style={{ color: "var(--foreground)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             {mobileMenuOpen ? (
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             ) : (
@@ -90,26 +92,25 @@ export function Navbar({ showAuth = true }: NavbarProps) {
             {/* Mobile Menu */}
             {mobileMenuOpen && (
                 <div className="md:hidden border-t" style={{ borderColor: "var(--card-border)", background: "var(--card)" }}>
-                    <div className="container py-2">
+                    <div className="container px-4 py-4 space-y-2">
                         {navItems.map((item) => (
                             <Link
                                 key={item.href}
                                 href={item.href}
                                 onClick={() => setMobileMenuOpen(false)}
-                                className="block px-3 py-3 rounded-lg font-medium"
-                                style={{
-                                    color: isActive(item.href) ? "var(--primary)" : "var(--foreground)",
-                                    background: isActive(item.href) ? "rgba(249, 115, 22, 0.1)" : "transparent",
-                                }}
+                                className={`block px-4 py-3 rounded-[var(--radius)] font-medium transition-colors ${isActive(item.href)
+                                        ? "bg-[var(--primary)] text-white shadow-[var(--shadow-retro)]"
+                                        : "text-[var(--foreground)] hover:bg-black/5 dark:hover:bg-white/5"
+                                    }`}
                             >
                                 {item.label}
                             </Link>
                         ))}
+                        <div className="border-t my-2" style={{ borderColor: "var(--card-border)" }}></div>
                         <Link
                             href="/notifications"
                             onClick={() => setMobileMenuOpen(false)}
-                            className="block px-3 py-3 rounded-lg font-medium"
-                            style={{ color: "var(--foreground)" }}
+                            className="block px-4 py-3 rounded-[var(--radius)] font-medium text-[var(--foreground)] hover:bg-black/5 dark:hover:bg-white/5"
                         >
                             Notifications
                         </Link>
@@ -157,20 +158,22 @@ export function BottomNav() {
     ];
 
     return (
-        <div className="bottom-nav safe-area-bottom">
-            {items.map((item) => (
-                <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`bottom-nav-item ${isActive(item.href) ? "active" : ""}`}
-                >
-                    {item.icon}
-                    <span>{item.label}</span>
-                </Link>
-            ))}
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t pb-safe-bottom bg-[var(--card)]" style={{ borderColor: "var(--card-border)" }}>
+            <div className="flex justify-around items-center h-16">
+                {items.map((item) => (
+                    <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors ${isActive(item.href) ? "text-[var(--primary)]" : "text-[var(--text-secondary)] hover:text-[var(--foreground)]"
+                            }`}
+                    >
+                        {item.icon}
+                        <span className="text-xs font-medium">{item.label}</span>
+                    </Link>
+                ))}
+            </div>
         </div>
     );
 }
 
-// Export both components
 export default Navbar;
