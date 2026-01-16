@@ -61,6 +61,11 @@ func beginOAuth(c *gin.Context) {
 	q.Add("provider", provider)
 	c.Request.URL.RawQuery = q.Encode()
 
+	// Store role in cookie if present
+	if role := c.Query("role"); role != "" {
+		c.SetCookie("oauth_role", role, 300, "/", "", false, true)
+	}
+
 	gothic.BeginAuthHandler(c.Writer, c.Request)
 }
 
@@ -76,8 +81,13 @@ func completeOAuth(c *gin.Context) {
 		return
 	}
 
+	// Retrieve role from cookie
+	role, _ := c.Cookie("oauth_role")
+	// Clear the cookie
+	c.SetCookie("oauth_role", "", -1, "/", "", false, true)
+
 	// Handle user login/creation
-	authUser, err := handleOAuthUser(user, provider)
+	authUser, err := handleOAuthUser(user, provider, role)
 	if err != nil {
 		log.Printf("Failed to process OAuth user: %v", err)
 		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/auth/callback?error=%s", os.Getenv("FRONTEND_URL"), "Failed to process user"))
@@ -103,7 +113,7 @@ func completeOAuth(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
-func handleOAuthUser(gothUser goth.User, provider string) (*models.User, error) {
+func handleOAuthUser(gothUser goth.User, provider string, role string) (*models.User, error) {
 	var user models.User
 	var oauthIdentity models.OAuthIdentity
 
@@ -137,11 +147,16 @@ func handleOAuthUser(gothUser goth.User, provider string) (*models.User, error) 
 		return &user, nil
 	}
 
+	// Default role if not provided
+	if role == "" {
+		role = "buyer"
+	}
+
 	// Create new user
 	user = models.User{
 		Email:         gothUser.Email,
-		Role:          "buyer", // Default role
-		EmailVerified: true,    // OAuth emails are verified
+		Role:          role,
+		EmailVerified: true, // OAuth emails are verified
 	}
 
 	tx := db.DB.Begin()
