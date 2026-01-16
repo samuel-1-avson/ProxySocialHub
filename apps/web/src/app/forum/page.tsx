@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import { getForumCategories, ForumCategory } from '@/lib/api';
+import { Megaphone, Book, Monitor, ShoppingCart, HelpCircle, Lightbulb, MessageCircle, Folder } from 'lucide-react';
 
 export default function ForumPage() {
     const [categories, setCategories] = useState<ForumCategory[]>([]);
@@ -24,17 +25,17 @@ export default function ForumPage() {
     }, []);
 
     const getIcon = (iconName: string) => {
-        // Map icon names to simple SVG paths or emojis for simplicity
-        const icons: Record<string, string> = {
-            'megaphone': '📢',
-            'book': '📚',
-            'server': '🖥️',
-            'shopping-cart': '🛒',
-            'help-circle': '❓',
-            'lightbulb': '💡',
-            'message-circle': '💬',
-        };
-        return icons[iconName] || '📁';
+        const props = { className: "w-8 h-8" };
+        switch (iconName) {
+            case 'megaphone': return <Megaphone {...props} className="w-8 h-8 text-indigo-400" />;
+            case 'book': return <Book {...props} className="w-8 h-8 text-blue-400" />;
+            case 'server': return <Monitor {...props} className="w-8 h-8 text-green-400" />;
+            case 'shopping-cart': return <ShoppingCart {...props} className="w-8 h-8 text-orange-400" />;
+            case 'help-circle': return <HelpCircle {...props} className="w-8 h-8 text-purple-400" />;
+            case 'lightbulb': return <Lightbulb {...props} className="w-8 h-8 text-yellow-400" />;
+            case 'message-circle': return <MessageCircle {...props} className="w-8 h-8 text-pink-400" />;
+            default: return <Folder {...props} className="w-8 h-8 text-gray-400" />;
+        }
     };
 
     if (loading) {

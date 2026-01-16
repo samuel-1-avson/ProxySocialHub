@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+
 import Link from "next/link";
+import { Star, ArrowLeft } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { getListing, saveListing, unsaveListing, createOrder, getListingReviews, type Listing, type Review } from "@/lib/social-api";
@@ -152,8 +154,8 @@ export default function ListingDetailPage() {
             <main className="container py-8">
                 {/* Breadcrumb */}
                 <div className="mb-6">
-                    <Link href="/marketplace" className="text-sm hover:underline" style={{ color: "var(--muted)" }}>
-                        ← Back to Marketplace
+                    <Link href="/marketplace" className="text-sm hover:underline flex items-center" style={{ color: "var(--muted)" }}>
+                        <ArrowLeft className="w-4 h-4 mr-1" /> Back to Marketplace
                     </Link>
                 </div>
 
@@ -183,7 +185,7 @@ export default function ListingDetailPage() {
                                         )}
                                     </div>
                                     <div className="text-sm flex items-center gap-3" style={{ color: "var(--muted)" }}>
-                                        <span className="stars">★ {listing.seller?.avg_rating?.toFixed(1) || "5.0"}</span>
+                                        <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {listing.seller?.avg_rating?.toFixed(1) || "5.0"}</span>
                                         <span>{listing.seller?.reviews_count || 0} reviews</span>
                                         <span>{listing.seller?.total_bandwidth_sold?.toLocaleString() || 0} GB sold</span>
                                     </div>
@@ -242,7 +244,14 @@ export default function ListingDetailPage() {
                                                     {new Date(review.created_at).toLocaleDateString()}
                                                 </span>
                                             </div>
-                                            <div className="stars mb-1">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</div>
+                                            <div className="flex mb-1">
+                                                {Array.from({ length: 5 }).map((_, i) => (
+                                                    <Star
+                                                        key={i}
+                                                        className={`w-3 h-3 ${i < review.rating ? "text-yellow-500 fill-current" : "text-gray-300"}`}
+                                                    />
+                                                ))}
+                                            </div>
                                             {review.title && (
                                                 <h4 className="font-medium mb-1" style={{ color: "var(--foreground)" }}>{review.title}</h4>
                                             )}
@@ -360,7 +369,7 @@ export default function ListingDetailPage() {
                                         onClick={handleSave}
                                         className="btn btn-secondary w-full"
                                     >
-                                        {isSaved ? "★ Saved" : "☆ Save for Later"}
+                                        {isSaved ? <span className="flex items-center justify-center gap-2"><Star className="w-4 h-4 fill-current" /> Saved</span> : <span className="flex items-center justify-center gap-2"><Star className="w-4 h-4" /> Save for Later</span>}
                                     </button>
 
                                     {/* Contact Seller */}

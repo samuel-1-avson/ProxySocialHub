@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Globe, Settings, Plug, ShoppingCart, Clock, BarChart, CheckCircle, XCircle, Coins, Upload, Download, Database, Network, TrendingUp, DollarSign, Lightbulb, Package } from "lucide-react";
 import "./App.css";
 
 interface ProviderStats {
@@ -158,14 +159,14 @@ function App() {
     <div className="provider-app">
       {/* Header */}
       <header className="header">
-        <h1>🌐 ProxySocialHub</h1>
+        <h1 className="flex items-center gap-2"><Globe className="w-6 h-6" /> ProxySocialHub</h1>
         <div className="header-actions">
           <button
             className="btn btn-icon"
             onClick={() => setShowSettings(true)}
             title="Settings"
           >
-            ⚙️
+            <Settings className="w-5 h-5" />
           </button>
           <span className={`status-badge ${stats?.connected ? "online" : "offline"}`}>
             {stats?.connected ? "● Online" : "○ Offline"}
@@ -179,13 +180,13 @@ function App() {
           className={`tab-btn ${activeTab === "gateway" ? "active" : ""}`}
           onClick={() => setActiveTab("gateway")}
         >
-          🔌 Gateway
+          <Plug className="w-4 h-4 mr-2" /> Gateway
         </button>
         <button
           className={`tab-btn ${activeTab === "marketplace" ? "active" : ""}`}
           onClick={() => setActiveTab("marketplace")}
         >
-          🛒 Marketplace
+          <ShoppingCart className="w-4 h-4 mr-2" /> Marketplace
         </button>
       </div>
 
@@ -194,13 +195,13 @@ function App() {
         <>
           {/* Warnings */}
           {stats && !stats.within_schedule && (
-            <div className="warning-banner">
-              ⏰ Outside scheduled hours - Connection disabled
+            <div className="warning-banner flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Outside scheduled hours - Connection disabled
             </div>
           )}
           {stats && !stats.within_bandwidth_limit && (
-            <div className="warning-banner">
-              📊 Daily bandwidth limit reached
+            <div className="warning-banner flex items-center gap-2">
+              <BarChart className="w-4 h-4" /> Daily bandwidth limit reached
             </div>
           )}
 
@@ -208,7 +209,7 @@ function App() {
           <div className="card connection-card">
             <div className="connection-status">
               <div className={`status-indicator ${stats?.connected ? "connected" : ""}`}>
-                {stats?.connected ? "🟢" : "⚪"}
+                {stats?.connected ? <CheckCircle className="w-8 h-8 text-green-500" /> : <XCircle className="w-8 h-8 text-gray-400" />}
               </div>
               <div className="connection-info">
                 <h2>{stats?.connected ? "Connected to Gateway" : "Disconnected"}</h2>
@@ -249,7 +250,7 @@ function App() {
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon">📤</div>
+              <div className="stat-icon"><Upload className="w-6 h-6 text-blue-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{formatBytes(stats?.total_bytes_up || 0)}</span>
                 <span className="stat-label">Uploaded</span>
@@ -257,7 +258,7 @@ function App() {
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon">📥</div>
+              <div className="stat-icon"><Download className="w-6 h-6 text-green-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{formatBytes(stats?.total_bytes_down || 0)}</span>
                 <span className="stat-label">Downloaded</span>
@@ -273,7 +274,7 @@ function App() {
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon">🔗</div>
+              <div className="stat-icon"><Network className="w-6 h-6 text-indigo-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{stats?.active_connections || 0}</span>
                 <span className="stat-label">Active Connections</span>
@@ -281,7 +282,7 @@ function App() {
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon">📈</div>
+              <div className="stat-icon"><TrendingUp className="w-6 h-6 text-orange-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{stats?.total_connections || 0}</span>
                 <span className="stat-label">Total Connections</span>
@@ -291,7 +292,7 @@ function App() {
 
           {/* Earnings Info */}
           <div className="card earnings-card">
-            <h3>💵 Earnings Breakdown</h3>
+            <h3 className="flex items-center gap-2"><DollarSign className="w-5 h-5" /> Earnings Breakdown</h3>
             <div className="earnings-info">
               <div className="earnings-row">
                 <span>Rate per GB:</span>
@@ -306,8 +307,8 @@ function App() {
                 <span className="value">GHS {(stats?.earnings_ghs ?? 0).toFixed(4)}</span>
               </div>
             </div>
-            <p className="earnings-note">
-              💡 Earnings are calculated at GHS 0.20 per GB (40% provider share)
+            <p className="earnings-note flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-yellow-400" /> Earnings are calculated at GHS 0.20 per GB (40% provider share)
             </p>
           </div>
         </>
@@ -333,14 +334,14 @@ function App() {
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon">📦</div>
+              <div className="stat-icon"><Package className="w-6 h-6 text-orange-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{marketplaceStats?.active_listings ?? 0}</span>
                 <span className="stat-label">Active Listings</span>
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon">🛒</div>
+              <div className="stat-icon"><ShoppingCart className="w-6 h-6 text-purple-500" /></div>
               <div className="stat-content">
                 <span className="stat-value">{marketplaceStats?.total_orders ?? 0}</span>
                 <span className="stat-label">Total Orders</span>
@@ -350,7 +351,7 @@ function App() {
 
           {/* Listings */}
           <div className="card">
-            <h3>📦 My Listings</h3>
+            <h3 className="flex items-center gap-2"><Package className="w-5 h-5" /> My Listings</h3>
             {listings.length === 0 ? (
               <p className="empty-state">No listings yet. Create one on the web app!</p>
             ) : (
@@ -374,7 +375,7 @@ function App() {
 
           {/* Recent Sales */}
           <div className="card">
-            <h3>📈 Recent Sales</h3>
+            <h3 className="flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Recent Sales</h3>
             {sales.length === 0 ? (
               <p className="empty-state">No sales yet.</p>
             ) : (
@@ -392,8 +393,8 @@ function App() {
             )}
           </div>
 
-          <p className="marketplace-note">
-            💡 Manage your listings on the web app at{' '}
+          <p className="marketplace-note flex items-center gap-2">
+            <Lightbulb className="w-4 h-4 text-yellow-400" /> Manage your listings on the web app at{' '}
             <a href="https://proxyhubb.com/dashboard/provider" target="_blank" rel="noopener noreferrer">
               proxyhubb.com
             </a>
@@ -405,7 +406,7 @@ function App() {
       {showSettings && settings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>⚙️ Settings</h2>
+            <h2 className="flex items-center gap-2"><Settings className="w-6 h-6" /> Settings</h2>
             <div className="settings-form">
               {/* Gateway URL */}
               <div className="form-group">

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { CheckCircle, Globe, ShoppingCart, Coins } from 'lucide-react';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -50,7 +51,7 @@ export default function RegisterPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-900 px-4">
         <div className="max-w-md w-full text-center">
           <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-6 py-8 rounded-2xl">
-            <div className="text-4xl mb-4">✅</div>
+            <CheckCircle className="w-16 h-16 mb-4 mx-auto" />
             <h2 className="text-2xl font-semibold mb-2">Registration Successful!</h2>
             <p className="text-gray-400">Redirecting you to login...</p>
           </div>
@@ -64,7 +65,10 @@ export default function RegisterPage() {
       <div className="max-w-md w-full">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-orange-500">🌐 ProxyHub</h1>
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <Globe className="w-8 h-8 text-orange-500" />
+            <h1 className="text-4xl font-bold text-orange-500">ProxyHub</h1>
+          </div>
           <p className="text-gray-400 mt-2">Join Ghana&apos;s Premium Proxy Network</p>
         </div>
 
@@ -88,26 +92,24 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setRole('buyer')}
-                  className={`p-4 rounded-lg border-2 transition ${
-                    role === 'buyer'
+                  className={`p-4 rounded-lg border-2 transition ${role === 'buyer'
                       ? 'border-orange-500 bg-orange-500/10'
                       : 'border-gray-600 bg-gray-700/50 hover:border-gray-500'
-                  }`}
+                    }`}
                 >
-                  <div className="text-2xl mb-2">🛒</div>
+                  <ShoppingCart className="w-8 h-8 mb-2 mx-auto" />
                   <div className="text-white font-medium">Buy Proxies</div>
                   <div className="text-gray-400 text-xs mt-1">Access Ghana IPs</div>
                 </button>
                 <button
                   type="button"
                   onClick={() => setRole('provider')}
-                  className={`p-4 rounded-lg border-2 transition ${
-                    role === 'provider'
+                  className={`p-4 rounded-lg border-2 transition ${role === 'provider'
                       ? 'border-orange-500 bg-orange-500/10'
                       : 'border-gray-600 bg-gray-700/50 hover:border-gray-500'
-                  }`}
+                    }`}
                 >
-                  <div className="text-2xl mb-2">💰</div>
+                  <Coins className="w-8 h-8 mb-2 mx-auto" />
                   <div className="text-white font-medium">Share Bandwidth</div>
                   <div className="text-gray-400 text-xs mt-1">Earn from your connection</div>
                 </button>

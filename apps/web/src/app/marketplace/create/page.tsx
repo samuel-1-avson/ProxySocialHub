@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowRight, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { createListing } from "@/lib/social-api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -230,7 +231,7 @@ function CreateListingContent() {
                                                 setBulkDiscounts(updated);
                                             }}
                                         />
-                                        <span style={{ color: "var(--muted)" }}>→</span>
+                                        <ArrowRight className="w-4 h-4" style={{ color: "var(--muted)" }} />
                                         <input
                                             type="number"
                                             step="0.01"
@@ -250,7 +251,7 @@ function CreateListingContent() {
                                             className="btn btn-ghost text-sm py-1 px-2"
                                             style={{ color: "var(--error)" }}
                                         >
-                                            ×
+                                            <X className="w-4 h-4" />
                                         </button>
                                     </div>
                                 ))}
