@@ -1,0 +1,152 @@
+   Compiling edge-gateway v0.1.0 (C:\Users\samue\Desktop\project\proxyhubb\services\edge-gateway)
+warning: unused import: `Instant`
+ --> src\state.rs:3:27
+  |
+3 | use std::time::{Duration, Instant};
+  |                           ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+ --> src\tls.rs:3:5
+  |
+3 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `std::pin::Pin`
+ --> src\tunnel.rs:3:5
+  |
+3 | use std::pin::Pin;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `crate::state::SelectionStrategy`
+   --> src\main.rs:156:9
+    |
+156 |     use crate::state::SelectionStrategy;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `tunnel_to_provider` is never used
+   --> src\main.rs:154:10
+    |
+154 | async fn tunnel_to_provider(upgraded: hyper::upgrade::Upgraded, addr: String, state: Arc<AppState>) -> std::io::Result<(u64, u64)> {
+    |          ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `invalidate_cache`, `remove_sticky_node`, `check_rate_limit`, and `get_request_count` are never used
+   --> src\auth.rs:97:18
+    |
+ 32 | impl SessionAuthenticator {
+    | ------------------------- methods in this implementation
+...
+ 97 |     pub async fn invalidate_cache(&self, username: &str) {
+    |                  ^^^^^^^^^^^^^^^^
+...
+122 |     pub async fn remove_sticky_node(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    |                  ^^^^^^^^^^^^^^^^^^
+...
+133 |     pub async fn check_rate_limit(&self, session_id: &str, limit_per_minute: u32) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    |                  ^^^^^^^^^^^^^^^^
+...
+149 |     pub async fn get_request_count(&self, session_id: &str) -> Result<u32, Box<dyn Error + Send + Sync>> {
+    |                  ^^^^^^^^^^^^^^^^^
+
+warning: struct `UsageTracker` is never constructed
+ --> src\metering.rs:7:12
+  |
+7 | pub struct UsageTracker {
+  |            ^^^^^^^^^^^^
+
+warning: associated items `new`, `record`, `start_flush_task`, and `flush` are never used
+  --> src\metering.rs:14:12
+   |
+13 | impl UsageTracker {
+   | ----------------- associated items in this implementation
+14 |     pub fn new(control_api_url: &str) -> Self {
+   |            ^^^
+...
+22 |     pub async fn record(&self, session_username: &str, bytes_up: u64, bytes_down: u64) {
+   |                  ^^^^^^
+...
+30 |     pub fn start_flush_task(self: Arc<Self>) {
+   |            ^^^^^^^^^^^^^^^^
+...
+42 |     async fn flush(&self) {
+   |              ^^^^^
+
+warning: struct `UsageReport` is never constructed
+  --> src\metering.rs:87:8
+   |
+87 | struct UsageReport {
+   |        ^^^^^^^^^^^
+
+warning: struct `BatchUsageReport` is never constructed
+  --> src\metering.rs:94:8
+   |
+94 | struct BatchUsageReport {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: field `health_check_interval` is never read
+  --> src\state.rs:73:5
+   |
+71 | pub struct NodeRegistry {
+   |            ------------ field in this struct
+72 |     nodes: HashMap<String, (Control, NodeInfo)>,
+73 |     health_check_interval: Duration,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src\state.rs:89:12
+    |
+ 76 | impl NodeRegistry {
+    | ----------------- methods in this implementation
+...
+ 89 |     pub fn insert_simple(&mut self, node_id: String, control: Control, ip_address: String) {
+    |            ^^^^^^^^^^^^^
+...
+100 |     pub fn count(&self) -> usize {
+    |            ^^^^^
+...
+104 |     pub fn get_node_info(&self, node_id: &str) -> Option<&NodeInfo> {
+    |            ^^^^^^^^^^^^^
+...
+108 |     pub fn update_node_stats(&mut self, node_id: &str, bytes_served: u64) {
+    |            ^^^^^^^^^^^^^^^^^
+...
+114 |     pub fn update_active_connections(&mut self, node_id: &str, delta: i32) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+131 |     pub fn mark_healthy(&mut self, node_id: &str) {
+    |            ^^^^^^^^^^^^
+...
+173 |     pub fn get_by_country(&self, country_code: &str) -> Option<Control> {
+    |            ^^^^^^^^^^^^^^
+...
+186 |     pub fn get_by_region(&self, region: &str) -> Option<Control> {
+    |            ^^^^^^^^^^^^^
+...
+199 |     pub fn get_least_loaded(&self) -> Option<Control> {
+    |            ^^^^^^^^^^^^^^^^
+...
+207 |     pub fn list_nodes(&self) -> Vec<NodeInfo> {
+    |            ^^^^^^^^^^
+
+warning: enum `SelectionStrategy` is never used
+   --> src\state.rs:214:10
+    |
+214 | pub enum SelectionStrategy {
+    |          ^^^^^^^^^^^^^^^^^
+
+warning: method `select_provider` is never used
+   --> src\state.rs:234:12
+    |
+226 | impl AppState {
+    | ------------- method in this implementation
+...
+234 |     pub fn select_provider(&self, strategy: SelectionStrategy) -> Option<Control> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: `edge-gateway` (bin "edge-gateway") generated 14 warnings (run `cargo fix --bin "edge-gateway"` to apply 4 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.13s
+warning: the following packages contain code that will be rejected by a future version of Rust: redis v0.25.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Supabase (Postgres) - simulated for local dev or use real remote
+  # For v1 simplicity, we use a standard Postgres container
+  postgres:
+    image: postgres:15-alpine
+    container_name: proxyhubb-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: proxyhubb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: proxyhubb-redis
+    ports:
+      - "6379:6379"
+
+  control-api:
+    build:
+      context: ../../services/control-api
+      dockerfile: Dockerfile
+    container_name: proxyhubb-control
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/proxyhubb?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+
+  edge-gateway:
+    build:
+      context: ../../
+      dockerfile: services/edge-gateway/Dockerfile
+    container_name: proxyhubb-gateway
+    environment:
+      - PORT=3000
+      - CONTROL_API_URL=http://control-api:8080
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3000:3000"
+      - "4000:4000" # Tunnel port
+    depends_on:
+      - control-api
+      - redis
+
+volumes:
+  postgres_data:

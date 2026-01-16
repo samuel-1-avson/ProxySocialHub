@@ -1,0 +1,22 @@
+    Checking appsprovider-desktop v0.1.0 (C:\Users\samue\Desktop\project\proxyhubb\apps\provider-desktop\src-tauri)
+warning: creating a shared reference to mutable static
+  --> src\lib.rs:38:16
+   |
+38 |             if PROVIDER_STATE.is_none() {
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: `#[warn(static_mut_refs)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning: creating a shared reference to mutable static
+  --> src\lib.rs:41:13
+   |
+41 |             PROVIDER_STATE.as_ref().unwrap()
+   |             ^^^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+
+warning: `appsprovider-desktop` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.14s
