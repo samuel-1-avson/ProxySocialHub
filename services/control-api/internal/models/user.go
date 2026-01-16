@@ -66,6 +66,19 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type OAuthIdentity struct {
+	ID             uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
+	UserID         uuid.UUID `gorm:"type:uuid;not null"`
+	Provider       string    `gorm:"not null"` // 'google', 'github'
+	ProviderUserID string    `gorm:"not null"`
+	Email          string    `gorm:"not null"`
+	AccessToken    string
+	RefreshToken   string
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.New()
