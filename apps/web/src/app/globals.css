@@ -58,17 +58,24 @@
 
 .dark,
 [data-theme="dark"] {
-  --card-border: #3d405b;
-  /* Muted Dark Blue */
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #000000;
+  --card-border: #262626;
+  /* Neutral-800 */
 
-  --primary: #e07a5f;
-  --primary-light: #d65d42;
+  --primary: #22c55e;
+  /* Green-500 */
+  --primary-light: #4ade80;
+  /* Green-400 */
+  --primary-dark: #15803d;
+  /* Green-700 */
 
-  --text-primary: #e0e1dd;
-  --text-secondary: #98c1d9;
-  --text-muted: #5e6472;
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted: #525252;
 
-  --shadow-retro: 4px 4px 0px rgba(0, 0, 0, 0.4);
+  --shadow-retro: 4px 4px 0px rgba(255, 255, 255, 0.2);
 }
 
 /* Dark Mode Dot Pattern */
