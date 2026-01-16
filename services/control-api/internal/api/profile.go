@@ -13,7 +13,7 @@ import (
 func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.GET("/profile", getMyProfile)
 	rg.PATCH("/profile", updateProfile)
-	rg.GET("/users/:identifier", getPublicProfile) // By ID or username
+	rg.GET("/users/:id", getPublicProfile) // By ID or username
 	rg.GET("/users/:id/followers", getFollowers)
 	rg.GET("/users/:id/following", getFollowing)
 	rg.POST("/users/:id/follow", followUser)
@@ -98,7 +98,7 @@ func updateProfile(c *gin.Context) {
 
 // getPublicProfile returns a user's public profile by ID or username
 func getPublicProfile(c *gin.Context) {
-	identifier := c.Param("identifier")
+	identifier := c.Param("id")
 	currentUserID, _ := c.Get("user_id")
 
 	var user models.User
