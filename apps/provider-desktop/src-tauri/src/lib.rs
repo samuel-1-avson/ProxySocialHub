@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
 mod tls; // Declare TLS module
+use tauri::Manager;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -291,7 +292,7 @@ async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> 
                 match connector.connect(domain, stream).await {
                     Ok(tls_stream) => {
                          println!("✅ TLS Handshake Complete");
-                         handle_connection(Box::new(tls_stream)).await?;
+                         handle_connection(Box::new(tls_stream))?;
                     },
                     Err(e) => return Err(format!("TLS Handshake Failed: {}", e))
                 }
@@ -300,14 +301,14 @@ async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> 
         }
     } else {
         println!("⚠️  Using Plaintext Connection (No TLS configured)");
-        handle_connection(Box::new(stream)).await?;
+        handle_connection(Box::new(stream))?;
     }
     
     state.connected.store(true, Ordering::Relaxed);
     Ok("Connected".to_string())
 }
 
-async fn handle_connection<S>(stream: Box<S>) -> Result<(), String> 
+fn handle_connection<S>(stream: Box<S>) -> Result<(), String> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -447,7 +448,7 @@ where
                             Ok(stream) => {
                                 state.connected.store(true, Ordering::Relaxed);
                                 *state.session_start.lock().unwrap() = Some(std::time::Instant::now());
-                                if let Err(e) = handle_connection(Box::new(stream)).await {
+                                if let Err(e) = handle_connection(Box::new(stream)) {
                                     println!("Reconnect failed: {}", e);
                                 } else {
                                     println!("Reconnected successfully");
@@ -522,7 +523,7 @@ pub fn run() {
                                         state.connected.store(true, Ordering::Relaxed);
                                         state.should_reconnect.store(true, Ordering::Relaxed);
                                         *state.session_start.lock().unwrap() = Some(std::time::Instant::now());
-                                        let _ = handle_connection(Box::new(stream)).await;
+                                        let _ = handle_connection(Box::new(stream));
                                     }
                                 });
                             }

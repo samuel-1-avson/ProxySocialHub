@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Globe, Settings, Plug, ShoppingCart, Clock, BarChart, CheckCircle, XCircle, Coins, Upload, Download, Database, Network, TrendingUp, DollarSign, Lightbulb, Package } from "lucide-react";
+import { Globe, Settings, Plug, ShoppingCart, Clock, BarChart, CheckCircle, XCircle, Upload, Download, Network, TrendingUp, DollarSign, Lightbulb, Package } from "lucide-react";
 import "./App.css";
 
 interface ProviderStats {

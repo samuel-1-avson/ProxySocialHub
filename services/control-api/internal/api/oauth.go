@@ -79,6 +79,7 @@ func completeOAuth(c *gin.Context) {
 	// Handle user login/creation
 	authUser, err := handleOAuthUser(user, provider)
 	if err != nil {
+		log.Printf("Failed to process OAuth user: %v", err)
 		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/auth/callback?error=%s", os.Getenv("FRONTEND_URL"), "Failed to process user"))
 		return
 	}
