@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package gateway;
+
+option go_package = "github.com/proxyhubb/proto/gateway";
+
+// Internal service to report usage and validate sessions
+service ControlPlane {
+  // Edge Gateway calls this to check if a provider node is allowed to connect
+  rpc ValidateProviderToken (ValidateProviderTokenRequest) returns (ValidateProviderTokenResponse);
+
+  // Edge Gateway calls this to report usage metrics (streaming preferred)
+  rpc ReportUsage (stream UsageEvent) returns (ReportUsageResponse);
+}
+
+message ValidateProviderTokenRequest {
+  string token = 1;
+}
+
+message ValidateProviderTokenResponse {
+  bool valid = 1;
+  string node_id = 2; // UUID
+  int64 max_bandwidth_daily_bytes = 3;
+}
+
+message UsageEvent {
+  string session_id = 1;
+  string node_id = 2;
+  int64 bytes_up = 3;
+  int64 bytes_down = 4;
+  int64 timestamp = 5; // Unix epoch
+}
+
+message ReportUsageResponse {
+  bool success = 1;
+}

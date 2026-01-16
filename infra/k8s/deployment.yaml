@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: proxyhubb
+---
+# ==================== Control API ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-api
+  namespace: proxyhubb
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: control-api
+  template:
+    metadata:
+      labels:
+        app: control-api
+    spec:
+      containers:
+      - name: control-api
+        image: ghcr.io/proxyhubb/control-api:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: proxyhubb-secrets
+              key: database-url
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: proxyhubb-secrets
+              key: jwt-secret
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-api
+  namespace: proxyhubb
+spec:
+  selector:
+    app: control-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP
+---
+# ==================== Edge Gateway ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-gateway
+  namespace: proxyhubb
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: edge-gateway
+  template:
+    metadata:
+      labels:
+        app: edge-gateway
+    spec:
+      containers:
+      - name: edge-gateway
+        image: ghcr.io/proxyhubb/edge-gateway:latest
+        ports:
+        - containerPort: 8443
+        - containerPort: 9090
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: CONTROL_API_URL
+          value: "http://control-api:8080"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /app/certs
+          readOnly: true
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: proxyhubb-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway
+  namespace: proxyhubb
+spec:
+  selector:
+    app: edge-gateway
+  ports:
+  - name: proxy
+    port: 8443
+    targetPort: 8443
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: LoadBalancer
+---
+# ==================== Redis ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: proxyhubb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: proxyhubb
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+---
+# ==================== Ingress ====================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: proxyhubb-ingress
+  namespace: proxyhubb
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.proxyhubb.com
+    - proxy.proxyhubb.com
+    secretName: proxyhubb-tls
+  rules:
+  - host: api.proxyhubb.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: control-api
+            port:
+              number: 8080
+---
+# ==================== HPA ====================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: edge-gateway-hpa
+  namespace: proxyhubb
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: edge-gateway
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

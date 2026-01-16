@@ -1,0 +1,338 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "ProxyHub Overview",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "proxyhubb_active_sessions",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Connected Providers",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [
+        {
+          "expr": "edge_gateway_connected_providers",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Requests/sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_http_requests_total[1m])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Bandwidth Used (GB)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "proxyhubb_bandwidth_used_bytes_total / 1073741824",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decgbytes"
+        }
+      }
+    },
+    {
+      "title": "Error Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(edge_gateway_connection_errors_total[5m])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Rate Limit Hits",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_rate_limit_hits_total[5m])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Control API",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
+    },
+    {
+      "title": "HTTP Requests by Status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(proxyhubb_http_requests_total[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Request Duration (P95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(proxyhubb_http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(proxyhubb_http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "P50",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Logins",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_logins_total[5m])",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Registrations",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 14 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_registrations_total[5m])",
+          "legendFormat": "Registrations",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Session Creations",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 14 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_session_creations_total[5m])",
+          "legendFormat": "{{type}} - {{tier}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Edge Gateway",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 }
+    },
+    {
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "targets": [
+        {
+          "expr": "edge_gateway_active_connections",
+          "legendFormat": "Active",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Bandwidth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "targets": [
+        {
+          "expr": "rate(edge_gateway_bytes_received_total[5m])",
+          "legendFormat": "Received",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(edge_gateway_bytes_sent_total[5m])",
+          "legendFormat": "Sent",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    },
+    {
+      "title": "Auth Attempts",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 29 },
+      "targets": [
+        {
+          "expr": "rate(edge_gateway_auth_attempts_total[5m])",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Provider Selections",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 29 },
+      "targets": [
+        {
+          "expr": "rate(edge_gateway_provider_selections_total[5m])",
+          "legendFormat": "{{strategy}} - {{country}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Policy Blocks",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 29 },
+      "targets": [
+        {
+          "expr": "rate(edge_gateway_policy_blocks_total[5m])",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Wallet & KYC",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }
+    },
+    {
+      "title": "Deposits (GHS)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 36 },
+      "targets": [
+        {
+          "expr": "proxyhubb_wallet_deposits_ghs_total",
+          "legendFormat": "Total Deposits",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "KYC Submissions",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 36 },
+      "targets": [
+        {
+          "expr": "rate(proxyhubb_kyc_submissions_total[5m])",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Session Cache",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 36 },
+      "targets": [
+        {
+          "expr": "edge_gateway_session_cache_hits / (edge_gateway_session_cache_hits + edge_gateway_session_cache_misses) * 100",
+          "legendFormat": "Hit Rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["proxyhubb", "proxy"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ProxyHub Dashboard",
+  "uid": "proxyhubb-main",
+  "version": 1
+}

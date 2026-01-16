@@ -1,0 +1,559 @@
+openapi: 3.1.0
+info:
+  title: ProxyHub Control API
+  description: |
+    API for managing proxy sessions, wallets, users, and analytics in the ProxyHub residential proxy network.
+    
+    ## Authentication
+    All protected endpoints require a Bearer token in the Authorization header:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    
+    ## Rate Limiting
+    - 100 requests per minute per user/IP
+    - Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+  version: 1.0.0
+  contact:
+    name: ProxyHub Support
+    email: support@proxyhubb.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.proxyhubb.com
+    description: Production
+
+tags:
+  - name: Auth
+    description: Authentication and user registration
+  - name: Sessions
+    description: Proxy session management
+  - name: Wallet
+    description: Wallet and payments
+  - name: Usage
+    description: Usage tracking and analytics
+  - name: KYC
+    description: Identity verification
+  - name: Circles
+    description: Provider groups and pools
+  - name: Analytics
+    description: Usage analytics and charts
+  - name: Geo
+    description: Geo-targeting
+  - name: Admin
+    description: Admin operations
+
+paths:
+  # ==================== Auth ====================
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already exists
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  # ==================== Sessions ====================
+  /v1/sessions:
+    get:
+      tags: [Sessions]
+      summary: List user sessions
+      operationId: listSessions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+
+    post:
+      tags: [Sessions]
+      summary: Create a new proxy session
+      operationId: createSession
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    $ref: '#/components/schemas/Session'
+                  proxy_endpoint:
+                    type: string
+                    example: "proxy.proxyhubb.com:8443"
+
+  /v1/sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get session details
+      operationId: getSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+    delete:
+      tags: [Sessions]
+      summary: Terminate a session
+      operationId: terminateSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session terminated
+
+  # ==================== Wallet ====================
+  /v1/wallet:
+    get:
+      tags: [Wallet]
+      summary: Get wallet balance
+      operationId: getWallet
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Wallet details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+
+  /v1/wallet/deposit:
+    post:
+      tags: [Wallet]
+      summary: Initiate deposit via MoMo
+      operationId: initiateDeposit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepositRequest'
+      responses:
+        '200':
+          description: Deposit initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                  status:
+                    type: string
+
+  /v1/wallet/withdraw:
+    post:
+      tags: [Wallet]
+      summary: Initiate withdrawal to MoMo
+      operationId: initiateWithdrawal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawRequest'
+      responses:
+        '200':
+          description: Withdrawal initiated
+
+  # ==================== Usage ====================
+  /v1/usage/me:
+    get:
+      tags: [Usage]
+      summary: Get user's usage statistics
+      operationId: getUserUsage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUsage'
+
+  # ==================== Analytics ====================
+  /v1/analytics/overview:
+    get:
+      tags: [Analytics]
+      summary: Get analytics overview
+      operationId: getAnalyticsOverview
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsOverview'
+
+  /v1/analytics/usage/daily:
+    get:
+      tags: [Analytics]
+      summary: Get daily usage chart data
+      operationId: getDailyUsage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+            minimum: 1
+            maximum: 90
+      responses:
+        '200':
+          description: Daily usage data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DailyUsagePoint'
+
+  # ==================== Geo ====================
+  /v1/geo/regions:
+    get:
+      tags: [Geo]
+      summary: Get available regions
+      operationId: getAvailableRegions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Available regions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  regions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RegionInfo'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, role]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        role:
+          type: string
+          enum: [buyer, provider]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        trust_tier:
+          type: string
+        kyc_status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [rotating, sticky]
+        status:
+          type: string
+          enum: [active, terminated]
+        credentials_user:
+          type: string
+        credentials_pass:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [rotating, sticky]
+          default: rotating
+        target_geo:
+          type: string
+          description: Target country code (ISO 3166-1 alpha-2)
+        target_isp:
+          type: string
+
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        balance:
+          type: number
+          format: float
+        currency:
+          type: string
+          default: GHS
+
+    DepositRequest:
+      type: object
+      required: [amount, phone]
+      properties:
+        amount:
+          type: number
+          minimum: 1
+        phone:
+          type: string
+
+    WithdrawRequest:
+      type: object
+      required: [amount, phone]
+      properties:
+        amount:
+          type: number
+          minimum: 1
+        phone:
+          type: string
+
+    UserUsage:
+      type: object
+      properties:
+        total_bytes:
+          type: integer
+        total_gb:
+          type: number
+        total_cost_ghs:
+          type: number
+        sessions:
+          type: array
+          items:
+            type: object
+
+    AnalyticsOverview:
+      type: object
+      properties:
+        total_bandwidth_gb:
+          type: number
+        success_rate:
+          type: number
+        avg_latency_ms:
+          type: integer
+        active_sessions:
+          type: integer
+
+    DailyUsagePoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        bytes_used:
+          type: integer
+        gb_used:
+          type: number
+        cost_ghs:
+          type: number
+
+    RegionInfo:
+      type: object
+      properties:
+        country_code:
+          type: string
+        country_name:
+          type: string
+        provider_count:
+          type: integer
+        avg_latency_ms:
+          type: integer
+        is_available:
+          type: boolean
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
