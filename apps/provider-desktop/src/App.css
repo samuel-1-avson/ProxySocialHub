@@ -1,31 +1,23 @@
 :root {
-  /* Retro Minimal Calm Theme - Palette Sync */
-  --bg-primary: #1c1c1e;
-  /* Soft Dark */
-  --bg-secondary: #232326;
-  /* Slightly lighter dark */
-  --bg-card: #2b2d42;
-  /* Dark Blue-Grey Card */
+  /* White/Black/Green Theme - Palette Sync */
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-card: #000000;
 
-  --accent: #e07a5f;
-  /* Terracotta */
-  --accent-secondary: #f2cc8f;
-  /* Warm Sand */
+  --accent: #22c55e;
+  /* Green-500 */
+  --accent-secondary: #4ade80;
 
-  --text-primary: #e0e1dd;
-  /* Platinum */
-  --text-secondary: #98c1d9;
-  /* Pale Blue */
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
 
-  --success: #81b29a;
-  /* Muted Sage */
-  --danger: #e63946;
-  /* Soft Red */
+  --success: #22c55e;
+  --danger: #ef4444;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow-retro: 4px 4px 0px rgba(0, 0, 0, 0.3);
-  --border-color: rgba(255, 255, 255, 0.1);
+  --radius: 0px;
+  --radius-sm: 0px;
+  --shadow-retro: 4px 4px 0px #22c55e;
+  --border-color: #333333;
 }
 
 * {
@@ -37,6 +29,9 @@
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
+  /* Texture added via pseudo-element in web, keeping simple here or adding basic gradient */
+  background-image: radial-gradient(#333333 1px, transparent 1px);
+  background-size: 24px 24px;
   color: var(--text-primary);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;

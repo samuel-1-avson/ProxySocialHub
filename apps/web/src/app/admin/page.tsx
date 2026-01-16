@@ -67,7 +67,7 @@ interface AuditLog {
   entity_id: string;
   ip_address: string;
   created_at: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
 }
 
 interface NodeHealth {
@@ -143,7 +143,7 @@ export default function AdminPage() {
       setAuditLogs(auditRes.audit_logs || []);
       setHealthStats(healthRes);
       setNodes(nodesRes.nodes || []);
-    } catch (err) {
+    } catch {
       setError('Failed to load admin data');
     } finally {
       setLoading(false);
@@ -154,7 +154,7 @@ export default function AdminPage() {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/users/${userId}/ban`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to ban user');
     }
   };
@@ -163,25 +163,27 @@ export default function AdminPage() {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/users/${userId}/unban`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to unban user');
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSuspendUser = async (userId: string) => {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/users/${userId}/suspend`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to suspend user');
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleActivateUser = async (userId: string) => {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/users/${userId}/activate`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to activate user');
     }
   };
@@ -190,7 +192,7 @@ export default function AdminPage() {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/kyc/${verificationId}/approve`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to approve KYC');
     }
   };
@@ -203,7 +205,7 @@ export default function AdminPage() {
         body: JSON.stringify({ reason: 'Rejected by admin' }),
       });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to reject KYC');
     }
   };
@@ -212,7 +214,7 @@ export default function AdminPage() {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/health/nodes/${nodeId}/check`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to check node health');
     }
   };
@@ -221,7 +223,7 @@ export default function AdminPage() {
     try {
       await fetchWithAuth(`${API_BASE_URL}/v1/admin/health/nodes/${nodeId}/reactivate`, { method: 'POST' });
       await loadData();
-    } catch (err) {
+    } catch {
       setError('Failed to reactivate node');
     }
   };
@@ -458,8 +460,8 @@ export default function AdminPage() {
                         <td className="px-6 py-4 text-white">{log.actor_email || 'System'}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-1 rounded text-xs ${log.action.includes('ban') || log.action.includes('reject') ? 'bg-red-500/20 text-red-400' :
-                              log.action.includes('approve') || log.action.includes('activate') ? 'bg-green-500/20 text-green-400' :
-                                'bg-blue-500/20 text-blue-400'
+                            log.action.includes('approve') || log.action.includes('activate') ? 'bg-green-500/20 text-green-400' :
+                              'bg-blue-500/20 text-blue-400'
                             }`}>{log.action}</span>
                         </td>
                         <td className="px-6 py-4 text-gray-300">
@@ -526,12 +528,12 @@ export default function AdminPage() {
                           <td className="px-6 py-4 text-gray-300">{node.country_code || '-'}</td>
                           <td className="px-6 py-4">
                             <span className={`text-sm ${node.latency_ms < 100 ? 'text-green-400' :
-                                node.latency_ms < 300 ? 'text-yellow-400' : 'text-red-400'
+                              node.latency_ms < 300 ? 'text-yellow-400' : 'text-red-400'
                               }`}>{node.latency_ms}ms</span>
                           </td>
                           <td className="px-6 py-4">
                             <span className={`text-sm ${node.success_rate >= 0.95 ? 'text-green-400' :
-                                node.success_rate >= 0.8 ? 'text-yellow-400' : 'text-red-400'
+                              node.success_rate >= 0.8 ? 'text-yellow-400' : 'text-red-400'
                               }`}>{(node.success_rate * 100).toFixed(1)}%</span>
                           </td>
                           <td className="px-6 py-4 text-gray-400 text-sm">

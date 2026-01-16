@@ -107,7 +107,10 @@ export default function ProfilePage() {
                         {/* Avatar */}
                         <div className="avatar-lg">
                             {profile.avatar_url ? (
-                                <img src={profile.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
+                                <>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={profile.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
+                                </>
                             ) : (
                                 <span>{profile.display_name?.charAt(0) || profile.username?.charAt(0) || "?"}</span>
                             )}

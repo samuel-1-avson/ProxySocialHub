@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+// import { useRouter } from 'next/navigation';
 import { getSubscriptionPlans, getMySubscription, subscribeToPlan, cancelSubscription, SubscriptionPlan, UserSubscription } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 
 export default function PricingPage() {
-    const router = useRouter();
+    // const router = useRouter();
     const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
     const [currentSub, setCurrentSub] = useState<UserSubscription | null>(null);
     const [loading, setLoading] = useState(true);
@@ -38,7 +38,7 @@ export default function PricingPage() {
             const sub = await getMySubscription();
             setCurrentSub(sub);
             alert('Successfully subscribed!');
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             alert(err.message || 'Failed to subscribe');
         } finally {
             setProcessing('');
@@ -53,7 +53,7 @@ export default function PricingPage() {
             const sub = await getMySubscription();
             setCurrentSub(sub);
             alert('Subscription cancelled');
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             alert(err.message || 'Failed to cancel');
         } finally {
             setProcessing('');
@@ -140,8 +140,8 @@ export default function PricingPage() {
                                     onClick={() => handleSubscribe(plan.id)}
                                     disabled={isCurrent || !!processing}
                                     className={`w-full py-3 px-4 rounded-lg font-bold text-sm transition-colors ${isCurrent
-                                            ? 'bg-gray-700 text-gray-400 cursor-default'
-                                            : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                        ? 'bg-gray-700 text-gray-400 cursor-default'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                         } disabled:opacity-50`}
                                 >
                                     {isCurrent

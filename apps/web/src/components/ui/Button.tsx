@@ -17,7 +17,7 @@ export const Button: React.FC<ButtonProps> = ({
     const baseStyles = "inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed";
 
     const variants = {
-        primary: "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] hover:-translate-y-0.5",
+        primary: "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-none hover:shadow-[var(--shadow-retro)] hover:-translate-y-0.5 border-2 border-transparent hover:border-[var(--foreground)]",
         secondary: "bg-[var(--secondary)] text-white hover:bg-[var(--secondary-light)] hover:-translate-y-0.5",
         outline: "border-2 border-[var(--primary)] text-[var(--primary)] bg-transparent hover:bg-[var(--primary)] hover:text-white",
         ghost: "bg-transparent text-[var(--foreground)] hover:bg-black/5 dark:hover:bg-white/5",

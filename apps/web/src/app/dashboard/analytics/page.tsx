@@ -1,9 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
+
+// ... (interfaces remain same, skipping them in replacement chunk if possible, but I need to be precise. 
+// Actually I can just replace the whole top section or just use multi_replace to move blocks. 
+// Easier to move useEffect down.)
+
+// Let's move useEffect down.
+
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -52,7 +59,7 @@ function formatBytes(bytes: number): string {
 // Simple bar chart
 function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
   const maxValue = Math.max(...data.map(d => d.gb_used), 0.01);
-  
+
   return (
     <div className="space-y-2">
       <div className="text-gray-400 text-sm">{label}</div>
@@ -81,7 +88,7 @@ function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
 function GeoChart({ data }: { data: GeoStats[] }) {
   const total = data.reduce((sum, d) => sum + d.request_count, 0) || 1;
   const colors = ['#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e'];
-  
+
   return (
     <div className="space-y-3">
       {data.map((geo, index) => {
@@ -93,7 +100,7 @@ function GeoChart({ data }: { data: GeoStats[] }) {
               <span className="text-gray-400">{percent.toFixed(1)}%</span>
             </div>
             <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full rounded-full transition-all"
                 style={{ width: `${percent}%`, backgroundColor: colors[index % colors.length] }}
               />
@@ -116,18 +123,7 @@ export default function AnalyticsPage() {
   const [error, setError] = useState('');
   const [days, setDays] = useState(7);
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login');
-      return;
-    }
-
-    if (isAuthenticated) {
-      loadAnalytics();
-    }
-  }, [isLoading, isAuthenticated, router, days]);
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       const [overviewRes, dailyRes, geoRes, destRes] = await Promise.all([
@@ -141,12 +137,23 @@ export default function AnalyticsPage() {
       setDailyUsage(dailyRes.data || []);
       setGeoData(geoRes.data || []);
       setDestinations(destRes.data || []);
-    } catch (err) {
+    } catch {
       setError('Failed to load analytics');
     } finally {
       setLoading(false);
     }
-  };
+  }, [days]);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login');
+      return;
+    }
+
+    if (isAuthenticated) {
+      loadAnalytics();
+    }
+  }, [isLoading, isAuthenticated, router, days, loadAnalytics]);
 
   if (isLoading || loading) {
     return (
@@ -183,25 +190,25 @@ export default function AnalyticsPage() {
 
         {/* Overview Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard 
-            label="Total Bandwidth" 
+          <StatCard
+            label="Total Bandwidth"
             value={`${overview?.total_bandwidth_gb?.toFixed(2) || '0.00'} GB`}
             icon="📊"
           />
-          <StatCard 
-            label="Success Rate" 
+          <StatCard
+            label="Success Rate"
             value={`${((overview?.success_rate || 0) * 100).toFixed(1)}%`}
             icon="✅"
             color="green"
           />
-          <StatCard 
-            label="Avg Latency" 
+          <StatCard
+            label="Avg Latency"
             value={`${overview?.avg_latency_ms || 0} ms`}
             icon="⚡"
             color="yellow"
           />
-          <StatCard 
-            label="Active Sessions" 
+          <StatCard
+            label="Active Sessions"
             value={overview?.active_sessions || 0}
             icon="🔌"
             color="blue"
@@ -214,11 +221,10 @@ export default function AnalyticsPage() {
             <button
               key={d}
               onClick={() => setDays(d)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                days === d 
-                  ? 'bg-orange-500 text-white' 
-                  : 'bg-gray-800 text-gray-400 hover:text-white'
-              }`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${days === d
+                ? 'bg-orange-500 text-white'
+                : 'bg-gray-800 text-gray-400 hover:text-white'
+                }`}
             >
               {d} Days
             </button>

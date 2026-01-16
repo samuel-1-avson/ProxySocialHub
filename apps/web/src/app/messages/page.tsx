@@ -10,8 +10,8 @@ import { Navbar } from "@/components/Navbar";
 
 function MessagesContent() {
     const { user } = useAuth();
-    const searchParams = useSearchParams();
-    const recipientId = searchParams.get("to");
+    // const searchParams = useSearchParams(); // unused
+    // const recipientId = searchParams.get("to"); // unused
 
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
@@ -39,6 +39,7 @@ function MessagesContent() {
             }
         }
         fetchConversations();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Load messages when conversation changes
