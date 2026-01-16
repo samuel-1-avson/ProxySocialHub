@@ -47,8 +47,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Set user info in context for downstream handlers
-		c.Set("userID", claims.UserID)
-		c.Set("userRole", claims.Role)
+		c.Set("user_id", claims.UserID)
+		c.Set("user_role", claims.Role)
 
 		c.Next()
 	}
@@ -57,7 +57,7 @@ func AuthMiddleware() gin.HandlerFunc {
 // RequireRole creates middleware that requires specific roles
 func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString("userRole")
+		role := c.GetString("user_role")
 		if role == "" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "Access denied: no role found",
@@ -95,8 +95,8 @@ func OptionalAuth() gin.HandlerFunc {
 
 		claims, err := ValidateAccessToken(parts[1])
 		if err == nil {
-			c.Set("userID", claims.UserID)
-			c.Set("userRole", claims.Role)
+			c.Set("user_id", claims.UserID)
+			c.Set("user_role", claims.Role)
 		}
 
 		c.Next()
