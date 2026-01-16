@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,14 +27,14 @@ jobs:
         with:
           context: ./services/control-api
           push: true
-          tags: proxyhubb/control-api:latest,proxyhubb/control-api:${{ github.ref_name }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/control-api:latest,${{ secrets.DOCKERHUB_USERNAME }}/control-api:${{ github.ref_name }}
 
       - name: Build & Push Web
         uses: docker/build-push-action@v5
         with:
           context: ./apps/web
           push: true
-          tags: proxyhubb/web:latest,proxyhubb/web:${{ github.ref_name }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/web:latest,${{ secrets.DOCKERHUB_USERNAME }}/web:${{ github.ref_name }}
 
       - name: Deploy to Vercel (Web)
         uses: amondnet/vercel-action@v20
