@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import { getUseCases, getPreferences, updatePreferences, getRecommendations, UseCase, UserPreferences, Recommendation } from '@/lib/api';
+import { Star } from 'lucide-react';
 
 export default function RecommendationsPage() {
     const [useCases, setUseCases] = useState<UseCase[]>([]);
@@ -172,7 +173,7 @@ export default function RecommendationsPage() {
                                                 <div className="flex items-center gap-3 mb-2">
                                                     <h3 className="font-bold text-lg">{rec.listing.Title || 'Proxy Listing'}</h3>
                                                     <div className="flex items-center px-2 py-0.5 bg-yellow-500/10 text-yellow-500 rounded text-xs font-bold border border-yellow-500/20">
-                                                        ★ {rec.score.toFixed(0)} Match Score
+                                                        <Star className="w-3 h-3 fill-current mr-1" /> {rec.score.toFixed(0)} Match Score
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 mb-4">

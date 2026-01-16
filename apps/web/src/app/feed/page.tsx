@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getFeed, discoverProviders, getTrendingListings, type FeedEvent, type User, type Listing } from "@/lib/social-api";
 import { Navbar } from "@/components/Navbar";
+import { Package, Star, Coins, Award, User as UserIcon, Pin } from "lucide-react";
 
 export default function FeedPage() {
     const { isAuthenticated, user } = useAuth();
@@ -39,12 +40,12 @@ export default function FeedPage() {
 
     const getEventIcon = (type: string) => {
         switch (type) {
-            case "new_listing": return "📦";
-            case "new_review": return "⭐";
-            case "new_sale": return "💰";
-            case "new_badge": return "🏆";
-            case "new_follower": return "👤";
-            default: return "📌";
+            case "new_listing": return <Package className="w-5 h-5 text-blue-500" />;
+            case "new_review": return <Star className="w-5 h-5 text-yellow-500 fill-current" />;
+            case "new_sale": return <Coins className="w-5 h-5 text-green-500" />;
+            case "new_badge": return <Award className="w-5 h-5 text-orange-500" />;
+            case "new_follower": return <UserIcon className="w-5 h-5 text-purple-500" />;
+            default: return <Pin className="w-5 h-5 text-gray-500" />;
         }
     };
 
@@ -109,7 +110,7 @@ export default function FeedPage() {
                                             events.map((event) => (
                                                 <div key={event.id} className="card">
                                                     <div className="flex gap-3">
-                                                        <span className="text-2xl">{getEventIcon(event.event_type)}</span>
+                                                        <span className="flex items-center justify-center w-8 h-8">{getEventIcon(event.event_type)}</span>
                                                         <div className="flex-1">
                                                             <p style={{ color: "var(--foreground)" }}>{event.content}</p>
                                                             <span className="text-sm" style={{ color: "var(--muted)" }}>
@@ -147,8 +148,8 @@ export default function FeedPage() {
                                                                 </svg>
                                                             )}
                                                         </div>
-                                                        <p className="text-sm" style={{ color: "var(--muted)" }}>
-                                                            ★ {provider.avg_rating?.toFixed(1) || "5.0"} • {provider.total_bandwidth_sold?.toLocaleString() || 0} GB sold
+                                                        <p className="text-sm flex items-center gap-1" style={{ color: "var(--muted)" }}>
+                                                            <Star className="w-3 h-3 text-yellow-500 fill-current" /> {provider.avg_rating?.toFixed(1) || "5.0"} • {provider.total_bandwidth_sold?.toLocaleString() || 0} GB sold
                                                         </p>
                                                     </div>
                                                 </Link>
@@ -218,7 +219,7 @@ export default function FeedPage() {
                         {activeTab !== "trending" && (
                             <div className="card">
                                 <h3 className="font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-                                    🔥 Trending
+                                    Trending
                                 </h3>
                                 <div className="space-y-3">
                                     {trending.slice(0, 3).map((listing) => (

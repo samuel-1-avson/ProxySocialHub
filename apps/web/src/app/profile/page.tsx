@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { getPublicProfile, followUser, unfollowUser, getUserReviews, type User, type Review } from "@/lib/social-api";
 import { Navbar } from "@/components/Navbar";
+import { Star } from "lucide-react";
 
 export default function ProfilePage() {
     const params = useParams();
@@ -143,7 +144,7 @@ export default function ProfilePage() {
                                     </span>
                                 )}
                                 {profile.avg_rating > 0 && (
-                                    <span className="stars">★ {profile.avg_rating.toFixed(1)}</span>
+                                    <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {profile.avg_rating.toFixed(1)}</span>
                                 )}
                                 {profile.total_bandwidth_sold > 0 && (
                                     <span>{profile.total_bandwidth_sold.toLocaleString()} GB sold</span>
@@ -242,9 +243,14 @@ export default function ProfilePage() {
                                             <span className="font-medium" style={{ color: "var(--foreground)" }}>
                                                 {review.reviewer?.display_name || review.reviewer?.username || "Anonymous"}
                                             </span>
-                                            <span className="ml-2 stars">
-                                                {"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}
-                                            </span>
+                                            <div className="flex ml-2">
+                                                {Array.from({ length: 5 }).map((_, i) => (
+                                                    <Star
+                                                        key={i}
+                                                        className={`w-3 h-3 ${i < review.rating ? "text-yellow-500 fill-current" : "text-gray-300"}`}
+                                                    />
+                                                ))}
+                                            </div>
                                             {review.verified_purchase && (
                                                 <span className="badge badge-success text-xs ml-2">Verified</span>
                                             )}

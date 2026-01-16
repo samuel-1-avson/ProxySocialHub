@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getListings, type Listing } from "@/lib/social-api";
 import { Navbar } from "@/components/Navbar";
+import { Star } from "lucide-react";
 
 export default function MarketplacePage() {
     const { isAuthenticated, user } = useAuth();
@@ -146,7 +147,7 @@ export default function MarketplacePage() {
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-1 text-sm">
-                                                <span className="stars">★</span>
+                                                <Star className="w-4 h-4 text-yellow-400 fill-current" />
                                                 <span style={{ color: "var(--muted)" }}>
                                                     {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
                                                 </span>

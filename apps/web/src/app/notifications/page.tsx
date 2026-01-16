@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ShoppingBag, User, Star, MessageSquare, Award, Bell } from "lucide-react";
 
 // Types
 interface Notification {
@@ -35,31 +36,15 @@ export function NotificationBell() {
     const getIcon = (type: string) => {
         switch (type) {
             case "order":
-                return (
-                    <svg className="w-4 h-4" style={{ color: "var(--success)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                );
+                return <ShoppingBag className="w-4 h-4" style={{ color: "var(--success)" }} />;
             case "follow":
-                return (
-                    <svg className="w-4 h-4" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                );
+                return <User className="w-4 h-4" style={{ color: "var(--primary)" }} />;
             case "review":
-                return <span className="text-yellow-500 text-sm">★</span>;
+                return <Star className="w-4 h-4 text-yellow-500 fill-current" />;
             case "message":
-                return (
-                    <svg className="w-4 h-4" style={{ color: "var(--info)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                    </svg>
-                );
+                return <MessageSquare className="w-4 h-4" style={{ color: "var(--info)" }} />;
             case "badge":
-                return (
-                    <svg className="w-4 h-4" style={{ color: "var(--warning)" }} fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                );
+                return <Award className="w-4 h-4" style={{ color: "var(--warning)" }} />;
             default:
                 return null;
         }
@@ -72,9 +57,7 @@ export function NotificationBell() {
                 onClick={() => setIsOpen(!isOpen)}
                 className="relative p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-neutral-800"
             >
-                <svg className="w-5 h-5" style={{ color: "var(--foreground)" }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
+                <Bell className="w-5 h-5" style={{ color: "var(--foreground)" }} />
 
                 {/* Badge */}
                 {unreadCount > 0 && (
@@ -249,12 +232,12 @@ export default function NotificationsPage() {
                                     style={{ background: "var(--background)" }}
                                 >
                                     {/* Icon based on type */}
-                                    <span className="text-lg">
-                                        {notif.type === "order" && "💰"}
-                                        {notif.type === "follow" && "👤"}
-                                        {notif.type === "review" && "⭐"}
-                                        {notif.type === "message" && "💬"}
-                                        {notif.type === "badge" && "🏆"}
+                                    <span className="flex items-center justify-center w-full h-full">
+                                        {notif.type === "order" && <ShoppingBag className="w-5 h-5 text-green-500" />}
+                                        {notif.type === "follow" && <User className="w-5 h-5 text-blue-500" />}
+                                        {notif.type === "review" && <Star className="w-5 h-5 text-yellow-500 fill-current" />}
+                                        {notif.type === "message" && <MessageSquare className="w-5 h-5 text-indigo-500" />}
+                                        {notif.type === "badge" && <Award className="w-5 h-5 text-orange-500" />}
                                     </span>
                                 </div>
                                 <div className="flex-1">

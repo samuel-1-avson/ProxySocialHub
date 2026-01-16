@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Star } from "lucide-react";
 
 // Mock leaderboard data
 const mockProviders = [
@@ -147,7 +148,7 @@ export default function LeaderboardsPage() {
                                                 {provider.bandwidth_sold.toLocaleString()} GB
                                             </div>
                                             <div className="text-sm flex items-center justify-center gap-2 mt-1" style={{ color: "var(--muted)" }}>
-                                                <span className="stars">★ {provider.rating}</span>
+                                                <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {provider.rating}</span>
                                                 <span>•</span>
                                                 <span>{provider.orders} orders</span>
                                             </div>
@@ -190,7 +191,7 @@ export default function LeaderboardsPage() {
                                             {provider.bandwidth_sold.toLocaleString()} GB
                                         </div>
                                         <div className="text-sm" style={{ color: "var(--muted)" }}>
-                                            ★ {provider.rating} • {provider.orders} orders
+                                            <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {provider.rating}</span> • {provider.orders} orders
                                         </div>
                                     </div>
                                 </Link>
