@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 function AuthCallbackContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { setAuth } = useAuth();
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -25,7 +26,8 @@ function AuthCallbackContent() {
             // Function to complete login
             const completeLogin = async () => {
                 try {
-                    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+                    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+                    console.log('Completing login with API URL:', API_BASE_URL);
 
                     // 1. Fetch user profile
                     const response = await fetch(`${API_BASE_URL}/v1/profile`, {
@@ -40,24 +42,23 @@ function AuthCallbackContent() {
 
                     const userProfile = await response.json();
 
-                    // 2. Store tokens
-                    localStorage.setItem('proxyhubb_tokens', JSON.stringify({
+                    // 2. Update Auth Context (stores in localStorage and updates state)
+                    const tokens = {
                         access_token: accessToken,
                         refresh_token: refreshToken,
                         expires_in: Number(expiresIn),
-                    }));
+                    };
 
-                    // 3. Store user
-                    // Convert profile to user format expected by auth.tsx
                     const user = {
                         id: userProfile.id,
                         email: userProfile.email,
                         role: userProfile.role,
                         ...userProfile
                     };
-                    localStorage.setItem('proxyhubb_user', JSON.stringify(user));
 
-                    // 4. Redirect
+                    setAuth(user, tokens);
+
+                    // 3. Redirect
                     router.push('/dashboard');
                     router.refresh();
                 } catch (err) {

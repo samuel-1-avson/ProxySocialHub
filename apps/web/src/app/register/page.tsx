@@ -87,7 +87,7 @@ export default function RegisterPage() {
           {/* OAuth Buttons */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <button
-              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/google`}
+              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/google?role=${role}`}
               className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
             >
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -111,7 +111,7 @@ export default function RegisterPage() {
               Google
             </button>
             <button
-              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/github`}
+              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/github?role=${role}`}
               className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
             >
               <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
