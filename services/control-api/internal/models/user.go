@@ -27,7 +27,7 @@ const (
 type User struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
 	Email        string     `gorm:"unique;not null" json:"email"`
-	PasswordHash string     `gorm:"not null" json:"-"`    // Never expose in JSON
+	PasswordHash string     `gorm:"" json:"-"`            // Never expose in JSON; nullable for OAuth
 	Role         string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
 	Status       UserStatus `gorm:"default:'pending'" json:"status"`
 	TrustTier    TrustTier  `gorm:"default:'new'" json:"trust_tier"`
