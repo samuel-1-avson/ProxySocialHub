@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -24,4 +25,27 @@ func Init() {
 	}
 
 	log.Println("Database connected successfully")
+
+	// Enable uuid-ossp extension
+	if err := DB.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"").Error; err != nil {
+		log.Printf("Warning: Failed to enable uuid-ossp extension: %v", err)
+	}
+
+	// Auto-migrate schema
+	err = DB.AutoMigrate(
+		&models.User{},
+		&models.OAuthIdentity{},
+		&models.Wallet{},
+		&models.WalletLedgerEntry{},
+		&models.Session{},
+		&models.Node{},
+		&models.KycVerification{},
+		&models.TOTPBackupCode{},
+		&models.APIKey{},
+		&models.AuditLog{},
+	)
+	if err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
+	log.Println("Database migrations applied")
 }
