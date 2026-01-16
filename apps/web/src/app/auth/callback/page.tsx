@@ -22,15 +22,52 @@ function AuthCallbackContent() {
         }
 
         if (accessToken && refreshToken) {
-            // Store tokens
-            localStorage.setItem('proxyhubb_tokens', JSON.stringify({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-                expires_in: Number(expiresIn),
-            }));
+            // Function to complete login
+            const completeLogin = async () => {
+                try {
+                    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-            router.push('/dashboard');
-            router.refresh(); // Ensure components re-render with new auth state
+                    // 1. Fetch user profile
+                    const response = await fetch(`${API_BASE_URL}/v1/profile`, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch user profile');
+                    }
+
+                    const userProfile = await response.json();
+
+                    // 2. Store tokens
+                    localStorage.setItem('proxyhubb_tokens', JSON.stringify({
+                        access_token: accessToken,
+                        refresh_token: refreshToken,
+                        expires_in: Number(expiresIn),
+                    }));
+
+                    // 3. Store user
+                    // Convert profile to user format expected by auth.tsx
+                    const user = {
+                        id: userProfile.id,
+                        email: userProfile.email,
+                        role: userProfile.role,
+                        ...userProfile
+                    };
+                    localStorage.setItem('proxyhubb_user', JSON.stringify(user));
+
+                    // 4. Redirect
+                    router.push('/dashboard');
+                    router.refresh();
+                } catch (err) {
+                    console.error('Login completion failed:', err);
+                    setError('Failed to setup session');
+                    setTimeout(() => router.push('/login'), 3000);
+                }
+            };
+
+            completeLogin();
         } else {
             setError('Invalid callback parameters');
             setTimeout(() => router.push('/login'), 3000);
