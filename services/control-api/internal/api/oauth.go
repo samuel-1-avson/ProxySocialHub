@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
@@ -28,11 +29,17 @@ func InitOAuth() {
 	providers := []goth.Provider{}
 
 	if googleClientID != "" && googleClientSecret != "" {
+		log.Printf("Initializing Google OAuth (ClientID len: %d)", len(googleClientID))
 		providers = append(providers, google.New(googleClientID, googleClientSecret, callbackURL+"/google/callback"))
+	} else {
+		log.Printf("Google OAuth credentials missing (ClientID: '%s', Secret len: %d)", googleClientID, len(googleClientSecret))
 	}
 
 	if githubClientID != "" && githubClientSecret != "" {
+		log.Printf("Initializing GitHub OAuth (ClientID len: %d)", len(githubClientID))
 		providers = append(providers, github.New(githubClientID, githubClientSecret, callbackURL+"/github/callback"))
+	} else {
+		log.Printf("GitHub OAuth credentials missing (ClientID: '%s', Secret len: %d)", githubClientID, len(githubClientSecret))
 	}
 
 	goth.UseProviders(providers...)
