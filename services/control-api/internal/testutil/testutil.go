@@ -35,12 +35,18 @@ func SetupTestDB(t *testing.T) {
 
 		var err error
 		testDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Silent), // Quiet during tests
+			Logger: logger.Default.LogMode(logger.Error), // Log errors during tests
 		})
 		if err != nil {
 			// If we can't connect, skip the test rather than fail
 			// This allows tests to be skipped when no DB is available
 			t.Skipf("Skipping test: Could not connect to test database: %v", err)
+			return
+		}
+
+		// Enable uuid-ossp extension
+		if err := testDB.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"").Error; err != nil {
+			t.Skipf("Skipping test: Failed to enable uuid-ossp extension: %v", err)
 			return
 		}
 
