@@ -120,7 +120,7 @@ export default function DashboardPage() {
           { label: 'Total Sessions', value: totalSessions, icon: Layers, color: 'text-blue-400' },
           { label: 'Trust Tier', value: user?.role || 'Buyer', icon: Shield, color: 'text-orange-400' },
         ].map((stat, i) => (
-          <div key={i} className="relative group p-6 rounded-3xl bg-white/[0.03] border border-white/5 overflow-hidden transition-all hover:border-white/10">
+          <div key={i} className="relative group p-6 rounded-3xl bg-[var(--glass-bg)] border border-[var(--glass-border)] overflow-hidden transition-all hover:border-[var(--glass-border)]/20 shadow-[var(--glass-shadow)]">
             <div className="absolute top-0 right-0 p-8 transform translate-x-4 -translate-y-4 transition-transform group-hover:translate-x-2 group-hover:-translate-y-2">
               <stat.icon className={`w-24 h-24 opacity-[0.03] ${stat.color}`} />
             </div>
@@ -138,7 +138,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/5 relative overflow-hidden">
+      <div className="p-8 rounded-[2rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] relative overflow-hidden shadow-[var(--glass-shadow)]">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent"></div>
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-8">
@@ -201,7 +201,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Sessions Table */}
-      <div className="rounded-[2rem] bg-white/[0.03] border border-white/5 overflow-hidden">
+      <div className="rounded-[2rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] overflow-hidden shadow-[var(--glass-shadow)]">
         <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
           <h2 className="text-xl font-black text-white tracking-tight">Active Protocols</h2>
           <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">

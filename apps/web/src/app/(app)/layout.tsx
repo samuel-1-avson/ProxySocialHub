@@ -62,7 +62,7 @@ export default function AppLayout({
 
             <div className="flex relative z-10">
                 {/* Sidebar - Desktop */}
-                <aside className="hidden lg:flex w-72 min-h-screen flex-col bg-black/20 backdrop-blur-3xl border-r border-white/5 fixed left-0 top-0 bottom-0 z-40">
+                <aside className="hidden lg:flex w-72 min-h-screen flex-col bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)] border-r border-[var(--glass-border)] fixed left-0 top-0 bottom-0 z-40">
                     {/* Logo Area */}
                     <div className="h-20 flex items-center px-8">
                         <Link href="/dashboard" className="flex items-center gap-3 group">
@@ -164,8 +164,8 @@ export default function AppLayout({
                 {/* Main Content Area */}
                 <div className="flex-1 lg:ml-72 flex flex-col min-h-screen">
                     {/* Top Header - Desktop only */}
-                    <header className="hidden lg:flex h-20 items-center justify-between px-10 sticky top-0 z-30 bg-[#050505]/60 backdrop-blur-xl border-b border-white/5">
-                        <h2 className="text-xl font-bold text-white tracking-tight">
+                    <header className="hidden lg:flex h-20 items-center justify-between px-10 sticky top-0 z-30 bg-[var(--background)]/60 backdrop-blur-[var(--glass-blur)] border-b border-[var(--glass-border)]">
+                        <h2 className="text-xl font-bold text-[var(--foreground)] tracking-tight">
                             {getPageTitle()}
                         </h2>
                         <div className="flex items-center gap-4">
