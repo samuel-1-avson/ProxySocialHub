@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 interface WebSocketMessage {
   type: string;
@@ -23,9 +24,17 @@ export function useWebSocket(url?: string) {
   const wsUrl = url || `${baseWsUrl}/v1/ws`;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const connect = useCallback(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  const connect = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
     if (!token) return;
+
+    // Prevent duplicate connections
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
 
     try {
       const ws = new WebSocket(`${wsUrl}?token=${token}`);

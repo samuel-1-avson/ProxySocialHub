@@ -122,8 +122,12 @@ func (h *Hub) Run() {
 					select {
 					case client.Send <- mustMarshal(message):
 					default:
+						h.mu.RUnlock()
+						h.mu.Lock()
 						close(client.Send)
 						delete(h.clients, client.ID)
+						h.mu.Unlock()
+						h.mu.RLock()
 					}
 				}
 			}

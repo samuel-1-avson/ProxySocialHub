@@ -12,14 +12,34 @@ import (
 // RegisterFeedRoutes registers feed-related routes
 func RegisterFeedRoutes(rg *gin.RouterGroup) {
 	rg.GET("/feed", getFeed)
+	rg.GET("/notifications", getNotifications)
 	rg.GET("/discover", discoverProviders)
 	rg.GET("/trending", getTrendingListings)
 }
 
+// getNotifications returns user notifications
+func getNotifications(c *gin.Context) {
+	// Stub implementation for now
+	c.JSON(http.StatusOK, gin.H{
+		"notifications": []interface{}{},
+		"total":         0,
+		"page":          1,
+		"limit":         20,
+	})
+}
+
 // getFeed returns personalized feed based on who user follows
 func getFeed(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -66,7 +86,9 @@ func getFeed(c *gin.Context) {
 
 // discoverProviders returns top providers to follow
 func discoverProviders(c *gin.Context) {
-	currentUserID, exists := c.Get("user_id")
+	userIDStr := c.GetString("userID")
+	// Note: discover can be public, but if we have a user, we exclude followed.
+	// The middleware ensures userID is set if auth header is present.
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -76,18 +98,20 @@ func discoverProviders(c *gin.Context) {
 	var total int64
 
 	query := db.DB.Model(&models.User{}).
-		Where("role = ? AND status = ?", "provider", "active")
+		Where("role = ?", "provider")
 
 	// Exclude already followed users
-	if exists {
-		userID := currentUserID.(uuid.UUID)
-		var followingIDs []uuid.UUID
-		db.DB.Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
+	if userIDStr != "" {
+		userID, err := uuid.Parse(userIDStr)
+		if err == nil {
+			var followingIDs []uuid.UUID
+			db.DB.Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
 
-		if len(followingIDs) > 0 {
-			query = query.Where("id NOT IN ?", followingIDs)
+			if len(followingIDs) > 0 {
+				query = query.Where("id NOT IN ?", followingIDs)
+			}
+			query = query.Where("id != ?", userID)
 		}
-		query = query.Where("id != ?", userID)
 	}
 
 	query.Count(&total)

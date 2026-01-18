@@ -10,5 +10,6 @@ WORKDIR /app/services/edge-gateway
 RUN cargo build --release
 
 FROM alpine:latest
+RUN apk --no-cache add curl
 COPY --from=builder /app/services/edge-gateway/target/release/edge-gateway /usr/local/bin/
 CMD ["edge-gateway"]

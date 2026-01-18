@@ -114,6 +114,16 @@ export interface FeedEvent {
     created_at: string;
 }
 
+// ============== Notifications API ==============
+export async function getNotifications(): Promise<{ notifications: any[] }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/notifications`);
+    if (!res.ok) {
+        if (res.status === 404) return { notifications: [] };
+        throw new Error('Failed to fetch notifications');
+    }
+    return res.json();
+}
+
 // ============== Profile API ==============
 export async function getMyProfile(): Promise<User> {
     const res = await fetchWithAuth(`${API_BASE}/v1/profile`);
@@ -321,5 +331,78 @@ export async function discoverProviders(page = 1): Promise<{ providers: User[] }
 export async function getTrendingListings(page = 1): Promise<{ listings: Listing[] }> {
     const res = await fetchWithAuth(`${API_BASE}/v1/trending?page=${page}`);
     if (!res.ok) throw new Error('Failed to fetch trending');
+    return res.json();
+}
+
+// ============== Clans API ==============
+export interface Circle {
+    id: string;
+    name: string;
+    description: string;
+    owner_id: string;
+    visibility: 'public' | 'private';
+    member_count: number;
+    revenue_share_percent: number;
+    created_at: string;
+}
+
+export async function createCircle(data: { name: string; description: string; visibility: string; revenue_share_percent: number }): Promise<Circle> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create clan');
+    return res.json();
+}
+
+export async function getMyCircles(): Promise<{ circles: Circle[] }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/my`);
+    if (!res.ok) throw new Error('Failed to fetch clans');
+    return res.json();
+}
+
+export async function getCircle(id: string): Promise<Circle> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${id}`);
+    if (!res.ok) throw new Error('Clan not found');
+    return res.json();
+}
+
+// ============== Provider Onboarding API ==============
+export interface ProviderApplication {
+    id: string;
+    user_id: string;
+    status: 'pending' | 'approved' | 'rejected';
+    reason: string;
+    isp: string;
+    location: string;
+    bandwidth: string;
+    created_at: string;
+}
+
+export async function applyForProvider(data: {
+    reason: string;
+    isp: string;
+    location: string;
+    bandwidth: string;
+}): Promise<ProviderApplication> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/provider/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to submit application');
+    }
+    return res.json();
+}
+
+export async function getProviderApplicationStatus(): Promise<{ status: string; application: ProviderApplication }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/provider/status`);
+    if (!res.ok) {
+        if (res.status === 404) return { status: 'none', application: null as any };
+        throw new Error('Failed to check status');
+    }
     return res.json();
 }

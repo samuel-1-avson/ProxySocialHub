@@ -29,14 +29,15 @@ const (
 
 // ProxyListing represents a marketplace listing for proxy bandwidth
 type ProxyListing struct {
-	ID       uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	SellerID uuid.UUID `gorm:"type:uuid;not null" json:"seller_id"`
+	ID       uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	SellerID uuid.UUID `gorm:"type:uuid;not null;index:idx_listing_seller" json:"seller_id"`
 
 	// Listing details
-	Title       string    `gorm:"size:200;not null" json:"title"`
-	Description string    `json:"description"`
-	ProxyType   ProxyType `gorm:"size:50;default:'residential'" json:"proxy_type"`
-	Protocol    string    `gorm:"size:20;default:'HTTP'" json:"protocol"`
+	Title       string     `gorm:"size:200;not null" json:"title"`
+	Description string     `json:"description"`
+	ProxyType   ProxyType  `gorm:"size:50;default:'residential'" json:"proxy_type"`
+	Protocol    string     `gorm:"size:20;default:'HTTP'" json:"protocol"`
+	CircleID    *uuid.UUID `gorm:"type:uuid;index:idx_listing_circle" json:"circle_id,omitempty"` // Clan link
 
 	// Pricing
 	PricePerGB    float64        `gorm:"not null" json:"price_per_gb"`
@@ -57,12 +58,13 @@ type ProxyListing struct {
 	SavesCount  int `gorm:"default:0" json:"saves_count"`
 	OrdersCount int `gorm:"default:0" json:"orders_count"`
 
-	Status    ListingStatus `gorm:"size:50;default:'active'" json:"status"`
+	Status    ListingStatus `gorm:"size:50;default:'active';index:idx_listing_status" json:"status"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
 
 	// Preloaded relations
-	Seller *User `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
+	Seller *User   `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
+	Circle *Circle `gorm:"foreignKey:CircleID" json:"circle,omitempty"`
 }
 
 // TableName sets the table name for ProxyListing
@@ -98,8 +100,8 @@ type SavedListing struct {
 type CreateListingRequest struct {
 	Title                string         `json:"title" binding:"required,min=5,max=200"`
 	Description          string         `json:"description" binding:"max=2000"`
-	ProxyType            ProxyType      `json:"proxy_type" binding:"required,oneof=residential mobile datacenter"`
-	Protocol             string         `json:"protocol" binding:"required,oneof=HTTP HTTPS SOCKS5"`
+	ProxyType            ProxyType      `json:"proxy_type" binding:"required"`
+	Protocol             string         `json:"protocol" binding:"required"`
 	PricePerGB           float64        `json:"price_per_gb" binding:"required,gt=0"`
 	MinPurchaseGB        float64        `json:"min_purchase_gb" binding:"gte=0"`
 	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`

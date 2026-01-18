@@ -23,16 +23,17 @@ const (
 )
 
 type Session struct {
-	ID              uuid.UUID     `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
-	UserID          uuid.UUID     `gorm:"type:uuid;not null"`
-	NodeID          *uuid.UUID    `gorm:"type:uuid"` // Nullable
-	Type            SessionType   `gorm:"type:varchar(50);not null"`
-	Status          SessionStatus `gorm:"type:varchar(50);default:'active'"`
-	CredentialsUser string        `gorm:"type:varchar(255)"`
-	CredentialsPass string        `gorm:"type:varchar(255)"`
-	Config          string        `gorm:"type:jsonb"`
-	ExpiresAt       *time.Time
-	CreatedAt       time.Time
+	ID              uuid.UUID     `gorm:"type:uuid;primary_key" json:"id"`
+	UserID          uuid.UUID     `gorm:"type:uuid;not null;index:idx_session_user" json:"user_id"`
+	NodeID          *uuid.UUID    `gorm:"type:uuid;index:idx_session_node" json:"node_id"` // Nullable
+	Type            SessionType   `gorm:"type:varchar(50);not null" json:"type"`
+	Status          SessionStatus `gorm:"type:varchar(50);default:'active';index:idx_session_status" json:"status"`
+	CredentialsUser string        `gorm:"type:varchar(255)" json:"credentials_user"`
+	CredentialsPass string        `gorm:"type:varchar(255)" json:"credentials_pass"`
+	Config          string        `gorm:"type:jsonb" json:"config"`
+	BandwidthLimit  int64         `gorm:"default:0" json:"bandwidth_limit"` // in bytes, 0 = unlimited
+	ExpiresAt       *time.Time    `json:"expires_at"`
+	CreatedAt       time.Time     `json:"created_at"`
 }
 
 func (s *Session) BeforeCreate(tx *gorm.DB) (err error) {

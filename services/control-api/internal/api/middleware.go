@@ -2,62 +2,69 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware validates JWT tokens and extracts user information
+// AuthMiddleware is deprecated. Use middleware.SupabaseAuthMiddleware instead.
+// Left here only if needed for interface compatibility, but logic removed to prevent misuse.
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get Authorization header
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Authorization header required",
-			})
-			return
-		}
-
-		// Check Bearer prefix
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Invalid authorization format. Use: Bearer <token>",
-			})
-			return
-		}
-
-		tokenString := parts[1]
-
-		// Validate token
-		claims, err := ValidateAccessToken(tokenString)
-		if err != nil {
-			if err == ErrExpiredToken {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error": "Token has expired",
-					"code":  "token_expired",
-				})
-				return
-			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Invalid token",
-			})
-			return
-		}
-
-		// Set user info in context for downstream handlers
-		c.Set("user_id", claims.UserID)
-		c.Set("user_role", claims.Role)
-
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Legacy auth middleware called"})
 	}
+}
+
+// RolePermissions defines the permissions for each role
+var RolePermissions = map[string][]string{
+	"admin": {
+		"*",
+		"admin:access",
+		"system:monitor",
+	},
+	"moderator": {
+		"admin:access", // Moderators can access admin panel
+		"kyc:read",
+		"kyc:approve",
+		"kyc:reject",
+		"users:read",
+		"reports:read",
+		"reports:resolve",
+	},
+	"provider": {
+		"profile:read",
+		"profile:update",
+		"provider:dashboard",
+		"listings:create",
+		"listings:update",
+		"orders:read", // Can read orders for their services
+	},
+	"user": {
+		"profile:read",
+		"profile:update",
+		"listings:read",
+		"orders:create", // Can buy
+		"orders:read",   // Can read their own orders
+	},
+}
+
+// HasPermission checks if a role has a specific permission
+func HasPermission(role, permission string) bool {
+	perms, ok := RolePermissions[role]
+	if !ok {
+		return false
+	}
+	for _, p := range perms {
+		if p == "*" || p == permission {
+			return true
+		}
+	}
+	return false
 }
 
 // RequireRole creates middleware that requires specific roles
 func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString("user_role")
+		role := c.GetString("userRole")
 		if role == "" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "Access denied: no role found",
@@ -78,27 +85,31 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 	}
 }
 
-// OptionalAuth allows requests without auth but still extracts user if present
+// RequirePermission creates middleware that requires a specific permission
+func RequirePermission(permission string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := c.GetString("userRole")
+		if role == "" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "Access denied: no role found",
+			})
+			return
+		}
+
+		if HasPermission(role, permission) {
+			c.Next()
+			return
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "Access denied: insufficient permissions",
+		})
+	}
+}
+
+// OptionalAuth is deprecated.
 func OptionalAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.Next()
-			return
-		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.Next()
-			return
-		}
-
-		claims, err := ValidateAccessToken(parts[1])
-		if err == nil {
-			c.Set("user_id", claims.UserID)
-			c.Set("user_role", claims.Role)
-		}
-
 		c.Next()
 	}
 }

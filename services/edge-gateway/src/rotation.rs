@@ -1,29 +1,29 @@
 // Rotation Strategies for IP rotation in the proxy system
 // Supports: time-based, request-based, smart (on error), and hybrid strategies
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
 
 /// Rotation strategy configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RotationConfig {
     pub strategy: RotationStrategy,
-    pub time_interval_secs: u64,      // For time-based rotation
-    pub request_count: u64,           // For request-based rotation
-    pub error_codes: Vec<u16>,        // HTTP codes that trigger smart rotation (403, 429, etc)
+    pub time_interval_secs: u64, // For time-based rotation
+    pub request_count: u64,      // For request-based rotation
+    pub error_codes: Vec<u16>,   // HTTP codes that trigger smart rotation (403, 429, etc)
     pub max_failures_before_rotate: u32,
-    pub cooldown_secs: u64,           // Cooldown before reusing a rotated node
+    pub cooldown_secs: u64, // Cooldown before reusing a rotated node
 }
 
 impl Default for RotationConfig {
     fn default() -> Self {
         Self {
             strategy: RotationStrategy::Smart,
-            time_interval_secs: 300,  // 5 minutes
+            time_interval_secs: 300, // 5 minutes
             request_count: 100,
-            error_codes: vec![403, 429, 503],  // Forbidden, Rate limited, Service unavailable
+            error_codes: vec![403, 429, 503], // Forbidden, Rate limited, Service unavailable
             max_failures_before_rotate: 3,
             cooldown_secs: 60,
         }
@@ -54,7 +54,7 @@ pub struct RotationState {
     pub request_count: AtomicU64,
     pub failure_count: AtomicU64,
     pub last_failure_code: Option<u16>,
-    pub rotated_nodes: Vec<(String, Instant)>,  // (node_id, cooldown_until)
+    pub rotated_nodes: Vec<(String, Instant)>, // (node_id, cooldown_until)
     pub config: RotationConfig,
 }
 
@@ -103,7 +103,7 @@ impl RotationState {
     /// Record a failure and check if it's a rotation-triggering error
     pub fn record_failure(&mut self, http_code: u16) -> bool {
         self.last_failure_code = Some(http_code);
-        
+
         if self.config.error_codes.contains(&http_code) {
             self.failure_count.fetch_add(1, Ordering::Relaxed);
             return self.should_rotate_smart();
@@ -122,9 +122,10 @@ impl RotationState {
         if let Some(old_node) = self.current_node_id.take() {
             let cooldown_until = Instant::now() + Duration::from_secs(self.config.cooldown_secs);
             self.rotated_nodes.push((old_node, cooldown_until));
-            
+
             // Clean up expired cooldowns
-            self.rotated_nodes.retain(|(_, until)| *until > Instant::now());
+            self.rotated_nodes
+                .retain(|(_, until)| *until > Instant::now());
         }
 
         self.current_node_id = Some(node_id);
@@ -136,7 +137,8 @@ impl RotationState {
 
     /// Check if a node is in cooldown
     pub fn is_node_in_cooldown(&self, node_id: &str) -> bool {
-        self.rotated_nodes.iter()
+        self.rotated_nodes
+            .iter()
             .any(|(id, until)| id == node_id && *until > Instant::now())
     }
 
@@ -188,18 +190,23 @@ impl RotationManager {
 
     /// Create or get rotation state for a session
     pub fn get_or_create(&mut self, session_id: &str) -> &mut RotationState {
-        if !self.sessions.contains_key(session_id) {
-            let state = RotationState::new(session_id.to_string(), self.default_config.clone());
-            self.sessions.insert(session_id.to_string(), state);
-        }
-        self.sessions.get_mut(session_id).unwrap()
+        self.sessions
+            .entry(session_id.to_string())
+            .or_insert_with(|| {
+                RotationState::new(session_id.to_string(), self.default_config.clone())
+            })
     }
 
     /// Create session with custom config
-    pub fn create_with_config(&mut self, session_id: &str, config: RotationConfig) -> &mut RotationState {
-        let state = RotationState::new(session_id.to_string(), config);
-        self.sessions.insert(session_id.to_string(), state);
-        self.sessions.get_mut(session_id).unwrap()
+    pub fn create_with_config(
+        &mut self,
+        session_id: &str,
+        config: RotationConfig,
+    ) -> &mut RotationState {
+        self.sessions
+            .entry(session_id.to_string())
+            .and_modify(|s| s.config = config.clone())
+            .or_insert_with(|| RotationState::new(session_id.to_string(), config))
     }
 
     /// Remove session
@@ -225,9 +232,8 @@ impl RotationManager {
     /// Clean up expired sessions (no activity for 1 hour)
     pub fn cleanup(&mut self) {
         let hour = Duration::from_secs(3600);
-        self.sessions.retain(|_, state| {
-            state.node_assigned_at.elapsed() < hour
-        });
+        self.sessions
+            .retain(|_, state| state.node_assigned_at.elapsed() < hour);
     }
 }
 
@@ -242,7 +248,7 @@ mod tests {
             time_interval_secs: 0, // Immediate rotation for testing
             ..Default::default()
         };
-        
+
         let state = RotationState::new("test".to_string(), config);
         assert!(state.should_rotate());
     }
@@ -254,14 +260,14 @@ mod tests {
             request_count: 3,
             ..Default::default()
         };
-        
+
         let state = RotationState::new("test".to_string(), config);
         assert!(!state.should_rotate());
-        
+
         state.record_request();
         state.record_request();
         assert!(!state.should_rotate());
-        
+
         state.record_request();
         assert!(state.should_rotate());
     }
@@ -274,12 +280,12 @@ mod tests {
             error_codes: vec![403, 429],
             ..Default::default()
         };
-        
+
         let mut state = RotationState::new("test".to_string(), config);
-        
+
         // Non-triggering error
         assert!(!state.record_failure(500));
-        
+
         // Triggering errors
         assert!(!state.record_failure(403));
         assert!(state.record_failure(429)); // 2nd failure triggers

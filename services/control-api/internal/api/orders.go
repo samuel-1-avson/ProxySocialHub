@@ -1,8 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -20,8 +21,22 @@ func RegisterOrderRoutes(rg *gin.RouterGroup) {
 
 // createOrder creates a new order (purchase)
 func createOrder(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	buyerID := currentUserID.(uuid.UUID)
+	// Robust User ID Extraction
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	buyerID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	var req models.CreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -31,37 +46,14 @@ func createOrder(c *gin.Context) {
 
 	// Get listing
 	var listing models.ProxyListing
-	if err := db.DB.Preload("Seller").First(&listing, "id = ?", req.ListingID).Error; err != nil {
+	if err := db.DB.Preload("Seller").Preload("Circle").First(&listing, "id = ?", req.ListingID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
 	}
 
-	// Validate listing
-	if listing.Status != models.ListingStatusActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Listing is not active"})
-		return
-	}
-
-	if listing.SellerID == buyerID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot purchase from yourself"})
-		return
-	}
-
-	if req.BandwidthGB < listing.MinPurchaseGB {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimum purchase is " + floatToString(listing.MinPurchaseGB) + " GB"})
-		return
-	}
-
-	if req.BandwidthGB > listing.AvailableBandwidthGB {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough bandwidth available"})
-		return
-	}
-
 	// Calculate price (check bulk discounts)
-	pricePerGB := listing.PricePerGB
-	// TODO: Apply bulk discounts from listing.BulkDiscounts
-
-	totalPrice := pricePerGB * req.BandwidthGB
+	totalPrice := calculatePriceWithDiscounts(&listing, req.BandwidthGB)
+	pricePerGB := totalPrice / req.BandwidthGB
 
 	// Check buyer wallet balance
 	var wallet models.Wallet
@@ -110,7 +102,40 @@ func createOrder(c *gin.Context) {
 	}
 	tx.Create(&buyerLedger)
 
-	// Credit to seller wallet
+	// Distribute Funds
+	// Platform Fee: 10%
+	platformFee := totalPrice * 0.10
+	netAmount := totalPrice - platformFee
+
+	var clanShare float64 = 0
+	var sellerAmount = netAmount
+
+	// Check for Clan Revenue Share
+	if listing.CircleID != nil && listing.Circle != nil && listing.Circle.RevenueSharePercent > 0 {
+		clanShare = netAmount * listing.Circle.RevenueSharePercent
+		sellerAmount = netAmount - clanShare
+
+		// Credit Clan Owner
+		var clanOwnerWallet models.Wallet
+		if err := tx.First(&clanOwnerWallet, "user_id = ?", listing.Circle.OwnerID).Error; err != nil {
+			clanOwnerWallet = models.Wallet{UserID: listing.Circle.OwnerID, Balance: 0, Currency: "GHS"}
+			tx.Create(&clanOwnerWallet)
+		}
+		clanOwnerNewBalance := clanOwnerWallet.Balance + clanShare
+		tx.Model(&clanOwnerWallet).Update("balance", clanOwnerNewBalance)
+
+		// Ledger for Clan Owner
+		tx.Create(&models.WalletLedgerEntry{
+			WalletID:     clanOwnerWallet.ID,
+			Amount:       clanShare,
+			BalanceAfter: clanOwnerNewBalance,
+			Type:         "clan_share",
+			ReferenceID:  order.ID.String(),
+			Description:  fmt.Sprintf("Clan share (%.0f%%) from sale in %s", listing.Circle.RevenueSharePercent*100, listing.Circle.Name),
+		})
+	}
+
+	// Credit Seller
 	var sellerWallet models.Wallet
 	if err := tx.First(&sellerWallet, "user_id = ?", listing.SellerID).Error; err != nil {
 		// Create wallet if not exists
@@ -121,10 +146,6 @@ func createOrder(c *gin.Context) {
 		}
 		tx.Create(&sellerWallet)
 	}
-
-	// Platform fee (10%)
-	platformFee := totalPrice * 0.10
-	sellerAmount := totalPrice - platformFee
 
 	sellerNewBalance := sellerWallet.Balance + sellerAmount
 	tx.Model(&sellerWallet).Update("balance", sellerNewBalance)
@@ -169,9 +190,11 @@ func createOrder(c *gin.Context) {
 
 	// Create a session for the buyer with the purchased bandwidth
 	session := models.Session{
-		UserID: buyerID,
-		Type:   models.SessionRotating,
-		Status: models.SessionActive,
+		UserID:         buyerID,
+		Type:           models.SessionRotating,
+		Status:         models.SessionActive,
+		BandwidthLimit: int64(req.BandwidthGB * 1024 * 1024 * 1024), // Convert GB to Bytes
+		Config:         "{}",                                        // Default config
 	}
 	if err := tx.Create(&session).Error; err == nil {
 		// Link session to order
@@ -203,14 +226,27 @@ func createOrder(c *gin.Context) {
 			"endpoint": "proxy.proxyhubb.com:8080",
 		}
 	}
-
 	c.JSON(http.StatusCreated, response)
+
 }
 
 // getMyOrders returns the current user's purchases
 func getMyOrders(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -240,8 +276,21 @@ func getMyOrders(c *gin.Context) {
 
 // getOrder returns a single order
 func getOrder(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -267,8 +316,21 @@ func getOrder(c *gin.Context) {
 
 // getMySales returns the current user's sales
 func getMySales(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -298,7 +360,30 @@ func getMySales(c *gin.Context) {
 
 // Helper functions
 func floatToString(f float64) string {
-	return time.Now().Format("15:04:05") // Placeholder - will format properly
+	return fmt.Sprintf("%.2f", f)
+}
+
+func calculatePriceWithDiscounts(listing *models.ProxyListing, bandwidthGB float64) float64 {
+	basePrice := listing.PricePerGB
+
+	// Parse bulk discounts
+	var discounts []models.BulkDiscount
+	if len(listing.BulkDiscounts) > 0 {
+		// Try to unmarshal (it's stored as JSONB/bytes)
+		if err := json.Unmarshal(listing.BulkDiscounts, &discounts); err != nil {
+			return basePrice * bandwidthGB
+		}
+	}
+
+	// Find applicable discount (highest min_gb that fits)
+	bestPrice := basePrice
+	for _, d := range discounts {
+		if bandwidthGB >= d.MinGB && d.PricePerGB < bestPrice {
+			bestPrice = d.PricePerGB
+		}
+	}
+
+	return bestPrice * bandwidthGB
 }
 
 func getDisplayName(user *models.User) string {

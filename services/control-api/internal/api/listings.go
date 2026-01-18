@@ -2,11 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -24,8 +27,34 @@ func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings/my", getMyListings)
 }
 
+// ListingsResponse is the cached response structure
+type ListingsResponse struct {
+	Listings []models.ProxyListing `json:"listings"`
+	Total    int64                 `json:"total"`
+	Page     int                   `json:"page"`
+	Limit    int                   `json:"limit"`
+}
+
 // getListings returns marketplace listings with filters
 func getListings(c *gin.Context) {
+	// Try cache first
+	cacheKey := fmt.Sprintf("listings:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:sort:%s",
+		c.DefaultQuery("page", "1"),
+		c.DefaultQuery("limit", "20"),
+		c.Query("proxy_type"),
+		c.Query("protocol"),
+		c.Query("min_price"),
+		c.Query("max_price"),
+		c.Query("seller_id"),
+		c.Query("sort_by"),
+	)
+
+	var cachedResponse ListingsResponse
+	if found, _ := cache.Get(cacheKey, &cachedResponse); found {
+		c.JSON(http.StatusOK, cachedResponse)
+		return
+	}
+
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
 	offset := (page - 1) * limit
@@ -74,12 +103,17 @@ func getListings(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"listings": listings,
-		"total":    total,
-		"page":     page,
-		"limit":    limit,
-	})
+	response := ListingsResponse{
+		Listings: listings,
+		Total:    total,
+		Page:     page,
+		Limit:    limit,
+	}
+
+	// Cache result (60 seconds)
+	cache.Set(cacheKey, response, 60*time.Second)
+
+	c.JSON(http.StatusOK, response)
 }
 
 // getListing returns a single listing by ID
@@ -100,11 +134,29 @@ func getListing(c *gin.Context) {
 	db.DB.Model(&listing).Update("views_count", listing.ViewsCount+1)
 
 	// Check if current user has saved this listing
-	currentUserID, exists := c.Get("user_id")
+	// Manually check both keys for safety
+	var currentUserID interface{}
+	exists := false
+	if uid, ok := c.Get("user_id"); ok {
+		currentUserID = uid
+		exists = true
+	} else if uidStr := c.GetString("userID"); uidStr != "" {
+		currentUserID, _ = uuid.Parse(uidStr)
+		exists = true
+	}
+
 	isSaved := false
 	if exists {
+		// Ensure currentUserID is uuid
+		var uID uuid.UUID
+		if id, ok := currentUserID.(uuid.UUID); ok {
+			uID = id
+		} else if idStr, ok := currentUserID.(string); ok {
+			uID, _ = uuid.Parse(idStr)
+		}
+
 		var saved models.SavedListing
-		if err := db.DB.Where("user_id = ? AND listing_id = ?", currentUserID, listingID).First(&saved).Error; err == nil {
+		if err := db.DB.Where("user_id = ? AND listing_id = ?", uID, listingID).First(&saved).Error; err == nil {
 			isSaved = true
 		}
 	}
@@ -117,8 +169,21 @@ func getListing(c *gin.Context) {
 
 // createListing creates a new proxy listing
 func createListing(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	// Check if user is a provider
 	var user models.User
@@ -135,6 +200,17 @@ func createListing(c *gin.Context) {
 	var req models.CreateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Manual normalization and validation
+	req.Protocol = strings.ToUpper(req.Protocol)
+	if req.Protocol != "HTTP" && req.Protocol != "HTTPS" && req.Protocol != "SOCKS5" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid protocol"})
+		return
+	}
+	if req.ProxyType != "residential" && req.ProxyType != "mobile" && req.ProxyType != "datacenter" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proxy type"})
 		return
 	}
 
@@ -196,8 +272,21 @@ func createListing(c *gin.Context) {
 
 // updateListing updates an existing listing
 func updateListing(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	listingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -263,8 +352,21 @@ func updateListing(c *gin.Context) {
 
 // deleteListing soft-deletes a listing
 func deleteListing(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	listingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -289,8 +391,21 @@ func deleteListing(c *gin.Context) {
 
 // saveListing bookmarks a listing
 func saveListing(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	listingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -333,8 +448,21 @@ func saveListing(c *gin.Context) {
 
 // unsaveListing removes a bookmark
 func unsaveListing(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	listingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -358,8 +486,21 @@ func unsaveListing(c *gin.Context) {
 
 // getSavedListings returns user's saved listings
 func getSavedListings(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -389,8 +530,21 @@ func getSavedListings(c *gin.Context) {
 
 // getMyListings returns the current user's listings
 func getMyListings(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)

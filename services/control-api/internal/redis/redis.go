@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -15,6 +16,7 @@ var ctx = context.Background()
 type SessionData struct {
 	UserID         string    `json:"user_id"`
 	SessionID      string    `json:"session_id"`
+	ProviderID     string    `json:"provider_id"` // Added for billing
 	Type           string    `json:"type"`
 	Status         string    `json:"status"`
 	BandwidthLimit int64     `json:"bandwidth_limit"` // bytes
@@ -51,6 +53,9 @@ func StoreSession(sessionID string, data *SessionData, ttl time.Duration) error 
 		return err
 	}
 
+	if Client == nil {
+		return nil
+	}
 	key := "session:" + sessionID
 	return Client.Set(ctx, key, jsonData, ttl).Err()
 }
@@ -107,7 +112,7 @@ func CheckAPIKeyRateLimit(keyPrefix string, maxRequests int) (bool, int, error) 
 	pipe := Client.Pipeline()
 
 	// Remove old entries outside the window
-	pipe.ZRemRangeByScore(ctx, key, "0", string(rune(windowStart-1)))
+	pipe.ZRemRangeByScore(ctx, key, "0", strconv.Itoa(int(windowStart)-1))
 
 	// Count requests in current window
 	countCmd := pipe.ZCard(ctx, key)
@@ -160,11 +165,35 @@ func GetAPIKeyRateLimitInfo(keyPrefix string) (used int64, remaining int, error 
 	windowStart := now - 60
 
 	// Clean old entries and count current
-	Client.ZRemRangeByScore(ctx, key, "0", string(rune(windowStart-1)))
+	Client.ZRemRangeByScore(ctx, key, "0", strconv.Itoa(int(windowStart)-1))
 	count, err := Client.ZCard(ctx, key).Result()
 	if err != nil && err != redis.Nil {
 		return 0, 0, err
 	}
 
 	return count, 0, nil
+}
+
+// ========== Distributed Locking ==========
+
+// AcquireLock attempts to acquire a lock key. Returns true if successful.
+// Uses SET key value NX PX ttl
+func AcquireLock(key string, value string, ttl time.Duration) (bool, error) {
+	if Client == nil {
+		return true, nil
+	}
+	success, err := Client.SetNX(ctx, "lock:"+key, value, ttl).Result()
+	if err != nil {
+		return false, err
+	}
+	return success, nil
+}
+
+// ReleaseLock releases a lock key.
+// Ideally should check value, but for simple mutex within same request context, Del is often enough.
+func ReleaseLock(key string) error {
+	if Client == nil {
+		return nil
+	}
+	return Client.Del(ctx, "lock:"+key).Err()
 }

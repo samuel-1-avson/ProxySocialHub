@@ -13,6 +13,7 @@ import (
 func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.GET("/profile", getMyProfile)
 	rg.PATCH("/profile", updateProfile)
+	rg.GET("/users/me", getMyProfile)      // Alias for /profile
 	rg.GET("/users/:id", getPublicProfile) // By ID or username
 	rg.GET("/users/:id/followers", getFollowers)
 	rg.GET("/users/:id/following", getFollowing)

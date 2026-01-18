@@ -21,17 +21,17 @@ const (
 
 // Order represents a purchase of proxy bandwidth
 type Order struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	BuyerID   uuid.UUID `gorm:"type:uuid;not null" json:"buyer_id"`
-	SellerID  uuid.UUID `gorm:"type:uuid;not null" json:"seller_id"`
-	ListingID uuid.UUID `gorm:"type:uuid;not null" json:"listing_id"`
+	ID        uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	BuyerID   uuid.UUID `gorm:"type:uuid;not null;index:idx_order_buyer" json:"buyer_id"`
+	SellerID  uuid.UUID `gorm:"type:uuid;not null;index:idx_order_seller" json:"seller_id"`
+	ListingID uuid.UUID `gorm:"type:uuid;not null;index:idx_order_listing" json:"listing_id"`
 
 	// Purchase details
 	BandwidthGB float64 `gorm:"not null" json:"bandwidth_gb"`
 	PricePerGB  float64 `gorm:"not null" json:"price_per_gb"`
 	TotalPrice  float64 `gorm:"not null" json:"total_price"`
 
-	Status    OrderStatus `gorm:"size:50;default:'pending'" json:"status"`
+	Status    OrderStatus `gorm:"size:50;default:'pending';index:idx_order_status" json:"status"`
 	SessionID *uuid.UUID  `gorm:"type:uuid" json:"session_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`

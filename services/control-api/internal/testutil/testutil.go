@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
-	"golang.org/x/crypto/bcrypt"
+	redisInternal "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -18,7 +20,28 @@ import (
 var (
 	testDBOnce sync.Once
 	testDB     *gorm.DB
+	mr         *miniredis.Miniredis
 )
+
+// SetupTestRedis initializes a miniredis instance for testing.
+func SetupTestRedis(t *testing.T) {
+	t.Helper()
+	// Ensure previous instance is closed if any (though usually one per test or shared)
+	// Ideally we run one per test or clear it.
+	// For simplicity, create new one.
+
+	m, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("Failed to start miniredis: %v", err)
+	}
+	t.Cleanup(func() {
+		m.Close()
+	})
+
+	redisInternal.Client = redis.NewClient(&redis.Options{
+		Addr: m.Addr(),
+	})
+}
 
 // SetupTestDB initializes a PostgreSQL test database connection.
 // Uses TEST_DATABASE_URL environment variable or defaults to a local test database.
@@ -61,6 +84,23 @@ func SetupTestDB(t *testing.T) {
 			&models.TOTPBackupCode{},
 			&models.APIKey{},
 			&models.AuditLog{},
+			&models.PendingTransaction{},
+			&models.ForumCategory{},
+			&models.ForumThread{},
+			&models.ForumPost{},
+			&models.ForumVote{},
+			&models.Review{},
+			&models.Conversation{},
+			&models.Message{},
+			&models.FriendRequest{},
+			&models.Friendship{},
+			&models.ProxyListing{},
+			&models.Order{},
+			&models.FeedEvent{},
+			&models.ProviderNode{},
+			&models.UptimeCheck{},
+			&models.UseCase{},
+			&models.UserPreference{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)
@@ -85,9 +125,12 @@ func CleanupTestData(t *testing.T, tables ...string) {
 		if db.DB == nil {
 			return
 		}
+		// Disable FK checks to allow deleting in any order
+		db.DB.Exec("SET session_replication_role = 'replica';")
 		for _, table := range tables {
 			db.DB.Exec(fmt.Sprintf("DELETE FROM %s WHERE 1=1", table))
 		}
+		db.DB.Exec("SET session_replication_role = 'origin';")
 	})
 }
 
@@ -97,13 +140,11 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 	t.Helper()
 
 	user := &models.User{
-		Email:         email,
-		PasswordHash:  HashPassword("password123"),
-		Role:          role,
-		Status:        models.UserStatusActive,
-		EmailVerified: true,
-		TrustTier:     models.TrustTierNew,
-		KYCStatus:     models.KYCStatusNotStarted,
+		Email:     email,
+		Role:      role,
+		Status:    models.UserStatusActive,
+		TrustTier: models.TrustTierNew,
+		KYCStatus: models.KYCStatusNotStarted,
 	}
 
 	if err := db.DB.Create(user).Error; err != nil {
@@ -118,59 +159,6 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 	db.DB.Create(wallet)
 
 	return user
-}
-
-// CreateUnverifiedTestUser creates an unverified user for testing.
-func CreateUnverifiedTestUser(t *testing.T, email, role string) *models.User {
-	t.Helper()
-
-	token := "test-verification-token-" + email
-	expires := time.Now().Add(24 * time.Hour)
-
-	user := &models.User{
-		Email:                    email,
-		PasswordHash:             HashPassword("password123"),
-		Role:                     role,
-		Status:                   models.UserStatusActive,
-		EmailVerified:            false,
-		VerificationToken:        &token,
-		VerificationTokenExpires: &expires,
-	}
-
-	if err := db.DB.Create(user).Error; err != nil {
-		t.Fatalf("Failed to create unverified test user: %v", err)
-	}
-
-	return user
-}
-
-// Create2FAEnabledUser creates a user with 2FA enabled for testing.
-func Create2FAEnabledUser(t *testing.T, email string) (*models.User, string) {
-	t.Helper()
-
-	secret := "TESTSECRETFORTESTING123456"
-	user := &models.User{
-		Email:         email,
-		PasswordHash:  HashPassword("password123"),
-		Role:          "buyer",
-		Status:        models.UserStatusActive,
-		EmailVerified: true,
-		TOTPSecret:    &secret,
-		TOTPEnabled:   true,
-	}
-
-	if err := db.DB.Create(user).Error; err != nil {
-		t.Fatalf("Failed to create 2FA enabled test user: %v", err)
-	}
-
-	return user, secret
-}
-
-// HashPassword hashes a password using bcrypt for test users.
-func HashPassword(password string) string {
-	// Use a low cost for faster tests
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
-	return string(hash)
 }
 
 // UniqueEmail generates a unique email for testing to avoid conflicts.
