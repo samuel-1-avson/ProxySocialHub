@@ -1,13 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/proxyhubb/control-api/internal/cache"
+	"github.com/proxyhubb/control-api/internal/redis"
 )
+
+var ctx = context.Background()
 
 // RateLimitConfig defines rate limiting configuration
 type RateLimitConfig struct {
@@ -48,7 +51,7 @@ func AuthRateLimitConfig() RateLimitConfig {
 // RateLimit middleware using Redis token bucket
 func RateLimit(config RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if cache.Client == nil {
+		if redis.Client == nil {
 			// Redis not available, skip rate limiting
 			c.Next()
 			return
@@ -57,7 +60,7 @@ func RateLimit(config RateLimitConfig) gin.HandlerFunc {
 		key := "ratelimit:" + config.KeyFunc(c)
 
 		// Get current count
-		count, err := cache.Incr(key)
+		count, err := redis.Client.Incr(ctx, key).Result()
 		if err != nil {
 			// Redis error, allow request
 			c.Next()
@@ -66,7 +69,7 @@ func RateLimit(config RateLimitConfig) gin.HandlerFunc {
 
 		// Set expiry on first request
 		if count == 1 {
-			cache.Expire(key, config.Window)
+			redis.Client.Expire(ctx, key, config.Window)
 		}
 
 		// Check limit

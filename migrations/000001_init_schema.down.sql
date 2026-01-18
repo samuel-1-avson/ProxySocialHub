@@ -1,9 +1,0 @@
-DROP TABLE IF EXISTS circle_members;
-DROP TABLE IF EXISTS circles;
-DROP TABLE IF EXISTS usage_records;
-DROP TABLE IF EXISTS sessions;
-DROP TABLE IF EXISTS nodes;
-DROP TABLE IF EXISTS wallet_ledger_entries;
-DROP TABLE IF EXISTS wallets;
-DROP TABLE IF EXISTS kyc_verifications;
-DROP TABLE IF EXISTS users;

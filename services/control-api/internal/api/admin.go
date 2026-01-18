@@ -13,7 +13,7 @@ import (
 
 // RegisterAdminRoutes registers all admin API routes
 func RegisterAdminRoutes(r *gin.RouterGroup) {
-	// User Management
+	// User Management (Moderators can access)
 	r.GET("/users", listUsers)
 	r.GET("/users/:id", getUser)
 	r.POST("/users/:id/ban", banUser)
@@ -22,21 +22,33 @@ func RegisterAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/users/:id/suspend", suspendUser)
 	r.POST("/users/:id/activate", activateUser)
 
-	// Node Monitoring
-	r.GET("/nodes", listNodes)
-	r.GET("/nodes/stats", getNodeStats)
+	// Node Monitoring (System Monitor or Admin)
+	nodes := r.Group("/nodes")
+	nodes.Use(RequirePermission("system:monitor"))
+	{
+		nodes.GET("", listNodes)
+		nodes.GET("/stats", getNodeStats)
+	}
 
-	// Payout Management
-	r.GET("/payouts/pending", getPendingPayouts)
-	r.POST("/payouts/:id/process", processPayout)
-	r.GET("/payouts/history", getPayoutHistory)
+	// Payout Management (Admins only / Financial)
+	payouts := r.Group("/payouts")
+	payouts.Use(RequirePermission("payouts:manage"))
+	{
+		payouts.GET("/pending", getPendingPayouts)
+		payouts.POST("/:id/process", processPayout)
+		payouts.GET("/history", getPayoutHistory)
+	}
 
-	// System Stats
-	r.GET("/stats", getSystemStats)
-	r.GET("/stats/dashboard", getDashboardStats)
+	// System Stats (Admins only)
+	stats := r.Group("/stats")
+	stats.Use(RequirePermission("system:monitor"))
+	{
+		stats.GET("", getSystemStats)
+		stats.GET("/dashboard", getDashboardStats)
+	}
 
-	// Audit Logs
-	r.GET("/audit-logs", getAuditLogs)
+	// Audit Logs (Admins only)
+	r.GET("/audit-logs", RequirePermission("system:audit"), getAuditLogs)
 }
 
 // ========== User Management ==========

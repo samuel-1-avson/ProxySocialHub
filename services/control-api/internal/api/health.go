@@ -18,6 +18,7 @@ func RegisterHealthRoutes(r *gin.RouterGroup) {
 		h.POST("/nodes/:id/check", triggerNodeHealthCheck)
 		h.POST("/nodes/:id/reactivate", reactivateNode)
 		h.GET("/stats", getHealthStats)
+		h.GET("/system", getSystemHealth)
 	}
 }
 
@@ -127,4 +128,21 @@ func reactivateNode(c *gin.Context) {
 func getHealthStats(c *gin.Context) {
 	stats := health.GetNodeHealthStats()
 	c.JSON(http.StatusOK, stats)
+}
+
+// getSystemHealth returns system-level dependency health
+// @Summary      Get system health
+// @Description  Checks health of DB, Redis, and other dependencies
+// @Tags         health
+// @Produce      json
+// @Success      200  {object} health.SystemHealth
+// @Failure      503  {object} health.SystemHealth
+// @Router       /health/system [get]
+func getSystemHealth(c *gin.Context) {
+	status := health.CheckSystem()
+	httpStatus := http.StatusOK
+	if !status.Healthy {
+		httpStatus = http.StatusServiceUnavailable
+	}
+	c.JSON(httpStatus, status)
 }

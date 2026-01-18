@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/smtp"
-	"os"
 	"strings"
 )
 
@@ -30,17 +29,7 @@ type Service struct {
 var emailService *Service
 
 // Init initializes the email service with environment variables
-func Init() error {
-	config := Config{
-		SMTPHost:  os.Getenv("SMTP_HOST"),
-		SMTPPort:  os.Getenv("SMTP_PORT"),
-		SMTPUser:  os.Getenv("SMTP_USER"),
-		SMTPPass:  os.Getenv("SMTP_PASS"),
-		FromEmail: os.Getenv("FROM_EMAIL"),
-		FromName:  getEnvOrDefault("FROM_NAME", "ProxyHubb"),
-		AppURL:    getEnvOrDefault("APP_URL", "http://localhost:3000"),
-		Enabled:   os.Getenv("SMTP_HOST") != "",
-	}
+func Init(config Config) error {
 
 	if config.SMTPPort == "" {
 		config.SMTPPort = "587"
@@ -261,11 +250,4 @@ func (s *Service) sendWithTLS(to, message string) error {
 	}
 
 	return client.Quit()
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

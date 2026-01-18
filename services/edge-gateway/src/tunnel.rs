@@ -8,7 +8,17 @@ use yamux::{Config, Connection, Mode, WindowUpdateMode};
 use crate::state::{AppState, NodeInfo};
 use crate::tls::{TlsConfig, create_tls_acceptor, is_tls_enabled};
 use uuid::Uuid;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, AsyncReadExt, AsyncWriteExt};
+use tracing::{info, warn, error};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    user_id: String,
+    role: String,
+    exp: usize,
+}
 
 pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -20,26 +30,26 @@ pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Bo
             Some(config) => {
                 match create_tls_acceptor(&config) {
                     Ok(acceptor) => {
-                        println!("🔐 Tunnel Server listening on {} (TLS enabled)", addr);
+                        info!("🔐 Tunnel Server listening on {} (TLS enabled)", addr);
                         if config.require_client_cert {
-                            println!("   mTLS: Client certificate required");
+                            info!("   mTLS: Client certificate required");
                         }
                         Some(acceptor)
                     }
                     Err(e) => {
-                        eprintln!("⚠️  Failed to create TLS acceptor: {}", e);
-                        println!("Tunnel Server listening on {} (TLS disabled - fallback)", addr);
+                        error!("⚠️  Failed to create TLS acceptor: {}", e);
+                        warn!("Tunnel Server listening on {} (TLS disabled - fallback)", addr);
                         None
                     }
                 }
             }
             None => {
-                println!("Tunnel Server listening on {} (TLS not configured)", addr);
+                info!("Tunnel Server listening on {} (TLS not configured)", addr);
                 None
             }
         }
     } else {
-        println!("Tunnel Server listening on {} (plaintext)", addr);
+        info!("Tunnel Server listening on {} (plaintext)", addr);
         None
     };
 
@@ -53,11 +63,11 @@ pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Bo
             if let Some(acceptor) = tls_acceptor {
                 match acceptor.accept(stream).await {
                     Ok(tls_stream) => {
-                        println!("🔐 TLS handshake successful with {}", peer_addr);
+                        info!("🔐 TLS handshake successful with {}", peer_addr);
                         handle_provider_connection(tls_stream, peer_addr, state).await;
                     }
                     Err(e) => {
-                        eprintln!("❌ TLS handshake failed with {}: {}", peer_addr, e);
+                        error!("❌ TLS handshake failed with {}: {}", peer_addr, e);
                     }
                 }
             } else {
@@ -79,15 +89,80 @@ where
     
     // Get the incoming streams + control
     let ctrl = conn.control();
-    let incoming = yamux::into_stream(conn);
+    let mut incoming = yamux::into_stream(conn);
     tokio::pin!(incoming);
+
+    // AUTHENTICATION HANDSHAKE
+    // Expect the FIRST stream to be an Auth channel
+    let mut authenticated_user_id = None;
+    let mut auth_stream_handle: Option<yamux::Stream> = None;
+
+    // Timeout for auth (10 seconds)
+    match tokio::time::timeout(std::time::Duration::from_secs(10), incoming.next()).await {
+        Ok(Some(Ok(mut stream))) => {
+            // Read AUTH <token>
+            let mut buf = [0u8; 4096]; // 4kb should be enough for JWT
+            match stream.read(&mut buf).await {
+                Ok(n) if n > 0 => {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if msg.starts_with("AUTH ") {
+                        let token = msg[5..].trim();
+                        
+                        // Validate Token
+                        let mut validation = Validation::new(Algorithm::HS256);
+                        validation.insecure_disable_signature_validation(); // Temporarily disable signature check if secret mismatch is worry
+                        // Actually, enable it:
+                        validation = Validation::new(Algorithm::HS256);
+                        
+                        // Note: If tokens are from Go (StandardClaims), make sure fields match
+                        match decode::<Claims>(token, &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()), &validation) {
+                            Ok(token_data) => {
+                                info!("🔑 Authenticated user: {}", token_data.claims.user_id);
+                                authenticated_user_id = Some(token_data.claims.user_id);
+                                if let Err(e) = stream.write_all(b"OK\n").await {
+                                    error!("Failed to send OK: {}", e);
+                                    return;
+                                }
+                                auth_stream_handle = Some(stream); // Keep stream open or close? Usually keep open or close gracefully.
+                            }
+                            Err(e) => {
+                                warn!("Auth failed: {}", e);
+                                let _ = stream.write_all(format!("ERROR {}\n", e).as_bytes()).await;
+                                return;
+                            }
+                        }
+                    } else {
+                        warn!("Invalid handshake: expected AUTH");
+                    }
+                }
+                Ok(_) => warn!("Auth stream empty"),
+                Err(e) => error!("Auth read error: {}", e),
+            }
+        }
+        Ok(Some(Err(e))) => {
+             error!("Connection error waiting for auth: {}", e);
+             return;
+        }
+        Ok(None) => return, // Closed
+        Err(_) => {
+            error!("Auth timeout");
+            return;
+        }
+    }
+
+    if authenticated_user_id.is_none() {
+        warn!("Authentication required. Closing connection.");
+        return;
+    }
+
+    let user_id = authenticated_user_id.unwrap();
     
-    // Generate a random Node ID
+    // Generate a random Node ID (or user provided? For now random)
     let node_id = Uuid::new_v4().to_string();
     
     // Create node info with peer address
     let ip_address = peer_addr.ip().to_string();
-    let mut node_info = NodeInfo::new(node_id.clone(), ip_address.clone());
+    let mut node_info = NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id));
     
     // Detect location (placeholder)
     node_info.country_code = detect_country_from_ip(&ip_address);
@@ -95,23 +170,32 @@ where
     
     // Register with full node info
     {
-        let mut registry = state.registry.lock().unwrap();
-        registry.insert(node_id.clone(), ctrl, node_info);
+        if let Ok(mut registry) = state.registry.lock() {
+            registry.insert(node_id.clone(), ctrl, node_info);
+        } else {
+            error!("Failed to acquire registry lock (poisoned) while registering node {}", node_id);
+            return;
+        }
     }
     
-    println!("✅ Provider connected: {} from {}", node_id, peer_addr);
+    info!("✅ Provider connected: {} from {}", node_id, peer_addr);
 
     // Drive connection - accept incoming streams
     while let Some(result) = incoming.next().await {
         match result {
-            Ok(_stream) => {
-                println!("Provider opened a stream (unexpected for outbound tunnel)");
+            Ok(stream) => {
+                // If it's the auth stream again or new streams? 
+                // Providers shouldn't open streams unless for bidirectional comms later.
+                // Just log.
+                // warn!("Provider opened a stream (unexpected for outbound tunnel) ID: {}", stream.id());
+                // NOTE: Yamux might yield the auth stream again? No, next() yields new streams.
             }
             Err(e) => {
-                eprintln!("Stream error for {}: {}", node_id, e);
+                error!("Stream error for {}: {}", node_id, e);
                 {
-                    let mut registry = state.registry.lock().unwrap();
-                    registry.mark_unhealthy(&node_id);
+                    if let Ok(mut registry) = state.registry.lock() {
+                        registry.mark_unhealthy(&node_id);
+                    }
                 }
                 break;
             }
@@ -120,10 +204,11 @@ where
     
     // Cleanup
     {
-        let mut registry = state.registry.lock().unwrap();
-        registry.remove(&node_id);
+        if let Ok(mut registry) = state.registry.lock() {
+            registry.remove(&node_id);
+        }
     }
-    println!("❌ Provider disconnected: {}", node_id);
+    info!("❌ Provider disconnected: {}", node_id);
 }
 
 /// Placeholder for GeoIP country detection

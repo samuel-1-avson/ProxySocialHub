@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-// import { Button } from "./ui/Button";
+import { useAuth } from "@/lib/auth";
+import { ModeToggle } from "@/components/ModeToggle";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -12,6 +13,7 @@ interface NavbarProps {
 export function Navbar({ showAuth = true }: NavbarProps) {
     const pathname = usePathname();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const { user } = useAuth();
 
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
@@ -53,6 +55,8 @@ export function Navbar({ showAuth = true }: NavbarProps) {
 
                 {/* Right Side */}
                 <div className="flex items-center gap-4">
+                    <ModeToggle />
+
                     {/* Notifications */}
                     <Link
                         href="/notifications"
@@ -67,9 +71,13 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                     {/* Profile */}
                     {showAuth && (
                         <Link href="/profile" className="w-10 h-10 rounded-full overflow-hidden shadow-[var(--shadow-sm)] border-2 border-[var(--card-border)] hover:border-[var(--primary)] transition-colors">
-                            <div className="w-full h-full flex items-center justify-center bg-[var(--primary-light)] text-[var(--primary-dark)] font-bold">
-                                K
-                            </div>
+                            {user?.avatar_url ? (
+                                <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-[var(--primary-light)] text-[var(--primary-dark)] font-bold">
+                                    {user?.email?.charAt(0).toUpperCase() || "?"}
+                                </div>
+                            )}
                         </Link>
                     )}
 

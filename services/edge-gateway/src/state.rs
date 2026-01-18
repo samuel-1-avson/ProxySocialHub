@@ -1,35 +1,42 @@
+use crate::config::Config;
+use governor::clock::DefaultClock;
+use governor::state::keyed::DefaultKeyedStateStore;
+use governor::{Quota, RateLimiter};
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use yamux::Control;
-use rand::seq::SliceRandom;
-use serde::{Serialize, Deserialize};
 
 /// Provider node metadata for intelligent routing
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeInfo {
     pub node_id: String,
-    pub country_code: String,      // ISO 3166-1 alpha-2 (e.g., "GH", "NG", "KE")
-    pub region: String,            // Region/city (e.g., "Accra", "Lagos")
+    pub user_id: Option<String>,
+    pub country_code: String, // ISO 3166-1 alpha-2 (e.g., "GH", "NG", "KE")
+    pub region: String,       // Region/city (e.g., "Accra", "Lagos")
     pub ip_address: String,
-    pub connected_at: u64,         // Unix timestamp
+    pub connected_at: u64, // Unix timestamp
     pub total_bytes_served: u64,
     pub active_connections: u32,
     pub max_connections: u32,
-    pub latency_ms: u32,           // Last measured latency
+    pub latency_ms: u32, // Last measured latency
     pub is_healthy: bool,
 }
 
 impl NodeInfo {
-    pub fn new(node_id: String, ip_address: String) -> Self {
+    pub fn new(node_id: String, ip_address: String, user_id: Option<String>) -> Self {
         Self {
             node_id,
+            user_id,
             country_code: "GH".to_string(), // Default to Ghana
             region: "Unknown".to_string(),
             ip_address,
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| Duration::from_secs(0))
                 .as_secs(),
             total_bytes_served: 0,
             active_connections: 0,
@@ -57,8 +64,10 @@ impl NodeInfo {
         // Bonus for fresh nodes (connected recently)
         let uptime_hours = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() - self.connected_at) / 3600;
+            .unwrap_or_else(|_| Duration::from_secs(0))
+            .as_secs()
+            - self.connected_at)
+            / 3600;
         if uptime_hours < 24 {
             score += 50; // Fresh node bonus
         }
@@ -82,12 +91,15 @@ impl NodeRegistry {
     }
 
     pub fn insert(&mut self, node_id: String, control: Control, info: NodeInfo) {
-        println!("Registered node: {} from {} ({})", node_id, info.region, info.country_code);
+        println!(
+            "Registered node: {} from {} ({})",
+            node_id, info.region, info.country_code
+        );
         self.nodes.insert(node_id, (control, info));
     }
 
     pub fn insert_simple(&mut self, node_id: String, control: Control, ip_address: String) {
-        let info = NodeInfo::new(node_id.clone(), ip_address);
+        let info = NodeInfo::new(node_id.clone(), ip_address, None);
         self.insert(node_id, control, info);
     }
 
@@ -103,6 +115,16 @@ impl NodeRegistry {
 
     pub fn get_node_info(&self, node_id: &str) -> Option<&NodeInfo> {
         self.nodes.get(node_id).map(|(_, info)| info)
+    }
+
+    /// Get a specific node by ID
+    pub fn get_by_id(&self, node_id: &str) -> Option<Control> {
+        if let Some((control, info)) = self.nodes.get(node_id) {
+            if info.is_healthy {
+                return Some(control.clone());
+            }
+        }
+        None
     }
 
     pub fn update_node_stats(&mut self, node_id: &str, bytes_served: u64) {
@@ -136,10 +158,12 @@ impl NodeRegistry {
 
     /// Get a random healthy node
     pub fn get_random(&self) -> Option<Control> {
-        let healthy_nodes: Vec<_> = self.nodes.iter()
+        let healthy_nodes: Vec<_> = self
+            .nodes
+            .iter()
             .filter(|(_, (_, info))| info.is_healthy)
             .collect();
-        
+
         if let Some((_, (control, _))) = healthy_nodes.choose(&mut rand::thread_rng()) {
             Some(control.clone())
         } else {
@@ -171,10 +195,12 @@ impl NodeRegistry {
 
     /// Get nodes filtered by country
     pub fn get_by_country(&self, country_code: &str) -> Option<Control> {
-        let matching: Vec<_> = self.nodes.iter()
+        let matching: Vec<_> = self
+            .nodes
+            .iter()
             .filter(|(_, (_, info))| info.is_healthy && info.country_code == country_code)
             .collect();
-        
+
         if let Some((_, (control, _))) = matching.choose(&mut rand::thread_rng()) {
             Some(control.clone())
         } else {
@@ -184,10 +210,14 @@ impl NodeRegistry {
 
     /// Get nodes filtered by region
     pub fn get_by_region(&self, region: &str) -> Option<Control> {
-        let matching: Vec<_> = self.nodes.iter()
-            .filter(|(_, (_, info))| info.is_healthy && info.region.to_lowercase().contains(&region.to_lowercase()))
+        let matching: Vec<_> = self
+            .nodes
+            .iter()
+            .filter(|(_, (_, info))| {
+                info.is_healthy && info.region.to_lowercase().contains(&region.to_lowercase())
+            })
             .collect();
-        
+
         if let Some((_, (control, _))) = matching.choose(&mut rand::thread_rng()) {
             Some(control.clone())
         } else {
@@ -197,8 +227,11 @@ impl NodeRegistry {
 
     /// Get node with least connections (load balancing)
     pub fn get_least_loaded(&self) -> Option<Control> {
-        self.nodes.iter()
-            .filter(|(_, (_, info))| info.is_healthy && info.active_connections < info.max_connections)
+        self.nodes
+            .iter()
+            .filter(|(_, (_, info))| {
+                info.is_healthy && info.active_connections < info.max_connections
+            })
             .min_by_key(|(_, (_, info))| info.active_connections)
             .map(|(_, (control, _))| control.clone())
     }
@@ -219,31 +252,57 @@ pub enum SelectionStrategy {
     ByRegion(String),
 }
 
+use std::sync::atomic::AtomicBool;
+
 pub struct AppState {
     pub registry: Arc<Mutex<NodeRegistry>>,
+    pub config: Config,
+    pub rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
+    pub is_leader: Arc<AtomicBool>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(config: Config, is_leader: Arc<AtomicBool>) -> Self {
+        // Rate limit: 10 connections per second per user (adjust as needed)
+        // Using expect() because these constants are guaranteed to be non-zero
+        let quota = Quota::per_second(NonZeroU32::new(10).expect("non-zero quota"))
+            .allow_burst(NonZeroU32::new(20).expect("non-zero burst"));
+        let rate_limiter = Arc::new(RateLimiter::keyed(quota));
+
         Self {
             registry: Arc::new(Mutex::new(NodeRegistry::new())),
+            config,
+            rate_limiter,
+            is_leader,
         }
+    }
+
+    /// Check if a user is within rate limits
+    pub fn check_rate_limit(&self, key: &str) -> bool {
+        self.rate_limiter.check_key(&key.to_string()).is_ok()
     }
 
     /// Select a provider based on strategy
     pub fn select_provider(&self, strategy: SelectionStrategy) -> Option<Control> {
-        let registry = self.registry.lock().unwrap();
-        
+        // Handle Mutex poisoning gracefully by logging and returning None (or resetting)
+        let registry = match self.registry.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("CRITICAL: NodeRegistry Mutex poisoned: {:?}", poisoned);
+                poisoned.into_inner() // Recovery: get the data anyway
+            }
+        };
+
         match strategy {
             SelectionStrategy::Random => registry.get_random(),
             SelectionStrategy::Best => registry.get_best().map(|(c, _)| c),
             SelectionStrategy::LeastLoaded => registry.get_least_loaded(),
-            SelectionStrategy::ByCountry(code) => {
-                registry.get_by_country(&code).or_else(|| registry.get_random())
-            }
-            SelectionStrategy::ByRegion(region) => {
-                registry.get_by_region(&region).or_else(|| registry.get_random())
-            }
+            SelectionStrategy::ByCountry(code) => registry
+                .get_by_country(&code)
+                .or_else(|| registry.get_random()),
+            SelectionStrategy::ByRegion(region) => registry
+                .get_by_region(&region)
+                .or_else(|| registry.get_random()),
         }
     }
 }
@@ -260,7 +319,7 @@ mod tests {
             ip_address: "192.168.1.1".to_string(),
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
             total_bytes_served: 0,
             active_connections: active,
@@ -300,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_node_info_creation() {
-        let node = NodeInfo::new("test-node".to_string(), "10.0.0.1".to_string());
+        let node = NodeInfo::new("test-node".to_string(), "10.0.0.1".to_string(), None);
         assert_eq!(node.node_id, "test-node");
         assert_eq!(node.ip_address, "10.0.0.1");
         assert!(node.is_healthy);

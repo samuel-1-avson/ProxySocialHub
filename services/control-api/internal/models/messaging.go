@@ -9,7 +9,7 @@ import (
 
 // Conversation represents a direct message thread between two users
 type Conversation struct {
-	ID            uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID            uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
 	Participant1  uuid.UUID  `gorm:"type:uuid;not null" json:"participant1"`
 	Participant2  uuid.UUID  `gorm:"type:uuid;not null" json:"participant2"`
 	ListingID     *uuid.UUID `gorm:"type:uuid" json:"listing_id,omitempty"` // Optional context
@@ -49,7 +49,7 @@ func (c *Conversation) GetOtherParticipant(userID uuid.UUID) uuid.UUID {
 
 // Message represents a single message in a conversation
 type Message struct {
-	ID             uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID             uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
 	ConversationID uuid.UUID  `gorm:"type:uuid;not null" json:"conversation_id"`
 	SenderID       uuid.UUID  `gorm:"type:uuid;not null" json:"sender_id"`
 	Content        string     `gorm:"not null" json:"content"`

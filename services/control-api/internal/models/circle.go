@@ -4,95 +4,136 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-// Circle represents a provider group/pool
+// Circle represents a provider group/pool (Clan)
 type Circle struct {
-	ID          string    `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name" gorm:"not null"`
+	ID          uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	Name        string    `gorm:"size:100;not null" json:"name"`
 	Description string    `json:"description"`
-	OwnerID     string    `json:"owner_id" gorm:"not null"`
-	Visibility  string    `json:"visibility" gorm:"default:'private'"` // "public" or "private"
-	MemberCount int       `json:"member_count" gorm:"default:0"`
-	
-	// Enterprise Features
-	IsEnterprise      bool    `json:"is_enterprise" gorm:"default:false"`
-	PricePerGB        float64 `json:"price_per_gb" gorm:"default:0.50"`        // Custom pricing
-	PriorityLevel     int     `json:"priority_level" gorm:"default:0"`         // 0=normal, 1-5=priority
-	BandwidthPoolGB   float64 `json:"bandwidth_pool_gb" gorm:"default:0"`      // Shared bandwidth pool
-	BandwidthUsedGB   float64 `json:"bandwidth_used_gb" gorm:"default:0"`
-	
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	OwnerID     uuid.UUID `gorm:"type:uuid;not null" json:"owner_id"`
+	Visibility  string    `gorm:"size:20;default:'private'" json:"visibility"` // "public" or "private"
+	MemberCount int       `gorm:"default:0" json:"member_count"`
+
+	// Enterprise & Clan Features
+	IsEnterprise        bool    `gorm:"default:false" json:"is_enterprise"`
+	PricePerGB          float64 `gorm:"default:0.50" json:"price_per_gb"`   // Custom pricing
+	PriorityLevel       int     `gorm:"default:0" json:"priority_level"`    // 0=normal, 1-5=priority
+	BandwidthPoolGB     float64 `gorm:"default:0" json:"bandwidth_pool_gb"` // Shared bandwidth pool
+	BandwidthUsedGB     float64 `gorm:"default:0" json:"bandwidth_used_gb"`
+	RevenueSharePercent float64 `gorm:"default:0.0" json:"revenue_share_percent"` // 0.0 to 1.0 (e.g. 0.10 = 10%)
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Preloaded relations
+	Owner *User `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+}
+
+// TableName sets the table name for Circle
+func (Circle) TableName() string {
+	return "circles"
+}
+
+// BeforeCreate generates a UUID if not set
+func (c *Circle) BeforeCreate(tx *gorm.DB) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	return nil
 }
 
 // CircleSLA defines Service Level Agreement for enterprise circles
 type CircleSLA struct {
-	ID                string    `json:"id" gorm:"primaryKey"`
-	CircleID          string    `json:"circle_id" gorm:"not null;uniqueIndex"`
-	UptimeGuarantee   float64   `json:"uptime_guarantee" gorm:"default:99.0"`     // Percentage
-	MaxLatencyMs      int       `json:"max_latency_ms" gorm:"default:100"`
-	MinSuccessRate    float64   `json:"min_success_rate" gorm:"default:0.95"`
-	SupportTier       string    `json:"support_tier" gorm:"default:'standard'"`   // standard, priority, dedicated
-	MaxConcurrency    int       `json:"max_concurrency" gorm:"default:100"`
-	IncidentResponse  int       `json:"incident_response_mins" gorm:"default:60"` // Minutes
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID               uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID         uuid.UUID `gorm:"type:uuid;not null;uniqueIndex" json:"circle_id"`
+	UptimeGuarantee  float64   `gorm:"default:99.0" json:"uptime_guarantee"` // Percentage
+	MaxLatencyMs     int       `gorm:"default:100" json:"max_latency_ms"`
+	MinSuccessRate   float64   `gorm:"default:0.95" json:"min_success_rate"`
+	SupportTier      string    `gorm:"default:'standard'" json:"support_tier"` // standard, priority, dedicated
+	MaxConcurrency   int       `gorm:"default:100" json:"max_concurrency"`
+	IncidentResponse int       `gorm:"default:60" json:"incident_response_mins"` // Minutes
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+func (CircleSLA) TableName() string {
+	return "circle_slas"
 }
 
 // CircleMember represents membership in a circle
 type CircleMember struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	CircleID  string    `json:"circle_id" gorm:"not null;index"`
-	UserID    string    `json:"user_id" gorm:"not null;index"`
-	Role      string    `json:"role" gorm:"default:'member'"` // "owner", "admin", "member"
-	Status    string    `json:"status" gorm:"default:'active'"` // "active", "pending", "banned"
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID  uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
+	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
+	Role      string    `gorm:"size:20;default:'member'" json:"role"`   // "owner", "admin", "member"
+	Status    string    `gorm:"size:20;default:'active'" json:"status"` // "active", "pending", "banned"
 	JoinedAt  time.Time `json:"joined_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Relations
+	User *User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+}
+
+func (CircleMember) TableName() string {
+	return "circle_members"
 }
 
 // CircleDailyStats tracks daily statistics for a circle
 type CircleDailyStats struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	CircleID     string    `json:"circle_id" gorm:"not null;index"`
-	Date         time.Time `json:"date" gorm:"not null;index"`
-	TotalBytes   int64     `json:"total_bytes" gorm:"default:0"`
-	TotalRevenue float64   `json:"total_revenue" gorm:"default:0"`
-	ActiveNodes  int       `json:"active_nodes" gorm:"default:0"`
-	Uptime       float64   `json:"uptime" gorm:"default:0"` // Average uptime percentage
+	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID     uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
+	Date         time.Time `gorm:"not null;index" json:"date"`
+	TotalBytes   int64     `gorm:"default:0" json:"total_bytes"`
+	TotalRevenue float64   `gorm:"default:0" json:"total_revenue"`
+	ActiveNodes  int       `gorm:"default:0" json:"active_nodes"`
+	Uptime       float64   `gorm:"default:0" json:"uptime"` // Average uptime percentage
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (CircleDailyStats) TableName() string {
+	return "circle_stats"
 }
 
 // CircleInvite represents an invitation to join a circle
 type CircleInvite struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	CircleID  string    `json:"circle_id" gorm:"not null;index"`
-	InviterID string    `json:"inviter_id" gorm:"not null"`
-	InviteeID string    `json:"invitee_id" gorm:"not null;index"`
-	Status    string    `json:"status" gorm:"default:'pending'"` // "pending", "accepted", "declined", "expired"
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID  uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
+	InviterID uuid.UUID `gorm:"type:uuid;not null" json:"inviter_id"`
+	InviteeID uuid.UUID `gorm:"type:uuid;not null;index" json:"invitee_id"`
+	Status    string    `gorm:"size:20;default:'pending'" json:"status"` // "pending", "accepted", "declined", "expired"
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
+func (CircleInvite) TableName() string {
+	return "circle_invites"
+}
+
 // CircleLease represents an enterprise lease of a circle's bandwidth
 type CircleLease struct {
-	ID              string    `json:"id" gorm:"primaryKey"`
-	CircleID        string    `json:"circle_id" gorm:"not null;index"`
-	LesseeUserID    string    `json:"lessee_user_id" gorm:"not null;index"`
-	Status          string    `json:"status" gorm:"default:'active'"` // active, expired, cancelled
-	BandwidthGB     float64   `json:"bandwidth_gb" gorm:"not null"`
-	PricePerGB      float64   `json:"price_per_gb" gorm:"not null"`
-	TotalPrice      float64   `json:"total_price" gorm:"not null"`
-	BandwidthUsedGB float64   `json:"bandwidth_used_gb" gorm:"default:0"`
+	ID              uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID        uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
+	LesseeUserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"lessee_user_id"`
+	Status          string    `gorm:"size:20;default:'active'" json:"status"` // active, expired, cancelled
+	BandwidthGB     float64   `gorm:"not null" json:"bandwidth_gb"`
+	PricePerGB      float64   `gorm:"not null" json:"price_per_gb"`
+	TotalPrice      float64   `gorm:"not null" json:"total_price"`
+	BandwidthUsedGB float64   `gorm:"default:0" json:"bandwidth_used_gb"`
 	StartsAt        time.Time `json:"starts_at"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+func (CircleLease) TableName() string {
+	return "circle_leases"
+}
+
 // NewCircle creates a new circle with default values
-func NewCircle(name, description, ownerID string, visibility string) *Circle {
+func NewCircle(name, description string, ownerID uuid.UUID, visibility string) *Circle {
 	return &Circle{
-		ID:          uuid.New().String(),
+		ID:          uuid.New(),
 		Name:        name,
 		Description: description,
 		OwnerID:     ownerID,
@@ -104,7 +145,7 @@ func NewCircle(name, description, ownerID string, visibility string) *Circle {
 }
 
 // NewEnterpriseCircle creates a new enterprise circle with SLA defaults
-func NewEnterpriseCircle(name, description, ownerID string, bandwidthPoolGB float64, pricePerGB float64) *Circle {
+func NewEnterpriseCircle(name, description string, ownerID uuid.UUID, bandwidthPoolGB float64, pricePerGB float64) *Circle {
 	circle := NewCircle(name, description, ownerID, "private")
 	circle.IsEnterprise = true
 	circle.BandwidthPoolGB = bandwidthPoolGB
@@ -114,9 +155,9 @@ func NewEnterpriseCircle(name, description, ownerID string, bandwidthPoolGB floa
 }
 
 // NewCircleMember creates a new circle membership
-func NewCircleMember(circleID, userID, role string) *CircleMember {
+func NewCircleMember(circleID, userID uuid.UUID, role string) *CircleMember {
 	return &CircleMember{
-		ID:        uuid.New().String(),
+		ID:        uuid.New(),
 		CircleID:  circleID,
 		UserID:    userID,
 		Role:      role,
@@ -127,9 +168,9 @@ func NewCircleMember(circleID, userID, role string) *CircleMember {
 }
 
 // NewCircleSLA creates a new SLA configuration
-func NewCircleSLA(circleID string) *CircleSLA {
+func NewCircleSLA(circleID uuid.UUID) *CircleSLA {
 	return &CircleSLA{
-		ID:               uuid.New().String(),
+		ID:               uuid.New(),
 		CircleID:         circleID,
 		UptimeGuarantee:  99.0,
 		MaxLatencyMs:     100,
@@ -144,17 +185,17 @@ func NewCircleSLA(circleID string) *CircleSLA {
 
 // CircleStats is returned by the stats endpoint
 type CircleStats struct {
-	CircleID      string  `json:"circle_id"`
-	Name          string  `json:"name"`
-	MemberCount   int     `json:"member_count"`
-	TotalBytesGB  float64 `json:"total_bytes_gb"`
-	TotalRevenue  float64 `json:"total_revenue"`
-	AvgUptime     float64 `json:"avg_uptime"`
-	ActiveNodes   int     `json:"active_nodes"`
-	Last7DaysGB   float64 `json:"last_7_days_gb"`
-	Last30DaysGB  float64 `json:"last_30_days_gb"`
-	IsEnterprise  bool    `json:"is_enterprise"`
-	PriorityLevel int     `json:"priority_level"`
+	CircleID      uuid.UUID `json:"circle_id"`
+	Name          string    `json:"name"`
+	MemberCount   int       `json:"member_count"`
+	TotalBytesGB  float64   `json:"total_bytes_gb"`
+	TotalRevenue  float64   `json:"total_revenue"`
+	AvgUptime     float64   `json:"avg_uptime"`
+	ActiveNodes   int       `json:"active_nodes"`
+	Last7DaysGB   float64   `json:"last_7_days_gb"`
+	Last30DaysGB  float64   `json:"last_30_days_gb"`
+	IsEnterprise  bool      `json:"is_enterprise"`
+	PriorityLevel int       `json:"priority_level"`
 }
 
 // GetRemainingBandwidth returns remaining bandwidth for enterprise circles

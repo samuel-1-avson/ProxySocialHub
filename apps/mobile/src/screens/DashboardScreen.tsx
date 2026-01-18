@@ -1,238 +1,170 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
-import * as SecureStore from 'expo-secure-store';
-
-const API_URL = 'http://localhost:8080/v1';
-
-interface Stats {
-  activeSessions: number;
-  balance: number;
-  bandwidthUsed: number;
-  bandwidthLimit: number;
-}
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, RefreshControl, ScrollView, TouchableOpacity } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+import client from '../api/client';
 
 export default function DashboardScreen() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState<any>(null);
+  const [wallet, setWallet] = useState<any>(null);
 
-  async function fetchStats() {
+  const fetchData = async () => {
     try {
-      const token = await SecureStore.getItemAsync('access_token');
-      const [sessionsRes, walletRes] = await Promise.all([
-        fetch(`${API_URL}/sessions`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/wallet`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      // Parallel requests
+      const [usageRes, walletRes] = await Promise.all([
+        client.get('/usage/me').catch(e => ({ data: null })),
+        client.get('/wallet').catch(e => ({ data: null }))
       ]);
 
-      const sessions = await sessionsRes.json();
-      const wallet = await walletRes.json();
-
-      setStats({
-        activeSessions: sessions.sessions?.filter((s: any) => s.status === 'active').length || 0,
-        balance: wallet.wallet?.balance || 0,
-        bandwidthUsed: 2.5, // Mock
-        bandwidthLimit: 10, // Mock
-      });
+      if (usageRes.data) setStats(usageRes.data);
+      if (walletRes.data) setWallet(walletRes.data);
     } catch (error) {
-      console.error('Failed to fetch stats:', error);
-      // Mock data
-      setStats({
-        activeSessions: 2,
-        balance: 45.50,
-        bandwidthUsed: 2.5,
-        bandwidthLimit: 10,
-      });
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      console.log('Error fetching dashboard data', error);
     }
-  }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
 
   useEffect(() => {
-    fetchStats();
+    fetchData();
   }, []);
 
-  function onRefresh() {
-    setRefreshing(true);
-    fetchStats();
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f97316" />
-      }
-    >
+    <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.greeting}>Welcome back! 👋</Text>
-        <Text style={styles.subtitle}>Your proxy network at a glance</Text>
+        <Text style={styles.greeting}>Hello, {user?.display_name || user?.email}</Text>
+        <TouchableOpacity onPress={logout} style={styles.logoutButton}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.statsGrid}>
-        <StatCard
-          title="Balance"
-          value={`GHS ${stats?.balance.toFixed(2)}`}
-          icon="💰"
-          color="#22c55e"
-        />
-        <StatCard
-          title="Active Sessions"
-          value={String(stats?.activeSessions)}
-          icon="🔗"
-          color="#3b82f6"
-        />
-        <StatCard
-          title="Bandwidth Used"
-          value={`${stats?.bandwidthUsed} GB`}
-          icon="📊"
-          color="#a855f7"
-        />
-        <StatCard
-          title="Remaining"
-          value={`${(stats?.bandwidthLimit || 0) - (stats?.bandwidthUsed || 0)} GB`}
-          icon="📈"
-          color="#f97316"
-        />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <ActionButton title="New Session" icon="➕" />
-          <ActionButton title="Top Up" icon="💳" />
-          <ActionButton title="View Usage" icon="📊" />
-          <ActionButton title="Settings" icon="⚙️" />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Wallet Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Wallet Balance</Text>
+          <Text style={styles.balance}>
+            {wallet ? `GHS ${wallet.balance.toFixed(2)}` : '...'}
+          </Text>
+          <Text style={styles.cardSub}>Available for withdrawal</Text>
         </View>
-      </View>
-    </ScrollView>
-  );
-}
 
-function StatCard({ title, value, icon, color }: { title: string; value: string; icon: string; color: string }) {
-  return (
-    <View style={[styles.statCard, { borderLeftColor: color }]}>
-      <Text style={styles.statIcon}>{icon}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statTitle}>{title}</Text>
+        {/* Usage Stats */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>My Usage</Text>
+          <View style={styles.row}>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{stats ? stats.total_gb.toFixed(2) : '0.00'}</Text>
+              <Text style={styles.statLabel}>GB Used</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{stats ? `GHS ${stats.total_cost_ghs.toFixed(2)}` : '0.00'}</Text>
+              <Text style={styles.statLabel}>Est. Cost</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Info */}
+        <View style={[styles.card, styles.infoCard]}>
+          <Text style={styles.infoText}>
+            You are currently on the {user?.role} plan.
+          </Text>
+        </View>
+      </ScrollView>
     </View>
-  );
-}
-
-function ActionButton({ title, icon }: { title: string; icon: string }) {
-  return (
-    <TouchableOpacity style={styles.actionButton}>
-      <Text style={styles.actionIcon}>{icon}</Text>
-      <Text style={styles.actionText}>{title}</Text>
-    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f1a',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#0f0f1a',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#fff',
-    fontSize: 18,
+    backgroundColor: '#f5f5f5',
   },
   header: {
-    padding: 24,
-    paddingTop: 16,
+    paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   greeting: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#333',
   },
-  subtitle: {
+  logoutButton: {
+    padding: 8,
+  },
+  logoutText: {
+    color: '#FF3B30',
     fontSize: 14,
-    color: '#888',
-    marginTop: 4,
+    fontWeight: '600',
   },
-  statsGrid: {
+  content: {
+    padding: 20,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 10,
+    fontWeight: '500',
+  },
+  balance: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  cardSub: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 5,
+  },
+  row: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 12,
+    justifyContent: 'space-between',
   },
-  statCard: {
-    width: '46%',
-    backgroundColor: '#1a1a2e',
-    borderRadius: 16,
-    padding: 16,
-    margin: '2%',
-    borderLeftWidth: 4,
-  },
-  statIcon: {
-    fontSize: 24,
-    marginBottom: 8,
+  stat: {
+    flex: 1,
   },
   statValue: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#007AFF',
   },
-  statTitle: {
+  statLabel: {
     fontSize: 12,
-    color: '#888',
-    marginTop: 4,
+    color: '#666',
+    marginTop: 2,
   },
-  section: {
-    padding: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 16,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  actionButton: {
-    width: '47%',
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
+  infoCard: {
+    backgroundColor: '#E5F1FF',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#CCE4FF',
   },
-  actionIcon: {
-    fontSize: 28,
-    marginBottom: 8,
-  },
-  actionText: {
-    color: '#fff',
+  infoText: {
+    color: '#0055AA',
     fontSize: 14,
-    fontWeight: '500',
   },
 });

@@ -17,7 +17,7 @@ const (
 )
 
 type Wallet struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
+	ID        uuid.UUID `gorm:"type:uuid;primary_key"`
 	UserID    uuid.UUID `gorm:"type:uuid;unique;not null"`
 	Balance   float64   `gorm:"type:numeric(20,4);default:0"`
 	Currency  string    `gorm:"type:varchar(3);default:'GHS'"`
@@ -26,7 +26,7 @@ type Wallet struct {
 }
 
 type WalletLedgerEntry struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
+	ID           uuid.UUID `gorm:"type:uuid;primary_key"`
 	WalletID     uuid.UUID `gorm:"type:uuid;not null"`
 	Amount       float64   `gorm:"type:numeric(20,4);not null"`
 	BalanceAfter float64   `gorm:"type:numeric(20,4);not null"`

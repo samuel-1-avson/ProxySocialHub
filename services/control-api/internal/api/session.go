@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -23,11 +24,12 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 	}
 }
 
-type createSessionRequest struct {
-	Type           string `json:"type" binding:"required,oneof=rotating sticky"`
-	BandwidthLimit int64  `json:"bandwidth_limit"` // optional, in bytes
-	TargetGeo      string `json:"target_geo"`      // optional, country/region
-	TargetISP      string `json:"target_isp"`      // optional, specific ISP
+// Renamed to V4 to force change visibility
+type createSessionRequestV4 struct {
+	Type           string `json:"type"` // NO BINDING
+	BandwidthLimit int64  `json:"bandwidth_limit"`
+	TargetGeo      string `json:"target_geo"`
+	TargetISP      string `json:"target_isp"`
 }
 
 func generateCredentials() (string, string) {
@@ -39,9 +41,17 @@ func generateCredentials() (string, string) {
 }
 
 func createSession(c *gin.Context) {
-	var req createSessionRequest
+	fmt.Println("DEBUG: Entering createSession handler")
+	var req createSessionRequestV4
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Printf("DEBUG: Bind Error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Manual validation
+	if req.Type != "rotating" && req.Type != "sticky" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session type"})
 		return
 	}
 
@@ -79,6 +89,24 @@ func createSession(c *gin.Context) {
 			return
 		}
 	}
+
+	// === Distributed Lock Start ===
+	// Prevent race conditions on concurrent session creation
+	lockKey := "session:alloc:" + userID
+	lockValue := uuid.New().String()
+	acquired, err := redisClient.AcquireLock(lockKey, lockValue, 5*time.Second)
+	if err != nil {
+		// Log error but might proceed? No, safer to error out.
+		fmt.Printf("DEBUG: Lock acquire failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to acquire lock"})
+		return
+	}
+	if !acquired {
+		c.JSON(http.StatusConflict, gin.H{"error": "Operation in progress, please retry"})
+		return
+	}
+	defer redisClient.ReleaseLock(lockKey)
+	// === Distributed Lock End ===
 
 	// Check active session count against tier limit
 	var activeSessionCount int64
@@ -123,9 +151,11 @@ func createSession(c *gin.Context) {
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
+		Config:          "{}",
 	}
 
 	if result := db.DB.Create(&session); result.Error != nil {
+		fmt.Printf("DEBUG: DB Create Error: %v\n", result.Error)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
@@ -196,11 +226,16 @@ func getSession(c *gin.Context) {
 		bandwidthLimit = sessionData.BandwidthLimit
 	}
 
+	var percentUsed float64
+	if bandwidthLimit > 0 {
+		percentUsed = float64(usage) / float64(bandwidthLimit) * 100
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"session":         session,
 		"bandwidth_used":  usage,
 		"bandwidth_limit": bandwidthLimit,
-		"percent_used":    float64(usage) / float64(bandwidthLimit) * 100,
+		"percent_used":    percentUsed,
 	})
 }
 

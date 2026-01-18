@@ -39,8 +39,9 @@ pub struct ProviderSettings {
     pub schedule_enabled: bool,
     pub schedule_start_hour: u32,  // 0-23
     pub schedule_end_hour: u32,    // 0-23
-    pub schedule_days: Vec<String>, // ["Monday", "Tuesday", ...]
+    pub schedule_days: Vec<String>,
     pub gateway_url: String,
+    pub auth_token: Option<String>,
 }
 
 impl Default for ProviderSettings {
@@ -63,6 +64,7 @@ impl Default for ProviderSettings {
                 "Friday".to_string(),
             ],
             gateway_url: "127.0.0.1:4000".to_string(),
+            auth_token: None,
         }
     }
 }
@@ -240,7 +242,7 @@ fn disconnect_gateway() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> Result<String, String> {
+async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String, auth_key: String) -> Result<String, String> {
     let state = ProviderState::global();
     
     // Check schedule
@@ -259,6 +261,7 @@ async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> 
     {
         let mut settings = state.settings.lock().unwrap();
         settings.gateway_url = gateway_url.clone();
+        settings.auth_token = Some(auth_key.clone());
     }
     
     println!("Connecting to gateway at {}", gateway_url);
@@ -292,7 +295,7 @@ async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> 
                 match connector.connect(domain, stream).await {
                     Ok(tls_stream) => {
                          println!("✅ TLS Handshake Complete");
-                         handle_connection(Box::new(tls_stream))?;
+                         handle_connection(Box::new(tls_stream), auth_key).await?;
                     },
                     Err(e) => return Err(format!("TLS Handshake Failed: {}", e))
                 }
@@ -301,14 +304,14 @@ async fn connect_gateway(_app_handle: tauri::AppHandle, gateway_url: String) -> 
         }
     } else {
         println!("⚠️  Using Plaintext Connection (No TLS configured)");
-        handle_connection(Box::new(stream))?;
+        handle_connection(Box::new(stream), auth_key).await?; // Await the handshake
     }
     
     state.connected.store(true, Ordering::Relaxed);
     Ok("Connected".to_string())
 }
 
-fn handle_connection<S>(stream: Box<S>) -> Result<(), String> 
+async fn handle_connection<S>(stream: Box<S>, auth_key: String) -> Result<(), String> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -318,6 +321,46 @@ where
 
     // Client Mode
     let conn = Connection::new(stream, cfg, Mode::Client);
+    
+    println!("Yamux handshake complete");
+
+    // AUTH HANDSHAKE
+    // Open a stream for Auth
+    let mut stream = {
+        let mut ctrl = conn.control();
+        ctrl.open_stream().await.map_err(|e| format!("Failed to open auth stream: {}", e))?
+    };
+    
+    // Send AUTH token
+    use futures_util::AsyncWriteExt;
+    let auth_msg = format!("AUTH {}\n", auth_key);
+    stream.write_all(auth_msg.as_bytes()).await.map_err(|e| format!("Failed to write auth: {}", e))?;
+    
+    // Wait for OK
+    use futures_util::AsyncReadExt;
+    let mut buf = [0u8; 1024];
+    let n = stream.read(&mut buf).await.map_err(|e| format!("Failed to read auth response: {}", e))?;
+    let response = String::from_utf8_lossy(&buf[..n]);
+    
+    if !response.trim().starts_with("OK") {
+         return Err(format!("Auth failed: {}", response.trim()));
+    }
+    
+    println!("✅ Auth Handshake Successful");
+
+    // Drop stream or keep open? Usually drop if just for auth, but Gateway keeps it open?
+    // Gateway logic: keeps it open. We can just let it be dropped or keep it.
+    // Ideally we drop it here, but if Gateway closes connection on stream close?
+    // In Yamux, closing stream doesn't close connection.
+    // However, my gateway implementation: 
+    // `auth_stream_handle = Some(stream);` 
+    // It keeps it open. If I drop `stream` here, it sends FIN.
+    // Gateway sees FIN on stream.
+    // Let's just keep it open? But `stream` is local variable.
+    // Let's drop it. If Gateway implementation tolerates stream closure, fine. 
+    // Gateway `incoming.next()` loop continues.
+    drop(stream); 
+
     
     println!("Yamux handshake complete");
 
@@ -423,6 +466,7 @@ where
                 let delay = settings.reconnect_delay_secs;
                 let max_attempts = settings.max_reconnect_attempts;
                 let gateway_url = settings.gateway_url.clone();
+                let auth_token = settings.auth_token.clone().unwrap_or_default();
                 drop(settings);
                 
                 println!("Auto-reconnect enabled, attempting in {} seconds...", delay);
@@ -448,7 +492,7 @@ where
                             Ok(stream) => {
                                 state.connected.store(true, Ordering::Relaxed);
                                 *state.session_start.lock().unwrap() = Some(std::time::Instant::now());
-                                if let Err(e) = handle_connection(Box::new(stream)) {
+                                if let Err(e) = handle_connection(Box::new(stream), auth_token.clone()).await {
                                     println!("Reconnect failed: {}", e);
                                 } else {
                                     println!("Reconnected successfully");
@@ -505,6 +549,7 @@ pub fn run() {
                             if !state.connected.load(Ordering::Relaxed) {
                                 let settings = state.settings.lock().unwrap().clone();
                                 let gateway_url = settings.gateway_url.clone();
+                                let auth_token = settings.auth_token.clone().unwrap_or_default();
                                 drop(settings);
                                 
                                 tauri::async_runtime::spawn(async move {
@@ -523,7 +568,7 @@ pub fn run() {
                                         state.connected.store(true, Ordering::Relaxed);
                                         state.should_reconnect.store(true, Ordering::Relaxed);
                                         *state.session_start.lock().unwrap() = Some(std::time::Instant::now());
-                                        let _ = handle_connection(Box::new(stream));
+                                        let _ = handle_connection(Box::new(stream), auth_token).await;
                                     }
                                 });
                             }

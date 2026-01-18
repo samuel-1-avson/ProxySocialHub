@@ -19,9 +19,12 @@ func RegisterCircleRoutes(rg *gin.RouterGroup) {
 		circles.GET("/:id", getCircle)
 		circles.POST("/:id/join", joinCircle)
 		circles.POST("/:id/invite", inviteToCircle)
+		circles.DELETE("/:id/members/me", leaveCircle) // Using standard REST pattern for "leaving"
 		circles.GET("/:id/members", getCircleMembers)
 		circles.GET("/:id/stats", getCircleStats)
-		
+		circles.DELETE("/:id", deleteCircle)
+		circles.PUT("/:id", updateCircle)
+
 		// Enterprise features
 		circles.POST("/:id/enterprise", upgradeToEnterprise)
 		circles.GET("/:id/sla", getCircleSLA)
@@ -53,13 +56,10 @@ func createCircle(c *gin.Context) {
 	}
 
 	// Get user ID from JWT token
-	ownerID := c.GetString("userID")
-	if ownerID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
 
-	circle := models.NewCircle(req.Name, req.Description, ownerID, visibility)
+	circle := models.NewCircle(req.Name, req.Description, userID, visibility)
 
 	// Save to database
 	if db.DB != nil {
@@ -69,7 +69,7 @@ func createCircle(c *gin.Context) {
 		}
 
 		// Add owner as member
-		member := models.NewCircleMember(circle.ID, ownerID, "owner")
+		member := models.NewCircleMember(circle.ID, userID, "owner")
 		if err := db.DB.Create(member).Error; err != nil {
 			// Log but don't fail
 			println("Warning: Failed to add owner as member:", err.Error())
@@ -77,7 +77,7 @@ func createCircle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"circle": circle,
+		"circle":  circle,
 		"message": "Circle created successfully",
 	})
 }
@@ -96,24 +96,7 @@ func listCircles(c *gin.Context) {
 	} else {
 		// Mock data for testing
 		circles = []models.Circle{
-			{
-				ID:          "circle-1",
-				Name:        "Accra Providers",
-				Description: "Provider circle for Greater Accra region",
-				OwnerID:     "user-001",
-				Visibility:  "public",
-				MemberCount: 15,
-				CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
-			},
-			{
-				ID:          "circle-2",
-				Name:        "Premium Nodes",
-				Description: "High-quality residential connections",
-				OwnerID:     "user-002",
-				Visibility:  "public",
-				MemberCount: 8,
-				CreatedAt:   time.Now().Add(-14 * 24 * time.Hour),
-			},
+			// Mocks removed for brevity/consistency
 		}
 	}
 
@@ -122,25 +105,16 @@ func listCircles(c *gin.Context) {
 
 // getCircle returns details of a specific circle
 func getCircle(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 
 	var circle models.Circle
-	if db.DB != nil {
-		if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
-			return
-		}
-	} else {
-		// Mock data
-		circle = models.Circle{
-			ID:          circleID,
-			Name:        "Test Circle",
-			Description: "A test circle",
-			OwnerID:     "user-001",
-			Visibility:  "public",
-			MemberCount: 5,
-			CreatedAt:   time.Now().Add(-7 * 24 * time.Hour),
-		}
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"circle": circle})
@@ -153,68 +127,64 @@ type JoinCircleRequest struct {
 
 // joinCircle handles a request to join a circle
 func joinCircle(c *gin.Context) {
-	circleID := c.Param("id")
-
-	// Get user ID from JWT token
-	userID := c.GetString("userID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
 		return
 	}
 
+	// Get user ID from JWT token
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
 	var circle models.Circle
-	if db.DB != nil {
-		if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
-			return
-		}
-
-		// Check if already a member
-		var existingMember models.CircleMember
-		if err := db.DB.Where("circle_id = ? AND user_id = ?", circleID, userID).First(&existingMember).Error; err == nil {
-			c.JSON(http.StatusConflict, gin.H{"error": "Already a member of this circle"})
-			return
-		}
-
-		// Create membership
-		status := "active"
-		if circle.Visibility == "private" {
-			status = "pending" // Requires approval for private circles
-		}
-
-		member := &models.CircleMember{
-			ID:        uuid.New().String(),
-			CircleID:  circleID,
-			UserID:    userID,
-			Role:      "member",
-			Status:    status,
-			JoinedAt:  time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		if err := db.DB.Create(member).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join circle"})
-			return
-		}
-
-		// Update member count
-		db.DB.Model(&circle).Update("member_count", circle.MemberCount+1)
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
+		return
 	}
 
+	// Check if already a member
+	var existingMember models.CircleMember
+	if err := db.DB.Where("circle_id = ? AND user_id = ?", circleID, userID).First(&existingMember).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Already a member of this circle"})
+		return
+	}
+
+	// Create membership
+	status := "active"
+	if circle.Visibility == "private" {
+		status = "pending" // Requires approval for private circles
+	}
+
+	member := models.NewCircleMember(circleID, userID, "member")
+	member.Status = status
+
+	if err := db.DB.Create(member).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join circle"})
+		return
+	}
+
+	// Update member count
+	db.DB.Model(&circle).Update("member_count", circle.MemberCount+1)
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Successfully joined circle",
+		"message":   "Successfully joined circle",
 		"circle_id": circleID,
 	})
 }
 
 // InviteRequest represents an invitation to join a circle
 type InviteRequest struct {
-	UserID string `json:"user_id" binding:"required"`
+	UserID uuid.UUID `json:"user_id" binding:"required"`
 }
 
 // inviteToCircle invites a user to join a private circle
 func inviteToCircle(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 
 	var req InviteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -223,14 +193,11 @@ func inviteToCircle(c *gin.Context) {
 	}
 
 	// Get user ID from JWT token (verify permission in production)
-	inviterID := c.GetString("userID")
-	if inviterID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
+	currentUserID, _ := c.Get("user_id")
+	inviterID, _ := uuid.Parse(currentUserID.(string))
 
 	invite := &models.CircleInvite{
-		ID:        uuid.New().String(),
+		ID:        uuid.New(),
 		CircleID:  circleID,
 		InviterID: inviterID,
 		InviteeID: req.UserID,
@@ -239,62 +206,45 @@ func inviteToCircle(c *gin.Context) {
 		CreatedAt: time.Now(),
 	}
 
-	if db.DB != nil {
-		if err := db.DB.Create(invite).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create invite"})
-			return
-		}
+	if err := db.DB.Create(invite).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create invite"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Invitation sent",
+		"message":   "Invitation sent",
 		"invite_id": invite.ID,
 	})
 }
 
 // getCircleMembers returns members of a circle
 func getCircleMembers(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 
 	var members []models.CircleMember
-
-	if db.DB != nil {
-		if err := db.DB.Where("circle_id = ? AND status = ?", circleID, "active").Find(&members).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch members"})
-			return
-		}
-	} else {
-		// Mock data
-		members = []models.CircleMember{
-			{
-				ID:       "member-1",
-				CircleID: circleID,
-				UserID:   "user-001",
-				Role:     "owner",
-				Status:   "active",
-				JoinedAt: time.Now().Add(-30 * 24 * time.Hour),
-			},
-			{
-				ID:       "member-2",
-				CircleID: circleID,
-				UserID:   "user-002",
-				Role:     "member",
-				Status:   "active",
-				JoinedAt: time.Now().Add(-14 * 24 * time.Hour),
-			},
-		}
+	if err := db.DB.Where("circle_id = ? AND status = ?", circleID, "active").Preload("User").Find(&members).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch members"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"circle_id": circleID,
-		"members": members,
-		"count": len(members),
+		"members":   members,
+		"count":     len(members),
 	})
 }
 
 // getCircleStats returns statistics for a circle
 func getCircleStats(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 
 	// In production, this would aggregate from usage and node tables
 	stats := models.CircleStats{
@@ -309,15 +259,126 @@ func getCircleStats(c *gin.Context) {
 		Last30DaysGB: 125.5,
 	}
 
-	if db.DB != nil {
-		var circle models.Circle
-		if err := db.DB.First(&circle, "id = ?", circleID).Error; err == nil {
-			stats.Name = circle.Name
-			stats.MemberCount = circle.MemberCount
-		}
+	var circle models.Circle
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err == nil {
+		stats.Name = circle.Name
+		stats.MemberCount = circle.MemberCount
 	}
 
 	c.JSON(http.StatusOK, gin.H{"stats": stats})
+}
+
+// updateCircle updates circle details
+func updateCircle(c *gin.Context) {
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
+	var req CreateCircleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var circle models.Circle
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
+		return
+	}
+
+	if circle.OwnerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only the owner can update the circle"})
+		return
+	}
+
+	circle.Name = req.Name
+	circle.Description = req.Description
+	if req.Visibility != "" {
+		circle.Visibility = req.Visibility
+	}
+	circle.UpdatedAt = time.Now()
+
+	if err := db.DB.Save(&circle).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update circle"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"circle": circle, "message": "Circle updated"})
+}
+
+// deleteCircle deletes a circle
+func deleteCircle(c *gin.Context) {
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
+	var circle models.Circle
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
+		return
+	}
+
+	if circle.OwnerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only the owner can delete the circle"})
+		return
+	}
+
+	// Delete logic - soft delete or hard delete?
+	// Using hard delete for now to simplify cleanup
+	if err := db.DB.Delete(&circle).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete circle"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Circle deleted"})
+}
+
+// leaveCircle removes the current user from the circle
+func leaveCircle(c *gin.Context) {
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
+	var circle models.Circle
+	if err := db.DB.First(&circle, "id = ?", circleID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Circle not found"})
+		return
+	}
+
+	if circle.OwnerID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Owner cannot leave the circle. Delete it or transfer ownership."})
+		return
+	}
+
+	// db.DB.Where("circle_id = ? AND user_id = ?", circleID, userID).Delete(&models.CircleMember{})
+	// Soft delete preferable
+	var member models.CircleMember
+	if err := db.DB.Where("circle_id = ? AND user_id = ?", circleID, userID).First(&member).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Member not found"})
+		return
+	}
+
+	if err := db.DB.Delete(&member).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to leave circle"})
+		return
+	}
+
+	// Decrement count
+	db.DB.Model(&circle).Update("member_count", circle.MemberCount-1)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Left circle"})
 }
 
 // ========== Enterprise Circle Features ==========
@@ -330,8 +391,13 @@ type UpgradeEnterpriseRequest struct {
 
 // upgradeToEnterprise upgrades a circle to enterprise tier
 func upgradeToEnterprise(c *gin.Context) {
-	circleID := c.Param("id")
-	userID := c.GetString("userID")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
 
 	var req UpgradeEnterpriseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -384,7 +450,11 @@ func upgradeToEnterprise(c *gin.Context) {
 
 // getCircleSLA returns the SLA configuration for a circle
 func getCircleSLA(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 
 	var sla models.CircleSLA
 	if result := db.DB.Where("circle_id = ?", circleID).First(&sla); result.Error != nil {
@@ -406,8 +476,13 @@ type UpdateSLARequest struct {
 
 // updateCircleSLA updates the SLA configuration
 func updateCircleSLA(c *gin.Context) {
-	circleID := c.Param("id")
-	userID := c.GetString("userID")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
 
 	var req UpdateSLARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -471,14 +546,19 @@ func updateCircleSLA(c *gin.Context) {
 }
 
 type CreateLeaseRequest struct {
-	BandwidthGB float64 `json:"bandwidth_gb" binding:"required,min=1"`
-	DurationDays int    `json:"duration_days" binding:"required,min=1,max=365"`
+	BandwidthGB  float64 `json:"bandwidth_gb" binding:"required,min=1"`
+	DurationDays int     `json:"duration_days" binding:"required,min=1,max=365"`
 }
 
 // createCircleLease creates a new lease for circle bandwidth
 func createCircleLease(c *gin.Context) {
-	circleID := c.Param("id")
-	userID := c.GetString("userID")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
 
 	var req CreateLeaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -507,7 +587,7 @@ func createCircleLease(c *gin.Context) {
 	totalPrice := req.BandwidthGB * circle.PricePerGB
 
 	lease := models.CircleLease{
-		ID:           uuid.New().String(),
+		ID:           uuid.New(),
 		CircleID:     circleID,
 		LesseeUserID: userID,
 		Status:       "active",
@@ -532,7 +612,11 @@ func createCircleLease(c *gin.Context) {
 
 // getCircleLeases returns all leases for a circle
 func getCircleLeases(c *gin.Context) {
-	circleID := c.Param("id")
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
 	status := c.DefaultQuery("status", "")
 
 	query := db.DB.Where("circle_id = ?", circleID)
