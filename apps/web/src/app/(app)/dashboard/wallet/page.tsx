@@ -38,6 +38,7 @@ export default function WalletPage() {
   const [action, setAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [amount, setAmount] = useState('');
   const [phone, setPhone] = useState('');
+  const [network, setNetwork] = useState('MTN');
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -102,7 +103,7 @@ export default function WalletPage() {
     setProcessing(true);
     setResult(null);
     try {
-      const res = await withdrawWallet(parseFloat(amount), phone);
+      const res = await withdrawWallet(parseFloat(amount), phone, network);
       setResult({ success: true, message: `Withdrawal authorized. Syncing balance...` });
       setAmount('');
       setPhone('');
@@ -544,18 +545,38 @@ export default function WalletPage() {
                     </div>
 
                     {action === 'withdraw' && (
-                      <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-500">
-                        <label className="block text-[9px] font-black uppercase tracking-[0.4em] text-white/20 ml-1">MoMo Terminal Address</label>
-                        <div className="relative group/input">
-                          <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-white/5 group-focus-within/input:text-blue-500 transition-all duration-500" size={20} />
-                          <input
-                            type="tel"
-                            value={phone}
-                            onChange={(e) => setPhone(e.target.value)}
-                            placeholder="ID (05XXXXXXX)"
-                            required
-                            className="w-full bg-white/[0.01] border border-white/5 rounded-2xl py-6 pl-14 pr-6 text-xl font-black text-white outline-none focus:border-blue-500/50 focus:bg-white/[0.03] transition-all duration-500 placeholder:text-white/5"
-                          />
+                      <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                        <div className="space-y-3">
+                          <label className="block text-[9px] font-black uppercase tracking-[0.4em] text-white/20 ml-1">Termination Network</label>
+                          <div className="grid grid-cols-3 gap-3">
+                            {['MTN', 'VOD', 'ATL'].map((net) => (
+                              <button
+                                key={net}
+                                type="button"
+                                onClick={() => setNetwork(net)}
+                                className={`py-4 rounded-xl text-sm font-black transition-all border ${network === net
+                                  ? 'bg-blue-500/20 border-blue-500 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)]'
+                                  : 'bg-white/5 border-white/5 text-muted-foreground hover:bg-white/10'}`}
+                              >
+                                {net === 'VOD' ? 'Telecel' : net === 'ATL' ? 'ATMoney' : net}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[9px] font-black uppercase tracking-[0.4em] text-white/20 ml-1">Terminal Address</label>
+                          <div className="relative group/input">
+                            <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-white/5 group-focus-within/input:text-blue-500 transition-all duration-500" size={20} />
+                            <input
+                              type="tel"
+                              value={phone}
+                              onChange={(e) => setPhone(e.target.value)}
+                              placeholder="05XXXXXXXX"
+                              required
+                              className="w-full bg-white/[0.01] border border-white/5 rounded-2xl py-6 pl-14 pr-6 text-xl font-black text-white outline-none focus:border-blue-500/50 focus:bg-white/[0.03] transition-all duration-500 placeholder:text-white/5"
+                            />
+                          </div>
                         </div>
                       </div>
                     )}
