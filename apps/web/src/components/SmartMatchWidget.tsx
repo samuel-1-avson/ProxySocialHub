@@ -89,8 +89,8 @@ export function SmartMatchWidget() {
                                     key={useCase.id}
                                     onClick={() => setSelectedUseCase(useCase.id)}
                                     className={`p-4 rounded-xl text-left transition-all border ${selectedUseCase === useCase.id
-                                            ? 'bg-purple-500/20 border-purple-500 text-white shadow-[0_0_20px_rgba(168,85,247,0.2)]'
-                                            : 'bg-white/5 border-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                                        ? 'bg-purple-500/20 border-purple-500 text-white shadow-[0_0_20px_rgba(168,85,247,0.2)]'
+                                        : 'bg-white/5 border-white/5 text-white/60 hover:bg-white/10 hover:text-white'
                                         }`}
                                 >
                                     <div className="font-bold">{useCase.name}</div>
@@ -176,7 +176,7 @@ export function SmartMatchWidget() {
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-wrap gap-2 mb-3">
-                                                        {rec.reasons.map((reason, i) => (
+                                                        {(rec.reasons || []).map((reason, i) => (
                                                             <span key={i} className="text-[10px] font-bold px-2 py-1 rounded bg-purple-500/20 text-purple-300 flex items-center gap-1">
                                                                 <Check className="w-3 h-3" /> {reason}
                                                             </span>
