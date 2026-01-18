@@ -313,43 +313,79 @@ func verifyDeposit(c *gin.Context) {
 	}
 
 	// Process success
-	var pendingTx models.PendingTransaction
-	if result := db.DB.Where("reference = ?", reference).First(&pendingTx); result.Error != nil {
-		logging.Error(result.Error).Str("reference", reference).Msg("Transaction reference not found in DB")
+	// Use transaction to ensure atomicity
+	tx := db.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
-		// Attempt fallback/recovery?
-		// If it's valid on Paystack but missing in DB, we could theoretically recover it if we trust the user context
-		// But for now, returning 404 is "correct" for the system state
+	var pendingTx models.PendingTransaction
+	if result := tx.Where("reference = ?", reference).First(&pendingTx); result.Error != nil {
+		tx.Rollback()
+		logging.Error(result.Error).Str("reference", reference).Msg("Transaction reference not found in DB")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
 		return
 	}
 
 	if pendingTx.Status == "completed" {
+		tx.Rollback()
 		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Already processed"})
 		return
 	}
 
-	// Update Transaction
+	// Update Transaction Status
 	pendingTx.Status = "completed"
-	pendingTx.ExternalRef = resp.Data.Reference // Already a string
-	db.DB.Save(&pendingTx)
+	pendingTx.ExternalRef = resp.Data.Reference
+	if err := tx.Save(&pendingTx).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Msg("Failed to update pending transaction status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
 
 	// Credit Wallet
 	var wallet models.Wallet
-	if result := db.DB.Where("user_id = ?", pendingTx.UserID).First(&wallet); result.Error == nil {
-		newBalance := wallet.Balance + pendingTx.Amount
-		db.DB.Model(&wallet).Update("balance", newBalance)
+	if result := tx.Where("user_id = ?", pendingTx.UserID).First(&wallet); result.Error != nil {
+		tx.Rollback()
+		logging.Error(result.Error).Str("user_id", pendingTx.UserID).Msg("Wallet not found for user during deposit")
+		// If wallet doesn't exist, we should probably create it or error out.
+		// Since user is present, we try to create?
+		// For now, error out to avoid data inconsistency.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Wallet not found for processing"})
+		return
+	}
 
-		// Create ledger entry
-		ledgerEntry := models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       pendingTx.Amount,
-			BalanceAfter: newBalance,
-			Type:         models.TransactionTopup,
-			ReferenceID:  reference,
-			Description:  fmt.Sprintf("Paystack Deposit (%s)", resp.Data.Channel),
-		}
-		db.DB.Create(&ledgerEntry)
+	newBalance := wallet.Balance + pendingTx.Amount
+	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Msg("Failed to update wallet balance")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
+		return
+	}
+
+	// Create ledger entry
+	ledgerEntry := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       pendingTx.Amount,
+		BalanceAfter: newBalance,
+		Type:         models.TransactionTopup,
+		ReferenceID:  reference,
+		Description:  fmt.Sprintf("Paystack Deposit (%s)", resp.Data.Channel),
+	}
+	if err := tx.Create(&ledgerEntry).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Msg("Failed to create ledger entry")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log transaction"})
+		return
+	}
+
+	// Commit
+	if err := tx.Commit().Error; err != nil {
+		logging.Error(err).Msg("Transaction commit failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Commit failed"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet credited"})

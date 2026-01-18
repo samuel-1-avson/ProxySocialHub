@@ -43,7 +43,10 @@ function VerifyContent() {
                 if (response.ok && data.status === 'success') {
                     setStatus('success');
                     setMessage('Deposit successful! Your wallet has been credited.');
-                    // Optional: Refresh user context if it holds balance
+                    // Auto redirect after 3 seconds
+                    setTimeout(() => {
+                        router.push('/dashboard/wallet');
+                    }, 3000);
                 } else {
                     setStatus('error');
                     setMessage(data.message || 'Verification failed. Please contact support.');
