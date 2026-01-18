@@ -17,7 +17,7 @@ type PendingTransaction struct {
 	Amount        float64   `gorm:"type:numeric(20,4);not null"`
 	Currency      string    `gorm:"type:varchar(3);default:'GHS'"`
 	Provider      string    `gorm:"type:varchar(20);not null"` // "mtn", "vodafone", "airteltigo"
-	Phone         string    `gorm:"type:varchar(20);not null"`
+	Phone         *string   `gorm:"type:varchar(20)"`
 	Status        string    `gorm:"type:varchar(20);default:'pending'"` // "pending", "completed", "failed"
 	FailureReason string    `gorm:"type:text"`
 	CreatedAt     time.Time

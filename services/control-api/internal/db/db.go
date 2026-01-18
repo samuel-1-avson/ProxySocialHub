@@ -89,6 +89,7 @@ func Init(dsn string) error {
 		&models.CircleDailyStats{},
 		&models.CircleLease{},
 		&models.ProviderNode{},
+		&models.PendingTransaction{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
