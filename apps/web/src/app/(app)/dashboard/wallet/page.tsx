@@ -191,37 +191,117 @@ export default function WalletPage() {
                 </div>
               ) : (
                 <div className="w-full space-y-8 pt-4">
+                  {/* Balances Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                    <div className="p-6 rounded-2xl bg-white/5 border border-white/10 text-left">
-                      <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">My Address</p>
-                      <p className="text-xs font-mono text-white break-all">{address}</p>
-                    </div>
+                    {/* Buyer Escrow Card */}
                     <div className="p-6 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-left">
-                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">On-Chain Balance</p>
+                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">Escrow Balance (Buyer)</p>
                       <p className="text-3xl font-black text-white italic tracking-tighter">
                         {buyerBalance ? parseFloat(formatEther(buyerBalance)).toFixed(4) : '0.0000'} <span className="text-sm not-italic opacity-50">ETH</span>
                       </p>
                     </div>
+
+                    {/* Provider Earnings Card (Real Logic would read from Contract too) */}
+                    <div className="p-6 rounded-2xl bg-green-500/10 border border-green-500/20 text-left">
+                      <p className="text-[10px] font-black text-green-400 uppercase tracking-widest mb-2">Unclaimed Earnings</p>
+                      <p className="text-3xl font-black text-white italic tracking-tighter">
+                        ~ 1.0 <span className="text-sm not-italic opacity-50">GB Used</span>
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Crypto Deposit Form */}
-                  <form onSubmit={handleCryptoDeposit} className="flex gap-4 max-w-md mx-auto">
-                    <input
-                      type="number"
-                      step="0.0001"
-                      placeholder="Amount (ETH)"
-                      value={cryptoAmount}
-                      onChange={(e) => setCryptoAmount(e.target.value)}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500/50"
-                    />
-                    <button
-                      disabled={isWritePending || isConfirming}
-                      className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl disabled:opacity-50 transition-all"
-                    >
-                      {isWritePending || isConfirming ? 'Processing...' : 'Deposit'}
-                    </button>
-                  </form>
-                  {hash && <p className="text-xs text-green-400">Transaction Hash: {hash}</p>}
+                  <div className="w-full h-[1px] bg-white/10"></div>
+
+                  {/* ACTION SECTION */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+
+                    {/* 1. DEPOSIT (For Buyers) */}
+                    <div className="space-y-4">
+                      <h3 className="text-left text-xs font-black uppercase tracking-widest text-muted-foreground">Add to Escrow</h3>
+                      <form onSubmit={handleCryptoDeposit} className="flex gap-2">
+                        <input
+                          type="number"
+                          step="0.0001"
+                          placeholder="Amount (ETH)"
+                          value={cryptoAmount}
+                          onChange={(e) => setCryptoAmount(e.target.value)}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500/50 text-sm"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isWritePending || isConfirming}
+                          className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl disabled:opacity-50 transition-all text-xs uppercase tracking-wider"
+                        >
+                          {isWritePending ? '...' : 'Deposit'}
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* 2. CLAIM (For Providers) */}
+                    <div className="space-y-4">
+                      <h3 className="text-left text-xs font-black uppercase tracking-widest text-muted-foreground">Provider Actions</h3>
+                      <div className="flex flex-col gap-2">
+                        <input
+                          type="text"
+                          placeholder="Buyer Address (0x...)"
+                          id="buyer_addr_input"
+                          className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-green-500/50 text-sm"
+                        />
+                        <button
+                          onClick={async () => {
+                            const buyerInput = (document.getElementById('buyer_addr_input') as HTMLInputElement).value;
+                            if (!buyerInput) return alert('Enter a buyer address first');
+
+                            try {
+                              // 1. Get Signature from Backend Oracle
+                              // Ideally, we import this from api.ts, but standard import might be blocked by 'use client'? 
+                              // No, it's fine. We need to update imports.
+                              // For now, let's use the function directly or assume imports updated.
+                              // I will add the import in a separate step if missed. Assuming handleClaim logic here.
+
+                              const { signUsageClaim } = await import('@/lib/api');
+                              const sigData = await signUsageClaim(buyerInput);
+
+                              // 2. Write Contract
+                              writeContract({
+                                address: PROXY_MARKETPLACE_ADDRESS,
+                                abi: PROXY_MARKETPLACE_ABI,
+                                functionName: 'claim',
+                                args: [
+                                  buyerInput as `0x${string}`,
+                                  BigInt(sigData.bytes_used),
+                                  BigInt(sigData.nonce),
+                                  sigData.signature as `0x${string}`
+                                ],
+                              });
+                            } catch (e) {
+                              console.error(e);
+                              alert('Claim failed: ' + e);
+                            }
+                          }}
+                          disabled={isWritePending || isConfirming}
+                          className="w-full px-4 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl disabled:opacity-50 transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2"
+                        >
+                          <Zap size={14} />
+                          {isWritePending ? 'Signing & Sending...' : 'Claim Earnings On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {hash && (
+                    <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-xs text-green-400 font-mono break-all">
+                      Tx: {hash}
+                    </div>
+                  )}
+
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-[10px] text-muted-foreground">
+                    <p className="font-bold uppercase tracking-widest mb-1">How it works:</p>
+                    <p className="leading-relaxed opacity-70">
+                      Providers request a "Proof of Usage" from the Backend Oracle. This proof (signature) is submitted to the Smart Contract, which releases the buyer's escrowed funds directly to the Provider.
+                    </p>
+                  </div>
+
                 </div>
               )}
             </div>

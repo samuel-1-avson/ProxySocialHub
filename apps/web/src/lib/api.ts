@@ -258,6 +258,16 @@ export async function getUserUsage(): Promise<{ total_bytes: number; total_gb: n
   return response.json();
 }
 
+export async function signUsageClaim(buyerAddress: string): Promise<{ signature: string; buyer: string; provider: string; bytes_used: number; nonce: number; token_address: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/usage/sign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ buyer_address: buyerAddress }),
+  });
+  if (!response.ok) throw new Error('Failed to sign usage claim');
+  return response.json();
+}
+
 // Subscriptions API
 export interface SubscriptionPlan {
   id: string;

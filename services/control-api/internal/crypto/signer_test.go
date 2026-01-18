@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,8 +24,8 @@ func TestSignUsage(t *testing.T) {
 
 	buyer := "0x5B38Da6a701c568545dCfcB03FcB875f56beddC4"
 	provider := "0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2"
-	bytesUsed := uint64(1024 * 1024 * 1024) // 1 GB
-	nonce := uint64(1)
+	bytesUsed := new(big.Int).SetUint64(1024 * 1024 * 1024) // 1 GB
+	nonce := new(big.Int).SetUint64(1)
 
 	signature, err := signer.SignUsage(buyer, provider, bytesUsed, nonce)
 	if err != nil {
@@ -56,7 +57,7 @@ func TestSignUsage_InvalidAddress(t *testing.T) {
 	hexKey := hex.EncodeToString(crypto.FromECDSA(privateKey))
 	signer, _ := NewSigner(hexKey)
 
-	_, err := signer.SignUsage("invalid", "0x...", 100, 1)
+	_, err := signer.SignUsage("invalid", "0x...", big.NewInt(100), big.NewInt(1))
 	if err == nil {
 		t.Error("Expected error for invalid address")
 	}
