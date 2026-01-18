@@ -38,7 +38,7 @@ export default function ReferralsPage() {
                 getMyRewards()
             ]);
             setStats(statsData);
-            setRewards(rewardsData.rewards);
+            setRewards(rewardsData.rewards || []);
         } catch (error) {
             console.error('Failed to fetch referral data:', error);
         } finally {

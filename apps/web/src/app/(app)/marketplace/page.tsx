@@ -43,8 +43,8 @@ export default function MarketplacePage() {
                 sort_by: filters.sort_by,
                 page,
             });
-            setListings(data.listings || []);
-            setTotal(data.total || 0);
+            setListings(data?.listings || []);
+            setTotal(data?.total || 0);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load listings");
             setListings([]);
