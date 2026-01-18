@@ -84,7 +84,7 @@ export function SmartMatchWidget() {
                     <div className="space-y-4">
                         <p className="text-sm font-bold text-white/40 uppercase tracking-widest">Select your Use Case</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {useCases.map((useCase) => (
+                            {(useCases || []).map((useCase) => (
                                 <button
                                     key={useCase.id}
                                     onClick={() => setSelectedUseCase(useCase.id)}
