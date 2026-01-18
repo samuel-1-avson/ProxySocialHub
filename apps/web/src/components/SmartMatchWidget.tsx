@@ -159,7 +159,7 @@ export function SmartMatchWidget() {
                                 animate={{ opacity: 1, x: 0 }}
                                 className="w-full space-y-6"
                             >
-                                {recommendations.length > 0 ? (
+                                {(recommendations || []).length > 0 ? (
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between">
                                             <h3 className="text-xl font-bold text-white">Top Recommendations</h3>
