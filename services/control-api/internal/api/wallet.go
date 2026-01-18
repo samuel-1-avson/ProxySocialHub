@@ -159,7 +159,12 @@ func initiateDeposit(c *gin.Context) {
 		Status:    "pending",
 		// Phone is not mandatory for Paystack init, captured during checkout
 	}
-	db.DB.Create(&pendingTx)
+	if err := db.DB.Create(&pendingTx).Error; err != nil {
+		logging.Error(err).Msg("Failed to save pending transaction to DB")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	logging.Info().Str("reference", reference).Msg("Deposit initialized and saved")
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":            "success",
@@ -194,6 +199,11 @@ func verifyDeposit(c *gin.Context) {
 	// Process success
 	var pendingTx models.PendingTransaction
 	if result := db.DB.Where("reference = ?", reference).First(&pendingTx); result.Error != nil {
+		logging.Error(result.Error).Str("reference", reference).Msg("Transaction reference not found in DB")
+
+		// Attempt fallback/recovery?
+		// If it's valid on Paystack but missing in DB, we could theoretically recover it if we trust the user context
+		// But for now, returning 404 is "correct" for the system state
 		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
 		return
 	}
