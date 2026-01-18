@@ -5,12 +5,11 @@ async function main() {
 
     // 1. Setup Roles
     const [owner, oracle, provider, buyer] = await ethers.getSigners();
-    console.log(`Roles:
-    Owner: ${owner.address}
-    Oracle: ${oracle.address}
-    Provider: ${provider.address}
-    Buyer: ${buyer.address}
-  `);
+    console.log("Roles:");
+    console.log(`  Owner: ${owner.address}`);
+    console.log(`  Oracle: ${oracle.address}`);
+    console.log(`  Provider: ${provider.address}`);
+    console.log(`  Buyer: ${buyer.address}`);
 
     // 2. Deploy Contracts
     console.log("\n--- Deploying Contracts ---");
@@ -36,18 +35,15 @@ async function main() {
     console.log(`Provider ETH Balance: ${ethers.formatEther(bal)}`);
 
     try {
-        // contract sig: registerProvider(metadataURI, connectionDetails)
         const tx = await registry.connect(provider).registerProvider(metadataURI, connectionDetails);
         await tx.wait();
         console.log("Provider registered successfully.");
     } catch (err: any) {
         console.error("Registration failed. Reason:", err.reason || err.message || err);
-        if (err.data) console.error("Error Data:", err.data);
-        process.exit(1);
+        throw new Error("Provider registration failed");
     }
 
     // Verify registration
-    // The public mapping 'providers' generates a getter named 'providers'
     const providerInfo = await registry.providers(provider.address);
     console.log(`Provider Status: ${providerInfo.isActive ? "Active" : "Inactive"}`);
 
@@ -64,36 +60,26 @@ async function main() {
 
     // 5. Simulate Usage & Oracle Signing
     console.log("\n--- Step 3: Usage & Oracle Signing ---");
-    // Usage: 1 GB = 1073741824 bytes
-    // Rate: Mock implementation in contract might differ, but let's assume contract uses 
-    // fixed rate or param. In our contract, we might not have set a rate yet? 
-    // Let's check contract logic. 
-    // Actually, claimEarnings takes `amount` directly in recent designs? 
-    // Wait, looking at previous design: claimEarnings(buyer, bytesUsed, nonce, signature)
-    // And contract calculates amount = bytesUsed * rate.
 
     const bytesUsed = 1073741824n; // 1 GB
     const nonce = BigInt(Date.now());
 
     // Hash matches Solidity: keccak256(abi.encodePacked(buyer, provider, bytesUsed, nonce))
-    // We use ethers.solidityPackedKeccak256
     const messageHash = ethers.solidityPackedKeccak256(
         ["address", "address", "uint256", "uint256"],
         [buyer.address, provider.address, bytesUsed, nonce]
     );
 
     // Sign the hash (Oracle signs)
-    // Note: contentHash is what gets signed. Ethers `signMessage` adds the "\x19Ethereum Signed Message..." prefix automatically.
-    // We need to pass the raw bytes of the hash? No, signMessage takes string or bytes.
-    // If we pass bytes, it treats it as binary data.
+    // ethers.getBytes() converts hex string to Uint8Array for binary signing
     const signature = await oracle.signMessage(ethers.getBytes(messageHash));
     console.log("Oracle Signature generated.");
 
     // 6. Provider Claims Earnings
     console.log("\n--- Step 4: Provider Claim ---");
 
-    const initialProviderBalance = await ethers.provider.getBalance(provider.address);
     const initialEscrowBalance = await marketplace.buyerDeposits(buyer.address);
+    const initialProviderPending = await marketplace.providerBalances(provider.address);
 
     // Provider calls claimEarnings
     const tx = await marketplace.connect(provider).claimEarnings(
@@ -102,7 +88,7 @@ async function main() {
         nonce,
         signature
     );
-    const receipt = await tx.wait();
+    await tx.wait();
 
     console.log("Claim transaction confirmed.");
 
@@ -110,16 +96,15 @@ async function main() {
     console.log("\n--- Step 5: Verification ---");
 
     const finalEscrowBalance = await marketplace.buyerDeposits(buyer.address);
-    const pendingWithdrawal = await marketplace.providerBalances(provider.address);
+    const finalProviderPending = await marketplace.providerBalances(provider.address);
 
     console.log(`Buyer Escrow: ${ethers.formatEther(initialEscrowBalance)} -> ${ethers.formatEther(finalEscrowBalance)} ETH`);
-    console.log(`Provider Pending Earnings: ${ethers.formatEther(pendingWithdrawal)} ETH`);
+    console.log(`Provider Pending Earnings: ${ethers.formatEther(initialProviderPending)} -> ${ethers.formatEther(finalProviderPending)} ETH`);
 
-    if (initialEscrowBalance > finalEscrowBalance && pendingWithdrawal > 0n) {
+    if (initialEscrowBalance > finalEscrowBalance && finalProviderPending > initialProviderPending) {
         console.log("SUCCESS: Funds moved from Buyer Escrow to Provider Earnings.");
     } else {
-        console.error("FAILURE: Balances did not update as expected.");
-        process.exit(1);
+        throw new Error("FAILURE: Balances did not update as expected.");
     }
 }
 
