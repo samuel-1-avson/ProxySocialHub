@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/client';
+import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -46,131 +47,149 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary">🌐 ProxyHub</h1>
-          <p className="text-muted mt-2">Ghana&apos;s Premium Proxy Marketplace</p>
+    <div className="min-h-screen flex items-center justify-center bg-[#050505] relative overflow-hidden px-4 selection:bg-primary/30">
+      {/* Dynamic Background Elements */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:32px_32px] z-0"></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none animate-pulse"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <div className="max-w-md w-full relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+        {/* Branding */}
+        <div className="text-center mb-10 group">
+          <div className="inline-flex items-center justify-center p-4 rounded-3xl bg-primary/10 border border-primary/20 mb-6 group-hover:scale-110 transition-transform duration-500 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
+            <Globe className="w-10 h-10 text-primary animate-pulse" />
+          </div>
+          <h1 className="text-5xl font-black text-white tracking-tighter mb-2">
+            Proxy<span className="text-primary italic">Hub</span>
+          </h1>
+          <p className="text-muted-foreground text-sm font-bold uppercase tracking-[0.3em] opacity-60">
+            Ghana&apos;s Premium Infrastructure
+          </p>
         </div>
 
         {/* Login Card */}
-        <div className="card w-full">
-          <>
-            <h2 className="text-2xl font-semibold mb-6">Welcome Back</h2>
+        <div className="relative group/card">
+          <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
+          <div className="p-10 rounded-[2.5rem] bg-white/[0.03] backdrop-blur-3xl border border-white/5 shadow-2xl relative overflow-hidden group-hover/card:border-white/10 transition-colors duration-500">
+            <div className="relative z-10">
+              <h2 className="text-2xl font-black text-white tracking-tight mb-8 uppercase italic">Identity Verification</h2>
 
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg mb-6">
-                {error}
+              {error && (
+                <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 text-red-400 px-5 py-4 rounded-2xl mb-8 animate-in shake duration-500">
+                  <AlertCircle size={20} className="shrink-0" />
+                  <p className="text-sm font-bold">{error}</p>
+                </div>
+              )}
+
+              {/* OAuth Buttons */}
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <button
+                  onClick={() => handleOAuthLogin('google')}
+                  className="flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-white/[0.05] border border-white/10 text-white font-black uppercase tracking-widest text-[10px] hover:bg-white/[0.1] hover:border-white/20 transition-all active:scale-95 group"
+                >
+                  <Chrome className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />
+                  Google
+                </button>
+                <button
+                  onClick={() => handleOAuthLogin('github')}
+                  className="flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-white/[0.05] border border-white/10 text-white font-black uppercase tracking-widest text-[10px] hover:bg-white/[0.1] hover:border-white/20 transition-all active:scale-95 group"
+                >
+                  <Github className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
+                  GitHub
+                </button>
               </div>
-            )}
 
-            {/* OAuth Buttons */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button
-                onClick={() => handleOAuthLogin('google')}
-                className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
-              >
-                <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-                  <path
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    fill="#34A853"
-                  />
-                  <path
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.24z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    fill="#EA4335"
-                  />
-                </svg>
-                Google
-              </button>
-              <button
-                onClick={() => handleOAuthLogin('github')}
-                className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
-              >
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                  <path
-                    fillRule="evenodd"
-                    d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                GitHub
-              </button>
+              <div className="relative mb-8">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-white/5"></div>
+                </div>
+                <div className="relative flex justify-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                  <span className="px-4 bg-[#0a0a0a] rounded-full">Secure Override</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleCredentialsSubmit} className="space-y-6">
+                <div className="space-y-3">
+                  <label htmlFor="email" className="block text-[10px] font-black uppercase tracking-[0.3em] text-white/40 ml-1">
+                    Node Identifier
+                  </label>
+                  <div className="relative group/input">
+                    <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within/input:text-primary transition-colors" size={18} />
+                    <input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="w-full bg-black/20 border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-sm font-bold text-white outline-none focus:border-primary/50 transition-all placeholder:text-white/10"
+                      placeholder="you@protocol.io"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between ml-1">
+                    <label htmlFor="password" className="block text-[10px] font-black uppercase tracking-[0.3em] text-white/40">
+                      Encryption Key
+                    </label>
+                    <Link href="/forgot-password" className="text-[10px] font-black text-primary hover:underline uppercase tracking-widest">
+                      Reset
+                    </Link>
+                  </div>
+                  <div className="relative group/input">
+                    <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within/input:text-primary transition-colors" size={18} />
+                    <input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      minLength={8}
+                      className="w-full bg-black/20 border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-sm font-bold text-white outline-none focus:border-primary/50 transition-all placeholder:text-white/10"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full group relative flex items-center justify-center gap-3 px-8 py-5 rounded-3xl bg-primary text-black font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-95 transition-all shadow-[0_20px_40px_-10px_rgba(34,197,94,0.3)] disabled:opacity-50 disabled:hover:scale-100"
+                >
+                  {loading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <span>Establish Connection</span>
+                      <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <div className="mt-10 text-center">
+                <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">
+                  Not on the grid?{' '}
+                  <Link href="/register" className="text-primary hover:underline italic ml-1">
+                    Request Credentials
+                  </Link>
+                </p>
+              </div>
             </div>
-
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-card-border"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-card text-muted">Or continue with</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleCredentialsSubmit} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-2">
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="input"
-                  placeholder="you@example.com"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium mb-2">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  className="input"
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn btn-primary w-full shadow-retro"
-              >
-                {loading ? 'Signing in...' : 'Sign In'}
-              </button>
-            </form>
-
-            <div className="mt-6 text-center">
-              <p className="text-muted">
-                Don&apos;t have an account?{' '}
-                <Link href="/register" className="text-primary hover:underline">
-                  Sign up
-                </Link>
-              </p>
-            </div>
-          </>
+          </div>
         </div>
 
         {/* Footer */}
-        <p className="text-center text-muted text-sm mt-8">
-          © 2026 ProxyHub. All rights reserved.
-        </p>
+        <div className="mt-12 text-center space-y-4">
+          <p className="text-white/20 text-[10px] font-black uppercase tracking-[0.4em]">
+            © 2026 ProxyHub Protocol. Authorized Access Only.
+          </p>
+          <div className="flex items-center justify-center gap-6 opacity-30 grayscale hover:grayscale-0 transition-all duration-700">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center font-black text-[10px] text-white">PH</div>
+            <div className="w-24 h-px bg-white/10"></div>
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center font-black text-[10px] text-white italic">GW</div>
+          </div>
+        </div>
       </div>
     </div>
   );
