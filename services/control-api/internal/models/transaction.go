@@ -9,7 +9,7 @@ import (
 
 // PendingTransaction tracks MoMo transactions awaiting webhook confirmation
 type PendingTransaction struct {
-	ID            uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
+	ID            uuid.UUID `gorm:"type:uuid;primary_key"`
 	Reference     string    `gorm:"type:varchar(100);unique;not null"` // Our internal reference
 	ExternalRef   string    `gorm:"type:varchar(100)"`                 // Provider's transaction ID
 	UserID        string    `gorm:"type:varchar(100);not null"`

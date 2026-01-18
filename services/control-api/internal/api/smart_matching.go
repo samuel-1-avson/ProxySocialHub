@@ -63,24 +63,23 @@ func updatePreferences(c *gin.Context) {
 	var prefs models.UserPreference
 	db.DB.Where("user_id = ?", userID).FirstOrCreate(&prefs, models.UserPreference{UserID: userID})
 
-	updates := make(map[string]interface{})
 	if req.PreferredUseCaseID != nil {
-		updates["preferred_use_case_id"] = req.PreferredUseCaseID
+		prefs.PreferredUseCaseID = req.PreferredUseCaseID
 	}
 	if req.PreferredRegions != nil {
-		updates["preferred_regions"] = req.PreferredRegions
+		prefs.PreferredRegions = req.PreferredRegions
 	}
 	if req.MaxPricePerGB != nil {
-		updates["max_price_per_gb"] = req.MaxPricePerGB
+		prefs.MaxPricePerGB = req.MaxPricePerGB
 	}
 	if req.MinSellerRating != nil {
-		updates["min_seller_rating"] = req.MinSellerRating
+		prefs.MinSellerRating = req.MinSellerRating
 	}
 	if req.PreferVerifiedSellers != nil {
-		updates["prefer_verified_sellers"] = req.PreferVerifiedSellers
+		prefs.PreferVerifiedSellers = *req.PreferVerifiedSellers
 	}
 
-	db.DB.Model(&prefs).Updates(updates)
+	db.DB.Save(&prefs)
 	db.DB.Preload("UseCase").First(&prefs, "id = ?", prefs.ID)
 
 	c.JSON(http.StatusOK, prefs)
@@ -104,7 +103,7 @@ func getRecommendations(c *gin.Context) {
 
 	// Get active listings
 	var listings []models.ProxyListing
-	query := db.DB.Preload("Seller").Where("is_active = ?", true)
+	query := db.DB.Preload("Seller").Where("status = ?", models.ListingStatusActive)
 
 	// Apply basic filters
 	if prefs.MaxPricePerGB != nil {
@@ -113,10 +112,6 @@ func getRecommendations(c *gin.Context) {
 	if prefs.MinSellerRating != nil {
 		query = query.Joins("JOIN users ON proxy_listings.seller_id = users.id").
 			Where("users.avg_rating >= ?", *prefs.MinSellerRating)
-	}
-	if prefs.PreferVerifiedSellers {
-		query = query.Joins("JOIN users ON proxy_listings.seller_id = users.id").
-			Where("users.is_verified = ?", true)
 	}
 
 	query.Limit(50).Find(&listings)
@@ -156,7 +151,7 @@ func getRecommendationsByUseCase(c *gin.Context) {
 
 	// Get active listings
 	var listings []models.ProxyListing
-	db.DB.Preload("Seller").Where("is_active = ?", true).Limit(50).Find(&listings)
+	db.DB.Preload("Seller").Where("status = ?", models.ListingStatusActive).Limit(50).Find(&listings)
 
 	// Score based on use case requirements
 	scored := scoreListingsForUseCase(listings, useCase)

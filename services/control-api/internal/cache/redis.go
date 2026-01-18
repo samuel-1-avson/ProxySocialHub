@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -17,8 +16,7 @@ var (
 )
 
 // Connect initializes the Redis connection
-func Connect() error {
-	redisURL := os.Getenv("REDIS_URL")
+func Connect(redisURL string) error {
 	if redisURL == "" {
 		redisURL = "redis://localhost:6379"
 	}

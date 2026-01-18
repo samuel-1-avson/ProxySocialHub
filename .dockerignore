@@ -1,0 +1,15 @@
+node_modules
+target
+dist
+.git
+.idea
+.vscode
+*.exe
+*.log
+tmp
+**/*.log
+**/*.tmp
+**/node_modules
+**/target
+**/.next
+.env

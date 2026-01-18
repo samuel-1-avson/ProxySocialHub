@@ -50,8 +50,24 @@ export async function createSession(type: 'rotating' | 'sticky'): Promise<{ sess
 
 export async function getSessions(): Promise<Session[]> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/sessions/`);
-  if (!response.ok) throw new Error('Failed to fetch sessions');
-  return response.json();
+  if (!response.ok) {
+    console.error('getSessions failed:', response.status, response.statusText);
+    throw new Error('Failed to fetch sessions');
+  }
+  const data = await response.json();
+  console.log('getSessions API Response:', data);
+
+  // Handle { sessions: [...] } wrapper
+  if (data && Array.isArray(data.sessions)) {
+    return data.sessions.map((item: any) => item.session || item);
+  }
+  // Handle direct array [...]
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  console.warn('getSessions received unexpected format:', data);
+  return [];
 }
 
 export async function terminateSession(sessionId: string): Promise<void> {
@@ -59,6 +75,147 @@ export async function terminateSession(sessionId: string): Promise<void> {
     method: 'POST',
   });
   if (!response.ok) throw new Error('Failed to terminate session');
+}
+
+// Circles API
+
+export interface Circle {
+  id: string;
+  name: string;
+  description: string;
+  owner_id: string;
+  visibility: 'public' | 'private';
+  member_count: number;
+  is_enterprise: boolean;
+  bandwidth_pool_gb: number;
+  price_per_gb: number;
+  priority_level: number;
+  created_at: string;
+}
+
+export interface CircleStats {
+  circle_id: string;
+  name: string;
+  member_count: number;
+  total_bytes_gb: number;
+  total_revenue: number;
+  avg_uptime: number;
+  active_nodes: number;
+  last_7_days_gb: number;
+  last_30_days_gb: number;
+}
+
+export async function getCircles(): Promise<Circle[]> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/`);
+  if (!response.ok) throw new Error('Failed to fetch circles');
+  const data = await response.json();
+  return data.circles;
+}
+
+export async function getCircle(id: string): Promise<Circle> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}`);
+  if (!response.ok) throw new Error('Failed to fetch circle');
+  const data = await response.json();
+  return data.circle;
+}
+
+export async function createCircle(name: string, description: string, visibility: string): Promise<Circle> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description, visibility }),
+  });
+  if (!response.ok) throw new Error('Failed to create circle');
+  const data = await response.json();
+  return data.circle;
+}
+
+export async function joinCircle(id: string, message?: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}/join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  if (!response.ok) throw new Error('Failed to join circle');
+}
+
+export async function getCircleStats(id: string): Promise<CircleStats> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}/stats`);
+  if (!response.ok) throw new Error('Failed to fetch stats');
+  const data = await response.json();
+  return data.stats;
+}
+
+export interface CircleMember {
+  id: string;
+  circle_id: string;
+  user_id: string;
+  role: 'owner' | 'admin' | 'member';
+  status: 'active' | 'pending' | 'banned';
+  joined_at: string;
+  user?: {
+    id: string;
+    email: string;
+  };
+}
+
+export async function getCircleMembers(id: string): Promise<{ circle_id: string; members: CircleMember[]; count: number }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}/members`);
+  if (!response.ok) throw new Error('Failed to fetch members');
+  return response.json();
+}
+
+export async function inviteToCircle(circleId: string, userId: string): Promise<{ message: string; invite_id: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${circleId}/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!response.ok) throw new Error('Failed to invite user');
+  return response.json();
+}
+
+export async function leaveCircle(id: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}/members/me`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to leave circle');
+}
+
+export async function deleteCircle(id: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete circle');
+}
+
+export async function updateCircle(id: string, data: { name: string; description: string; visibility: string }): Promise<Circle> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/circles/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update circle');
+  const result = await response.json();
+  return result.circle;
+}
+
+export interface Friendship {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  created_at: string;
+  friend: {
+    id: string;
+    email: string;
+    username?: string; // If available
+  };
+}
+
+export async function getFriends(): Promise<Friendship[]> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends`);
+  if (!response.ok) throw new Error('Failed to fetch friends');
+  return response.json();
 }
 
 // Wallet API (requires auth)

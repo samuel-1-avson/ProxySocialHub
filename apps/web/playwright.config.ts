@@ -11,7 +11,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
-    baseURL: process.env.TEST_BASE_URL || 'http://localhost:4001',
+    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3006',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -38,5 +38,10 @@ export default defineConfig({
       use: { ...devices['iPhone 12'] },
     },
   ],
-  // webServer configuration removed to prevent port conflict
+  webServer: {
+    command: 'npm run start',
+    url: 'http://localhost:3006',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+  },
 });

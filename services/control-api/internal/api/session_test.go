@@ -14,9 +14,10 @@ import (
 
 func TestCreateSession_Rotating(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
 
-	email := testutil.UniqueEmail("session_rotating")
+	email := testutil.UniqueEmail("session_rotating_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
 
 	r := setupTestRouter()
@@ -35,7 +36,7 @@ func TestCreateSession_Rotating(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
 	}
 
 	var response map[string]interface{}
@@ -59,9 +60,10 @@ func TestCreateSession_Rotating(t *testing.T) {
 
 func TestCreateSession_Sticky(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
 
-	email := testutil.UniqueEmail("session_sticky")
+	email := testutil.UniqueEmail("session_sticky_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
 
 	r := setupTestRouter()
@@ -80,7 +82,7 @@ func TestCreateSession_Sticky(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
 	}
 
 	var response map[string]interface{}
@@ -94,9 +96,10 @@ func TestCreateSession_Sticky(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
 
-	email := testutil.UniqueEmail("session_list")
+	email := testutil.UniqueEmail("session_list_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
 
 	// Create a few sessions
@@ -107,6 +110,7 @@ func TestListSessions(t *testing.T) {
 			Status:          models.SessionActive,
 			CredentialsUser: "test-user",
 			CredentialsPass: "test-pass",
+			Config:          "{}",
 		}
 		db.DB.Create(&session)
 	}
@@ -121,7 +125,7 @@ func TestListSessions(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, w.Code)
 	}
 
 	var response map[string]interface{}
@@ -139,9 +143,10 @@ func TestListSessions(t *testing.T) {
 
 func TestTerminateSession(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
 
-	email := testutil.UniqueEmail("session_terminate")
+	email := testutil.UniqueEmail("session_terminate_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
 
 	// Create a session
@@ -151,6 +156,7 @@ func TestTerminateSession(t *testing.T) {
 		Status:          models.SessionActive,
 		CredentialsUser: "test-user",
 		CredentialsPass: "test-pass",
+		Config:          "{}",
 	}
 	db.DB.Create(&session)
 
@@ -164,7 +170,7 @@ func TestTerminateSession(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, w.Code)
 	}
 
 	// Verify session is terminated
@@ -176,12 +182,56 @@ func TestTerminateSession(t *testing.T) {
 	}
 }
 
+func TestGetSession(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "users", "wallets", "sessions")
+
+	email := testutil.UniqueEmail("session_get_v3")
+	user := testutil.CreateTestUser(t, email, "buyer")
+
+	session := models.Session{
+		UserID:          user.ID,
+		Type:            models.SessionRotating,
+		Status:          models.SessionActive,
+		CredentialsUser: "test-user-get",
+		CredentialsPass: "test-pass-get",
+		Config:          "{}",
+	}
+	db.DB.Create(&session)
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.GET("/sessions/:id", getSession)
+
+	req := httptest.NewRequest("GET", "/sessions/"+session.ID.String(), nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+
+	s, ok := response["session"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected session object in response, got: %v", response)
+	}
+	if s["id"] != session.ID.String() {
+		t.Errorf("Expected session ID %s, got %s", session.ID, s["id"])
+	}
+}
+
 func TestSessionModelValidation(t *testing.T) {
 	session := models.Session{
 		Type:            models.SessionRotating,
 		Status:          models.SessionActive,
 		CredentialsUser: "test-cred",
 		CredentialsPass: "test-pass",
+		Config:          "{}",
 	}
 
 	if session.Type != models.SessionRotating {

@@ -8,14 +8,24 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
-func authMiddlewareMock(userID, role string) gin.HandlerFunc {
+func authMiddlewareMock(userID string, role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set("user_id", userID)
+		// Set user_id as UUID object (used by some handlers)
+		if uid, err := uuid.Parse(userID); err == nil {
+			c.Set("user_id", uid)
+		} else {
+			// If not a valid UUID, set as string (fallback)
+			c.Set("user_id", userID)
+		}
+		// Set userID as string (used by session.go)
+		c.Set("userID", userID)
+
 		c.Set("role", role)
 		c.Next()
 	}
@@ -71,7 +81,7 @@ func TestGetWallet_NotFound(t *testing.T) {
 	testutil.SetupTestDB(t)
 
 	r := setupTestRouter()
-	r.Use(authMiddlewareMock("nonexistent-user-uuid", "buyer"))
+	r.Use(authMiddlewareMock(uuid.NewString(), "buyer"))
 	r.GET("/wallet", getWallet)
 
 	req := httptest.NewRequest("GET", "/wallet", nil)

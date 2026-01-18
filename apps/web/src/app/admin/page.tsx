@@ -88,7 +88,20 @@ interface HealthStats {
   avg_latency_ms: number;
 }
 
-type TabType = 'overview' | 'users' | 'kyc' | 'payouts' | 'audit' | 'health';
+
+interface ProviderApplication {
+  id: string;
+  user_id: string;
+  status: string;
+  reason: string;
+  isp: string;
+  location: string;
+  bandwidth: string;
+  created_at: string;
+  user?: User;
+}
+
+type TabType = 'overview' | 'users' | 'applications' | 'kyc' | 'payouts' | 'audit' | 'health';
 
 export default function AdminPage() {
   const { user, isLoading, isAuthenticated } = useAuth();
@@ -100,6 +113,7 @@ export default function AdminPage() {
   const [payouts, setPayouts] = useState<PendingPayout[]>([]);
   const [kycVerifications, setKycVerifications] = useState<KYCVerification[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [applications, setApplications] = useState<ProviderApplication[]>([]);
   const [healthStats, setHealthStats] = useState<HealthStats | null>(null);
   const [nodes, setNodes] = useState<NodeHealth[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +138,7 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statsRes, dashRes, usersRes, payoutsRes, kycRes, auditRes, healthRes, nodesRes] = await Promise.all([
+      const [statsRes, dashRes, usersRes, payoutsRes, kycRes, auditRes, healthRes, nodesRes, appsRes] = await Promise.all([
         fetchWithAuth(`${API_BASE_URL}/v1/admin/stats`).then(r => r.json()).catch(() => null),
         fetchWithAuth(`${API_BASE_URL}/v1/admin/stats/dashboard`).then(r => r.json()).catch(() => null),
         fetchWithAuth(`${API_BASE_URL}/v1/admin/users`).then(r => r.json()).catch(() => ({ users: [] })),
@@ -133,6 +147,7 @@ export default function AdminPage() {
         fetchWithAuth(`${API_BASE_URL}/v1/admin/audit-logs?per_page=50`).then(r => r.json()).catch(() => ({ audit_logs: [] })),
         fetchWithAuth(`${API_BASE_URL}/v1/admin/health/stats`).then(r => r.json()).catch(() => null),
         fetchWithAuth(`${API_BASE_URL}/v1/admin/health/nodes`).then(r => r.json()).catch(() => ({ nodes: [] })),
+        fetchWithAuth(`${API_BASE_URL}/v1/admin/provider/applications?status=pending`).then(r => r.json()).catch(() => ({ applications: [] })),
       ]);
 
       setStats(statsRes);
@@ -143,6 +158,7 @@ export default function AdminPage() {
       setAuditLogs(auditRes.audit_logs || []);
       setHealthStats(healthRes);
       setNodes(nodesRes.nodes || []);
+      setApplications(appsRes?.applications || []);
     } catch {
       setError('Failed to load admin data');
     } finally {
@@ -228,6 +244,24 @@ export default function AdminPage() {
     }
   };
 
+  const handleApproveApplication = async (appId: string) => {
+    try {
+      await fetchWithAuth(`${API_BASE_URL}/v1/admin/provider/applications/${appId}/approve`, { method: 'POST' });
+      await loadData();
+    } catch {
+      setError('Failed to approve application');
+    }
+  };
+
+  const handleRejectApplication = async (appId: string) => {
+    try {
+      await fetchWithAuth(`${API_BASE_URL}/v1/admin/provider/applications/${appId}/reject`, { method: 'POST' });
+      await loadData();
+    } catch {
+      setError('Failed to reject application');
+    }
+  };
+
   if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -239,6 +273,7 @@ export default function AdminPage() {
   const tabs: { id: TabType; label: string; icon: string }[] = [
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'users', label: 'Users', icon: '👥' },
+    { id: 'applications', label: 'Applications', icon: '📝' },
     { id: 'kyc', label: 'KYC', icon: '✓' },
     { id: 'payouts', label: 'Payouts', icon: '💰' },
     { id: 'audit', label: 'Audit Logs', icon: '📝' },
@@ -361,6 +396,65 @@ export default function AdminPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Applications Tab */}
+        {activeTab === 'applications' && (
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-700">
+              <h2 className="text-lg font-semibold text-white">Pending Provider Applications</h2>
+            </div>
+            {applications.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">No pending applications</div>
+            ) : (
+              <div className="divide-y divide-gray-700/50">
+                {applications.map(app => (
+                  <div key={app.id} className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-white font-medium text-lg">{app.user?.email || 'Unknown User'}</h3>
+                        <p className="text-gray-400 text-sm">Applied on {new Date(app.created_at).toLocaleString()}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApproveApplication(app.id)}
+                          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleRejectApplication(app.id)}
+                          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div className="bg-gray-900/50 p-4 rounded-lg">
+                        <p className="text-gray-400 mb-1">Reason for applying:</p>
+                        <p className="text-white italic">"{app.reason}"</p>
+                      </div>
+                      <div className="bg-gray-900/50 p-4 rounded-lg space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">ISP:</span>
+                          <span className="text-white">{app.isp}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Location:</span>
+                          <span className="text-white">{app.location}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Bandwidth:</span>
+                          <span className="text-white">{app.bandwidth}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

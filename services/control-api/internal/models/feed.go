@@ -25,7 +25,7 @@ const (
 
 // FeedEvent represents an event in the activity feed
 type FeedEvent struct {
-	ID         uuid.UUID      `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID         uuid.UUID      `gorm:"type:uuid;primary_key" json:"id"`
 	ActorID    *uuid.UUID     `gorm:"type:uuid" json:"actor_id,omitempty"`
 	EventType  FeedEventType  `gorm:"size:50;not null" json:"event_type"`
 	TargetType string         `gorm:"size:50" json:"target_type,omitempty"` // "listing", "user", "circle", "review"
@@ -53,7 +53,7 @@ func (f *FeedEvent) BeforeCreate(tx *gorm.DB) error {
 
 // Badge represents an achievement badge
 type Badge struct {
-	ID          uuid.UUID      `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID          uuid.UUID      `gorm:"type:uuid;primary_key" json:"id"`
 	Name        string         `gorm:"size:100;unique;not null" json:"name"`
 	Description string         `json:"description"`
 	Icon        string         `gorm:"size:50" json:"icon"` // Icon name (e.g., "trophy", "star")

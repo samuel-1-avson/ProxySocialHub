@@ -76,18 +76,93 @@ jobs:
           cd apps/web
           npm run build
 
-  lint:
-    name: Lint & Vet
+  lint-go:
+    name: Lint Go (Control API)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: services/control-api
+
+  lint-rust:
+    name: Lint Rust (Edge Gateway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Protoc
+        run: sudo apt-get install -y protobuf-compiler
+      - name: Clippy
+        run: |
+          cd services/edge-gateway
+          cargo clippy -- -D warnings
+
+  integration-test:
+    name: Verify System Health
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: proxyhubb
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: proxyhubb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
 
-      - name: Go Vet
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build & Start Control API
+        env:
+          DATABASE_URL: postgres://proxyhubb:password@localhost:5432/proxyhubb?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret
+          SERVER_PORT: "8082"
         run: |
           cd services/control-api
-          go vet ./...
+          go build -o server
+          nohup ./server > api.log 2>&1 &
+          echo "API started in background..."
+
+      - name: Wait for API
+        run: |
+          timeout 30s bash -c 'until curl -s http://localhost:8082/health; do echo "Waiting for API..."; sleep 2; done'
+          echo "API is ready!"
+
+      - name: Run Verification Script
+        run: |
+          cd apps/mobile
+          npm ci
+          npx ts-node verify_health.ts

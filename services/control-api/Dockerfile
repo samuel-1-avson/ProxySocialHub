@@ -3,12 +3,13 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source
+# Copy entire repo
 COPY . .
+
+WORKDIR /app/services/control-api
+
+# Install dependencies
+RUN go mod download
 
 # Build binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o control-api main.go
@@ -18,11 +19,11 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates and curl
+RUN apk --no-cache add ca-certificates curl
 
 # Copy binary from builder
-COPY --from=builder /app/control-api .
+COPY --from=builder /app/services/control-api/control-api .
 COPY --from=builder /app/migrations ./migrations
 
 # Expose port

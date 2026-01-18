@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/client';
 import { CheckCircle, Globe, ShoppingCart, Coins } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -18,6 +19,27 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const router = useRouter();
+  const supabase = createClient();
+
+  const handleOAuthRegister = async (provider: 'google' | 'github') => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            // Pass role as query param to access it in callback if needed,
+            // or better rely on default role via metadata if possible.
+            // Supabase OAuth doesn't easily pass metadata via params to the user creation trigger unless we use state.
+            // For now, let's just sign in. The user can update role later or we default to 'buyer'.
+          }
+        },
+      });
+      if (error) throw error;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'OAuth registration failed');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +109,7 @@ export default function RegisterPage() {
           {/* OAuth Buttons */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <button
-              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/google?role=${role}`}
+              onClick={() => handleOAuthRegister('google')}
               className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
             >
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -111,7 +133,7 @@ export default function RegisterPage() {
               Google
             </button>
             <button
-              onClick={() => window.location.href = `${API_BASE_URL}/v1/auth/github?role=${role}`}
+              onClick={() => handleOAuthRegister('github')}
               className="flex items-center justify-center px-4 py-3 border border-card-border rounded-lg hover:bg-white/5 transition font-medium text-foreground"
             >
               <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">

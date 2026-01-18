@@ -24,23 +24,14 @@ const (
 	TrustTierPremium  TrustTier = "premium"
 )
 
+// User maps to the 'profiles' table in Supabase
 type User struct {
-	ID           uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	Email        string     `gorm:"unique;not null" json:"email"`
-	PasswordHash string     `gorm:"" json:"-"`            // Never expose in JSON; nullable for OAuth
-	Role         string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
-	Status       UserStatus `gorm:"default:'pending'" json:"status"`
-	TrustTier    TrustTier  `gorm:"default:'new'" json:"trust_tier"`
-	KYCStatus    KYCStatus  `gorm:"default:'not_started'" json:"kyc_status"`
-
-	// Email verification fields
-	EmailVerified            bool       `gorm:"default:false" json:"email_verified"`
-	VerificationToken        *string    `gorm:"size:64" json:"-"`
-	VerificationTokenExpires *time.Time `json:"-"`
-
-	// Two-Factor Authentication fields
-	TOTPSecret  *string `gorm:"size:64" json:"-"`
-	TOTPEnabled bool    `gorm:"default:false" json:"totp_enabled"`
+	ID        uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"` // References auth.users
+	Email     string     `gorm:"unique;not null" json:"email"`
+	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
+	Status    UserStatus `gorm:"-" json:"status"`      // Derived from auth or custom logic? For now ignored/transient
+	TrustTier TrustTier  `gorm:"default:'new'" json:"trust_tier"`
+	KYCStatus KYCStatus  `gorm:"default:'not_started'" json:"kyc_status"`
 
 	// Social Profile fields
 	DisplayName   *string `gorm:"size:100" json:"display_name,omitempty"`
@@ -61,31 +52,21 @@ type User struct {
 	// Provider Stats
 	ProviderSince      *time.Time `json:"provider_since,omitempty"`
 	TotalBandwidthSold float64    `gorm:"default:0" json:"total_bandwidth_sold"`
+	WalletAddress      *string    `gorm:"size:42;index" json:"wallet_address,omitempty"` // ETH Address
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type OAuthIdentity struct {
-	ID             uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
-	UserID         uuid.UUID `gorm:"type:uuid;not null"`
-	Provider       string    `gorm:"not null"` // 'google', 'github'
-	ProviderUserID string    `gorm:"not null"`
-	Email          string    `gorm:"not null"`
-	AccessToken    string
-	RefreshToken   string
-	ExpiresAt      time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+// TableName overrides the table name used by User to `profiles`
+func (User) TableName() string {
+	return "profiles"
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
-	if u.ID == uuid.Nil {
-		u.ID = uuid.New()
-	}
-	if u.Status == "" {
-		u.Status = UserStatusPending
-	}
+	// ID is provided by Supabase Auth (auth.users), so we don't generate it here usually.
+	// But if the trigger creates it, this code might not even run for the initial creation?
+	// The Go code might read/update it.
 	if u.TrustTier == "" {
 		u.TrustTier = TrustTierNew
 	}
@@ -95,47 +76,14 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
-// IsActive returns true if user is in good standing
+// IsActive returns true (Legacy check, assume always active or check ban list)
 func (u *User) IsActive() bool {
-	return u.Status == UserStatusActive
+	return true // TODO: Check Supabase ban status if possible
 }
 
 // IsKYCVerified returns true if user has passed KYC
 func (u *User) IsKYCVerified() bool {
 	return u.KYCStatus == KYCStatusApproved
-}
-
-// IsEmailVerified returns true if user has verified their email
-func (u *User) IsEmailVerified() bool {
-	return u.EmailVerified
-}
-
-// GenerateVerificationToken creates a new verification token with 24-hour expiry
-func (u *User) GenerateVerificationToken() string {
-	token := uuid.New().String() + uuid.New().String()
-	token = token[:64] // Ensure 64 chars
-	u.VerificationToken = &token
-	expires := time.Now().Add(24 * time.Hour)
-	u.VerificationTokenExpires = &expires
-	return token
-}
-
-// ClearVerificationToken removes the verification token after successful verification
-func (u *User) ClearVerificationToken() {
-	u.VerificationToken = nil
-	u.VerificationTokenExpires = nil
-	u.EmailVerified = true
-}
-
-// IsVerificationTokenValid checks if the token matches and hasn't expired
-func (u *User) IsVerificationTokenValid(token string) bool {
-	if u.VerificationToken == nil || u.VerificationTokenExpires == nil {
-		return false
-	}
-	if *u.VerificationToken != token {
-		return false
-	}
-	return time.Now().Before(*u.VerificationTokenExpires)
 }
 
 // TierConfig holds the rate limits for each trust tier

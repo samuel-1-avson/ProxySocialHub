@@ -24,8 +24,13 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring"]
 tokio-util = { version = "0.7", features = ["compat"] }
 tonic = { version = "0.12", features = ["transport"] }
 tower-service = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.8", features = ["v4", "fast-rng"] }
 yamux = "0.10"
+jsonwebtoken = "9.3"
+governor = "0.6"
+nonzero_ext = "0.3"
 
 [build-dependencies]
 tonic-build = "0.12"

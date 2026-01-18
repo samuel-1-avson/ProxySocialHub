@@ -55,8 +55,14 @@ func RequestLogger() gin.HandlerFunc {
 
 		// Get user ID if available
 		userID := ""
-		if id, exists := c.Get("userID"); exists {
-			userID = id.(string)
+		if id, exists := c.Get("user_id"); exists {
+			// Handle both string and uuid.UUID types to be safe
+			switch v := id.(type) {
+			case string:
+				userID = v
+			case interface{ String() string }:
+				userID = v.String()
+			}
 		}
 
 		// Get request ID from header or generate
@@ -128,27 +134,27 @@ func randomString(n int) string {
 
 // Helper functions for structured logging
 
-// Info logs at info level
-func Info(msg string) {
-	Logger.Info().Str("component", "api").Msg(msg)
+// Info starts a new message with info level
+func Info() *zerolog.Event {
+	return Logger.Info().Str("component", "api")
 }
 
-// Error logs at error level
-func Error(msg string, err error) {
-	Logger.Error().Err(err).Str("component", "api").Msg(msg)
+// Error starts a new message with error level
+func Error(err error) *zerolog.Event {
+	return Logger.Error().Err(err).Str("component", "api")
 }
 
-// Warn logs at warn level
-func Warn(msg string) {
-	Logger.Warn().Str("component", "api").Msg(msg)
+// Warn starts a new message with warn level
+func Warn() *zerolog.Event {
+	return Logger.Warn().Str("component", "api")
 }
 
-// Debug logs at debug level
-func Debug(msg string) {
-	Logger.Debug().Str("component", "api").Msg(msg)
+// Debug starts a new message with debug level
+func Debug() *zerolog.Event {
+	return Logger.Debug().Str("component", "api")
 }
 
-// WithField returns an event with a field
+// WithField returns an event with a field (Legacy compatibility)
 func WithField(key string, value interface{}) *zerolog.Event {
 	return Logger.Info().Interface(key, value)
 }

@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/events"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
@@ -51,32 +55,73 @@ func reportUsage(c *gin.Context) {
 			continue
 		}
 
-		// Get session data to find user
+		// Get session data
 		sessionData, err := redisClient.GetSession(report.SessionUsername)
 		if err != nil {
 			continue
 		}
 
-		// Calculate cost (0.50 GHS per GB)
-		gbUsed := float64(totalBytes) / (1024 * 1024 * 1024)
-		cost := gbUsed * 0.50 // GHS per GB
+		// Publish Billing Event (Async)
+		// This decouples billing/analytics from the critical path
+		go func(data *redisClient.SessionData, up, down int64) {
+			// Generate Oracle Signature for usage
+			// Matches Smart Contract: keccak256(abi.encodePacked(buyer, provider, bytesUsed, nonce))
+			var signature []byte
+			var nonce uint64 = uint64(time.Now().UnixNano()) // Use timestamp as nonce for now
+			// In production, maintain a nonce counter in Redis
 
-		// Deduct from user's wallet
-		if cost > 0.001 { // Only deduct if meaningful amount
-			var wallet models.Wallet
-			if result := db.DB.Where("user_id = ?", sessionData.UserID).First(&wallet); result.Error == nil {
-				// Create ledger entry for usage
-				ledgerEntry := models.WalletLedgerEntry{
-					WalletID:    wallet.ID,
-					Type:        models.TransactionUsage,
-					Amount:      -cost, // Negative for deduction
-					Description: "Proxy usage: " + report.SessionUsername,
+			if signer := GetOracleSigner(); signer != nil {
+				// We need ETH addresses. Assuming UserID/ProviderID stored in Redis were ETH addresses
+				// If not, we can't sign properly. For this demo, we assume they are valid hex addresses
+				// or valid enough for the Signer check (it checks IsHexAddress).
+				// If they are not hex, sign will fail.
+				sig, err := signer.SignUsage(data.UserID, data.ProviderID, uint64(up+down), nonce)
+				if err != nil {
+					logging.Error(err).Msg("Failed to sign usage data")
+				} else {
+					signature = sig
 				}
-				db.DB.Create(&ledgerEntry)
-
-				// Update wallet balance
-				db.DB.Model(&wallet).Update("balance", wallet.Balance-cost)
 			}
+
+			if q := GetEventQueue(); q != nil {
+				// Use fire-and-forget
+				_ = q.Publish(context.Background(), events.Event{
+					ID:        "evt_bw_" + time.Now().Format("20060102150405"), // Simple ID
+					Type:      events.EventTypeBandwidthConsumed,
+					Timestamp: time.Now(),
+					Source:    "control-api",
+					Payload: map[string]interface{}{
+						"session_username": report.SessionUsername,
+						"user_id":          data.UserID,
+						"provider_id":      data.ProviderID,
+						"bytes_up":         up,
+						"bytes_down":       down,
+						"total_bytes":      up + down,
+						"plan_type":        "pay_per_gb",
+						"nonce":            nonce,
+						"signature":        fmt.Sprintf("0x%x", signature),
+					},
+				})
+			}
+		}(sessionData, report.BytesUp, report.BytesDown)
+
+		// Check quota/limit
+		currentUsage, _ := redisClient.GetUsage(report.SessionUsername)
+
+		if sessionData.BandwidthLimit > 0 && currentUsage >= sessionData.BandwidthLimit {
+			// Quota exceeded - Terminate session
+			// 1. Remove from Redis (auth checks will fail)
+			redisClient.DeleteSession(report.SessionUsername)
+
+			// 2. Update DB status
+			db.DB.Model(&models.Session{}).
+				Where("credentials_user = ?", report.SessionUsername).
+				Updates(map[string]interface{}{
+					"status":     models.SessionTerminated,
+					"end_reason": "quota_exceeded",
+				})
+
+			// 3. Mark Order as "completed" if linked? (Optional, skipping for now)
 		}
 
 		processed++

@@ -2,10 +2,12 @@ package payments
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -13,20 +15,20 @@ import (
 type MoMoProvider string
 
 const (
-	ProviderMTN      MoMoProvider = "mtn"
-	ProviderVodafone MoMoProvider = "vodafone"
+	ProviderMTN        MoMoProvider = "mtn"
+	ProviderVodafone   MoMoProvider = "vodafone"
 	ProviderAirtelTigo MoMoProvider = "airteltigo"
 )
 
 // MoMoConfig holds configuration for MoMo API
 type MoMoConfig struct {
-	Provider          MoMoProvider
-	BaseURL           string
-	SubscriptionKey   string
-	APIUser           string
-	APIKey            string
-	Environment       string // "sandbox" or "production"
-	CallbackURL       string
+	Provider        MoMoProvider
+	BaseURL         string
+	SubscriptionKey string
+	APIUser         string
+	APIKey          string
+	Environment     string // "sandbox" or "production"
+	CallbackURL     string
 }
 
 // MoMoClient handles MoMo API interactions
@@ -63,7 +65,7 @@ type DisbursementRequest struct {
 // NewMoMoClient creates a new MoMo API client
 func NewMoMoClient(provider MoMoProvider) (*MoMoClient, error) {
 	var config MoMoConfig
-	
+
 	switch provider {
 	case ProviderMTN:
 		config = MoMoConfig{
@@ -143,15 +145,15 @@ func (c *MoMoClient) mtnCollection(req PaymentRequest) (*PaymentResponse, error)
 	url := fmt.Sprintf("%s/collection/v1_0/requesttopay", c.config.BaseURL)
 
 	payload := map[string]interface{}{
-		"amount":       fmt.Sprintf("%.2f", req.Amount),
-		"currency":     req.Currency,
-		"externalId":   req.Reference,
+		"amount":     fmt.Sprintf("%.2f", req.Amount),
+		"currency":   req.Currency,
+		"externalId": req.Reference,
 		"payer": map[string]string{
 			"partyIdType": "MSISDN",
 			"partyId":     req.Phone,
 		},
-		"payerMessage":  req.Description,
-		"payeeNote":     "ProxyHub deposit",
+		"payerMessage": req.Description,
+		"payeeNote":    "ProxyHub deposit",
 	}
 
 	body, _ := json.Marshal(payload)
@@ -187,9 +189,9 @@ func (c *MoMoClient) mtnDisbursement(req DisbursementRequest) (*PaymentResponse,
 	url := fmt.Sprintf("%s/disbursement/v1_0/transfer", c.config.BaseURL)
 
 	payload := map[string]interface{}{
-		"amount":       fmt.Sprintf("%.2f", req.Amount),
-		"currency":     req.Currency,
-		"externalId":   req.Reference,
+		"amount":     fmt.Sprintf("%.2f", req.Amount),
+		"currency":   req.Currency,
+		"externalId": req.Reference,
 		"payee": map[string]string{
 			"partyIdType": "MSISDN",
 			"partyId":     req.Phone,
@@ -264,11 +266,69 @@ func (c *MoMoClient) airtelTigoDisbursement(req DisbursementRequest) (*PaymentRe
 	}, nil
 }
 
+// Token cache
+var tokenCache = struct {
+	sync.RWMutex
+	tokens  map[MoMoProvider]string
+	expires map[MoMoProvider]time.Time
+}{
+	tokens:  make(map[MoMoProvider]string),
+	expires: make(map[MoMoProvider]time.Time),
+}
+
 // getAccessToken retrieves OAuth access token for MTN MoMo
 func (c *MoMoClient) getAccessToken() string {
-	// In production, implement proper OAuth token management with caching
-	// For now, return the API key as a placeholder
-	return c.config.APIKey
+	// Check cache
+	tokenCache.RLock()
+	token, ok := tokenCache.tokens[c.config.Provider]
+	expires, expOk := tokenCache.expires[c.config.Provider]
+	tokenCache.RUnlock()
+
+	if ok && expOk && time.Now().Before(expires) {
+		return token
+	}
+
+	// Lock for update
+	tokenCache.Lock()
+	defer tokenCache.Unlock()
+
+	// Double check
+	if token, ok = tokenCache.tokens[c.config.Provider]; ok {
+		if expires, ok = tokenCache.expires[c.config.Provider]; ok && time.Now().Before(expires) {
+			return token
+		}
+	}
+
+	// Request new token
+	url := fmt.Sprintf("%s/collection/token/", c.config.BaseURL)
+	req, _ := http.NewRequest("POST", url, nil)
+
+	// Basic Auth: APIUser:APIKey
+	auth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.config.APIUser, c.config.APIKey)))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.config.SubscriptionKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		fmt.Printf("Failed to refresh token: %v\n", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		var result struct {
+			AccessToken string `json:"access_token"`
+			ExpiresIn   int    `json:"expires_in"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+			tokenCache.tokens[c.config.Provider] = result.AccessToken
+			// Expire 5 minutes early to be safe
+			tokenCache.expires[c.config.Provider] = time.Now().Add(time.Duration(result.ExpiresIn)*time.Second - 5*time.Minute)
+			return result.AccessToken
+		}
+	}
+
+	return ""
 }
 
 // DetectProvider attempts to detect the MoMo provider from phone number
@@ -277,7 +337,7 @@ func DetectProvider(phone string) MoMoProvider {
 	// MTN: 024, 054, 055, 059
 	// Vodafone: 020, 050
 	// AirtelTigo: 026, 027, 056, 057
-	
+
 	if len(phone) < 3 {
 		return ProviderMTN // Default
 	}

@@ -3,16 +3,21 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useState, useEffect } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { ActivityIndicator, View } from 'react-native';
+
+// Context
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
-import RegisterScreen from './src/screens/RegisterScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
-import WalletScreen from './src/screens/WalletScreen';
-import SessionsScreen from './src/screens/SessionsScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+
+// Placeholder Screens for unimplemented features
+const PlaceholderScreen = ({ name }: { name: string }) => (
+  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+    <ActivityIndicator color="#007AFF" />
+  </View>
+);
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -21,80 +26,59 @@ function MainTabs() {
   return (
     <Tab.Navigator
       screenOptions={{
-        tabBarStyle: { backgroundColor: '#1a1a2e', borderTopColor: '#333' },
-        tabBarActiveTintColor: '#f97316',
+        tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#e5e5e5' },
+        tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: '#888',
-        headerStyle: { backgroundColor: '#1a1a2e' },
-        headerTintColor: '#fff',
+        headerShown: false,
       }}
     >
-      <Tab.Screen 
-        name="Dashboard" 
+      <Tab.Screen
+        name="Dashboard"
         component={DashboardScreen}
-        options={{ tabBarIcon: () => null }} // Add icons
       />
-      <Tab.Screen 
-        name="Sessions" 
-        component={SessionsScreen}
-        options={{ tabBarIcon: () => null }}
+      <Tab.Screen
+        name="Wallet"
+        children={() => <PlaceholderScreen name="Wallet" />}
       />
-      <Tab.Screen 
-        name="Wallet" 
-        component={WalletScreen}
-        options={{ tabBarIcon: () => null }}
-      />
-      <Tab.Screen 
-        name="Settings" 
-        component={SettingsScreen}
-        options={{ tabBarIcon: () => null }}
+      <Tab.Screen
+        name="Settings"
+        children={() => <PlaceholderScreen name="Settings" />}
       />
     </Tab.Navigator>
   );
 }
 
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+function Navigation() {
+  const { isAuthenticated, loading } = useAuth();
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  async function checkAuth() {
-    try {
-      const token = await SecureStore.getItemAsync('access_token');
-      setIsAuthenticated(!!token);
-    } catch (error) {
-      console.error('Auth check failed:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  if (isLoading) {
-    return null; // Splash screen
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
   }
 
   return (
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {isAuthenticated ? (
+          <Stack.Screen name="Main" component={MainTabs} />
+        ) : (
+          <Stack.Screen name="Login" component={LoginScreen} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Stack.Navigator
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: '#0f0f1a' },
-          }}
-        >
-          {isAuthenticated ? (
-            <Stack.Screen name="Main" component={MainTabs} />
-          ) : (
-            <>
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
-            </>
-          )}
-        </Stack.Navigator>
-        <StatusBar style="light" />
-      </NavigationContainer>
+      <AuthProvider>
+        <Navigation />
+        <StatusBar style="auto" />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

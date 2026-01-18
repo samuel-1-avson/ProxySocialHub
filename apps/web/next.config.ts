@@ -2,6 +2,8 @@
 
 const nextConfig = {
   /* config options here */
+  compress: true,
+  output: "standalone",
   reactCompiler: true,
   typescript: {
     ignoreBuildErrors: true,

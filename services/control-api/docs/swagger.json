@@ -1,0 +1,479 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "This is the control plane API for ProxySocialHub.",
+        "title": "ProxySocialHub Control API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "url": "http://www.swagger.io/support",
+            "email": "support@swagger.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/v1",
+    "paths": {
+        "/friends": {
+            "get": {
+                "description": "List all friends of the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "List friends",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Friendship"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/request/{requestId}/accept": {
+            "put": {
+                "description": "Accept a received friend request",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Accept friend request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request ID",
+                        "name": "requestId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Friendship"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/request/{requestId}/reject": {
+            "put": {
+                "description": "Reject a received friend request",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Reject friend request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request ID",
+                        "name": "requestId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SuccessResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/request/{userId}": {
+            "post": {
+                "description": "Send a friend request to another user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Send friend request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target User ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests": {
+            "get": {
+                "description": "List incoming and outgoing pending friend requests",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "List friend requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Type: incoming (default) or outgoing",
+                        "name": "type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.FriendRequest"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health/system": {
+            "get": {
+                "description": "Checks health of DB, Redis, and other dependencies",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Get system health",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/health.SystemHealth"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/health.SystemHealth"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "api.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SuccessResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "health.Dependency": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "healthy": {
+                    "type": "boolean"
+                },
+                "latency": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "health.SystemHealth": {
+            "type": "object",
+            "properties": {
+                "database": {
+                    "$ref": "#/definitions/health.Dependency"
+                },
+                "healthy": {
+                    "type": "boolean"
+                },
+                "last_checked": {
+                    "type": "string"
+                },
+                "redis": {
+                    "$ref": "#/definitions/health.Dependency"
+                },
+                "uptime": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.FriendRequest": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "receiver": {
+                    "$ref": "#/definitions/models.User"
+                },
+                "receiver_id": {
+                    "type": "string"
+                },
+                "sender": {
+                    "description": "Relationships",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.User"
+                        }
+                    ]
+                },
+                "sender_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.FriendRequestStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.FriendRequestStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "accepted",
+                "rejected"
+            ],
+            "x-enum-varnames": [
+                "FriendRequestPending",
+                "FriendRequestAccepted",
+                "FriendRequestRejected"
+            ]
+        },
+        "models.Friendship": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "friend": {
+                    "$ref": "#/definitions/models.User"
+                },
+                "friend_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Relationships",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.KYCStatus": {
+            "type": "string",
+            "enum": [
+                "not_started",
+                "pending",
+                "in_review",
+                "approved",
+                "rejected",
+                "expired"
+            ],
+            "x-enum-varnames": [
+                "KYCStatusNotStarted",
+                "KYCStatusPending",
+                "KYCStatusInReview",
+                "KYCStatusApproved",
+                "KYCStatusRejected",
+                "KYCStatusExpired"
+            ]
+        },
+        "models.TrustTier": {
+            "type": "string",
+            "enum": [
+                "new",
+                "verified",
+                "premium"
+            ],
+            "x-enum-varnames": [
+                "TrustTierNew",
+                "TrustTierVerified",
+                "TrustTierPremium"
+            ]
+        },
+        "models.User": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "avg_rating": {
+                    "type": "number"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "cover_image_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "description": "Social Profile fields",
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "email_verified": {
+                    "description": "Email verification fields",
+                    "type": "boolean"
+                },
+                "followers_count": {
+                    "description": "Social Stats",
+                    "type": "integer"
+                },
+                "following_count": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kyc_status": {
+                    "$ref": "#/definitions/models.KYCStatus"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "provider_since": {
+                    "description": "Provider Stats",
+                    "type": "string"
+                },
+                "reviews_count": {
+                    "type": "integer"
+                },
+                "role": {
+                    "description": "'buyer', 'provider', 'admin'",
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.UserStatus"
+                },
+                "total_bandwidth_sold": {
+                    "type": "number"
+                },
+                "totp_enabled": {
+                    "type": "boolean"
+                },
+                "trust_tier": {
+                    "$ref": "#/definitions/models.TrustTier"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
+                },
+                "website": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.UserStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "pending",
+                "suspended",
+                "banned"
+            ],
+            "x-enum-varnames": [
+                "UserStatusActive",
+                "UserStatusPending",
+                "UserStatusSuspended",
+                "UserStatusBanned"
+            ]
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}
