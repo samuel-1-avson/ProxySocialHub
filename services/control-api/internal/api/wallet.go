@@ -24,12 +24,29 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 	}
 }
 
+// TransactionDTO for unified response
+type TransactionDTO struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Amount      float64   `json:"amount"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"` // "settled", "pending", "failed", "completed"
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 func getWallet(c *gin.Context) {
 	// Get user ID from JWT token
-	userID := c.GetString("userID")
-	if userID == "" {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
 		logging.Error(nil).Msg("getWallet: User ID not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Invalid user ID format")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
@@ -37,26 +54,19 @@ func getWallet(c *gin.Context) {
 	result := db.DB.Where("user_id = ?", userID).First(&wallet)
 	if result.Error != nil {
 		// Log the error
-		logging.Warn().Err(result.Error).Str("user_id", userID).Msg("getWallet: Wallet not found, checking user")
+		logging.Warn().Err(result.Error).Str("user_id", userIDStr).Msg("getWallet: Wallet not found, checking user")
 
 		// Verify user exists first
 		var user models.User
 		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
-			logging.Error(err).Str("user_id", userID).Msg("getWallet: User not found in DB")
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: User not found in DB")
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}
 
 		// Create wallet if doesn't exist
-		parsedUserID, err := uuid.Parse(userID)
-		if err != nil {
-			logging.Error(err).Str("user_id", userID).Msg("getWallet: Invalid user ID format")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-			return
-		}
-
 		wallet = models.Wallet{
-			UserID:   parsedUserID,
+			UserID:   userID,
 			Balance:  0,
 			Currency: "GHS",
 		}
@@ -68,24 +78,18 @@ func getWallet(c *gin.Context) {
 		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Created new wallet")
 	}
 
-	// Get recent transactions
-	// Unified Transaction DTO
-	type TransactionDTO struct {
-		ID          string    `json:"id"`
-		Type        string    `json:"type"`
-		Amount      float64   `json:"amount"`
-		Description string    `json:"description"`
-		Status      string    `json:"status"` // "settled", "pending", "failed"
-		CreatedAt   time.Time `json:"created_at"`
-	}
-
+	// Prepare unified transactions list
 	var transactions []TransactionDTO
 
 	// 1. Get Settled Transactions (Ledger)
 	var ledger []models.WalletLedgerEntry
-	db.DB.Where("wallet_id = ?", wallet.ID).Order("created_at DESC").Limit(10).Find(&ledger)
+	if err := db.DB.Where("wallet_id = ?", wallet.ID).Order("created_at DESC").Limit(10).Find(&ledger).Error; err != nil {
+		logging.Error(err).Msg("getWallet: Failed to fetch ledger")
+	}
 
+	ledgerMap := make(map[string]bool)
 	for _, l := range ledger {
+		ledgerMap[l.ReferenceID] = true // Track references to avoid duplicates if we merge
 		transactions = append(transactions, TransactionDTO{
 			ID:          l.ID.String(),
 			Type:        l.Type,
@@ -96,77 +100,17 @@ func getWallet(c *gin.Context) {
 		})
 	}
 
-	// 2. Get Pending Transactions (Deposits/Withdrawals)
-	// PendingTransaction uses string UserID
-	var pending []models.PendingTransaction
-	db.DB.Where("user_id = ? AND status != 'completed'", userID).Order("created_at DESC").Limit(5).Find(&pending)
-
-	for _, p := range pending {
-		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
-		if p.Type == "deposit" {
-			desc = "Deposit via " + p.Provider
-		} else if p.Type == "withdrawal" {
-			desc = "Withdrawal to " + p.Provider
-		}
-
-		// Pending transactions shouldn't have signed amount in DB usually, but for display we want:
-		// Deposit = Positive (potential), Withdrawal = Negative (potential)
-		// Logic:
-		displayAmount := p.Amount
-		if p.Type == "withdrawal" {
-			displayAmount = -p.Amount
-		}
-
-		status := p.Status // "pending", "failed", "processing"
-		if status == "processing" {
-			status = "pending"
-		}
-
-		transactions = append(transactions, TransactionDTO{
-			ID:          p.ID.String(),
-			Type:        p.Type,
-			Amount:      displayAmount,
-			Description: desc,
-			Status:      status,
-			CreatedAt:   p.CreatedAt,
-		})
+	// 2. Get Recent Payment Attempts (Pending/Processing/Completed/Failed)
+	// We fetch ALL recent attempts to debug "ghost" transactions (Status=Completed but not in ledger)
+	var paymentAttempts []models.PendingTransaction
+	if err := db.DB.Where("user_id = ?", userIDStr).Order("created_at DESC").Limit(10).Find(&paymentAttempts).Error; err != nil {
+		logging.Error(err).Msg("getWallet: Failed to fetch payment attempts")
 	}
 
-	// 3. Sort Combined List (Newest First)
-	// Simple bubble sort or just append and rely on client?
-	// The lists are individually sorted. We should probably sort the final list.
-	// For < 20 items, simple sort is fine.
-	// Actually, let's just return them. The frontend might re-sort or we can sort here.
-	// Let's sort here for correctness.
-	// We need "sort" package.
-	// Adding sort logic is verbose in Go inline without slice.SortFunc (Go 1.21+).
-	// Assuming Go 1.21+ available, or implementing Sort interface.
-	// Let's create a helper or just insert carefully?
-	// User lists are sorted. We can merge sorted lists efficiently, but just appending is "okay" if we don't care about strict interleaving.
-	// However, having a pending tx from 1 minute ago appear AFTER a settled tx from 1 day ago is weird if we just append.
-	// Let's append pending at top? No, pending could be old.
-	// Let's just return as is (Ledger first) for now, OR do a quick sort if possible.
-	// Actually, "sort" is not imported in original file.
-	// I need to add "sort" to imports if I want to sort.
-	// Let's stick to simple append for now. Ledger (Settled) is usually more important history.
-	// Pending is usually VERY recent. So actually, putting Pending FIRST (at top of list) is often better UX for "Where is my deposit?".
-	// Let's prepend Pending to Transactions.
-
-	// Re-doing the slice construction to put Pending FIRST.
-	finalTransactions := make([]TransactionDTO, 0, len(pending)+len(transactions))
-
-	// Convert pending first
-	for _, p := range pending {
-		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
-		if p.Type == "deposit" {
-			desc = "Deposit via " + p.Provider
-		} else if p.Type == "withdrawal" {
-			desc = "Withdrawal to " + p.Provider
-		}
-
-		displayAmount := p.Amount
-		if p.Type == "withdrawal" {
-			displayAmount = -p.Amount
+	for _, p := range paymentAttempts {
+		// Skip if this reference is already in the ledger (means it is fully settled)
+		if ledgerMap[p.Reference] {
+			continue
 		}
 
 		status := p.Status
@@ -174,25 +118,34 @@ func getWallet(c *gin.Context) {
 			status = "pending"
 		}
 
-		finalTransactions = append(finalTransactions, TransactionDTO{
+		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
+		if p.Type == "deposit" {
+			desc = "Deposit via " + p.Provider
+		} else if p.Type == "withdrawal" {
+			desc = "Withdrawal to " + p.Provider
+		}
+
+		displayAmount := p.Amount
+		if p.Type == "withdrawal" {
+			displayAmount = -p.Amount
+		}
+
+		transactions = append(transactions, TransactionDTO{
 			ID:          p.ID.String(),
 			Type:        p.Type,
 			Amount:      displayAmount,
-			Description: desc,
+			Description: desc, // Note: "Ghost" tx might appear here
 			Status:      status,
 			CreatedAt:   p.CreatedAt,
 		})
 	}
-
-	// Then add ledger (settled)
-	finalTransactions = append(finalTransactions, transactions...)
 
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": gin.H{
 			"wallet_id":    wallet.ID,
 			"balance":      wallet.Balance,
 			"currency":     wallet.Currency,
-			"transactions": finalTransactions,
+			"transactions": transactions,
 		},
 	})
 }
