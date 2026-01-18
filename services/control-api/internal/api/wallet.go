@@ -243,6 +243,147 @@ func verifyDeposit(c *gin.Context) {
 // Keeping existing withdrawal placeholder or removing if strict replacement.
 // For now, removing old MoMo webhook and keep withdrawal as unused/placeholder calling error.
 
+type withdrawRequest struct {
+	Amount  float64 `json:"amount" binding:"required,gt=0"`
+	Phone   string  `json:"phone" binding:"required"`
+	Network string  `json:"network" binding:"required"` // MTN, VOD, ATL
+}
+
 func initiateWithdrawal(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "Withdrawals are temporarily disabled pending Paystack Transfer integration"})
+	var req withdrawRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString("userID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// 1. Transactional Balance Check & Deduction
+	tx := db.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var wallet models.Wallet
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	if wallet.Balance < req.Amount {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient funds"})
+		return
+	}
+
+	// Deduct balance immediately (optimistic)
+	newBalance := wallet.Balance - req.Amount
+	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update balance"})
+		return
+	}
+
+	// Create pending transaction record
+	reference := uuid.New().String()
+	transaction := models.PendingTransaction{ // Using PendingTransaction table for history
+		UserID:    userID,
+		Reference: reference,
+		Type:      "withdrawal",
+		Amount:    req.Amount,
+		Currency:  "GHS",
+		Provider:  "paystack",
+		Status:    "processing",
+	}
+	if err := tx.Create(&transaction).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create transaction record"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction commit failed"})
+		return
+	}
+
+	// 2. Perform Paystack Transfer (Outside DB Lock)
+	client := payments.NewPaystackClient()
+
+	// Create Recipient
+	recipientReq := payments.CreateRecipientRequest{
+		Type:          "mobile_money",
+		Name:          "ProxyHubb User", // Ideally fetch real name from profile
+		AccountNumber: req.Phone,
+		BankCode:      req.Network, // e.g. "MTN", "VOD", "ATL" - Frontend must send correct codes
+		Currency:      "GHS",
+	}
+
+	recipient, err := client.CreateTransferRecipient(recipientReq)
+	if err != nil {
+		// Refund on failure
+		refundWallet(userID, req.Amount)
+		updateTxStatus(reference, "failed")
+		logging.Error(err).Msg("Paystack create recipient failed")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account details: " + err.Error()})
+		return
+	}
+
+	// Initiate Transfer
+	amountPesewas := int64(req.Amount * 100)
+	transferReq := payments.TransferRequest{
+		Source:    "balance",
+		Amount:    fmt.Sprintf("%d", amountPesewas),
+		Recipient: recipient.Data.RecipientCode,
+		Reason:    "ProxyHubb Payout",
+		Reference: reference,
+	}
+
+	transfer, err := client.InitiateTransfer(transferReq)
+	if err != nil {
+		// Refund on failure
+		refundWallet(userID, req.Amount)
+		updateTxStatus(reference, "failed")
+		logging.Error(err).Msg("Paystack transfer init failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed: " + err.Error()})
+		return
+	}
+
+	// Success (Status is usually "pending" or "success")
+	updateTxStatus(reference, transfer.Data.Status)
+
+	// Record Ledger Entry
+	ledger := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       -req.Amount, // Negative for withdrawal
+		BalanceAfter: newBalance,
+		Type:         models.TransactionPayout,
+		ReferenceID:  reference,
+		Description:  fmt.Sprintf("Payout to %s (%s)", req.Phone, req.Network),
+	}
+	db.DB.Create(&ledger)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "success",
+		"message":   "Withdrawal processed successfully",
+		"reference": reference,
+	})
+}
+
+// Helper to refund wallet on failure
+func refundWallet(userID string, amount float64) {
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
+		db.DB.Model(&wallet).Update("balance", wallet.Balance+amount)
+	}
+}
+
+func updateTxStatus(ref, status string) {
+	db.DB.Model(&models.PendingTransaction{}).Where("reference = ?", ref).Update("status", status)
 }

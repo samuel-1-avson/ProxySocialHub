@@ -135,3 +135,105 @@ func (p *PaystackClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cache-Control", "no-cache")
 }
+
+// Transfer Recipient Request
+type CreateRecipientRequest struct {
+	Type          string `json:"type"` // "mobile_money"
+	Name          string `json:"name"`
+	AccountNumber string `json:"account_number"`
+	BankCode      string `json:"bank_code"` // Network code (e.g., "MTN", "VOD", "ATL")
+	Currency      string `json:"currency"`
+}
+
+type CreateRecipientResponse struct {
+	Status  bool   `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		RecipientCode string `json:"recipient_code"`
+		Details       struct {
+			AccountNumber string `json:"account_number"`
+			BankName      string `json:"bank_name"`
+		} `json:"details"`
+	} `json:"data"`
+}
+
+func (p *PaystackClient) CreateTransferRecipient(req CreateRecipientRequest) (*CreateRecipientResponse, error) {
+	url := fmt.Sprintf("%s/transferrecipient", PaystackBaseURL)
+	jsonData, _ := json.Marshal(req)
+
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	p.setHeaders(httpReq)
+
+	resp, err := p.Client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("paystack recipient error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var payload CreateRecipientResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode error: %w", err)
+	}
+	if !payload.Status {
+		return nil, fmt.Errorf("paystack status false: %s", payload.Message)
+	}
+	return &payload, nil
+}
+
+// Transfer Request
+type TransferRequest struct {
+	Source    string `json:"source"`    // "balance"
+	Amount    string `json:"amount"`    // In kobo/pesewas
+	Recipient string `json:"recipient"` // Recipient code from CreateTransferRecipient
+	Reason    string `json:"reason,omitempty"`
+	Reference string `json:"reference,omitempty"`
+}
+
+type TransferResponse struct {
+	Status  bool   `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		Reference    string `json:"reference"`
+		Status       string `json:"status"` // "success", "pending", etc.
+		TransferCode string `json:"transfer_code"`
+	} `json:"data"`
+}
+
+func (p *PaystackClient) InitiateTransfer(req TransferRequest) (*TransferResponse, error) {
+	url := fmt.Sprintf("%s/transfer", PaystackBaseURL)
+	jsonData, _ := json.Marshal(req)
+
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	p.setHeaders(httpReq)
+
+	resp, err := p.Client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("paystack transfer error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var payload TransferResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode error: %w", err)
+	}
+	if !payload.Status {
+		return nil, fmt.Errorf("paystack status false: %s", payload.Message)
+	}
+	return &payload, nil
+}
