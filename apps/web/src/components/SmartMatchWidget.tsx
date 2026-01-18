@@ -21,6 +21,10 @@ export function SmartMatchWidget() {
     const fetchUseCases = async () => {
         try {
             const data = await getUseCases();
+            // Force fallback if data is empty or null
+            if (!data || data.length === 0) {
+                throw new Error('Empty use cases returned from API');
+            }
             setUseCases(data);
         } catch (error) {
             console.error('Failed to fetch use cases', error);
