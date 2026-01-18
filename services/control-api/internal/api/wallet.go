@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -126,8 +127,8 @@ func initiateDeposit(c *gin.Context) {
 		Amount:    amountStr,
 		Currency:  "GHS",
 		Reference: reference,
-		Channels:  []string{"card", "mobile_money"},                  // Enable both
-		Callback:  "http://localhost:3000/dashboard/wallet/callback", // Frontend callback
+		Channels:  []string{"card", "mobile_money"},                         // Enable both
+		Callback:  os.Getenv("FRONTEND_URL") + "/dashboard/wallet/callback", // Frontend callback
 		Metadata: map[string]interface{}{
 			"user_id": userID,
 			"custom_fields": []map[string]string{
