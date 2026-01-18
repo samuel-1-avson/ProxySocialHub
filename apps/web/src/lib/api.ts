@@ -531,12 +531,9 @@ export interface EscrowTransaction {
 }
 
 export async function getMyOrders(): Promise<Order[]> {
-  // Assuming this endpoint exists or we use a listings/orders endpoint
-  // If not, we might need to create it in backend or rely on specific implementation
-  // For now, let's assume /v1/marketplace/orders/buying
-  const response = await fetchWithAuth(`${API_BASE_URL}/v1/marketplace/orders/buying`);
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`);
   if (!response.ok) {
-    // Fallback for demo if endpoint specific doesn't exist
+    console.error('Failed to fetch orders:', response.status);
     return [];
   }
   const data = await response.json();
