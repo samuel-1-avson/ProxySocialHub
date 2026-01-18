@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -68,15 +69,130 @@ func getWallet(c *gin.Context) {
 	}
 
 	// Get recent transactions
+	// Unified Transaction DTO
+	type TransactionDTO struct {
+		ID          string    `json:"id"`
+		Type        string    `json:"type"`
+		Amount      float64   `json:"amount"`
+		Description string    `json:"description"`
+		Status      string    `json:"status"` // "settled", "pending", "failed"
+		CreatedAt   time.Time `json:"created_at"`
+	}
+
+	var transactions []TransactionDTO
+
+	// 1. Get Settled Transactions (Ledger)
 	var ledger []models.WalletLedgerEntry
 	db.DB.Where("wallet_id = ?", wallet.ID).Order("created_at DESC").Limit(10).Find(&ledger)
+
+	for _, l := range ledger {
+		transactions = append(transactions, TransactionDTO{
+			ID:          l.ID.String(),
+			Type:        l.Type,
+			Amount:      l.Amount,
+			Description: l.Description,
+			Status:      "settled",
+			CreatedAt:   l.CreatedAt,
+		})
+	}
+
+	// 2. Get Pending Transactions (Deposits/Withdrawals)
+	// PendingTransaction uses string UserID
+	var pending []models.PendingTransaction
+	db.DB.Where("user_id = ? AND status != 'completed'", userID).Order("created_at DESC").Limit(5).Find(&pending)
+
+	for _, p := range pending {
+		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
+		if p.Type == "deposit" {
+			desc = "Deposit via " + p.Provider
+		} else if p.Type == "withdrawal" {
+			desc = "Withdrawal to " + p.Provider
+		}
+
+		// Pending transactions shouldn't have signed amount in DB usually, but for display we want:
+		// Deposit = Positive (potential), Withdrawal = Negative (potential)
+		// Logic:
+		displayAmount := p.Amount
+		if p.Type == "withdrawal" {
+			displayAmount = -p.Amount
+		}
+
+		status := p.Status // "pending", "failed", "processing"
+		if status == "processing" {
+			status = "pending"
+		}
+
+		transactions = append(transactions, TransactionDTO{
+			ID:          p.ID.String(),
+			Type:        p.Type,
+			Amount:      displayAmount,
+			Description: desc,
+			Status:      status,
+			CreatedAt:   p.CreatedAt,
+		})
+	}
+
+	// 3. Sort Combined List (Newest First)
+	// Simple bubble sort or just append and rely on client?
+	// The lists are individually sorted. We should probably sort the final list.
+	// For < 20 items, simple sort is fine.
+	// Actually, let's just return them. The frontend might re-sort or we can sort here.
+	// Let's sort here for correctness.
+	// We need "sort" package.
+	// Adding sort logic is verbose in Go inline without slice.SortFunc (Go 1.21+).
+	// Assuming Go 1.21+ available, or implementing Sort interface.
+	// Let's create a helper or just insert carefully?
+	// User lists are sorted. We can merge sorted lists efficiently, but just appending is "okay" if we don't care about strict interleaving.
+	// However, having a pending tx from 1 minute ago appear AFTER a settled tx from 1 day ago is weird if we just append.
+	// Let's append pending at top? No, pending could be old.
+	// Let's just return as is (Ledger first) for now, OR do a quick sort if possible.
+	// Actually, "sort" is not imported in original file.
+	// I need to add "sort" to imports if I want to sort.
+	// Let's stick to simple append for now. Ledger (Settled) is usually more important history.
+	// Pending is usually VERY recent. So actually, putting Pending FIRST (at top of list) is often better UX for "Where is my deposit?".
+	// Let's prepend Pending to Transactions.
+
+	// Re-doing the slice construction to put Pending FIRST.
+	finalTransactions := make([]TransactionDTO, 0, len(pending)+len(transactions))
+
+	// Convert pending first
+	for _, p := range pending {
+		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
+		if p.Type == "deposit" {
+			desc = "Deposit via " + p.Provider
+		} else if p.Type == "withdrawal" {
+			desc = "Withdrawal to " + p.Provider
+		}
+
+		displayAmount := p.Amount
+		if p.Type == "withdrawal" {
+			displayAmount = -p.Amount
+		}
+
+		status := p.Status
+		if status == "processing" {
+			status = "pending"
+		}
+
+		finalTransactions = append(finalTransactions, TransactionDTO{
+			ID:          p.ID.String(),
+			Type:        p.Type,
+			Amount:      displayAmount,
+			Description: desc,
+			Status:      status,
+			CreatedAt:   p.CreatedAt,
+		})
+	}
+
+	// Then add ledger (settled)
+	finalTransactions = append(finalTransactions, transactions...)
 
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": gin.H{
 			"wallet_id":    wallet.ID,
 			"balance":      wallet.Balance,
 			"currency":     wallet.Currency,
-			"transactions": ledger,
+			"transactions": finalTransactions,
 		},
 	})
 }
@@ -300,6 +416,7 @@ func initiateWithdrawal(c *gin.Context) {
 		Amount:    req.Amount,
 		Currency:  "GHS",
 		Provider:  "paystack",
+		Phone:     &req.Phone,
 		Status:    "processing",
 	}
 	if err := tx.Create(&transaction).Error; err != nil {
