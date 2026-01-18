@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   description: "Access reliable Ghana residential proxies or earn by sharing your bandwidth.",
 };
 
+import { Web3Provider } from "@/lib/web3-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,9 +37,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider>
-            {children}
-          </AuthProvider>
+          <Web3Provider>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </Web3Provider>
         </ThemeProvider>
       </body>
     </html>
