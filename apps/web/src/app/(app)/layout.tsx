@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Bell, LogOut, Menu, User as UserIcon, Settings, LayoutDashboard, Rss, ShoppingCart, Trophy, MessageSquare } from 'lucide-react';
+import { Bell, LogOut, Menu, User as UserIcon, Settings, LayoutDashboard, Rss, ShoppingCart, Trophy, MessageSquare, Wallet } from 'lucide-react';
 
 export default function AppLayout({
     children,
@@ -16,6 +16,7 @@ export default function AppLayout({
 
     const navItems = [
         { href: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+        { href: '/dashboard/wallet', label: 'Wallet', icon: <Wallet size={20} /> },
         { href: '/feed', label: 'Feed', icon: <Rss size={20} /> },
         { href: '/marketplace', label: 'Marketplace', icon: <ShoppingCart size={20} /> },
         { href: '/leaderboards', label: 'Leaderboards', icon: <Trophy size={20} /> },
