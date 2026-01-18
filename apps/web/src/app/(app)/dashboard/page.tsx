@@ -4,13 +4,27 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
-import { getSessions, createSession, terminateSession, getWallet, Session, Wallet } from '@/lib/api';
+import { getSessions, createSession, terminateSession, getWallet, Session, Wallet as WalletType } from '@/lib/api';
+import {
+  Wallet,
+  Activity,
+  Layers,
+  Shield,
+  RefreshCw,
+  Anchor,
+  CreditCard,
+  Power,
+  Clock,
+  Key,
+  AlertCircle,
+  Plus
+} from 'lucide-react';
 
 export default function DashboardPage() {
-  const { user, isLoading, isAuthenticated, logout } = useAuth();
+  const { user, isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [wallet, setWallet] = useState<WalletType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
@@ -65,143 +79,207 @@ export default function DashboardPage() {
 
   if (isLoading || loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-foreground">Loading...</div>
+      <div className="min-h-[400px] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+        <p className="text-muted-foreground font-medium animate-pulse">Initializing Dashboard...</p>
       </div>
     );
   }
 
-  // Defensive check to prevent crash if sessions is not an array
   const safeSessions = Array.isArray(sessions) ? sessions : [];
   const activeSessions = safeSessions.filter(s => s.status === 'active');
   const totalSessions = sessions.length;
 
   return (
-    <>
-      <div className="space-y-6">
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg mb-6">
-            {error}
-            <button onClick={() => setError('')} className="ml-4 text-white">×</button>
-          </div>
-        )}
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50">
-            <div className="text-gray-400 text-sm mb-2">Wallet Balance</div>
-            <div className="text-3xl font-bold text-white">
-              ₵{wallet?.balance?.toFixed(2) || '0.00'}
-            </div>
-          </div>
-          <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50">
-            <div className="text-gray-400 text-sm mb-2">Active Sessions</div>
-            <div className="text-3xl font-bold text-green-400">{activeSessions.length}</div>
-          </div>
-          <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50">
-            <div className="text-gray-400 text-sm mb-2">Total Sessions</div>
-            <div className="text-3xl font-bold text-white">{totalSessions}</div>
-          </div>
-          <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50">
-            <div className="text-gray-400 text-sm mb-2">Trust Tier</div>
-            <div className="text-2xl font-bold text-orange-400 capitalize">
-              {user?.role || 'buyer'}
-            </div>
-          </div>
+    <div className="max-w-7xl mx-auto space-y-8 pb-20">
+      {/* Header Section */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-4xl font-black text-white tracking-tighter">Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-1">Manage your active proxy protocols and sessions.</p>
         </div>
+        <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs font-bold text-muted-foreground">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+          SYSTEM ONLINE
+        </div>
+      </div>
 
-        {/* Quick Actions */}
-        <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50">
-          <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
-          <div className="flex flex-wrap gap-4">
+      {error && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl animate-in fade-in slide-in-from-top-4">
+          <AlertCircle size={18} />
+          <p className="text-sm font-medium">{error}</p>
+          <button onClick={() => setError('')} className="ml-auto hover:text-white transition-colors">×</button>
+        </div>
+      )}
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[
+          { label: 'Wallet Balance', value: `₵${wallet?.balance?.toFixed(2) || '0.00'}`, icon: Wallet, color: 'text-primary' },
+          { label: 'Active Sessions', value: activeSessions.length, icon: Activity, color: 'text-green-400' },
+          { label: 'Total Sessions', value: totalSessions, icon: Layers, color: 'text-blue-400' },
+          { label: 'Trust Tier', value: user?.role || 'Buyer', icon: Shield, color: 'text-orange-400' },
+        ].map((stat, i) => (
+          <div key={i} className="relative group p-6 rounded-3xl bg-white/[0.03] border border-white/5 overflow-hidden transition-all hover:border-white/10">
+            <div className="absolute top-0 right-0 p-8 transform translate-x-4 -translate-y-4 transition-transform group-hover:translate-x-2 group-hover:-translate-y-2">
+              <stat.icon className={`w-24 h-24 opacity-[0.03] ${stat.color}`} />
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`p-2 rounded-xl bg-white/5 border border-white/10 ${stat.color}`}>
+                  <stat.icon size={18} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">{stat.label}</span>
+              </div>
+              <div className="text-3xl font-black text-white tracking-tighter">{stat.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/5 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent"></div>
+        <div className="relative z-10">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-xl font-black text-white tracking-tight">Quick Operations</h2>
+            <Link href="/dashboard/nodes" className="text-xs font-bold text-primary hover:underline">View Node Network →</Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
               onClick={() => handleCreateSession('rotating')}
               disabled={creatingSession}
-              className="btn bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20 disabled:opacity-50 border-0"
+              className="group flex items-center justify-between p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-orange-400 hover:bg-orange-500 hover:text-white transition-all duration-300 disabled:opacity-50"
             >
-              {creatingSession ? 'Creating...' : '+ New Rotating Session'}
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-orange-500/20 group-hover:bg-white/20">
+                  <RefreshCw size={20} className={creatingSession ? 'animate-spin' : ''} />
+                </div>
+                <div className="text-left">
+                  <div className="text-sm font-black uppercase tracking-tighter">Rotating</div>
+                  <div className="text-[10px] opacity-70">Dynamic Proxy Port</div>
+                </div>
+              </div>
+              <Plus size={18} className="opacity-50 group-hover:opacity-100" />
             </button>
+
             <button
               onClick={() => handleCreateSession('sticky')}
               disabled={creatingSession}
-              className="btn bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20 disabled:opacity-50 border-0"
+              className="group flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all duration-300 disabled:opacity-50"
             >
-              {creatingSession ? 'Creating...' : '+ New Sticky Session'}
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-blue-500/20 group-hover:bg-white/20">
+                  <Anchor size={20} className={creatingSession ? 'animate-pulse' : ''} />
+                </div>
+                <div className="text-left">
+                  <div className="text-sm font-black uppercase tracking-tighter">Sticky</div>
+                  <div className="text-[10px] opacity-70">Static Session Port</div>
+                </div>
+              </div>
+              <Plus size={18} className="opacity-50 group-hover:opacity-100" />
             </button>
+
             <Link
               href="/dashboard/wallet"
-              className="btn bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20 border-0"
+              className="group flex items-center justify-between p-4 rounded-2xl bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white transition-all duration-300"
             >
-              💳 Top Up Wallet
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-green-500/20 group-hover:bg-white/20">
+                  <CreditCard size={20} />
+                </div>
+                <div className="text-left">
+                  <div className="text-sm font-black uppercase tracking-tighter">Finance</div>
+                  <div className="text-[10px] opacity-70">Top Up Balance</div>
+                </div>
+              </div>
+              <Plus size={18} className="opacity-50 group-hover:opacity-100" />
             </Link>
           </div>
         </div>
-
-        {/* Sessions Table */}
-        <div className="card bg-gray-800/50 backdrop-blur border-gray-700/50 overflow-hidden p-0">
-          <div className="px-6 py-4 border-b border-gray-700/50">
-            <h2 className="text-lg font-semibold text-white">Your Sessions</h2>
-          </div>
-          {sessions.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">
-              <div className="text-4xl mb-4">🔌</div>
-              <p>No sessions yet. Create your first session to get started!</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-900/50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Credentials</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-700/50">
-                  {sessions.map((session) => (
-                    <tr key={session.id} className="hover:bg-gray-700/30 transition">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${session.type === 'rotating'
-                          ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                          }`}>
-                          {session.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${session.status === 'active'
-                          ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                          : 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
-                          }`}>
-                          {session.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-300">
-                        {session.credentials_user}:{session.credentials_pass?.slice(0, 8)}...
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                        {new Date(session.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {session.status === 'active' && (
-                          <button
-                            onClick={() => handleTerminateSession(session.id)}
-                            className="text-red-400 hover:text-red-300 text-sm hover:underline"
-                          >
-                            Terminate
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
       </div>
-    </>
+
+      {/* Sessions Table */}
+      <div className="rounded-[2rem] bg-white/[0.03] border border-white/5 overflow-hidden">
+        <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
+          <h2 className="text-xl font-black text-white tracking-tight">Active Protocols</h2>
+          <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">
+            {sessions.length} TOTAL SESSIONS
+          </div>
+        </div>
+
+        {sessions.length === 0 ? (
+          <div className="p-20 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto text-white/20">
+              <Layers size={32} />
+            </div>
+            <div>
+              <p className="text-white font-black uppercase tracking-tighter">No Active Sessions</p>
+              <p className="text-muted-foreground text-sm">Deploy a new rotating or sticky session to begin.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-white/[0.02]">
+                  <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Type</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Status</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Credentials</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Created</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground text-right">Operation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {sessions.map((session) => (
+                  <tr key={session.id} className="group hover:bg-white/[0.02] transition-colors">
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${session.type === 'rotating' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                          {session.type === 'rotating' ? <RefreshCw size={14} /> : <Anchor size={14} />}
+                        </div>
+                        <span className="text-sm font-bold text-white uppercase tracking-tighter">{session.type}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full ${session.status === 'active' ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                        <span className="text-xs font-black uppercase tracking-widest text-white/80">{session.status}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                        <Key size={12} />
+                        <span>{session.credentials_user}</span>
+                        <span className="opacity-30">:</span>
+                        <span className="bg-white/5 px-2 py-0.5 rounded border border-white/5">••••••••</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock size={12} />
+                        <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5 text-right">
+                      {session.status === 'active' && (
+                        <button
+                          onClick={() => handleTerminateSession(session.id)}
+                          className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                          title="Terminate Session"
+                        >
+                          <Power size={16} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

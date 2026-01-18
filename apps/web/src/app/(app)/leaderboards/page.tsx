@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Star, TrendingUp } from "lucide-react";
+import { Star, TrendingUp, Trophy, Award, Crown, Medal, ArrowRight, Zap, Target, Shield } from "lucide-react";
 import { discoverProviders, User } from "@/lib/social-api";
 
 export default function LeaderboardsPage() {
@@ -28,196 +28,227 @@ export default function LeaderboardsPage() {
 
     const sortedProviders = [...providers].sort((a, b) => {
         switch (sortBy) {
-            case "rating": return b.avg_rating - a.avg_rating;
-            // case "orders": return b.orders_count - a.orders_count; // orders_count not in User type yet, falling back to bandwidth for now or if we add it
-            default: return b.total_bandwidth_sold - a.total_bandwidth_sold;
+            case "rating": return (b.avg_rating || 0) - (a.avg_rating || 0);
+            default: return (b.total_bandwidth_sold || 0) - (a.total_bandwidth_sold || 0);
         }
     });
 
     return (
-        <div className="min-h-screen" style={{ background: "var(--background)" }}>
-            {/* Header */}
-            <nav className="border-b" style={{ borderColor: "var(--card-border)" }}>
-                <div className="container flex items-center justify-between py-4">
-                    <Link href="/" className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--primary)" }}>
-                            <span className="text-white font-bold text-sm">PS</span>
-                        </div>
-                        <span className="text-lg font-semibold hidden sm:inline" style={{ color: "var(--foreground)" }}>
-                            ProxySocialHub
-                        </span>
-                    </Link>
+        <div className="max-w-6xl mx-auto space-y-12 pb-20 relative px-4">
+            {/* Decorative Background */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse"></div>
+                <div className="absolute top-[20%] right-[-5%] w-[30%] h-[30%] bg-blue-500/10 blur-[100px] rounded-full"></div>
+            </div>
 
-                    <div className="flex items-center gap-6">
-                        <Link href="/feed" className="btn btn-ghost">Feed</Link>
-                        <Link href="/marketplace" className="btn btn-ghost">Marketplace</Link>
-                        <Link href="/leaderboards" className="btn btn-ghost font-semibold" style={{ color: "var(--primary)" }}>Leaderboards</Link>
-                    </div>
+            {/* Page Header */}
+            <div className="text-center space-y-4 pt-10">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-xl mb-4">
+                    <Zap size={14} className="text-primary animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white">Global Grid Dominance</span>
                 </div>
-            </nav>
-
-            <main className="container py-8">
-                <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--foreground)" }}>
-                    Leaderboards
+                <h1 className="text-6xl font-black text-white tracking-tighter sm:text-7xl">
+                    Hall of <span className="text-primary italic">Power</span>
                 </h1>
-                <p className="mb-8" style={{ color: "var(--muted)" }}>
-                    Top performers on ProxySocialHub
+                <p className="text-muted-foreground max-w-2xl mx-auto text-lg leading-relaxed italic">
+                    Recognizing the elite network contributors and high-volume traders architecting the future of decentralized bandwidth.
                 </p>
+            </div>
 
-                {/* Tabs */}
-                <div className="flex gap-4 mb-6">
-                    <button
-                        onClick={() => setSelectedTab("sellers")}
-                        className={`btn ${selectedTab === "sellers" ? "btn-primary" : "btn-secondary"}`}
-                    >
-                        Top Sellers
-                    </button>
-                    <button
-                        onClick={() => setSelectedTab("buyers")}
-                        className={`btn ${selectedTab === "buyers" ? "btn-primary" : "btn-secondary"}`}
-                    >
-                        Top Buyers
-                    </button>
+            {/* Navigation & Controls */}
+            <div className="flex flex-col md:flex-row items-center justify-center gap-6 pt-4">
+                <div className="flex p-1.5 bg-white/[0.03] rounded-[2rem] border border-white/10 backdrop-blur-2xl shadow-2xl">
+                    {[
+                        { id: 'sellers', label: 'Top Extraction', icon: <Crown size={16} /> },
+                        { id: 'buyers', label: 'Top Consumption', icon: <Target size={16} /> },
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setSelectedTab(tab.id as any)}
+                            className={`flex items-center gap-3 px-10 py-3.5 rounded-[1.5rem] text-sm font-black transition-all duration-500 uppercase tracking-widest ${selectedTab === tab.id
+                                ? "bg-primary text-black shadow-[0_15px_30px_rgba(var(--primary-rgb),0.3)] scale-[1.05]"
+                                : "text-white/40 hover:text-white hover:bg-white/5"
+                                }`}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                        </button>
+                    ))}
                 </div>
+            </div>
 
-                {loading ? (
-                    <div className="flex justify-center py-20">
-                        <div className="spinner"></div>
-                    </div>
-                ) : selectedTab === "sellers" ? (
-                    <>
-                        {/* Sort Options */}
-                        <div className="flex gap-2 mb-6">
-                            <span style={{ color: "var(--muted)" }}>Sort by:</span>
+            {loading ? (
+                <div className="flex flex-col items-center justify-center py-32 space-y-6">
+                    <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Calculating Hierarchy...</p>
+                </div>
+            ) : selectedTab === "sellers" ? (
+                <div className="animate-in fade-in slide-in-from-bottom-10 duration-700">
+                    {/* Sort Options */}
+                    <div className="flex items-center justify-center gap-4 mb-16">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 italic">Metric Protocol:</span>
+                        <div className="flex p-1 bg-white/[0.03] rounded-2xl border border-white/5">
                             {(["bandwidth", "rating"] as const).map((option) => (
                                 <button
                                     key={option}
                                     onClick={() => setSortBy(option)}
-                                    className="text-sm px-3 py-1 rounded-full transition-colors"
-                                    style={{
-                                        background: sortBy === option ? "var(--primary)" : "transparent",
-                                        color: sortBy === option ? "white" : "var(--muted)",
-                                        border: sortBy === option ? "none" : "1px solid var(--card-border)",
-                                    }}
+                                    className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${sortBy === option
+                                        ? "bg-white/10 text-white shadow-xl"
+                                        : "text-muted-foreground hover:text-white"
+                                        }`}
                                 >
-                                    {option === "bandwidth" ? "Bandwidth Sold" : "Rating"}
+                                    {option === "bandwidth" ? "Extraction Vol" : "Trust Rating"}
                                 </button>
                             ))}
                         </div>
+                    </div>
 
-                        {sortedProviders.length === 0 ? (
-                            <div className="card text-center py-12">
-                                <p style={{ color: "var(--muted)" }}>No providers found yet.</p>
+                    {sortedProviders.length === 0 ? (
+                        <div className="p-32 rounded-[3rem] bg-white/[0.02] border border-white/5 border-dashed text-center backdrop-blur-xl">
+                            <Shield size={64} className="mx-auto text-white/10 mb-8" />
+                            <p className="text-xl font-black text-white/50 uppercase tracking-tighter italic">No active nodes detected in this epoch.</p>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Top 3 Podium */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20 items-end px-4">
+                                {[1, 0, 2].map((podiumIndex) => {
+                                    const provider = sortedProviders[podiumIndex];
+                                    if (!provider) return null;
+                                    const position = podiumIndex === 0 ? 2 : podiumIndex === 1 ? 1 : 3;
+                                    const styles = {
+                                        1: {
+                                            card: "from-yellow-500/20 to-yellow-600/5 border-yellow-500/40 shadow-[0_30px_60px_-15px_rgba(234,179,8,0.2)]",
+                                            medal: "bg-yellow-500 text-black",
+                                            ring: "ring-yellow-500/30",
+                                            height: "md:h-[450px]"
+                                        },
+                                        2: {
+                                            card: "from-slate-400/20 to-slate-500/5 border-slate-400/40 shadow-[0_25px_50px_-12px_rgba(148,163,184,0.15)]",
+                                            medal: "bg-slate-400 text-black",
+                                            ring: "ring-slate-400/30",
+                                            height: "md:h-[380px]"
+                                        },
+                                        3: {
+                                            card: "from-orange-700/20 to-orange-800/5 border-orange-700/40 shadow-[0_20px_40px_-10px_rgba(194,65,12,0.15)]",
+                                            medal: "bg-orange-700 text-white",
+                                            ring: "ring-orange-700/30",
+                                            height: "md:h-[340px]"
+                                        }
+                                    }[position as 1 | 2 | 3];
+
+                                    return (
+                                        <Link
+                                            key={provider.id}
+                                            href={`/profile/${provider.username || provider.id}`}
+                                            className={`relative group p-10 rounded-[3rem] bg-gradient-to-b ${styles.card} border backdrop-blur-2xl transition-all hover:scale-[1.03] active:scale-95 flex flex-col items-center justify-center text-center ${styles.height}`}
+                                        >
+                                            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.05),transparent)] pointer-events-none"></div>
+
+                                            {/* Medal */}
+                                            <div className={`absolute -top-5 left-1/2 -translate-x-1/2 w-14 h-14 rounded-[1.2rem] ${styles.medal} flex items-center justify-center text-xl font-black shadow-[0_10px_20px_rgba(0,0,0,0.3)] rotate-[15deg] group-hover:rotate-0 transition-all duration-500`}>
+                                                {position === 1 ? <Trophy size={28} /> : position}
+                                            </div>
+
+                                            <div className={`w-28 h-28 rounded-[2.5rem] bg-white/5 border border-white/10 p-1.5 ring-4 ${styles.ring} overflow-hidden mb-6 group-hover:scale-110 transition-transform duration-500`}>
+                                                {provider.avatar_url ? (
+                                                    <img src={provider.avatar_url} className="w-full h-full object-cover rounded-[2.2rem]" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-white/5 rounded-[2.2rem] text-3xl font-black text-white/20">
+                                                        {(provider.display_name?.[0] || provider.username?.[0] || "?").toUpperCase()}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <h3 className="text-2xl font-black text-white tracking-tighter group-hover:text-primary transition-colors">
+                                                    {provider.display_name || provider.username}
+                                                </h3>
+                                                <p className="text-xs uppercase font-black tracking-[0.2em] text-white/40 italic">@{provider.username}</p>
+                                            </div>
+
+                                            <div className="mt-8 pt-8 border-t border-white/5 w-full flex flex-col items-center gap-2">
+                                                <div className="text-3xl font-black text-white tracking-tighter">
+                                                    {provider.total_bandwidth_sold?.toLocaleString() || 0}
+                                                    <span className="text-[10px] text-primary uppercase ml-1 italic tracking-widest">PX-Volume</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10">
+                                                    <Star className="w-3.5 h-3.5 text-yellow-500 fill-current" />
+                                                    <span className="text-xs font-black text-white">{provider.avg_rating?.toFixed(1) || "5.0"} <span className="text-white/30 ml-1">TR</span></span>
+                                                </div>
+                                            </div>
+                                        </Link>
+                                    );
+                                })}
                             </div>
-                        ) : (
-                            <>
-                                {/* Top 3 Podium */}
-                                <div className="grid grid-cols-3 gap-4 mb-8">
-                                    {[1, 0, 2].map((podiumIndex) => {
-                                        const provider = sortedProviders[podiumIndex];
-                                        if (!provider) return null;
-                                        const position = podiumIndex === 0 ? 2 : podiumIndex === 1 ? 1 : 3;
 
-                                        return (
-                                            <Link
-                                                key={provider.id}
-                                                href={`/profile/${provider.username || provider.id}`}
-                                                className="card text-center relative"
-                                                style={{
-                                                    transform: position === 1 ? "scale(1.05)" : "none",
-                                                    borderColor: position === 1 ? "var(--primary)" : "var(--card-border)",
-                                                }}
-                                            >
-                                                {/* Medal */}
-                                                <div
-                                                    className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-                                                    style={{
-                                                        background: position === 1 ? "#FFD700" : position === 2 ? "#C0C0C0" : "#CD7F32",
-                                                        color: position === 1 ? "#1a1a1a" : "white",
-                                                    }}
-                                                >
-                                                    {position}
-                                                </div>
-
-                                                <div className="pt-4">
-                                                    <div className="avatar-lg mx-auto mb-3">
-                                                        <span>{provider.display_name?.charAt(0) || provider.username?.charAt(0) || "?"}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-center gap-1 mb-1">
-                                                        <span className="font-semibold" style={{ color: "var(--foreground)" }}>
-                                                            {provider.display_name || provider.username}
-                                                        </span>
-                                                        {provider.verified && (
-                                                            <svg className="w-4 h-4" style={{ color: "var(--primary)" }} fill="currentColor" viewBox="0 0 20 20">
-                                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                            </svg>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>@{provider.username}</p>
-                                                    <div className="text-xl font-bold" style={{ color: "var(--primary)" }}>
-                                                        {provider.total_bandwidth_sold?.toLocaleString() || 0} GB
-                                                    </div>
-                                                    <div className="text-sm flex items-center justify-center gap-2 mt-1" style={{ color: "var(--muted)" }}>
-                                                        <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {provider.avg_rating?.toFixed(1) || "New"}</span>
-                                                    </div>
-                                                </div>
-                                            </Link>
-                                        );
-                                    })}
+                            {/* List View for Ranked Entries */}
+                            <div className="bg-white/[0.02] rounded-[3rem] border border-white/5 overflow-hidden backdrop-blur-xl shadow-2xl">
+                                <div className="p-8 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
+                                    <h3 className="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Network Hierarchy [4-50]</h3>
+                                    <div className="flex items-center gap-2 text-[10px] font-black text-primary italic">
+                                        <ArrowRight size={12} /> Live Updates
+                                    </div>
                                 </div>
-
-                                {/* Rest of leaderboard */}
-                                <div className="card">
+                                <div className="divide-y divide-white/5">
                                     {sortedProviders.slice(3).map((provider, idx) => (
                                         <Link
                                             key={provider.id}
                                             href={`/profile/${provider.username || provider.id}`}
-                                            className="flex items-center gap-4 py-4 border-b last:border-b-0 hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors -mx-6 px-6"
-                                            style={{ borderColor: "var(--card-border)" }}
+                                            className="flex items-center gap-6 p-6 hover:bg-white/[0.03] transition-all group relative overflow-hidden"
                                         >
-                                            <div className="w-8 text-center text-lg font-bold" style={{ color: "var(--muted)" }}>
-                                                {idx + 4}
+                                            <div className="absolute left-0 top-0 w-1 h-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                            <div className="w-12 text-center text-lg font-black text-white/20 group-hover:text-primary group-hover:scale-125 transition-all italic">
+                                                #{idx + 4}
                                             </div>
-                                            <div className="avatar">
-                                                <span>{provider.display_name?.charAt(0) || provider.username?.charAt(0) || "?"}</span>
+                                            <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 p-1 group-hover:border-primary/50 transition-colors">
+                                                {provider.avatar_url ? (
+                                                    <img src={provider.avatar_url} className="w-full h-full rounded-xl object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-sm font-black text-white/20">
+                                                        {(provider.display_name?.[0] || provider.username?.[0] || "?").toUpperCase()}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-1">
-                                                    <span className="font-medium" style={{ color: "var(--foreground)" }}>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-black text-white group-hover:translate-x-1 transition-transform">
                                                         {provider.display_name || provider.username}
                                                     </span>
-                                                    {provider.verified && (
-                                                        <svg className="w-4 h-4" style={{ color: "var(--primary)" }} fill="currentColor" viewBox="0 0 20 20">
-                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                        </svg>
-                                                    )}
+                                                    {provider.verified && <Shield size={14} className="text-primary fill-primary/20" />}
                                                 </div>
-                                                <span className="text-sm" style={{ color: "var(--muted)" }}>@{provider.username}</span>
+                                                <span className="text-[10px] uppercase font-black tracking-widest text-white/30 italic">@{provider.username}</span>
                                             </div>
-                                            <div className="text-right">
-                                                <div className="font-bold" style={{ color: "var(--primary)" }}>
-                                                    {provider.total_bandwidth_sold?.toLocaleString() || 0} GB
+                                            <div className="text-right flex flex-col items-end gap-1">
+                                                <div className="text-xl font-black text-white tracking-tighter">
+                                                    {provider.total_bandwidth_sold?.toLocaleString() || 0} <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">GB</span>
                                                 </div>
-                                                <div className="text-sm" style={{ color: "var(--muted)" }}>
-                                                    <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-current" /> {provider.avg_rating?.toFixed(1) || "New"}</span>
+                                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5 text-[10px] font-black text-yellow-500 italic">
+                                                    <Star size={10} className="fill-current" />
+                                                    {provider.avg_rating?.toFixed(1) || "5.0"}
                                                 </div>
                                             </div>
                                         </Link>
                                     ))}
                                 </div>
-                            </>
-                        )}
-                    </>
-                ) : (
-                    <div className="card text-center py-20">
-                        <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                        <h3 className="text-lg font-bold mb-2">Buyer Leaderboards Coming Soon</h3>
-                        <p style={{ color: "var(--muted)" }}>
-                            We are tracking top buyers and will display them here shortly.
+                            </div>
+                        </>
+                    )}
+                </div>
+            ) : (
+                <div className="animate-in fade-in slide-in-from-bottom-10 duration-700">
+                    <div className="p-32 rounded-[3.5rem] bg-[#0a0a0a]/80 border border-white/5 border-dashed text-center backdrop-blur-2xl relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(34,197,94,0.05),transparent)] pointer-events-none"></div>
+                        <div className="w-24 h-24 rounded-[2rem] bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-10 shadow-2xl rotate-3">
+                            <TrendingUp className="w-12 h-12 text-primary" />
+                        </div>
+                        <h3 className="text-3xl font-black text-white mb-4 tracking-tighter uppercase italic">Buyer Velocity Initializing</h3>
+                        <p className="text-muted-foreground max-w-sm mx-auto text-lg leading-relaxed italic opacity-80">
+                            Our neural networks are currently processing real-time exchange data. Consumer dominance metrics will be available in the next cycle.
                         </p>
                     </div>
-                )}
-            </main>
+                </div>
+            )}
         </div>
     );
 }
