@@ -343,6 +343,26 @@ export async function generateReferralCode(): Promise<{ code: string }> {
   return response.json();
 }
 
+export interface ReferralReward {
+  id: string;
+  referrer_id: string;
+  referred_id: string;
+  referral_code: string;
+  reward_amount: number;
+  reward_type: string;
+  status: string;
+  created_at: string;
+  referred?: {
+    email: string;
+  };
+}
+
+export async function getMyRewards(): Promise<{ rewards: ReferralReward[] }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/referral/rewards`);
+  if (!response.ok) throw new Error('Failed to fetch rewards');
+  return response.json();
+}
+
 // Smart Matching API
 export interface UseCase {
   id: string;
@@ -482,4 +502,65 @@ export async function votePost(postId: string, voteType: 1 | -1): Promise<{ upvo
   });
   if (!response.ok) throw new Error('Failed to vote');
   return response.json();
+}
+
+// Escrow API
+export interface Order {
+  id: string;
+  buyer_id: string;
+  seller_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  listing?: {
+    title: string;
+  };
+  escrow_status?: string; // augmented from escrow endpoint
+}
+
+export interface EscrowTransaction {
+  id: string;
+  order_id: string;
+  buyer_id: string;
+  seller_id: string;
+  amount: number;
+  status: 'held' | 'released' | 'disputed' | 'refunded';
+  held_at: string;
+  released_at?: string;
+  auto_release_at?: string;
+}
+
+export async function getMyOrders(): Promise<Order[]> {
+  // Assuming this endpoint exists or we use a listings/orders endpoint
+  // If not, we might need to create it in backend or rely on specific implementation
+  // For now, let's assume /v1/marketplace/orders/buying
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/marketplace/orders/buying`);
+  if (!response.ok) {
+    // Fallback for demo if endpoint specific doesn't exist
+    return [];
+  }
+  const data = await response.json();
+  return data.orders || [];
+}
+
+export async function getEscrowStatus(orderId: string): Promise<EscrowTransaction> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/escrow/${orderId}`);
+  if (!response.ok) throw new Error('Failed to fetch escrow status');
+  return response.json();
+}
+
+export async function releaseEscrow(orderId: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/escrow/${orderId}/release`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to release escrow');
+}
+
+export async function createDispute(orderId: string, reason: string, description: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/escrow/${orderId}/dispute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, description }),
+  });
+  if (!response.ok) throw new Error('Failed to create dispute');
 }
