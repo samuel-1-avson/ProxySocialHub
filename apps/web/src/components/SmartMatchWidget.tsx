@@ -52,7 +52,7 @@ export function SmartMatchWidget() {
         try {
             setLoading(true);
             const data = await getRecommendations(selectedUseCase);
-            setRecommendations(data.recommendations || []);
+            setRecommendations(data?.recommendations || []);
             setAnalyzing(false);
             setShowResults(true);
         } catch (error) {

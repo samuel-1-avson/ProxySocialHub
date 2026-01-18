@@ -169,7 +169,11 @@ export async function getListings(params: {
     });
     const res = await fetchWithAuth(`${API_BASE}/v1/listings?${query}`);
     if (!res.ok) throw new Error('Failed to fetch listings');
-    return res.json();
+    const data = await res.json();
+    return {
+        listings: Array.isArray(data?.listings) ? data.listings : [],
+        total: data?.total || 0
+    };
 }
 
 export async function getListing(id: string): Promise<{ listing: Listing; is_saved: boolean }> {

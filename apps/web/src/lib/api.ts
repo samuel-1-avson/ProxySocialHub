@@ -390,7 +390,7 @@ export async function getUseCases(): Promise<UseCase[]> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/matching/use-cases`);
   if (!response.ok) throw new Error('Failed to fetch use cases');
   const data = await response.json();
-  return data.use_cases;
+  return Array.isArray(data?.use_cases) ? data.use_cases : [];
 }
 
 export async function getPreferences(): Promise<UserPreferences | null> {
