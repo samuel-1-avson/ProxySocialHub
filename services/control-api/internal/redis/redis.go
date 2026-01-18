@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -92,6 +93,46 @@ func IncrementUsage(sessionID string, bytes int64) error {
 func GetUsage(sessionID string) (int64, error) {
 	key := "session:" + sessionID + ":usage"
 	return Client.Get(ctx, key).Int64()
+}
+
+// GetTotalProviderUsage returns the total accumulated usage for a specific provider and buyer
+// Keys: "usage:provider:{providerID}:buyer:{buyerAddress}"
+func GetTotalProviderUsage(providerID, buyerAddress string) (int64, error) {
+	if Client == nil {
+		return 0, nil // Return 0 if redis not connected, or error
+	}
+
+	key := "usage:provider:" + providerID + ":buyer:" + buyerAddress
+	val, err := Client.Get(ctx, key).Int64()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return val, err
+}
+
+// IncrementProviderUsage increments the usage counter for a specific provider-buyer pair
+func IncrementProviderUsage(providerID, buyerAddress string, bytes int64) error {
+	if Client == nil {
+		return nil
+	}
+
+	key := "usage:provider:" + providerID + ":buyer:" + buyerAddress
+	return Client.IncrBy(ctx, key, bytes).Err()
+}
+
+// IncrementNonce atomically increments and returns the nonce for a provider-buyer pair
+// Keys: "nonce:provider:{providerID}:buyer:{buyerAddress}"
+func IncrementNonce(providerID, buyerAddress string) (uint64, error) {
+	if Client == nil {
+		return 0, fmt.Errorf("redis client not initialized")
+	}
+
+	key := "nonce:provider:" + providerID + ":buyer:" + buyerAddress
+	val, err := Client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	return uint64(val), nil
 }
 
 // ========== API Key Rate Limiting ==========

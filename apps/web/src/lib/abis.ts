@@ -62,6 +62,65 @@ export const PROXY_MARKETPLACE_ABI = [
         ],
         "name": "Deposit",
         "type": "event"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "_buyer",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "_bytesUsed",
+                "type": "uint256"
+            },
+            {
+                "internalType": "uint256",
+                "name": "_nonce",
+                "type": "uint256"
+            },
+            {
+                "internalType": "bytes",
+                "name": "_signature",
+                "type": "bytes"
+            }
+        ],
+        "name": "claim",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "provider",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "buyer",
+                "type": "address"
+            },
+            {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "cost",
+                "type": "uint256"
+            },
+            {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "bytesUsed",
+                "type": "uint256"
+            }
+        ],
+        "name": "UsageSettled",
+        "type": "event"
     }
 ] as const;
 

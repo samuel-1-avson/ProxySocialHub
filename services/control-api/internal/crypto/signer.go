@@ -2,6 +2,8 @@ package crypto
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -9,67 +11,88 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Signer handles ECDSA signing for smart contract verification
+// Signer handles Ethereum-based signing operations
 type Signer struct {
 	privateKey *ecdsa.PrivateKey
 }
 
-// NewSigner creates a signer from a hex private key
-func NewSigner(hexKey string) (*Signer, error) {
-	privateKey, err := crypto.HexToECDSA(hexKey)
+// NewSigner creates a new Signer from a hex-encoded private key
+func NewSigner(privateKeyHex string) (*Signer, error) {
+	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
+		privateKeyHex = privateKeyHex[2:]
+	}
+
+	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("invalid private key: %w", err)
 	}
+
 	return &Signer{privateKey: privateKey}, nil
 }
 
-// SignUsage generates an Ethereum-compatible signature for usage data
-// Matches Solidity: keccak256(abi.encodePacked(buyer, provider, bytesUsed, nonce))
-func (s *Signer) SignUsage(buyer string, provider string, bytesUsed uint64, nonce uint64) ([]byte, error) {
+// SignUsage generates an EIP-191 signature for a usage claim
+// Corresponds to Solidity: keccak256(abi.encodePacked(_buyer, _provider, _bytesUsed, _nonce))
+func (s *Signer) SignUsage(buyer, provider string, bytesUsed, nonce *big.Int) ([]byte, error) {
 	if !common.IsHexAddress(buyer) || !common.IsHexAddress(provider) {
-		return nil, fmt.Errorf("invalid address format")
+		return nil, errors.New("invalid address format")
 	}
 
 	buyerAddr := common.HexToAddress(buyer)
 	providerAddr := common.HexToAddress(provider)
-	bytesUsedBig := new(big.Int).SetUint64(bytesUsed)
-	nonceBig := new(big.Int).SetUint64(nonce)
 
-	// abi.encodePacked equivalent
-	// address is 20 bytes, uint256 is 32 bytes
-	// But in encodePacked, types are concatenated closely.
-	// Ensure we pack them exactly as Solidity does.
+	// mimic abi.encodePacked
+	// address (20 bytes) + address (20 bytes) + uint256 (32 bytes) + uint256 (32 bytes)
+	packed := []byte{}
+	packed = append(packed, buyerAddr.Bytes()...)
+	packed = append(packed, providerAddr.Bytes()...)
+	packed = append(packed, common.LeftPadBytes(bytesUsed.Bytes(), 32)...)
+	packed = append(packed, common.LeftPadBytes(nonce.Bytes(), 32)...)
 
-	// Implementation note:
-	// Go-ethereum doesn't have a direct "EncodePacked" helper that is easy to use for this mix.
-	// We manually construct the byte array.
+	// Keccak256 hash of the packed arguments
+	hash := crypto.Keccak256(packed)
 
-	data := []byte{}
-	data = append(data, buyerAddr.Bytes()...)
-	data = append(data, providerAddr.Bytes()...)
-	data = append(data, common.LeftPadBytes(bytesUsedBig.Bytes(), 32)...) // uint256
-	data = append(data, common.LeftPadBytes(nonceBig.Bytes(), 32)...)     // uint256
-
-	hash := crypto.Keccak256(data)
-
-	// Add Ethereum Message Prefix (EIP-191)
-	// "\x19Ethereum Signed Message:\n32" + hash
-	prefixedHash := crypto.Keccak256Hash(
-		[]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(hash))),
-		hash,
-	)
-
-	signature, err := crypto.Sign(prefixedHash.Bytes(), s.privateKey)
+	// Sign the hash with EIP-191 prefix
+	signature, err := s.SignHash(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	// Adjust V value (0/1 -> 27/28) if needed by specific verify implementations,
-	// but standard crypto.Sign returns 0/1 for V (last byte).
-	// OpenZeppelin's ECDSA.recover usually expects 27/28.
+	// Add 27 to recovery ID to match Ethereum standard (v = 27 or 28)
+	// crypto.Sign returns [R || S || V] where V is 0 or 1
 	if signature[64] < 27 {
 		signature[64] += 27
 	}
 
 	return signature, nil
+}
+
+// SignMessage signs a generic message (EIP-191)
+func (s *Signer) SignMessage(message []byte) ([]byte, error) {
+	hash := crypto.Keccak256(message)
+	return s.SignHash(hash)
+}
+
+// SignHash signs a 32-byte hash with the EIP-191 prefix
+func (s *Signer) SignHash(hash []byte) ([]byte, error) {
+	// EIP-191 prefix
+	prefixedHash := crypto.Keccak256(
+		[]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n32%s", string(hash))),
+	)
+
+	return crypto.Sign(prefixedHash, s.privateKey)
+}
+
+// Address returns the public address of the signer
+func (s *Signer) Address() string {
+	publicKey := s.privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return ""
+	}
+	return crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
+}
+
+// ByteToString converts a byte slice to a hex string with 0x prefix
+func ByteToString(b []byte) string {
+	return "0x" + hex.EncodeToString(b)
 }

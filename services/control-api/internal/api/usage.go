@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"time"
 
@@ -14,10 +15,13 @@ import (
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
+const PricePerGB = 0.50 // GHS per GB
+
 func RegisterUsageRoutes(r *gin.RouterGroup) {
 	usage := r.Group("/usage")
 	{
 		usage.POST("/report", reportUsage)
+		usage.POST("/sign", signUsageClaim) // New endpoint for providers
 		usage.GET("/session/:session_id", getSessionUsage)
 		usage.GET("/me", getUserUsage) // Use authenticated user
 	}
@@ -50,9 +54,18 @@ func reportUsage(c *gin.Context) {
 	for _, report := range req.Reports {
 		totalBytes := report.BytesUp + report.BytesDown
 
-		// Update Redis real-time counter
+		// Update Redis real-time counter (Session based)
 		if err := redisClient.IncrementUsage(report.SessionUsername, totalBytes); err != nil {
 			continue
+		}
+
+		// Update Provider-Link counter (For Oracle claiming)
+		// We need providerID + buyerAddress.
+		// Ideally we get this from Session Data.
+		sData, err := redisClient.GetSession(report.SessionUsername)
+		if err == nil {
+			// Assume UserID is Buyer Address for now (in Crypto flow)
+			_ = redisClient.IncrementProviderUsage(sData.ProviderID, sData.UserID, totalBytes)
 		}
 
 		// Get session data
@@ -75,7 +88,10 @@ func reportUsage(c *gin.Context) {
 				// If not, we can't sign properly. For this demo, we assume they are valid hex addresses
 				// or valid enough for the Signer check (it checks IsHexAddress).
 				// If they are not hex, sign will fail.
-				sig, err := signer.SignUsage(data.UserID, data.ProviderID, uint64(up+down), nonce)
+				sig, err := signer.SignUsage(data.UserID, data.ProviderID,
+					new(big.Int).SetUint64(uint64(up+down)),
+					new(big.Int).SetUint64(nonce),
+				)
 				if err != nil {
 					logging.Error(err).Msg("Failed to sign usage data")
 				} else {
@@ -157,7 +173,7 @@ func getSessionUsage(c *gin.Context) {
 		"bytes_limit":     limit,
 		"percent_used":    float64(usage) / float64(limit) * 100,
 		"gb_used":         float64(usage) / (1024 * 1024 * 1024),
-		"cost_ghs":        float64(usage) / (1024 * 1024 * 1024) * 0.50,
+		"cost_ghs":        float64(usage) / (1024 * 1024 * 1024) * PricePerGB,
 		"last_updated_at": time.Now(),
 	})
 }
@@ -193,7 +209,86 @@ func getUserUsage(c *gin.Context) {
 		"user_id":        userID,
 		"total_bytes":    totalUsage,
 		"total_gb":       float64(totalUsage) / (1024 * 1024 * 1024),
-		"total_cost_ghs": float64(totalUsage) / (1024 * 1024 * 1024) * 0.50,
+		"total_cost_ghs": float64(totalUsage) / (1024 * 1024 * 1024) * PricePerGB,
 		"sessions":       sessionStats,
+	})
+}
+
+// signUsageRequest represents the request to sign usage for a specific buyer
+type signUsageRequest struct {
+	BuyerAddress string `json:"buyer_address" binding:"required"`
+}
+
+// signUsageClaim generates an Oracle signature for a provider to claim earnings from a buyer
+func signUsageClaim(c *gin.Context) {
+	// 1. Get Authenticated Provider
+	providerID := c.GetString("userID")
+	if providerID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// 2. Bind Request
+	var req signUsageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 3. Get Oracle Signer
+	signer := GetOracleSigner()
+	if signer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Oracle signer not configured"})
+		return
+	}
+
+	// 4. Retrieve Usage Stats from Redis
+	// Fetch real usage for this provider-buyer pair
+	bytesUsed, err := redisClient.GetTotalProviderUsage(providerID, req.BuyerAddress)
+	if err != nil {
+		logging.Error(err).Msg("Failed to retrieve usage stats")
+		// If Redis fails, we might want to fail the request or return 0
+		// For now, let's retun error to be safe
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve usage data"})
+		return
+	}
+
+	if bytesUsed == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No usage found to claim"})
+		return
+	}
+
+	// 5. Generate Nonce (Atomic Redis Counter)
+	// Prevents replay attacks and ensures sequential ordering per pair
+	nonce, err := redisClient.IncrementNonce(providerID, req.BuyerAddress)
+	if err != nil {
+		logging.Error(err).Msg("Failed to generate nonce")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Crypto failure"})
+		return
+	}
+
+	// 6. Sign
+	// Use math/big for large numbers
+	signature, err := signer.SignUsage(
+		req.BuyerAddress,
+		providerID,
+		big.NewInt(bytesUsed),
+		new(big.Int).SetUint64(nonce),
+	)
+
+	if err != nil {
+		logging.Error(err).Msg("Failed to generate signature")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Signing failure"})
+		return
+	}
+
+	// 7. Respond
+	c.JSON(http.StatusOK, gin.H{
+		"signature":     fmt.Sprintf("0x%x", signature),
+		"buyer":         req.BuyerAddress,
+		"provider":      providerID,
+		"bytes_used":    bytesUsed,
+		"nonce":         nonce,
+		"token_address": "0x0000000000000000000000000000000000000000",
 	})
 }
