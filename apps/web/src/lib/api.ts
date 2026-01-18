@@ -235,11 +235,11 @@ export async function depositWallet(amount: number, email: string): Promise<{ st
   return response.json();
 }
 
-export async function withdrawWallet(amount: number, phone: string): Promise<{ status: string; reference: string; new_balance: number }> {
+export async function withdrawWallet(amount: number, phone: string, network: string): Promise<{ status: string; reference: string; new_balance: number }> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, phone }),
+    body: JSON.stringify({ amount, phone, network }),
   });
   if (!response.ok) throw new Error('Failed to initiate withdrawal');
   return response.json();
