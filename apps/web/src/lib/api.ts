@@ -25,6 +25,7 @@ export interface WalletTransaction {
   balance_after: number;
   type: string;
   description: string;
+  status?: string;
   created_at: string;
 }
 

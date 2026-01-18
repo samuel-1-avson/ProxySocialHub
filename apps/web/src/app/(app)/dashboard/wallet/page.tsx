@@ -419,9 +419,15 @@ export default function WalletPage() {
                               </div>
                             </td>
                             <td className="px-6 py-5">
-                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/5 text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground">
-                                <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
-                                Settled
+                              <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-[0.2em] ${tx.status === 'pending' || tx.status === 'processing'
+                                  ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'
+                                  : tx.status === 'failed'
+                                    ? 'bg-red-500/10 border-red-500/20 text-red-500'
+                                    : 'bg-primary/10 border-primary/20 text-primary' /* Settled/Completed */
+                                }`}>
+                                <div className={`w-1 h-1 rounded-full animate-pulse ${tx.status === 'pending' || tx.status === 'processing' ? 'bg-yellow-500' : tx.status === 'failed' ? 'bg-red-500' : 'bg-primary'
+                                  }`}></div>
+                                {tx.status === 'processing' ? 'Pending' : (tx.status || 'Settled')}
                               </div>
                             </td>
                             <td className="px-6 py-5">
