@@ -59,7 +59,7 @@ export default function MarketplacePage() {
     return (
         <div className="max-w-7xl mx-auto space-y-10 pb-20">
             {/* Page Header */}
-            <div className="relative p-12 rounded-[3rem] bg-white/[0.03] border border-white/5 overflow-hidden">
+            <div className="relative p-12 rounded-[3rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] overflow-hidden shadow-[var(--glass-shadow)]">
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/10 blur-[120px] rounded-full translate-x-1/2 -translate-y-1/2"></div>
                 <div className="absolute bottom-0 left-0 w-64 h-64 bg-primary/5 blur-[80px] rounded-full -translate-x-1/4 translate-y-1/4"></div>
 
@@ -156,7 +156,7 @@ export default function MarketplacePage() {
                             <Link
                                 key={listing.id}
                                 href={`/marketplace/${listing.id}`}
-                                className="group relative flex flex-col p-8 rounded-[2.5rem] bg-white/[0.03] border border-white/5 hover:border-primary/40 hover:bg-white/[0.05] transition-all duration-700 overflow-hidden"
+                                className="group relative flex flex-col p-8 rounded-[2.5rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] hover:border-primary/40 hover:bg-[var(--glass-bg)]/20 transition-all duration-700 overflow-hidden shadow-[var(--glass-shadow)]"
                             >
                                 {/* Background Decor */}
                                 <div className="absolute top-0 right-0 w-48 h-48 bg-primary/10 blur-[80px] translate-x-12 -translate-y-12 group-hover:scale-150 transition-transform duration-700"></div>

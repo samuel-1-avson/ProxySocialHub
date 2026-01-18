@@ -118,7 +118,7 @@ export default function ClansPage() {
                             <Link
                                 key={circle.id}
                                 href={`/dashboard/clans/${circle.id}`}
-                                className="group relative p-10 rounded-[3.5rem] bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] hover:border-primary/30 transition-all duration-500 block overflow-hidden shadow-2xl backdrop-blur-2xl"
+                                className="group relative p-10 rounded-[3.5rem] bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)] border border-[var(--glass-border)] hover:bg-white/[0.05] hover:border-primary/30 transition-all duration-500 block overflow-hidden shadow-[var(--glass-shadow)]"
                             >
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                 <div className="absolute top-0 right-0 p-8 opacity-[0.02] group-hover:opacity-10 group-hover:scale-150 transition-all duration-700 text-white rotate-12">
