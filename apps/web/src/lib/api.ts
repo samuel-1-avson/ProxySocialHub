@@ -225,11 +225,11 @@ export async function getWallet(): Promise<Wallet> {
   return response.json();
 }
 
-export async function depositWallet(amount: number, phone: string): Promise<{ status: string; reference: string; message: string }> {
+export async function depositWallet(amount: number, email: string): Promise<{ status: string; reference: string; message: string; authorization_url: string }> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, phone }),
+    body: JSON.stringify({ amount, email }),
   });
   if (!response.ok) throw new Error('Failed to initiate deposit');
   return response.json();

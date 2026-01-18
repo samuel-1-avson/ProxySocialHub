@@ -1,14 +1,16 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { getWallet, depositWallet, withdrawWallet, Wallet } from '@/lib/api';
 
 export default function WalletPage() {
+  const { user } = useAuth();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [amount, setAmount] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(''); // Keep for withdrawals
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -29,18 +31,25 @@ export default function WalletPage() {
 
   async function handleDeposit(e: React.FormEvent) {
     e.preventDefault();
+    if (!user?.email) {
+      setResult({ success: false, message: 'User email not found. Please log in again.' });
+      return;
+    }
+
     setProcessing(true);
     setResult(null);
     try {
-      const res = await depositWallet(parseFloat(amount), phone);
-      setResult({ success: true, message: res.message });
-      setAmount('');
-      setPhone('');
-      setTimeout(() => {
-        fetchWallet();
-        setAction(null);
-      }, 3000);
-    } catch {
+      const res = await depositWallet(parseFloat(amount), user.email);
+      setResult({ success: true, message: 'Redirecting to payment gateway...' });
+
+      // Redirect to Paystack
+      if (res.authorization_url) {
+        window.location.href = res.authorization_url;
+      } else {
+        setResult({ success: false, message: 'Failed to get payment URL.' });
+      }
+    } catch (error: any) {
+      console.error('Deposit error:', error);
       setResult({ success: false, message: 'Deposit failed. Please try again.' });
     } finally {
       setProcessing(false);
@@ -133,18 +142,20 @@ export default function WalletPage() {
                     className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-gray-400 text-sm mb-2">MoMo Phone Number</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="e.g., 0241234567"
-                    required
-                    className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500"
-                  />
-                  <p className="text-gray-500 text-xs mt-1">We&apos;ll auto-detect MTN, Vodafone, or AirtelTigo</p>
-                </div>
+                {action === 'withdraw' && (
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">MoMo Phone Number</label>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="e.g., 0241234567"
+                      required
+                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-orange-500"
+                    />
+                    <p className="text-gray-500 text-xs mt-1">Funds will be sent to this number via MoMo</p>
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 flex space-x-3">
@@ -161,7 +172,7 @@ export default function WalletPage() {
                   className={`flex-1 px-4 py-3 text-white rounded-lg transition disabled:opacity-50 ${action === 'deposit' ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'
                     }`}
                 >
-                  {processing ? 'Processing...' : action === 'deposit' ? 'Deposit' : 'Withdraw'}
+                  {processing ? 'Processing...' : action === 'deposit' ? 'Proceed to Payment 💳' : 'Confirm Withdrawal 💸'}
                 </button>
               </div>
             </form>
@@ -190,9 +201,9 @@ export default function WalletPage() {
                   <tr key={tx.id} className="border-b border-gray-700/50">
                     <td className="py-3">
                       <span className={`px-2 py-1 rounded-full text-xs capitalize ${tx.type === 'topup' ? 'bg-green-500/20 text-green-400' :
-                          tx.type === 'usage' ? 'bg-orange-500/20 text-orange-400' :
-                            tx.type === 'payout' ? 'bg-blue-500/20 text-blue-400' :
-                              'bg-gray-500/20 text-gray-400'
+                        tx.type === 'usage' ? 'bg-orange-500/20 text-orange-400' :
+                          tx.type === 'payout' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-gray-500/20 text-gray-400'
                         }`}>
                         {tx.type}
                       </span>
