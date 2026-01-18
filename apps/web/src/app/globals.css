@@ -54,6 +54,11 @@
   --shadow-sm: 2px 2px 0px rgba(0, 0, 0, 0.1);
   --shadow-md: 4px 4px 0px rgba(0, 0, 0, 0.1);
   --shadow-retro: 4px 4px 0px #000000;
+  /* Glassmorphism Variables */
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-border: rgba(0, 0, 0, 0.05);
+  --glass-blur: blur(20px);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 }
 
 .dark,
@@ -76,6 +81,12 @@
   --text-muted: #525252;
 
   --shadow-retro: 4px 4px 0px rgba(255, 255, 255, 0.2);
+
+  /* Glassmorphism Variables - Dark */
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-blur: blur(40px);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
 /* Dark Mode Dot Pattern */

@@ -105,7 +105,7 @@ export default function ProfilePage() {
             {/* Profile Header */}
             <div className="relative group">
                 <div className="absolute inset-0 bg-primary/5 rounded-[2.5rem] blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
-                <div className="relative p-10 rounded-[2.5rem] bg-white/[0.03] backdrop-blur-3xl border border-white/5 overflow-hidden shadow-2xl">
+                <div className="relative p-10 rounded-[2.5rem] bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)] border border-[var(--glass-border)] overflow-hidden shadow-[var(--glass-shadow)]">
                     {/* Background Decor */}
                     <div className="absolute -top-24 -right-24 w-80 h-80 bg-primary/10 blur-[100px] rounded-full"></div>
                     <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-blue-500/5 blur-[100px] rounded-full"></div>
@@ -254,7 +254,7 @@ export default function ProfilePage() {
 
             {/* Content Tabs */}
             <div className="space-y-6">
-                <div className="flex p-1.5 bg-white/[0.03] backdrop-blur-3xl border border-white/5 rounded-2xl w-fit mx-auto lg:mx-0">
+                <div className="flex p-1.5 bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)] border border-[var(--glass-border)] rounded-2xl w-fit mx-auto lg:mx-0 shadow-[var(--glass-shadow)]">
                     {[
                         { id: 'reviews', label: `Trust Ledger (${reviews.length})`, icon: <Heart size={16} /> },
                         ...(profile?.role === 'provider' ? [{ id: 'listings', label: 'Active Deployments', icon: <Activity size={16} /> }] : []),

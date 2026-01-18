@@ -68,7 +68,7 @@ export default function FeedPage() {
     return (
         <div className="max-w-7xl mx-auto space-y-10 pb-20">
             {/* Page Header */}
-            <div className="relative p-10 rounded-[2.5rem] bg-white/[0.03] border border-white/5 overflow-hidden">
+            <div className="relative p-10 rounded-[2.5rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] overflow-hidden shadow-[var(--glass-shadow)]">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2"></div>
                 <div className="relative z-10">
                     <h1 className="text-4xl font-black text-white tracking-tighter">Activity Feed</h1>
@@ -80,7 +80,7 @@ export default function FeedPage() {
                 {/* Main Content */}
                 <div className="lg:col-span-8 space-y-8">
                     {/* Integrated Tabs */}
-                    <div className="flex p-1.5 bg-white/[0.03] rounded-2xl border border-white/5 w-fit backdrop-blur-3xl">
+                    <div className="flex p-1.5 bg-[var(--glass-bg)] rounded-2xl border border-[var(--glass-border)] w-fit backdrop-blur-[var(--glass-blur)]">
                         {[
                             { id: 'feed', label: 'Network Pulse', icon: <Rss size={16} /> },
                             { id: 'discover', label: 'Discover Nodes', icon: <Compass size={16} /> },
@@ -138,7 +138,7 @@ export default function FeedPage() {
                                         </div>
                                     ) : (
                                         events.map((event) => (
-                                            <div key={event.id} className="group p-6 rounded-3xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-all hover:bg-white/[0.05]">
+                                            <div key={event.id} className="group p-6 rounded-3xl bg-[var(--glass-bg)] border border-[var(--glass-border)] hover:border-[var(--glass-border)]/20 transition-all hover:bg-[var(--glass-bg)]/20">
                                                 <div className="flex gap-5">
                                                     <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-white/5 border border-white/10 shrink-0">
                                                         {getEventIcon(event.event_type)}
