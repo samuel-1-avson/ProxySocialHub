@@ -10,7 +10,7 @@ export default function AppLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
 
     const navItems = [
         { href: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -40,7 +40,13 @@ export default function AppLayout({
                             </span>
                         </Link>
                         <div className="flex items-center space-x-4">
-                            {/* Mobile Menu Trigger would go here */}
+                            <button
+                                onClick={() => logout()}
+                                className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                                title="Log Out"
+                            >
+                                <span className="text-xl">🚪</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -116,6 +122,13 @@ export default function AppLayout({
                                     {user?.email || 'Guest'}
                                 </div>
                             </div>
+                            <button
+                                onClick={() => logout()}
+                                className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-all"
+                                title="Log Out"
+                            >
+                                <span className="text-lg">Logout</span>
+                            </button>
                         </div>
                     </div>
                 </aside>
