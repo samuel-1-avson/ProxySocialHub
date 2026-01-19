@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSessions, getSessionUsage, Session, UsageStats } from '@/lib/api';
+import { ExternalLink } from 'lucide-react';
 
 interface SessionWithUsage extends Session {
   usage?: UsageStats;
@@ -19,7 +20,7 @@ export default function UsagePage() {
   async function fetchData() {
     try {
       const sessionsData = await getSessions();
-      
+
       // Fetch usage for each session
       const sessionsWithUsage = await Promise.all(
         sessionsData.map(async (session) => {
@@ -110,16 +111,27 @@ export default function UsagePage() {
                   return (
                     <tr key={session.id} className="border-b border-gray-700/50">
                       <td className="py-4 text-white font-mono text-sm">
-                        {session.id.slice(0, 8)}...
+                        <div className="flex flex-col">
+                          <span>{session.id.slice(0, 8)}...</span>
+                          {session.tx_hash && (
+                            <a
+                              href={`https://bittensor.subscan.io/extrinsic/${session.tx_hash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors uppercase font-bold tracking-tighter mt-0.5"
+                            >
+                              <ExternalLink size={10} /> On-chain
+                            </a>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 text-white capitalize">{session.type}</td>
                       <td className="py-4">
                         <span
-                          className={`px-2 py-1 rounded-full text-xs ${
-                            session.status === 'active'
+                          className={`px-2 py-1 rounded-full text-xs ${session.status === 'active'
                               ? 'bg-green-500/20 text-green-400'
                               : 'bg-gray-500/20 text-gray-400'
-                          }`}
+                            }`}
                         >
                           {session.status}
                         </span>
@@ -133,9 +145,8 @@ export default function UsagePage() {
                       <td className="py-4">
                         <div className="w-32 h-2 bg-gray-700 rounded-full overflow-hidden">
                           <div
-                            className={`h-full transition-all ${
-                              percentUsed > 80 ? 'bg-red-500' : percentUsed > 50 ? 'bg-yellow-500' : 'bg-green-500'
-                            }`}
+                            className={`h-full transition-all ${percentUsed > 80 ? 'bg-red-500' : percentUsed > 50 ? 'bg-yellow-500' : 'bg-green-500'
+                              }`}
                             style={{ width: `${Math.min(percentUsed, 100)}%` }}
                           />
                         </div>
