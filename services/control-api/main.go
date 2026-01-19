@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/worker"
 )
 
@@ -31,6 +32,11 @@ func main() {
 	// Initialize DB
 	if err := db.Init(cfg.Database.DatabaseURL); err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
+	}
+
+	// Initialize Redis
+	if err := redisClient.Init(); err != nil {
+		log.Printf("Warning: Failed to init Redis: %v", err)
 	}
 
 	r := gin.Default()
@@ -89,6 +95,7 @@ func main() {
 		api.RegisterWalletRoutes(protected)
 		api.RegisterOrderRoutes(protected)
 		api.RegisterEscrowRoutes(protected)
+		api.RegisterUsageRoutes(protected)
 
 		api.RegisterSmartMatchingRoutes(protected)
 		api.RegisterGovernanceRoutes(protected)
