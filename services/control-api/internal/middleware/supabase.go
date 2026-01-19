@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -37,7 +38,20 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Verify token with Supabase Auth API
+		// 1. Try Local JWT Verification (Wallet Auth)
+		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
+			// Valid local token
+			c.Set("userID", claims.UserID)
+			if uid, err := uuid.Parse(claims.UserID); err == nil {
+				c.Set("user_id", uid)
+			}
+			c.Set("userEmail", claims.Email)
+			c.Set("userRole", claims.Role)
+			c.Next()
+			return
+		}
+
+		// 2. Fallback to Supabase Auth API
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create auth request"})

@@ -33,11 +33,16 @@ type ProxyListing struct {
 	SellerID uuid.UUID `gorm:"type:uuid;not null;index:idx_listing_seller" json:"seller_id"`
 
 	// Listing details
-	Title       string     `gorm:"size:200;not null" json:"title"`
-	Description string     `json:"description"`
-	ProxyType   ProxyType  `gorm:"size:50;default:'residential'" json:"proxy_type"`
-	Protocol    string     `gorm:"size:20;default:'HTTP'" json:"protocol"`
-	CircleID    *uuid.UUID `gorm:"type:uuid;index:idx_listing_circle" json:"circle_id,omitempty"` // Clan link
+	Title        string     `gorm:"size:200;not null" json:"title"`
+	Description  string     `json:"description"`
+	ProxyType    ProxyType  `gorm:"size:50;default:'residential'" json:"proxy_type"`
+	Protocol     string     `gorm:"size:20;default:'HTTP'" json:"protocol"`
+	RotationType string     `gorm:"size:20;default:'static';index:idx_listing_rotation" json:"rotation_type"` // "static", "rotating", "sticky"
+	CircleID     *uuid.UUID `gorm:"type:uuid;index:idx_listing_circle" json:"circle_id,omitempty"`            // Clan link
+
+	// Targeting & Location
+	Country string `gorm:"size:50;index:idx_listing_country" json:"country"`
+	ISP     string `gorm:"size:100;index:idx_listing_isp" json:"isp"`
 
 	// Pricing
 	PricePerGB    float64        `gorm:"not null" json:"price_per_gb"`
@@ -52,6 +57,7 @@ type ProxyListing struct {
 	AvgLatencyMs  int     `gorm:"default:0" json:"avg_latency_ms"`
 	UptimePercent float64 `gorm:"default:100" json:"uptime_percent"`
 	SuccessRate   float64 `gorm:"default:100" json:"success_rate"`
+	QualityScore  float64 `gorm:"default:100" json:"quality_score"`
 
 	// Social metrics
 	ViewsCount  int `gorm:"default:0" json:"views_count"`
@@ -102,6 +108,9 @@ type CreateListingRequest struct {
 	Description          string         `json:"description" binding:"max=2000"`
 	ProxyType            ProxyType      `json:"proxy_type" binding:"required"`
 	Protocol             string         `json:"protocol" binding:"required"`
+	RotationType         string         `json:"rotation_type"`
+	Country              string         `json:"country"`
+	ISP                  string         `json:"isp"`
 	PricePerGB           float64        `json:"price_per_gb" binding:"required,gt=0"`
 	MinPurchaseGB        float64        `json:"min_purchase_gb" binding:"gte=0"`
 	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`
@@ -123,13 +132,16 @@ type UpdateListingRequest struct {
 
 // ListingFilters for marketplace browsing
 type ListingFilters struct {
-	ProxyType ProxyType `form:"proxy_type"`
-	Protocol  string    `form:"protocol"`
-	MinPrice  float64   `form:"min_price"`
-	MaxPrice  float64   `form:"max_price"`
-	MinRating float64   `form:"min_rating"`
-	SellerID  uuid.UUID `form:"seller_id"`
-	SortBy    string    `form:"sort_by"` // "price_asc", "price_desc", "rating", "newest"
-	Page      int       `form:"page"`
-	Limit     int       `form:"limit"`
+	ProxyType    ProxyType `form:"proxy_type"`
+	Protocol     string    `form:"protocol"`
+	RotationType string    `form:"rotation_type"`
+	Country      string    `form:"country"`
+	ISP          string    `form:"isp"`
+	MinPrice     float64   `form:"min_price"`
+	MaxPrice     float64   `form:"max_price"`
+	MinRating    float64   `form:"min_rating"`
+	SellerID     uuid.UUID `form:"seller_id"`
+	SortBy       string    `form:"sort_by"` // "price_asc", "price_desc", "rating", "newest"
+	Page         int       `form:"page"`
+	Limit        int       `form:"limit"`
 }

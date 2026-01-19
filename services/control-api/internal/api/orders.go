@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -96,70 +97,29 @@ func createOrder(c *gin.Context) {
 		WalletID:     wallet.ID,
 		Amount:       -totalPrice,
 		BalanceAfter: newBalance,
-		Type:         "purchase",
+		Type:         "purchase_escrow", // specific type for escrow lock
 		ReferenceID:  order.ID.String(),
-		Description:  "Purchase from " + getDisplayName(listing.Seller),
+		Description:  "Escrow lock for " + getDisplayName(listing.Seller),
 	}
 	tx.Create(&buyerLedger)
 
-	// Distribute Funds
-	// Platform Fee: 10%
-	platformFee := totalPrice * 0.10
-	netAmount := totalPrice - platformFee
-
-	var clanShare float64 = 0
-	var sellerAmount = netAmount
-
-	// Check for Clan Revenue Share
-	if listing.CircleID != nil && listing.Circle != nil && listing.Circle.RevenueSharePercent > 0 {
-		clanShare = netAmount * listing.Circle.RevenueSharePercent
-		sellerAmount = netAmount - clanShare
-
-		// Credit Clan Owner
-		var clanOwnerWallet models.Wallet
-		if err := tx.First(&clanOwnerWallet, "user_id = ?", listing.Circle.OwnerID).Error; err != nil {
-			clanOwnerWallet = models.Wallet{UserID: listing.Circle.OwnerID, Balance: 0, Currency: "GHS"}
-			tx.Create(&clanOwnerWallet)
-		}
-		clanOwnerNewBalance := clanOwnerWallet.Balance + clanShare
-		tx.Model(&clanOwnerWallet).Update("balance", clanOwnerNewBalance)
-
-		// Ledger for Clan Owner
-		tx.Create(&models.WalletLedgerEntry{
-			WalletID:     clanOwnerWallet.ID,
-			Amount:       clanShare,
-			BalanceAfter: clanOwnerNewBalance,
-			Type:         "clan_share",
-			ReferenceID:  order.ID.String(),
-			Description:  fmt.Sprintf("Clan share (%.0f%%) from sale in %s", listing.Circle.RevenueSharePercent*100, listing.Circle.Name),
-		})
+	// CREATE ESCROW RECORD (Hold Funds)
+	// We do not credit seller or clan yet.
+	autoRelease := time.Now().AddDate(0, 0, 7) // Auto-release in 7 days
+	escrow := models.EscrowTransaction{
+		OrderID:       order.ID,
+		BuyerID:       buyerID,
+		SellerID:      listing.SellerID,
+		Amount:        totalPrice, // Hold the full amount
+		Status:        models.EscrowHeld,
+		HeldAt:        time.Now(),
+		AutoReleaseAt: &autoRelease,
 	}
-
-	// Credit Seller
-	var sellerWallet models.Wallet
-	if err := tx.First(&sellerWallet, "user_id = ?", listing.SellerID).Error; err != nil {
-		// Create wallet if not exists
-		sellerWallet = models.Wallet{
-			UserID:   listing.SellerID,
-			Balance:  0,
-			Currency: "GHS",
-		}
-		tx.Create(&sellerWallet)
+	if err := tx.Create(&escrow).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create escrow"})
+		return
 	}
-
-	sellerNewBalance := sellerWallet.Balance + sellerAmount
-	tx.Model(&sellerWallet).Update("balance", sellerNewBalance)
-
-	// Create ledger entry for seller
-	sellerLedger := models.WalletLedgerEntry{
-		WalletID:     sellerWallet.ID,
-		Amount:       sellerAmount,
-		BalanceAfter: sellerNewBalance,
-		Type:         "sale",
-		ReferenceID:  order.ID.String(),
-		Description:  "Sale of " + floatToString(req.BandwidthGB) + " GB bandwidth",
-	}
-	tx.Create(&sellerLedger)
 
 	// Update listing stats
 	tx.Model(&listing).Updates(map[string]interface{}{

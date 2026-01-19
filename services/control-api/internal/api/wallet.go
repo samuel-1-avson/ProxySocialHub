@@ -21,7 +21,182 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/deposit", initiateDeposit)
 		wallet.POST("/withdraw", initiateWithdrawal)
 		wallet.GET("/verify", verifyDeposit)
+
+		// TAO Routes
+		wallet.POST("/deposit/tao", initiateTaoDeposit)
+		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
+		wallet.POST("/verify/tao", verifyTaoDeposit)
 	}
+}
+
+type taoDepositRequest struct {
+	TxHash string  `json:"tx_hash" binding:"required"`
+	Amount float64 `json:"amount" binding:"required"`
+}
+
+func initiateTaoDeposit(c *gin.Context) {
+	// For "Push" deposits (user sends first), this endpoint just gives info
+	// or user calls verify after sending.
+	// We can return the system deposit address.
+
+	client := payments.NewTaoClient(GetBittensorClient())
+	addr, err := client.GetDepositAddress()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get deposit address"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"address": addr,
+		"message": "Send TAO to this address and call /verify/tao with tx_hash",
+	})
+}
+
+func verifyTaoDeposit(c *gin.Context) {
+	var req taoDepositRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString("userID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	client := payments.NewTaoClient(GetBittensorClient())
+
+	// Verify On-Chain
+	isValid, err := client.VerifyDeposit(req.TxHash, req.Amount)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Verification failed: " + err.Error()})
+		return
+	}
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction"})
+		return
+	}
+
+	// Check if already processed
+	var existingTx models.PendingTransaction
+	if err := db.DB.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
+		return
+	}
+
+	// Credit Wallet
+	tx := db.DB.Begin()
+	var wallet models.Wallet
+	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	// If wallet is GHS, we might need conversion or just switch to TAO.
+	// Switching to TAO for this "Total Decentralization" goal.
+	if wallet.Currency != "TAO" {
+		wallet.Currency = "TAO" // Force switch
+		wallet.Balance = 0      // Reset or convert? Resetting safest for prototype switch.
+		tx.Save(&wallet)
+	}
+
+	newBalance := wallet.Balance + req.Amount
+	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
+		return
+	}
+
+	// Record Transaction
+	pendingTx := models.PendingTransaction{
+		UserID:      userID,
+		Reference:   req.TxHash, // TX Hash as reference
+		Type:        "deposit",
+		Amount:      req.Amount,
+		Currency:    "TAO",
+		Provider:    "bittensor",
+		Status:      "completed",
+		ExternalRef: req.TxHash,
+	}
+	tx.Create(&pendingTx)
+
+	ledger := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       req.Amount,
+		BalanceAfter: newBalance,
+		Type:         models.TransactionTopup,
+		ReferenceID:  req.TxHash,
+		Description:  "TAO Deposit via Bridge",
+	}
+	tx.Create(&ledger)
+
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{"status": "success", "new_balance": newBalance})
+}
+
+type taoWithdrawRequest struct {
+	Amount      float64 `json:"amount" binding:"required,gt=0"`
+	Destination string  `json:"destination" binding:"required"`
+}
+
+func initiateTaoWithdrawal(c *gin.Context) {
+	var req taoWithdrawRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString("userID")
+
+	tx := db.DB.Begin()
+	var wallet models.Wallet
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	if wallet.Balance < req.Amount {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient funds"})
+		return
+	}
+
+	// Deduct
+	newBalance := wallet.Balance - req.Amount
+	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to deduct funds"})
+		return
+	}
+
+	// Call Bridge
+	client := payments.NewTaoClient(GetBittensorClient())
+	err := client.Transfer(req.Destination, req.Amount)
+
+	if err != nil {
+		tx.Rollback()
+		logging.Error(err).Msg("TAO Transfer failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed: " + err.Error()})
+		return
+	}
+
+	// Record
+	ref := uuid.New().String()
+	ledger := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       -req.Amount,
+		BalanceAfter: newBalance,
+		Type:         models.TransactionPayout,
+		ReferenceID:  ref,
+		Description:  fmt.Sprintf("TAO Withdrawal to %s", req.Destination),
+	}
+	tx.Create(&ledger)
+
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{"status": "success", "tx_hash": "pending_bridge_tx"})
 }
 
 // TransactionDTO for unified response

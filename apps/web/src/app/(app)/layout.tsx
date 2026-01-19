@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Bell, LogOut, Menu, User as UserIcon, Settings, LayoutDashboard, Rss, ShoppingCart, Trophy, MessageSquare, Wallet, Users, CreditCard, ShoppingBag } from 'lucide-react';
+import { Bell, LogOut, Menu, User as UserIcon, Settings, LayoutDashboard, Rss, ShoppingCart, Trophy, MessageSquare, Wallet, Users, CreditCard, ShoppingBag, Scale } from 'lucide-react';
 
 export default function AppLayout({
     children,
@@ -21,6 +21,7 @@ export default function AppLayout({
         { href: '/dashboard/subscription', label: 'Membership', icon: <CreditCard size={20} /> },
         { href: '/dashboard/orders', label: 'My Orders', icon: <ShoppingBag size={20} /> },
         { href: '/forum', label: 'Community', icon: <MessageSquare size={20} /> },
+        { href: '/governance', label: 'Governance', icon: <Scale size={20} /> },
         { href: '/feed', label: 'Feed', icon: <Rss size={20} /> },
         { href: '/marketplace', label: 'Marketplace', icon: <ShoppingCart size={20} /> },
         { href: '/leaderboards', label: 'Leaderboards', icon: <Trophy size={20} /> },
