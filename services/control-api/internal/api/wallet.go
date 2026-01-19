@@ -416,6 +416,7 @@ func initiateDeposit(c *gin.Context) {
 
 	client := payments.NewPaystackClient()
 	if client.SecretKey == "" {
+		logging.Error(nil).Msg("Payment configuration missing: PAYSTACK_SECRET_KEY not set")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Payment configuration missing"})
 		return
 	}
