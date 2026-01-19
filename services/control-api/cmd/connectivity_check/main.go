@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,9 +11,14 @@ import (
 )
 
 func main() {
-	password := "ProxyHubbUser2026"
-	projectRef := "jkrypzcxbnwdcdvhtjxgx"
-	region := "aws-1-eu-west-1" // Derived from screenshot
+	password := os.Getenv("DB_PASSWORD")
+	projectRef := os.Getenv("PROJECT_REF")
+	region := "aws-1-eu-west-1"
+
+	if password == "" || projectRef == "" {
+		fmt.Println("❌ Error: DB_PASSWORD and PROJECT_REF env vars must be set")
+		return
+	}
 
 	dsns := []struct {
 		Name string

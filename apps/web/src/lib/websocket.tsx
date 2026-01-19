@@ -18,12 +18,12 @@ export function useWebSocket(url?: string) {
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Map<string, MessageHandler[]>>(new Map());
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const lastMessageRef = useRef<WebSocketMessage | null>(null);
 
   const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080';
   const wsUrl = url || `${baseWsUrl}/v1/ws`;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   const connect = useCallback(async () => {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -68,8 +68,6 @@ export function useWebSocket(url?: string) {
       ws.onclose = () => {
         console.log('WebSocket disconnected');
         setIsConnected(false);
-        // Reconnect after 3 seconds
-        reconnectTimeoutRef.current = setTimeout(() => connect(), 3000);
       };
 
       ws.onerror = (error) => {
@@ -82,10 +80,17 @@ export function useWebSocket(url?: string) {
     }
   }, [wsUrl]);
 
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
+  // Handle reconnection separately to avoid circular dependency
+  useEffect(() => {
+    if (!isConnected) {
+      const timeout = setTimeout(() => {
+        connect();
+      }, 3000);
+      return () => clearTimeout(timeout);
     }
+  }, [isConnected, connect]);
+
+  const disconnect = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;

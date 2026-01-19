@@ -21,6 +21,7 @@ type Config struct {
 
 type BittensorConfig struct {
 	BridgeURL string
+	NetUID    int
 }
 
 type ServerConfig struct {
@@ -149,6 +150,8 @@ func Load() (*Config, error) {
 
 	// Bittensor
 	cfg.Bittensor.BridgeURL = getEnv("BITTENSOR_BRIDGE_URL", "http://localhost:8002")
+	netUIDStr := getEnv("BITTENSOR_NETUID", "1")
+	fmt.Sscanf(netUIDStr, "%d", &cfg.Bittensor.NetUID)
 
 	return cfg, nil
 }

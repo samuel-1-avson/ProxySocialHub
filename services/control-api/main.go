@@ -4,12 +4,16 @@ import (
 	"log"
 	"os"
 
+	"github.com/gin-contrib/secure"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/proxyhubb/control-api/internal/api"
+	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/indexer"
+	"github.com/proxyhubb/control-api/internal/middleware"
+	"github.com/proxyhubb/control-api/internal/worker"
 )
 
 func main() {
@@ -31,6 +35,20 @@ func main() {
 
 	r := gin.Default()
 
+	// Security Headers
+	r.Use(secure.New(secure.Config{
+		SSLRedirect:           false, // Handled by Ingress/LoadBalancer
+		IsDevelopment:         os.Getenv("GIN_MODE") != "release",
+		AllowedHosts:          []string{"api.proxyhubb.com"},
+		STSSeconds:            315360000,
+		STSIncludeSubdomains:  true,
+		FrameDeny:             true,
+		ContentTypeNosniff:    true,
+		BrowserXssFilter:      true,
+		ContentSecurityPolicy: "default-src 'self'",
+		ReferrerPolicy:        "strict-origin-when-cross-origin",
+	}))
+
 	// CORS
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
@@ -51,28 +69,45 @@ func main() {
 	api.RegisterMetricsEndpoint(r)
 
 	// Routes
+	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
+	v1.Use(middleware.SupabaseAuthMiddlewareOptional(cfg))
 	{
 		api.RegisterAuthRoutes(v1)
-		api.RegisterProviderNodeRoutes(v1) // Fixed name
-		api.RegisterListingRoutes(v1)      // Added Listings
-		api.RegisterSessionRoutes(v1)
-		// api.RegisterStatsRoutes(v1)     // Removed or renamed
-		api.RegisterWalletRoutes(v1)
-		api.RegisterOrderRoutes(v1)
-		api.RegisterEscrowRoutes(v1)
+		api.RegisterListingRoutes(v1) // Mix of public/private
+		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
+		api.RegisterProfileRoutes(v1) // Public profiles
+	}
 
-		// Missing Routes
-		api.RegisterSmartMatchingRoutes(v1)
-		api.RegisterGovernanceRoutes(v1)
-		api.RegisterOnboardingRoutes(v1)
-		api.RegisterBittensorRoutes(v1)
-		api.RegisterCircleRoutes(v1)
+	// Protected Routes (Require Authentication)
+	protected := v1.Group("/")
+	protected.Use(middleware.RequireAuth())
+	{
+		api.RegisterProviderNodeRoutes(protected)
+		api.RegisterSessionRoutes(protected)
+		api.RegisterWalletRoutes(protected)
+		api.RegisterOrderRoutes(protected)
+		api.RegisterEscrowRoutes(protected)
+
+		api.RegisterSmartMatchingRoutes(protected)
+		api.RegisterGovernanceRoutes(protected)
+		api.RegisterOnboardingRoutes(protected)
+		api.RegisterBittensorRoutes(protected)
+		api.RegisterCircleRoutes(protected)
+
+		api.RegisterReferralRoutes(protected)
+		api.RegisterSubscriptionRoutes(protected)
+		api.RegisterForumRoutes(protected) // Mostly private (posting)
+		api.RegisterMessagingRoutes(protected)
 	}
 
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()
 	idx.Start()
+
+	// Start Validator Sync
+	btClient := bittensor.NewClient(cfg.Bittensor)
+	worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
 
 	port := os.Getenv("PORT")
 	if port == "" {
