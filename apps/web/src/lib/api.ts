@@ -62,7 +62,7 @@ export async function getSessions(): Promise<Session[]> {
 
   // Handle { sessions: [...] } wrapper
   if (data && Array.isArray(data.sessions)) {
-    return data.sessions.map((item: any) => item.session || item);
+    return data.sessions.map((item: { session: Session } | Session) => (item as { session: Session }).session || item);
   }
   // Handle direct array [...]
   if (Array.isArray(data)) {
@@ -580,3 +580,28 @@ export async function createDispute(orderId: string, reason: string, description
   });
   if (!response.ok) throw new Error('Failed to create dispute');
 }
+
+// Provider Nodes API
+export interface ProviderNode {
+  id: string;
+  name: string;
+  ip_address: string;
+  country: string;
+  city: string;
+  status: string;
+  latency_ms: number;
+  uptime_percent: number;
+  quality_score: number;
+  is_registered_on_chain: boolean;
+  active_connections: number;
+}
+
+export async function getProviderNodes(): Promise<{ nodes: ProviderNode[] }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/provider/nodes`);
+  if (!response.ok) {
+    console.error('getProviderNodes failed:', response.status);
+    return { nodes: [] };
+  }
+  return response.json();
+}
+
