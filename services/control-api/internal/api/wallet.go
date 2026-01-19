@@ -12,7 +12,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
-	"gorm.io/gorm/clause"
 )
 
 func RegisterWalletRoutes(r *gin.RouterGroup) {
@@ -239,29 +238,22 @@ func getWallet(c *gin.Context) {
 	}
 
 	if result.RowsAffected == 0 {
-		// Wallet doesn't exist, try to create it safely
+		// Wallet doesn't exist, try to create it.
+		// We use a direct Create call. If it fails (e.g., race condition), we ignore the error
+		// and try to fetch again. This avoids complex GORM OnConflict syntax issues.
 		wallet = models.Wallet{
 			UserID:   userID,
 			Balance:  0,
 			Currency: "GHS",
 		}
 
-		// Use OnConflict to handle race conditions gracefully
-		err := db.DB.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "user_id"}},
-			DoNothing: true,
-		}).Create(&wallet).Error
+		// Attempt creation - ignore error here as it might be "duplicate key"
+		_ = db.DB.Create(&wallet).Error
 
-		if err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to create wallet")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
-			return
-		}
-
-		// Refresh wallet to get the ID (in case DoNothing triggered or ID generation happened)
+		// Re-fetch to confirm existence and get ID
 		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to retrieve wallet after creation")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve wallet"})
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to retrieve wallet after creation attempt")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet or user not found"})
 			return
 		}
 		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Initialized wallet")
