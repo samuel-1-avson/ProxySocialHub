@@ -280,7 +280,13 @@ func getWallet(c *gin.Context) {
 
 		// Attempt creation
 		if err := db.DB.Create(&wallet).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+				logging.Warn().Str("user_id", userIDStr).Msg("getWallet: Wallet already exists (race condition), fetching")
+			} else {
+				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed (Critical)")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet: " + err.Error()})
+				return
+			}
 		}
 
 		// Re-fetch to confirm existence and get ID
