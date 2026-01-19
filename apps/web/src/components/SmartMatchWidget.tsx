@@ -27,14 +27,6 @@ export function SmartMatchWidget() {
             setUseCases(data);
         } catch (error) {
             console.error('Failed to fetch use cases', error);
-            if (useCases.length === 0) {
-                setUseCases([
-                    { id: '1', name: 'Web Scraping', description: 'High concurrency, rotating IPs' },
-                    { id: '2', name: 'Social Media Management', description: 'Sticky sessions, clean IPs' },
-                    { id: '3', name: 'Streaming Access', description: 'High bandwidth, residential ISPs' },
-                    { id: '4', name: 'Ad Verification', description: 'Geo-targeted, residential IPs' },
-                ]);
-            }
         }
     };
 
@@ -94,8 +86,8 @@ export function SmartMatchWidget() {
                                 key={useCase.id}
                                 onClick={() => setSelectedUseCase(useCase.id)}
                                 className={`group relative p-4 rounded-xl text-left transition-all duration-300 border ${selectedUseCase === useCase.id
-                                        ? 'bg-white/10 border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]'
-                                        : 'bg-white/5 border-transparent hover:bg-white/[0.07] hover:border-white/10'
+                                    ? 'bg-white/10 border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]'
+                                    : 'bg-white/5 border-transparent hover:bg-white/[0.07] hover:border-white/10'
                                     }`}
                             >
                                 <div className="flex items-center justify-between">
