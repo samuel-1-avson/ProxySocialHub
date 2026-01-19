@@ -3,6 +3,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 import os
+import threading
+import time
+import random
+import requests
 
 app = FastAPI(title="Bittensor Bridge")
 
@@ -163,11 +167,66 @@ def transfer_tao(req: TransferRequest):
 # Validator / Compute Logic (Phase 4)
 # ==========================================
 
+import requests
+import threading
+import time
+import random
+from typing import Dict, List
+
+# ... [Original imports remain] ...
+
+# ==========================================
+# Validator / Compute Logic (Phase 4)
+# ==========================================
+
 class Validator:
     def __init__(self):
         self.scores = {} # Map netuid -> { hotkey -> score }
         self.lock = threading.Lock()
         self.running = True
+        self.sub = None 
+        # In a real environment, we'd Initialize Subtensor here
+        # self.sub = get_subtensor() 
+
+    def check_proxy(self, ip: str, port: int) -> float:
+        """
+        Verifies a proxy by attempting to connect through it.
+        Returns a score between 0.0 and 1.0.
+        """
+        proxy_url = f"http://{ip}:{port}"
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
+        
+        target_url = "http://google.com" # Or a dedicated benchmark endpoint
+        timeout = 5.0 # 5 seconds max latency
+
+        try:
+            start_time = time.time()
+            response = requests.get(target_url, proxies=proxies, timeout=timeout)
+            end_time = time.time()
+            
+            latency = end_time - start_time
+            
+            if response.status_code == 200:
+                # Score calculation: 
+                # 1.0 = < 0.5s latency
+                # 0.5 = < 2.0s latency
+                # 0.1 = > 2.0s latency
+                
+                if latency < 0.5:
+                    return 1.0
+                elif latency < 2.0:
+                    return 0.5
+                else:
+                    return 0.1
+            else:
+                 return 0.0 # Connected but failed request
+                 
+        except Exception as e:
+            # print(f"Proxy check failed for {proxy_url}: {e}")
+            return 0.0
 
     def run_validation_loop(self):
         print("Validator: Starting validation loop...")
@@ -175,24 +234,38 @@ class Validator:
             try:
                 # In a real subnet, we would:
                 # 1. Query metagraph for all registered uids
-                # 2. Select a batch to validate
-                # 3. Connect to their Axon (IP:Port)
-                # 4. Measure latency, success rate, bandwidth
-                # 5. Set weights on-chain
+                # 2. Extract IP/Port from Axon info
                 
-                # Mock Validation:
-                # We just generate random scores for "default" hotkey (our test one)
-                # and maybe some others.
+                # For this implementation, we will simulate fetching from Metagraph
+                # but perform REAL HTTP checks if IP is reachable (or simulate check if local)
                 
+                # Mock Metagraph State (Normally fetched from self.sub.metagraph(netuid))
+                # For demo purposes, we define a "Test Set" of proxies checking localhost
+                mock_metagraph = {
+                    "5F...good": {"ip": "127.0.0.1", "port": 3000}, # Assumed running proxy
+                    "5F...bad":  {"ip": "192.0.2.1", "port": 8080}, # Non-routable
+                }
+
+                new_scores = {}
+                
+                for hotkey, info in mock_metagraph.items():
+                    # PERFORM REAL CHECK
+                    score = self.check_proxy(info["ip"], info["port"])
+                    new_scores[hotkey] = score
+                    
+                    if score > 0:
+                        print(f"Validator: Proxy {info['ip']}:{info['port']} is ALIVE! Score: {score}")
+
                 with self.lock:
-                    # Mock defaults
-                    self.scores[1] = {
-                        "default": random.uniform(0.8, 1.0), # Good node
-                        "5F...bad": random.uniform(0.0, 0.2) # Bad node
-                    }
+                    self.scores[1] = new_scores
+                
+                # In Real Logic:
+                # uids = ...
+                # weights = [new_scores[k] for k in uids]
+                # self.sub.set_weights(netuid=1, uids=uids, weights=weights, ...)
                 
                 print(f"Validator: Updated scores: {self.scores}")
-                time.sleep(30) # Validate every 30s
+                time.sleep(60) # Validate every 60s
             except Exception as e:
                 print(f"Validator Error: {e}")
                 time.sleep(5)
@@ -213,8 +286,11 @@ def get_validator_scores(netuid: int = 1):
     with validator.lock:
         return {
             "netuid": netuid,
+            # Return standardized format for Control API
             "scores": validator.scores.get(netuid, {})
         }
+
+# ... [Rest of file]
 
 @app.get("/transaction/{hash}")
 def get_transaction(hash: str):

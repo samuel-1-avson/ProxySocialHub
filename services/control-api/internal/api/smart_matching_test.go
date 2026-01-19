@@ -36,13 +36,16 @@ func TestGetUseCases(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
 
-	useCases := response["use_cases"].([]interface{})
+	useCases, ok := response["use_cases"].([]interface{})
+	if !ok {
+		t.Fatalf("Response missing 'use_cases' or invalid type. Body: %s", w.Body.String())
+	}
 	if len(useCases) < 1 {
 		t.Errorf("Expected at least 1 use case, got %d", len(useCases))
 	}
