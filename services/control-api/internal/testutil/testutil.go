@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisInternal "github.com/proxyhubb/control-api/internal/redis"
@@ -101,6 +102,9 @@ func SetupTestDB(t *testing.T) {
 			&models.UptimeCheck{},
 			&models.UseCase{},
 			&models.UserPreference{},
+			&models.MarketAgent{},
+			&models.AgentInstance{},
+			&models.AgentJob{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)
@@ -164,4 +168,17 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 // UniqueEmail generates a unique email for testing to avoid conflicts.
 func UniqueEmail(prefix string) string {
 	return fmt.Sprintf("%s_%d@test.com", prefix, time.Now().UnixNano())
+}
+
+// SetupTestRouter creates a gin router for testing
+func SetupTestRouter() *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	return r
+}
+
+// GetTestUserID returns a consistent UUID for testing
+func GetTestUserID() string {
+	return "00000000-0000-0000-0000-000000000001"
 }
