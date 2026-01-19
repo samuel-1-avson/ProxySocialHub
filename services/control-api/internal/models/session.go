@@ -28,6 +28,7 @@ type Session struct {
 	NodeID          *uuid.UUID    `gorm:"type:uuid;index:idx_session_node" json:"node_id"` // Nullable
 	Type            SessionType   `gorm:"type:varchar(50);not null" json:"type"`
 	Status          SessionStatus `gorm:"type:varchar(50);default:'active';index:idx_session_status" json:"status"`
+	TxHash          string        `gorm:"size:255" json:"tx_hash,omitempty"`
 	CredentialsUser string        `gorm:"type:varchar(255)" json:"credentials_user"`
 	CredentialsPass string        `gorm:"type:varchar(255)" json:"credentials_pass"`
 	Config          string        `gorm:"type:jsonb" json:"config"`

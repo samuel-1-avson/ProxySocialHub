@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { getMyOrders, releaseEscrow, createDispute, Order } from '@/lib/api';
-import { CheckCircle, AlertTriangle, ShieldCheck, ArrowRight, Package, Loader2 } from 'lucide-react';
+import { CheckCircle, AlertTriangle, ShieldCheck, ArrowRight, Package, Loader2, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MyOrdersPage() {
@@ -96,8 +96,18 @@ export default function MyOrdersPage() {
 
                                 {/* Info */}
                                 <div className="flex-1 space-y-1 text-center md:text-left">
-                                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                                         Order #{order.id.slice(0, 8)} • {new Date(order.created_at).toLocaleDateString()}
+                                        {order.tx_hash && (
+                                            <a
+                                                href={`https://bittensor.subscan.io/extrinsic/${order.tx_hash}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors ml-2"
+                                            >
+                                                <ExternalLink size={10} /> On-chain
+                                            </a>
+                                        )}
                                     </div>
                                     <div className="font-bold text-white text-lg">
                                         {order.listing?.title || 'Unknown Listing'}

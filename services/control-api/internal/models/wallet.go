@@ -32,6 +32,7 @@ type WalletLedgerEntry struct {
 	BalanceAfter float64   `gorm:"type:numeric(20,4);not null"`
 	Type         string    `gorm:"type:varchar(50);not null"` // 'topup', 'usage_charge', 'payout', 'refund'
 	ReferenceID  string
+	TxHash       string `gorm:"size:255" json:"tx_hash,omitempty"`
 	Description  string
 	CreatedAt    time.Time
 }

@@ -32,6 +32,7 @@ type Order struct {
 	TotalPrice  float64 `gorm:"not null" json:"total_price"`
 
 	Status    OrderStatus `gorm:"size:50;default:'pending';index:idx_order_status" json:"status"`
+	TxHash    string      `gorm:"size:255" json:"tx_hash,omitempty"`
 	SessionID *uuid.UUID  `gorm:"type:uuid" json:"session_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
