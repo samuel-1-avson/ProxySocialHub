@@ -10,26 +10,24 @@ import (
 )
 
 // StartValidatorSync starts the background job to sync validator scores
-func StartValidatorSync(client *bittensor.Client) {
+func StartValidatorSync(client *bittensor.Client, netUID int) {
 	if client == nil {
 		logging.Warn().Msg("ValidatorSync: Bittensor client nil, skipping sync")
 		return
 	}
 
 	go func() {
-		logging.Info().Msg("ValidatorSync: Started background validator sync loop")
+		logging.Info().Int("netuid", netUID).Msg("ValidatorSync: Started background validator sync loop")
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			syncScores(client)
+			syncScores(client, netUID)
 		}
 	}()
 }
 
-func syncScores(client *bittensor.Client) {
-	// For Phase 4 MVP, we sync scores for NetUID 1
-	netUID := 1
+func syncScores(client *bittensor.Client, netUID int) {
 
 	resp, err := client.GetValidatorScores(netUID)
 	if err != nil {

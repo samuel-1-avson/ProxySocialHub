@@ -52,3 +52,5 @@ grafana_data/
 .terraform/
 *.tfstate
 *.tfstate.backup
+
+.agent/

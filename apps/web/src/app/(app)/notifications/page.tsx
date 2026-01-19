@@ -185,12 +185,12 @@ export default function NotificationsPage() {
                     </div>
                     <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/5 backdrop-blur-xl">
                         {[
-                            { id: 'all', label: 'All Signals' },
-                            { id: 'unread', label: 'Unread Only' },
+                            { id: 'all' as const, label: 'All Signals' },
+                            { id: 'unread' as const, label: 'Unread Only' },
                         ].map((btn) => (
                             <button
                                 key={btn.id}
-                                onClick={() => setFilter(btn.id as any)}
+                                onClick={() => setFilter(btn.id)}
                                 className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === btn.id
                                     ? "bg-primary text-black shadow-[0_10px_20px_rgba(var(--primary-rgb),0.2)]"
                                     : "text-white/40 hover:text-white"}`}
