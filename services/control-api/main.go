@@ -45,7 +45,7 @@ func main() {
 	r.Use(secure.New(secure.Config{
 		SSLRedirect:           false, // Handled by Ingress/LoadBalancer
 		IsDevelopment:         os.Getenv("GIN_MODE") != "release",
-		AllowedHosts:          []string{"api.proxyhubb.com"},
+		AllowedHosts:          []string{"api.proxyhubb.com", "localhost", "127.0.0.1", "*.trycloudflare.com"},
 		STSSeconds:            315360000,
 		STSIncludeSubdomains:  true,
 		FrameDeny:             true,
@@ -74,11 +74,16 @@ func main() {
 	// Metrics
 	api.RegisterMetricsEndpoint(r)
 
-	// Routes
+	// Public / Health
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
 	v1.Use(middleware.SupabaseAuthMiddlewareOptional(cfg))
 	{
+		api.RegisterHealthRoutes(v1)
 		api.RegisterAuthRoutes(v1)
 		api.RegisterListingRoutes(v1) // Mix of public/private
 		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
