@@ -450,10 +450,12 @@ func initiateDeposit(c *gin.Context) {
 		},
 	}
 
+	fmt.Printf("Initializing Paystack transaction for email: %s, amount: %s\n", paystackReq.Email, paystackReq.Amount)
 	resp, err := client.InitializeTransaction(paystackReq)
 	if err != nil {
+		fmt.Printf("Paystack initialization error: %v\n", err) // DEBUG PRINT
 		logging.Error(err).Msg("Paystack initialization failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize payment"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to initialize payment: %v", err)})
 		return
 	}
 
@@ -468,7 +470,9 @@ func initiateDeposit(c *gin.Context) {
 		Status:    "pending",
 		// Phone is not mandatory for Paystack init, captured during checkout
 	}
+	fmt.Println("Saving pending transaction to DB...")
 	if err := db.DB.Create(&pendingTx).Error; err != nil {
+		fmt.Printf("DB save error: %v\n", err) // DEBUG PRINT
 		logging.Error(err).Msg("Failed to save pending transaction to DB")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
