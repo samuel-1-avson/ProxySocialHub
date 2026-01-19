@@ -96,6 +96,30 @@ export interface Circle {
   created_at: string;
 }
 
+export interface MarketAgent {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  price_per_run: number;
+  docker_image: string;
+  categories: string[];
+  parameters: Record<string, any>;
+  created_at: string;
+}
+
+export interface AgentInstance {
+  id: string;
+  user_id: string;
+  market_agent_id: string;
+  name: string;
+  config: Record<string, any>;
+  status: string;
+  market_agent?: MarketAgent;
+  last_run_at?: string;
+  created_at: string;
+}
+
 export interface CircleStats {
   circle_id: string;
   name: string;
@@ -272,7 +296,38 @@ export async function signUsageClaim(buyerAddress: string): Promise<{ signature:
   return response.json();
 }
 
-// Subscriptions API
+// ========== Agents ==========
+
+export async function getMarketAgents(): Promise<MarketAgent[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/agents`);
+  if (!res.ok) throw new Error('Failed to fetch agents');
+  return res.json();
+}
+
+export async function rentAgent(marketAgentId: string, name: string, config: any): Promise<AgentInstance> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/agents/rent`, {
+    method: "POST",
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ market_agent_id: marketAgentId, name, config }),
+  });
+  if (!res.ok) throw new Error('Failed to rent agent');
+  return res.json();
+}
+
+export async function getAgentInstances(): Promise<AgentInstance[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/agents/instances`);
+  if (!res.ok) throw new Error('Failed to fetch instances');
+  return res.json();
+}
+
+export async function executeAgentJob(instanceId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/agents/instances/${instanceId}/execute`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error('Failed to execute job');
+}
+
+// ========== Subscriptions ==========
 export interface SubscriptionPlan {
   id: string;
   name: string;
