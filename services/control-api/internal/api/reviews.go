@@ -10,11 +10,15 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterReviewRoutes registers review-related routes
-func RegisterReviewRoutes(rg *gin.RouterGroup) {
-	rg.POST("/reviews", createReview)
+// RegisterPublicReviewRoutes registers public review routes
+func RegisterPublicReviewRoutes(rg *gin.RouterGroup) {
 	rg.GET("/users/:id/reviews", getUserReviews)
 	rg.GET("/listings/:id/reviews", getListingReviews)
+}
+
+// RegisterProtectedReviewRoutes registers authenticated review routes
+func RegisterProtectedReviewRoutes(rg *gin.RouterGroup) {
+	rg.POST("/reviews", createReview)
 	rg.POST("/reviews/:id/respond", respondToReview)
 	rg.POST("/reviews/:id/helpful", markReviewHelpful)
 }
