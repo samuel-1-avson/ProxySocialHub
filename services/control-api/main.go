@@ -77,6 +77,7 @@ func main() {
 		api.RegisterListingRoutes(v1) // Mix of public/private
 		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
 		api.RegisterProfileRoutes(v1) // Public profiles
+		api.RegisterPublicReviewRoutes(v1)
 	}
 
 	// Protected Routes (Require Authentication)
@@ -99,6 +100,7 @@ func main() {
 		api.RegisterSubscriptionRoutes(protected)
 		api.RegisterForumRoutes(protected) // Mostly private (posting)
 		api.RegisterMessagingRoutes(protected)
+		api.RegisterProtectedReviewRoutes(protected)
 	}
 
 	// Start Chain Indexer
