@@ -6,12 +6,10 @@ import { getAgentInstances, AgentInstance } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/components/ui/use-toast';
 
 export default function AgentInstancesPage() {
     const [instances, setInstances] = useState<AgentInstance[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const { toast } = useToast();
 
     const fetchInstances = async () => {
         try {
@@ -19,11 +17,7 @@ export default function AgentInstancesPage() {
             setInstances(data);
         } catch (error) {
             console.error('Failed to fetch instances:', error);
-            toast({
-                title: 'Error',
-                description: 'Failed to load your AI agent instances.',
-                variant: 'destructive',
-            });
+            alert('Failed to load your AI agent instances.');
         } finally {
             setIsLoading(false);
         }
@@ -91,7 +85,7 @@ export default function AgentInstancesPage() {
                                         <Bot className="h-5 w-5 text-blue-400" />
                                     </div>
                                     <div>
-                                        <h3 className="font-bold text-white leading-tight">{instance.agent?.name}</h3>
+                                        <h3 className="font-bold text-white leading-tight">{instance.market_agent?.name}</h3>
                                         <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
                                             ID: {instance.id.split('-')[0]}
                                         </p>
