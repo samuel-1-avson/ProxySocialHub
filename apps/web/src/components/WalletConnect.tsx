@@ -10,7 +10,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Loader2, Wallet } from 'lucide-react';
-import { web3Enable, web3Accounts } from '@polkadot/extension-dapp';
+// import { web3Enable, web3Accounts } from '@polkadot/extension-dapp'; // Removed static import causing SSR issues
 
 interface WalletAccount {
     address: string;
@@ -34,6 +34,9 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
         setLoading(true);
         setError(null);
         try {
+            // Dynamically import to avoid SSR 'window is not defined' errors
+            const { web3Enable, web3Accounts } = await import('@polkadot/extension-dapp');
+
             // 1. Enable extension
             const extensions = await web3Enable('ProxySocialHub');
             if (extensions.length === 0) {
@@ -42,7 +45,7 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
 
             // 2. Get accounts
             const allAccounts = await web3Accounts();
-            setAccounts(allAccounts);
+            setAccounts(allAccounts as any);
 
             if (allAccounts.length === 0) {
                 throw new Error('No accounts found. Please add an account to your wallet.');
