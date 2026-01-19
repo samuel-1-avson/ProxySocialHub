@@ -37,6 +37,8 @@ type TransactionDTO struct {
 func getWallet(c *gin.Context) {
 	// Get user ID from JWT token
 	userIDStr := c.GetString("userID")
+	logging.Info().Str("user_id", userIDStr).Msg("getWallet: Request received")
+
 	if userIDStr == "" {
 		logging.Error(nil).Msg("getWallet: User ID not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
