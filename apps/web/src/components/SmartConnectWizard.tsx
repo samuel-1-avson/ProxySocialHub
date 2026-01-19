@@ -28,6 +28,7 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
     const [loading, setLoading] = useState(false);
     const [scanning, setScanning] = useState(false);
     const [results, setResults] = useState<Recommendation[]>([]);
+    const [error, setError] = useState<string | null>(null);
 
     // Load Use Cases on mount
     useEffect(() => {
@@ -42,11 +43,12 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
         load();
     }, []);
 
-    const handlescan = async () => {
+    const handleScan = async () => {
         if (!selectedUseCase) return;
 
         setStep(2); // Scanning UI
         setScanning(true);
+        setError(null);
 
         // Artificial delay to show off "AI Scanning" animation
         setTimeout(async () => {
@@ -57,7 +59,9 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
                 setStep(3); // Results UI
             } catch (e) {
                 console.error("Scanning failed", e);
+                setError("Network analysis failed. Please try again.");
                 setScanning(false);
+                setStep(1); // Back to selection
             }
         }, 1500);
     };
@@ -132,7 +136,7 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
                             </div>
 
                             <button
-                                onClick={handlescan}
+                                onClick={handleScan}
                                 disabled={!selectedUseCase}
                                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-lg uppercase tracking-wide hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg shadow-purple-900/20"
                             >
@@ -158,10 +162,10 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
 
                             {/* Fake terminal log */}
                             <div className="w-full max-w-sm bg-black/50 rounded-xl p-4 font-mono text-xs space-y-1 text-green-400/80 border border-white/5">
-                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-100">> Initializing handshake... OK</div>
-                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-300">> Querying DHT for {selectedUseCase?.id} nodes...</div>
-                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-700">> Verifying cryptographic signatures...</div>
-                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-1000">> Calculating optimal routes... DONE</div>
+                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-100"> Initializing handshake... OK</div>
+                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-300"> Querying DHT for {selectedUseCase?.id} nodes...</div>
+                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-700"> Verifying cryptographic signatures...</div>
+                                <div className="animate-in fade-in slide-in-from-left-2 duration-300 delay-1000">Calculating optimal routes... DONE</div>
                             </div>
                         </div>
                     )}
@@ -185,17 +189,17 @@ export function SmartConnectWizard({ onClose, onConnect }: SmartConnectWizardPro
 
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-bold text-white truncate">Node {rec.listing.NodeID?.substring(0, 8)}...</span>
+                                                <span className="font-bold text-white truncate">Node {rec.listing.id?.substring(0, 8)}...</span>
                                                 <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[10px] font-bold uppercase">Online</span>
                                             </div>
                                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                <span className="flex items-center gap-1"><Zap size={10} className="text-yellow-400" /> {Math.floor(Math.random() * 50 + 20)}ms</span>
-                                                <span className="flex items-center gap-1"><Server size={10} className="text-blue-400" /> {rec.listing.Region || "US-East"}</span>
+                                                <span className="flex items-center gap-1"><Zap size={10} className="text-yellow-400" /> {rec.listing.avg_latency_ms || 45}ms</span>
+                                                <span className="flex items-center gap-1"><Server size={10} className="text-blue-400" /> {rec.listing.country || "GH"}</span>
                                             </div>
                                         </div>
 
                                         <button
-                                            onClick={() => onConnect(rec.listing.NodeID || "node_123")}
+                                            onClick={() => onConnect(rec.listing.id || "")}
                                             className="px-4 py-2 rounded-xl bg-white text-black font-bold text-sm hover:bg-purple-400 hover:text-white transition-colors"
                                         >
                                             Connect

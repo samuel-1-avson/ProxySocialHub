@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -61,18 +62,21 @@ func (m *Matcher) GetProfiles() map[UseCaseType]UseCaseProfile {
 	}
 }
 
-// Recommend finds the best nodes for a given request
+// Recommend finds the best listings for a given request
 func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
-	// 1. Fetch Candidate Nodes
-	var nodes []models.ProviderNode
-	query := db.DB.Where("status = ?", models.NodeOnline)
+	// 1. Fetch Candidate Listings
+	var listings []models.ProxyListing
+	query := db.DB.Where("status = ?", models.ListingStatusActive)
 
 	if req.Region != "" {
-		// Simple region matching - in production use GeoIP distance
-		query = query.Where("country = ? OR city = ?", req.Region, req.Region)
+		query = query.Where("country = ? OR isp = ?", req.Region, req.Region)
 	}
 
-	if err := query.Find(&nodes).Error; err != nil {
+	if req.MaxPrice > 0 {
+		query = query.Where("price_per_gb <= ?", req.MaxPrice)
+	}
+
+	if err := query.Find(&listings).Error; err != nil {
 		return nil, err
 	}
 
@@ -83,52 +87,37 @@ func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
 		profile = profiles[UseCaseGeneral]
 	}
 
-	// 3. Score Each Node
+	// 3. Score Each Listing
 	var scoredNodes []ScoredNode
 
-	// Pre-calculate max values for normalization
-	// We use fixed realistic baselines to avoid skewing by outliers
-	const (
-		MaxReasonableLatency   = 500.0  // ms
-		MaxReasonableBandwidth = 1000.0 // Mbps
-	)
-
-	for _, node := range nodes {
-		score := 0.0
+	for _, listing := range listings {
+		score := 50.0 // Baseline score
 		var reasons []string
 
 		// Latency Score (Lower is better)
-		// Get latency from recent uptime checks or use a default if no checks yet
-		// For MVP we assume node.Status stores last check stats or we perform a join.
-		// Since we don't have direct latency in ProviderNode struct yet (it's in UptimeChecks),
-		// we will assume a mock or fetch it.
-		// TODO: Add AvgLatency to ProviderNode model for caching
-		latency := 100.0 // Default mock
-
-		latencyScore := math.Max(0, 1.0-(latency/MaxReasonableLatency))
-		score += latencyScore * profile.WeightLatency
+		if listing.AvgLatencyMs > 0 {
+			latencyScore := math.Max(0, 1.0-(float64(listing.AvgLatencyMs)/500.0))
+			score += (latencyScore - 0.5) * profile.WeightLatency * 100
+		}
 
 		// Uptime Score (Higher is better)
-		// Assume node has UptimePercentage logic or field.
-		// For now using placeholder 0.99
-		uptime := 0.99
-		score += uptime * profile.WeightUptime
-
-		// Bandwidth Score (Higher is better)
-		// Parse "100 Mbps" logic... for now assume 100.
-		bandwidth := 100.0
-		bwScore := math.Min(1.0, bandwidth/MaxReasonableBandwidth)
-		score += bwScore * profile.WeightBandwidth
+		uptimeScore := listing.UptimePercent / 100.0
+		score += (uptimeScore - 0.5) * profile.WeightUptime * 100
 
 		// Trust Score (Higher is better)
-		// From Bittensor validation
-		trust := node.QualityScore / 100.0
-		score += trust * profile.WeightTrustScore
+		trustScore := listing.QualityScore / 100.0
+		score += (trustScore - 0.5) * profile.WeightTrustScore * 100
+
+		// Bonus for Verified Seller
+		if listing.SellerID != uuid.Nil {
+			// Optimization: Preload sellers or cache verification status
+			// For now, we assume quality_score reflects it
+		}
 
 		scoredNodes = append(scoredNodes, ScoredNode{
-			Node:   node,
-			Score:  score * 100, // Scale to 0-100
-			Reason: reasons,
+			Listing: listing,
+			Score:   math.Min(100, math.Max(0, score)),
+			Reason:  reasons,
 		})
 	}
 
