@@ -15,6 +15,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
+	"gorm.io/gorm/clause"
 )
 
 func RegisterWalletRoutes(r *gin.RouterGroup) {
@@ -273,11 +274,14 @@ func getWallet(c *gin.Context) {
 				Role:      c.GetString("userRole"),
 			}
 			// Attempt to create user, log error if it fails
-			if err := db.DB.Create(&user).Error; err != nil {
-				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed")
-				// If this fails, wallet creation below will likely fail with FK violation
-				// We can return error here to be clearer, or let it fall through
+			if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
+				// If we can't create the user AND they don't exist, we can't proceed.
+				// However, if err was nil (DoNothing), we proceed.
+				// If real error, we log.
+				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed.")
+				// We don't return here anymore, we try to proceed to wallet creation which might succeed if user exists now.
 			}
+			logging.Info().Str("user_id", userIDStr).Msg("getWallet: Fallback user created successfully")
 		}
 
 		// Now attempt wallet creation with higher confidence

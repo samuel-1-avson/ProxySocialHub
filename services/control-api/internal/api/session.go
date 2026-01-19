@@ -18,7 +18,9 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 	sessions := r.Group("/sessions")
 	{
 		sessions.POST("", createSession)
+		sessions.POST("", createSession)
 		sessions.POST("/", createSession)
+		sessions.GET("", listSessions)
 		sessions.GET("/", listSessions)
 		sessions.GET("/:id", getSession)
 		sessions.POST("/:id/terminate", terminateSession)
