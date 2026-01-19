@@ -61,6 +61,13 @@ func main() {
 		api.RegisterWalletRoutes(v1)
 		api.RegisterOrderRoutes(v1)
 		api.RegisterEscrowRoutes(v1)
+
+		// Missing Routes
+		api.RegisterSmartMatchingRoutes(v1)
+		api.RegisterGovernanceRoutes(v1)
+		api.RegisterOnboardingRoutes(v1)
+		api.RegisterBittensorRoutes(v1)
+		api.RegisterCircleRoutes(v1)
 	}
 
 	// Start Chain Indexer
