@@ -117,6 +117,15 @@ var (
 			Help: "Total number of rate limit hits",
 		},
 	)
+
+	// Redis metrics
+	redisBatchFetchDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "proxyhubb_redis_batch_fetch_duration_seconds",
+			Help:    "Redis batch fetch latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
 )
 
 // PrometheusMiddleware records HTTP metrics
@@ -204,4 +213,9 @@ func SetConnectedProviders(count int) {
 // SetActiveSessions sets the current active session count
 func SetActiveSessions(count int) {
 	activeSessions.Set(float64(count))
+}
+
+// RecordRedisBatchFetch records the duration of a Redis batch fetch operation
+func RecordRedisBatchFetch(durationSeconds float64) {
+	redisBatchFetchDuration.Observe(durationSeconds)
 }
