@@ -239,8 +239,23 @@ func getWallet(c *gin.Context) {
 
 	if result.RowsAffected == 0 {
 		// Wallet doesn't exist, try to create it.
-		// We use a direct Create call. If it fails (e.g., race condition), we ignore the error
-		// and try to fetch again. This avoids complex GORM OnConflict syntax issues.
+
+		// SAFETY NET: Ensure user exists in local DB to prevent FK violation.
+		// Middleware should handle this, but race conditions or failures might leave gaps.
+		var user models.User
+		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+			// User missing, create placeholder
+			user = models.User{
+				ID:        userID,
+				Email:     c.GetString("userEmail"), // From Context
+				TrustTier: models.TrustTierNew,
+				Role:      c.GetString("userRole"),
+			}
+			// Ignore error on user create (might exist now)
+			_ = db.DB.Create(&user).Error
+		}
+
+		// Now attempt wallet creation with higher confidence
 		wallet = models.Wallet{
 			UserID:   userID,
 			Balance:  0,
