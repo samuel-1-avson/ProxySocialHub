@@ -1,19 +1,11 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import client from '../api/client';
-
-interface User {
-    id: string;
-    email: string;
-    role: string;
-    display_name?: string;
-    profile_image?: string;
-}
+import { supabase } from '../lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 interface AuthContextData {
     user: User | null;
     loading: boolean;
-    login: (token: string, userData: User) => Promise<void>;
     logout: () => Promise<void>;
     isAuthenticated: boolean;
 }
@@ -25,47 +17,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadStorageData();
+        // Check active session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            if (session?.access_token) {
+                SecureStore.setItemAsync('auth_token', session.access_token);
+            } else {
+                SecureStore.deleteItemAsync('auth_token');
+            }
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
-    async function loadStorageData() {
-        try {
-            const token = await SecureStore.getItemAsync('auth_token');
-            const userData = await SecureStore.getItemAsync('user_data');
-
-            if (token && userData) {
-                // Optional: Validate token with API here
-                // client.defaults.headers.Authorization = `Bearer ${token}`; // Already handled in interceptor but good for init
-                setUser(JSON.parse(userData));
-            }
-        } catch (error) {
-            console.log('Error loading auth data', error);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    async function login(token: string, userData: User) {
-        setLoading(true);
-        try {
-            await SecureStore.setItemAsync('auth_token', token);
-            await SecureStore.setItemAsync('user_data', JSON.stringify(userData));
-            setUser(userData);
-        } catch (error) {
-            console.log('Error saving auth data', error);
-        } finally {
-            setLoading(false);
-        }
-    }
-
     async function logout() {
-        setUser(null);
+        await supabase.auth.signOut();
         await SecureStore.deleteItemAsync('auth_token');
-        await SecureStore.deleteItemAsync('user_data');
+        setUser(null);
     }
 
     return (
-        <AuthContext.Provider value={{ user, loading, login, logout, isAuthenticated: !!user }}>
+        <AuthContext.Provider value={{ user, loading, logout, isAuthenticated: !!user }}>
             {children}
         </AuthContext.Provider>
     );
