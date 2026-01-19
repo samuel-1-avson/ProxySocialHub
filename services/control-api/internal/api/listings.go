@@ -38,14 +38,13 @@ type ListingsResponse struct {
 // getListings returns marketplace listings with filters
 func getListings(c *gin.Context) {
 	// Try cache first
-	cacheKey := fmt.Sprintf("listings:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:sort:%s",
+	cacheKey := fmt.Sprintf("listings:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:c:%s:i:%s:r:%s:sort:%s",
 		c.DefaultQuery("page", "1"),
 		c.DefaultQuery("limit", "20"),
 		c.Query("proxy_type"),
 		c.Query("protocol"),
 		c.Query("min_price"),
 		c.Query("max_price"),
-		c.Query("seller_id"),
 		c.Query("seller_id"),
 		c.Query("country"),
 		c.Query("isp"),
