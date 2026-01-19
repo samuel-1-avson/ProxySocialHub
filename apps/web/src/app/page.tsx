@@ -1,26 +1,26 @@
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { GlowButton } from "@/components/ui/glow-button";
+import { GlassCard } from "@/components/ui/glass-card";
+import { ArrowRight, Shield, Zap, Globe, Wallet } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 selection:text-primary">
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 selection:text-primary overflow-x-hidden">
       {/* Navigation */}
       <Navbar showAuth={false} />
 
       {/* Hero Section */}
       <main>
         <section className="relative pt-32 pb-24 md:pt-48 md:pb-32 overflow-hidden">
-          {/* Background Elements */}
-          <div className="absolute inset-0 -z-10">
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[128px] opacity-50 animate-pulse"></div>
-            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[128px] opacity-50"></div>
-          </div>
+          {/* Background Elements - Pro Max Glows */}
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-background to-background"></div>
+          <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[128px] opacity-40 animate-pulse"></div>
+          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[128px] opacity-40"></div>
 
           <div className="container mx-auto px-4 text-center relative z-10">
             {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-card border border-primary/20 text-primary mb-8 shadow-sm backdrop-blur-sm animate-fade-in">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-card/50 border border-primary/20 text-primary mb-8 shadow-sm backdrop-blur-md animate-fade-in hover:border-primary/40 transition-colors cursor-default">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
@@ -29,10 +29,10 @@ export default function Home() {
             </div>
 
             {/* Headline */}
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black mb-8 max-w-5xl mx-auto tracking-tight leading-[1.1]">
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black mb-8 max-w-5xl mx-auto tracking-tight leading-[1.1] drop-shadow-sm">
               Buy. Sell. Connect.
               <br />
-              <span className="bg-gradient-to-r from-primary to-green-400 bg-clip-text text-transparent">Proxies Made Social.</span>
+              <span className="bg-gradient-to-r from-primary via-emerald-400 to-green-400 bg-clip-text text-transparent animate-shimmer bg-[length:200%_100%]">Proxies Made Social.</span>
             </h1>
 
             <p className="text-xl md:text-2xl max-w-2xl mx-auto mb-12 text-muted-foreground leading-relaxed">
@@ -43,19 +43,19 @@ export default function Home() {
             {/* CTAs */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-20">
               <Link href="/marketplace">
-                <Button size="lg" className="w-full sm:w-auto text-lg px-8 py-6 shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-1 transition-all rounded-full font-bold">
+                <GlowButton size="lg" variant="primary" icon={<Globe className="w-5 h-5" />}>
                   Browse Marketplace
-                </Button>
+                </GlowButton>
               </Link>
               <Link href="/dashboard">
-                <Button variant="outline" size="lg" className="w-full sm:w-auto text-lg px-8 py-6 bg-card/50 backdrop-blur border-2 hover:bg-card/80 hover:-translate-y-1 transition-all rounded-full font-bold">
+                <GlowButton size="lg" variant="outline" icon={<Zap className="w-5 h-5" />}>
                   Start Selling
-                </Button>
+                </GlowButton>
               </Link>
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-5xl mx-auto p-8 rounded-3xl bg-card/30 backdrop-blur border border-card-border/50">
+            <GlassCard className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-5xl mx-auto p-8 bg-card/30 backdrop-blur-xl border-primary/10">
               {[
                 { value: "99.9%", label: "Uptime Guarantee" },
                 { value: "<50ms", label: "Low Latency" },
@@ -63,85 +63,82 @@ export default function Home() {
                 { value: "₵0.50", label: "Starting Per GB" },
               ].map((stat) => (
                 <div key={stat.label} className="text-center group">
-                  <div className="text-3xl md:text-4xl font-black text-foreground mb-1 group-hover:text-primary transition-colors">{stat.value}</div>
-                  <div className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-widest">{stat.label}</div>
+                  <div className="text-3xl md:text-4xl font-black text-foreground mb-1 group-hover:text-primary transition-colors duration-300">{stat.value}</div>
+                  <div className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-widest group-hover:text-primary/70 transition-colors">{stat.label}</div>
                 </div>
               ))}
-            </div>
+            </GlassCard>
           </div>
         </section>
 
         {/* Features Section */}
-        <section className="py-24 bg-card/50 border-y border-card-border">
-          <div className="container mx-auto px-4">
+        <section className="py-24 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-card/50 to-transparent pointer-events-none"></div>
+          <div className="container mx-auto px-4 relative z-10">
             <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-5xl font-bold mb-6">Why ProxyHub?</h2>
+              <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">Why ProxyHub?</h2>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
                 We're building a fair, transparent, and social way to share internet access across Ghana.
               </p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-              {/* Feature 1 */}
-              <div className="p-8 rounded-2xl bg-background border border-card-border shadow-sm hover:shadow-lg hover:border-primary/20 transition-all group">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+              <GlassCard variant="neo" hoverEffect={true} className="p-0">
+                <div className="p-8 h-full flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 bg-primary/10 text-primary shadow-inner">
+                    <Globe className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-3">Community First</h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Follow your favorite providers, read verified reviews, and chat with sellers directly. Trust is built into the platform.
+                  </p>
                 </div>
-                <h3 className="text-xl font-bold mb-3">Community First</h3>
-                <p className="text-muted-foreground leading-relaxed">
-                  Follow your favorite providers, read verified reviews, and chat with sellers directly. Trust is built into the platform.
-                </p>
-              </div>
+              </GlassCard>
 
-              {/* Feature 2 */}
-              <div className="p-8 rounded-2xl bg-background border border-card-border shadow-sm hover:shadow-lg hover:border-primary/20 transition-all group">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-blue-500/10 text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              <GlassCard variant="neo" hoverEffect={true} className="p-0">
+                <div className="p-8 h-full flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 bg-blue-500/10 text-blue-500 shadow-inner">
+                    <Shield className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-3">Verified Excellence</h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Every provider undergoes strict KYC. Real-time trust scores and performance history mean you always get quality.
+                  </p>
                 </div>
-                <h3 className="text-xl font-bold mb-3">Verified Excellence</h3>
-                <p className="text-muted-foreground leading-relaxed">
-                  Every provider undergoes strict KYC. Real-time trust scores and performance history mean you always get quality.
-                </p>
-              </div>
+              </GlassCard>
 
-              {/* Feature 3 */}
-              <div className="p-8 rounded-2xl bg-background border border-card-border shadow-sm hover:shadow-lg hover:border-primary/20 transition-all group">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-yellow-500/10 text-yellow-500 group-hover:bg-yellow-500 group-hover:text-white transition-colors">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              <GlassCard variant="neo" hoverEffect={true} className="p-0">
+                <div className="p-8 h-full flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 bg-yellow-500/10 text-yellow-500 shadow-inner">
+                    <Wallet className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-3">Local Payments</h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Seamlessly pay with MoMo (MTN, Vodafone, AT). Instant deposits for buyers and daily reliable payouts for providers.
+                  </p>
                 </div>
-                <h3 className="text-xl font-bold mb-3">Local Payments</h3>
-                <p className="text-muted-foreground leading-relaxed">
-                  Seamlessly pay with MoMo (MTN, Vodafone, AT). Instant deposits for buyers and daily reliable payouts for providers.
-                </p>
-              </div>
+              </GlassCard>
             </div>
           </div>
         </section>
 
-        {/* How It Works */}
+        {/* How It Works - With Glass Connections */}
         <section className="container mx-auto px-4 py-24">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4">How It Works</h2>
-            <p className="text-muted-foreground">Get started in minutes, not days.</p>
+            <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">How It Works</h2>
+            <p className="text-muted-foreground text-lg">Get started in minutes, not days.</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-12 relative max-w-6xl mx-auto">
-            {/* Connector Line (Desktop) */}
-            <div className="hidden md:block absolute top-[3.5rem] left-[20%] right-[20%] h-0.5 bg-gradient-to-r from-transparent via-card-border to-transparent -z-10"></div>
+            <div className="hidden md:block absolute top-[3.5rem] left-[20%] right-[20%] h-0.5 bg-gradient-to-r from-transparent via-primary/20 to-transparent -z-10"></div>
 
             {[
               { step: "01", title: "Create Account", desc: "Sign up as a buyer or provider in seconds." },
               { step: "02", title: "Select & Pay", desc: "Browse listings or set your selling price." },
               { step: "03", title: "Start Using", desc: "Connect instantly or start earning passive income." },
             ].map((item, i) => (
-              <div key={item.step} className="text-center relative">
-                <div className="w-28 h-28 mx-auto bg-background rounded-full border-8 border-card-border flex items-center justify-center mb-8 shadow-sm relative z-10 font-black text-4xl text-primary">
+              <div key={item.step} className="text-center relative group">
+                <div className="w-28 h-28 mx-auto bg-card rounded-full border-4 border-card-border group-hover:border-primary/50 transition-colors flex items-center justify-center mb-8 shadow-xl shadow-primary/5 relative z-10 font-black text-4xl text-primary">
                   {item.step}
                 </div>
                 <h3 className="text-2xl font-bold mb-3">{item.title}</h3>
@@ -151,19 +148,20 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Provider CTA */}
-        <section className="py-24 bg-foreground text-background overflow-hidden relative">
-          <div className="absolute top-0 right-0 w-1/2 h-full bg-primary/10 skew-x-12 transform translate-x-1/4"></div>
+        {/* Provider CTA - Dark Mode Section */}
+        <section className="py-24 bg-secondary text-white overflow-hidden relative isolate">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-primary/20 via-secondary to-secondary -z-10"></div>
+          <div className="absolute top-0 right-0 w-1/2 h-full bg-primary/5 skew-x-12 transform translate-x-1/4 blur-3xl -z-10"></div>
 
           <div className="container mx-auto px-4 relative z-10">
             <div className="grid md:grid-cols-2 gap-16 items-center max-w-6xl mx-auto">
               <div>
-                <span className="inline-block px-4 py-1.5 rounded-full bg-primary/20 text-primary-light font-bold text-sm uppercase tracking-wider mb-8 border border-primary/30">
+                <span className="inline-block px-4 py-1.5 rounded-full bg-primary/20 text-primary-light font-bold text-sm uppercase tracking-wider mb-8 border border-primary/30 shadow-[0_0_15px_-3px_var(--primary)]">
                   For Providers
                 </span>
                 <h2 className="text-4xl md:text-6xl font-black mb-6 text-white leading-tight">
                   Monetize Your <br />
-                  <span className="text-primary">Idle Bandwidth</span>
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-light to-white">Idle Bandwidth</span>
                 </h2>
                 <p className="mb-8 text-white/70 text-xl leading-relaxed">
                   Turn your internet connection into a steady passive income stream. Safe, secure, and purely transparent.
@@ -176,45 +174,46 @@ export default function Home() {
                     "Community support & bonuses",
                   ].map((item) => (
                     <li key={item} className="flex items-center gap-4 text-lg font-medium text-white/90">
-                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0 text-white">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
+                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0 text-white shadow-lg shadow-primary/30">
+                        <ArrowRight className="w-4 h-4" />
                       </div>
                       {item}
                     </li>
                   ))}
                 </ul>
                 <Link href="/register?role=provider">
-                  <Button size="lg" className="bg-white text-black hover:bg-gray-100 border-none shadow-xl text-lg px-10 py-6 font-bold rounded-full">
+                  <GlowButton size="lg" className="bg-white text-black hover:bg-white/90 shadow-2xl shadow-white/10 border-white/20">
                     Start Earning Today
-                  </Button>
+                  </GlowButton>
                 </Link>
               </div>
 
-              <div className="relative animate-fade-in-up">
-                <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-12 text-center relative z-10 hover:transform hover:scale-105 transition-transform duration-500">
-                  <div className="text-8xl font-black mb-2 text-primary tracking-tighter drop-shadow-lg">
+              <div className="relative">
+                <GlassCard variant="ghost" className="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-12 text-center relative z-10 hover:border-white/20 hover:bg-white/10 transition-all duration-500 group">
+                  <div className="text-8xl font-black mb-2 text-primary tracking-tighter drop-shadow-[0_0_15px_rgba(16,185,129,0.5)] group-hover:scale-105 transition-transform duration-300">
                     200+
                   </div>
                   <div className="text-2xl font-bold text-white uppercase tracking-widest mb-4">
                     GHS / Month
                   </div>
-                  <div className="w-16 h-1 bg-primary mx-auto mb-6"></div>
+                  <div className="w-16 h-1 bg-primary/50 mx-auto mb-6 rounded-full"></div>
                   <p className="text-white/60 text-lg">Average earnings for active providers in Ghana</p>
-                </div>
+                </GlassCard>
+                {/* Decorative elements behind card */}
+                <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 to-blue-500/20 rounded-[2.5rem] blur-xl -z-10 opacity-50"></div>
               </div>
             </div>
           </div>
         </section>
 
         {/* Footer */}
-        <footer className="py-16 border-t border-card-border bg-background">
-          <div className="container mx-auto px-4">
+        <footer className="py-16 border-t border-card-border bg-background relative">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent pointer-events-none"></div>
+          <div className="container mx-auto px-4 relative z-10">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-12 mb-16">
               <div className="col-span-2 md:col-span-1">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-primary text-white font-bold font-mono text-lg shadow-retro">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-primary text-white font-bold font-mono text-lg shadow-[4px_4px_0px_var(--foreground)] border border-foreground">
                     PS
                   </div>
                   <span className="font-bold text-xl tracking-tight">ProxyHub</span>
