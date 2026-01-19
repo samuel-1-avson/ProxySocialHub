@@ -52,30 +52,76 @@ func getAnalyticsOverview(c *gin.Context) {
 		return
 	}
 
-	// Get active sessions count
+	// 1. Active active
 	var activeSessions int64
 	db.DB.Model(&models.Session{}).
 		Where("user_id = ? AND status = ?", userID, models.SessionActive).
 		Count(&activeSessions)
 
-	// Calculate total bandwidth from usage records
-	var totalBytes int64
+	// 2. Aggregate Usage Stats
+	type UsageStats struct {
+		TotalRequests      int64
+		TotalBytes         int64
+		SuccessCount       int64
+		AvgLatency         float64
+		UniqueDestinations int
+	}
+	var stats UsageStats
+
+	// We use a raw query or Gorm aggregation
+	// Note: UniqueDestinations needs Count(DISTINCT dest_host)
 	db.DB.Model(&models.UsageRecord{}).
 		Where("user_id = ?", userID).
-		Select("COALESCE(SUM(bytes_used), 0)").
-		Scan(&totalBytes)
+		Select(`
+			COUNT(*) as total_requests,
+			COALESCE(SUM(bytes_used), 0) as total_bytes,
+			COALESCE(SUM(CASE WHEN success THEN 1 ELSE 0 END), 0) as success_count,
+			COALESCE(AVG(latency_ms), 0) as avg_latency,
+			COUNT(DISTINCT dest_host) as unique_destinations
+		`).
+		Scan(&stats)
 
-	totalBandwidthGB := float64(totalBytes) / (1024 * 1024 * 1024)
+	totalBandwidthGB := float64(stats.TotalBytes) / (1024 * 1024 * 1024)
+	successRate := 0.0
+	if stats.TotalRequests > 0 {
+		successRate = float64(stats.SuccessCount) / float64(stats.TotalRequests)
+	}
+
+	// 3. Top Country/ISP (based on Volume of usage per node location)
+	type TopMetric struct {
+		Name string
+		Val  int64
+	}
+	var topCountry TopMetric
+	// Join Usage -> Node to get country
+	db.DB.Table("usage_records").
+		Joins("JOIN nodes ON usage_records.node_id = nodes.id").
+		Where("usage_records.user_id = ?", userID).
+		Select("nodes.country_code as name, SUM(usage_records.bytes_used) as val").
+		Group("nodes.country_code").
+		Order("val DESC").
+		Limit(1).
+		Scan(&topCountry)
+
+	var topISP TopMetric
+	db.DB.Table("usage_records").
+		Joins("JOIN nodes ON usage_records.node_id = nodes.id").
+		Where("usage_records.user_id = ?", userID).
+		Select("nodes.isp as name, SUM(usage_records.bytes_used) as val").
+		Group("nodes.isp").
+		Order("val DESC").
+		Limit(1).
+		Scan(&topISP)
 
 	c.JSON(http.StatusOK, AnalyticsOverview{
-		TotalRequests:      0, // Would be tracked via metrics
+		TotalRequests:      stats.TotalRequests,
 		TotalBandwidthGB:   totalBandwidthGB,
-		SuccessRate:        0.98,
-		AvgLatencyMs:       45,
+		SuccessRate:        successRate,
+		AvgLatencyMs:       int(stats.AvgLatency),
 		ActiveSessions:     activeSessions,
-		UniqueDestinations: 150,
-		TopCountry:         "GH",
-		TopISP:             "MTN Ghana",
+		UniqueDestinations: stats.UniqueDestinations,
+		TopCountry:         topCountry.Name,
+		TopISP:             topISP.Name,
 	})
 }
 
@@ -95,30 +141,70 @@ func getDailyUsage(c *gin.Context) {
 		days = 7
 	}
 
-	// Generate daily usage data (would come from aggregated usage_records)
-	data := make([]DailyUsagePoint, days)
+	// Retrieve grouped daily stats in one query
+	type DailyStat struct {
+		Date       string
+		BytesTotal int64
+		ReqTotal   int
+	}
+	var dbStats []DailyStat
+
 	now := time.Now()
+	startDate := now.AddDate(0, 0, -days)
 
+	// Postgres dependent date grouping
+	db.DB.Model(&models.UsageRecord{}).
+		Where("user_id = ? AND created_at >= ?", userID, startDate).
+		Select(`
+			TO_CHAR(created_at, 'YYYY-MM-DD') as date, 
+			SUM(bytes_used) as bytes_total,
+			COUNT(*) as req_total
+		`).
+		Group("TO_CHAR(created_at, 'YYYY-MM-DD')").
+		Order("date ASC").
+		Scan(&dbStats)
+
+	// Map to map for easy lookup
+	statsMap := make(map[string]DailyStat)
+	for _, s := range dbStats {
+		statsMap[s.Date] = s
+	}
+
+	data := make([]DailyUsagePoint, days)
 	for i := 0; i < days; i++ {
-		date := now.AddDate(0, 0, -i)
-		
-		// Query usage for this day
-		var bytesUsed int64
-		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
-		endOfDay := startOfDay.Add(24 * time.Hour)
-		
-		db.DB.Model(&models.UsageRecord{}).
-			Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, startOfDay, endOfDay).
-			Select("COALESCE(SUM(bytes_used), 0)").
-			Scan(&bytesUsed)
+		// Fill in reverse order often preferred, but let's match loop logic: past -> now or now -> past?
+		// "data" array usually is ordered. Let's do chronological: older -> newer
+		// But the days loop usually goes 0..days. Let's make it chronological.
+		// Wait, usage chart usually wants specific order. Let's do chronological.
 
-		gbUsed := float64(bytesUsed) / (1024 * 1024 * 1024)
-		
-		data[days-1-i] = DailyUsagePoint{
-			Date:      date.Format("2006-01-02"),
-			BytesUsed: bytesUsed,
+		// Actually let's just stick to the previous logic of simple iteration
+		// previous code did: date = now.AddDate(0, 0, -i) which is descending.
+		// Let's do descending to match API expectation if any, but Charts usually want Ascending.
+		// The previous implementation returned Descending (today, yesterday...).
+		// Let's stick to Descending for consistency with previous file logic if generic,
+		// BUT charts usually expect Ascending.
+		// Looking at frontend `BarChart` logic: `data.map(...)`.
+		// If data is [Today, Yesterday], chart draws Today on left? No, usually left is old.
+		// Let's return Ascending (Old -> New).
+
+		targetDay := now.AddDate(0, 0, -(days - 1 - i)) // i=0 -> -6 (oldest), i=6 -> 0 (today)
+		dateStr := targetDay.Format("2006-01-02")
+
+		stat, ok := statsMap[dateStr]
+		bytes := int64(0)
+		reqs := 0
+		if ok {
+			bytes = stat.BytesTotal
+			reqs = stat.ReqTotal
+		}
+
+		gbUsed := float64(bytes) / (1024 * 1024 * 1024)
+
+		data[i] = DailyUsagePoint{
+			Date:      dateStr,
+			BytesUsed: bytes,
 			GBUsed:    gbUsed,
-			Requests:  0,
+			Requests:  reqs,
 			CostGHS:   gbUsed * 0.50,
 		}
 	}
@@ -130,33 +216,55 @@ func getDailyUsage(c *gin.Context) {
 }
 
 type HourlyUsagePoint struct {
-	Hour      int     `json:"hour"`
-	BytesUsed int64   `json:"bytes_used"`
-	Requests  int     `json:"requests"`
+	Hour      int   `json:"hour"`
+	BytesUsed int64 `json:"bytes_used"`
+	Requests  int   `json:"requests"`
 }
 
 func getHourlyUsage(c *gin.Context) {
 	userID := c.GetString("userID")
 
-	// Generate hourly distribution for today
-	data := make([]HourlyUsagePoint, 24)
+	type HourlyStat struct {
+		Hour       int
+		BytesTotal int64
+		ReqTotal   int
+	}
+	var dbStats []HourlyStat
+
 	now := time.Now()
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	endOfDay := startOfDay.Add(24 * time.Hour)
 
+	// Postgres specific: EXTRACT(HOUR from created_at)
+	db.DB.Model(&models.UsageRecord{}).
+		Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, startOfDay, endOfDay).
+		Select(`
+			EXTRACT(HOUR from created_at) as hour,
+			SUM(bytes_used) as bytes_total,
+			COUNT(*) as req_total
+		`).
+		Group("EXTRACT(HOUR from created_at)").
+		Scan(&dbStats)
+
+	statsMap := make(map[int]HourlyStat)
+	for _, s := range dbStats {
+		statsMap[s.Hour] = s
+	}
+
+	data := make([]HourlyUsagePoint, 24)
 	for hour := 0; hour < 24; hour++ {
-		startHour := startOfDay.Add(time.Duration(hour) * time.Hour)
-		endHour := startHour.Add(time.Hour)
-		
-		var bytesUsed int64
-		db.DB.Model(&models.UsageRecord{}).
-			Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, startHour, endHour).
-			Select("COALESCE(SUM(bytes_used), 0)").
-			Scan(&bytesUsed)
+		stat, ok := statsMap[hour]
+		bytes := int64(0)
+		reqs := 0
+		if ok {
+			bytes = stat.BytesTotal
+			reqs = stat.ReqTotal
+		}
 
 		data[hour] = HourlyUsagePoint{
 			Hour:      hour,
-			BytesUsed: bytesUsed,
-			Requests:  0,
+			BytesUsed: bytes,
+			Requests:  reqs,
 		}
 	}
 
@@ -175,33 +283,99 @@ type GeoStats struct {
 }
 
 func getGeoAnalytics(c *gin.Context) {
-	// Return geo distribution of requests
-	// Would be based on logged destination IPs
-	data := []GeoStats{
-		{CountryCode: "GH", CountryName: "Ghana", RequestCount: 5420, BytesUsed: 1024 * 1024 * 1024 * 2, SuccessRate: 0.99},
-		{CountryCode: "NG", CountryName: "Nigeria", RequestCount: 1230, BytesUsed: 1024 * 1024 * 512, SuccessRate: 0.97},
-		{CountryCode: "US", CountryName: "United States", RequestCount: 890, BytesUsed: 1024 * 1024 * 256, SuccessRate: 0.98},
-		{CountryCode: "GB", CountryName: "United Kingdom", RequestCount: 450, BytesUsed: 1024 * 1024 * 128, SuccessRate: 0.96},
+	userID := c.GetString("userID")
+
+	type GeoAgg struct {
+		CountryCode  string
+		ReqCount     int
+		BytesTotal   int64
+		SuccessCount int64
+	}
+	var results []GeoAgg
+
+	db.DB.Table("usage_records").
+		Joins("JOIN nodes ON usage_records.node_id = nodes.id").
+		Where("usage_records.user_id = ?", userID).
+		Select(`
+			nodes.country_code,
+			COUNT(usage_records.id) as req_count,
+			SUM(usage_records.bytes_used) as bytes_total,
+			SUM(CASE WHEN usage_records.success THEN 1 ELSE 0 END) as success_count
+		`).
+		Group("nodes.country_code").
+		Order("req_count DESC").
+		Limit(10).
+		Scan(&results)
+
+	// Helper to map codes to names (simplified)
+	countryNames := map[string]string{
+		"GH": "Ghana", "NG": "Nigeria", "US": "United States", "GB": "United Kingdom",
+		"DE": "Germany", "ZA": "South Africa", "KE": "Kenya", "FR": "France",
+	}
+
+	data := make([]GeoStats, len(results))
+	for i, r := range results {
+		name := countryNames[r.CountryCode]
+		if name == "" {
+			name = r.CountryCode
+		}
+
+		rate := 0.0
+		if r.ReqCount > 0 {
+			rate = float64(r.SuccessCount) / float64(r.ReqCount)
+		}
+
+		data[i] = GeoStats{
+			CountryCode:  r.CountryCode,
+			CountryName:  name,
+			RequestCount: r.ReqCount,
+			BytesUsed:    r.BytesTotal,
+			SuccessRate:  rate,
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": data})
 }
 
 type DestinationStats struct {
-	Domain       string  `json:"domain"`
-	RequestCount int     `json:"request_count"`
-	BytesUsed    int64   `json:"bytes_used"`
-	AvgLatency   int     `json:"avg_latency_ms"`
+	Domain       string `json:"domain"`
+	RequestCount int    `json:"request_count"`
+	BytesUsed    int64  `json:"bytes_used"`
+	AvgLatency   int    `json:"avg_latency_ms"`
 }
 
 func getTopDestinations(c *gin.Context) {
-	// Return top destinations by request count
-	data := []DestinationStats{
-		{Domain: "api.example.com", RequestCount: 1250, BytesUsed: 1024 * 1024 * 100, AvgLatency: 45},
-		{Domain: "www.google.com", RequestCount: 890, BytesUsed: 1024 * 1024 * 50, AvgLatency: 32},
-		{Domain: "jumia.com.gh", RequestCount: 650, BytesUsed: 1024 * 1024 * 80, AvgLatency: 28},
-		{Domain: "api.twitter.com", RequestCount: 420, BytesUsed: 1024 * 1024 * 30, AvgLatency: 65},
-		{Domain: "facebook.com", RequestCount: 380, BytesUsed: 1024 * 1024 * 45, AvgLatency: 40},
+	userID := c.GetString("userID")
+
+	type DestAgg struct {
+		DestHost   string
+		ReqCount   int
+		BytesTotal int64
+		AvgLat     float64
+	}
+	var results []DestAgg
+
+	db.DB.Model(&models.UsageRecord{}).
+		Where("user_id = ? AND dest_host != ''", userID).
+		Select(`
+			dest_host,
+			COUNT(*) as req_count,
+			SUM(bytes_used) as bytes_total,
+			AVG(latency_ms) as avg_lat
+		`).
+		Group("dest_host").
+		Order("req_count DESC").
+		Limit(10).
+		Scan(&results)
+
+	data := make([]DestinationStats, len(results))
+	for i, r := range results {
+		data[i] = DestinationStats{
+			Domain:       r.DestHost,
+			RequestCount: r.ReqCount,
+			BytesUsed:    r.BytesTotal,
+			AvgLatency:   int(r.AvgLat),
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": data})
@@ -228,7 +402,7 @@ func getAvailableRegions(c *gin.Context) {
 		Count       int64
 	}
 	var countryCounts []CountryCount
-	
+
 	db.DB.Model(&models.Node{}).
 		Select("country_code, COUNT(*) as count").
 		Where("is_healthy = ?", true).
@@ -272,14 +446,14 @@ func getAvailableRegions(c *gin.Context) {
 }
 
 type ProviderInfo struct {
-	ID            string  `json:"id"`
-	CountryCode   string  `json:"country_code"`
-	Region        string  `json:"region"`
-	City          string  `json:"city"`
-	ISP           string  `json:"isp"`
-	LatencyMs     int     `json:"latency_ms"`
-	SuccessRate   float64 `json:"success_rate"`
-	QualityScore  float64 `json:"quality_score"`
+	ID           string  `json:"id"`
+	CountryCode  string  `json:"country_code"`
+	Region       string  `json:"region"`
+	City         string  `json:"city"`
+	ISP          string  `json:"isp"`
+	LatencyMs    int     `json:"latency_ms"`
+	SuccessRate  float64 `json:"success_rate"`
+	QualityScore float64 `json:"quality_score"`
 }
 
 func getProvidersByRegion(c *gin.Context) {

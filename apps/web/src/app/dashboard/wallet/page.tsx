@@ -152,8 +152,8 @@ export default function WalletPage() {
                     <button
                         onClick={() => setActiveTab('FIAT')}
                         className={`px-4 py-2 rounded-sm text-xs font-mono font-bold uppercase transition-all ${activeTab === 'FIAT'
-                                ? 'bg-primary text-primary-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                     >
                         Fiat (GHS)
@@ -161,8 +161,8 @@ export default function WalletPage() {
                     <button
                         onClick={() => setActiveTab('CRYPTO')}
                         className={`px-4 py-2 rounded-sm text-xs font-mono font-bold uppercase transition-all ${activeTab === 'CRYPTO'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                     >
                         Crypto (ETH)
@@ -200,7 +200,7 @@ export default function WalletPage() {
                                 <div className="p-6 border border-green-500/30 bg-green-500/5 rounded-sm">
                                     <p className="text-[10px] font-mono font-bold text-green-500 uppercase tracking-widest mb-2">Unclaimed Yield</p>
                                     <p className="text-3xl font-bold font-mono tracking-tighter">
-                                        ~ 1.0 <span className="text-sm opacity-50">GB</span>
+                                        0.000 <span className="text-sm opacity-50">GB</span>
                                     </p>
                                 </div>
 
@@ -318,10 +318,10 @@ export default function WalletPage() {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-sm border text-[10px] font-bold uppercase ${tx.status === 'success' || tx.status === 'completed'
-                                                            ? 'bg-primary/10 border-primary/20 text-primary'
-                                                            : tx.status === 'failed'
-                                                                ? 'bg-destructive/10 border-destructive/20 text-destructive'
-                                                                : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'
+                                                        ? 'bg-primary/10 border-primary/20 text-primary'
+                                                        : tx.status === 'failed'
+                                                            ? 'bg-destructive/10 border-destructive/20 text-destructive'
+                                                            : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'
                                                         }`}>
                                                         {tx.status === 'processing' ? 'PENDING' : (tx.status || 'SETTLED')}
                                                     </span>
@@ -400,8 +400,8 @@ export default function WalletPage() {
                                                             type="button"
                                                             onClick={() => setNetwork(net)}
                                                             className={`py-2 rounded-sm text-xs font-bold font-mono border-2 transition-all ${network === net
-                                                                    ? 'border-blue-500 bg-blue-500/10 text-blue-500 shadow-[2px_2px_0px_currentColor]'
-                                                                    : 'border-border bg-background text-muted-foreground hover:border-foreground'
+                                                                ? 'border-blue-500 bg-blue-500/10 text-blue-500 shadow-[2px_2px_0px_currentColor]'
+                                                                : 'border-border bg-background text-muted-foreground hover:border-foreground'
                                                                 }`}
                                                         >
                                                             {net}
@@ -430,8 +430,8 @@ export default function WalletPage() {
                                         type="submit"
                                         disabled={processing}
                                         className={`w-full py-3 mt-2 rounded-sm font-bold font-mono uppercase border-2 shadow-[4px_4px_0px_#000] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2 ${action === 'deposit'
-                                                ? 'bg-primary border-black text-black'
-                                                : 'bg-blue-600 border-black text-white'
+                                            ? 'bg-primary border-black text-black'
+                                            : 'bg-blue-600 border-black text-white'
                                             }`}
                                     >
                                         {processing ? (
