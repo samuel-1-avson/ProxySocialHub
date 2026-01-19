@@ -90,6 +90,10 @@ func Init(dsn string) error {
 		&models.CircleLease{},
 		&models.ProviderNode{},
 		&models.PendingTransaction{},
+
+		// Governance
+		&models.Proposal{},
+		&models.Vote{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/client';
+import { WalletConnect } from '@/components/WalletConnect';
 import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -12,7 +13,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, walletLogin } = useAuth();
   const router = useRouter();
   const supabase = createClient();
 
@@ -80,6 +81,10 @@ export default function LoginPage() {
                   <p className="text-sm font-bold">{error}</p>
                 </div>
               )}
+
+              <div className="mb-6 flex justify-center">
+                <WalletConnect onLogin={walletLogin} />
+              </div>
 
               {/* OAuth Buttons */}
               <div className="grid grid-cols-2 gap-4 mb-8">

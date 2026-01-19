@@ -52,7 +52,8 @@ type User struct {
 	// Provider Stats
 	ProviderSince      *time.Time `json:"provider_since,omitempty"`
 	TotalBandwidthSold float64    `gorm:"default:0" json:"total_bandwidth_sold"`
-	WalletAddress      *string    `gorm:"size:42;index" json:"wallet_address,omitempty"` // ETH Address
+	WalletAddress      *string    `gorm:"size:42;index" json:"wallet_address,omitempty"`    // ETH Address
+	BittensorAddress   *string    `gorm:"size:64;index" json:"bittensor_address,omitempty"` // SS58 Address
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

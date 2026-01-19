@@ -531,6 +531,20 @@ export interface EscrowTransaction {
   auto_release_at?: string;
 }
 
+export async function createOrder(listingId: string, bandwidthGb: number): Promise<Order> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listing_id: listingId, bandwidth_gb: bandwidthGb }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Failed to create order');
+  }
+  const data = await response.json();
+  return data.order;
+}
+
 export async function getMyOrders(): Promise<Order[]> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`);
   if (!response.ok) {
@@ -558,7 +572,7 @@ export async function createDispute(orderId: string, reason: string, description
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/escrow/${orderId}/dispute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason, description }),
+    body: JSON.stringify({ order_id: orderId, reason, description }),
   });
   if (!response.ok) throw new Error('Failed to create dispute');
 }
