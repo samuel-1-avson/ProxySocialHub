@@ -3,17 +3,37 @@
 React Native mobile application for ProxyHub proxy network.
 
 ## Setup
+## Architecture (Expo Router)
+
+The project uses **Expo Router** and **NativeWind** (Tailwind CSS).
+
+```
+app/
+├── (auth)/         # Public authentication routes
+│   └── login.tsx
+├── (app)/          # Protected routes (Tabs)
+│   ├── dashboard.tsx
+│   ├── wallet.tsx
+│   └── settings.tsx
+├── _layout.tsx     # Root layout (Providers)
+└── index.tsx       # Entry point (Router Gate)
+
+src/
+├── context/        # React Context (Auth)
+└── api/            # API Client
+```
+
+## Running the App
 
 ```bash
-# Install dependencies
-npm install
+# Start Metro Bundler
+npx expo start --clear
 
-# iOS
-npx pod-install ios
-npm run ios
+# Run on Android Emulator
+npx expo run:android
 
-# Android
-npm run android
+# Run on iOS Simulator
+npx expo run:ios
 ```
 
 ## Features
@@ -24,17 +44,3 @@ npm run android
 - Usage tracking
 - Push notifications
 - Provider mode (future)
-
-## Project Structure
-
-```
-src/
-├── components/     # Reusable UI components
-├── screens/        # Screen components
-├── navigation/     # Navigation configuration
-├── services/       # API services
-├── hooks/          # Custom hooks
-├── store/          # State management
-├── utils/          # Utility functions
-└── types/          # TypeScript types
-```
