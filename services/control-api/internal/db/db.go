@@ -94,6 +94,19 @@ func Init(dsn string) error {
 		// Governance
 		&models.Proposal{},
 		&models.Vote{},
+
+		// Smart Matching
+		&models.UseCase{},
+		&models.UserPreference{},
+
+		// Onboarding
+		&models.ProviderApplication{},
+
+		// Forum
+		&models.ForumCategory{},
+		&models.ForumThread{},
+		&models.ForumPost{},
+		&models.ForumVote{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
