@@ -4,98 +4,93 @@
    ProxySocialHub - Retro Minimal Clean Theme
    =========================================== */
 
-:root {
-  /* ===========================================
-     Retro Minimal Green Theme - Palette
+/* ===========================================
+     Retro Minimal Clean Theme - Palette
      =========================================== */
 
-  /* Pro Max Theme - Modern & Vibrant */
+/* Light Theme */
+--primary: #ea580c;
+/* Burnt Orange (Retro Accent) */
+--primary-light: #fb923c;
+--primary-dark: #c2410c;
 
-  /* Light Theme */
-  --primary: #059669;
-  /* Emerald 600 - sharper green */
-  --primary-light: #34d399;
-  /* Emerald 400 */
-  --primary-dark: #064e3b;
-  /* Emerald 900 */
-  --accent: #10b981;
-  /* Emerald 500 */
+--secondary: #475569;
+/* Slate 600 */
+--secondary-light: #94a3b8;
 
-  --secondary: #171717;
-  /* Neutral 900 */
-  --secondary-light: #525252;
+--background: #fdfbf7;
+/* Warm Off-White (Paper) */
+--foreground: #1c1917;
+/* Warm Gray 900 */
 
-  --background: #fafafa;
-  /* Slightly off-white for better depth */
-  --foreground: #0a0a0a;
+--card: #ffffff;
+--card-border: #e7e5e4;
+/* Warm Gray 200 */
 
-  --card: #ffffff;
-  --card-border: #e5e5e5;
+/* State Colors */
+--success: #059669;
+/* Emerald 600 */
+--warning: #d97706;
+/* Amber 600 */
+--error: #dc2626;
+/* Red 600 */
+--info: #2563eb;
+/* Royal Blue */
 
-  /* State Colors */
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --info: #3b82f6;
+/* Text Colors */
+--text-primary: #1c1917;
+--text-secondary: #57534e;
+--text-muted: #a8a29e;
 
-  /* Text Colors */
-  --text-primary: #0a0a0a;
-  --text-secondary: #525252;
-  --text-muted: #a3a3a3;
+/* Spacing & Radius */
+--radius: 0px;
+/* Sharp corners for 90s/Brutalist feel */
+--radius-lg: 4px;
+/* Slight rounding for larger containers */
+--radius-sm: 0px;
 
-  /* Spacing & Radius */
-  --radius: 0.75rem;
-  /* Modern rounded corners (12px) */
-  --radius-lg: 1rem;
-  /* 16px */
-  --radius-sm: 0.5rem;
-  /* 8px */
+/* Shadows - Hard & Distinct */
+--shadow-sm: 2px 2px 0px rgba(0, 0, 0, 0.05);
+--shadow-md: 4px 4px 0px rgba(0, 0, 0, 0.05);
+--shadow-retro: 4px 4px 0px #1c1917;
+/* Hard black shadow */
 
-  /* Shadows - Smooth & Deep */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-retro: 4px 4px 0px #171717;
-  /* Kept for certain accents */
-
-  /* Glassmorphism - Premium */
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-blur: blur(16px);
-  --glass-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+/* Glassmorphism - Subtle */
+--glass-bg: rgba(253, 251, 247, 0.8);
+--glass-border: rgba(231, 229, 228, 0.6);
+--glass-blur: blur(8px);
+--glass-shadow: 4px 4px 0px rgba(0, 0, 0, 0.05);
 }
 
 .dark,
 [data-theme="dark"] {
-  --background: #000000;
-  /* True OLED Black */
-  --foreground: #ffffff;
+  --background: #0c0a09;
+  /* Warm Black */
+  --foreground: #fafaf9;
+  /* Warm White */
 
-  --card: #0a0a0a;
-  /* Zinc 950 */
-  --card-border: #262626;
-  /* Zinc 800 */
+  --card: #1c1917;
+  /* Warm Gray 900 */
+  --card-border: #292524;
+  /* Warm Gray 800 */
 
-  --primary: #10b981;
-  /* Emerald 500 - Neon pop */
-  --primary-light: #6ee7b7;
-  /* Emerald 300 */
-  --primary-dark: #065f46;
-  /* Emerald 800 */
+  --primary: #f97316;
+  /* Orange 500 */
+  --primary-light: #fdba74;
+  --primary-dark: #ea580c;
 
-  --text-primary: #ffffff;
-  --text-secondary: #a3a3a3;
-  --text-muted: #525252;
+  --text-primary: #fafaf9;
+  --text-secondary: #a8a29e;
+  --text-muted: #57534e;
 
-  --shadow-retro: 4px 4px 0px rgba(16, 185, 129, 0.2);
-  /* Green tint shadow */
+  --shadow-retro: 4px 4px 0px rgba(249, 115, 22, 0.3);
+  /* Orange tint shadow */
 
-  /* Glassmorphism - Dark Premium */
-  --glass-bg: rgba(20, 20, 20, 0.4);
-  /* Darker, slightly tinted */
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-blur: blur(24px);
-  /* Heavier blur */
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  /* Glassmorphism - Dark */
+  --glass-bg: rgba(28, 25, 23, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-blur: blur(12px);
+  --glass-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
 }
 
 /* Dark Mode Dot Pattern */
@@ -109,7 +104,7 @@
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  --font-mono: var(--font-geist-mono), monospace;
+  --font-mono: var(--font-jetbrains-mono), monospace;
 }
 
 /* Base Styles */
