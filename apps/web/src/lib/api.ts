@@ -9,6 +9,7 @@ export interface Session {
   status: 'active' | 'terminated';
   credentials_user: string;
   credentials_pass: string;
+  tx_hash?: string;
   created_at: string;
 }
 
@@ -25,6 +26,7 @@ export interface WalletTransaction {
   balance_after: number;
   type: string;
   description: string;
+  tx_hash?: string;
   status?: string;
   created_at: string;
 }
@@ -512,6 +514,7 @@ export interface Order {
   seller_id: string;
   amount: number;
   status: string;
+  tx_hash?: string;
   created_at: string;
   listing?: {
     title: string;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createSession, getSessions, terminateSession, Session } from '@/lib/api';
+import { ExternalLink } from 'lucide-react';
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -98,7 +99,7 @@ export default function SessionsPage() {
           <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4 border border-gray-700">
             <h3 className="text-xl font-semibold text-white mb-4">🎉 Session Created!</h3>
             <p className="text-gray-400 mb-6">Here are your proxy credentials:</p>
-            
+
             <div className="space-y-4 bg-gray-900 rounded-lg p-4">
               <div>
                 <label className="text-gray-400 text-sm">Proxy Endpoint</label>
@@ -163,16 +164,27 @@ export default function SessionsPage() {
                 {sessions.map((session) => (
                   <tr key={session.id} className="border-b border-gray-700/50">
                     <td className="py-4 text-white font-mono text-sm">
-                      {session.id.slice(0, 8)}...
+                      <div className="flex flex-col">
+                        <span>{session.id.slice(0, 8)}...</span>
+                        {session.tx_hash && (
+                          <a
+                            href={`https://bittensor.subscan.io/extrinsic/${session.tx_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors uppercase font-bold tracking-tighter mt-0.5"
+                          >
+                            <ExternalLink size={10} /> View on Chain
+                          </a>
+                        )}
+                      </div>
                     </td>
                     <td className="py-4 text-white capitalize">{session.type}</td>
                     <td className="py-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${
-                          session.status === 'active'
+                        className={`px-2 py-1 rounded-full text-xs ${session.status === 'active'
                             ? 'bg-green-500/20 text-green-400'
                             : 'bg-gray-500/20 text-gray-400'
-                        }`}
+                          }`}
                       >
                         {session.status}
                       </span>
