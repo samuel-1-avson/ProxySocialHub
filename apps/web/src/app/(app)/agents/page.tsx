@@ -1,72 +1,70 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { Bot, ShoppingBag, Plus, Sparkles, Zap, Layers } from 'lucide-react';
+import Link from 'next/link';
 import { getMarketAgents, rentAgent, MarketAgent } from '@/lib/api';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { GlassCard } from '@/components/ui/glass-card';
 import { Badge } from '@/components/ui/badge';
-import { Bot, Terminal, Play, Cpu, Loader2 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
-import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/use-toast';
+import { Loader2, Play } from 'lucide-react'; // Added back for the button loader/play icon
 
 export default function AgentsPage() {
     const [agents, setAgents] = useState<MarketAgent[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [rentingId, setRentingId] = useState<string | null>(null);
-    const { user } = useAuth();
-    const router = useRouter();
+    const [isLoading, setIsLoading] = useState(true);
+    const [rentingId, setRentingId] = useState<string | null>(null); // Re-added for rent button state
+    const { toast } = useToast();
 
-    useEffect(() => {
-        loadAgents();
-    }, []);
-
-    const loadAgents = async () => {
+    const fetchAgents = async () => {
         try {
             const data = await getMarketAgents();
             setAgents(data);
         } catch (error) {
-            console.error('Failed to load agents:', error);
+            console.error('Failed to fetch agents:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to load AI agents from marketplace.',
+                variant: 'destructive',
+            });
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchAgents();
+    }, []);
 
     const handleRent = async (agent: MarketAgent) => {
-        if (!user) return;
-        setRentingId(agent.id);
+        setRentingId(agent.id); // Set renting state
         try {
-            await rentAgent(agent.id, `${agent.name} Instance`, {});
-            router.push('/dashboard/agents/instances'); // We'll need this page too
+            await rentAgent(agent.id, `${agent.name} Instance`, {}); // Re-added instance name and empty config
+            toast({
+                title: 'Success!',
+                description: `${agent.name} has been added to your instances.`,
+            });
+            // Optionally redirect or refresh instances list
         } catch (error) {
             console.error('Failed to rent agent:', error);
-            alert('Failed to rent agent. Please try again.');
+            toast({
+                title: 'Rental Failed',
+                description: 'Ensure you have enough balance in your TAO wallet.',
+                variant: 'destructive',
+            });
         } finally {
-            setRentingId(null);
+            setRentingId(null); // Reset renting state
         }
     };
 
-    if (loading) {
+    if (isLoading) { // Changed from 'loading' to 'isLoading'
         return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight mb-2">AI Agent Store</h1>
-                    <p className="text-muted-foreground">
-                        Deploy autonomous agents on the ProxyHub decentralized network.
-                    </p>
-                </div>
-                <Button variant="outline" onClick={() => router.push('/agents/instances')}>
-                    <Terminal className="mr-2 h-4 w-4" />
-                    My Instances
-                </Button>
-            </div>
+                </div >
+            <Button variant="outline" onClick={() => router.push('/agents/instances')}>
+                <Terminal className="mr-2 h-4 w-4" />
+                My Instances
+            </Button>
+            </div >
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {agents.map((agent) => (
@@ -117,13 +115,15 @@ export default function AgentsPage() {
                 ))}
             </div>
 
-            {agents.length === 0 && (
+        {
+            agents.length === 0 && (
                 <div className="text-center py-20 bg-card/30 rounded-2xl border border-dashed border-white/10">
                     <Cpu className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
                     <h3 className="text-lg font-medium">No Agents Available yet</h3>
                     <p className="text-muted-foreground text-sm">Be the first to publish an agent to the marketplace!</p>
                 </div>
-            )}
-        </div>
+            )
+        }
+        </div >
     );
-}
+    }

@@ -22,8 +22,8 @@ FROM alpine:latest
 
 WORKDIR /root/
 
-# Install CA certificates for HTTPS calls (Supabase/Paystack)
-RUN apk --no-cache add ca-certificates
+# Install CA certificates and curl for healthchecks
+RUN apk --no-cache add ca-certificates curl
 
 # Copy binary from builder
 COPY --from=builder /app/control-api .
