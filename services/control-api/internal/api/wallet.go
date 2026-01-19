@@ -273,13 +273,18 @@ func getWallet(c *gin.Context) {
 				TrustTier: models.TrustTierNew,
 				Role:      c.GetString("userRole"),
 			}
+			fmt.Printf("DEBUG: Attempting fallback user create: ID=%v Email='%s' Role='%s'\n", user.ID, user.Email, user.Role)
+
 			// Attempt to create user, log error if it fails
 			if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
 				// If we can't create the user AND they don't exist, we can't proceed.
 				// However, if err was nil (DoNothing), we proceed.
 				// If real error, we log.
+				fmt.Printf("DEBUG: Fallback create FAILED: %v\n", err)
 				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed.")
 				// We don't return here anymore, we try to proceed to wallet creation which might succeed if user exists now.
+			} else {
+				fmt.Println("DEBUG: Fallback create success (or conflict ignored)")
 			}
 			logging.Info().Str("user_id", userIDStr).Msg("getWallet: Fallback user created successfully")
 		}
@@ -296,6 +301,7 @@ func getWallet(c *gin.Context) {
 			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 				logging.Warn().Str("user_id", userIDStr).Msg("getWallet: Wallet already exists (race condition), fetching")
 			} else {
+				fmt.Printf("DEBUG: Wallet Create CRITICAL FAIL: %v\n", err)
 				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed (Critical)")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet: " + err.Error()})
 				return
