@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -245,14 +247,22 @@ func getWallet(c *gin.Context) {
 		var user models.User
 		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
 			// User missing, create placeholder
+			logging.Warn().Str("user_id", userIDStr).Msg("getWallet: User missing in local DB, attempting fallback creation")
+
+			userEmail := c.GetString("userEmail")
+			username := strings.Split(userEmail, "@")[0]
+
 			user = models.User{
 				ID:        userID,
-				Email:     c.GetString("userEmail"), // From Context
+				Email:     userEmail,
+				Username:  &username, // Fix: Ensure username is set
 				TrustTier: models.TrustTierNew,
 				Role:      c.GetString("userRole"),
 			}
-			// Ignore error on user create (might exist now)
-			_ = db.DB.Create(&user).Error
+			// Attempt to create user, log error if it fails (could be race condition)
+			if err := db.DB.Create(&user).Error; err != nil {
+				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed")
+			}
 		}
 
 		// Now attempt wallet creation with higher confidence
@@ -262,8 +272,10 @@ func getWallet(c *gin.Context) {
 			Currency: "GHS",
 		}
 
-		// Attempt creation - ignore error here as it might be "duplicate key"
-		_ = db.DB.Create(&wallet).Error
+		// Attempt creation
+		if err := db.DB.Create(&wallet).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
+		}
 
 		// Re-fetch to confirm existence and get ID
 		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
