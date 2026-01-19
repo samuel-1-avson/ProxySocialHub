@@ -41,11 +41,11 @@ export interface UsageStats {
 }
 
 // Sessions API (requires auth)
-export async function createSession(type: 'rotating' | 'sticky'): Promise<{ session: Session; proxy_credentials: { username: string; password: string; endpoint: string } }> {
+export async function createSession(type: 'rotating' | 'sticky', nodeId?: string): Promise<{ session: Session; proxy_credentials: { username: string; password: string; endpoint: string } }> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/sessions/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type }),
+    body: JSON.stringify({ type, preferred_node_id: nodeId }),
   });
   if (!response.ok) throw new Error('Failed to create session');
   return response.json();

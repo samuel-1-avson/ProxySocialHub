@@ -9,84 +9,93 @@
      Retro Minimal Green Theme - Palette
      =========================================== */
 
-  /* Light Theme (White & Green) */
-  --primary: #16a34a;
-  /* Green-600 */
-  --primary-light: #4ade80;
-  /* Green-400 */
-  --primary-dark: #15803d;
-  /* Green-700 */
+  /* Pro Max Theme - Modern & Vibrant */
 
-  --secondary: #000000;
-  /* Black */
+  /* Light Theme */
+  --primary: #059669;
+  /* Emerald 600 - sharper green */
+  --primary-light: #34d399;
+  /* Emerald 400 */
+  --primary-dark: #064e3b;
+  /* Emerald 900 */
+  --accent: #10b981;
+  /* Emerald 500 */
+
+  --secondary: #171717;
+  /* Neutral 900 */
   --secondary-light: #525252;
-  /* Neutral-600 */
-  --accent: #22c55e;
-  /* Green-500 */
 
-  /* Neutral Palette - White & Black */
-  --background: #ffffff;
-  /* Pure White */
-  --foreground: #000000;
-  /* Pure Black */
+  --background: #fafafa;
+  /* Slightly off-white for better depth */
+  --foreground: #0a0a0a;
+
   --card: #ffffff;
   --card-border: #e5e5e5;
-  /* Neutral-200 */
 
   /* State Colors */
-  --success: #16a34a;
-  --warning: #ca8a04;
-  --error: #dc2626;
-  --info: #2563eb;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
 
   /* Text Colors */
-  --text-primary: #000000;
+  --text-primary: #0a0a0a;
   --text-secondary: #525252;
   --text-muted: #a3a3a3;
 
   /* Spacing & Radius */
-  --radius: 0px;
-  /* Sharp corners for retro feel */
-  --radius-lg: 4px;
-  --radius-sm: 0px;
+  --radius: 0.75rem;
+  /* Modern rounded corners (12px) */
+  --radius-lg: 1rem;
+  /* 16px */
+  --radius-sm: 0.5rem;
+  /* 8px */
 
-  /* Shadows */
-  --shadow-sm: 2px 2px 0px rgba(0, 0, 0, 0.1);
-  --shadow-md: 4px 4px 0px rgba(0, 0, 0, 0.1);
-  --shadow-retro: 4px 4px 0px #000000;
-  /* Glassmorphism Variables */
-  --glass-bg: rgba(255, 255, 255, 0.4);
-  --glass-border: rgba(0, 0, 0, 0.05);
-  --glass-blur: blur(20px);
-  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  /* Shadows - Smooth & Deep */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-retro: 4px 4px 0px #171717;
+  /* Kept for certain accents */
+
+  /* Glassmorphism - Premium */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-blur: blur(16px);
+  --glass-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
 .dark,
 [data-theme="dark"] {
   --background: #000000;
+  /* True OLED Black */
   --foreground: #ffffff;
-  --card: #000000;
-  --card-border: #262626;
-  /* Neutral-800 */
 
-  --primary: #22c55e;
-  /* Green-500 */
-  --primary-light: #4ade80;
-  /* Green-400 */
-  --primary-dark: #15803d;
-  /* Green-700 */
+  --card: #0a0a0a;
+  /* Zinc 950 */
+  --card-border: #262626;
+  /* Zinc 800 */
+
+  --primary: #10b981;
+  /* Emerald 500 - Neon pop */
+  --primary-light: #6ee7b7;
+  /* Emerald 300 */
+  --primary-dark: #065f46;
+  /* Emerald 800 */
 
   --text-primary: #ffffff;
   --text-secondary: #a3a3a3;
   --text-muted: #525252;
 
-  --shadow-retro: 4px 4px 0px rgba(255, 255, 255, 0.2);
+  --shadow-retro: 4px 4px 0px rgba(16, 185, 129, 0.2);
+  /* Green tint shadow */
 
-  /* Glassmorphism Variables - Dark */
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.05);
-  --glass-blur: blur(40px);
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  /* Glassmorphism - Dark Premium */
+  --glass-bg: rgba(20, 20, 20, 0.4);
+  /* Darker, slightly tinted */
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(24px);
+  /* Heavier blur */
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
 }
 
 /* Dark Mode Dot Pattern */
@@ -99,8 +108,8 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
 /* Base Styles */
@@ -111,7 +120,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -314,6 +323,16 @@ h6 {
 
 .fade-in {
   animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
 }
 
 /* Utility Classes */
