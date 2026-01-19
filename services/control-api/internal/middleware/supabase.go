@@ -118,3 +118,103 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// SupabaseAuthMiddlewareOptional validates token if present, but does not abort if missing.
+func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := ""
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
+		} else {
+			tokenString = c.Query("token")
+		}
+
+		if tokenString == "" {
+			// No token, just proceed as guest
+			c.Next()
+			return
+		}
+
+		// 1. Try Local JWT Verification
+		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
+			c.Set("userID", claims.UserID)
+			if uid, err := uuid.Parse(claims.UserID); err == nil {
+				c.Set("user_id", uid)
+			}
+			c.Set("userEmail", claims.Email)
+			c.Set("userRole", claims.Role)
+			c.Next()
+			return
+		}
+
+		// 2. Fallback to Supabase Auth API
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
+		if err != nil {
+			// Error creating request, ignore and proceed as guest (or log warning)
+			logging.Warn().Err(err).Msg("Auth optional: failed to create request")
+			c.Next()
+			return
+		}
+
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+		req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			// Request failed, ignore
+			c.Next()
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// Invalid token, treat as guest
+			c.Next()
+			return
+		}
+
+		var user SupabaseUser
+		if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+			c.Next()
+			return
+		}
+
+		// Sync user to local DB
+		var dbUser models.User
+		if result := db.DB.First(&dbUser, "id = ?", user.ID); result.Error != nil {
+			userUUID, _ := uuid.Parse(user.ID)
+			username := strings.Split(user.Email, "@")[0]
+			newUser := models.User{
+				ID:        userUUID,
+				Email:     user.Email,
+				Username:  &username,
+				TrustTier: models.TrustTierNew,
+				Role:      user.Role,
+			}
+			db.DB.Create(&newUser)
+		}
+
+		// Store in context
+		c.Set("userID", user.ID)
+		if uid, err := uuid.Parse(user.ID); err == nil {
+			c.Set("user_id", uid)
+		}
+		c.Set("userEmail", user.Email)
+		c.Set("userRole", user.Role)
+
+		c.Next()
+	}
+}
+
+// RequireAuth aborts if user is not authenticated
+func RequireAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := c.Get("user_id"); !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			return
+		}
+		c.Next()
+	}
+}

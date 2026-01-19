@@ -54,8 +54,9 @@ export default function ProviderOnboardingPage() {
         try {
             await applyForProvider(formData);
             await checkStatus();
-        } catch (err: any) {
-            setError(err.message || 'Failed to submit application');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to submit application';
+            setError(message);
         } finally {
             setSubmitting(false);
         }

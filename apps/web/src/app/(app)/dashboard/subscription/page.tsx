@@ -45,8 +45,9 @@ export default function SubscriptionPage() {
             await subscribeToPlan(planId);
             await fetchData();
             // Show success toast or feedback here
-        } catch (error: any) {
-            alert(error.message || 'Failed to subscribe'); // Replace with robust toast
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Failed to subscribe';
+            alert(message); // Replace with robust toast
         } finally {
             setProcessing(null);
         }
@@ -121,8 +122,8 @@ export default function SubscriptionPage() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.1 }}
                             className={`relative p-8 rounded-3xl border flex flex-col ${isCurrent
-                                    ? 'bg-primary-900/20 border-primary-500/50 ring-1 ring-primary-500/50'
-                                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                                ? 'bg-primary-900/20 border-primary-500/50 ring-1 ring-primary-500/50'
+                                : 'bg-white/5 border-white/10 hover:border-white/20'
                                 } backdrop-blur-xl transition-all group`}
                         >
                             {isCurrent && (
@@ -160,8 +161,8 @@ export default function SubscriptionPage() {
                                 onClick={() => handleSubscribe(plan.id)}
                                 disabled={isCurrent || !!processing}
                                 className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${isCurrent
-                                        ? 'bg-white/10 text-white/40 cursor-default'
-                                        : 'bg-white text-black hover:bg-gray-100 shadow-lg hover:shadow-xl hover:scale-[1.02]'
+                                    ? 'bg-white/10 text-white/40 cursor-default'
+                                    : 'bg-white text-black hover:bg-gray-100 shadow-lg hover:shadow-xl hover:scale-[1.02]'
                                     }`}
                             >
                                 {isCurrent ? (
