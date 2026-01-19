@@ -52,8 +52,8 @@ func SetupTestDB(t *testing.T) {
 	testDBOnce.Do(func() {
 		dsn := os.Getenv("TEST_DATABASE_URL")
 		if dsn == "" {
-			// Default to local test database
-			dsn = "host=localhost user=postgres password=postgres dbname=proxyhubb_test port=5432 sslmode=disable"
+			// Default to local test database (aligned with docker-compose)
+			dsn = "host=localhost user=proxyhubb password=proxyhubb dbname=proxyhubb_test port=5432 sslmode=disable"
 		}
 
 		var err error

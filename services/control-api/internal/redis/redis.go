@@ -95,6 +95,51 @@ func GetUsage(sessionID string) (int64, error) {
 	return Client.Get(ctx, key).Int64()
 }
 
+// GetBatchUsage retrieves usage for multiple sessions in a single round-trip (MGET)
+func GetBatchUsage(sessionIDs []string) (map[string]int64, error) {
+	if Client == nil || len(sessionIDs) == 0 {
+		return map[string]int64{}, nil
+	}
+
+	// Construct keys
+	keys := make([]string, len(sessionIDs))
+	for i, id := range sessionIDs {
+		keys[i] = "session:" + id + ":usage"
+	}
+
+	// MGET
+	vals, err := Client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse results
+	result := make(map[string]int64)
+	for i, val := range vals {
+		sessionID := sessionIDs[i]
+		if val == nil {
+			result[sessionID] = 0
+			continue
+		}
+
+		// Redis returns string or int depending on adapter, usually string for Go-Redis simple values
+		switch v := val.(type) {
+		case string:
+			if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+				result[sessionID] = parsed
+			} else {
+				result[sessionID] = 0
+			}
+		case int64: // Sometimes specialized adapters might assume int
+			result[sessionID] = v
+		default:
+			result[sessionID] = 0
+		}
+	}
+
+	return result, nil
+}
+
 // GetTotalProviderUsage returns the total accumulated usage for a specific provider and buyer
 // Keys: "usage:provider:{providerID}:buyer:{buyerAddress}"
 func GetTotalProviderUsage(providerID, buyerAddress string) (int64, error) {

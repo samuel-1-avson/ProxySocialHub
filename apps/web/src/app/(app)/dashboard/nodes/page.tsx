@@ -21,15 +21,28 @@ import {
     Box
 } from "lucide-react";
 import Link from "next/link";
+import { ProviderNode } from "@/lib/api";
 
 function NodesContent() {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [signalLogs, setSignalLogs] = useState<{ id: number; msg: string; type: string }[]>([]);
+    const [realNodes, setNodes] = useState<ProviderNode[]>([]);
 
     useEffect(() => {
-        // Simulate node discovery
-        const timer = setTimeout(() => setLoading(false), 800);
+        // Fetch Real Nodes
+        const fetchNodes = async () => {
+            try {
+                const { getProviderNodes } = await import('@/lib/api');
+                const data = await getProviderNodes();
+                setNodes(data.nodes);
+            } catch (e) {
+                console.error("Failed to load nodes", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchNodes();
 
         // Simulate signal pulse stream
         const interval = setInterval(() => {
@@ -45,18 +58,25 @@ function NodesContent() {
         }, 3000);
 
         return () => {
-            clearTimeout(timer);
             clearInterval(interval);
         };
     }, []);
 
-    const nodes = [
-        { id: "node-01", location: "Accra Central", type: "Residential", status: "online", latency: "12ms", throughput: "1.2Gbps", uptime: "99.9%" },
-        { id: "node-02", location: "Kumasi CBD", type: "Mobile", status: "online", latency: "45ms", throughput: "450Mbps", uptime: "98.5%" },
-        { id: "node-03", location: "Takoradi Port", type: "Datacenter", status: "maintenance", latency: "8ms", throughput: "10Gbps", uptime: "99.9%" },
-        { id: "node-04", location: "Tamale North", type: "Residential", status: "online", latency: "24ms", throughput: "800Mbps", uptime: "97.2%" },
-        { id: "node-05", location: "Tema Industrial", type: "Datacenter", status: "online", latency: "9ms", throughput: "5Gbps", uptime: "99.9%" },
-        { id: "node-06", location: "Ho Node", type: "Mobile", status: "online", latency: "38ms", throughput: "300Mbps", uptime: "99.1%" },
+    // Map Real Nodes to UI format or fallback to mock if empty (user has no nodes yet)
+    const displayNodes = realNodes.length > 0 ? realNodes.map(n => ({
+        id: `node-${n.id.substring(0, 4)}`,
+        location: n.city || "Unknown",
+        type: "Residential", // Default for now
+        status: n.status === "online" ? "online" : "offline",
+        latency: `${n.latency_ms}ms`,
+        throughput: "1Gbps", // Placeholder as logic isn't in DB yet
+        uptime: `${n.uptime_percent}%`,
+        trust: n.quality_score // Add trust score to object for display
+    })) : [
+        // Keep mock nodes as "Global Network Preview" if user has no personal nodes
+        { id: "node-01", location: "Accra Central", type: "Residential", status: "online", latency: "12ms", throughput: "1.2Gbps", uptime: "99.9%", trust: 98 },
+        { id: "node-02", location: "Kumasi CBD", type: "Mobile", status: "online", latency: "45ms", throughput: "450Mbps", uptime: "98.5%", trust: 92 },
+        { id: "node-03", location: "Takoradi Port", type: "Datacenter", status: "maintenance", latency: "8ms", throughput: "10Gbps", uptime: "99.9%", trust: 99 },
     ];
 
     return (
@@ -145,7 +165,7 @@ function NodesContent() {
                         <div key={i} className="h-[220px] rounded-[2.5rem] bg-white/[0.02] border border-white/5 animate-pulse"></div>
                     ))
                 ) : (
-                    nodes.map((node) => (
+                    displayNodes.map((node) => (
                         <div key={node.id} className="group relative p-8 rounded-[2.5rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] hover:border-primary/40 hover:bg-white/[0.05] transition-all duration-700 overflow-hidden shadow-[var(--glass-shadow)]">
                             <div className="absolute top-0 right-0 p-8 transform translate-x-4 -translate-y-4 text-white/[0.01] font-black text-8xl group-hover:text-primary/[0.03] group-hover:scale-125 transition-all duration-700">
                                 {node.id.split('-')[1]}
@@ -185,6 +205,15 @@ function NodesContent() {
                                     <div>
                                         <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-30 mb-1">Throughput</p>
                                         <p className="text-sm font-black text-white italic tracking-tighter group-hover:text-blue-400 transition-colors uppercase">{node.throughput}</p>
+                                    </div>
+                                    <div className="col-span-2 pt-4 mt-2 border-t border-white/5">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-30">Network Trust</p>
+                                            <p className="text-[10px] font-black text-primary">{Math.round(node.trust || 0)}/100</p>
+                                        </div>
+                                        <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                            <div className="h-full bg-primary/50" style={{ width: `${node.trust || 0}%` }}></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

@@ -186,15 +186,46 @@ func getUserUsage(c *gin.Context) {
 		return
 	}
 
-	// Get all sessions for user from DB
+	// Filter by status (optional), default to "active" to prevent slow queries on huge history
+	status := c.Query("status")
+	if status == "" {
+		status = "active" // Default optimization
+	}
+
+	// 1. Get filtered sessions from DB
 	var sessions []models.Session
-	db.DB.Where("user_id = ?", userID).Find(&sessions)
+	query := db.DB.Where("user_id = ?", userID)
+
+	if status != "all" {
+		query = query.Where("status = ?", status)
+	}
+
+	// Limit to reasonable number if "all" is requested to prevent crash
+	if status == "all" {
+		query = query.Limit(100).Order("created_at DESC")
+	}
+
+	query.Find(&sessions)
+
+	// 2. Batch get usage from Redis (Pipeline)
+	sessionIDs := make([]string, len(sessions))
+	for i, s := range sessions {
+		sessionIDs[i] = s.CredentialsUser
+	}
+
+	usageMap, err := redisClient.GetBatchUsage(sessionIDs)
+	if err != nil {
+		logging.Error(err).Msg("Failed to batch fetch usage")
+		// Continue with 0 usage on error
+		usageMap = make(map[string]int64)
+	}
 
 	var totalUsage int64 = 0
-	sessionStats := make([]gin.H, 0)
+	sessionStats := make([]gin.H, 0, len(sessions))
 
+	// 3. Construct response
 	for _, session := range sessions {
-		usage, _ := redisClient.GetUsage(session.CredentialsUser)
+		usage := usageMap[session.CredentialsUser]
 		totalUsage += usage
 
 		sessionStats = append(sessionStats, gin.H{
@@ -211,6 +242,8 @@ func getUserUsage(c *gin.Context) {
 		"total_gb":       float64(totalUsage) / (1024 * 1024 * 1024),
 		"total_cost_ghs": float64(totalUsage) / (1024 * 1024 * 1024) * PricePerGB,
 		"sessions":       sessionStats,
+		"count":          len(sessions),
+		"filter":         status,
 	})
 }
 
