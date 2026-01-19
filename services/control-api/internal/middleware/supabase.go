@@ -92,6 +92,9 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 				// Don't fail the request, but logging is vital
 			} else {
 				username := strings.Split(user.Email, "@")[0]
+				if len(user.ID) >= 8 {
+					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
+				}
 				newUser := models.User{
 					ID:        userUUID,
 					Email:     user.Email,
@@ -186,6 +189,9 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 		if result := db.DB.First(&dbUser, "id = ?", user.ID); result.Error != nil {
 			userUUID, _ := uuid.Parse(user.ID)
 			username := strings.Split(user.Email, "@")[0]
+			if len(user.ID) >= 8 {
+				username = fmt.Sprintf("%s_%s", username, user.ID[:8])
+			}
 			newUser := models.User{
 				ID:        userUUID,
 				Email:     user.Email,
