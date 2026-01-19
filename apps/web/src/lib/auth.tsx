@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getAccessToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) return session.access_token;
-    return localStorage.getItem('proxyhubb_token');
+    return typeof window !== 'undefined' ? localStorage.getItem('proxyhubb_token') : null;
   };
 
   const walletLogin = async (address: string, signer: any) => {
@@ -121,7 +121,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { token, user: apiUser } = await loginRes.json();
 
       // 4. Store Token
-      localStorage.setItem('proxyhubb_token', token);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('proxyhubb_token', token);
+      }
 
       // 5. Update State
       // We need to map apiUser to Supabase User shape or allow null?
@@ -166,7 +168,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const { data: { session } } = await supabase.auth.getSession();
 
   let token = session?.access_token;
-  if (!token) {
+  if (!token && typeof window !== 'undefined') {
     token = localStorage.getItem('proxyhubb_token') || undefined;
   }
 
