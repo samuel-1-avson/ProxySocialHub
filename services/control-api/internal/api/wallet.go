@@ -12,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
+	"gorm.io/gorm/clause"
 )
 
 func RegisterWalletRoutes(r *gin.RouterGroup) {
@@ -238,24 +239,29 @@ func getWallet(c *gin.Context) {
 	}
 
 	if result.RowsAffected == 0 {
-		// Wallet doesn't exist, create it safely using FirstOrCreate to handle race conditions
+		// Wallet doesn't exist, try to create it safely
 		wallet = models.Wallet{
 			UserID:   userID,
 			Balance:  0,
 			Currency: "GHS",
 		}
 
-		// Ensure user exists first (redundant check but good for safety)
-		var user models.User
-		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: User not found before wallet creation")
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		// Use OnConflict to handle race conditions gracefully
+		err := db.DB.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}},
+			DoNothing: true,
+		}).Create(&wallet).Error
+
+		if err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to create wallet")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
 			return
 		}
 
-		if err := db.DB.FirstOrCreate(&wallet, models.Wallet{UserID: userID}).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to create/retrieve wallet")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
+		// Refresh wallet to get the ID (in case DoNothing triggered or ID generation happened)
+		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to retrieve wallet after creation")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve wallet"})
 			return
 		}
 		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Initialized wallet")
