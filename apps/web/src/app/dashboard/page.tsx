@@ -101,7 +101,7 @@ export default function DashboardPage() {
                         ].map((log, i) => (
                             <div key={i} className="flex gap-3 items-start p-3 hover:bg-accent/50 rounded-sm transition-colors border border-transparent hover:border-border/50">
                                 <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${log.type === 'success' ? 'bg-green-500' :
-                                        log.type === 'warn' ? 'bg-yellow-500' : 'bg-blue-500'
+                                    log.type === 'warn' ? 'bg-yellow-500' : 'bg-blue-500'
                                     }`} />
                                 <div>
                                     <p className="text-sm font-medium leading-none mb-1">{log.msg}</p>
@@ -111,8 +111,8 @@ export default function DashboardPage() {
                         ))}
                     </div>
                     <div className="p-4 border-t border-border bg-secondary/10">
-                        <Link href="/logs" className="block text-center text-xs font-mono font-bold text-primary hover:underline uppercase">
-                            View Full History
+                        <Link href="#" className="block text-center text-xs font-mono font-bold text-primary hover:underline uppercase opacity-50 cursor-not-allowed">
+                            View Full History (Coming Soon)
                         </Link>
                     </div>
                 </div>
