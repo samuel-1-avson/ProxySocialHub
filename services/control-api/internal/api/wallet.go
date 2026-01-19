@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"runtime/debug"
@@ -451,10 +450,8 @@ func initiateDeposit(c *gin.Context) {
 		},
 	}
 
-	fmt.Printf("Initializing Paystack transaction for email: %s, amount: %s\n", paystackReq.Email, paystackReq.Amount)
 	resp, err := client.InitializeTransaction(paystackReq)
 	if err != nil {
-		fmt.Printf("Paystack initialization error: %v\n", err) // DEBUG PRINT
 		logging.Error(err).Msg("Paystack initialization failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to initialize payment: %v", err)})
 		return
@@ -471,27 +468,12 @@ func initiateDeposit(c *gin.Context) {
 		Status:    "pending",
 		// Phone is not mandatory for Paystack init, captured during checkout
 	}
-	log.Println("Saving pending transaction to DB (DEBUG)...")
 
-	// Local recovery to catch DB panics
-	var dbErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("PANIC during DB Create: %v", r)
-				dbErr = fmt.Errorf("panic: %v", r)
-			}
-		}()
-		dbErr = db.DB.Create(&pendingTx).Error
-	}()
-
-	if dbErr != nil {
-		log.Printf("DB save error (DEBUG): %v\n", dbErr)
-		logging.Error(dbErr).Msg("Failed to save pending transaction to DB")
+	if err := db.DB.Create(&pendingTx).Error; err != nil {
+		logging.Error(err).Msg("Failed to save pending transaction to DB")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
-	log.Printf("Deposit initialized and saved (DEBUG). Reference: %s", reference)
 	logging.Info().Str("reference", reference).Msg("Deposit initialized and saved")
 
 	c.JSON(http.StatusOK, gin.H{
