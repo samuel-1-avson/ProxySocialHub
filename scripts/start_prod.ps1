@@ -30,5 +30,5 @@ foreach ($container in $services) {
 
 Write-Host "`n✅ System Online!" -ForegroundColor Green
 Write-Host "Frontend: http://localhost:3000"
-Write-Host "Control API: http://localhost:8080"
+Write-Host "Control API: http://localhost:8081"
 Write-Host "Edge Gateway: http://localhost:8443 / 9090"
