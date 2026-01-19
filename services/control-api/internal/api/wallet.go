@@ -12,7 +12,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
-	"gorm.io/gorm"
 )
 
 func RegisterWalletRoutes(r *gin.RouterGroup) {
@@ -229,28 +228,37 @@ func getWallet(c *gin.Context) {
 	}
 
 	var wallet models.Wallet
-	// Try to find wallet, or create if not exists
-	err = db.DB.Where("user_id = ?", userID).First(&wallet).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Create new wallet
-			wallet = models.Wallet{
-				UserID:   userID,
-				Balance:  0,
-				Currency: "GHS",
-			}
-			if err := db.DB.Create(&wallet).Error; err != nil {
-				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to create wallet")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
-				return
-			}
-			logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Created new wallet")
-		} else {
-			// Database error
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Database error retrieving wallet")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+	// Use Find to avoid GORM 'RecordNotFound' logging noise
+	result := db.DB.Where("user_id = ?", userID).Limit(1).Find(&wallet)
+
+	if result.Error != nil {
+		logging.Error(result.Error).Str("user_id", userIDStr).Msg("getWallet: Database error retrieving wallet")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		// Wallet doesn't exist, create it safely using FirstOrCreate to handle race conditions
+		wallet = models.Wallet{
+			UserID:   userID,
+			Balance:  0,
+			Currency: "GHS",
+		}
+
+		// Ensure user exists first (redundant check but good for safety)
+		var user models.User
+		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: User not found before wallet creation")
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}
+
+		if err := db.DB.FirstOrCreate(&wallet, models.Wallet{UserID: userID}).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to create/retrieve wallet")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
+			return
+		}
+		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Initialized wallet")
 	}
 
 	// Prepare unified transactions list
