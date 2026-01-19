@@ -173,7 +173,7 @@ services:
     volumes:
       - subtensor_data:/data
     command:
-      - ./node-subtensor
+      - /usr/local/bin/node-subtensor
       - --chain
       - finney
       - --base-path
