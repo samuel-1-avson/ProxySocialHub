@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm/clause"
 )
 
 type SupabaseUser struct {
@@ -102,7 +103,7 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 					TrustTier: models.TrustTierNew,
 					Role:      user.Role, // Based on models.User definition, Role is string, not models.UserRole
 				}
-				if createErr := db.DB.Create(&newUser).Error; createErr != nil {
+				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
 					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to create user record")
 				} else {
 					logging.Info().Str("user_id", user.ID).Msg("User synced to local DB")
