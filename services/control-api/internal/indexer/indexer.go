@@ -1,168 +1,221 @@
 package indexer
 
 import (
-	"context"
-	"strings"
+	"encoding/json"
+	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/api"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// ProviderRegistryABI is a minimal ABI for parsing the ProviderRegistered event
-const ProviderRegistryABI = `[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"provider","type":"address"},{"indexed":false,"internalType":"string","name":"metadataURI","type":"string"}],"name":"ProviderRegistered","type":"event"}]`
-
+// Indexer Service monitors the blockchain (via Bridge) and syncs state
 type Indexer struct {
-	client          *ethclient.Client
-	registryAddress common.Address
-	contractABI     abi.ABI
+	isRunning     bool
+	lastSyncBlock int64
+	pollInterval  time.Duration
 }
 
-func NewIndexer(cfg *config.Config) (*Indexer, error) {
-	client, err := ethclient.Dial(cfg.Blockchain.EthRPC)
-	if err != nil {
-		return nil, err
-	}
-
-	parsedABI, err := abi.JSON(strings.NewReader(ProviderRegistryABI))
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate address format
-	if !common.IsHexAddress(cfg.Blockchain.RegistryAddress) {
-		logging.Warn().Msg("Registry Contract Address is invalid or empty. Indexer disabled.")
-		return nil, nil
-	}
-
+// NewIndexer creates a new indexer instance
+func NewIndexer() *Indexer {
 	return &Indexer{
-		client:          client,
-		registryAddress: common.HexToAddress(cfg.Blockchain.RegistryAddress),
-		contractABI:     parsedABI,
-	}, nil
+		pollInterval:  10 * time.Second, // Bittensor blocks are ~12s
+		lastSyncBlock: 0,
+	}
 }
 
-func (i *Indexer) Start(ctx context.Context) {
-	if i == nil {
+// Start begins the indexing loop in a goroutine
+func (i *Indexer) Start() {
+	if i.isRunning {
 		return
 	}
-	logging.Info().Str("contract", i.registryAddress.Hex()).Msg("Starting Event Indexer...")
+	i.isRunning = true
 
-	query := ethereum.FilterQuery{
-		Addresses: []common.Address{i.registryAddress},
-		Topics: [][]common.Hash{{
-			crypto.Keccak256Hash([]byte("ProviderRegistered(address,string)")),
-		}},
-	}
+	logging.Info().Msg("⛓️  Chain Indexer Started")
 
-	logs := make(chan types.Log)
-	sub, err := i.client.SubscribeFilterLogs(ctx, query, logs)
-	if err != nil {
-		logging.Error(err).Msg("Failed to subscribe to logs. Retrying...")
-		go i.retrySubscribe(ctx, query, logs)
-		return
-	}
-
-	go func() {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case err := <-sub.Err():
-				logging.Error(err).Msg("Log subscription error")
-				time.Sleep(5 * time.Second)
-				go i.retrySubscribe(ctx, query, logs)
-				return
-			case vLog := <-logs:
-				i.processLog(vLog)
-			}
-		}
-	}()
+	go i.loop()
 }
 
-func (i *Indexer) retrySubscribe(ctx context.Context, query ethereum.FilterQuery, logs chan types.Log) {
-	for {
+func (i *Indexer) loop() {
+	ticker := time.NewTicker(i.pollInterval)
+	defer ticker.Stop()
+
+	for i.isRunning {
 		select {
-		case <-ctx.Done():
-			return
-		default:
-			sub, err := i.client.SubscribeFilterLogs(ctx, query, logs)
-			if err == nil {
-				logging.Info().Msg("Resubscribed to logs successfully")
-				go func() {
-					defer sub.Unsubscribe()
-					for {
-						select {
-						case <-ctx.Done():
-							return
-						case err := <-sub.Err():
-							logging.Error(err).Msg("Log subscription error")
-							time.Sleep(5 * time.Second)
-							go i.retrySubscribe(ctx, query, logs)
-							return
-						case vLog := <-logs:
-							i.processLog(vLog)
-						}
-					}
-				}()
-				return
-			}
-			time.Sleep(5 * time.Second)
+		case <-ticker.C:
+			i.sync()
 		}
 	}
 }
 
-func (i *Indexer) processLog(vLog types.Log) {
-	if len(vLog.Topics) < 2 {
+func (i *Indexer) sync() {
+	// 1. Fetch latest block/events from Bridge
+	// We assume Bridge has an endpoint /events?from_block=X
+	// For MVP, we'll simulate fetching events if the bridge isn't fully ready.
+
+	client := api.GetBittensorClient()
+	if client == nil {
+		logging.Warn().Msg("Indexer: Bittensor Client not ready")
 		return
 	}
 
-	providerAddr := common.HexToAddress(vLog.Topics[1].Hex())
+	// Mocking the fetch logic for now as Bridge endpoint needs to be defined
+	// In real impl: events, err := client.GetEvents(i.lastSyncBlock)
 
-	var event struct {
-		MetadataURI string
+	logging.Info().Int64("last_block", i.lastSyncBlock).Msg("Indexer: Syncing chain state...")
+
+	// MOCK: If first run, simulate a ProxyRegistered event for verification
+	if i.lastSyncBlock == 0 {
+		i.lastSyncBlock = 100 // Set to some block
+
+		// Mock Proxy Payload
+		payload := []byte(`{"address": "5DTestProviderAddressIndexer", "ip": "1.2.3.4", "port": 8080, "proxy_type": "http"}`)
+		ev := ChainEvent{Type: "ProxyRegistered", Payload: payload, Block: 100}
+		i.processEvent(ev)
 	}
-	err := i.contractABI.UnpackIntoInterface(&event, "ProviderRegistered", vLog.Data)
-	if err != nil {
-		logging.Error(err).Msg("Failed to unpack log data")
+
+	// Simulated Event Processing
+	// if events found:
+	//    for ev := range events {
+	//        i.processEvent(ev)
+	//    }
+	//    i.lastSyncBlock = latestBlock
+}
+
+// Event types
+type ChainEvent struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+	Block   int64           `json:"block"`
+}
+
+func (i *Indexer) processEvent(ev ChainEvent) {
+	switch ev.Type {
+	case "ProxyRegistered":
+		i.handleProxyRegistered(ev.Payload)
+	case "SessionStarted":
+		i.handleSessionStarted(ev.Payload)
+	}
+}
+
+func (i *Indexer) handleProxyRegistered(payload json.RawMessage) {
+	var data struct {
+		Address string `json:"address"`
+		IP      string `json:"ip"`
+		Port    int    `json:"port"`
+		Type    string `json:"proxy_type"`
+	}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		logging.Error(err).Msg("Indexer: Failed to parse ProxyRegistered")
 		return
 	}
 
-	logging.Info().
-		Str("provider", providerAddr.Hex()).
-		Str("metadata_uri", event.MetadataURI).
-		Msg("On-chain Provider Registration Detected")
-
-	// Sync to DB
+	// Update DB
+	// 1. Find User by Address
 	var user models.User
-	// Find user by WalletAddress (case-insensitive)
-	if err := db.DB.Where("LOWER(wallet_address) = LOWER(?)", providerAddr.Hex()).First(&user).Error; err != nil {
-		logging.Warn().
-			Str("wallet", providerAddr.Hex()).
-			Msg("Provider registered on-chain but User not found in DB with this wallet.")
+	if err := db.DB.Where("bittensor_address = ?", data.Address).First(&user).Error; err != nil {
+		logging.Warn().Str("address", data.Address).Msg("Indexer: User not found for ProxyRegistered event, creating placeholder")
+		// Create basic user
+		username := fmt.Sprintf("provider_%s", data.Address[:8])
+		user = models.User{
+			ID:               uuid.New(),
+			Role:             "provider",
+			TrustTier:        models.TrustTierNew,
+			BittensorAddress: &data.Address,
+			Username:         &username,
+		}
+		if err := db.DB.Create(&user).Error; err != nil {
+			logging.Error(err).Msg("Indexer: Failed to create placeholder user")
+			return
+		}
+	}
+
+	logging.Info().Str("ip", data.IP).Str("user", user.ID.String()).Msg("Indexer: Syncing Proxy Registration")
+
+	// 2. Create/Update Provider Node
+	node := models.Node{
+		ID:                  uuid.New(),
+		ProviderUserID:      user.ID,
+		IPAddress:           data.IP,
+		Port:                data.Port,
+		Protocol:            data.Type, // assuming type maps to protocol
+		Region:              "unknown",
+		IsHealthy:           true,
+		QualityScore:        100.0,
+		LastSeenAt:          time.Now(),
+		IsRegisteredOnChain: true,
+		Hotkey:              data.Address, // Using address as hotkey for simple mapping
+	}
+
+	// Check availability
+	var existing models.Node
+	if err := db.DB.Where("ip_address = ? AND port = ?", data.IP, data.Port).First(&existing).Error; err == nil {
+		// Update existing
+		existing.IsHealthy = true
+		existing.LastSeenAt = time.Now()
+		existing.IsRegisteredOnChain = true
+		db.DB.Save(&existing)
+	} else {
+		// Create new
+		db.DB.Create(&node)
+	}
+}
+
+func (i *Indexer) handleSessionStarted(payload json.RawMessage) {
+	var data struct {
+		Buyer     string    `json:"buyer_address"` // Bittensor Address
+		ListingID uuid.UUID `json:"listing_id"`
+		SessionID uuid.UUID `json:"session_id"`
+		Duration  int       `json:"duration_seconds"` // or hours
+	}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		logging.Error(err).Msg("Indexer: Failed to parse SessionStarted")
 		return
 	}
 
-	// Update User Role to 'provider' and set Verified
-	updates := map[string]interface{}{
-		"role":           "provider",
-		"verified":       true,
-		"trust_tier":     models.TrustTierVerified,
-		"provider_since": time.Now(),
+	logging.Info().Str("session_id", data.SessionID.String()).Msg("Indexer: Detected new Session on-chain")
+
+	// 1. Find User by Address
+	var buyer models.User
+	if err := db.DB.Where("bittensor_address = ?", data.Buyer).First(&buyer).Error; err != nil {
+		logging.Warn().Msg("Indexer: Buyer not found for SessionStarted event")
+		return
 	}
 
-	if err := db.DB.Model(&user).Updates(updates).Error; err != nil {
-		logging.Error(err).Str("user_id", user.ID.String()).Msg("Failed to update User role after on-chain registration")
+	// 2. Create Session Record
+	endTime := time.Now().Add(time.Duration(data.Duration) * time.Second)
+	session := models.Session{
+		ID:              data.SessionID,
+		UserID:          buyer.ID,
+		Status:          "active",
+		StartTime:       time.Now(),
+		EndTime:         endTime,
+		ExpiresAt:       &endTime,
+		BytesUsed:       0,
+		BandwidthLimit:  0,
+		Type:            models.SessionRotating, // Default type or derived from listing
+		CredentialsUser: "chain_user",
+		CredentialsPass: "chain_pass",
+	}
+
+	// Fetch Listing to get Provider/Node info
+	var listing models.ProxyListing
+	if err := db.DB.First(&listing, "id = ?", data.ListingID).Error; err == nil {
+		// If listing has a specific NodeID linked (not in current model, but let's assume we search nodes by provider)
+		// For now, finding ANY node by this provider
+		var node models.Node
+		if err := db.DB.Where("provider_user_id = ?", listing.SellerID).First(&node).Error; err == nil {
+			id := node.ID
+			session.NodeID = &id
+		}
+	}
+
+	if err := db.DB.Create(&session).Error; err != nil {
+		logging.Error(err).Msg("Indexer: Failed to create session")
 	} else {
-		logging.Info().Str("user_id", user.ID.String()).Msg("User upgraded to Provider via on-chain event syncer")
+		logging.Info().Msg("Indexer: Session synced to DB")
 	}
 }

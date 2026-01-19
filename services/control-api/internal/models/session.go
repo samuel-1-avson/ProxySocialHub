@@ -32,6 +32,9 @@ type Session struct {
 	CredentialsPass string        `gorm:"type:varchar(255)" json:"credentials_pass"`
 	Config          string        `gorm:"type:jsonb" json:"config"`
 	BandwidthLimit  int64         `gorm:"default:0" json:"bandwidth_limit"` // in bytes, 0 = unlimited
+	StartTime       time.Time     `json:"start_time"`
+	EndTime         time.Time     `json:"end_time"`
+	BytesUsed       int64         `json:"bytes_used"`
 	ExpiresAt       *time.Time    `json:"expires_at"`
 	CreatedAt       time.Time     `json:"created_at"`
 }

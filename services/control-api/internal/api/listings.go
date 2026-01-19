@@ -46,6 +46,10 @@ func getListings(c *gin.Context) {
 		c.Query("min_price"),
 		c.Query("max_price"),
 		c.Query("seller_id"),
+		c.Query("seller_id"),
+		c.Query("country"),
+		c.Query("isp"),
+		c.Query("rotation_type"),
 		c.Query("sort_by"),
 	)
 
@@ -78,6 +82,15 @@ func getListings(c *gin.Context) {
 	}
 	if sellerID := c.Query("seller_id"); sellerID != "" {
 		query = query.Where("seller_id = ?", sellerID)
+	}
+	if country := c.Query("country"); country != "" {
+		query = query.Where("country = ?", country)
+	}
+	if isp := c.Query("isp"); isp != "" {
+		query = query.Where("isp ILIKE ?", "%"+isp+"%") // Case-insensitive search
+	}
+	if rotation := c.Query("rotation_type"); rotation != "" {
+		query = query.Where("rotation_type = ?", rotation)
 	}
 
 	// Sorting
@@ -229,6 +242,9 @@ func createListing(c *gin.Context) {
 		Description:          req.Description,
 		ProxyType:            req.ProxyType,
 		Protocol:             req.Protocol,
+		RotationType:         req.RotationType,
+		Country:              req.Country,
+		ISP:                  req.ISP,
 		PricePerGB:           req.PricePerGB,
 		MinPurchaseGB:        req.MinPurchaseGB,
 		BulkDiscounts:        discountsJSON,

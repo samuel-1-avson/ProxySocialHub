@@ -173,8 +173,14 @@ type ProviderNode struct {
 	City             string     `gorm:"type:varchar(100)" json:"city,omitempty"`
 	Status           NodeStatus `gorm:"type:varchar(50);default:'offline'" json:"status"`
 	TotalBandwidthGB float64    `gorm:"type:numeric(20,4);default:0" json:"total_bandwidth_gb"`
+	QualityScore     float64    `gorm:"default:100" json:"quality_score"` // Network Trust Score
 	LastSeenAt       *time.Time `json:"last_seen_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
+
+	// On-Chain Registry
+	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
+	NetUID              int    `json:"net_uid"`
+	Hotkey              string `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
 }
 
 func (ProviderNode) TableName() string {

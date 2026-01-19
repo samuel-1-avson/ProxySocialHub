@@ -10,6 +10,10 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@polkadot/extension-dapp": "^0.62.6",
+    "@polkadot/keyring": "^14.0.1",
+    "@polkadot/util": "^14.0.1",
+    "@polkadot/util-crypto": "^14.0.1",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.1",

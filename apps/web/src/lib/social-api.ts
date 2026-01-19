@@ -40,6 +40,7 @@ export interface Listing {
     avg_latency_ms: number;
     uptime_percent: number;
     success_rate: number;
+    quality_score: number;
     views_count: number;
     saves_count: number;
     orders_count: number;
@@ -407,6 +408,58 @@ export async function getProviderApplicationStatus(): Promise<{ status: string; 
     if (!res.ok) {
         if (res.status === 404) return { status: 'none', application: null as any };
         throw new Error('Failed to check status');
+    }
+    return res.json();
+}
+
+// ============== Governance API ==============
+export interface Proposal {
+    id: string;
+    title: string;
+    description: string;
+    proposer_id: string;
+    start_time: string;
+    end_time: string;
+    status: 'active' | 'passed' | 'rejected' | 'executed';
+    yes_votes: number;
+    no_votes: number;
+    proposer?: User;
+    created_at: string;
+    ipfs_hash?: string;
+}
+
+export async function getProposals(status?: string): Promise<{ proposals: Proposal[] }> {
+    const query = status ? `?status=${status}` : '';
+    const res = await fetchWithAuth(`${API_BASE}/v1/governance/proposals${query}`);
+    if (!res.ok) throw new Error('Failed to fetch proposals');
+    return res.json();
+}
+
+export async function getProposal(id: string): Promise<Proposal> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/governance/proposals/${id}`);
+    if (!res.ok) throw new Error('Proposal not found');
+    return res.json();
+}
+
+export async function createProposal(data: { title: string; description: string; duration_days: number }): Promise<Proposal> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/governance/proposals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create proposal');
+    return res.json();
+}
+
+export async function castVote(id: string, choice: 'yes' | 'no' | 'abstain'): Promise<{ message: string; power: number }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/governance/proposals/${id}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choice }),
+    });
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to cast vote');
     }
     return res.json();
 }

@@ -7,14 +7,20 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig
-	Database   DatabaseConfig
-	Auth       AuthConfig
-	OAuth      OAuthConfig
-	Email      EmailConfig
-	Payments   PaymentsConfig
-	Crypto     CryptoConfig
+	Server   ServerConfig
+	Database DatabaseConfig
+	Auth     AuthConfig
+	OAuth    OAuthConfig
+	Email    EmailConfig
+	Payments PaymentsConfig
+	Crypto   CryptoConfig
+
 	Blockchain BlockchainConfig
+	Bittensor  BittensorConfig
+}
+
+type BittensorConfig struct {
+	BridgeURL string
 }
 
 type ServerConfig struct {
@@ -138,7 +144,11 @@ func Load() (*Config, error) {
 
 	// Blockchain
 	cfg.Blockchain.EthRPC = getEnv("ETH_RPC_URL", "http://localhost:8545")
+
 	cfg.Blockchain.RegistryAddress = os.Getenv("REGISTRY_CONTRACT_ADDRESS")
+
+	// Bittensor
+	cfg.Bittensor.BridgeURL = getEnv("BITTENSOR_BRIDGE_URL", "http://localhost:8002")
 
 	return cfg, nil
 }

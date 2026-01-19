@@ -157,6 +157,46 @@ services:
       - proxyhubb
     restart: unless-stopped
 
+  # ==================== Subtensor Node ====================
+  subtensor:
+    image: opentensor/subtensor:latest
+    ports:
+      - "9944:9944"
+      - "30333:30333"
+    volumes:
+      - subtensor_data:/data
+    command:
+      - ./node-subtensor
+      - --chain
+      - finney
+      - --base-path
+      - /data
+      - --rpc-external
+      - --ws-external
+      - --rpc-cors
+      - all
+      - --sync
+      - warp
+    networks:
+      - proxyhubb
+    restart: unless-stopped
+
+  # ==================== Bittensor Bridge ====================
+  bittensor-bridge:
+    build:
+      context: ./services/bittensor-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      - SUBTENSOR_NETWORK=local
+      - SUBTENSOR_CHAIN_ENDPOINT=ws://subtensor:9944
+    depends_on:
+      - subtensor
+    networks:
+      - proxyhubb
+    restart: unless-stopped
+
 networks:
   proxyhubb:
     driver: bridge
@@ -166,3 +206,4 @@ volumes:
   postgres_data:
   prometheus_data:
   grafana_data:
+  subtensor_data:

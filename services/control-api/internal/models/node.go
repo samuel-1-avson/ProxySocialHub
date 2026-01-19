@@ -9,26 +9,33 @@ import (
 
 // Node represents a provider node in the network
 type Node struct {
-	ID               uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	ProviderUserID   uuid.UUID `gorm:"type:uuid;index" json:"provider_user_id"`
-	IPAddress        string    `gorm:"type:varchar(45)" json:"ip_address"`
-	CountryCode      string    `gorm:"type:varchar(10)" json:"country_code"`
-	Region           string    `gorm:"type:varchar(100)" json:"region"`
-	City             string    `gorm:"type:varchar(100)" json:"city"`
-	ISP              string    `gorm:"type:varchar(100)" json:"isp"`
-	ConnectionType   string    `gorm:"type:varchar(50)" json:"connection_type"` // residential, mobile, datacenter
-	IsHealthy        bool      `gorm:"default:true" json:"is_healthy"`
-	ActiveConnections int      `json:"active_connections"`
-	MaxConnections   int       `gorm:"default:100" json:"max_connections"`
-	LatencyMs        int       `json:"latency_ms"`
-	TotalBytesUp     int64     `json:"total_bytes_up"`
-	TotalBytesDown   int64     `json:"total_bytes_down"`
-	UptimePercent    float64   `gorm:"default:100" json:"uptime_percent"`
-	SuccessRate      float64   `gorm:"default:1.0" json:"success_rate"`
-	QualityScore     float64   `gorm:"default:100" json:"quality_score"`
-	LastSeenAt       time.Time `json:"last_seen_at"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ProviderUserID    uuid.UUID `gorm:"type:uuid;index" json:"provider_user_id"`
+	IPAddress         string    `gorm:"type:varchar(45)" json:"ip_address"`
+	Port              int       `json:"port"`
+	Protocol          string    `gorm:"type:varchar(10);default:'http'" json:"protocol"`
+	CountryCode       string    `gorm:"type:varchar(10)" json:"country_code"`
+	Region            string    `gorm:"type:varchar(100)" json:"region"`
+	City              string    `gorm:"type:varchar(100)" json:"city"`
+	ISP               string    `gorm:"type:varchar(100)" json:"isp"`
+	ConnectionType    string    `gorm:"type:varchar(50)" json:"connection_type"` // residential, mobile, datacenter
+	IsHealthy         bool      `gorm:"default:true" json:"is_healthy"`
+	ActiveConnections int       `json:"active_connections"`
+	MaxConnections    int       `gorm:"default:100" json:"max_connections"`
+	LatencyMs         int       `json:"latency_ms"`
+	TotalBytesUp      int64     `json:"total_bytes_up"`
+	TotalBytesDown    int64     `json:"total_bytes_down"`
+	UptimePercent     float64   `gorm:"default:100" json:"uptime_percent"`
+	SuccessRate       float64   `gorm:"default:1.0" json:"success_rate"`
+	QualityScore      float64   `gorm:"default:100" json:"quality_score"`
+	LastSeenAt        time.Time `json:"last_seen_at"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	// On-Chain Registry
+	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
+	NetUID              int    `json:"net_uid"`
+	Hotkey              string `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
 }
 
 func (n *Node) BeforeCreate(tx *gorm.DB) (err error) {

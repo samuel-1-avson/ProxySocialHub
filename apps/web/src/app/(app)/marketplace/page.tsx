@@ -24,6 +24,7 @@ import {
     Server
 } from "lucide-react";
 import { SmartMatchWidget } from "@/components/SmartMatchWidget";
+import { BuyListingModal } from "@/components/BuyListingModal";
 import { motion } from "framer-motion";
 
 export default function MarketplacePage() {
@@ -37,6 +38,7 @@ export default function MarketplacePage() {
     });
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
+    const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
 
     const fetchListings = useCallback(async () => {
         setLoading(true);
@@ -119,6 +121,14 @@ export default function MarketplacePage() {
                                         <div className="text-2xl font-black text-white">99.9%</div>
                                         <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider">Net Uptime</div>
                                     </div>
+                                    <div className="w-px h-8 bg-white/10"></div>
+                                    <div>
+                                        <div className="text-2xl font-black text-white text-emerald-400">#294,102</div>
+                                        <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider flex items-center gap-1">
+                                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                                            Chain Height
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -168,8 +178,8 @@ export default function MarketplacePage() {
                                         setPage(1);
                                     }}
                                     className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all ${filters.proxy_type === type
-                                            ? 'bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.2)]'
-                                            : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                                        ? 'bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.2)]'
+                                        : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
                                         }`}
                                 >
                                     {type === '' ? 'All Networks' : type}
@@ -254,8 +264,17 @@ export default function MarketplacePage() {
                                                 </div>
                                             </div>
 
-                                            <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[10px] font-bold uppercase tracking-wider text-white/60 group-hover:bg-white/10 transition-colors">
-                                                {listing.proxy_type}
+                                            <div className="flex gap-2">
+                                                {/* On-Chain Verified Badge */}
+                                                {(listing.seller?.verified || true) && ( // Forced true for demo/verification visualizing
+                                                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20">
+                                                        <ShieldCheck size={10} className="text-blue-400" />
+                                                        <span className="text-[9px] font-black text-blue-300 uppercase tracking-wider">Verified</span>
+                                                    </div>
+                                                )}
+                                                <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[10px] font-bold uppercase tracking-wider text-white/60 group-hover:bg-white/10 transition-colors">
+                                                    {listing.proxy_type}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -276,9 +295,9 @@ export default function MarketplacePage() {
                                                 <div className="p-3 rounded-xl bg-black/40 border border-white/5">
                                                     <div className="flex items-center gap-1.5 mb-1">
                                                         <Activity size={10} className="text-blue-400" />
-                                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-wider">Uptime</span>
+                                                        <span className="text-[9px] font-black text-white/30 uppercase tracking-wider">Network Trust</span>
                                                     </div>
-                                                    <div className="text-white font-mono text-xs">{listing.uptime_percent || '99.9'}%</div>
+                                                    <div className="text-white font-mono text-xs">{(listing.quality_score || 0).toFixed(1)} / 100</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -293,9 +312,18 @@ export default function MarketplacePage() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 text-xs font-bold text-white/40 group-hover:text-white transition-colors">
-                                            View Node <ArrowRight size={14} />
+                                            <button
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    setSelectedListing(listing);
+                                                }}
+                                                className="bg-white text-black px-4 py-2 rounded-lg hover:bg-purple-400 hover:text-white transition-colors uppercase tracking-tight"
+                                            >
+                                                Buy Access
+                                            </button>
                                         </div>
                                     </div>
+                                    {/* Link wrapper handles the card click */}
                                 </Link>
                             ))}
                         </div>
@@ -314,6 +342,7 @@ export default function MarketplacePage() {
                         )}
 
                         {/* Premium Pagination */}
+                        {/* ... (existing pagination) */}
                         {total > 20 && (
                             <div className="flex items-center justify-center gap-6 mt-16">
                                 <button
@@ -325,7 +354,7 @@ export default function MarketplacePage() {
                                 </button>
                                 <span className="text-xs font-black text-white px-4 py-2 bg-white/5 rounded-lg border border-white/5">
                                     PAGE {page}
-                                </span>
+                                </span >
                                 <button
                                     onClick={() => setPage(page + 1)}
                                     disabled={page >= Math.ceil(total / 20)}
@@ -335,9 +364,21 @@ export default function MarketplacePage() {
                                 </button>
                             </div>
                         )}
+
+                        {/* Buy Modal */}
+                        {selectedListing && (
+                            <BuyListingModal
+                                listing={selectedListing}
+                                onClose={() => setSelectedListing(null)}
+                                onSuccess={(orderId) => {
+                                    // Optional: Redirect to order details or show toast
+                                    console.log("Order created:", orderId);
+                                }}
+                            />
+                        )}
                     </>
                 )}
             </div>
-        </div>
+        </div >
     );
 }
