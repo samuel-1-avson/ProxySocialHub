@@ -213,7 +213,10 @@ func getUserUsage(c *gin.Context) {
 		sessionIDs[i] = s.CredentialsUser
 	}
 
+	redisStart := time.Now()
 	usageMap, err := redisClient.GetBatchUsage(sessionIDs)
+	RecordRedisBatchFetch(time.Since(redisStart).Seconds())
+
 	if err != nil {
 		logging.Error(err).Msg("Failed to batch fetch usage")
 		// Continue with 0 usage on error
