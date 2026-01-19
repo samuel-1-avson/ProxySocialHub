@@ -26,16 +26,17 @@ type UseCaseProfile struct {
 	WeightPrice      float64 // Penalize high price (future)
 }
 
-// ScoredNode represents a provider node with its calculated match score
+// ScoredNode represents a proxy listing with its calculated match score
 type ScoredNode struct {
-	Node   models.ProviderNode `json:"node"`
-	Score  float64             `json:"match_score"` // 0.0 to 100.0
-	Reason []string            `json:"match_reasons"`
+	Listing models.ProxyListing `json:"listing"`
+	Score   float64             `json:"score"` // 0.0 to 100.0
+	Reason  []string            `json:"reasons"`
 }
 
 // RecommendationRequest is the input for the matching engine
 type RecommendationRequest struct {
-	UseCase UseCaseType `json:"use_case" binding:"required"`
-	Region  string      `json:"region"` // Optional limit by region
-	Count   int         `json:"count"`  // Number of recommendations (default 5)
+	UseCase  UseCaseType `json:"use_case" binding:"required"`
+	Region   string      `json:"region"`    // Optional limit by region
+	MaxPrice float64     `json:"max_price"` // Optional price limit
+	Count    int         `json:"count"`     // Number of recommendations (default 5)
 }

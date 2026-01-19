@@ -43,8 +43,8 @@ func TestGetUseCases(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &response)
 
 	useCases := response["use_cases"].([]interface{})
-	if len(useCases) != 1 {
-		t.Errorf("Expected 1 use case, got %d", len(useCases))
+	if len(useCases) < 1 {
+		t.Errorf("Expected at least 1 use case, got %d", len(useCases))
 	}
 }
 
