@@ -69,14 +69,14 @@ export default function AppLayout({
 
             <div className="flex relative z-10">
                 {/* Sidebar - Desktop */}
-                <aside className="hidden lg:flex w-72 min-h-screen flex-col bg-[var(--background)] border-r-2 border-[var(--foreground)] fixed left-0 top-0 bottom-0 z-40">
+                <aside className="hidden lg:flex w-72 min-h-screen flex-col bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)] border-r border-[var(--glass-border)] fixed left-0 top-0 bottom-0 z-40">
                     {/* Logo Area */}
-                    <div className="h-20 flex items-center px-8 border-b-2 border-[var(--foreground)]">
+                    <div className="h-20 flex items-center px-8">
                         <Link href="/dashboard" className="flex items-center gap-3 group">
-                            <div className="w-10 h-10 bg-[var(--primary)] flex items-center justify-center text-white font-bold text-lg font-mono border-2 border-[var(--foreground)] shadow-[4px_4px_0_var(--foreground)] group-hover:translate-x-0.5 group-hover:translate-y-0.5 group-hover:shadow-[2px_2px_0_var(--foreground)] transition-all">
+                            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm shadow-[0_0_20px_rgba(34,197,94,0.3)] group-hover:shadow-[0_0_30px_rgba(34,197,94,0.5)] transition-all duration-500">
                                 PS
                             </div>
-                            <span className="font-bold text-xl tracking-tight text-[var(--foreground)] font-mono">
+                            <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
                                 ProxyHub
                             </span>
                         </Link>
@@ -85,42 +85,48 @@ export default function AppLayout({
                     {/* Navigation */}
                     <nav className="flex-1 px-4 py-8 space-y-8 overflow-y-auto no-scrollbar">
                         <div>
-                            <div className="text-xs font-bold text-[var(--foreground)] uppercase tracking-widest mb-4 px-4 font-mono">Navigation</div>
-                            <div className="space-y-2">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-4 px-4 opacity-50">Navigation</div>
+                            <div className="space-y-1">
                                 {navItems.map((item) => (
                                     <Link
                                         key={item.href}
                                         href={item.href}
-                                        className={`flex items-center gap-3 px-4 py-3 border-2 transition-all duration-200 group relative font-medium text-sm ${isActive(item.href)
-                                            ? 'bg-[var(--primary)] border-[var(--foreground)] text-white shadow-[4px_4px_0_var(--foreground)] -translate-y-1'
-                                            : 'bg-transparent border-transparent text-[var(--text-secondary)] hover:border-[var(--foreground)] hover:bg-[var(--card)] hover:text-[var(--foreground)] hover:shadow-[4px_4px_0_var(--foreground)] hover:-translate-y-1'
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group relative ${isActive(item.href)
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-foreground hover:text-white hover:bg-white/[0.03]'
                                             }`}
                                     >
-                                        <span className={`transition-transform duration-300 ${isActive(item.href) ? 'text-white' : 'text-[var(--text-muted)] group-hover:text-[var(--foreground)]'}`}>
+                                        {isActive(item.href) && (
+                                            <div className="absolute left-0 w-1 h-6 bg-primary rounded-full -translate-x-1"></div>
+                                        )}
+                                        <span className={`transition-transform duration-300 group-hover:scale-110 ${isActive(item.href) ? 'text-primary' : 'text-muted-foreground/70 group-hover:text-white'}`}>
                                             {item.icon}
                                         </span>
-                                        <span className={isActive(item.href) ? "font-bold" : ""}>{item.label}</span>
+                                        <span className="font-medium text-sm">{item.label}</span>
                                     </Link>
                                 ))}
                             </div>
                         </div>
 
                         <div>
-                            <div className="text-xs font-bold text-[var(--foreground)] uppercase tracking-widest mb-4 px-4 font-mono">Account</div>
-                            <div className="space-y-2">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-4 px-4 opacity-50">Account</div>
+                            <div className="space-y-1">
                                 {subItems.map((item) => (
                                     <Link
                                         key={item.href}
                                         href={item.href}
-                                        className={`flex items-center gap-3 px-4 py-3 border-2 transition-all duration-200 group relative font-medium text-sm ${isActive(item.href)
-                                            ? 'bg-[var(--primary)] border-[var(--foreground)] text-white shadow-[4px_4px_0_var(--foreground)] -translate-y-1'
-                                            : 'bg-transparent border-transparent text-[var(--text-secondary)] hover:border-[var(--foreground)] hover:bg-[var(--card)] hover:text-[var(--foreground)] hover:shadow-[4px_4px_0_var(--foreground)] hover:-translate-y-1'
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group relative ${isActive(item.href)
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-foreground hover:text-white hover:bg-white/[0.03]'
                                             }`}
                                     >
-                                        <span className={`transition-transform duration-300 ${isActive(item.href) ? 'text-white' : 'text-[var(--text-muted)] group-hover:text-[var(--foreground)]'}`}>
+                                        {isActive(item.href) && (
+                                            <div className="absolute left-0 w-1 h-6 bg-primary rounded-full -translate-x-1"></div>
+                                        )}
+                                        <span className={`transition-transform duration-300 group-hover:scale-110 ${isActive(item.href) ? 'text-primary' : 'text-muted-foreground/70 group-hover:text-white'}`}>
                                             {item.icon}
                                         </span>
-                                        <span className={isActive(item.href) ? "font-bold" : ""}>{item.label}</span>
+                                        <span className="font-medium text-sm">{item.label}</span>
                                     </Link>
                                 ))}
                             </div>
@@ -128,32 +134,33 @@ export default function AppLayout({
                     </nav>
 
                     {/* User Footer */}
-                    <div className="p-4 border-t-2 border-[var(--foreground)] bg-[var(--card)]">
-                        <div className="flex items-center gap-3 p-3 border-2 border-[var(--foreground)] shadow-[4px_4px_0_var(--foreground)] bg-[var(--background)]">
+                    <div className="p-4 bg-white/[0.02] border-t border-white/5">
+                        <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/5 ring-1 ring-white/5">
                             <div className="relative">
                                 {user?.user_metadata?.avatar_url ? (
                                     <img
                                         src={user.user_metadata.avatar_url}
                                         alt="Avatar"
-                                        className="w-10 h-10 border-2 border-[var(--foreground)] object-cover"
+                                        className="w-10 h-10 rounded-full object-cover ring-2 ring-white/10"
                                     />
                                 ) : (
-                                    <div className="w-10 h-10 bg-[var(--primary-light)] border-2 border-[var(--foreground)] flex items-center justify-center text-[var(--foreground)] text-xs font-bold">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center text-primary text-xs font-bold ring-2 ring-primary/20">
                                         {(user?.user_metadata?.full_name?.[0] || user?.email?.[0] || 'U').toUpperCase()}
                                     </div>
                                 )}
+                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#050505]"></div>
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="text-sm font-bold truncate text-[var(--foreground)]">
+                                <div className="text-sm font-semibold truncate text-white">
                                     {user?.user_metadata?.full_name || user?.email?.split('@')[0]}
                                 </div>
-                                <div className="text-[10px] text-[var(--text-muted)] truncate uppercase tracking-wider font-mono">
+                                <div className="text-[10px] text-muted-foreground truncate uppercase tracking-wider font-bold opacity-60">
                                     {user?.email?.split('@')[1] || 'PRO USER'}
                                 </div>
                             </div>
                             <button
                                 onClick={() => logout()}
-                                className="p-2 text-[var(--text-secondary)] hover:text-[var(--error)] hover:bg-red-50 rounded transition-all"
+                                className="p-2 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"
                             >
                                 <LogOut size={18} />
                             </button>
@@ -164,18 +171,18 @@ export default function AppLayout({
                 {/* Main Content Area */}
                 <div className="flex-1 lg:ml-72 flex flex-col min-h-screen">
                     {/* Top Header - Desktop only */}
-                    <header className="hidden lg:flex h-20 items-center justify-between px-10 sticky top-0 z-30 bg-[var(--background)] border-b-2 border-[var(--foreground)]">
-                        <h2 className="text-2xl font-bold text-[var(--foreground)] tracking-tight font-mono">
+                    <header className="hidden lg:flex h-20 items-center justify-between px-10 sticky top-0 z-30 bg-[var(--background)]/60 backdrop-blur-[var(--glass-blur)] border-b border-[var(--glass-border)]">
+                        <h2 className="text-xl font-bold text-[var(--foreground)] tracking-tight">
                             {getPageTitle()}
                         </h2>
                         <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-xl border border-white/10">
                                 <Link
                                     href="/notifications"
-                                    className="p-2.5 text-[var(--foreground)] hover:bg-[var(--card)] border-2 border-transparent hover:border-[var(--foreground)] hover:shadow-[4px_4px_0_var(--foreground)] rounded transition-all relative"
+                                    className="p-2.5 text-muted-foreground hover:text-white hover:bg-white/5 rounded-lg transition-all relative"
                                 >
                                     <Bell size={20} />
-                                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-[var(--primary)] border border-white"></span>
+                                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-[#050505]"></span>
                                 </Link>
                                 <ModeToggle />
                             </div>

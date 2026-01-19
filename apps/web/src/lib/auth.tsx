@@ -133,7 +133,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: apiUser.email,
         role: apiUser.role,
         app_metadata: {},
-        user_metadata: {},
+        user_metadata: {
+          username: apiUser.username,
+          avatar_url: apiUser.avatar_url,
+          // Map other fields if necessary
+        },
         aud: 'authenticated',
         created_at: new Date().toISOString()
       } as unknown as User;
