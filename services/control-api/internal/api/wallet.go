@@ -251,17 +251,23 @@ func getWallet(c *gin.Context) {
 
 			userEmail := c.GetString("userEmail")
 			username := strings.Split(userEmail, "@")[0]
+			// Append part of UUID to username to ensure uniqueness and avoid collision errors
+			if len(userIDStr) >= 8 {
+				username = fmt.Sprintf("%s_%s", username, userIDStr[:8])
+			}
 
 			user = models.User{
 				ID:        userID,
 				Email:     userEmail,
-				Username:  &username, // Fix: Ensure username is set
+				Username:  &username,
 				TrustTier: models.TrustTierNew,
 				Role:      c.GetString("userRole"),
 			}
-			// Attempt to create user, log error if it fails (could be race condition)
+			// Attempt to create user, log error if it fails
 			if err := db.DB.Create(&user).Error; err != nil {
 				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed")
+				// If this fails, wallet creation below will likely fail with FK violation
+				// We can return error here to be clearer, or let it fall through
 			}
 		}
 
