@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"strings"
@@ -212,6 +213,14 @@ type TransactionDTO struct {
 }
 
 func getWallet(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error(fmt.Errorf("panic in getWallet: %v", r)).Msg("Recovered from panic")
+			// Print stack trace for debugging
+			debug.PrintStack()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal Server Error (Panic): %v", r)})
+		}
+	}()
 	// Get user ID from JWT token
 	userIDStr := c.GetString("userID")
 	logging.Info().Str("user_id", userIDStr).Msg("getWallet: Request received")
