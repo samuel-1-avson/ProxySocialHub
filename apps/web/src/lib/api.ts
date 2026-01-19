@@ -225,7 +225,8 @@ export async function getFriends(): Promise<Friendship[]> {
 export async function getWallet(): Promise<Wallet> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/`);
   if (!response.ok) throw new Error('Failed to fetch wallet');
-  return response.json();
+  const data = await response.json();
+  return data.wallet;
 }
 
 export async function depositWallet(amount: number, email: string): Promise<{ status: string; reference: string; message: string; authorization_url: string }> {
