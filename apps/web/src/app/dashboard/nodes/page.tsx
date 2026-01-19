@@ -23,7 +23,6 @@ import { ProviderNode } from "@/lib/api";
 function NodesContent() {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
-    const [signalLogs, setSignalLogs] = useState<{ id: number; msg: string; type: string }[]>([]);
     const [realNodes, setNodes] = useState<ProviderNode[]>([]);
 
     useEffect(() => {
@@ -41,41 +40,26 @@ function NodesContent() {
             }
         };
         fetchNodes();
-
-        // Simulate signal pulse stream
-        const interval = setInterval(() => {
-            const logs = [
-                "Handshake established with Node-88 (Accra)",
-                "Signal stability optimized in Sector 4",
-                "Traffic rotation active on 1,492 nodes",
-                "New mobile terminal discovered in Kumasi",
-                "Encryption keys rotated for active sessions",
-            ];
-            const randomMsg = logs[Math.floor(Math.random() * logs.length)];
-            setSignalLogs(prev => [{ id: Date.now(), msg: randomMsg, type: "info" }, ...prev].slice(0, 5));
-        }, 3000);
-
-        return () => {
-            clearInterval(interval);
-        };
     }, []);
 
-    // Map Real Nodes to UI format or fallback to mock
-    // Note: ProviderNode type might not strictly match the UI needs, so we map loosely
-    const displayNodes = realNodes.length > 0 ? realNodes.map(n => ({
+    // Map Real Nodes to UI format
+    const displayNodes = realNodes.map(n => ({
         id: `node-${n.id.substring(0, 4)}`,
         location: n.city || "Unknown",
-        type: "Residential", // Default
+        type: "Residential", // Default as mostly residential
         status: n.status === "online" ? "online" : "offline",
         latency: `${n.latency_ms}ms`,
-        throughput: "1Gbps",
+        throughput: "1Gbps", // Placeholder as API doesn't return throughput yet
         uptime: `${n.uptime_percent}%`,
         trust: n.quality_score
-    })) : [
-        { id: "node-01", location: "Accra Central", type: "Residential", status: "online", latency: "12ms", throughput: "1.2Gbps", uptime: "99.9%", trust: 98 },
-        { id: "node-02", location: "Kumasi CBD", type: "Mobile", status: "online", latency: "45ms", throughput: "450Mbps", uptime: "98.5%", trust: 92 },
-        { id: "node-03", location: "Takoradi Port", type: "Datacenter", status: "maintenance", latency: "8ms", throughput: "10Gbps", uptime: "99.9%", trust: 99 },
-    ];
+    }));
+
+    // Calculate generic stats based on real nodes
+    const activeStats = {
+        connections: realNodes.reduce((acc, n) => acc + (n.active_connections || 0), 0),
+        avgLatency: realNodes.length > 0 ? Math.round(realNodes.reduce((acc, n) => acc + n.latency_ms, 0) / realNodes.length) : 0,
+        avgTrust: realNodes.length > 0 ? (realNodes.reduce((acc, n) => acc + n.quality_score, 0) / realNodes.length).toFixed(1) : "0.0"
+    };
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -91,31 +75,15 @@ function NodesContent() {
                         SYSTEM-WIDE MONITORING OF DISTRIBUTED PROXY NODES. REAL-TIME AVAILABILITY MAPPING.
                     </p>
                 </div>
-
-                {/* Signal Stream Console */}
-                <div className="lg:w-96 rounded-sm bg-black border border-primary/30 p-3 font-mono text-[10px] relative overflow-hidden shadow-[0_0_10px_rgba(34,197,94,0.1)]">
-                    <div className="absolute top-0 right-0 p-1 opacity-50">
-                        <Terminal size={12} className="text-primary" />
-                    </div>
-                    <div className="space-y-1 h-20 overflow-hidden flex flex-col justify-end">
-                        {signalLogs.map(log => (
-                            <div key={log.id} className="text-primary/80 truncate flex gap-2">
-                                <span className="text-primary/40">{`>`}</span>
-                                {log.msg}
-                            </div>
-                        ))}
-                        {signalLogs.length === 0 && <span className="text-primary/40 animate-pulse">Waiting for telemetry...</span>}
-                    </div>
-                </div>
             </div>
 
             {/* Network Overview Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { label: "Active Connections", value: "1,294", icon: Activity },
-                    { label: "Global Throughput", value: "14.2 Tbps", icon: Zap },
-                    { label: "Avg Latency", value: "24ms", icon: Cpu },
-                    { label: "Trust Score", value: "98.2", icon: Shield },
+                    { label: "Active Connections", value: activeStats.connections.toLocaleString(), icon: Activity },
+                    { label: "Total Nodes", value: realNodes.length.toString(), icon: Zap },
+                    { label: "Avg Latency", value: `${activeStats.avgLatency}ms`, icon: Cpu },
+                    { label: "Avg Trust Score", value: activeStats.avgTrust, icon: Shield },
                 ].map((stat, i) => (
                     <div key={i} className="card-retro p-4 bg-card group hover:border-primary transition-all">
                         <div className="flex justify-between items-start mb-2">
@@ -159,6 +127,12 @@ function NodesContent() {
                     Array.from({ length: 6 }).map((_, i) => (
                         <div key={i} className="h-[200px] border-2 border-dashed border-border bg-secondary/10 animate-pulse rounded-sm"></div>
                     ))
+                ) : displayNodes.length === 0 ? (
+                    <div className="col-span-full py-20 text-center border-2 border-dashed border-border rounded-sm">
+                        <Server size={32} className="mx-auto text-muted-foreground mb-4 opacity-50" />
+                        <p className="font-mono text-lg font-bold uppercase">No Active Nodes</p>
+                        <p className="font-mono text-xs text-muted-foreground mt-2">DEPLOY A NODE OR ADJUST FILTERS.</p>
+                    </div>
                 ) : (
                     displayNodes.map((node) => (
                         <div key={node.id} className="card-retro p-6 bg-card group hover:border-primary transition-all relative overflow-hidden">
@@ -169,8 +143,8 @@ function NodesContent() {
                             <div className="relative z-10">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className={`px-2 py-0.5 rounded-sm border text-[10px] font-mono font-bold uppercase flex items-center gap-2 ${node.status === "online"
-                                            ? "bg-green-500/10 text-green-500 border-green-500/20"
-                                            : "bg-red-500/10 text-red-500 border-red-500/20"
+                                        ? "bg-green-500/10 text-green-500 border-green-500/20"
+                                        : "bg-red-500/10 text-red-500 border-red-500/20"
                                         }`}>
                                         <div className={`w-1.5 h-1.5 rounded-full ${node.status === "online" ? "bg-green-500 animate-pulse" : "bg-red-500"}`}></div>
                                         {node.status}
@@ -218,7 +192,7 @@ function NodesContent() {
             </div>
 
             {/* Action Bar */}
-            {!loading && (
+            {!loading && displayNodes.length > 0 && (
                 <div className="flex justify-center pt-8">
                     <button className="btn-retro btn-retro-outline px-8 py-3 flex items-center gap-2 group">
                         ACCESS MORE SECTORS
