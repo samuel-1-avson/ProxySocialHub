@@ -256,9 +256,19 @@ func listSessions(c *gin.Context) {
 	sessionResponses := make([]gin.H, len(sessions))
 	for i, session := range sessions {
 		usage, _ := redisClient.GetUsage(session.CredentialsUser)
+
+		// Fallback limit if not in Redis (re-fetch logic duplicate but safer for list)
+		// Ideally we trust what's in Redis or Session Config, but for list view lightweight is okay
+		limit := int64(0)
+		sData, _ := redisClient.GetSession(session.CredentialsUser)
+		if sData != nil {
+			limit = sData.BandwidthLimit
+		}
+
 		sessionResponses[i] = gin.H{
-			"session":        session,
-			"bandwidth_used": usage,
+			"session":         session,
+			"bandwidth_used":  usage,
+			"bandwidth_limit": limit,
 		}
 	}
 
