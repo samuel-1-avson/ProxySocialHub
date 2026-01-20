@@ -110,7 +110,7 @@ export const circles = {
 
 export const marketplace = {
     getListings: async (params: any) => {
-        const response = await api.get<{ listings: Listing[]; total: number }>("/marketplace", { params });
+        const response = await api.get<{ listings: Listing[]; total: number }>("/listings", { params });
         return response.data;
     },
     buy: async (listingId: string, amount: number) => {

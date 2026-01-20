@@ -17,21 +17,22 @@ func SeedAll() {
 		return
 	}
 
-	log.Println("Seeding Users...")
-	seedUsers()
-	log.Println("Seeding Listings...")
-	seedListings()
-	log.Println("Seeding Nodes...")
-	seedNodes()
-	log.Println("Seeding Wallet & Transactions...")
-	seedWallet()
-	log.Println("Seeding Sessions & Usage...")
-	seedSessionsAndUsage()
-	log.Println("Seeding Market Agents...")
-	seedMarketAgents()
+	log.Println("Seeding Admin User...")
+	seedUsers() // Only seeds admin/critical users if missing
+	// log.Println("Seeding Listings...")
+	// seedListings()
+	// log.Println("Seeding Nodes...")
+	// seedNodes()
+	// log.Println("Seeding Wallet & Transactions...")
+	// seedWallet()
+	// log.Println("Seeding Sessions & Usage...")
+	// seedSessionsAndUsage()
+	// log.Println("Seeding Market Agents...")
+	// seedMarketAgents()
+
 	log.Println("Seeding Badges...")
 	seedBadges()
-	log.Println("Database seeding completed")
+	log.Println("Database seeding completed (Mock data disabled)")
 }
 
 func seedUsers() {
