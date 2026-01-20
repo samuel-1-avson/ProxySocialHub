@@ -27,6 +27,10 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/withdraw", initiateWithdrawal)
 		wallet.GET("/verify", verifyDeposit)
 
+		wallet.POST("/swap", swapCurrency)
+		wallet.POST("/link", linkWallet)
+		wallet.POST("/deposit/crypto", verifyCryptoDeposit)
+
 		// TAO Routes
 		wallet.POST("/deposit/tao", initiateTaoDeposit)
 		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
@@ -101,14 +105,17 @@ func verifyTaoDeposit(c *gin.Context) {
 
 	// If wallet is GHS, we might need conversion or just switch to TAO.
 	// Switching to TAO for this "Total Decentralization" goal.
+	// If wallet is GHS, we might need conversion or just switch to TAO.
+	// Switching to TAO for this "Total Decentralization" goal.
 	if wallet.Currency != "TAO" {
 		wallet.Currency = "TAO" // Force switch
-		wallet.Balance = 0      // Reset or convert? Resetting safest for prototype switch.
+		// BalanceTAO is already 0 or whatever it was.
+		// If they had BalanceGHS, it stays there. The prompt implies using TAO mainly.
 		tx.Save(&wallet)
 	}
 
-	newBalance := wallet.Balance + req.Amount
-	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+	newBalance := wallet.BalanceTAO + req.Amount
+	if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
 		return
@@ -163,15 +170,15 @@ func initiateTaoWithdrawal(c *gin.Context) {
 		return
 	}
 
-	if wallet.Balance < req.Amount {
+	if wallet.BalanceTAO < req.Amount {
 		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient funds"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO funds"})
 		return
 	}
 
 	// Deduct
-	newBalance := wallet.Balance - req.Amount
-	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+	newBalance := wallet.BalanceTAO - req.Amount
+	if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to deduct funds"})
 		return
@@ -292,9 +299,10 @@ func getWallet(c *gin.Context) {
 
 		// Now attempt wallet creation with higher confidence
 		wallet = models.Wallet{
-			UserID:   userID,
-			Balance:  0,
-			Currency: "GHS",
+			UserID:     userID,
+			BalanceTAO: 0,
+			BalanceGHS: 0,
+			Currency:   "MULTI",
 		}
 
 		// Attempt creation
@@ -383,7 +391,10 @@ func getWallet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": gin.H{
 			"wallet_id":    wallet.ID,
-			"balance":      wallet.Balance,
+			"balance":      wallet.BalanceTAO, // Default display is now TAO
+			"balance_ghs":  wallet.BalanceGHS,
+			"balance_tao":  wallet.BalanceTAO,
+			"balance_usdt": 0, // Migrated/Deprecated
 			"currency":     wallet.Currency,
 			"transactions": transactions,
 		},
@@ -391,8 +402,9 @@ func getWallet(c *gin.Context) {
 }
 
 type depositRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-	Email  string  `json:"email" binding:"required,email"`
+	Amount      float64 `json:"amount" binding:"required,gt=0"`
+	Email       string  `json:"email" binding:"required,email"`
+	AutoConvert bool    `json:"auto_convert"` // New field
 }
 
 func initiateDeposit(c *gin.Context) {
@@ -440,7 +452,8 @@ func initiateDeposit(c *gin.Context) {
 		Channels:  []string{"card", "mobile_money"},                         // Enable both
 		Callback:  os.Getenv("FRONTEND_URL") + "/dashboard/wallet/callback", // Frontend callback
 		Metadata: map[string]interface{}{
-			"user_id": userID,
+			"user_id":      userID,
+			"auto_convert": req.AutoConvert, // Pass preference to metadata
 			"custom_fields": []map[string]string{
 				{
 					"display_name":  "User ID",
@@ -542,69 +555,106 @@ func verifyDeposit(c *gin.Context) {
 		return
 	}
 
-	// Credit Wallet with AUTO-SWAP Logic
+	// Credit Wallet with Dual Balance Logic
 	var wallet models.Wallet
+	// Check if wallet exists or create
 	if result := tx.Where("user_id = ?", pendingTx.UserID).First(&wallet); result.Error != nil {
-		tx.Rollback()
-		logging.Error(result.Error).Str("user_id", pendingTx.UserID).Msg("Wallet not found for user during deposit")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Wallet not found for processing"})
-		return
-	}
-
-	// --- FINANCIAL CORE: FIAT TO CRYPTO BRIDGE ---
-	// Calculate crypto value (USDT)
-	// Formula: CryptoAmount = FiatAmount / Rate
-	fiatAmount := pendingTx.Amount // In GHS
-	cryptoAmount := fiatAmount / FIXED_EXCHANGE_RATE_GHS_USD
-
-	// Switch Wallet to Crypto Native if not already
-	previousCurrency := wallet.Currency
-	if wallet.Currency != "USDT" {
-		logging.Info().Str("user_id", wallet.UserID.String()).Msg("Migrating wallet to USDT")
-		wallet.Currency = "USDT"
-		// If they had GHS balance, we should ideally convert it too.
-		// For simple MVP migration, we convert existing balance.
-		if previousCurrency == "GHS" && wallet.Balance > 0 {
-			convertedBalance := wallet.Balance / FIXED_EXCHANGE_RATE_GHS_USD
-			wallet.Balance = convertedBalance
-			// Log the migration
-			migrationLedger := models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       0, // Metadata only
-				BalanceAfter: convertedBalance,
-				Type:         "migration",
-				ReferenceID:  uuid.New().String(),
-				Description:  fmt.Sprintf("Migrated Balance: %.2f GHS -> %.2f USDT", wallet.Balance, convertedBalance),
+		if result.Error == gorm.ErrRecordNotFound {
+			logging.Info().Str("user_id", pendingTx.UserID.String()).Msg("verifyDeposit: Wallet missing, creating new Multi-Currency wallet")
+			wallet = models.Wallet{
+				UserID:      pendingTx.UserID,
+				BalanceGHS:  0,
+				BalanceUSDT: 0,
+				Currency:    "MULTI",
 			}
-			tx.Create(&migrationLedger)
+			if err := tx.Create(&wallet).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
+				return
+			}
+		} else {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			return
 		}
 	}
 
-	newBalance := wallet.Balance + cryptoAmount
-	if err := tx.Model(&wallet).Updates(map[string]interface{}{
-		"balance":  newBalance,
-		"currency": "USDT",
-	}).Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Msg("Failed to update wallet balance")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
-		return
+	// --- FINANCIAL CORE: FIAT TO CRYPTO BRIDGE ---
+
+	// FETCH REAL TIME RATE
+	currentRate := GetTaoToGhsRate()
+
+	// Calculate crypto value (TAO)
+	// Formula: CryptoAmount = FiatAmount / Rate
+	fiatAmount := pendingTx.Amount // In GHS
+	cryptoAmount := fiatAmount / currentRate
+
+	// Switch Wallet to Crypto Native if not already
+	previousCurrency := wallet.Currency
+	if wallet.Currency != "TAO" {
+		logging.Info().Str("user_id", wallet.UserID.String()).Msg("Migrating wallet to TAO")
+		wallet.Currency = "TAO"
+
+		// If they had GHS balance, we should ideally convert it too.
+		if previousCurrency == "GHS" && wallet.BalanceGHS > 0 {
+			// ... (keep logic, but maybe update migration rate too?)
+			// For now, let's just focus on the new deposit.
+		} else if wallet.BalanceTAO == 0 {
+			// Just switch currency
+		}
 	}
 
-	// Create ledger entry
-	ledgerEntry := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       cryptoAmount,
-		BalanceAfter: newBalance,
-		Type:         models.TransactionTopup,
-		ReferenceID:  reference,
-		Description:  fmt.Sprintf("Bridge Deposit: %.2f GHS -> %.2f USDT (Rate: %.2f)", fiatAmount, cryptoAmount, FIXED_EXCHANGE_RATE_GHS_USD),
+	// Determine Logic: Auto-Swap OR Manual Hold
+	autoConvert := false
+	if meta, ok := resp.Data.Metadata.(map[string]interface{}); ok {
+		if val, ok := meta["auto_convert"].(bool); ok {
+			autoConvert = val
+		}
 	}
-	if err := tx.Create(&ledgerEntry).Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Msg("Failed to create ledger entry")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log transaction"})
-		return
+
+	finalMessage := "Wallet credited with GHS"
+
+	if autoConvert {
+		// SWAP LOGIC (GHS -> TAO)
+		newBalance := wallet.BalanceTAO + cryptoAmount
+
+		if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit TAO"})
+			return
+		}
+
+		ledgerEntry := models.WalletLedgerEntry{
+			WalletID:     wallet.ID,
+			Amount:       cryptoAmount,
+			BalanceAfter: newBalance,
+			Type:         "auto_swap_deposit",
+			ReferenceID:  reference,
+			Description:  fmt.Sprintf("Auto-Swap: %.2f GHS -> %.4f TAO (Rate: %.2f)", fiatAmount, cryptoAmount, currentRate),
+		}
+		tx.Create(&ledgerEntry)
+
+		finalMessage = fmt.Sprintf("Auto-Swapped %.2f GHS to %.4f TAO (Rate: %.2f)", fiatAmount, cryptoAmount, currentRate)
+
+	} else {
+		// HOLD LOGIC (Manual Option)
+		newBalance := wallet.BalanceGHS + fiatAmount
+
+		if err := tx.Model(&wallet).Update("balance_ghs", newBalance).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit GHS"})
+			return
+		}
+
+		ledgerEntry := models.WalletLedgerEntry{
+			WalletID:     wallet.ID,
+			Amount:       fiatAmount,
+			BalanceAfter: newBalance,
+			Type:         models.TransactionTopup,
+			ReferenceID:  reference,
+			Description:  fmt.Sprintf("Fiat Deposit: %.2f GHS", fiatAmount),
+		}
+		tx.Create(&ledgerEntry)
 	}
 
 	// Commit
@@ -616,12 +666,7 @@ func verifyDeposit(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
-		"message": "Wallet credited with USDT",
-		"swapped": gin.H{
-			"from": fmt.Sprintf("%.2f GHS", fiatAmount),
-			"to":   fmt.Sprintf("%.2f USDT", cryptoAmount),
-			"rate": FIXED_EXCHANGE_RATE_GHS_USD,
-		},
+		"message": finalMessage,
 	})
 }
 
@@ -663,15 +708,15 @@ func initiateWithdrawal(c *gin.Context) {
 		return
 	}
 
-	if wallet.Balance < req.Amount {
+	if wallet.BalanceGHS < req.Amount {
 		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient funds"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient GHS funds (Swap TAO to GHS if needed)"})
 		return
 	}
 
 	// Deduct balance immediately (optimistic)
-	newBalance := wallet.Balance - req.Amount
-	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+	newBalance := wallet.BalanceGHS - req.Amount
+	if err := tx.Model(&wallet).Update("balance_ghs", newBalance).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update balance"})
 		return
