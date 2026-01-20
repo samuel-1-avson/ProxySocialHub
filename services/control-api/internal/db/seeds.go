@@ -131,67 +131,61 @@ func seedNodes() {
 		}
 	}
 
-	nodes := []models.Node{
+	now := time.Now()
+
+	// Use ProviderNode struct which corresponds to "provider_nodes" table
+	nodes := []models.ProviderNode{
 		{
-			// Name removed
-			ProviderUserID: provider.ID,
-			CountryCode:    "US",
-			Region:         "North America",
-			City:           "New York",
-			ISP:            "Verizon Fios",
-			IPAddress:      "192.168.1.101",
-			Port:           8080,
-			// Status removed if not present or mapped to IsHealthy? Model has IsHealthy (bool)
-			// Status:            "online", -> Model has IsHealthy
-			LatencyMs:         45,
-			UptimePercent:     99.9,
-			QualityScore:      95.0, // Model uses float64
-			ActiveConnections: 12,
-			IsHealthy:         true,
-			// LastHeartbeat -> LastSeenAt
-			LastSeenAt: time.Now(),
+			Name:                "US-East-Node-1",
+			UserID:              provider.ID,
+			Country:             "US",
+			City:                "New York",
+			IPAddress:           "192.168.1.101",
+			Status:              models.NodeOnline,
+			QualityScore:        95.0,
+			LastSeenAt:          &now,
+			TotalBandwidthGB:    12.5,
+			IsRegisteredOnChain: true,
 		},
 		{
-			ProviderUserID:    provider.ID,
-			CountryCode:       "GB",
-			Region:            "Europe",
-			City:              "London",
-			ISP:               "Virgin Media",
-			IPAddress:         "192.168.1.102",
-			Port:              8080,
-			LatencyMs:         35,
-			UptimePercent:     98.5,
-			QualityScore:      88.0,
-			ActiveConnections: 8,
-			IsHealthy:         true,
-			LastSeenAt:        time.Now(),
+			Name:                "GB-London-Node-1",
+			UserID:              provider.ID,
+			Country:             "GB",
+			City:                "London",
+			IPAddress:           "192.168.1.102",
+			Status:              models.NodeOnline,
+			QualityScore:        88.0,
+			LastSeenAt:          &now,
+			TotalBandwidthGB:    8.2,
+			IsRegisteredOnChain: true,
 		},
 		{
-			ProviderUserID:    provider.ID,
-			CountryCode:       "GH",
-			Region:            "Africa",
-			City:              "Accra",
-			ISP:               "MTN Ghana",
-			IPAddress:         "192.168.1.103",
-			Port:              8080,
-			LatencyMs:         120,
-			UptimePercent:     95.0,
-			QualityScore:      75.0,
-			ActiveConnections: 45,
-			IsHealthy:         true,
-			LastSeenAt:        time.Now(),
+			Name:                "GH-Accra-Node-1",
+			UserID:              provider.ID,
+			Country:             "GH",
+			City:                "Accra",
+			IPAddress:           "192.168.1.103",
+			Status:              models.NodeOnline,
+			QualityScore:        75.0,
+			LastSeenAt:          &now,
+			TotalBandwidthGB:    45.1,
+			IsRegisteredOnChain: true,
 		},
 	}
 
 	for _, n := range nodes {
-		var existing models.Node
-		if err := DB.Where("ip_address = ?", n.IPAddress).First(&existing).Error; err != nil {
+		var existing models.ProviderNode
+		if err := DB.Where("name = ? AND user_id = ?", n.Name, n.UserID).First(&existing).Error; err != nil {
 			n.ID = uuid.New() // Ensure UUID is generated
 			if err := DB.Create(&n).Error; err != nil {
-				log.Printf("Failed to seed node %s: %v", n.IPAddress, err)
+				log.Printf("Failed to seed provider node %s: %v", n.Name, err)
 			} else {
-				log.Printf("Seeded node: %s", n.IPAddress)
+				log.Printf("Seeded provider node: %s", n.Name)
 			}
+		} else {
+			// Update existing node to ensure fields are set
+			DB.Model(&existing).Updates(n)
+			log.Printf("Updated provider node: %s", n.Name)
 		}
 	}
 }
