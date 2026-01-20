@@ -112,6 +112,7 @@ func main() {
 		api.RegisterSubscriptionRoutes(protected)
 		api.RegisterForumRoutes(protected) // Mostly private (posting)
 		api.RegisterMessagingRoutes(protected)
+		api.RegisterFriendRoutes(protected)
 
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
