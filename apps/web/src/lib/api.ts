@@ -212,15 +212,12 @@ export interface Friendship {
   friend: {
     id: string;
     email: string;
-    username?: string; // If available
+    username?: string;
+    display_name?: string;
+    avatar_url?: string;
   };
 }
 
-export async function getFriends(): Promise<Friendship[]> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends`);
-  if (!response.ok) throw new Error('Failed to fetch friends');
-  return response.json();
-}
 
 // Wallet API (requires auth)
 export async function getWallet(): Promise<Wallet> {
@@ -745,5 +742,237 @@ export async function executeAgentJob(instanceId: string): Promise<{ message: st
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error('Failed to execute agent job');
+  return res.json();
+}
+
+// ==========================================
+// Social & Profile API
+// ==========================================
+
+export interface UserPublicProfile {
+  id: string;
+  username?: string;
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  cover_image_url?: string;
+  location?: string;
+  website?: string;
+  role: string;
+  verified: boolean;
+  followers_count: number;
+  following_count: number;
+  reviews_count: number;
+  avg_rating: number;
+  provider_since?: string;
+  total_bandwidth_sold: number;
+  created_at: string;
+  is_following?: boolean;
+}
+
+export interface FeedEvent {
+  id: string;
+  actor_id?: string;
+  event_type: string;
+  target_type?: string;
+  target_id?: string;
+  content: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata: any;
+  created_at: string;
+  actor?: {
+    display_name?: string;
+    username?: string;
+    avatar_url?: string;
+  };
+}
+
+export async function getMyProfile(): Promise<UserPublicProfile> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/profile`);
+  if (!res.ok) throw new Error('Failed to fetch profile');
+  return res.json();
+}
+
+export async function getPublicProfile(idOrUsername: string): Promise<UserPublicProfile> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/users/${idOrUsername}`);
+  if (!res.ok) throw new Error('Failed to fetch user profile');
+  return res.json();
+}
+
+export async function updateProfile(data: Partial<UserPublicProfile>): Promise<UserPublicProfile> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update profile');
+  return res.json();
+}
+
+export async function followUser(userId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/users/${userId}/follow`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to follow user');
+}
+
+export async function unfollowUser(userId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/users/${userId}/follow`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to unfollow user');
+}
+
+export async function getFeed(params?: { event_types?: string[], page?: number, limit?: number }): Promise<FeedEvent[]> {
+  const query = new URLSearchParams();
+  if (params?.page) query.append('page', params.page.toString());
+  if (params?.limit) query.append('limit', params.limit.toString());
+  if (params?.event_types) params.event_types.forEach(t => query.append('event_types', t));
+
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/feed?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch feed');
+  const data = await res.json();
+  return data.events || [];
+}
+
+export async function createFeedPost(content: string): Promise<FeedEvent> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/feed/posts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error('Failed to create post');
+  return res.json();
+}
+
+// ==========================================
+// Messaging API
+// ==========================================
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  read_at?: string;
+  created_at: string;
+  sender?: {
+    display_name?: string;
+    username?: string;
+    avatar_url?: string;
+  };
+}
+
+export interface Conversation {
+  id: string;
+  participant1: string;
+  participant2: string;
+  last_message_at: string;
+  user1?: {
+    id: string;
+    display_name?: string;
+    username?: string;
+    avatar_url?: string;
+  };
+  user2?: {
+    id: string;
+    display_name?: string;
+    username?: string;
+    avatar_url?: string;
+  };
+}
+
+export interface ConversationWithPreview {
+  conversation: Conversation;
+  last_message?: Message;
+  unread_count: number;
+  other_participant?: {
+    id: string;
+    display_name?: string;
+    username?: string;
+    avatar_url?: string;
+  };
+}
+
+export async function getConversations(): Promise<ConversationWithPreview[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/conversations`);
+  if (!res.ok) throw new Error('Failed to fetch conversations');
+  const data = await res.json();
+  return data.conversations || [];
+}
+
+export async function getMessages(conversationId: string): Promise<Message[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/conversations/${conversationId}/messages`);
+  if (!res.ok) throw new Error('Failed to fetch messages');
+  const data = await res.json();
+  return data.messages || [];
+}
+
+export async function sendMessage(conversationId: string, content: string): Promise<Message> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error('Failed to send message');
+  return res.json();
+}
+
+export async function startConversation(recipientId: string, message?: string): Promise<Conversation> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipient_id: recipientId, message: message || 'Hello!' }),
+  });
+  if (!res.ok) throw new Error('Failed to start conversation');
+  return res.json();
+}
+
+// ==========================================
+// Friend API
+// ==========================================
+
+export interface FriendRequest {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+  sender?: UserPublicProfile;
+  receiver?: UserPublicProfile;
+}
+
+export async function getFriendRequests(type: 'incoming' | 'outgoing' = 'incoming'): Promise<FriendRequest[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/friends/requests?type=${type}`);
+  if (!res.ok) throw new Error('Failed to fetch friend requests');
+  return res.json();
+}
+
+export async function sendFriendRequest(userId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/friends/request/${userId}`, {
+    method: 'POST',
+  });
+  // 409 Conflict is expected if already pending/friends, we treat as success or specific error
+  if (!res.ok && res.status !== 409) throw new Error('Failed to send friend request');
+}
+
+export async function acceptFriendRequest(requestId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/friends/request/${requestId}/accept`, {
+    method: 'PUT',
+  });
+  if (!res.ok) throw new Error('Failed to accept friend request');
+}
+
+export async function rejectFriendRequest(requestId: string): Promise<void> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/friends/request/${requestId}/reject`, {
+    method: 'PUT',
+  });
+  if (!res.ok) throw new Error('Failed to reject friend request');
+}
+
+
+export async function listFriends(): Promise<Friendship[]> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/v1/friends`);
+  if (!res.ok) throw new Error('Failed to fetch friends');
   return res.json();
 }
