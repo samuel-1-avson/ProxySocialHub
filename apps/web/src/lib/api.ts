@@ -237,6 +237,12 @@ export async function depositWallet(amount: number, email: string): Promise<{ st
   return response.json();
 }
 
+export async function verifyDeposit(reference: string): Promise<{ status: string; message: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/verify?reference=${reference}`);
+  if (!response.ok) throw new Error('Failed to verify deposit');
+  return response.json();
+}
+
 export async function withdrawWallet(amount: number, phone: string, network: string): Promise<{ status: string; reference: string; new_balance: number }> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw`, {
     method: 'POST',
