@@ -58,8 +58,8 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	if wallet.Balance <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance. Please top up to start."})
+	if wallet.BalanceTAO <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO balance. Please deposit/swap funds."})
 		return
 	}
 

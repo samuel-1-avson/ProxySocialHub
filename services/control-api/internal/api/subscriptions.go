@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -86,15 +87,19 @@ func subscribe(c *gin.Context) {
 	}
 
 	// Calculate price and period
-	var price float64
+	var priceGHS float64
 	var periodEnd time.Time
 	if req.BillingCycle == models.BillingYearly {
-		price = plan.PriceYearly
+		priceGHS = plan.PriceYearly
 		periodEnd = time.Now().AddDate(1, 0, 0)
 	} else {
-		price = plan.PriceMonthly
+		priceGHS = plan.PriceMonthly
 		periodEnd = time.Now().AddDate(0, 1, 0)
 	}
+
+	// Convert to TAO
+	rate := GetTaoToGhsRate()
+	priceTAO := priceGHS / rate
 
 	// Charge from wallet
 	var wallet models.Wallet
@@ -103,25 +108,25 @@ func subscribe(c *gin.Context) {
 		return
 	}
 
-	if wallet.Balance < price {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
+	if wallet.BalanceTAO < priceTAO {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO balance"})
 		return
 	}
 
 	tx := db.DB.Begin()
 
 	// Deduct from wallet
-	newBalance := wallet.Balance - price
-	tx.Model(&wallet).Update("balance", newBalance)
+	newBalance := wallet.BalanceTAO - priceTAO
+	tx.Model(&wallet).Update("balance_tao", newBalance)
 
 	// Create ledger entry
 	ledger := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
-		Amount:       -price,
+		Amount:       -priceTAO,
 		BalanceAfter: newBalance,
 		Type:         "subscription",
 		ReferenceID:  req.PlanID.String(),
-		Description:  "Subscription to " + plan.Name,
+		Description:  fmt.Sprintf("Subscription to %s (%.4f TAO)", plan.Name, priceTAO),
 	}
 	tx.Create(&ledger)
 

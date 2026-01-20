@@ -17,10 +17,12 @@ const (
 )
 
 type Wallet struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key"`
-	UserID    uuid.UUID `gorm:"type:uuid;unique;not null"`
-	Balance   float64   `gorm:"type:numeric(20,4);default:0"`
-	Currency  string    `gorm:"type:varchar(3);default:'GHS'"`
+	ID         uuid.UUID `gorm:"type:uuid;primary_key"`
+	UserID     uuid.UUID `gorm:"type:uuid;unique;not null"`
+	BalanceGHS float64   `gorm:"type:numeric(20,4);default:0"` // Fiat Holding
+	BalanceTAO float64   `gorm:"type:numeric(20,4);default:0"` // AI-Native Holding (BitTensor)
+	// Deprecating single Balance/Currency fields in favor of explicit columns
+	Currency  string `gorm:"type:varchar(10);default:'MULTI'"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
