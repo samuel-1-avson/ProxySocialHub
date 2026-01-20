@@ -78,6 +78,14 @@ func Init(dsn string) error {
 		&models.SubscriptionPlan{},
 		&models.UserSubscription{},
 
+		// Subtensor / Incentivization
+		&models.ProofOfService{},
+		&models.MinerWeight{},
+
+		// Governance
+		&models.Proposal{},
+		&models.Vote{},
+
 		// Messaging
 		&models.Conversation{},
 		&models.Message{},
@@ -116,6 +124,10 @@ func Init(dsn string) error {
 
 		// Analytics
 		&models.UsageRecord{},
+
+		// Agents (Phase 12)
+		&models.Agent{},
+		&models.AgentOutput{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
