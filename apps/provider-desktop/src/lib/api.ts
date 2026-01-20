@@ -20,8 +20,10 @@ api.interceptors.request.use((config) => {
 });
 
 export const auth = {
-    login: async (email: string, password: string) => {
-        const response = await api.post("/auth/login", { email, password });
+    login: async (_email: string, _password: string) => {
+        // For Native Client MVP, we use the Dev Login endpoint which returns a valid token
+        // In production, this should integrate with Supabase Auth or Wallet Sign-in
+        const response = await api.post("/auth/dev/login", {});
         if (response.data.token) {
             localStorage.setItem("auth_token", response.data.token);
             localStorage.setItem("user", JSON.stringify(response.data.user));
@@ -72,6 +74,7 @@ export interface Listing {
         username: string;
         display_name?: string;
         verified?: boolean;
+        is_verified_agent?: boolean;
         avg_rating?: number;
     };
     orders_count?: number;

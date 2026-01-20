@@ -57,7 +57,26 @@ func main() {
 
 	// CORS
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+		allowOrigin := ""
+
+		// Check if origin is allowed
+		for _, o := range cfg.Server.CORSOrigins {
+			if o == origin {
+				allowOrigin = origin
+				break
+			}
+		}
+
+		// Fallback for tools/Postman if no origin (or if we want to allow dev tools in dev mode)
+		if allowOrigin == "" && cfg.Server.Environment == "development" {
+			// allowOrigin = "*" // Still unsafe with credentials, better to not set or require origin
+		}
+
+		if allowOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		}
+
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length")
@@ -116,6 +135,8 @@ func main() {
 
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
+		api.RegisterAgentRegistryRoutes(protected)
+		api.RegisterSubtensorRoutes(protected)
 
 		// Analytics & Geo
 		api.RegisterAnalyticsRoutes(protected)

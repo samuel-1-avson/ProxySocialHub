@@ -259,3 +259,48 @@ func (c *Client) GetValidatorScores(netuid int) (*ValidatorScoresResponse, error
 
 	return &response, nil
 }
+
+// SetWeightsRequest represents weights to broadcast to Subtensor
+type SetWeightsRequest struct {
+	WalletName   string    `json:"wallet_name"`
+	WalletHotkey string    `json:"wallet_hotkey"`
+	NetUID       int       `json:"net_uid"`
+	UIDs         []int     `json:"uids"`    // Miner UIDs
+	Weights      []float64 `json:"weights"` // Corresponding weights (0-1)
+}
+
+type SetWeightsResponse struct {
+	Status      string `json:"status"`
+	TxHash      string `json:"tx_hash,omitempty"`
+	BlockNumber int    `json:"block_number,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
+// SetWeights broadcasts validator weights to the Subtensor chain
+func (c *Client) SetWeights(req SetWeightsRequest) (*SetWeightsResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(fmt.Sprintf("%s/validators/set-weights", c.baseURL), "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to set weights: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var response SetWeightsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if response.Status != "success" {
+		return nil, fmt.Errorf("set weights failed: %s", response.Message)
+	}
+
+	return &response, nil
+}
