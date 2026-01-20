@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/client';
-import { WalletConnect } from '@/components/WalletConnect';
+import { SolanaWalletButton } from '@/components/SolanaWalletButton';
 import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -76,7 +76,7 @@ export default function LoginPage() {
           )}
 
           <div className="mb-6 flex justify-center">
-            <WalletConnect onLogin={walletLogin} />
+            <SolanaWalletButton />
           </div>
 
           {/* OAuth Buttons */}
