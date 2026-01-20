@@ -131,6 +131,7 @@ func Init(dsn string) error {
 		"conversations", "messages",
 		"orders", "proxy_listings",
 		"feed_events", "pending_transactions",
+		"escrow_transactions", "disputes",
 	}
 	for _, table := range tables {
 		// Use manual SQL to drop default. GORM auto-migrate doesn't always remove them.

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Escrow Status
@@ -38,6 +39,13 @@ type EscrowTransaction struct {
 
 func (EscrowTransaction) TableName() string {
 	return "escrow_transactions"
+}
+
+func (e *EscrowTransaction) BeforeCreate(tx *gorm.DB) error {
+	if e.ID == uuid.Nil {
+		e.ID = uuid.New()
+	}
+	return nil
 }
 
 // Dispute Status
@@ -84,6 +92,13 @@ type Dispute struct {
 
 func (Dispute) TableName() string {
 	return "disputes"
+}
+
+func (d *Dispute) BeforeCreate(tx *gorm.DB) error {
+	if d.ID == uuid.Nil {
+		d.ID = uuid.New()
+	}
+	return nil
 }
 
 // Request/Response types
