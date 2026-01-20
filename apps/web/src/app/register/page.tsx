@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useWallet } from '@solana/wallet-adapter-react'; // Added import
 import { createClient } from '@/lib/supabase/client';
+import { SolanaWalletButton } from '@/components/SolanaWalletButton'; // Added import
 import { CheckCircle, Globe, ShoppingCart, Coins, Mail, Lock, ArrowRight, Github, Chrome, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -15,9 +17,12 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
+  const { register, walletLogin } = useAuth(); // Added walletLogin
+  const { connected, publicKey, signMessage } = useWallet(); // Added useWallet
   const router = useRouter();
   const supabase = createClient();
+
+  // ... (handleOAuthRegister, handleSubmit existing logic remains, just keeping it here implicitly by replacing surrounding code if I were replacing whole file, but I'll use target/replacement carefully)
 
   const handleOAuthRegister = async (provider: 'google' | 'github') => {
     try {
@@ -106,6 +111,39 @@ export default function RegisterPage() {
             </div>
           )}
 
+          {/* Wallet Section */}
+          <div className="mb-6 flex justify-center">
+            <SolanaWalletButton />
+          </div>
+
+          {connected && publicKey && (
+            <button
+              type="button"
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  await walletLogin(publicKey.toBase58(), { signMessage });
+                  router.push('/dashboard');
+                } catch (err: any) {
+                  setError(err.message || 'Wallet registration failed');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="w-full btn-retro btn-retro-primary py-3 text-sm mb-6"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  INITIALIZE VIA WALLET ({publicKey.toBase58().slice(0, 4)}...)
+                  <ArrowRight size={16} className="ml-2" />
+                </>
+              )}
+            </button>
+          )}
+
           {/* OAuth Buttons */}
           <div className="grid grid-cols-2 gap-4 mb-8">
             <button
@@ -176,7 +214,7 @@ export default function RegisterPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
+                  required={!connected}
                   className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
                   placeholder="USER@PROTOCOL.IO"
                 />
@@ -195,7 +233,7 @@ export default function RegisterPage() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
+                    required={!connected}
                     minLength={8}
                     className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
                     placeholder="KEY"
@@ -213,7 +251,7 @@ export default function RegisterPage() {
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
+                    required={!connected}
                     minLength={8}
                     className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
                     placeholder="VERIFY"
@@ -224,7 +262,7 @@ export default function RegisterPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !!connected}
               className="w-full btn-retro btn-retro-primary py-3 text-sm"
             >
               {loading ? (

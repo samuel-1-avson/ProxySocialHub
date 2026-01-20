@@ -2,11 +2,12 @@
 
 import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
-import { getWallet, depositWallet, withdrawWallet, Wallet as WalletType } from '@/lib/api';
+import { getWallet, depositWallet, withdrawWallet, linkWallet, Wallet as WalletType } from '@/lib/api'; // Added linkWallet
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
-import { PROXY_MARKETPLACE_ABI, PROXY_MARKETPLACE_ADDRESS } from '@/lib/abis';
+import { useAccount } from 'wagmi';
+import { useWallet } from '@solana/wallet-adapter-react'; // Added import
+import { SolanaWalletButton } from '@/components/SolanaWalletButton'; // Added import
+import bs58 from 'bs58'; // Added bs58 import
 import {
     Wallet as WalletIcon,
     CreditCard,
@@ -43,11 +44,9 @@ export default function WalletPage() {
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
     // Crypto State
-    const { address, isConnected } = useAccount(); // Still keeping this for potential ETH interoperability
-    // We should ideally use a Sol/Polkadot hook here if we want native Tao, but for now we might be using the Login Identity.
-    // The user has 'wallet' object from backend which holds the TAO balance.
+    const { isConnected: isEthConnected } = useAccount();
+    const { connected, publicKey, signMessage } = useWallet(); // Added signMessage
 
-    // We import depositCrypto from api
     const { depositCrypto } = require('@/lib/api');
     const [cryptoAmount, setCryptoAmount] = useState('');
     const [cryptoProcessing, setCryptoProcessing] = useState(false);
@@ -123,14 +122,38 @@ export default function WalletPage() {
 
         try {
             // Simulator: We just ask for amount using the API. In real world, we would ask for TX Hash.
-            // For MVP, we can generate a mock hash or ask user.
-            // Let's assume we just call the API and it simulates/verifies.
             const res = await depositCrypto(parseFloat(cryptoAmount), "0xSIMULATED_HASH_" + Date.now());
             setCryptoResult({ success: true, message: "Deposit Verified! " + res.message });
             setCryptoAmount('');
             fetchWallet(); // Refresh balance
         } catch (err: any) {
             setCryptoResult({ success: false, message: err.message || "Deposit failed" });
+        } finally {
+            setCryptoProcessing(false);
+        }
+    }
+
+    async function handleLinkWallet() {
+        if (!publicKey || !user?.id) return;
+        if (!signMessage) {
+            setCryptoResult({ success: false, message: "Wallet does not support signing" });
+            return;
+        }
+
+        setCryptoProcessing(true);
+        setCryptoResult(null);
+        try {
+            const message = `Link Wallet ${publicKey.toBase58()} to ProxyHubb User ${user.id}`;
+            const encodedMessage = new TextEncoder().encode(message);
+            const signatureBytes = await signMessage(encodedMessage);
+            const signature = bs58.encode(signatureBytes);
+
+            await linkWallet(publicKey.toBase58(), 'solana', signature, message);
+            setCryptoResult({ success: true, message: "Wallet Linked Successfully" });
+            fetchWallet();
+        } catch (err: any) {
+            console.error(err);
+            setCryptoResult({ success: false, message: err.message || "Linking failed" });
         } finally {
             setCryptoProcessing(false);
         }
@@ -232,6 +255,39 @@ export default function WalletPage() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* LINK WALLET SECTION */}
+                            <div className="md:col-span-2 pt-4 border-t border-border">
+                                {wallet?.linked_solana_address ? (
+                                    <div className="p-4 border border-green-500/30 bg-green-500/5 rounded-sm flex items-center gap-4">
+                                        <ShieldCheck className="text-green-500 w-8 h-8" />
+                                        <div>
+                                            <h3 className="text-xs font-bold font-mono uppercase text-green-500">Wallet Linked</h3>
+                                            <p className="text-xs font-mono text-muted-foreground">{wallet.linked_solana_address.slice(0, 4)}...{wallet.linked_solana_address.slice(-4)}</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center gap-4 p-4 border border-border rounded-sm bg-secondary/5">
+                                        <div className="text-center">
+                                            <h3 className="text-sm font-bold font-mono uppercase text-muted-foreground">Link External Wallet</h3>
+                                            <p className="text-[10px] text-muted-foreground mb-4">Connect Solana wallet to enable features.</p>
+                                        </div>
+
+                                        <SolanaWalletButton />
+
+                                        {connected && publicKey && (
+                                            <button
+                                                onClick={handleLinkWallet}
+                                                disabled={cryptoProcessing}
+                                                className="btn-retro btn-retro-outline text-xs py-2 px-4 w-full"
+                                            >
+                                                {cryptoProcessing ? 'Linking...' : `Link ${publicKey.toBase58().slice(0, 6)}... to Account`}
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
                         </div>
                     </div>
                 </div>
