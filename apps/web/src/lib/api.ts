@@ -644,11 +644,11 @@ export interface ProviderNode {
   country: string;
   city: string;
   status: string;
-  latency_ms: number;
-  uptime_percent: number;
+  latency_ms?: number;
+  uptime_percent?: number;
   quality_score: number;
   is_registered_on_chain: boolean;
-  active_connections: number;
+  active_connections?: number;
 }
 
 export async function getProviderNodes(): Promise<{ nodes: ProviderNode[] }> {
