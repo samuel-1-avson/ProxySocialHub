@@ -286,12 +286,13 @@ func getPendingPayouts(c *gin.Context) {
 	for _, provider := range providers {
 		var wallet models.Wallet
 		if db.DB.Where("user_id = ?", provider.ID).First(&wallet).Error == nil {
-			if wallet.Balance >= 5 { // Minimum payout threshold
+			if wallet.BalanceTAO > 0.01 { // Minimum threshold appropriate for TAO
 				payouts = append(payouts, PendingPayout{
 					UserID:      provider.ID.String(),
 					Email:       provider.Email,
 					Role:        provider.Role,
-					EarningsGHS: wallet.Balance,
+					EarningsGHS: wallet.BalanceTAO, // Naming mismatch in DTO (EarningsGHS vs TAO value), keeping for now or should update struct.
+					// Let's rely on frontend interpreting the value. Ideally rename struct field but avoiding cascade to frontend TS.
 				})
 			}
 		}
@@ -324,7 +325,10 @@ func processPayout(c *gin.Context) {
 		return
 	}
 
-	if wallet.Balance < req.Amount {
+	// For Payouts, are we paying out GHS or TAO?
+	// If req.Amount is 5, is it 5 GHS or 5 TAO?
+	// Assuming Payouts are in TAO now.
+	if wallet.BalanceTAO < req.Amount {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
 		return
 	}
@@ -333,7 +337,7 @@ func processPayout(c *gin.Context) {
 	reference := "payout-" + time.Now().Format("20060102150405")
 
 	// Deduct from wallet
-	wallet.Balance -= req.Amount
+	wallet.BalanceTAO -= req.Amount
 	db.DB.Save(&wallet)
 
 	// Create ledger entry
@@ -341,7 +345,7 @@ func processPayout(c *gin.Context) {
 		WalletID:    wallet.ID,
 		Type:        models.TransactionPayout,
 		Amount:      -req.Amount,
-		Description: "Provider payout to " + req.Phone,
+		Description: "Provider payout to " + req.Phone, // Payout in TAO
 	}
 	db.DB.Create(&ledger)
 

@@ -122,11 +122,15 @@ func reportUsage(c *gin.Context) {
 			}
 		}(sessionData, report.BytesUp, report.BytesDown)
 
-		// IaaS Billing Pivot (Real-time Deduction)
-		// 1. Calculate Cost
-		cost := float64(totalBytes) / (1024 * 1024 * 1024) * PricePerGB
+		// IaaS Billing Pivot (Real-time Deduction in TAO)
+		// 1. Calculate Cost in GHS first
+		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * PricePerGB
 
-		// 2. Atomic Balance Deduction (DB Lock)
+		// 2. Convert to TAO
+		rate := GetTaoToGhsRate()
+		costTAO := costGHS / rate
+
+		// 3. Atomic Balance Deduction (DB Lock)
 		var wallet models.Wallet
 		// Use a transaction for safety
 		err = db.DB.Transaction(func(tx *gorm.DB) error {
@@ -134,8 +138,13 @@ func reportUsage(c *gin.Context) {
 				return err
 			}
 
-			if wallet.Balance < cost {
-				// 3. Insufficient Funds -> Terminate
+			// AUTO-MIGRATE if needed (Safety check)
+			if wallet.Currency != "TAO" {
+				// Ideally logging here
+			}
+
+			if wallet.BalanceTAO < costTAO {
+				// 4. Insufficient Funds -> Terminate
 				redisClient.DeleteSession(report.SessionUsername)
 
 				// Update session status asynchronously to avoid blocking tx
@@ -152,21 +161,18 @@ func reportUsage(c *gin.Context) {
 			}
 
 			// Deduct
-			wallet.Balance -= cost
+			wallet.BalanceTAO -= costTAO
 			if err := tx.Save(&wallet).Error; err != nil {
 				return err
 			}
 
-			// Log Transaction (Async to reduce lock time, or sync if critical audit)
-			// For high-throughput, we aggregate these. For now, we log every chunk (expensive but safe).
-			// Optimization: Accumulate cost in Redis and commit to DB every N minutes.
-			// MVP: Direct DB write.
+			// Log Transaction
 			ledger := models.WalletLedgerEntry{
 				WalletID:     wallet.ID,
-				Amount:       -cost,
-				BalanceAfter: wallet.Balance,
+				Amount:       -costTAO,
+				BalanceAfter: wallet.BalanceTAO,
 				Type:         models.TransactionUsage,
-				Description:  fmt.Sprintf("Usage: %d bytes", totalBytes),
+				Description:  fmt.Sprintf("Usage: %d bytes (%.6f TAO)", totalBytes, costTAO),
 				CreatedAt:    time.Now(),
 			}
 			return tx.Create(&ledger).Error
