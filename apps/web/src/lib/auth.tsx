@@ -209,7 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } as unknown as User;
 
       setUser(mappedUser);
-      router.push('/dashboard');
+      // Don't push here - let the caller handle navigation after state is set
     } catch (err) {
       console.error("Wallet login error:", err);
       throw err;

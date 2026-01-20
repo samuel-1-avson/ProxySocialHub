@@ -115,6 +115,7 @@ export default function LoginPage() {
                   // Pass the wallet adapter as 'signer' which has signMessage
                   await walletLogin(publicKey.toBase58(), { signMessage });
                   router.push('/dashboard');
+                  router.refresh();
                 } catch (err: any) {
                   setError(err.message || 'Wallet login failed');
                 } finally {
