@@ -373,6 +373,67 @@ export async function getCircle(id: string): Promise<Circle> {
     return res.json();
 }
 
+export interface CircleMember {
+    user_id: string;
+    circle_id: string;
+    role: 'owner' | 'admin' | 'member';
+    status: 'active' | 'pending';
+    joined_at: string;
+    user?: User;
+}
+
+export async function getCircleMembers(id: string): Promise<{ members: CircleMember[]; count: number }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${id}/members`);
+    if (!res.ok) throw new Error('Failed to fetch members');
+    return res.json();
+}
+
+export async function inviteToCircle(circleId: string, userId: string): Promise<{ invite_id: string }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${circleId}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) throw new Error('Failed to invite user');
+    return res.json();
+}
+
+export async function joinCircle(circleId: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${circleId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    });
+
+    if (!res.ok) throw new Error('Failed to join circle');
+}
+
+export interface CirclePost {
+    id: string;
+    circle_id: string;
+    author_id: string;
+    content: string;
+    pinned: boolean;
+    created_at: string;
+    author?: User;
+}
+
+export async function getCircleFeed(id: string): Promise<{ posts: CirclePost[] }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${id}/feed`);
+    if (!res.ok) throw new Error('Failed to fetch feed');
+    return res.json();
+}
+
+export async function postToCircleFeed(id: string, content: string): Promise<{ post: CirclePost }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/circles/${id}/feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error('Failed to post to feed');
+    return res.json();
+}
+
 // ============== Provider Onboarding API ==============
 export interface ProviderApplication {
     id: string;

@@ -18,6 +18,7 @@ export default function ClansPage() {
         visibility: 'public', // public, private
         revenue_share_percent: 0.1, // Default 10%
     });
+    const [targetGB, setTargetGB] = useState('');
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -42,7 +43,11 @@ export default function ClansPage() {
         e.preventDefault();
         setIsCreating(true);
         try {
-            await createCircle(newClan);
+            const payload = { ...newClan };
+            if (targetGB) {
+                payload.description = `${payload.description} [Target: ${targetGB} GB]`;
+            }
+            await createCircle(payload);
             await loadCircles();
             setShowCreateModal(false);
             setNewClan({
@@ -187,6 +192,17 @@ export default function ClansPage() {
                                         placeholder="Describe emission protocols..."
                                         value={newClan.description}
                                         onChange={e => setNewClan({ ...newClan, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Monthly Bandwidth Goal (GB)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-secondary border border-border rounded-sm py-3 px-4 text-sm font-mono focus:border-primary focus:outline-none transition-all placeholder:text-muted-foreground/50"
+                                        placeholder="Target capacity (e.g. 500)"
+                                        value={targetGB}
+                                        onChange={e => setTargetGB(e.target.value)}
                                     />
                                 </div>
 

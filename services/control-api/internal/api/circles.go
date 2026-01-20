@@ -24,6 +24,8 @@ func RegisterCircleRoutes(rg *gin.RouterGroup) {
 		circles.GET("/:id/stats", getCircleStats)
 		circles.DELETE("/:id", deleteCircle)
 		circles.PUT("/:id", updateCircle)
+		circles.GET("/:id/feed", getCircleFeed)
+		circles.POST("/:id/feed", postToCircleFeed)
 
 		// Enterprise features
 		circles.POST("/:id/enterprise", upgradeToEnterprise)
@@ -634,4 +636,85 @@ func getCircleLeases(c *gin.Context) {
 		"leases": leases,
 		"count":  len(leases),
 	})
+}
+
+// getCircleFeed returns posts from the circle's feed
+func getCircleFeed(c *gin.Context) {
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
+	// Verify membership
+	var member models.CircleMember
+	if err := db.DB.Where("circle_id = ? AND user_id = ? AND status = 'active'", circleID, userID).First(&member).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Must be a member to view feed"})
+		return
+	}
+
+	page := 1 // Simplified pagination
+	limit := 50
+	offset := (page - 1) * limit
+
+	var posts []models.CirclePost
+	if err := db.DB.Where("circle_id = ?", circleID).
+		Preload("Author").
+		Order("pinned DESC, created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&posts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch feed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"posts": posts})
+}
+
+type CreateCirclePostRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
+// postToCircleFeed creates a new post in the circle feed
+func postToCircleFeed(c *gin.Context) {
+	circleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid circle ID"})
+		return
+	}
+	currentUserID, _ := c.Get("user_id")
+	userID, _ := uuid.Parse(currentUserID.(string))
+
+	var req CreateCirclePostRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify membership
+	var member models.CircleMember
+	if err := db.DB.Where("circle_id = ? AND user_id = ? AND status = 'active'", circleID, userID).First(&member).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Must be a member to post"})
+		return
+	}
+
+	post := models.CirclePost{
+		ID:        uuid.New(),
+		CircleID:  circleID,
+		AuthorID:  userID,
+		Content:   req.Content,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := db.DB.Create(&post).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create post"})
+		return
+	}
+
+	// Reload to get author
+	db.DB.Preload("Author").First(&post, "id = ?", post.ID)
+
+	c.JSON(http.StatusCreated, gin.H{"post": post})
 }

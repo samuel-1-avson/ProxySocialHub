@@ -4,15 +4,19 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
-import { getCircle, Circle } from '@/lib/social-api';
-import { ArrowLeft, Users, Zap, Shield, LayoutGrid, Target, Share2, Plus, Globe, Loader2, User } from 'lucide-react';
+import { getCircle, getCircleMembers, getCircleFeed, postToCircleFeed, Circle, CircleMember, CirclePost } from '@/lib/social-api';
+import { ArrowLeft, Users, Zap, Shield, LayoutGrid, Target, Share2, Plus, Globe, Loader2, User, MessageSquare, Send } from 'lucide-react';
 
 export default function CircleDetailsPage() {
     const params = useParams();
     const { isAuthenticated } = useAuth();
     const circleId = params?.id as string;
     const [circle, setCircle] = useState<Circle | null>(null);
+    const [members, setMembers] = useState<CircleMember[]>([]);
+    const [posts, setPosts] = useState<CirclePost[]>([]);
+    const [newPost, setNewPost] = useState('');
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'hierarchy' | 'feed'>('hierarchy');
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -25,6 +29,10 @@ export default function CircleDetailsPage() {
         try {
             const data = await getCircle(circleId);
             setCircle(data);
+            const membersData = await getCircleMembers(circleId);
+            setMembers(membersData.members);
+            const feedData = await getCircleFeed(circleId);
+            setPosts(feedData.posts || []);
         } catch {
             setError('Circle network integrity compromised');
         } finally {
@@ -161,44 +169,128 @@ export default function CircleDetailsPage() {
                     </div>
                 </div>
 
-                {/* Sub-Network Hierarchy Sidebar */}
+                {/* Sub-Network Hierarchy / Feed Sidebar */}
                 <div className="space-y-6">
-                    <div className="flex items-center gap-2 font-mono text-sm font-bold uppercase border-b border-border pb-2">
-                        <Users size={16} className="text-primary" />
-                        Hierarchy
-                    </div>
-
-                    <div className="space-y-3">
-                        {/* Leader/Owner */}
-                        <div className="card-retro p-4 bg-card flex items-center gap-4 hover:border-primary transition-colors cursor-pointer">
-                            <div className="w-10 h-10 rounded-sm bg-primary/20 text-primary flex items-center justify-center border border-primary/20 font-bold font-mono">
-                                LE
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-xs font-bold font-mono uppercase">Network Architect</p>
-                                <p className="text-[10px] font-mono font-bold text-muted-foreground uppercase">Circle Leader [Admin]</p>
-                            </div>
-                            <Zap size={12} className="text-primary" />
-                        </div>
-
-                        {/* Dummy list items */}
-                        {[1, 2, 3].map((i) => (
-                            <div key={i} className="flex items-center gap-4 p-3 border border-transparent hover:bg-secondary/20 hover:border-border transition-colors rounded-sm cursor-pointer opacity-80 hover:opacity-100">
-                                <div className="w-8 h-8 rounded-sm bg-secondary border border-border flex items-center justify-center text-[10px] font-mono font-bold text-muted-foreground">
-                                    N{i}
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-xs font-bold font-mono uppercase">Node_Contributor_{i}</p>
-                                    <p className="text-[10px] font-mono font-bold text-muted-foreground uppercase">Active Member</p>
-                                </div>
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-                            </div>
-                        ))}
-
-                        <button className="w-full py-3 rounded-sm border border-dashed border-border text-[10px] font-mono font-bold uppercase text-muted-foreground hover:bg-secondary/20 hover:text-foreground transition-colors">
-                            View All Assets
+                    <div className="flex items-center gap-4 border-b border-border">
+                        <button
+                            onClick={() => setActiveTab('hierarchy')}
+                            className={`pb-2 text-sm font-mono font-bold uppercase transition-colors ${activeTab === 'hierarchy' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                        >
+                            Hierarchy
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('feed')}
+                            className={`pb-2 text-sm font-mono font-bold uppercase transition-colors ${activeTab === 'feed' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                        >
+                            Circle Feed
                         </button>
                     </div>
+
+                    {activeTab === 'hierarchy' ? (
+                        <div className="space-y-3">
+                            <div className="flex justify-end mb-2">
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(`${window.location.origin}/join/${circleId}`);
+                                        alert('Invite link copied to clipboard!');
+                                    }}
+                                    className="flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-primary hover:underline">
+                                    <Plus size={12} /> Invite Link
+                                </button>
+                            </div>
+                            {/* Leader/Owner */}
+                            <div className="card-retro p-4 bg-card flex items-center gap-4 hover:border-primary transition-colors cursor-pointer">
+                                <div className="w-10 h-10 rounded-sm bg-primary/20 text-primary flex items-center justify-center border border-primary/20 font-bold font-mono">
+                                    LE
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-xs font-bold font-mono uppercase">Network Architect</p>
+                                    <p className="text-[10px] font-mono font-bold text-muted-foreground uppercase">Circle Leader [Admin]</p>
+                                </div>
+                                <Zap size={12} className="text-primary" />
+                            </div>
+
+                            {/* Members List */}
+                            {members.length > 0 ? members.map((member) => (
+                                <div key={member.user_id} className="flex items-center gap-4 p-3 border border-transparent hover:bg-secondary/20 hover:border-border transition-colors rounded-sm cursor-pointer opacity-80 hover:opacity-100">
+                                    <div className="w-8 h-8 rounded-sm bg-secondary border border-border flex items-center justify-center text-[10px] font-mono font-bold text-muted-foreground uppercase">
+                                        {(member.user?.email || 'Unknown').substring(0, 2)}
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-xs font-bold font-mono uppercase truncate w-24">{member.user?.email.split('@')[0] || 'Unknown'}</p>
+                                        <p className="text-[10px] font-mono font-bold text-muted-foreground uppercase">{member.status}</p>
+                                    </div>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${member.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                                </div>
+                            )) : (
+                                <div className="p-4 text-center text-xs font-mono text-muted-foreground">
+                                    No additional nodes linked.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {/* Post Input */}
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    className="flex-1 bg-secondary border border-border rounded-sm py-2 px-3 text-xs font-mono focus:border-primary focus:outline-none placeholder:text-muted-foreground/50"
+                                    placeholder="Broadcast message..."
+                                    value={newPost}
+                                    onChange={(e) => setNewPost(e.target.value)}
+                                    onKeyDown={async (e) => {
+                                        if (e.key === 'Enter' && newPost.trim()) {
+                                            try {
+                                                const res = await postToCircleFeed(circleId, newPost);
+                                                setPosts([res.post, ...posts]);
+                                                setNewPost('');
+                                            } catch (err) {
+                                                alert('Transmission failed');
+                                            }
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={async () => {
+                                        if (newPost.trim()) {
+                                            try {
+                                                const res = await postToCircleFeed(circleId, newPost);
+                                                setPosts([res.post, ...posts]);
+                                                setNewPost('');
+                                            } catch (err) {
+                                                alert('Transmission failed');
+                                            }
+                                        }
+                                    }}
+                                    className="btn-retro btn-retro-primary p-2">
+                                    <Send size={14} />
+                                </button>
+                            </div>
+
+                            {/* Posts List */}
+                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                                {posts.length > 0 ? posts.map((post) => (
+                                    <div key={post.id} className="p-3 bg-card border border-border rounded-sm space-y-2">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-[10px] font-bold font-mono text-primary uppercase">
+                                                {post.author?.email.split('@')[0] || 'Unknown'}
+                                            </span>
+                                            <span className="text-[9px] font-mono text-muted-foreground">
+                                                {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs font-mono text-foreground break-words">
+                                            {post.content}
+                                        </p>
+                                    </div>
+                                )) : (
+                                    <div className="text-center py-8 text-[10px] font-mono text-muted-foreground italic">
+                                        No transmissions detected.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

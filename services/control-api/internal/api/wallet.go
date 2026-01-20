@@ -15,6 +15,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -724,10 +725,10 @@ func initiateWithdrawal(c *gin.Context) {
 }
 
 // Helper to refund wallet on failure
+// Helper to refund wallet on failure
 func refundWallet(userID string, amount float64) {
-	var wallet models.Wallet
-	if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
-		db.DB.Model(&wallet).Update("balance", wallet.Balance+amount)
+	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userID).Update("balance", gorm.Expr("balance + ?", amount)).Error; err != nil {
+		logging.Error(err).Str("user_id", userID).Float64("amount", amount).Msg("Failed to refund wallet")
 	}
 }
 
