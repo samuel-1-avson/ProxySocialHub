@@ -19,7 +19,7 @@ const (
 
 // EscrowTransaction represents funds held in escrow
 type EscrowTransaction struct {
-	ID            uuid.UUID    `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID            uuid.UUID    `gorm:"type:uuid;primary_key" json:"id"`
 	OrderID       uuid.UUID    `gorm:"type:uuid;not null" json:"order_id"`
 	BuyerID       uuid.UUID    `gorm:"type:uuid;not null" json:"buyer_id"`
 	SellerID      uuid.UUID    `gorm:"type:uuid;not null" json:"seller_id"`
@@ -70,7 +70,7 @@ const (
 
 // Dispute represents a buyer-seller dispute
 type Dispute struct {
-	ID           uuid.UUID     `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID           uuid.UUID     `gorm:"type:uuid;primary_key" json:"id"`
 	EscrowID     uuid.UUID     `gorm:"type:uuid;not null" json:"escrow_id"`
 	OrderID      uuid.UUID     `gorm:"type:uuid;not null" json:"order_id"`
 	InitiatedBy  uuid.UUID     `gorm:"type:uuid;not null" json:"initiated_by"`
