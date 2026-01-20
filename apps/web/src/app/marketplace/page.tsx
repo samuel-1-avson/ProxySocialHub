@@ -276,8 +276,8 @@ export default function MarketplacePage() {
                                     onClick={() => setSelectedListing(listing)}
                                     className="btn-retro btn-retro-primary py-2 px-4 text-xs flex items-center gap-2"
                                 >
-                                    <ShoppingCart size={14} />
-                                    BUY
+                                    <Wifi size={14} />
+                                    CONNECT
                                 </button>
                             </div>
                         </div>
