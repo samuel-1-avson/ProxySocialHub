@@ -63,8 +63,9 @@ func Init(dsn string) error {
 		&models.ProxyListing{},
 		&models.SavedListing{},
 		&models.Order{},
+		&models.EscrowTransaction{},
+		&models.Dispute{},
 
-		// Social & Reviews
 		&models.Review{},
 		&models.Follow{},
 		&models.FeedEvent{},
