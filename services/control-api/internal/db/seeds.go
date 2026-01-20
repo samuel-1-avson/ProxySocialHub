@@ -26,6 +26,9 @@ func SeedAll() {
 	seedWallet()
 	log.Println("Seeding Sessions & Usage...")
 	seedSessionsAndUsage()
+	log.Println("Seeding Market Agents...")
+	seedMarketAgents()
+	log.Println("Database seeding completed")
 }
 
 func seedUsers() {
@@ -339,6 +342,62 @@ func seedSessionsAndUsage() {
 			DB.Create(&record)
 		}
 	}
+	log.Println("Seeded Analytics Data")
+}
+
+// seedMarketAgents seeds AI agents for the marketplace
+func seedMarketAgents() {
+	var count int64
+	DB.Model(&models.MarketAgent{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	agents := []models.MarketAgent{
+		{
+			Name:        "Social Media Manager",
+			Description: "Automates your social presence. Schedules posts, replies to comments, and analyzes engagement.",
+			Version:     "1.0.0",
+			PricePerRun: 5.0,
+			DockerImage: "proxyhub/agent-social:latest",
+			Categories:  []string{"social", "marketing"},
+			Parameters: map[string]any{
+				"platforms": []string{"twitter", "linkedin"},
+				"tone":      "professional",
+			},
+		},
+		{
+			Name:        "Code Reviewer",
+			Description: "Analyzes pull requests for bugs, security issues, and style violations.",
+			Version:     "2.1.0",
+			PricePerRun: 10.0,
+			DockerImage: "proxyhub/agent-code-review:latest",
+			Categories:  []string{"development", "security"},
+			Parameters: map[string]any{
+				"languages":  []string{"go", "typescript", "rust"},
+				"strictness": "high",
+			},
+		},
+		{
+			Name:        "Market Analyst",
+			Description: "Scrapes and analyzes market data to identify trends and opportunities.",
+			Version:     "1.5.0",
+			PricePerRun: 15.0,
+			DockerImage: "proxyhub/agent-analyst:latest",
+			Categories:  []string{"finance", "data"},
+			Parameters: map[string]any{
+				"sectors": []string{"tech", "crypto"},
+				"depth":   "deep",
+			},
+		},
+	}
+
+	for _, agent := range agents {
+		if err := DB.Create(&agent).Error; err != nil {
+			log.Printf("Failed to seed agent %s: %v", agent.Name, err)
+		}
+	}
+	log.Println("Seeded Market Agents")
 }
 
 func stringPtr(s string) *string {
