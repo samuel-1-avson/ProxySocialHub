@@ -5,6 +5,8 @@ import { X, ShieldCheck, Zap, Globe, Power, AlertCircle, CheckCircle, Wifi } fro
 import { Listing } from '@/lib/social-api';
 import { createOrder } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
+import { initializeEscrow } from '@/lib/solana';
 
 interface BuyListingModalProps {
     listing: Listing;
@@ -13,24 +15,56 @@ interface BuyListingModalProps {
 }
 
 export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModalProps) {
-    const { user } = useAuth();
+    const { publicKey, signTransaction } = useWallet();
+    // Helper to get full wallet object for Anchor
+    const wallet = useAnchorWallet();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
 
     const handleConnect = async () => {
+        if (!wallet || !publicKey) {
+            alert("Please connect your Solana wallet first!");
+            return;
+        }
+
         setLoading(true);
         setError('');
         try {
-            // For IaaS, we send quantity 1 (ignored by backend) to create the connection order
-            const order = await createOrder(listing.id, 1);
+            // 1. Calculate Deposit (e.g., 5 GHS/GB worth of SOL, simplified here to fixed amount for demo)
+            // Real world: Fetch SOL price, convert. 
+            // Demo: Lock 0.1 SOL (~$15) as deposit buffer
+            const depositLamports = 0.1 * 10 ** 9;
+
+            // 2. Initialize On-Chain Escrow
+            // We need the seller's Solana Key. 
+            // Assuming listing.seller.wallet_address is available, or use a platform hot wallet as proxy for now.
+            const sellerKey = listing.seller?.wallet_address || "C6P5a3w5y5T5k5h5o5t5W5a5l5l5e5t5A5d5d5r5e5s5s"; // Fallback demo key
+
+            console.log("Starting Solana Transaction...");
+            const { tx, escrowPda } = await initializeEscrow(
+                wallet,
+                sellerKey,
+                depositLamports,
+                10 // 10 GB Limit for this session loop
+            );
+
+            console.log("Solana Tx Success:", tx);
+
+            // 3. Create Order on Backend (passing Escrow PDA)
+            // We pass the PDA as a meta field or "payment_ref"
+            const order = await createOrder(listing.id, 1); // API tracks the connection
+
+            // TODO: Update order with escrow_pda in backend (or send it in createOrder payload)
+
             setSuccess(true);
             setTimeout(() => {
                 onSuccess(order.id);
                 onClose();
             }, 2000);
         } catch (err: any) {
-            setError(err.message || 'Failed to connect to node');
+            console.error(err);
+            setError(err.message || 'Failed to connect: Transaction rejected or failed');
         } finally {
             setLoading(false);
         }

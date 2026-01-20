@@ -486,6 +486,8 @@ func initiateDeposit(c *gin.Context) {
 	})
 }
 
+const FIXED_EXCHANGE_RATE_GHS_USD = 15.0
+
 // Verify payment endpoint
 func verifyDeposit(c *gin.Context) {
 	reference := c.Query("reference")
@@ -540,20 +542,49 @@ func verifyDeposit(c *gin.Context) {
 		return
 	}
 
-	// Credit Wallet
+	// Credit Wallet with AUTO-SWAP Logic
 	var wallet models.Wallet
 	if result := tx.Where("user_id = ?", pendingTx.UserID).First(&wallet); result.Error != nil {
 		tx.Rollback()
 		logging.Error(result.Error).Str("user_id", pendingTx.UserID).Msg("Wallet not found for user during deposit")
-		// If wallet doesn't exist, we should probably create it or error out.
-		// Since user is present, we try to create?
-		// For now, error out to avoid data inconsistency.
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Wallet not found for processing"})
 		return
 	}
 
-	newBalance := wallet.Balance + pendingTx.Amount
-	if err := tx.Model(&wallet).Update("balance", newBalance).Error; err != nil {
+	// --- FINANCIAL CORE: FIAT TO CRYPTO BRIDGE ---
+	// Calculate crypto value (USDT)
+	// Formula: CryptoAmount = FiatAmount / Rate
+	fiatAmount := pendingTx.Amount // In GHS
+	cryptoAmount := fiatAmount / FIXED_EXCHANGE_RATE_GHS_USD
+
+	// Switch Wallet to Crypto Native if not already
+	previousCurrency := wallet.Currency
+	if wallet.Currency != "USDT" {
+		logging.Info().Str("user_id", wallet.UserID.String()).Msg("Migrating wallet to USDT")
+		wallet.Currency = "USDT"
+		// If they had GHS balance, we should ideally convert it too.
+		// For simple MVP migration, we convert existing balance.
+		if previousCurrency == "GHS" && wallet.Balance > 0 {
+			convertedBalance := wallet.Balance / FIXED_EXCHANGE_RATE_GHS_USD
+			wallet.Balance = convertedBalance
+			// Log the migration
+			migrationLedger := models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       0, // Metadata only
+				BalanceAfter: convertedBalance,
+				Type:         "migration",
+				ReferenceID:  uuid.New().String(),
+				Description:  fmt.Sprintf("Migrated Balance: %.2f GHS -> %.2f USDT", wallet.Balance, convertedBalance),
+			}
+			tx.Create(&migrationLedger)
+		}
+	}
+
+	newBalance := wallet.Balance + cryptoAmount
+	if err := tx.Model(&wallet).Updates(map[string]interface{}{
+		"balance":  newBalance,
+		"currency": "USDT",
+	}).Error; err != nil {
 		tx.Rollback()
 		logging.Error(err).Msg("Failed to update wallet balance")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
@@ -563,11 +594,11 @@ func verifyDeposit(c *gin.Context) {
 	// Create ledger entry
 	ledgerEntry := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
-		Amount:       pendingTx.Amount,
+		Amount:       cryptoAmount,
 		BalanceAfter: newBalance,
 		Type:         models.TransactionTopup,
 		ReferenceID:  reference,
-		Description:  fmt.Sprintf("Paystack Deposit (%s)", resp.Data.Channel),
+		Description:  fmt.Sprintf("Bridge Deposit: %.2f GHS -> %.2f USDT (Rate: %.2f)", fiatAmount, cryptoAmount, FIXED_EXCHANGE_RATE_GHS_USD),
 	}
 	if err := tx.Create(&ledgerEntry).Error; err != nil {
 		tx.Rollback()
@@ -583,7 +614,15 @@ func verifyDeposit(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet credited"})
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Wallet credited with USDT",
+		"swapped": gin.H{
+			"from": fmt.Sprintf("%.2f GHS", fiatAmount),
+			"to":   fmt.Sprintf("%.2f USDT", cryptoAmount),
+			"rate": FIXED_EXCHANGE_RATE_GHS_USD,
+		},
+	})
 }
 
 // Withdrawals would follow similar pattern (Transfer API) but skipping for MVP as per request focusing on "System" usage.

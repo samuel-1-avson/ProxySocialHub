@@ -23,6 +23,7 @@ export interface User {
     trust_tier: string;
     created_at: string;
     is_following?: boolean;
+    wallet_address?: string;
 }
 
 export interface Listing {
