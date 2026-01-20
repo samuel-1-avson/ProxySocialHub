@@ -115,6 +115,10 @@ func main() {
 
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
+
+		// Analytics & Geo
+		api.RegisterAnalyticsRoutes(protected)
+		api.RegisterGeoRoutes(protected)
 	}
 
 	// Start Chain Indexer
