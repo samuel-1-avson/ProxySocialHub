@@ -388,15 +388,23 @@ func getWallet(c *gin.Context) {
 		})
 	}
 
+	// Fetch user to checks linked wallets
+	var user models.User
+	if err := db.DB.Select("wallet_address", "bittensor_address").First(&user, "id = ?", userID).Error; err != nil {
+		logging.Warn().Err(err).Msg("Failed to fetch user linked wallets")
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": gin.H{
-			"wallet_id":    wallet.ID,
-			"balance":      wallet.BalanceTAO, // Default display is now TAO
-			"balance_ghs":  wallet.BalanceGHS,
-			"balance_tao":  wallet.BalanceTAO,
-			"balance_usdt": 0, // Migrated/Deprecated
-			"currency":     wallet.Currency,
-			"transactions": transactions,
+			"wallet_id":             wallet.ID,
+			"balance":               wallet.BalanceTAO, // Default display is now TAO
+			"balance_ghs":           wallet.BalanceGHS,
+			"balance_tao":           wallet.BalanceTAO,
+			"balance_usdt":          0, // Migrated/Deprecated
+			"currency":              wallet.Currency,
+			"transactions":          transactions,
+			"linked_solana_address": user.WalletAddress,
+			"linked_bittensor_addr": user.BittensorAddress,
 		},
 	})
 }

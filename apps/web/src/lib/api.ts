@@ -19,9 +19,8 @@ export interface Wallet {
   balance_tao: number;
   currency: string;
   transactions: WalletTransaction[];
-  // Legacy support if needed, but backend sends 'balance' no more? 
-  // Actually backend creates JSON from struct, so it sends 'balance_ghs' and 'balance_tao'.
-  // The old 'balance' field in struct might be gone or ignored.
+  linked_solana_address?: string;
+  linked_bittensor_addr?: string;
 }
 
 export interface WalletTransaction {
@@ -241,6 +240,16 @@ export async function depositWallet(amount: number, email: string): Promise<{ st
   return response.json();
 }
 
+export async function linkWallet(address: string, chain: 'solana' | 'bittensor', signature?: string, message?: string): Promise<{ status: string; message: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wallet_address: address, chain, signature, message }),
+  });
+  if (!response.ok) throw new Error('Failed to link wallet');
+  return response.json();
+}
+
 export async function depositCrypto(amount: number, txHash: string): Promise<{ status: string; message: string }> {
   // This assumes backend has POST /wallet/deposit/crypto
   // If we are passing signature instead of txHash, adjust accordingly.
@@ -248,7 +257,7 @@ export async function depositCrypto(amount: number, txHash: string): Promise<{ s
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit/crypto`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO' }),
+    body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO', chain: 'solana' }),
   });
   if (!response.ok) throw new Error('Failed to submit crypto deposit');
   return response.json();

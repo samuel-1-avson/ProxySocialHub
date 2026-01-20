@@ -1,11 +1,14 @@
 package api
 
 import (
+	"crypto/ed25519"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -14,6 +17,8 @@ import (
 type linkWalletRequest struct {
 	WalletAddress string `json:"wallet_address" binding:"required"`
 	Chain         string `json:"chain" binding:"required"` // "solana", "bittensor"
+	Signature     string `json:"signature"`
+	Message       string `json:"message"`
 }
 
 // LinkWalletEndpoint links an external wallet address to the user profile
@@ -46,11 +51,49 @@ func linkWallet(c *gin.Context) {
 
 	// Update appropriate field based on chain
 	if req.Chain == "solana" {
-		// Store in WalletAddress for now, or add specific SolanaAddress field if needed.
-		// Model has WalletAddress (ETH usually) and BittensorAddress.
-		// Let's use WalletAddress for generic/Solana for now as per MVP.
+		// 1. Verify Verification Params
+		if req.Signature == "" || req.Message == "" {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and message required for verification"})
+			return
+		}
+
+		// 2. Verify Message Content Binding
+		// Message must contain UserID and WalletAddress to bind them together
+		if !strings.Contains(req.Message, userID) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: User ID mismatch"})
+			return
+		}
+		if !strings.Contains(req.Message, req.WalletAddress) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: Wallet Address mismatch"})
+			return
+		}
+
+		// 3. Decode & Verify Signature
+		pubKeyBytes, err := base58.Decode(req.WalletAddress)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet address encoding"})
+			return
+		}
+		sigBytes, err := base58.Decode(req.Signature)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature encoding"})
+			return
+		}
+
+		if !ed25519.Verify(pubKeyBytes, []byte(req.Message), sigBytes) {
+			tx.Rollback()
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Signature verification failed"})
+			return
+		}
+
 		user.WalletAddress = &req.WalletAddress
 	} else if req.Chain == "bittensor" {
+		// TODO: Add support for Substrate signature verification (sr25519)
 		user.BittensorAddress = &req.WalletAddress
 	} else {
 		tx.Rollback()
