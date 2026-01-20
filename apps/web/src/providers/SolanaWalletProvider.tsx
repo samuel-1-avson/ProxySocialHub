@@ -3,7 +3,7 @@
 import { FC, ReactNode, useMemo } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter, SolflareWalletAdapter, BackpackWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { clusterApiUrl } from '@solana/web3.js';
 
 // Import default styles
@@ -28,7 +28,6 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         () => [
             new PhantomWalletAdapter(),
             new SolflareWalletAdapter(),
-            new BackpackWalletAdapter(),
         ],
         []
     );
