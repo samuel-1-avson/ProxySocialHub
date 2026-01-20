@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SolanaWalletProvider } from "@/providers/SolanaWalletProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,11 +38,13 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Web3Provider>
-            <AuthProvider>
-              {children}
-            </AuthProvider>
-          </Web3Provider>
+          <SolanaWalletProvider>
+            <Web3Provider>
+              <AuthProvider>
+                {children}
+              </AuthProvider>
+            </Web3Provider>
+          </SolanaWalletProvider>
         </ThemeProvider>
       </body>
     </html>

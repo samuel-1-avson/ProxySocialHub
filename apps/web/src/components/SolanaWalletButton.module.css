@@ -1,0 +1,75 @@
+.walletContainer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.walletButton {
+    background: linear-gradient(135deg, #9945FF 0%, #14F195 100%) !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 20px rgba(153, 69, 255, 0.3) !important;
+}
+
+.walletButton:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 25px rgba(153, 69, 255, 0.4) !important;
+}
+
+.walletButton:active {
+    transform: translateY(0) !important;
+}
+
+.walletInfo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.walletAddress {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Override default wallet adapter modal styles */
+:global(.wallet-adapter-modal-wrapper) {
+    background: rgba(0, 0, 0, 0.9) !important;
+    backdrop-filter: blur(20px) !important;
+}
+
+:global(.wallet-adapter-modal-container) {
+    background: linear-gradient(180deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 20px !important;
+}
+
+:global(.wallet-adapter-modal-title) {
+    color: #fff !important;
+    font-weight: 700 !important;
+}
+
+:global(.wallet-adapter-modal-list li) {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-radius: 12px !important;
+    margin-bottom: 8px !important;
+    transition: all 0.2s ease !important;
+}
+
+:global(.wallet-adapter-modal-list li:hover) {
+    background: rgba(255, 255, 255, 0.1) !important;
+    transform: translateX(4px) !important;
+}
+
+:global(.wallet-adapter-button) {
+    background: transparent !important;
+    color: #fff !important;
+}

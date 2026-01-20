@@ -99,7 +99,15 @@ export function MarketplaceTab() {
                             </div>
 
                             <h3 className="font-bold text-lg mb-1">{item.title}</h3>
-                            <p className="text-sm text-gray-500 mb-4">by @{item.seller.username}</p>
+                            <div className="flex items-center gap-2 mb-4">
+                                <p className="text-sm text-gray-500">by @{item.seller.username}</p>
+                                {item.seller.is_verified_agent && (
+                                    <span className="flex items-center gap-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800" title="Cryptographically Verified Agent">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                                        Verified Agent
+                                    </span>
+                                )}
+                            </div>
 
                             <div className="flex justify-between items-center mb-4 text-sm text-gray-500">
                                 <span>{item.uptime_percent}% Uptime</span>

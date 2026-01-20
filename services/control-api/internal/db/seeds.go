@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -28,6 +29,8 @@ func SeedAll() {
 	seedSessionsAndUsage()
 	log.Println("Seeding Market Agents...")
 	seedMarketAgents()
+	log.Println("Seeding Badges...")
+	seedBadges()
 	log.Println("Database seeding completed")
 }
 
@@ -398,6 +401,47 @@ func seedMarketAgents() {
 		}
 	}
 	log.Println("Seeded Market Agents")
+}
+
+func seedBadges() {
+	badges := []models.Badge{
+		{
+			Name:        "Reliable Node",
+			Description: "Maintained >99% uptime for 7 days",
+			Icon:        "shield-check",
+			Criteria:    datatypes.JSON([]byte(`{"uptime_min": 99.0}`)),
+		},
+		{
+			Name:        "Power Provider",
+			Description: "Served over 1TB of traffic",
+			Icon:        "lightning",
+			Criteria:    datatypes.JSON([]byte(`{"traffic_min_gb": 1000}`)),
+		},
+		{
+			Name:        "Early Adopter",
+			Description: "Joined during the beta phase",
+			Icon:        "rocket",
+			Criteria:    datatypes.JSON([]byte(`{"joined_before": "2025-01-01"}`)),
+		},
+		{
+			Name:        "Global Connector",
+			Description: "Served clients from >10 different countries",
+			Icon:        "globe",
+			Criteria:    datatypes.JSON([]byte(`{"geo_diversity_min": 10}`)),
+		},
+	}
+
+	for _, b := range badges {
+		var existing models.Badge
+		if err := DB.Where("name = ?", b.Name).First(&existing).Error; err != nil {
+			b.ID = uuid.New()
+			if err := DB.Create(&b).Error; err != nil {
+				log.Printf("Failed to seed badge %s: %v", b.Name, err)
+			} else {
+				log.Printf("Seeded badge: %s", b.Name)
+			}
+		}
+	}
 }
 
 func stringPtr(s string) *string {
