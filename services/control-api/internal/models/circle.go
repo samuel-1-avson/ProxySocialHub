@@ -207,7 +207,26 @@ func (c *Circle) GetRemainingBandwidth() float64 {
 }
 
 // HasBandwidth checks if circle has remaining bandwidth
+// HasBandwidth checks if circle has remaining bandwidth
 func (c *Circle) HasBandwidth() bool {
 	remaining := c.GetRemainingBandwidth()
 	return remaining < 0 || remaining > 0
+}
+
+// CirclePost represents a post in a circle's feed
+type CirclePost struct {
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID  uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
+	AuthorID  uuid.UUID `gorm:"type:uuid;not null" json:"author_id"`
+	Content   string    `gorm:"type:text;not null" json:"content"`
+	Pinned    bool      `gorm:"default:false" json:"pinned"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Relations
+	Author *User `gorm:"foreignKey:AuthorID" json:"author,omitempty"`
+}
+
+func (CirclePost) TableName() string {
+	return "circle_posts"
 }
