@@ -700,6 +700,7 @@ export interface AgentInstance {
   status: 'active' | 'paused';
   market_agent?: MarketAgent;
   last_run_at?: string;
+  expires_at?: string;
 }
 
 export interface AgentJob {
