@@ -372,21 +372,38 @@ export default function WalletPage() {
                                 )}
 
                                 <form onSubmit={action === 'deposit' ? handleDeposit : handleWithdraw} className="space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-mono font-bold uppercase text-muted-foreground">Amount (GHS)</label>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono font-bold text-muted-foreground">₵</span>
-                                            <input
-                                                type="number"
-                                                value={amount}
-                                                onChange={(e) => setAmount(e.target.value)}
-                                                placeholder={action === 'deposit' ? '10.00' : '50.00'}
-                                                min={action === 'deposit' ? 1 : 5}
-                                                step="0.01"
-                                                required
-                                                className="w-full bg-background border border-border rounded-sm py-3 pl-8 pr-4 font-mono text-lg font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                                            />
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-mono font-bold uppercase text-muted-foreground">Amount (GHS)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono font-bold text-muted-foreground">₵</span>
+                                                <input
+                                                    type="number"
+                                                    value={amount}
+                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    placeholder={action === 'deposit' ? '10.00' : '50.00'}
+                                                    min={action === 'deposit' ? 1 : 5}
+                                                    step="0.01"
+                                                    required
+                                                    className="w-full bg-background border border-border rounded-sm py-3 pl-8 pr-4 font-mono text-lg font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                                />
+                                            </div>
                                         </div>
+
+                                        {action === 'deposit' && (
+                                            <div className="flex gap-2">
+                                                {[50, 100, 500].map((val) => (
+                                                    <button
+                                                        key={val}
+                                                        type="button"
+                                                        onClick={() => setAmount(val.toString())}
+                                                        className="flex-1 py-1 text-xs font-mono font-bold bg-secondary/10 border border-border hover:bg-secondary/20 hover:border-primary transition-colors text-muted-foreground hover:text-foreground"
+                                                    >
+                                                        + {val}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {action === 'withdraw' && (
@@ -394,7 +411,7 @@ export default function WalletPage() {
                                             <div className="space-y-2">
                                                 <label className="text-xs font-mono font-bold uppercase text-muted-foreground">Network</label>
                                                 <div className="grid grid-cols-3 gap-2">
-                                                    {['MTN', 'VOD', 'ATL'].map((net) => (
+                                                    {['MTN', 'TELECEL', 'AT'].map((net) => (
                                                         <button
                                                             key={net}
                                                             type="button"
@@ -417,7 +434,7 @@ export default function WalletPage() {
                                                         type="tel"
                                                         value={phone}
                                                         onChange={(e) => setPhone(e.target.value)}
-                                                        placeholder="05XXXXXXXX"
+                                                        placeholder="02XXXXXXXX"
                                                         required
                                                         className="w-full bg-background border border-border rounded-sm py-3 pl-10 pr-4 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                                                     />

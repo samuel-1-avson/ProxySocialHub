@@ -87,6 +87,7 @@ func Init(dsn string) error {
 		&models.CircleInvite{},
 		&models.CircleSLA{},
 		&models.CircleDailyStats{},
+		&models.CirclePost{},
 		&models.CircleLease{},
 		&models.ProviderNode{},
 		&models.PendingTransaction{},
