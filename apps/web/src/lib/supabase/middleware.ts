@@ -45,13 +45,18 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url)
     }
 
+    // For dashboard routes, let client-side auth handle the check
+    // This allows wallet login users (who use localStorage, not Supabase sessions) to access dashboard
+    // The client-side AuthContext will redirect unauthenticated users to login
     if (
         !user &&
         request.nextUrl.pathname !== '/' &&
         !request.nextUrl.pathname.startsWith('/login') &&
         !request.nextUrl.pathname.startsWith('/register') &&
         !request.nextUrl.pathname.startsWith('/auth') &&
-        !request.nextUrl.pathname.startsWith('/dashboard/wallet/callback')
+        !request.nextUrl.pathname.startsWith('/dashboard') && // Allow dashboard - client handles auth
+        !request.nextUrl.pathname.startsWith('/marketplace') && // Public marketplace
+        !request.nextUrl.pathname.startsWith('/feed') // Public feed
     ) {
         // no user, potentially respond by redirecting the user to the login page
         const url = request.nextUrl.clone()
