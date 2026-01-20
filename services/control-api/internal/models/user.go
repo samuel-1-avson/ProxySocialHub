@@ -60,9 +60,9 @@ type User struct {
 }
 
 // TableName overrides the table name used by User to `profiles`
-// func (User) TableName() string {
-// 	return "profiles"
-// }
+func (User) TableName() string {
+	return "profiles"
+}
 
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	// ID is provided by Supabase Auth (auth.users), so we don't generate it here usually.
