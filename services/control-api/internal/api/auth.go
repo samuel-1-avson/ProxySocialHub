@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"sync"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
@@ -16,6 +18,12 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+)
+
+var (
+	// Fallback in-memory store for when Redis is unavailable (dev mode)
+	memStore      = make(map[string]string)
+	memStoreMutex sync.RWMutex
 )
 
 func RegisterAuthRoutes(r *gin.RouterGroup) {
@@ -55,8 +63,21 @@ func getAuthChallenge(c *gin.Context) {
 	// Store in Redis with 5 min TTL
 	if redisClient.Client != nil {
 		key := fmt.Sprintf("auth:nonce:%s", req.Address)
-		redisClient.Client.Set(c.Request.Context(), key, message, 5*time.Minute)
+		err := redisClient.Client.Set(c.Request.Context(), key, message, 5*time.Minute).Err()
+		if err != nil {
+			fmt.Printf("Redis SET Error for %s: %v\n", key, err)
+		} else {
+			fmt.Printf("Redis SET Success for %s: %s\n", key, message)
+		}
+	} else {
+		fmt.Println("Redis client is NIL in getAuthChallenge")
 	}
+
+	// Always store in memory as fallback (useful for local dev without Redis)
+	memStoreMutex.Lock()
+	memStore[req.Address] = message
+	memStoreMutex.Unlock()
+	fmt.Printf("MemStore SET Success for %s\n", req.Address)
 
 	c.JSON(http.StatusOK, gin.H{
 		"nonce":   nonce,
@@ -71,24 +92,51 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 
-	// 1. Verify Nonce from Redis
+	fmt.Printf("WalletLogin Attempt for Address: %s\n", req.Address)
+
+	// 1. Verify Nonce from Redis (or Fallback)
+	var storedMsg string
+	var gotFromRedis bool
+
 	if redisClient.Client != nil {
 		key := fmt.Sprintf("auth:nonce:%s", req.Address)
-		storedMsg, err := redisClient.Client.Get(c.Request.Context(), key).Result()
-		if err != nil {
+		val, err := redisClient.Client.Get(c.Request.Context(), key).Result()
+		if err == nil {
+			storedMsg = val
+			gotFromRedis = true
+			fmt.Printf("Redis GET Success for %s: %s\n", key, storedMsg)
+			// Invalidate nonce to prevent replay
+			redisClient.Client.Del(c.Request.Context(), key)
+		} else {
+			fmt.Printf("Redis GET Error for %s: %v. Trying MemStore.\n", key, err)
+		}
+	} else {
+		fmt.Println("Redis client is NIL in walletLogin. Trying MemStore.")
+	}
+
+	if !gotFromRedis {
+		// Fallback to MemStore
+		memStoreMutex.RLock()
+		val, ok := memStore[req.Address]
+		memStoreMutex.RUnlock()
+		if ok {
+			storedMsg = val
+			fmt.Printf("MemStore GET Success for %s: %s\n", req.Address, storedMsg)
+			// Invalidate
+			memStoreMutex.Lock()
+			delete(memStore, req.Address)
+			memStoreMutex.Unlock()
+		} else {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Challenge expired or invalid. Please request a new one."})
 			return
 		}
+	}
 
-		// If req.Nonce is sent, it must match. Or we just trust the signature on req.Nonce and verify req.Nonce == storedMsg
-		// Here specifically, the prompt said "nonce" is "signed message".
-		if req.Nonce != storedMsg {
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Nonce mismatch"})
-			return
-		}
-
-		// Invalidate nonce to prevent replay
-		redisClient.Client.Del(c.Request.Context(), key)
+	// Verify Message Content
+	if req.Nonce != storedMsg {
+		fmt.Printf("Nonce Mismatch! Expected: %s, Got: %s\n", storedMsg, req.Nonce)
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Nonce mismatch"})
+		return
 	}
 
 	// 2. Verify Signature
