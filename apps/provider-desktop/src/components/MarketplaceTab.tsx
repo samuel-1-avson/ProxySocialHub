@@ -39,12 +39,12 @@ export function MarketplaceTab() {
     };
 
     const handleBuy = async (id: string, price: number) => {
-        if (confirm(`Confirm Purchase: 1 GB for ₵${price}?`)) {
+        if (confirm(`Start IaaS Session?\n\nRate: ₵${price} per GB\nBilling: Pay-as-you-go (deducted from wallet)`)) {
             try {
-                await marketplace.buy(id, 1);
-                alert("Purchase successful! Access credentials sent.");
+                await marketplace.buy(id, 1); // API ignores amount 1 now
+                alert("Session Started! Access credentials sent.");
             } catch (err) {
-                alert("Purchase failed. Insufficient funds or network error.");
+                alert("Connection failed. Please check wallet balance.");
             }
         }
     };
@@ -132,8 +132,8 @@ export function MarketplaceTab() {
                         >
                             <div className="flex justify-between items-start mb-4">
                                 <span className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border ${item.proxy_type === 'residential'
-                                        ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30'
-                                        : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30'
+                                    ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30'
+                                    : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30'
                                     }`}>
                                     {item.proxy_type}
                                 </span>
@@ -187,7 +187,7 @@ export function MarketplaceTab() {
                                     onClick={() => handleBuy(item.id, item.price_per_gb)}
                                     className="bg-black dark:bg-white text-white dark:text-black px-5 py-2.5 rounded-lg hover:opacity-90 text-sm font-bold transition-all shadow-lg hover:shadow-xl active:scale-95"
                                 >
-                                    Purchase
+                                    Connect
                                 </button>
                             </div>
                         </div>

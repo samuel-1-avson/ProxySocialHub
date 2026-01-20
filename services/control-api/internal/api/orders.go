@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -52,110 +51,54 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	// Calculate price (check bulk discounts)
-	totalPrice := calculatePriceWithDiscounts(&listing, req.BandwidthGB)
-	pricePerGB := totalPrice / req.BandwidthGB
-
-	// Check buyer wallet balance
+	// Check buyer wallet balance (Minimum threshold for Pay-As-You-Go)
 	var wallet models.Wallet
 	if err := db.DB.First(&wallet, "user_id = ?", buyerID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet found. Please add funds first."})
 		return
 	}
 
-	if wallet.Balance < totalPrice {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
+	if wallet.Balance <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance. Please top up to start."})
 		return
 	}
 
-	// Create order
+	// Create order (Track allocation, but simple IaaS model)
 	order := models.Order{
 		BuyerID:     buyerID,
 		SellerID:    listing.SellerID,
 		ListingID:   listing.ID,
-		BandwidthGB: req.BandwidthGB,
-		PricePerGB:  pricePerGB,
-		TotalPrice:  totalPrice,
-		Status:      models.OrderStatusPending,
+		BandwidthGB: 0,                  // Pay-As-You-Go (Unlimited until empty wallet)
+		PricePerGB:  listing.PricePerGB, // Lock in the rate
+		TotalPrice:  0,                  // Charged via Usage
+		Status:      models.OrderStatusActive,
 	}
 
 	tx := db.DB.Begin()
 
-	// Create order
+	// Create order record
 	if err := tx.Create(&order).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create IaaS allocation"})
 		return
 	}
 
-	// Deduct from buyer wallet
-	newBalance := wallet.Balance - totalPrice
-	tx.Model(&wallet).Update("balance", newBalance)
+	// Skipping Upfront Deduction & Escrow for IaaS.
+	// Billing is handled real-time in /usage/report
 
-	// Create ledger entry for buyer
-	buyerLedger := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       -totalPrice,
-		BalanceAfter: newBalance,
-		Type:         "purchase_escrow", // specific type for escrow lock
-		ReferenceID:  order.ID.String(),
-		Description:  "Escrow lock for " + getDisplayName(listing.Seller),
-	}
-	tx.Create(&buyerLedger)
-
-	// CREATE ESCROW RECORD (Hold Funds)
-	// We do not credit seller or clan yet.
-	autoRelease := time.Now().AddDate(0, 0, 7) // Auto-release in 7 days
-	escrow := models.EscrowTransaction{
-		OrderID:       order.ID,
-		BuyerID:       buyerID,
-		SellerID:      listing.SellerID,
-		Amount:        totalPrice, // Hold the full amount
-		Status:        models.EscrowHeld,
-		HeldAt:        time.Now(),
-		AutoReleaseAt: &autoRelease,
-	}
-	if err := tx.Create(&escrow).Error; err != nil {
-		tx.Rollback()
-		fmt.Printf("DATABASE ERROR (escrow): %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create escrow: " + err.Error()})
-		return
-	}
-
-	// Update listing stats
+	// Update listing stats (Just increment connection count, don't reduce available GB if it's IaaS capacity)
+	// Assuming "OrdersCount" can track connections.
 	tx.Model(&listing).Updates(map[string]interface{}{
-		"available_bandwidth_gb": listing.AvailableBandwidthGB - req.BandwidthGB,
-		"orders_count":           listing.OrdersCount + 1,
+		"orders_count": listing.OrdersCount + 1,
 	})
 
-	// Update seller stats
-	tx.Model(&models.User{}).Where("id = ?", listing.SellerID).Update("total_bandwidth_sold", db.DB.Raw("total_bandwidth_sold + ?", req.BandwidthGB))
-
-	// Mark as sold out if no bandwidth left
-	if listing.AvailableBandwidthGB-req.BandwidthGB <= 0 {
-		tx.Model(&listing).Update("status", models.ListingStatusSoldOut)
-	}
-
-	// Update order status to active
-	tx.Model(&order).Update("status", models.OrderStatusActive)
-
-	// Create feed event
-	feedEvent := models.FeedEvent{
-		ActorID:    &buyerID,
-		EventType:  models.FeedEventNewSale,
-		TargetType: "order",
-		TargetID:   &order.ID,
-		Content:    "purchased " + floatToString(req.BandwidthGB) + " GB",
-	}
-	tx.Create(&feedEvent)
-
-	// Create a session for the buyer with the purchased bandwidth
+	// Create a session for the buyer (Unlimited/Pay-As-You-Go)
 	session := models.Session{
 		UserID:         buyerID,
 		Type:           models.SessionRotating,
 		Status:         models.SessionActive,
-		BandwidthLimit: int64(req.BandwidthGB * 1024 * 1024 * 1024), // Convert GB to Bytes
-		Config:         "{}",                                        // Default config
+		BandwidthLimit: 0, // 0 = Unlimited / Pay-As-You-Go
+		Config:         "{}",
 	}
 	if err := tx.Create(&session).Error; err == nil {
 		// Link session to order
