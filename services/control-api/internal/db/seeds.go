@@ -251,14 +251,22 @@ func seedWallet() {
 
 func seedSessionsAndUsage() {
 	var user models.User
-	if err := DB.Where("email = ?", "user@proxyhub.com").First(&user).Error; err != nil {
-		return
+	// Target the specific logged-in user to ensure they see the data
+	if err := DB.Where("email = ?", "samuelavson@gmail.com").First(&user).Error; err != nil {
+		// Fallback
+		if err := DB.Where("email = ?", "user@proxyhub.com").First(&user).Error; err != nil {
+			return
+		}
 	}
 
-	var node models.Node
-	if err := DB.Where("country_code = 'GH'").First(&node).Error; err != nil {
-		// Fallback to any node
-		DB.First(&node)
+	var node models.ProviderNode
+	// Use ProviderNode instead of Node
+	if err := DB.Where("country = 'GH'").First(&node).Error; err != nil {
+		// Fallback to any provider node
+		if err := DB.First(&node).Error; err != nil {
+			log.Println("No provider nodes found, skipping usage seed")
+			return
+		}
 	}
 
 	// 1. Active Session
@@ -284,7 +292,7 @@ func seedSessionsAndUsage() {
 	}
 
 	// 2. Generate Usage Records for Analytics (Past 7 days)
-	// We want to simulate traffic patterns
+	// We want to simulate traffic patterns used in dashboard charts
 
 	// Only seed if we don't have many records
 	var count int64
