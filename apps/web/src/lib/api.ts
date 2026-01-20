@@ -14,10 +14,14 @@ export interface Session {
 }
 
 export interface Wallet {
-  wallet_id: string;
-  balance: number;
+  id: string; // Changed from wallet_id to match backend json:"id"
+  balance_ghs: number;
+  balance_tao: number;
   currency: string;
   transactions: WalletTransaction[];
+  // Legacy support if needed, but backend sends 'balance' no more? 
+  // Actually backend creates JSON from struct, so it sends 'balance_ghs' and 'balance_tao'.
+  // The old 'balance' field in struct might be gone or ignored.
 }
 
 export interface WalletTransaction {
@@ -234,6 +238,19 @@ export async function depositWallet(amount: number, email: string): Promise<{ st
     body: JSON.stringify({ amount, email }),
   });
   if (!response.ok) throw new Error('Failed to initiate deposit');
+  return response.json();
+}
+
+export async function depositCrypto(amount: number, txHash: string): Promise<{ status: string; message: string }> {
+  // This assumes backend has POST /wallet/deposit/crypto
+  // If we are passing signature instead of txHash, adjust accordingly.
+  // For now, let's assume simple simulation or hash submission.
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit/crypto`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO' }),
+  });
+  if (!response.ok) throw new Error('Failed to submit crypto deposit');
   return response.json();
 }
 

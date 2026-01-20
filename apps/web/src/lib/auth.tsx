@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { createClient } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
+import bs58 from 'bs58';
 
 export interface AuthContextType {
   user: User | null;
@@ -95,12 +96,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { message, nonce } = await challengeRes.json();
 
       // 2. Sign Message
-      if (!signer || !signer.signRaw) throw new Error('Signer does not support signRaw');
-      const { signature } = await signer.signRaw({
-        address,
-        data: message,
-        type: 'bytes'
-      });
+      let signature = '';
+
+      // Check for Solana Wallet (Phantom/Adapter)
+      if (signer && signer.signMessage) {
+        const encodedMessage = new TextEncoder().encode(message);
+        const signatureBytes = await signer.signMessage(encodedMessage);
+
+        // Use bs58 to encode signature
+        signature = bs58.encode(signatureBytes);
+      }
+      // Check for Polkadot/Substrate Wallet
+      else if (signer && signer.signRaw) {
+        const result = await signer.signRaw({
+          address,
+          data: message,
+          type: 'bytes'
+        });
+        signature = result.signature;
+      } else {
+        throw new Error('Wallet does not support signing');
+      }
 
       // 3. Login
       const loginRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'}/v1/auth/wallet/login`, {

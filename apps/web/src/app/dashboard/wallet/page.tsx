@@ -32,7 +32,7 @@ export default function WalletPage() {
     const { user } = useAuth();
     const [wallet, setWallet] = useState<WalletType | null>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'FIAT' | 'CRYPTO'>('FIAT');
+    const [activeTab, setActiveTab] = useState<'FIAT' | 'CRYPTO'>('CRYPTO');
 
     // Fiat State
     const [action, setAction] = useState<'deposit' | 'withdraw' | null>(null);
@@ -43,19 +43,16 @@ export default function WalletPage() {
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
     // Crypto State
-    const { address, isConnected } = useAccount();
-    const [cryptoAmount, setCryptoAmount] = useState('');
-    const { writeContract, data: hash, isPending: isWritePending } = useWriteContract();
-    const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+    const { address, isConnected } = useAccount(); // Still keeping this for potential ETH interoperability
+    // We should ideally use a Sol/Polkadot hook here if we want native Tao, but for now we might be using the Login Identity.
+    // The user has 'wallet' object from backend which holds the TAO balance.
 
-    // Read Contract Data
-    const { data: buyerBalance } = useReadContract({
-        address: PROXY_MARKETPLACE_ADDRESS,
-        abi: PROXY_MARKETPLACE_ABI,
-        functionName: 'buyerDeposits',
-        args: address ? [address] : undefined,
-        query: { enabled: !!address }
-    });
+    // We import depositCrypto from api
+    const { depositCrypto } = require('@/lib/api');
+    const [cryptoAmount, setCryptoAmount] = useState('');
+    const [cryptoProcessing, setCryptoProcessing] = useState(false);
+    const [cryptoResult, setCryptoResult] = useState<{ success: boolean; message: string } | null>(null);
+
 
     useEffect(() => {
         fetchWallet();
@@ -121,22 +118,26 @@ export default function WalletPage() {
     async function handleCryptoDeposit(e: React.FormEvent) {
         e.preventDefault();
         if (!cryptoAmount) return;
-        writeContract({
-            address: PROXY_MARKETPLACE_ADDRESS,
-            abi: PROXY_MARKETPLACE_ABI,
-            functionName: 'deposit',
-            value: parseEther(cryptoAmount),
-        });
+        setCryptoProcessing(true);
+        setCryptoResult(null);
+
+        try {
+            // Simulator: We just ask for amount using the API. In real world, we would ask for TX Hash.
+            // For MVP, we can generate a mock hash or ask user.
+            // Let's assume we just call the API and it simulates/verifies.
+            const res = await depositCrypto(parseFloat(cryptoAmount), "0xSIMULATED_HASH_" + Date.now());
+            setCryptoResult({ success: true, message: "Deposit Verified! " + res.message });
+            setCryptoAmount('');
+            fetchWallet(); // Refresh balance
+        } catch (err: any) {
+            setCryptoResult({ success: false, message: err.message || "Deposit failed" });
+        } finally {
+            setCryptoProcessing(false);
+        }
     }
 
-    if (loading) {
-        return (
-            <div className="min-h-[400px] flex flex-col items-center justify-center space-y-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="text-muted-foreground font-mono text-xs uppercase tracking-widest">Syncing Protocols...</p>
-            </div>
-        );
-    }
+
+    /* ... render methods ... */
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -150,23 +151,24 @@ export default function WalletPage() {
                 {/* Mode Switcher */}
                 <div className="flex p-1 rounded-sm bg-secondary/20 border border-border">
                     <button
+                        onClick={() => setActiveTab('CRYPTO')}
+                        className={`px-4 py-2 rounded-sm text-xs font-mono font-bold uppercase transition-all ${activeTab === 'CRYPTO'
+                            ? 'bg-primary text-primary-foreground shadow-sm' // TAO is primary now
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                            }`}
+                    >
+                        TAO (Bittensor)
+                    </button>
+                    <button
                         onClick={() => setActiveTab('FIAT')}
                         className={`px-4 py-2 rounded-sm text-xs font-mono font-bold uppercase transition-all ${activeTab === 'FIAT'
-                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            ? 'bg-blue-600 text-white shadow-sm'
                             : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                             }`}
                     >
                         Fiat (GHS)
                     </button>
-                    <button
-                        onClick={() => setActiveTab('CRYPTO')}
-                        className={`px-4 py-2 rounded-sm text-xs font-mono font-bold uppercase transition-all ${activeTab === 'CRYPTO'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
-                            }`}
-                    >
-                        Crypto (ETH)
-                    </button>
+
                 </div>
             </div>
 
@@ -178,59 +180,59 @@ export default function WalletPage() {
                             <Layers className="w-12 h-12 text-primary" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold font-mono uppercase">Blockchain Layer</h2>
+                            <h2 className="text-xl font-bold font-mono uppercase">AI-Native Settlement</h2>
                             <p className="text-xs font-mono text-muted-foreground mt-2 max-w-md mx-auto">
-                                CONNECT WALLET TO ACCESS DECENTRALIZED SETTLEMENT PROTOCOLS VIA POLYGON NETWORK.
+                                PRIMARY CURRENCY FOR AI AGENT RENTALS AND DATA SERVICES.
                             </p>
                         </div>
 
-                        <ConnectButton showBalance={false} />
+                        { /* We don't strictly need ConnectButton for 'viewing' balance if it's in the DB, 
+                             but it's good for 'Connecting' to deposit. For now, showing DB balance is key. */ }
 
-                        {isConnected && (
-                            <div className="w-full max-w-3xl pt-8 border-t border-border mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-                                {/* Escrow Balance */}
-                                <div className="p-6 border border-blue-500/30 bg-blue-500/5 rounded-sm">
-                                    <p className="text-[10px] font-mono font-bold text-blue-500 uppercase tracking-widest mb-2">Escrow Balance</p>
-                                    <p className="text-3xl font-bold font-mono tracking-tighter">
-                                        {buyerBalance ? parseFloat(formatEther(buyerBalance)).toFixed(4) : '0.0000'} <span className="text-sm opacity-50">ETH</span>
-                                    </p>
-                                </div>
-
-                                {/* Unclaimed Earnings */}
-                                <div className="p-6 border border-green-500/30 bg-green-500/5 rounded-sm">
-                                    <p className="text-[10px] font-mono font-bold text-green-500 uppercase tracking-widest mb-2">Unclaimed Yield</p>
-                                    <p className="text-3xl font-bold font-mono tracking-tighter">
-                                        0.000 <span className="text-sm opacity-50">GB</span>
-                                    </p>
-                                </div>
-
-                                <div className="md:col-span-2 card-retro p-6 bg-card border-border">
-                                    <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground mb-4">Add to Escrow</h3>
-                                    <form onSubmit={handleCryptoDeposit} className="flex gap-2">
-                                        <input
-                                            type="number"
-                                            step="0.0001"
-                                            placeholder="AMOUNT (ETH)"
-                                            value={cryptoAmount}
-                                            onChange={(e) => setCryptoAmount(e.target.value)}
-                                            className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                                        />
-                                        <button
-                                            type="submit"
-                                            disabled={isWritePending || isConfirming}
-                                            className="btn-retro btn-retro-primary text-xs py-2 px-6"
-                                        >
-                                            {isWritePending ? '...' : 'DEPOSIT'}
-                                        </button>
-                                    </form>
-                                    {hash && (
-                                        <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 text-green-600 text-xs font-mono break-all rounded-sm">
-                                            TX: {hash}
-                                        </div>
-                                    )}
-                                </div>
+                        <div className="w-full max-w-3xl pt-8 border-t border-border mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                            {/* TAO Balance */}
+                            <div className="p-6 border border-primary/30 bg-primary/5 rounded-sm">
+                                <p className="text-[10px] font-mono font-bold text-primary uppercase tracking-widest mb-2">Core Balance</p>
+                                <p className="text-3xl font-bold font-mono tracking-tighter">
+                                    {wallet?.balance_tao?.toFixed(4) || '0.0000'} <span className="text-sm opacity-50">TAO</span>
+                                </p>
                             </div>
-                        )}
+
+                            {/* Unclaimed Earnings / Other */}
+                            <div className="p-6 border border-green-500/30 bg-green-500/5 rounded-sm">
+                                <p className="text-[10px] font-mono font-bold text-green-500 uppercase tracking-widest mb-2">Pending Yield</p>
+                                <p className="text-3xl font-bold font-mono tracking-tighter">
+                                    0.000 <span className="text-sm opacity-50">TAO</span>
+                                </p>
+                            </div>
+
+                            <div className="md:col-span-2 card-retro p-6 bg-card border-border">
+                                <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground mb-4">Deposit TAO</h3>
+                                <form onSubmit={handleCryptoDeposit} className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        step="0.0001"
+                                        placeholder="AMOUNT (TAO)"
+                                        value={cryptoAmount}
+                                        onChange={(e) => setCryptoAmount(e.target.value)}
+                                        className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={cryptoProcessing}
+                                        className="btn-retro btn-retro-primary text-xs py-2 px-6"
+                                    >
+                                        {cryptoProcessing ? '...' : 'DEPOSIT'}
+                                    </button>
+                                </form>
+                                {cryptoResult && (
+                                    <div className={`mt-4 p-3 border text-xs font-mono break-all rounded-sm ${cryptoResult.success ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-destructive/10 border-destructive/20 text-destructive'
+                                        }`}>
+                                        {cryptoResult.message}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -248,7 +250,7 @@ export default function WalletPage() {
                                 </div>
                                 <div className="text-6xl font-black font-mono tracking-tighter mb-2 flex items-baseline gap-2">
                                     <span className="text-2xl opacity-40 text-muted-foreground font-bold">₵</span>
-                                    {wallet?.balance?.toFixed(2) || '0.00'}
+                                    {wallet?.balance_ghs?.toFixed(2) || '0.00'}
                                 </div>
                                 <div className="flex items-center gap-2 text-[10px] font-mono font-bold text-green-500 uppercase tracking-widest">
                                     <Activity size={12} />

@@ -25,7 +25,8 @@ const (
 type Session struct {
 	ID              uuid.UUID     `gorm:"type:uuid;primary_key" json:"id"`
 	UserID          uuid.UUID     `gorm:"type:uuid;not null;index:idx_session_user" json:"user_id"`
-	NodeID          *uuid.UUID    `gorm:"type:uuid;index:idx_session_node" json:"node_id"` // Nullable
+	NodeID          *uuid.UUID    `gorm:"type:uuid;index:idx_session_node" json:"node_id"`       // Nullable
+	ListingID       *uuid.UUID    `gorm:"type:uuid;index:idx_session_listing" json:"listing_id"` // Link to marketplace listing
 	Type            SessionType   `gorm:"type:varchar(50);not null" json:"type"`
 	Status          SessionStatus `gorm:"type:varchar(50);default:'active';index:idx_session_status" json:"status"`
 	TxHash          string        `gorm:"size:255" json:"tx_hash,omitempty"`
@@ -38,6 +39,9 @@ type Session struct {
 	BytesUsed       int64         `json:"bytes_used"`
 	ExpiresAt       *time.Time    `json:"expires_at"`
 	CreatedAt       time.Time     `json:"created_at"`
+
+	// Relations
+	Listing *ProxyListing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`
 }
 
 func (s *Session) BeforeCreate(tx *gorm.DB) (err error) {

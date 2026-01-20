@@ -353,7 +353,7 @@ func processPayout(c *gin.Context) {
 		"status":      "processed",
 		"reference":   reference,
 		"amount":      req.Amount,
-		"new_balance": wallet.Balance,
+		"new_balance": wallet.BalanceTAO,
 	})
 }
 
