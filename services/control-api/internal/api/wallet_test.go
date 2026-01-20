@@ -72,8 +72,12 @@ func TestGetWallet(t *testing.T) {
 		t.Fatal("Expected wallet in response")
 	}
 
-	if walletData["balance"].(float64) != wallet.Balance {
-		t.Errorf("Expected balance %.2f, got %.2f", wallet.Balance, walletData["balance"].(float64))
+	if walletData["balance_ghs"] == nil {
+		t.Fatal("Expected balance_ghs in response")
+	}
+
+	if walletData["balance_ghs"].(float64) != wallet.BalanceGHS {
+		t.Errorf("Expected balance %.2f, got %.2f", wallet.BalanceGHS, walletData["balance_ghs"].(float64))
 	}
 }
 

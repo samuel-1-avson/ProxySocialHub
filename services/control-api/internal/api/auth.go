@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -89,20 +91,33 @@ func walletLogin(c *gin.Context) {
 		redisClient.Client.Del(c.Request.Context(), key)
 	}
 
-	// 2. Verify Signature via Bittensor Bridge
-	client := GetBittensorClient()
-	if client == nil {
-		c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Bittensor client not available"})
-		return
+	// 2. Verify Signature
+	// Try Solana (Ed25519) first
+	var isValid bool
+	pubKeyBytes, err := base58.Decode(req.Address)
+	if err == nil && len(pubKeyBytes) == 32 {
+		sigBytes, err := base58.Decode(req.Signature)
+		if err == nil && len(sigBytes) == 64 {
+			// Verify using standard Ed25519
+			if ed25519.Verify(pubKeyBytes, []byte(req.Nonce), sigBytes) {
+				isValid = true
+			}
+		}
 	}
 
-	isValid, err := client.VerifySignature(req.Address, req.Nonce, req.Signature)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Signature verification failed: " + err.Error()})
-		return
-	}
 	if !isValid {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature"})
+		// Fallback to Bittensor Bridge
+		client := GetBittensorClient()
+		if client != nil {
+			bridgeValid, err := client.VerifySignature(req.Address, req.Nonce, req.Signature)
+			if err == nil && bridgeValid {
+				isValid = true
+			}
+		}
+	}
+
+	if !isValid {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature (Solana/Bittensor verification failed)"})
 		return
 	}
 
@@ -173,9 +188,9 @@ func devLogin(c *gin.Context) {
 
 		// Fund wallet
 		wallet := models.Wallet{
-			UserID:   user.ID,
-			Balance:  1000.0,
-			Currency: "TAO",
+			UserID:     user.ID,
+			BalanceTAO: 1000.0,
+			Currency:   "TAO",
 		}
 		db.DB.Create(&wallet)
 	}

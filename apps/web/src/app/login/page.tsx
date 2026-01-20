@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { createClient } from '@/lib/supabase/client';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
 import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, walletLogin } = useAuth();
+  const { connected, publicKey, signMessage } = useWallet();
   const router = useRouter();
   const supabase = createClient();
 
@@ -104,6 +106,35 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {connected && publicKey && (
+            <button
+              type="button"
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  // Pass the wallet adapter as 'signer' which has signMessage
+                  await walletLogin(publicKey.toBase58(), { signMessage });
+                  router.push('/dashboard');
+                } catch (err: any) {
+                  setError(err.message || 'Wallet login failed');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="w-full btn-retro btn-retro-primary py-3 text-sm mb-6"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  VERIFY IDENTITY ({publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)})
+                  <ArrowRight size={16} className="ml-2" />
+                </>
+              )}
+            </button>
+          )}
+
           <form onSubmit={handleCredentialsSubmit} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="email" className="block text-xs font-mono font-bold uppercase text-muted-foreground">
@@ -116,7 +147,7 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
+                  required={!connected} // Only required if not wallet login
                   className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
                   placeholder="USER@PROTOCOL.IO"
                 />
@@ -139,7 +170,7 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  required
+                  required={!connected}
                   minLength={8}
                   className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
                   placeholder="••••••••"
@@ -149,14 +180,14 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full btn-retro btn-retro-primary py-3 text-sm"
+              disabled={loading || !!connected} // Disable if wallet connected (encourage wallet login)
+              className="w-full btn-retro btn-retro-outline py-3 text-sm opacity-80 hover:opacity-100"
             >
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
-                  ESTABLISH CONNECTION
+                  LOGIN WITH CREDENTIALS
                   <ArrowRight size={16} className="ml-2" />
                 </>
               )}
@@ -185,7 +216,7 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }
 

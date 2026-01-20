@@ -123,8 +123,21 @@ func reportUsage(c *gin.Context) {
 		}(sessionData, report.BytesUp, report.BytesDown)
 
 		// IaaS Billing Pivot (Real-time Deduction in TAO)
+		// Fetch Proxy Listing for Price Calculation
+		var session models.Session
+		// TODO: Optimize by caching ListingID in Redis SessionData
+		if err := db.DB.Preload("Listing").Where("credentials_user = ?", report.SessionUsername).First(&session).Error; err != nil {
+			logging.Warn().Str("session", report.SessionUsername).Msg("Session not found during billing, skipping deduction")
+			continue
+		}
+
+		var currentPricePerGB float64 = 0.50
+		if session.Listing != nil {
+			currentPricePerGB = CalculateFairPrice(*session.Listing)
+		}
+
 		// 1. Calculate Cost in GHS first
-		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * PricePerGB
+		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * currentPricePerGB
 
 		// 2. Convert to TAO
 		rate := GetTaoToGhsRate()
@@ -172,7 +185,7 @@ func reportUsage(c *gin.Context) {
 				Amount:       -costTAO,
 				BalanceAfter: wallet.BalanceTAO,
 				Type:         models.TransactionUsage,
-				Description:  fmt.Sprintf("Usage: %d bytes (%.6f TAO)", totalBytes, costTAO),
+				Description:  fmt.Sprintf("Usage: %d bytes (%.6f TAO @ %.2f/GB)", totalBytes, costTAO, currentPricePerGB),
 				CreatedAt:    time.Now(),
 			}
 			return tx.Create(&ledger).Error
@@ -303,7 +316,7 @@ type signUsageRequest struct {
 
 // signUsageClaim generates an Oracle signature for a provider to claim earnings from a buyer
 func signUsageClaim(c *gin.Context) {
-	// 1. Get Authenticated Provider
+	// 1. Get Authenticated Provider (Internal User ID)
 	providerID := c.GetString("userID")
 	if providerID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
@@ -326,11 +339,21 @@ func signUsageClaim(c *gin.Context) {
 
 	// 4. Retrieve Usage Stats from Redis
 	// Fetch real usage for this provider-buyer pair
-	bytesUsed, err := redisClient.GetTotalProviderUsage(providerID, req.BuyerAddress)
+	// Note: req.BuyerAddress IS the wallet address from the client perspective,
+	// but in Redis we stored Internal UserID. So we need to map Buyer Address -> Internal UserID to look up usage,
+	// OR we stored usage keyed by Internal UserID.
+	// Let's assume Redis keys are: usage:provider:{providerID}:user:{userID}.
+
+	// Reverse Lookup: Find UserID from BuyerAddress (Wallet)
+	var buyerUser models.User
+	if err := db.DB.Where("wallet_address = ? OR bittensor_address = ?", req.BuyerAddress, req.BuyerAddress).First(&buyerUser).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Buyer wallet not registered"})
+		return
+	}
+
+	bytesUsed, err := redisClient.GetTotalProviderUsage(providerID, buyerUser.ID.String())
 	if err != nil {
 		logging.Error(err).Msg("Failed to retrieve usage stats")
-		// If Redis fails, we might want to fail the request or return 0
-		// For now, let's retun error to be safe
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve usage data"})
 		return
 	}
@@ -340,20 +363,35 @@ func signUsageClaim(c *gin.Context) {
 		return
 	}
 
-	// 5. Generate Nonce (Atomic Redis Counter)
-	// Prevents replay attacks and ensures sequential ordering per pair
-	nonce, err := redisClient.IncrementNonce(providerID, req.BuyerAddress)
+	// 5. Generate Nonce
+	nonce, err := redisClient.IncrementNonce(providerID, buyerUser.ID.String())
 	if err != nil {
 		logging.Error(err).Msg("Failed to generate nonce")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Crypto failure"})
 		return
 	}
 
-	// 6. Sign
-	// Use math/big for large numbers
+	// 6. Resolve Provider Wallet Address
+	var providerUser models.User
+	if err := db.DB.Where("id = ?", providerID).First(&providerUser).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Provider profile error"})
+		return
+	}
+
+	providerWallet := ""
+	if providerUser.WalletAddress != nil {
+		providerWallet = *providerUser.WalletAddress
+	}
+	// Fallback or prefer specific chain logic if needed.
+	if providerWallet == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Provider must link a wallet to claim earnings"})
+		return
+	}
+
+	// 7. Sign (Using WALLET ADDRESSES now)
 	signature, err := signer.SignUsage(
-		req.BuyerAddress,
-		providerID,
+		req.BuyerAddress, // Client provided wallet address (verified exists)
+		providerWallet,   // Provider's linked wallet
 		big.NewInt(bytesUsed),
 		new(big.Int).SetUint64(nonce),
 	)
@@ -364,11 +402,11 @@ func signUsageClaim(c *gin.Context) {
 		return
 	}
 
-	// 7. Respond
+	// 8. Respond
 	c.JSON(http.StatusOK, gin.H{
 		"signature":     fmt.Sprintf("0x%x", signature),
 		"buyer":         req.BuyerAddress,
-		"provider":      providerID,
+		"provider":      providerWallet,
 		"bytes_used":    bytesUsed,
 		"nonce":         nonce,
 		"token_address": "0x0000000000000000000000000000000000000000",

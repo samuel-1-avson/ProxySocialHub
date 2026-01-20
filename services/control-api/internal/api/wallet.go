@@ -557,15 +557,24 @@ func verifyDeposit(c *gin.Context) {
 
 	// Credit Wallet with Dual Balance Logic
 	var wallet models.Wallet
+	// Parse UserID
+	pUserID, err := uuid.Parse(pendingTx.UserID)
+	if err != nil {
+		logging.Error(err).Str("user_id_str", pendingTx.UserID).Msg("Invalid UserID in pending tx")
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid UserID"})
+		return
+	}
+
 	// Check if wallet exists or create
-	if result := tx.Where("user_id = ?", pendingTx.UserID).First(&wallet); result.Error != nil {
+	if result := tx.Where("user_id = ?", pUserID).First(&wallet); result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
-			logging.Info().Str("user_id", pendingTx.UserID.String()).Msg("verifyDeposit: Wallet missing, creating new Multi-Currency wallet")
+			logging.Info().Str("user_id", pUserID.String()).Msg("verifyDeposit: Wallet missing, creating new Multi-Currency wallet")
 			wallet = models.Wallet{
-				UserID:      pendingTx.UserID,
-				BalanceGHS:  0,
-				BalanceUSDT: 0,
-				Currency:    "MULTI",
+				UserID:     pUserID,
+				BalanceGHS: 0,
+				BalanceTAO: 0, // Initialize explicitly
+				Currency:   "MULTI",
 			}
 			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
@@ -606,11 +615,11 @@ func verifyDeposit(c *gin.Context) {
 
 	// Determine Logic: Auto-Swap OR Manual Hold
 	autoConvert := false
-	if meta, ok := resp.Data.Metadata.(map[string]interface{}); ok {
-		if val, ok := meta["auto_convert"].(bool); ok {
-			autoConvert = val
-		}
-	}
+	// if meta, ok := resp.Data.Metadata.(map[string]interface{}); ok {
+	// 	if val, ok := meta["auto_convert"].(bool); ok {
+	// 		autoConvert = val
+	// 	}
+	// }
 
 	finalMessage := "Wallet credited with GHS"
 
