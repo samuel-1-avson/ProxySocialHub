@@ -29,8 +29,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkUser = async () => {
       try {
+        // 1. Check Supabase Session
         const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user ?? null);
+        if (session?.user) {
+          setUser(session.user);
+          return;
+        }
+
+        // 2. Check Local Token (Wallet Login)
+        if (typeof window !== 'undefined') {
+          const token = localStorage.getItem('proxyhubb_token');
+          if (token) {
+            // Validate token with backend
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'}/v1/auth/me`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+
+            if (res.ok) {
+              const apiUser = await res.json();
+              // Map to Supabase User shape
+              const mappedUser: User = {
+                id: apiUser.id,
+                email: apiUser.email,
+                role: apiUser.role,
+                app_metadata: {},
+                user_metadata: {
+                  username: apiUser.username,
+                  avatar_url: apiUser.avatar_url,
+                },
+                aud: 'authenticated',
+                created_at: new Date().toISOString()
+              } as unknown as User;
+              setUser(mappedUser);
+            } else {
+              // Token invalid
+              localStorage.removeItem('proxyhubb_token');
+            }
+          }
+        }
       } catch (error) {
         console.error('Error checking auth session:', error);
       } finally {
@@ -40,13 +78,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkUser();
 
+    // Listen for Supabase auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-      if (_event === 'SIGNED_OUT') {
-        router.push('/login');
-        router.refresh();
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        // Only clear user if no local token exists either (handling "Switch to Supabase logout" vs "Wallet logout")
+        // But simplified: if Supabase sign out happens, we likely want to sign out completely.
+        // However, wallet login users don't trigger Supabase auth state changes.
+        // So this listener is fine for Supabase users.
+        // For Wallet users, logout() function clears everything.
       }
+
+      // We don't want to auto-clear user here if they are logged in via wallet
+      // Because onAuthStateChange might fire on initial load with null session.
     });
 
     return () => subscription.unsubscribe();
@@ -76,6 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await supabase.auth.signOut();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('proxyhubb_token');
+    }
+    setUser(null);
+    router.push('/login');
   };
 
   const getAccessToken = async () => {

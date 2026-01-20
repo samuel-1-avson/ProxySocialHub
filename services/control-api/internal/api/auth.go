@@ -32,6 +32,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		auth.POST("/wallet/challenge", getAuthChallenge)
 		auth.POST("/wallet/login", walletLogin)
 		auth.POST("/dev/login", devLogin)
+		auth.GET("/me", getMe)
 	}
 }
 
@@ -261,4 +262,30 @@ func devLogin(c *gin.Context) {
 		"token": token,
 		"user":  user,
 	})
+}
+
+// getMe returns the currently authenticated user
+func getMe(c *gin.Context) {
+	// Let's assume we need to parse the token to get the user ID.
+	authHeader := c.GetHeader("Authorization")
+	if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Missing or invalid authorization header"})
+		return
+	}
+	tokenString := authHeader[7:]
+
+	cfg, _ := config.Load()
+	claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid token"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.Where("id = ?", claims.UserID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
 }
