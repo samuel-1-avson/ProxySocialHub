@@ -29,6 +29,9 @@ export default function MarketplacePage() {
     const [filters, setFilters] = useState({
         proxy_type: "",
         sort_by: "newest",
+        country: "",
+        min_price: "",
+        max_price: ""
     });
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
@@ -38,11 +41,16 @@ export default function MarketplacePage() {
         setLoading(true);
         setError("");
         try {
-            const data = await getListings({
-                proxy_type: filters.proxy_type || undefined,
+            const params: any = {
                 sort_by: filters.sort_by,
                 page,
-            });
+            };
+            if (filters.proxy_type) params.proxy_type = filters.proxy_type;
+            if (filters.country) params.country = filters.country;
+            if (filters.min_price) params.min_price = filters.min_price;
+            if (filters.max_price) params.max_price = filters.max_price;
+
+            const data = await getListings(params);
             setListings(data?.listings || []);
             setTotal(data?.total || 0);
         } catch (err) {
@@ -66,15 +74,23 @@ export default function MarketplacePage() {
                     <p className="text-muted-foreground font-mono text-xs">ACQUIRE DECENTRALIZED BANDWIDTH RESOURCES.</p>
                 </div>
 
-                <div className="flex gap-4">
-                    <div className="text-right">
-                        <div className="text-2xl font-bold font-mono leading-none">{total}</div>
-                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Active Nodes</div>
-                    </div>
-                    <div className="w-px h-8 bg-border"></div>
-                    <div className="text-right">
-                        <div className="text-2xl font-bold font-mono leading-none text-green-500">99.9%</div>
-                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Uptime</div>
+                <div className="flex gap-4 items-end">
+                    {user?.role === 'provider' && (
+                        <Link href="/marketplace/create" className="btn-retro btn-retro-primary px-4 py-2 text-xs flex items-center gap-2 h-full">
+                            <Plus size={14} /> SELL NODES
+                        </Link>
+                    )}
+
+                    <div className="flex gap-4 border-l border-border pl-4">
+                        <div className="text-right">
+                            <div className="text-2xl font-bold font-mono leading-none">{total}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Active Nodes</div>
+                        </div>
+                        <div className="w-px h-8 bg-border"></div>
+                        <div className="text-right">
+                            <div className="text-2xl font-bold font-mono leading-none text-green-500">99.9%</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Uptime</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -89,40 +105,96 @@ export default function MarketplacePage() {
             </div>
 
             {/* Filters Bar */}
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-4 bg-secondary/10 border border-border rounded-sm">
-                <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-                    {['', 'residential', 'mobile', 'datacenter'].map((type) => (
-                        <button
-                            key={type}
-                            onClick={() => {
-                                setFilters({ ...filters, proxy_type: type });
-                                setPage(1);
-                            }}
-                            className={`px-3 py-1.5 rounded-sm text-[10px] font-bold font-mono uppercase transition-all border ${filters.proxy_type === type
+            <div className="flex flex-col gap-4 p-4 bg-secondary/10 border border-border rounded-sm">
+                {/* Row 1: Type & Sort */}
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
+                        {['', 'residential', 'mobile', 'datacenter'].map((type) => (
+                            <button
+                                key={type}
+                                onClick={() => {
+                                    setFilters({ ...filters, proxy_type: type });
+                                    setPage(1);
+                                }}
+                                className={`px-3 py-1.5 rounded-sm text-[10px] font-bold font-mono uppercase transition-all border ${filters.proxy_type === type
                                     ? 'bg-primary text-primary-foreground border-foreground shadow-[2px_2px_0px_var(--foreground)]'
                                     : 'bg-background border-border text-muted-foreground hover:border-foreground'
-                                }`}
+                                    }`}
+                            >
+                                {type === '' ? 'All Networks' : type}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        <span className="text-[10px] font-mono font-bold uppercase text-muted-foreground whitespace-nowrap">Sort By:</span>
+                        <select
+                            className="bg-background border border-border text-xs font-mono font-bold uppercase rounded-sm px-2 py-1.5 outline-none focus:border-primary"
+                            value={filters.sort_by}
+                            onChange={(e) => {
+                                setFilters({ ...filters, sort_by: e.target.value });
+                                setPage(1);
+                            }}
                         >
-                            {type === '' ? 'All Networks' : type}
-                        </button>
-                    ))}
+                            <option value="newest">Newest</option>
+                            <option value="price_asc">Price: Low to High</option>
+                            <option value="price_desc">Price: High to Low</option>
+                            <option value="popular">Rating</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full md:w-auto">
-                    <span className="text-[10px] font-mono font-bold uppercase text-muted-foreground whitespace-nowrap">Sort By:</span>
-                    <select
-                        className="bg-background border border-border text-xs font-mono font-bold uppercase rounded-sm px-2 py-1.5 outline-none focus:border-primary"
-                        value={filters.sort_by}
-                        onChange={(e) => {
-                            setFilters({ ...filters, sort_by: e.target.value });
-                            setPage(1);
-                        }}
-                    >
-                        <option value="newest">Newest</option>
-                        <option value="price_asc">Price: Low to High</option>
-                        <option value="price_desc">Price: High to Low</option>
-                        <option value="popular">Rating</option>
-                    </select>
+                {/* Row 2: Advanced Filters (Country, Price) */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-border/50">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Country</label>
+                        <select
+                            className="bg-background border border-border text-xs font-mono font-bold uppercase rounded-sm px-2 py-1.5 outline-none focus:border-primary w-full"
+                            value={filters.country}
+                            onChange={(e) => {
+                                setFilters({ ...filters, country: e.target.value });
+                                setPage(1);
+                            }}
+                        >
+                            <option value="">Any Country</option>
+                            <option value="US">United States (US)</option>
+                            <option value="GB">United Kingdom (GB)</option>
+                            <option value="GH">Ghana (GH)</option>
+                            <option value="DE">Germany (DE)</option>
+                            <option value="NG">Nigeria (NG)</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Min Price (GHS)</label>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            className="bg-background border border-border text-xs font-mono font-bold uppercase rounded-sm px-2 py-1.5 outline-none focus:border-primary w-full"
+                            value={filters.min_price}
+                            onChange={(e) => setFilters({ ...filters, min_price: e.target.value })}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Max Price (GHS)</label>
+                        <input
+                            type="number"
+                            placeholder="MAX"
+                            className="bg-background border border-border text-xs font-mono font-bold uppercase rounded-sm px-2 py-1.5 outline-none focus:border-primary w-full"
+                            value={filters.max_price}
+                            onChange={(e) => setFilters({ ...filters, max_price: e.target.value })}
+                        />
+                    </div>
+                    <div className="flex items-end">
+                        <button
+                            onClick={() => {
+                                setFilters({ proxy_type: "", sort_by: "newest", country: "", min_price: "", max_price: "" });
+                                setPage(1);
+                            }}
+                            className="w-full btn-retro btn-retro-outline py-1.5 text-xs h-[29px]"
+                        >
+                            RESET
+                        </button>
+                    </div>
                 </div>
             </div>
 
