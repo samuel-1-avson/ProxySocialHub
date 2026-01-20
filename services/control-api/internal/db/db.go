@@ -108,10 +108,12 @@ func Init(dsn string) error {
 		&models.ForumPost{},
 		&models.ForumVote{},
 
-		// AI Agent Marketplace
 		&models.MarketAgent{},
 		&models.AgentInstance{},
 		&models.AgentJob{},
+
+		// Analytics
+		&models.UsageRecord{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
