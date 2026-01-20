@@ -1,95 +1,61 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/joho/godotenv"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	// Import strictly necessary parts or define inline/stub models to avoid complex dependencies
-	// For this script, defining inline models is safer to avoid import cycles or path issues
-	// if the project structure is complex.
-	// However, importing the actual internal packages is better if paths are standard.
-	// Given the path `c:\Users\samue\Desktop\project\proxyhubb\services\control-api`, the module name should be checked.
-	// Assuming module name is `github.com/proxyhubb/control-api` or similar as per `go.mod`.
-	// Let's use relative imports or just assume we run this from `services/control-api` root.
-	// Ideally I'd use the `internal` packages but `main` can't import `internal`.
-	// So I must place this script inside `internal` or `cmd` and use the module name.
-	// Let's define structs inline for simplicity and robustness.
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
 )
-
-type Wallet struct {
-	ID       string `gorm:"type:uuid;primaryKey"`
-	UserID   string `gorm:"unique"`
-	Balance  float64
-	Currency string
-}
-
-type WalletLedgerEntry struct {
-	ID          string `gorm:"type:uuid;primaryKey"`
-	WalletID    string `gorm:"type:uuid"`
-	Amount      float64
-	Type        string
-	ReferenceID string
-	Description string
-	CreatedAt   string
-}
-
-type PendingTransaction struct {
-	ID        string `gorm:"type:uuid;primaryKey"`
-	UserID    string
-	Reference string
-	Type      string
-	Amount    float64
-	Status    string
-	CreatedAt string
-}
 
 func main() {
 	// Load .env
 	if err := godotenv.Load(); err != nil {
-		// Try loading from parent dir if not found
-		_ = godotenv.Load("../../.env")
+		log.Println("No .env file found, assuming env vars are set")
 	}
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatal("DATABASE_URL not set")
+	// Initialize DB
+	if err := db.Init(os.Getenv("DATABASE_URL")); err != nil {
+		log.Fatalf("Failed to connect to DB: %v", err)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatal(err)
+	email := "samuelavson@gmail.com"
+	fmt.Printf("Checking for user: %s\n", email)
+
+	var user models.User
+	if err := db.DB.Where("email = ?", email).First(&user).Error; err != nil {
+		fmt.Printf("ERROR: User %s not found in local DB! Error: %v\n", email, err)
+
+		// List all users
+		var users []models.User
+		db.DB.Find(&users)
+		fmt.Printf("Available users in DB (%d):\n", len(users))
+		for _, u := range users {
+			fmt.Printf(" - %s (%s)\n", u.Email, u.ID)
+		}
+		return
 	}
 
-	// Fetch all data for debugging
-	// Ideally we filter by the user in the screenshot if we knew the ID, but we can dump recent ones.
+	fmt.Printf("FOUND User: %s (ID: %s)\n", user.Email, user.ID)
 
-	fmt.Println("--- RECENT PENDING TRANSACTIONS (Last 5) ---")
-	var pending []PendingTransaction
-	db.Order("created_at desc").Limit(5).Find(&pending)
-	printJSON(pending)
+	// Check Sessions
+	var sessionCount int64
+	db.DB.Model(&models.Session{}).Where("user_id = ?", user.ID).Count(&sessionCount)
+	fmt.Printf("Total Sessions: %d\n", sessionCount)
 
-	fmt.Println("\n--- RECENT LEDGER ENTRIES (Last 5) ---")
-	var ledger []WalletLedgerEntry
-	db.Order("created_at desc").Limit(5).Find(&ledger)
-	printJSON(ledger)
+	var activeSessions int64
+	db.DB.Model(&models.Session{}).Where("user_id = ? AND status = 'active'", user.ID).Count(&activeSessions)
+	fmt.Printf("Active Sessions: %d\n", activeSessions)
 
-	fmt.Println("\n--- WALLETS ---")
-	var wallets []Wallet
-	// fetch wallets related to these transactions
-	userIDs := make([]string, 0)
-	for _, p := range pending {
-		userIDs = append(userIDs, p.UserID)
-	}
-	db.Where("user_id IN ?", userIDs).Find(&wallets)
-	printJSON(wallets)
-}
+	// Check Usage Records
+	var usageCount int64
+	db.DB.Model(&models.UsageRecord{}).Where("user_id = ?", user.ID).Count(&usageCount)
+	fmt.Printf("Usage Records: %d\n", usageCount)
 
-func printJSON(v interface{}) {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Println(string(b))
+	// Sum Bytes
+	var totalBytes int64
+	db.DB.Model(&models.UsageRecord{}).Where("user_id = ?", user.ID).Select("COALESCE(SUM(bytes_used), 0)").Scan(&totalBytes)
+	fmt.Printf("Total Bytes: %d (%.2f GB)\n", totalBytes, float64(totalBytes)/(1024*1024*1024))
 }
