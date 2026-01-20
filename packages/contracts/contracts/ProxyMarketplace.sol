@@ -6,120 +6,135 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract ProxyMarketplace is Ownable, ReentrancyGuard {
     
-    // Usage Receipt signed by Gateway Oracle
-    struct UsageReceipt {
+    struct Session {
         address buyer;
         address provider;
-        uint256 bytesUsed;
-        uint256 nonce;
-        uint256 timestamp;
+        uint256 lockedAmount;
+        uint256 pricePerGB; // Agreed price at start of session (in wei)
+        uint256 startTime;
+        bool isActive;
     }
 
-    address public oracleAddress; // The Gateway signer
-    uint256 public pricePerGB = 0.0001 ether; // Default price (can be dynamic)
+    // Maps sessionID (hash) -> Session
+    mapping(bytes32 => Session) public sessions;
+    
+    // Provider Staking (Simple Registry)
+    mapping(address => uint256) public providerStakes;
+    uint256 public minStake = 10 ether; // TAO (10e9 decimals usually, but assuming 18 for now)
 
-    mapping(address => uint256) public providerBalances; // Earnings
-    mapping(address => uint256) public buyerDeposits;    // Prepaid balance
-    mapping(bytes32 => bool) public processedNonces;     // Prevent replay
-
-    event Deposit(address indexed buyer, uint256 amount);
-    event Withdrawal(address indexed user, uint256 amount);
-    event UsageSettled(address indexed provider, address indexed buyer, uint256 amount, uint256 bytesUsed);
+    event SessionOpened(bytes32 indexed sessionID, address indexed buyer, address indexed provider, uint256 pricePerGB, uint256 lockedAmount);
+    event SessionSettled(bytes32 indexed sessionID, uint256 bytesUsed, uint256 cost, uint256 refund);
+    event ProviderStaked(address indexed provider, uint256 amount);
 
     constructor(address _oracleAddress) Ownable(msg.sender) {
         oracleAddress = _oracleAddress;
     }
 
-    // Buyer deposits funds
-    function deposit() external payable {
-        buyerDeposits[msg.sender] += msg.value;
-        emit Deposit(msg.sender, msg.value);
+
+    address public oracleAddress;
+    ProviderRegistry public registry;
+
+    // --- Staking ---
+    function stake() external payable {
+        providerStakes[msg.sender] += msg.value;
+        emit ProviderStaked(msg.sender, providerStakes[msg.sender]);
     }
 
-    // Provider claims earnings with valid signature from Gateway
-    // Signature: derived from hash(buyer, provider, bytesUsed, nonce)
-    // Generic internal claim logic
-    function _claim(address _buyer, address _provider, uint256 _bytesUsed, uint256 _nonce, bytes memory _signature) internal {
-        bytes32 messageHash = keccak256(abi.encodePacked(_buyer, _provider, _bytesUsed, _nonce));
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+    function unstake(uint256 _amount) external nonReentrant {
+        require(providerStakes[msg.sender] >= _amount, "Insufficient stake");
+        providerStakes[msg.sender] -= _amount;
+        payable(msg.sender).transfer(_amount);
+    }
+    
+    // Admin: Set Registry
+    function setRegistry(address _registry) external onlyOwner {
+        registry = ProviderRegistry(_registry);
+    }
 
-        require(recoverSigner(ethSignedMessageHash, _signature) == oracleAddress, "Invalid signature");
-        require(!processedNonces[messageHash], "Receipt already processed");
+    // --- Session Logic ---
 
-        processedNonces[messageHash] = true;
-
-        uint256 cost = (_bytesUsed * pricePerGB) / (1024 * 1024 * 1024);
+    // Buyer opens a session with a specific provider at a specific price
+    function openSession(address _provider, uint256 _pricePerGB) external payable returns (bytes32) {
+        require(msg.value > 0, "Deposit required");
+        require(providerStakes[_provider] >= minStake, "Provider not staked");
         
-        require(buyerDeposits[_buyer] >= cost, "Insufficent buyer funds");
+        // Circuit Breaker via Registry
+        if (address(registry) != address(0)) {
+            require(registry.isAllowedToWork(_provider), "Provider reputation too low or inactive");
+        }
 
-        buyerDeposits[_buyer] -= cost;
-        providerBalances[_provider] += cost;
+        bytes32 sessionID = keccak256(abi.encodePacked(msg.sender, _provider, block.timestamp));
+        
+        sessions[sessionID] = Session({
+            buyer: msg.sender,
+            provider: _provider,
+            lockedAmount: msg.value,
+            pricePerGB: _pricePerGB,
+            startTime: block.timestamp,
+            isActive: true
+        });
 
-        emit UsageSettled(_provider, _buyer, cost, _bytesUsed);
+        emit SessionOpened(sessionID, msg.sender, _provider, _pricePerGB, msg.value);
+        return sessionID;
     }
 
-    // Provider claims for themselves
-    function claimEarnings(
-        address _buyer,
-        uint256 _bytesUsed,
+    // Settle session with Oracle signature
+    function settleSession(
+        bytes32 _sessionID, 
+        uint256 _bytesUsed, 
         uint256 _nonce,
         bytes memory _signature
     ) external nonReentrant {
-        _claim(_buyer, msg.sender, _bytesUsed, _nonce, _signature);
-    }
-
-    // Relayer claims on behalf of provider
-    function claimEarningsFor(
-        address _buyer,
-        address _provider,
-        uint256 _bytesUsed,
-        uint256 _nonce,
-        bytes memory _signature
-    ) external nonReentrant {
-        _claim(_buyer, _provider, _bytesUsed, _nonce, _signature);
-    }
-
-    // Withdraw provider earnings
-    // Withdraw provider earnings (Push to provider)
-    function withdrawEarnings() external nonReentrant {
-        _withdrawFor(msg.sender);
-    }
-
-    // Relayer triggers withdrawal for a provider (Gas paid by Relayer, funds go to Provider)
-    function withdrawEarningsFor(address _provider) external nonReentrant {
-        _withdrawFor(_provider);
-    }
-
-    function _withdrawFor(address _provider) internal {
-        uint256 amount = providerBalances[_provider];
-        require(amount > 0, "No earnings");
-
-        providerBalances[_provider] = 0;
-        (bool success, ) = payable(_provider).call{value: amount}("");
-        require(success, "Transfer failed");
-
-        emit Withdrawal(_provider, amount);
-    }
-
-    // Withdraw unused buyer deposit
-    function withdrawDeposit(uint256 _amount) external nonReentrant {
-        require(buyerDeposits[msg.sender] >= _amount, "Insufficient balance");
+        Session storage txn = sessions[_sessionID];
+        require(txn.isActive, "Session inactive");
         
-        buyerDeposits[msg.sender] -= _amount;
-        (bool success, ) = payable(msg.sender).call{value: _amount}("");
-        require(success, "Transfer failed");
+        bytes32 messageHash = keccak256(abi.encodePacked(_sessionID, _bytesUsed, _nonce));
+        address signer = recoverSigner(getEthSignedMessageHash(messageHash), _signature);
+        require(signer == oracleAddress, "Invalid signature");
 
-        emit Withdrawal(msg.sender, _amount);
+        uint256 cost = (_bytesUsed * txn.pricePerGB) / (1024 * 1024 * 1024);
+        
+        if (cost > txn.lockedAmount) {
+            cost = txn.lockedAmount;
+        }
+
+        uint256 refund = txn.lockedAmount - cost;
+
+        txn.isActive = false;
+        
+        if (cost > 0) {
+            payable(txn.provider).transfer(cost);
+        }
+        
+        if (refund > 0) {
+            payable(txn.buyer).transfer(refund);
+        }
+        
+        // Auto-Update Reputation (Success)
+        if (address(registry) != address(0)) {
+            try registry.processSessionOutcome(txn.provider, true) {} catch {}
+        }
+
+        emit SessionSettled(_sessionID, _bytesUsed, cost, refund);
     }
 
-    // Admin: Update pricing
-    function setPricePerGB(uint256 _price) external onlyOwner {
-        pricePerGB = _price;
-    }
-
-    // Admin: Set Oracle
-    function setOracle(address _oracle) external onlyOwner {
-        oracleAddress = _oracle;
+    // --- Slashing (Governance/Oracle) ---
+    // Penalize malicious provider
+    function slashProvider(address _provider, uint256 _amount, string memory _reason) external onlyOwner {
+        require(providerStakes[_provider] >= _amount, "Insufficient stake to slash");
+        
+        providerStakes[_provider] -= _amount;
+        
+        // Burn slashed funds (send to 0x0 or Treasury)
+        // For now, send to treasury (owner)
+        payable(owner()).transfer(_amount);
+        
+        // Slash Reputation
+        if (address(registry) != address(0)) {
+            try registry.processSessionOutcome(_provider, false) {} catch {}
+        }
+        
+        // Emit Slash Event
     }
 
     // --- ECDSA Helpers ---

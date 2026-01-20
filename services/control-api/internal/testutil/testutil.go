@@ -157,8 +157,9 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 
 	// Create associated wallet
 	wallet := &models.Wallet{
-		UserID:  user.ID,
-		Balance: 100.0, // Start with some balance for testing
+		UserID:     user.ID,
+		BalanceGHS: 100.0, // Start with some GHS balance for testing
+		BalanceTAO: 10.0,  // Start with some TAO balance for testing
 	}
 	db.DB.Create(wallet)
 

@@ -119,12 +119,12 @@ func releaseEscrow(c *gin.Context) {
 			// Credit Clan Owner
 			var clanOwnerWallet models.Wallet
 			if err := tx.First(&clanOwnerWallet, "user_id = ?", order.Listing.Circle.OwnerID).Error; err != nil {
-				clanOwnerWallet = models.Wallet{UserID: order.Listing.Circle.OwnerID, Balance: 0, Currency: "GHS"}
+				clanOwnerWallet = models.Wallet{UserID: order.Listing.Circle.OwnerID, BalanceGHS: 0, BalanceTAO: 0, Currency: "GHS"}
 				tx.Create(&clanOwnerWallet)
 			}
 
-			clanOwnerNewBalance := clanOwnerWallet.Balance + clanShare
-			tx.Model(&clanOwnerWallet).Update("balance", clanOwnerNewBalance)
+			clanOwnerNewBalance := clanOwnerWallet.BalanceGHS + clanShare
+			tx.Model(&clanOwnerWallet).Update("balance_ghs", clanOwnerNewBalance)
 
 			// Ledger for Clan Owner
 			tx.Create(&models.WalletLedgerEntry{
@@ -142,11 +142,11 @@ func releaseEscrow(c *gin.Context) {
 	var sellerWallet models.Wallet
 	if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err != nil {
 		// If seller wallet doesn't exist, create it (should ideally exist)
-		sellerWallet = models.Wallet{UserID: escrow.SellerID, Balance: 0, Currency: "GHS"}
+		sellerWallet = models.Wallet{UserID: escrow.SellerID, BalanceGHS: 0, BalanceTAO: 0, Currency: "GHS"}
 		tx.Create(&sellerWallet)
 	}
-	newBalance := sellerWallet.Balance + sellerAmount
-	tx.Model(&sellerWallet).Update("balance", newBalance)
+	newBalance := sellerWallet.BalanceGHS + sellerAmount
+	tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
 
 	// Create ledger entry
 	ledger := models.WalletLedgerEntry{
@@ -298,8 +298,8 @@ func resolveDispute(c *gin.Context) {
 
 		var buyerWallet models.Wallet
 		if err := tx.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
-			newBalance := buyerWallet.Balance + escrow.Amount
-			tx.Model(&buyerWallet).Update("balance", newBalance)
+			newBalance := buyerWallet.BalanceGHS + escrow.Amount
+			tx.Model(&buyerWallet).Update("balance_ghs", newBalance)
 
 			tx.Create(&models.WalletLedgerEntry{
 				WalletID:     buyerWallet.ID,
@@ -329,8 +329,8 @@ func resolveDispute(c *gin.Context) {
 
 		var sellerWallet models.Wallet
 		if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
-			newBalance := sellerWallet.Balance + sellerAmount
-			tx.Model(&sellerWallet).Update("balance", newBalance)
+			newBalance := sellerWallet.BalanceGHS + sellerAmount
+			tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
 
 			tx.Create(&models.WalletLedgerEntry{
 				WalletID:     sellerWallet.ID,
@@ -385,8 +385,8 @@ func AutoReleaseExpiredEscrows() {
 		if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
 			platformFee := escrow.Amount * 0.10
 			sellerAmount := escrow.Amount - platformFee
-			newBalance := sellerWallet.Balance + sellerAmount
-			tx.Model(&sellerWallet).Update("balance", newBalance)
+			newBalance := sellerWallet.BalanceGHS + sellerAmount
+			tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
 
 			ledger := models.WalletLedgerEntry{
 				WalletID:     sellerWallet.ID,

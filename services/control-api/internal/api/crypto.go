@@ -97,19 +97,21 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	// 2. Prevent Double Spending
-	var existingTx models.PendingTransaction
-	if err := db.DB.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
-		return
-	}
-
+	// 2. Prevent Double Spending (Atomic)
 	tx := db.DB.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
 		}
 	}()
+
+	var existingTx models.PendingTransaction
+	// Use Set("gorm:query_option", "FOR UPDATE") if we strictly want to lock, but Reference uniqueness is usually enough if checked inside TX.
+	if err := tx.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
+		return
+	}
 
 	// 3. Credit Internal Wallet
 	var wallet models.Wallet
@@ -122,7 +124,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 				BalanceGHS: 0,
 				Currency:   "MULTI",
 			}
-			tx.Create(&wallet)
+			if err := tx.Create(&wallet).Error; err != nil { // FIX: Ensure we check error on create
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
+				return
+			}
 		} else {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Wallet error"})
@@ -167,7 +173,12 @@ func verifyCryptoDeposit(c *gin.Context) {
 		Status:      "completed",
 		ExternalRef: req.TxHash,
 	}
-	tx.Create(&pendingTx)
+	if err := tx.Create(&pendingTx).Error; err != nil {
+		tx.Rollback()
+		// If uniqueness constraint fails here, it catches the race condition too
+		c.JSON(http.StatusConflict, gin.H{"error": "Transaction processed concurrently"})
+		return
+	}
 
 	ledger := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
@@ -177,7 +188,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 		ReferenceID:  req.TxHash,
 		Description:  description,
 	}
-	tx.Create(&ledger)
+	if err := tx.Create(&ledger).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ledger error"})
+		return
+	}
 
 	tx.Commit()
 

@@ -59,15 +59,56 @@ contract ProviderRegistry is Ownable {
         return providerAddresses.length;
     }
 
-    // --- Admin Functions ---
+    address public marketAddress;
 
-    // Update reputation score (called by Oracle/Admin)
+    modifier onlyMarketOrOwner() {
+        require(msg.sender == owner() || msg.sender == marketAddress, "Not authorized");
+        _;
+    }
+
+    function setMarketAddress(address _market) external onlyOwner {
+        marketAddress = _market;
+    }
+
+    // --- Reputation Logic ---
+
+    // Automatically called by Marketplace after a session
+    function processSessionOutcome(address _provider, bool _success) external onlyMarketOrOwner {
+         require(providers[_provider].wallet != address(0), "Provider not registered");
+         
+         Provider storage p = providers[_provider];
+         if (_success) {
+             // Slowly build reputation: +1 up to 100
+             if (p.reputationScore < 100) {
+                 p.reputationScore += 1;
+             }
+         } else {
+             // Slash reputation heavily for failure: -10
+             if (p.reputationScore > 10) {
+                 p.reputationScore -= 10;
+             } else {
+                 p.reputationScore = 0;
+             }
+         }
+         
+         emit ReputationUpdated(_provider, p.reputationScore);
+    }
+
+    // Update reputation score (Manual overwrite)
     function updateReputation(address _provider, uint256 _newScore) external onlyOwner {
         require(providers[_provider].wallet != address(0), "Provider not registered");
         require(_newScore <= 100, "Score max 100");
 
         providers[_provider].reputationScore = _newScore;
         emit ReputationUpdated(_provider, _newScore);
+    }
+
+    // Check if provider is allowed to work (Circuit Breaker)
+    function isAllowedToWork(address _provider) external view returns (bool) {
+        if (providers[_provider].wallet == address(0)) return false;
+        if (!providers[_provider].isActive) return false;
+        // Circuit Breaker: Score must be > 10
+        return providers[_provider].reputationScore > 10; 
     }
 
     // verify provider (KYC check done off-chain)
