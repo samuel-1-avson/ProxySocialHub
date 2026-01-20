@@ -117,7 +117,8 @@ func createOrder(c *gin.Context) {
 	}
 	if err := tx.Create(&escrow).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create escrow"})
+		fmt.Printf("DATABASE ERROR (escrow): %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create escrow: " + err.Error()})
 		return
 	}
 
