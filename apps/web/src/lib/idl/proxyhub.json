@@ -1,0 +1,177 @@
+{
+    "version": "0.1.0",
+    "name": "proxyhub",
+    "instructions": [
+        {
+            "name": "initializeEscrow",
+            "accounts": [
+                {
+                    "name": "buyer",
+                    "isMut": true,
+                    "isSigner": true
+                },
+                {
+                    "name": "seller",
+                    "isMut": false,
+                    "isSigner": false
+                },
+                {
+                    "name": "escrow",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "systemProgram",
+                    "isMut": false,
+                    "isSigner": false
+                }
+            ],
+            "args": [
+                {
+                    "name": "amount",
+                    "type": "u64"
+                },
+                {
+                    "name": "bandwidthLimitGb",
+                    "type": "u64"
+                },
+                {
+                    "name": "durationSeconds",
+                    "type": "i64"
+                }
+            ]
+        },
+        {
+            "name": "settleEscrow",
+            "accounts": [
+                {
+                    "name": "oracle",
+                    "isMut": false,
+                    "isSigner": true
+                },
+                {
+                    "name": "escrow",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "buyer",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "seller",
+                    "isMut": true,
+                    "isSigner": false
+                }
+            ],
+            "args": [
+                {
+                    "name": "bandwidthUsedGb",
+                    "type": "u64"
+                }
+            ]
+        },
+        {
+            "name": "refundEscrow",
+            "accounts": [
+                {
+                    "name": "buyer",
+                    "isMut": true,
+                    "isSigner": true
+                },
+                {
+                    "name": "escrow",
+                    "isMut": true,
+                    "isSigner": false
+                }
+            ],
+            "args": []
+        }
+    ],
+    "accounts": [
+        {
+            "name": "Escrow",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "buyer",
+                        "type": "publicKey"
+                    },
+                    {
+                        "name": "seller",
+                        "type": "publicKey"
+                    },
+                    {
+                        "name": "amount",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "bandwidthLimitGb",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "bandwidthUsedGb",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "status",
+                        "type": {
+                            "defined": "EscrowStatus"
+                        }
+                    },
+                    {
+                        "name": "createdAt",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "expiresAt",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "bump",
+                        "type": "u8"
+                    }
+                ]
+            }
+        }
+    ],
+    "types": [
+        {
+            "name": "EscrowStatus",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    {
+                        "name": "Pending"
+                    },
+                    {
+                        "name": "Active"
+                    },
+                    {
+                        "name": "Settled"
+                    },
+                    {
+                        "name": "Refunded"
+                    },
+                    {
+                        "name": "Disputed"
+                    }
+                ]
+            }
+        }
+    ],
+    "errors": [
+        {
+            "code": 6000,
+            "name": "InvalidStatus",
+            "msg": "Invalid escrow status for this operation"
+        },
+        {
+            "code": 6001,
+            "name": "NotExpired",
+            "msg": "Escrow has not expired yet"
+        }
+    ]
+}
