@@ -123,8 +123,12 @@ func seedListings() {
 
 func seedNodes() {
 	var provider models.User
-	if err := DB.Where("email = ?", "provider@proxyhub.com").First(&provider).Error; err != nil {
-		return
+	// Try to find the logged-in user first to populate their dashboard
+	if err := DB.Where("email = ?", "samuelavson@gmail.com").First(&provider).Error; err != nil {
+		// Fallback to default provider
+		if err := DB.Where("email = ?", "provider@proxyhub.com").First(&provider).Error; err != nil {
+			return
+		}
 	}
 
 	nodes := []models.Node{
