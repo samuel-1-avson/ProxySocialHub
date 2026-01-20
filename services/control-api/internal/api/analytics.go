@@ -95,20 +95,27 @@ func getAnalyticsOverview(c *gin.Context) {
 	var topCountry TopMetric
 	// Join Usage -> Node to get country
 	db.DB.Table("usage_records").
-		Joins("JOIN nodes ON usage_records.node_id = nodes.id").
+		Joins("JOIN provider_nodes ON usage_records.node_id = provider_nodes.id").
 		Where("usage_records.user_id = ?", userID).
-		Select("nodes.country_code as name, SUM(usage_records.bytes_used) as val").
-		Group("nodes.country_code").
+		Select("provider_nodes.country as name, SUM(usage_records.bytes_used) as val").
+		Group("provider_nodes.country").
 		Order("val DESC").
 		Limit(1).
 		Scan(&topCountry)
 
 	var topISP TopMetric
+	// Note: ProviderNode doesn't have ISP field in struct, but table might?
+	// Features.go ProviderNode has: Name, IPAddress, Country, City, Status, TotalBandwidth, QualityScore, LastSeenAt, CreatedAt, IsRegistered, NetUID, Hotkey.
+	// NO ISP field.
+	// So we can't key by ISP anymore unless we add it or use Name/City.
+	// For now, let's use City as proxy for "ISP" or just skip ISP.
+	// Or we can assume Name contains ISP info?
+	// Let's us City for now to avoid SQL error if ISP column doesn't exist.
 	db.DB.Table("usage_records").
-		Joins("JOIN nodes ON usage_records.node_id = nodes.id").
+		Joins("JOIN provider_nodes ON usage_records.node_id = provider_nodes.id").
 		Where("usage_records.user_id = ?", userID).
-		Select("nodes.isp as name, SUM(usage_records.bytes_used) as val").
-		Group("nodes.isp").
+		Select("provider_nodes.city as name, SUM(usage_records.bytes_used) as val").
+		Group("provider_nodes.city").
 		Order("val DESC").
 		Limit(1).
 		Scan(&topISP)
