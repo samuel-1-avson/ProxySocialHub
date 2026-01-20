@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bot, Play, Settings, RefreshCw, Cpu, Loader2 } from 'lucide-react';
-import { getAgentInstances, AgentInstance } from '@/lib/api';
+import { getMarketAgents, getMyAgents, AgentInstance, MarketAgent } from '@/lib/api';
 // Assuming api exists
 
 export default function AgentInstancesPage() {
@@ -11,7 +11,7 @@ export default function AgentInstancesPage() {
 
     const fetchInstances = async () => {
         try {
-            const data = await getAgentInstances();
+            const data = await getMyAgents();
             setInstances(data);
         } catch (error) {
             console.error('Failed to fetch instances:', error);
