@@ -55,6 +55,7 @@ grafana_data/
 
 .agent/
 
-# Crypto Keypairs (NEVER commit)
+# Crypto keypairs (NEVER COMMIT!)
 treasury-keypair.json
+tao-treasury-keypair.json
 *.pem

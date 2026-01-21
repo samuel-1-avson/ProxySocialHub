@@ -30,8 +30,8 @@ services:
       - SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
       - SOLANA_NETWORK=devnet
       - SOLANA_TREASURY_ADDRESS=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2
-      - TAO_TREASURY_ADDRESS=5DTestTreasuryAddress
-      - BITTENSOR_NETWORK=finney
+      - TAO_TREASURY_ADDRESS=5HdphPPCBLqvVma9v3cvFo9dPpBuSs57fUpjuRJjfkGoptak
+      - BITTENSOR_NETWORK=testnet
       - GIN_MODE=release
     depends_on:
       redis:
