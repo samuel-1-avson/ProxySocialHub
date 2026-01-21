@@ -54,3 +54,7 @@ grafana_data/
 *.tfstate.backup
 
 .agent/
+
+# Crypto Keypairs (NEVER commit)
+treasury-keypair.json
+*.pem

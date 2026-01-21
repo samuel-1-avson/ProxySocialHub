@@ -29,6 +29,7 @@ services:
       - ENCRYPTION_KEY=8K5/2Ke6++5afKvq5KxzBu1BHSbGZj6oZrUK8nFg0NA=
       - SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
       - SOLANA_NETWORK=devnet
+      - SOLANA_TREASURY_ADDRESS=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2
       - GIN_MODE=release
     depends_on:
       redis:

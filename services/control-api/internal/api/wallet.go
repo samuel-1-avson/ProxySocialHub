@@ -22,19 +22,24 @@ import (
 func RegisterWalletRoutes(r *gin.RouterGroup) {
 	wallet := r.Group("/wallet")
 	{
+		// Core wallet endpoints
 		wallet.GET("/", getWallet)
-		wallet.POST("/deposit", initiateDeposit)
-		wallet.POST("/withdraw", initiateWithdrawal)
-		wallet.GET("/verify", verifyDeposit)
 
-		wallet.POST("/swap", swapCurrency)
-		wallet.POST("/link", linkWallet)
+		// CRYPTO DEPOSITS (Primary method for users)
 		wallet.POST("/deposit/crypto", verifyCryptoDeposit)
+		wallet.POST("/link", linkWallet)
 
-		// TAO Routes
+		// TAO Routes (Bittensor)
 		wallet.POST("/deposit/tao", initiateTaoDeposit)
 		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
 		wallet.POST("/verify/tao", verifyTaoDeposit)
+
+		// FIAT ROUTES (Provider payouts via Mobile Money - kept for provider withdrawals)
+		// Deposits via Paystack deprecated for users - use crypto instead
+		wallet.POST("/deposit", initiateDeposit)     // Legacy/Provider only
+		wallet.POST("/withdraw", initiateWithdrawal) // Provider MoMo payouts
+		wallet.GET("/verify", verifyDeposit)         // Paystack callback
+		wallet.POST("/swap", swapCurrency)           // GHS <-> TAO conversion
 	}
 }
 

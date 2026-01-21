@@ -49,6 +49,8 @@ export default function WalletPage() {
 
     const { depositCrypto } = require('@/lib/api');
     const [cryptoAmount, setCryptoAmount] = useState('');
+    const [cryptoTxHash, setCryptoTxHash] = useState('');
+    const [cryptoChain, setCryptoChain] = useState<'solana' | 'bittensor'>('solana');
     const [cryptoProcessing, setCryptoProcessing] = useState(false);
     const [cryptoResult, setCryptoResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -116,18 +118,26 @@ export default function WalletPage() {
 
     async function handleCryptoDeposit(e: React.FormEvent) {
         e.preventDefault();
-        if (!cryptoAmount) return;
+        if (!cryptoAmount || !cryptoTxHash) {
+            setCryptoResult({ success: false, message: 'Please provide both amount and transaction hash' });
+            return;
+        }
         setCryptoProcessing(true);
         setCryptoResult(null);
 
         try {
-            // Simulator: We just ask for amount using the API. In real world, we would ask for TX Hash.
-            const res = await depositCrypto(parseFloat(cryptoAmount), "0xSIMULATED_HASH_" + Date.now());
-            setCryptoResult({ success: true, message: "Deposit Verified! " + res.message });
+            // Real deposit verification using on-chain transaction hash
+            const res = await depositCrypto(
+                parseFloat(cryptoAmount),
+                cryptoTxHash.trim(),
+                cryptoChain
+            );
+            setCryptoResult({ success: true, message: `Deposit Verified! Credited ${res.credited_tao?.toFixed(4) || cryptoAmount} TAO` });
             setCryptoAmount('');
+            setCryptoTxHash('');
             fetchWallet(); // Refresh balance
         } catch (err: any) {
-            setCryptoResult({ success: false, message: err.message || "Deposit failed" });
+            setCryptoResult({ success: false, message: err.message || "Deposit verification failed - check transaction hash" });
         } finally {
             setCryptoProcessing(false);
         }
@@ -230,23 +240,70 @@ export default function WalletPage() {
                             </div>
 
                             <div className="md:col-span-2 card-retro p-6 bg-card border-border">
-                                <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground mb-4">Deposit TAO</h3>
-                                <form onSubmit={handleCryptoDeposit} className="flex gap-2">
-                                    <input
-                                        type="number"
-                                        step="0.0001"
-                                        placeholder="AMOUNT (TAO)"
-                                        value={cryptoAmount}
-                                        onChange={(e) => setCryptoAmount(e.target.value)}
-                                        className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                                    />
+                                <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground mb-4">Deposit Crypto</h3>
+
+                                {/* Chain Selector */}
+                                <div className="flex gap-2 mb-4">
                                     <button
-                                        type="submit"
-                                        disabled={cryptoProcessing}
-                                        className="btn-retro btn-retro-primary text-xs py-2 px-6"
+                                        type="button"
+                                        onClick={() => setCryptoChain('solana')}
+                                        className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'solana'
+                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400'
+                                                : 'border-border text-muted-foreground hover:border-purple-500/50'
+                                            }`}
                                     >
-                                        {cryptoProcessing ? '...' : 'DEPOSIT'}
+                                        SOL (Solana)
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCryptoChain('bittensor')}
+                                        className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'bittensor'
+                                                ? 'bg-primary/20 border-primary text-primary'
+                                                : 'border-border text-muted-foreground hover:border-primary/50'
+                                            }`}
+                                    >
+                                        TAO (Bittensor)
+                                    </button>
+                                </div>
+
+                                {/* Treasury Address */}
+                                <div className="mb-4 p-3 bg-secondary/10 border border-border rounded-sm">
+                                    <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">
+                                        Send {cryptoChain === 'solana' ? 'SOL' : 'TAO'} to treasury:
+                                    </p>
+                                    <p className="text-xs font-mono text-foreground break-all select-all">
+                                        {cryptoChain === 'solana'
+                                            ? (process.env.NEXT_PUBLIC_SOLANA_TREASURY || 'Treasury not configured')
+                                            : (process.env.NEXT_PUBLIC_TAO_TREASURY || 'Treasury not configured')
+                                        }
+                                    </p>
+                                </div>
+
+                                <form onSubmit={handleCryptoDeposit} className="space-y-3">
+                                    <input
+                                        type="text"
+                                        placeholder="TRANSACTION HASH"
+                                        value={cryptoTxHash}
+                                        onChange={(e) => setCryptoTxHash(e.target.value)}
+                                        className="w-full bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                    />
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="number"
+                                            step="0.0001"
+                                            placeholder={`AMOUNT (${cryptoChain === 'solana' ? 'SOL' : 'TAO'})`}
+                                            value={cryptoAmount}
+                                            onChange={(e) => setCryptoAmount(e.target.value)}
+                                            className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                        />
+                                        <button
+                                            type="submit"
+                                            disabled={cryptoProcessing || !cryptoTxHash || !cryptoAmount}
+                                            className="btn-retro btn-retro-primary text-xs py-2 px-6 disabled:opacity-50"
+                                        >
+                                            {cryptoProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'VERIFY'}
+                                        </button>
+                                    </div>
                                 </form>
                                 {cryptoResult && (
                                     <div className={`mt-4 p-3 border text-xs font-mono break-all rounded-sm ${cryptoResult.success ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-destructive/10 border-destructive/20 text-destructive'
