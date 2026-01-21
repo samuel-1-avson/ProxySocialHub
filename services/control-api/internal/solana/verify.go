@@ -140,6 +140,13 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 		return false, 0, errors.New("transaction has no metadata")
 	}
 
+	// Log all account keys for debugging
+	logging.Debug().
+		Str("recipient_expected", recipient).
+		Int("num_accounts", len(tx.Transaction.Message.AccountKeys)).
+		Strs("account_keys", tx.Transaction.Message.AccountKeys).
+		Msg("Checking transaction accounts for recipient")
+
 	// Find recipient in account keys
 	recipientIndex := -1
 	for i, acc := range tx.Transaction.Message.AccountKeys {
@@ -150,7 +157,7 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 	}
 
 	if recipientIndex == -1 {
-		return false, 0, errors.New("recipient not found in transaction")
+		return false, 0, fmt.Errorf("recipient %s not found in transaction accounts: %v", recipient, tx.Transaction.Message.AccountKeys)
 	}
 
 	// Calculate amount received by recipient
