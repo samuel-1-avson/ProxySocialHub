@@ -106,7 +106,12 @@ func linkWallet(c *gin.Context) {
 
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet"})
+		logging.Error(err).
+			Str("user_id", userID).
+			Str("chain", req.Chain).
+			Str("wallet_address", req.WalletAddress).
+			Msg("Failed to save user with wallet link")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet: " + err.Error()})
 		return
 	}
 
