@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/secure"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/worker"
 )
 
@@ -37,6 +39,33 @@ func main() {
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
 		log.Printf("Warning: Failed to init Redis: %v", err)
+	}
+
+	// Initialize Solana Oracle (optional)
+	if err := solanaClient.InitOracleFromEnv(); err != nil {
+		log.Printf("Warning: Failed to init Solana oracle: %v", err)
+	}
+
+	// Initialize Solana Event Watcher (optional)
+	rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+	if rpcEndpoint == "" {
+		rpcEndpoint = "https://api.devnet.solana.com"
+	}
+	wsEndpoint := os.Getenv("SOLANA_WS_ENDPOINT")
+	if wsEndpoint == "" {
+		wsEndpoint = "wss://api.devnet.solana.com"
+	}
+
+	if err := solanaClient.InitWatcher(solanaClient.WatcherConfig{
+		RPCEndpoint:  rpcEndpoint,
+		WSEndpoint:   wsEndpoint,
+		PollInterval: 30 * time.Second,
+	}); err != nil {
+		log.Printf("Warning: Failed to init Solana watcher: %v", err)
+	} else {
+		solanaClient.InitSessionActivator()
+		solanaClient.RegisterSessionActivatorWithWatcher()
+		solanaClient.StartWatcher()
 	}
 
 	r := gin.Default()
@@ -129,6 +158,7 @@ func main() {
 
 		api.RegisterReferralRoutes(protected)
 		api.RegisterSubscriptionRoutes(protected)
+		api.RegisterLinkedWalletRoutes(protected)
 		api.RegisterForumRoutes(protected) // Mostly private (posting)
 		api.RegisterMessagingRoutes(protected)
 		api.RegisterFriendRoutes(protected)
@@ -141,6 +171,9 @@ func main() {
 		// Analytics & Geo
 		api.RegisterAnalyticsRoutes(protected)
 		api.RegisterGeoRoutes(protected)
+
+		// Blockchain / Solana
+		solanaClient.RegisterRoutes(protected)
 	}
 
 	// Start Chain Indexer
