@@ -304,3 +304,37 @@ func (c *Client) SetWeights(req SetWeightsRequest) (*SetWeightsResponse, error) 
 
 	return &response, nil
 }
+
+// ChainEvent represents an event from the blockchain
+type ChainEvent struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+	Block   int64           `json:"block"`
+}
+
+// EventsResponse wraps the events list from the bridge
+type EventsResponse struct {
+	Events      []ChainEvent `json:"events"`
+	LatestBlock int64        `json:"latest_block"`
+}
+
+// GetEvents fetches chain events from the bridge starting from a specific block
+func (c *Client) GetEvents(fromBlock int64) ([]ChainEvent, int64, error) {
+	url := fmt.Sprintf("%s/events?from_block=%d", c.baseURL, fromBlock)
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch events: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var response EventsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, 0, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Events, response.LatestBlock, nil
+}

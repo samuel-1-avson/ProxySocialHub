@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/prices"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 type linkWalletRequest struct {
@@ -126,17 +129,52 @@ func verifyCryptoDeposit(c *gin.Context) {
 	}
 
 	userID := c.GetString("userID")
+	ctx := context.Background()
 
-	// 1. Verify Transaction On-Chain
-	// In a real production env, we would query the blockchain RPC here.
-	// For MVP/Demo, we will simulate verification or trust the client IF NOT production.
-	// TODO: Integrate actual Solana/Subtensor RPC client.
+	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
+	var verifiedAmount float64
 
-	logging.Info().Str("tx_hash", req.TxHash).Str("chain", req.Chain).Msg("Verifying Crypto Deposit (Simulated)")
+	if req.Chain == "solana" {
+		// Get treasury address
+		treasuryAddress := solana.GetTreasuryAddress()
+		if treasuryAddress == "" {
+			logging.Error(nil).Msg("SOLANA_TREASURY_ADDRESS not configured")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Treasury not configured"})
+			return
+		}
 
-	// Simulate Check (Always success for Demo unless hash is "fail")
-	if req.TxHash == "fail" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction verification failed (Simulated)"})
+		// Verify transaction on Solana RPC
+		txResult, err := solana.VerifyTransaction(ctx, req.TxHash)
+		if err != nil {
+			logging.Error(err).Str("tx_hash", req.TxHash).Msg("Solana transaction verification failed")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction verification failed: " + err.Error()})
+			return
+		}
+
+		// Verify amount was sent to treasury
+		valid, receivedSOL, err := solana.VerifyTransferAmount(txResult, treasuryAddress, 0)
+		if err != nil || !valid {
+			logging.Warn().Str("tx_hash", req.TxHash).Msg("Transaction did not credit treasury")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction does not credit platform treasury"})
+			return
+		}
+
+		verifiedAmount = receivedSOL
+		logging.Info().
+			Str("tx_hash", req.TxHash).
+			Float64("amount_sol", verifiedAmount).
+			Msg("Solana deposit verified on-chain")
+
+	} else if req.Chain == "bittensor" {
+		// TODO: Implement real Bittensor verification via bridge
+		// For now, trust the amount but log it
+		verifiedAmount = req.Amount
+		logging.Warn().
+			Str("tx_hash", req.TxHash).
+			Float64("amount_tao", verifiedAmount).
+			Msg("Bittensor deposit - verification pending bridge integration")
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return
 	}
 
@@ -149,7 +187,6 @@ func verifyCryptoDeposit(c *gin.Context) {
 	}()
 
 	var existingTx models.PendingTransaction
-	// Use Set("gorm:query_option", "FOR UPDATE") if we strictly want to lock, but Reference uniqueness is usually enough if checked inside TX.
 	if err := tx.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
 		tx.Rollback()
 		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
@@ -159,7 +196,6 @@ func verifyCryptoDeposit(c *gin.Context) {
 	// 3. Credit Internal Wallet
 	var wallet models.Wallet
 	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-		// Auto-create if missing logic similar to wallet.go
 		if err.Error() == "record not found" {
 			wallet = models.Wallet{
 				UserID:     uuid.MustParse(userID),
@@ -167,7 +203,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 				BalanceGHS: 0,
 				Currency:   "MULTI",
 			}
-			if err := tx.Create(&wallet).Error; err != nil { // FIX: Ensure we check error on create
+			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
 				return
@@ -179,23 +215,29 @@ func verifyCryptoDeposit(c *gin.Context) {
 		}
 	}
 
-	// Calculate Credit Amount
-	// If depositing TAO: 1:1
-	// If depositing SOL: Swap to TAO using Rate.
-
+	// Calculate Credit Amount using REAL exchange rates
 	creditAmountTAO := 0.0
 	description := ""
 
 	if req.Chain == "bittensor" {
-		creditAmountTAO = req.Amount
-		description = fmt.Sprintf("TAO Deposit: %.4f TAO", req.Amount)
+		creditAmountTAO = verifiedAmount
+		description = fmt.Sprintf("TAO Deposit: %.4f TAO", verifiedAmount)
 	} else if req.Chain == "solana" {
-		// Mock Rate: 1 SOL = 0.5 TAO (Example) or fetch real price
-		// Let's assume user sends SOL and we convert to TAO systems credits.
-		// For MVP, simplistic conversion:
-		rateSolTao := 0.5 // Mock
-		creditAmountTAO = req.Amount * rateSolTao
-		description = fmt.Sprintf("SOL Deposit: %.4f SOL -> %.4f TAO", req.Amount, creditAmountTAO)
+		// Get real exchange rate from CoinGecko
+		rate, err := prices.GetSOLToTAORate(ctx)
+		if err != nil {
+			logging.Warn().Err(err).Msg("Failed to fetch exchange rate, using fallback")
+			// Fallback: fetch individual prices and calculate
+			solPrice, _ := prices.GetSOLPrice(ctx)
+			taoPrice, _ := prices.GetTAOPrice(ctx)
+			if taoPrice > 0 {
+				rate = solPrice / taoPrice
+			} else {
+				rate = 1.0 // Last resort fallback
+			}
+		}
+		creditAmountTAO = verifiedAmount * rate
+		description = fmt.Sprintf("SOL Deposit: %.6f SOL -> %.4f TAO (rate: %.4f)", verifiedAmount, creditAmountTAO, rate)
 	}
 
 	wallet.BalanceTAO += creditAmountTAO

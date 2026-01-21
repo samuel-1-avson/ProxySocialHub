@@ -65,6 +65,14 @@ export interface LinkWalletRequest {
 export interface CryptoDepositRequest {
     amount: number;
     tx_hash: string;
+    chain: 'solana' | 'bittensor';
+}
+
+export interface CryptoDepositResponse {
+    status: string;
+    credited_tao: number;
+    new_balance: number;
+    message?: string;
 }
 
 // ============ API Functions ============
@@ -87,21 +95,23 @@ export function getTransactions(limit = 20, offset = 0) {
 }
 
 /**
- * Initiate a deposit via Paystack
+ * Initiate a deposit via Paystack (Admin/Legacy only)
+ * @deprecated Use depositCrypto for user deposits
  */
 export function deposit(data: DepositRequest) {
     return apiPost<DepositResponse>('/v1/wallet/deposit', data);
 }
 
 /**
- * Verify a deposit
+ * Verify a fiat deposit (Admin/Legacy only)
+ * @deprecated
  */
 export function verifyDeposit(reference: string) {
     return apiPost<{ status: string; message: string }>('/v1/wallet/verify', { reference });
 }
 
 /**
- * Initiate a withdrawal (Mobile Money)
+ * Initiate a withdrawal (Mobile Money - Providers only)
  */
 export function withdraw(data: WithdrawRequest) {
     return apiPost<WithdrawResponse>('/v1/wallet/withdraw', data);
@@ -115,10 +125,15 @@ export function linkWallet(data: LinkWalletRequest) {
 }
 
 /**
- * Deposit via crypto transaction
+ * Deposit via crypto transaction (Primary deposit method)
+ * Verifies on-chain transaction and credits wallet
  */
-export function depositCrypto(data: CryptoDepositRequest) {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/deposit/crypto', data);
+export function depositCrypto(amount: number, txHash: string, chain: 'solana' | 'bittensor' = 'solana') {
+    return apiPost<CryptoDepositResponse>('/v1/wallet/deposit/crypto', {
+        amount,
+        tx_hash: txHash,
+        chain
+    });
 }
 
 // ============ Query Keys ============
