@@ -265,8 +265,14 @@ func verifyCryptoDeposit(c *gin.Context) {
 	}
 	if err := tx.Create(&pendingTx).Error; err != nil {
 		tx.Rollback()
+		// Log the actual error to diagnose unique constraint issues
+		logging.Error(err).
+			Str("tx_hash", req.TxHash).
+			Str("user_id", userID).
+			Str("chain", req.Chain).
+			Msg("Failed to create pending transaction - possible duplicate or constraint violation")
 		// If uniqueness constraint fails here, it catches the race condition too
-		c.JSON(http.StatusConflict, gin.H{"error": "Transaction processed concurrently"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed: " + err.Error()})
 		return
 	}
 
