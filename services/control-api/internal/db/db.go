@@ -128,6 +128,11 @@ func Init(dsn string) error {
 		// Agents (Phase 12)
 		&models.Agent{},
 		&models.AgentOutput{},
+
+		// Blockchain Integration (Phase 15+)
+		&models.LinkedWallet{},
+		&models.BlockchainStateCache{},
+		&models.EncryptedCredentials{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
