@@ -1,0 +1,68 @@
+# Development Docker Compose
+# Runs only the control-api backend with Supabase (external database)
+# Usage: docker-compose -f docker-compose.dev.yml up -d
+
+version: '3.8'
+
+services:
+  # ==================== Control API (Backend) ====================
+  control-api:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres.jkrypzxbnwdcdvhtjxgx:ProxyHubbUser2026@aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://localhost:8080
+      - FRONTEND_URL=https://proxy-social-hub.vercel.app
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4001,https://proxy-social-hub.vercel.app
+      - JWT_SECRET=proxyhubb-dev-secret-change-in-production
+      - SESSION_SECRET=proxyhubb-dev-session-secret
+      - SUPABASE_URL=https://jkrypzxbnwdcdvhtjxgx.supabase.co
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprcnlwenhibndkY2R2aHRqeGd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MDcxNTcsImV4cCI6MjA4NDA4MzE1N30.7HjMFgimIhNNmBlEBSX_1U_EM6MUZJcXKNHQhYJLcvg
+      - PAYSTACK_SECRET_KEY=sk_test_0c3b688761eeec755f3b4a5c26a0f68c6912b8c6
+      - PAYSTACK_PUBLIC_KEY=pk_test_07f325228d1fb1722bdce868f6dfbe13c6a0aee8
+      - ORACLE_PRIVATE_KEY=ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - ENCRYPTION_KEY=8K5/2Ke6++5afKvq5KxzBu1BHSbGZj6oZrUK8nFg0NA=
+      - SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
+      - SOLANA_NETWORK=devnet
+      - GIN_MODE=release
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - proxyhubb-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - proxyhubb-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  redis_dev_data:
+
+networks:
+  proxyhubb-dev:
+    driver: bridge
+

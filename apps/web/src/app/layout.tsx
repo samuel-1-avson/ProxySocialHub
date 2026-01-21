@@ -4,6 +4,10 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SolanaWalletProvider } from "@/providers/SolanaWalletProvider";
+import { QueryProvider } from "@/providers/QueryProvider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ToastContainer } from "@/components/Toast";
+import { SkipLink } from "@/components/Accessibility";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,21 +36,28 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <SkipLink />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <SolanaWalletProvider>
-            <Web3Provider>
-              <AuthProvider>
-                {children}
-              </AuthProvider>
-            </Web3Provider>
-          </SolanaWalletProvider>
+          <QueryProvider>
+            <SolanaWalletProvider>
+              <Web3Provider>
+                <AuthProvider>
+                  <ErrorBoundary level="page">
+                    {children}
+                  </ErrorBoundary>
+                  <ToastContainer />
+                </AuthProvider>
+              </Web3Provider>
+            </SolanaWalletProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>
   );
 }
+

@@ -41,11 +41,13 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "viem": "^2.44.4",
-    "wagmi": "^2.19.5"
+    "wagmi": "^2.19.5",
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
+    "@tanstack/react-query-devtools": "^5.91.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

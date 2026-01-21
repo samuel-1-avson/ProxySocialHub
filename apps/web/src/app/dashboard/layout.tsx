@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/components/Sidebar";
 import { Navbar } from "@/components/Navbar";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export default function DashboardLayout({
     children,
@@ -21,9 +22,12 @@ export default function DashboardLayout({
             {/* Main Content Area */}
             <main className="md:pl-64 min-h-screen transition-all">
                 <div className="container mx-auto p-4 md:p-8 max-w-7xl">
-                    {children}
+                    <ErrorBoundary level="section">
+                        {children}
+                    </ErrorBoundary>
                 </div>
             </main>
         </div>
     );
 }
+
