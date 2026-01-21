@@ -1,0 +1,648 @@
+openapi: 3.0.3
+info:
+  title: ProxyHubb Control API - Security Module
+  description: |
+    Security endpoints for authentication, MFA, session management, audit logging, and anomaly detection.
+  version: 1.0.0
+  contact:
+    email: support@proxyhubb.com
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development
+  - url: https://api.proxysocialhub.io/v1
+    description: Production
+
+tags:
+  - name: Authentication
+    description: Wallet-based authentication endpoints
+  - name: MFA
+    description: Two-factor authentication management
+  - name: Sessions
+    description: Session management and monitoring
+  - name: Security Settings
+    description: User security preferences
+  - name: Audit
+    description: Audit logging and security events
+
+paths:
+  /auth/wallet/challenge:
+    post:
+      tags: [Authentication]
+      summary: Request authentication challenge
+      description: Generate a nonce/message for wallet signature verification
+      operationId: getAuthChallenge
+      x-codeSamples:
+        - lang: JavaScript
+          source: |
+            const response = await fetch('/v1/auth/wallet/challenge', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address: 'YOUR_WALLET_ADDRESS' })
+            });
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address:
+                  type: string
+                  description: Wallet address (Solana/Bittensor)
+                  example: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+      responses:
+        '200':
+          description: Challenge generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthChallenge'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/wallet/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate with wallet signature
+      description: Verify wallet signature and return JWT token
+      operationId: walletLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address, signature, message]
+              properties:
+                address:
+                  type: string
+                  description: Wallet address
+                signature:
+                  type: string
+                  description: Signed message (hex or base58)
+                message:
+                  type: string
+                  description: Original challenge message
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /security/mfa/status:
+    get:
+      tags: [MFA]
+      summary: Get MFA status
+      description: Returns current 2FA configuration for the user
+      operationId: getMFAStatus
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: MFA status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  backup_codes_remaining:
+                    type: integer
+                  enabled_at:
+                    type: string
+                    format: date-time
+
+  /security/mfa/setup:
+    post:
+      tags: [MFA]
+      summary: Initialize MFA setup
+      description: Generate TOTP secret and QR code for authenticator app
+      operationId: setupMFA
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: MFA setup data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFASetup'
+        '400':
+          description: MFA already enabled
+
+  /security/mfa/verify:
+    post:
+      tags: [MFA]
+      summary: Verify and enable MFA
+      description: Verify TOTP code and activate 2FA
+      operationId: verifyMFA
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: "123456"
+      responses:
+        '200':
+          description: MFA enabled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  backup_codes:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Invalid verification code
+
+  /security/mfa/disable:
+    post:
+      tags: [MFA]
+      summary: Disable MFA
+      description: Disable two-factor authentication (requires password + TOTP)
+      operationId: disableMFA
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password:
+                  type: string
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+      responses:
+        '200':
+          description: MFA disabled successfully
+        '400':
+          description: Invalid credentials
+
+  /security/sessions:
+    get:
+      tags: [Sessions]
+      summary: List active sessions
+      description: Get all active sessions for the current user
+      operationId: listSessions
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+                  count:
+                    type: integer
+
+    delete:
+      tags: [Sessions]
+      summary: Revoke all sessions
+      description: Log out from all devices except current
+      operationId: revokeAllSessions
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: All sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  revoked_count:
+                    type: integer
+
+  /security/sessions/{id}:
+    delete:
+      tags: [Sessions]
+      summary: Revoke specific session
+      description: Log out from a specific device
+      operationId: revokeSession
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session revoked
+        '404':
+          description: Session not found
+
+  /security/login-attempts:
+    get:
+      tags: [Security Settings]
+      summary: Get login history
+      description: Recent login attempts for the user
+      operationId: getLoginAttempts
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Login attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attempts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LoginAttempt'
+
+  /audit/logs:
+    get:
+      tags: [Audit]
+      summary: Get user audit logs
+      description: Security events for the current user
+      operationId: getUserAuditLogs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+
+  /audit/anomalies:
+    get:
+      tags: [Audit]
+      summary: Get security anomalies
+      description: Detected suspicious activities for the user
+      operationId: getUserAnomalies
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Security anomalies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anomalies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SecurityAnomaly'
+
+  /audit/anomalies/{id}/resolve:
+    post:
+      tags: [Audit]
+      summary: Resolve security anomaly
+      description: Mark an anomaly as reviewed and resolved
+      operationId: resolveAnomaly
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution]
+              properties:
+                resolution:
+                  type: string
+                  example: "Verified - This was me logging from a new location"
+      responses:
+        '200':
+          description: Anomaly resolved
+
+  /admin/audit/logs:
+    get:
+      tags: [Audit]
+      summary: Get all audit logs (Admin)
+      description: All system audit logs. Requires admin role.
+      operationId: getAdminAuditLogs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [info, warning, critical]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Audit logs
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/audit/stats:
+    get:
+      tags: [Audit]
+      summary: Get security statistics (Admin)
+      description: Aggregated security metrics. Requires admin role.
+      operationId: getSecurityStats
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Security statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_users:
+                    type: integer
+                  mfa_enabled_users:
+                    type: integer
+                  logins_today:
+                    type: integer
+                  failed_logins_today:
+                    type: integer
+                  active_sessions:
+                    type: integer
+                  unresolved_anomalies:
+                    type: integer
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuthChallenge:
+      type: object
+      properties:
+        nonce:
+          type: string
+          description: Unique challenge identifier
+        message:
+          type: string
+          description: Message to sign with wallet
+        expires_at:
+          type: string
+          format: date-time
+
+    AuthToken:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token
+        user:
+          $ref: '#/components/schemas/UserBasic'
+        requires_mfa:
+          type: boolean
+
+    UserBasic:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+
+    MFASetup:
+      type: object
+      properties:
+        secret:
+          type: string
+          description: Base32-encoded secret for manual entry
+        qr_code:
+          type: string
+          description: Data URL for QR code image
+        otpauth_url:
+          type: string
+          description: otpauth:// URL for authenticator apps
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        device_type:
+          type: string
+          enum: [desktop, mobile, tablet]
+        browser:
+          type: string
+        os:
+          type: string
+        country:
+          type: string
+        city:
+          type: string
+        is_current:
+          type: boolean
+        last_active_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    LoginAttempt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        success:
+          type: boolean
+        failure_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          description: Event type (e.g., auth.login, user.updated)
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        description:
+          type: string
+        ip_address:
+          type: string
+        success:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    SecurityAnomaly:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        anomaly_type:
+          type: string
+          enum: [geo_change, device_change, velocity, impossible_travel]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        detected_ip:
+          type: string
+        detected_country:
+          type: string
+        risk_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        action_taken:
+          type: string
+          enum: [none, alert, require_mfa, block]
+        is_resolved:
+          type: boolean
+        resolution:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until retry allowed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              retry_after:
+                type: integer

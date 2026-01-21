@@ -4,8 +4,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"sync"
@@ -20,19 +21,80 @@ import (
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
+// memStoreEntry holds nonce with expiration time
+type memStoreEntry struct {
+	value     string
+	expiresAt time.Time
+}
+
 var (
 	// Fallback in-memory store for when Redis is unavailable (dev mode)
-	memStore      = make(map[string]string)
+	// Now includes TTL support
+	memStore      = make(map[string]memStoreEntry)
 	memStoreMutex sync.RWMutex
+
+	// Nonce TTL (5 minutes)
+	nonceTTL = 5 * time.Minute
 )
 
 func RegisterAuthRoutes(r *gin.RouterGroup) {
 	auth := r.Group("/auth")
 	{
-		auth.POST("/wallet/challenge", getAuthChallenge)
-		auth.POST("/wallet/login", walletLogin)
+		// Rate limited auth endpoints (10 requests/min per IP)
+		auth.POST("/wallet/challenge", authRateLimit(), getAuthChallenge)
+		auth.POST("/wallet/login", authRateLimit(), walletLogin)
 		auth.POST("/dev/login", devLogin)
 		auth.GET("/me", getMe)
+	}
+}
+
+// authRateLimit provides rate limiting for auth endpoints
+func authRateLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Simple in-memory rate limiter key
+		key := c.ClientIP()
+
+		// Check rate limit using memStore
+		memStoreMutex.Lock()
+		rateLimitKey := "ratelimit:" + key
+		entry, exists := memStore[rateLimitKey]
+		now := time.Now()
+
+		if !exists || now.After(entry.expiresAt) {
+			// New window: allow and start counting
+			memStore[rateLimitKey] = memStoreEntry{
+				value:     "1",
+				expiresAt: now.Add(1 * time.Minute),
+			}
+			memStoreMutex.Unlock()
+			c.Next()
+			return
+		}
+
+		// Count requests in current window
+		count := 0
+		for _, v := range entry.value {
+			count += int(v - '0')
+		}
+		count++
+
+		if count > 10 { // Max 10 requests per minute
+			memStoreMutex.Unlock()
+			log.Printf("[SECURITY] Rate limit exceeded for IP=%s", maskAddress(key))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error":       "Too many authentication attempts. Please try again later.",
+				"retry_after": 60,
+			})
+			return
+		}
+
+		// Update count
+		memStore[rateLimitKey] = memStoreEntry{
+			value:     string(rune('0' + count)),
+			expiresAt: entry.expiresAt,
+		}
+		memStoreMutex.Unlock()
+		c.Next()
 	}
 }
 
@@ -59,26 +121,24 @@ func getAuthChallenge(c *gin.Context) {
 	nonce := hex.EncodeToString(bytes)
 
 	// Message to sign
-	message := fmt.Sprintf("Sign this message to login to ProxyHubb: %s", nonce)
+	message := "Sign this message to login to ProxyHubb: " + nonce
 
 	// Store in Redis with 5 min TTL
 	if redisClient.Client != nil {
-		key := fmt.Sprintf("auth:nonce:%s", req.Address)
-		err := redisClient.Client.Set(c.Request.Context(), key, message, 5*time.Minute).Err()
+		key := "auth:nonce:" + req.Address
+		err := redisClient.Client.Set(c.Request.Context(), key, message, nonceTTL).Err()
 		if err != nil {
-			fmt.Printf("Redis SET Error for %s: %v\n", key, err)
-		} else {
-			fmt.Printf("Redis SET Success for %s: %s\n", key, message)
+			log.Printf("[AUTH] Redis nonce store failed for address=%s", maskAddress(req.Address))
 		}
-	} else {
-		fmt.Println("Redis client is NIL in getAuthChallenge")
 	}
 
-	// Always store in memory as fallback (useful for local dev without Redis)
+	// Always store in memory as fallback with TTL
 	memStoreMutex.Lock()
-	memStore[req.Address] = message
+	memStore[req.Address] = memStoreEntry{
+		value:     message,
+		expiresAt: time.Now().Add(nonceTTL),
+	}
 	memStoreMutex.Unlock()
-	fmt.Printf("MemStore SET Success for %s\n", req.Address)
 
 	c.JSON(http.StatusOK, gin.H{
 		"nonce":   nonce,
@@ -93,41 +153,40 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("WalletLogin Attempt for Address: %s\n", req.Address)
-
 	// 1. Verify Nonce from Redis (or Fallback)
 	var storedMsg string
 	var gotFromRedis bool
 
 	if redisClient.Client != nil {
-		key := fmt.Sprintf("auth:nonce:%s", req.Address)
+		key := "auth:nonce:" + req.Address
 		val, err := redisClient.Client.Get(c.Request.Context(), key).Result()
 		if err == nil {
 			storedMsg = val
 			gotFromRedis = true
-			fmt.Printf("Redis GET Success for %s: %s\n", key, storedMsg)
 			// Invalidate nonce to prevent replay
 			redisClient.Client.Del(c.Request.Context(), key)
-		} else {
-			fmt.Printf("Redis GET Error for %s: %v. Trying MemStore.\n", key, err)
 		}
-	} else {
-		fmt.Println("Redis client is NIL in walletLogin. Trying MemStore.")
 	}
 
 	if !gotFromRedis {
-		// Fallback to MemStore
+		// Fallback to MemStore with TTL check
 		memStoreMutex.RLock()
-		val, ok := memStore[req.Address]
+		entry, ok := memStore[req.Address]
 		memStoreMutex.RUnlock()
-		if ok {
-			storedMsg = val
-			fmt.Printf("MemStore GET Success for %s: %s\n", req.Address, storedMsg)
+
+		if ok && time.Now().Before(entry.expiresAt) {
+			storedMsg = entry.value
 			// Invalidate
 			memStoreMutex.Lock()
 			delete(memStore, req.Address)
 			memStoreMutex.Unlock()
 		} else {
+			// Clean up expired entry if exists
+			if ok {
+				memStoreMutex.Lock()
+				delete(memStore, req.Address)
+				memStoreMutex.Unlock()
+			}
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Challenge expired or invalid. Please request a new one."})
 			return
 		}
@@ -135,7 +194,7 @@ func walletLogin(c *gin.Context) {
 
 	// Verify Message Content
 	if req.Nonce != storedMsg {
-		fmt.Printf("Nonce Mismatch! Expected: %s, Got: %s\n", storedMsg, req.Nonce)
+		log.Printf("[AUTH] Nonce mismatch for address=%s", maskAddress(req.Address))
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Nonce mismatch"})
 		return
 	}
@@ -175,14 +234,15 @@ func walletLogin(c *gin.Context) {
 	result := db.DB.Where("bittensor_address = ?", req.Address).First(&user)
 	if result.Error != nil {
 		// Create new user
-		username := fmt.Sprintf("user_%s", req.Address[:8])
+		username := "user_" + req.Address[:8]
+		email := req.Address + "@wallet.proxyhubb.com"
 		user = models.User{
 			ID:               uuid.New(), // We generate our own UUID here since not using Supabase Auth
 			Role:             "provider", // Default role? or 'buyer'?
 			TrustTier:        models.TrustTierNew,
 			BittensorAddress: &req.Address,
 			Username:         &username,
-			Email:            fmt.Sprintf("%s@wallet.proxyhubb.com", req.Address), // Placeholder email
+			Email:            email,
 		}
 		if err := db.DB.Create(&user).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
@@ -212,9 +272,16 @@ func walletLogin(c *gin.Context) {
 }
 
 // devLogin is a BACKDOOR for E2E testing.
-// It should strictly checking for "Development" env or similar in real life.
-// For this MVP, we just expose it.
+// SECURITY: Only available in development environment
 func devLogin(c *gin.Context) {
+	// CRITICAL SECURITY: Only allow in development mode
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv != "development" && appEnv != "dev" && appEnv != "local" {
+		log.Printf("[SECURITY] devLogin attempted in production environment")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+
 	// Create or Get a "Dev User"
 	devAddr := "5DTestAddressForGovernanceVerification"
 
@@ -262,6 +329,14 @@ func devLogin(c *gin.Context) {
 		"token": token,
 		"user":  user,
 	})
+}
+
+// maskAddress masks an address for safe logging (shows first 6 and last 4 chars)
+func maskAddress(addr string) string {
+	if len(addr) <= 10 {
+		return "***"
+	}
+	return addr[:6] + "..." + addr[len(addr)-4:]
 }
 
 // getMe returns the currently authenticated user
