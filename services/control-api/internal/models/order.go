@@ -35,6 +35,15 @@ type Order struct {
 	TxHash    string      `gorm:"size:255" json:"tx_hash,omitempty"`
 	SessionID *uuid.UUID  `gorm:"type:uuid" json:"session_id,omitempty"`
 
+	// Solana Escrow Fields
+	EscrowPDA        string  `gorm:"size:64" json:"escrow_pda,omitempty"`
+	BuyerWallet      string  `gorm:"size:64;index:idx_order_buyer_wallet" json:"buyer_wallet,omitempty"`
+	SellerWallet     string  `gorm:"size:64;index:idx_order_seller_wallet" json:"seller_wallet,omitempty"`
+	AmountLockedSOL  float64 `json:"amount_locked_sol,omitempty"`
+	BandwidthLimitGB uint64  `json:"bandwidth_limit_gb,omitempty"`
+	PaymentMethod    string  `gorm:"size:50" json:"payment_method,omitempty"` // "fiat", "solana_escrow"
+	TxSignature      string  `gorm:"size:128" json:"tx_signature,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 

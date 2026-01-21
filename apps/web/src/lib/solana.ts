@@ -1,10 +1,30 @@
 import { Program, AnchorProvider, web3, BN, Idl } from '@project-serum/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import idl from './idl/proxyhub.json';
 
 // Constants
 const PROGRAM_ID = new PublicKey('2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7');
-const NETWORK = 'https://api.devnet.solana.com';
+const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
+const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+
+// Types
+export type EscrowStatus = 'Pending' | 'Active' | 'Settled' | 'Refunded' | 'Disputed';
+
+export interface EscrowInfo {
+    buyer: string;
+    seller: string;
+    amount: number;
+    amountSol: number;
+    bandwidthLimitGb: number;
+    bandwidthUsedGb: number;
+    status: EscrowStatus;
+    createdAt: number;
+    expiresAt: number;
+    pda: string;
+}
+
+const STATUS_MAP: EscrowStatus[] = ['Pending', 'Active', 'Settled', 'Refunded', 'Disputed'];
 
 export const getProgram = (wallet: any) => {
     const connection = new Connection(NETWORK, 'processed');
@@ -16,11 +36,33 @@ export const getProgram = (wallet: any) => {
     return new Program(idl as Idl, PROGRAM_ID, provider);
 };
 
+export const getConnection = () => {
+    return new Connection(NETWORK, 'processed');
+};
+
+// Derive escrow PDA for a buyer-seller pair
+export const deriveEscrowPDA = (buyerPubkey: string, sellerPubkey: string) => {
+    const buyer = new PublicKey(buyerPubkey);
+    const seller = new PublicKey(sellerPubkey);
+
+    const [escrowPda, bump] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer()
+        ],
+        PROGRAM_ID
+    );
+
+    return { pda: escrowPda.toString(), bump };
+};
+
 export const initializeEscrow = async (
     wallet: any,
     sellerPubkey: string,
     amountLamports: number,
-    limitGb: number
+    limitGb: number,
+    durationSeconds: number = 3600 * 24 // Default 24 hours
 ) => {
     if (!wallet) throw new Error("Wallet not connected");
 
@@ -45,7 +87,7 @@ export const initializeEscrow = async (
             .initializeEscrow(
                 new BN(amountLamports),
                 new BN(limitGb),
-                new BN(3600 * 24) // 24 hours expiry
+                new BN(durationSeconds)
             )
             .accounts({
                 buyer: buyer,
@@ -56,10 +98,482 @@ export const initializeEscrow = async (
             .rpc();
 
         console.log("Escrow Initialized, Tx:", tx);
-        return { tx, escrowPda: escrowPda.toString() };
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`
+        };
 
     } catch (err) {
         console.error("Escrow Init Error:", err);
         throw err;
     }
+};
+
+// Refund an expired escrow (buyer only)
+export const refundEscrow = async (
+    wallet: any,
+    sellerPubkey: string
+) => {
+    if (!wallet) throw new Error("Wallet not connected");
+
+    const program = getProgram(wallet);
+    const buyer = wallet.publicKey;
+    const seller = new PublicKey(sellerPubkey);
+
+    // Find PDA
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer()
+        ],
+        program.programId
+    );
+
+    console.log("Refunding Escrow PDA:", escrowPda.toString());
+
+    try {
+        const tx = await program.methods
+            .refundEscrow()
+            .accounts({
+                buyer: buyer,
+                escrow: escrowPda,
+            })
+            .rpc();
+
+        console.log("Escrow Refunded, Tx:", tx);
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`
+        };
+
+    } catch (err) {
+        console.error("Escrow Refund Error:", err);
+        throw err;
+    }
+};
+
+// Fetch escrow info from on-chain
+export const getEscrowInfo = async (
+    buyerPubkey: string,
+    sellerPubkey: string
+): Promise<EscrowInfo | null> => {
+    const connection = getConnection();
+    const { pda } = deriveEscrowPDA(buyerPubkey, sellerPubkey);
+    const escrowPda = new PublicKey(pda);
+
+    try {
+        const accountInfo = await connection.getAccountInfo(escrowPda);
+
+        if (!accountInfo || !accountInfo.data) {
+            return null;
+        }
+
+        // Skip 8-byte discriminator
+        const data = accountInfo.data.slice(8);
+
+        if (data.length < 106) {
+            console.error("Escrow data too short");
+            return null;
+        }
+
+        // Parse escrow data (matches Anchor layout)
+        const buyer = new PublicKey(data.slice(0, 32)).toString();
+        const seller = new PublicKey(data.slice(32, 64)).toString();
+        const amount = Number(data.readBigUInt64LE(64));
+        const bandwidthLimitGb = Number(data.readBigUInt64LE(72));
+        const bandwidthUsedGb = Number(data.readBigUInt64LE(80));
+        const statusIndex = data[88];
+        const createdAt = Number(data.readBigInt64LE(89));
+        const expiresAt = Number(data.readBigInt64LE(97));
+
+        return {
+            buyer,
+            seller,
+            amount,
+            amountSol: amount / 1e9,
+            bandwidthLimitGb,
+            bandwidthUsedGb,
+            status: STATUS_MAP[statusIndex] || 'Pending',
+            createdAt,
+            expiresAt,
+            pda
+        };
+
+    } catch (err) {
+        console.error("Error fetching escrow info:", err);
+        return null;
+    }
+};
+
+// Request settlement via backend oracle
+export const requestSettlement = async (
+    buyerPubkey: string,
+    sellerPubkey: string,
+    bandwidthUsedGb: number
+) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+
+    const response = await fetch(`${apiUrl}/v1/solana/escrow/settle`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            buyer: buyerPubkey,
+            seller: sellerPubkey,
+            bandwidth_used_gb: bandwidthUsedGb
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Settlement failed');
+    }
+
+    return response.json();
+};
+
+// ============== SPL TOKEN SUPPORT ==============
+
+// Common token mints
+export const TOKEN_MINTS = {
+    // USDC on Devnet
+    USDC_DEVNET: new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'),
+    // USDC on Mainnet
+    USDC_MAINNET: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+};
+
+// Get the appropriate USDC mint for the current network
+export const getUSDCMint = () => {
+    return SOLANA_NETWORK === 'mainnet-beta'
+        ? TOKEN_MINTS.USDC_MAINNET
+        : TOKEN_MINTS.USDC_DEVNET;
+};
+
+// Token escrow info type
+export interface TokenEscrowInfo {
+    buyer: string;
+    seller: string;
+    mint: string;
+    amount: number;
+    amountFormatted: number; // Amount in token decimals (e.g., USDC has 6 decimals)
+    bandwidthLimitGb: number;
+    bandwidthUsedGb: number;
+    status: EscrowStatus;
+    createdAt: number;
+    expiresAt: number;
+    pda: string;
+}
+
+// Derive token escrow PDA
+export const deriveTokenEscrowPDA = (
+    buyerPubkey: string,
+    sellerPubkey: string,
+    mintPubkey: string
+) => {
+    const buyer = new PublicKey(buyerPubkey);
+    const seller = new PublicKey(sellerPubkey);
+    const mint = new PublicKey(mintPubkey);
+
+    const [escrowPda, bump] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer(),
+            mint.toBuffer()
+        ],
+        PROGRAM_ID
+    );
+
+    return { pda: escrowPda.toString(), bump };
+};
+
+// Derive token vault PDA
+export const deriveTokenVaultPDA = (escrowPda: string) => {
+    const escrow = new PublicKey(escrowPda);
+
+    const [vaultPda, bump] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_vault"),
+            escrow.toBuffer()
+        ],
+        PROGRAM_ID
+    );
+
+    return { pda: vaultPda.toString(), bump };
+};
+
+// Initialize token escrow (for USDC or other SPL tokens)
+export const initializeTokenEscrow = async (
+    wallet: any,
+    sellerPubkey: string,
+    mintPubkey: string,
+    amount: number, // In token base units (e.g., for USDC with 6 decimals, 1 USDC = 1_000_000)
+    limitGb: number,
+    durationSeconds: number = 3600 * 24
+) => {
+    if (!wallet) throw new Error("Wallet not connected");
+
+    const program = getProgram(wallet);
+    const connection = getConnection();
+    const buyer = wallet.publicKey;
+    const seller = new PublicKey(sellerPubkey);
+    const mint = new PublicKey(mintPubkey);
+
+    // Derive PDAs
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer(),
+            mint.toBuffer()
+        ],
+        program.programId
+    );
+
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_vault"),
+            escrowPda.toBuffer()
+        ],
+        program.programId
+    );
+
+    // Get buyer's token account
+    const buyerTokenAccount = await getAssociatedTokenAddress(mint, buyer);
+
+    console.log("Initializing Token Escrow PDA:", escrowPda.toString());
+    console.log("Vault PDA:", vaultPda.toString());
+    console.log("Buyer Token Account:", buyerTokenAccount.toString());
+
+    try {
+        const tx = await program.methods
+            .initializeTokenEscrow(
+                new BN(amount),
+                new BN(limitGb),
+                new BN(durationSeconds)
+            )
+            .accounts({
+                buyer: buyer,
+                seller: seller,
+                mint: mint,
+                buyerTokenAccount: buyerTokenAccount,
+                escrow: escrowPda,
+                escrowVault: vaultPda,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+                systemProgram: web3.SystemProgram.programId,
+            })
+            .rpc();
+
+        console.log("Token Escrow Initialized, Tx:", tx);
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            vaultPda: vaultPda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`
+        };
+
+    } catch (err) {
+        console.error("Token Escrow Init Error:", err);
+        throw err;
+    }
+};
+
+// Refund token escrow (buyer only, for expired escrows)
+export const refundTokenEscrow = async (
+    wallet: any,
+    sellerPubkey: string,
+    mintPubkey: string
+) => {
+    if (!wallet) throw new Error("Wallet not connected");
+
+    const program = getProgram(wallet);
+    const buyer = wallet.publicKey;
+    const seller = new PublicKey(sellerPubkey);
+    const mint = new PublicKey(mintPubkey);
+
+    // Derive PDAs
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer(),
+            mint.toBuffer()
+        ],
+        program.programId
+    );
+
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("token_vault"),
+            escrowPda.toBuffer()
+        ],
+        program.programId
+    );
+
+    // Get buyer's token account
+    const buyerTokenAccount = await getAssociatedTokenAddress(mint, buyer);
+
+    console.log("Refunding Token Escrow:", escrowPda.toString());
+
+    try {
+        const tx = await program.methods
+            .refundTokenEscrow()
+            .accounts({
+                buyer: buyer,
+                escrow: escrowPda,
+                escrowVault: vaultPda,
+                buyerTokenAccount: buyerTokenAccount,
+                tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .rpc();
+
+        console.log("Token Escrow Refunded, Tx:", tx);
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`
+        };
+
+    } catch (err) {
+        console.error("Token Escrow Refund Error:", err);
+        throw err;
+    }
+};
+
+// Helper to format token amounts based on decimals
+export const formatTokenAmount = (amount: number, decimals: number = 6) => {
+    return amount / Math.pow(10, decimals);
+};
+
+// Helper to parse token amounts to base units
+export const parseTokenAmount = (amount: number, decimals: number = 6) => {
+    return Math.floor(amount * Math.pow(10, decimals));
+};
+
+// ============== DISPUTE RESOLUTION ==============
+
+export type DisputeStatus = 'Open' | 'Resolved' | 'Cancelled';
+
+export interface DisputeInfo {
+    escrow: string;
+    initiator: string;
+    isBuyer: boolean;
+    reason: string;
+    status: DisputeStatus;
+    createdAt: number;
+    resolvedAt: number;
+    resolution: string;
+    buyerPayout: number;
+    sellerPayout: number;
+    pda: string;
+}
+
+// Derive dispute PDA from escrow
+export const deriveDisputePDA = (escrowPda: string) => {
+    const escrow = new PublicKey(escrowPda);
+
+    const [disputePda, bump] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("dispute"),
+            escrow.toBuffer()
+        ],
+        PROGRAM_ID
+    );
+
+    return { pda: disputePda.toString(), bump };
+};
+
+// Raise a dispute on an escrow (buyer or seller can call)
+export const raiseDispute = async (
+    wallet: any,
+    sellerPubkey: string,
+    reason: string
+) => {
+    if (!wallet) throw new Error("Wallet not connected");
+
+    const program = getProgram(wallet);
+    const initiator = wallet.publicKey;
+    const seller = new PublicKey(sellerPubkey);
+
+    // The buyer is the initiator (we can also support seller initiating)
+    const buyer = initiator;
+
+    // Derive escrow PDA
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("escrow"),
+            buyer.toBuffer(),
+            seller.toBuffer()
+        ],
+        program.programId
+    );
+
+    // Derive dispute PDA
+    const [disputePda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("dispute"),
+            escrowPda.toBuffer()
+        ],
+        program.programId
+    );
+
+    console.log("Raising dispute on escrow:", escrowPda.toString());
+    console.log("Dispute PDA:", disputePda.toString());
+
+    try {
+        const tx = await program.methods
+            .raiseDispute(reason)
+            .accounts({
+                initiator: initiator,
+                escrow: escrowPda,
+                dispute: disputePda,
+                systemProgram: web3.SystemProgram.programId,
+            })
+            .rpc();
+
+        console.log("Dispute Raised, Tx:", tx);
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            disputePda: disputePda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`
+        };
+
+    } catch (err) {
+        console.error("Raise Dispute Error:", err);
+        throw err;
+    }
+};
+
+// Request dispute resolution via backend (admin action)
+export const requestDisputeResolution = async (
+    escrowPda: string,
+    buyerPercentage: number,
+    resolution: string
+) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+
+    const response = await fetch(`${apiUrl}/v1/solana/dispute/resolve`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            escrow_pda: escrowPda,
+            buyer_percentage: buyerPercentage,
+            resolution: resolution
+        })
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Dispute resolution failed');
+    }
+
+    return response.json();
 };
