@@ -52,37 +52,37 @@ func (i *Indexer) loop() {
 }
 
 func (i *Indexer) sync() {
-	// 1. Fetch latest block/events from Bridge
-	// We assume Bridge has an endpoint /events?from_block=X
-	// For MVP, we'll simulate fetching events if the bridge isn't fully ready.
-
+	// Fetch latest block/events from Bridge
 	client := api.GetBittensorClient()
 	if client == nil {
 		logging.Warn().Msg("Indexer: Bittensor Client not ready")
 		return
 	}
 
-	// Mocking the fetch logic for now as Bridge endpoint needs to be defined
-	// In real impl: events, err := client.GetEvents(i.lastSyncBlock)
-
 	logging.Info().Int64("last_block", i.lastSyncBlock).Msg("Indexer: Syncing chain state...")
 
-	// MOCK: If first run, simulate a ProxyRegistered event for verification
-	if i.lastSyncBlock == 0 {
-		i.lastSyncBlock = 100 // Set to some block
-
-		// Mock Proxy Payload
-		payload := []byte(`{"address": "5DTestProviderAddressIndexer", "ip": "1.2.3.4", "port": 8080, "proxy_type": "http"}`)
-		ev := ChainEvent{Type: "ProxyRegistered", Payload: payload, Block: 100}
-		i.processEvent(ev)
+	// Fetch events from the Bittensor bridge
+	events, latestBlock, err := client.GetEvents(i.lastSyncBlock)
+	if err != nil {
+		logging.Warn().Err(err).Msg("Indexer: Failed to fetch events from bridge")
+		return
 	}
 
-	// Simulated Event Processing
-	// if events found:
-	//    for ev := range events {
-	//        i.processEvent(ev)
-	//    }
-	//    i.lastSyncBlock = latestBlock
+	// Process each event
+	for _, ev := range events {
+		chainEvent := ChainEvent{
+			Type:    ev.Type,
+			Payload: ev.Payload,
+			Block:   ev.Block,
+		}
+		i.processEvent(chainEvent)
+	}
+
+	// Update last sync block
+	if latestBlock > i.lastSyncBlock {
+		i.lastSyncBlock = latestBlock
+		logging.Info().Int64("block", latestBlock).Msg("Indexer: Synced to block")
+	}
 }
 
 // Event types
