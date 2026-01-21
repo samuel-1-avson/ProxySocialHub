@@ -133,6 +133,22 @@ func Init(dsn string) error {
 		&models.LinkedWallet{},
 		&models.BlockchainStateCache{},
 		&models.EncryptedCredentials{},
+
+		// Proxy Engine (Phase 16)
+		&models.ServiceConfiguration{},
+		&models.SessionConfiguration{},
+		&models.RoutingProfile{},
+
+		// Trustless Proofs (Phase 17)
+		&models.UsageProof{},
+
+		// Quality Attestation (Phase 18)
+		&models.Validator{},
+		&models.QualityAttestation{},
+		&models.ConsensusRound{},
+
+		// Decentralized Disputes (Phase 19)
+		&models.DisputeJury{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)

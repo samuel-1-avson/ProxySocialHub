@@ -790,4 +790,86 @@ pub enum EscrowError {
     DisputeAlreadyResolved,
     #[msg("Invalid percentage (must be 0-100)")]
     InvalidPercentage,
+    #[msg("Invalid signature")]
+    InvalidSignature,
+    #[msg("Signature verification failed")]
+    SignatureVerificationFailed,
+    #[msg("Proof already submitted")]
+    ProofAlreadySubmitted,
+}
+
+// ============== TRUSTLESS USAGE PROOFS ==============
+
+/// Usage Proof Account - stores signed usage reports
+#[account]
+#[derive(Default)]
+pub struct UsageProof {
+    pub escrow: Pubkey,      // Reference to escrow
+    pub buyer: Pubkey,       // Buyer who signed
+    pub seller: Pubkey,      // Provider who signed
+    pub total_bytes: u64,    // Total bytes transferred
+    pub period_start: i64,   // Start of usage window
+    pub period_end: i64,     // End of usage window
+    pub buyer_signed: bool,  // Buyer has signed
+    pub seller_signed: bool, // Seller has signed
+    pub submitted_at: i64,   // When proof was finalized
+    pub bump: u8,
+}
+
+impl UsageProof {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // escrow
+        32 + // buyer
+        32 + // seller
+        8 +  // total_bytes
+        8 +  // period_start
+        8 +  // period_end
+        1 +  // buyer_signed
+        1 +  // seller_signed
+        8 +  // submitted_at
+        1; // bump
+}
+
+/// Submit usage proof with dual signatures (TRUSTLESS)
+/// Both buyer and provider must sign for this to succeed
+#[derive(Accounts)]
+pub struct SubmitUsageProof<'info> {
+    /// The submitter (can be either buyer or seller)
+    #[account(mut)]
+    pub submitter: Signer<'info>,
+
+    /// The escrow this proof is for
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    /// Usage proof account (created fresh)
+    #[account(
+        init,
+        payer = submitter,
+        space = UsageProof::LEN,
+        seeds = [b"usage_proof", escrow.key().as_ref(), &proof_index.to_le_bytes()],
+        bump
+    )]
+    pub usage_proof: Account<'info, UsageProof>,
+
+    /// CHECK: Ed25519 instruction sysvar for signature verification
+    #[account(address = solana_program::sysvar::instructions::id())]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[event]
+pub struct UsageProofSubmitted {
+    pub escrow: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub total_bytes: u64,
+    pub period_start: i64,
+    pub period_end: i64,
+    pub timestamp: i64,
 }
