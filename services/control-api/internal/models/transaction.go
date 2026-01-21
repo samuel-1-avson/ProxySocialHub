@@ -10,8 +10,8 @@ import (
 // PendingTransaction tracks MoMo transactions awaiting webhook confirmation
 type PendingTransaction struct {
 	ID            uuid.UUID `gorm:"type:uuid;primary_key"`
-	Reference     string    `gorm:"type:varchar(100);unique;not null"` // Our internal reference
-	ExternalRef   string    `gorm:"type:varchar(100)"`                 // Provider's transaction ID
+	Reference     string    `gorm:"type:varchar(128);unique;not null"` // Our internal reference (Solana sigs are 88 chars)
+	ExternalRef   string    `gorm:"type:varchar(128)"`                 // Provider's transaction ID
 	UserID        string    `gorm:"type:varchar(100);not null"`
 	Type          string    `gorm:"type:varchar(20);not null"` // "deposit" or "withdrawal"
 	Amount        float64   `gorm:"type:numeric(20,4);not null"`

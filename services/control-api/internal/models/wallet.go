@@ -33,8 +33,8 @@ type WalletLedgerEntry struct {
 	Amount       float64   `gorm:"type:numeric(20,4);not null"`
 	BalanceAfter float64   `gorm:"type:numeric(20,4);not null"`
 	Type         string    `gorm:"type:varchar(50);not null"` // 'topup', 'usage_charge', 'payout', 'refund'
-	ReferenceID  string
-	TxHash       string `gorm:"size:255" json:"tx_hash,omitempty"`
+	ReferenceID  string    `gorm:"type:varchar(128)"`         // Solana tx sigs are 88 chars
+	TxHash       string    `gorm:"size:255" json:"tx_hash,omitempty"`
 	Description  string
 	CreatedAt    time.Time
 }
