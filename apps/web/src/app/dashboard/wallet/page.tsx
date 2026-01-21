@@ -137,7 +137,28 @@ export default function WalletPage() {
             setCryptoTxHash('');
             fetchWallet(); // Refresh balance
         } catch (err: any) {
-            setCryptoResult({ success: false, message: err.message || "Deposit verification failed - check transaction hash" });
+            // Handle specific error codes
+            if (err.status === 409) {
+                setCryptoResult({
+                    success: false,
+                    message: '⚠️ Transaction already processed. This deposit has been verified previously.'
+                });
+            } else if (err.status === 400) {
+                setCryptoResult({
+                    success: false,
+                    message: `❌ Verification failed: ${err.message || 'Invalid transaction or amount mismatch'}`
+                });
+            } else if (err.status === 500) {
+                setCryptoResult({
+                    success: false,
+                    message: '🔧 Server error. Please try again later.'
+                });
+            } else {
+                setCryptoResult({
+                    success: false,
+                    message: err.message || "Deposit verification failed - check transaction hash"
+                });
+            }
         } finally {
             setCryptoProcessing(false);
         }
@@ -248,8 +269,8 @@ export default function WalletPage() {
                                         type="button"
                                         onClick={() => setCryptoChain('solana')}
                                         className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'solana'
-                                                ? 'bg-purple-500/20 border-purple-500 text-purple-400'
-                                                : 'border-border text-muted-foreground hover:border-purple-500/50'
+                                            ? 'bg-purple-500/20 border-purple-500 text-purple-400'
+                                            : 'border-border text-muted-foreground hover:border-purple-500/50'
                                             }`}
                                     >
                                         SOL (Solana)
@@ -258,8 +279,8 @@ export default function WalletPage() {
                                         type="button"
                                         onClick={() => setCryptoChain('bittensor')}
                                         className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'bittensor'
-                                                ? 'bg-primary/20 border-primary text-primary'
-                                                : 'border-border text-muted-foreground hover:border-primary/50'
+                                            ? 'bg-primary/20 border-primary text-primary'
+                                            : 'border-border text-muted-foreground hover:border-primary/50'
                                             }`}
                                     >
                                         TAO (Bittensor)
