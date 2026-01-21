@@ -71,11 +71,16 @@ func main() {
 
 	r := gin.Default()
 
+	// Health endpoint BEFORE security middleware (for Docker healthchecks)
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// Security Headers
 	r.Use(secure.New(secure.Config{
 		SSLRedirect:           false, // Handled by Ingress/LoadBalancer
 		IsDevelopment:         os.Getenv("GIN_MODE") != "release",
-		AllowedHosts:          []string{"api.proxyhubb.com", "localhost", "127.0.0.1", "*.trycloudflare.com"},
+		AllowedHosts:          []string{}, // Empty = allow all hosts
 		STSSeconds:            315360000,
 		STSIncludeSubdomains:  true,
 		FrameDeny:             true,
@@ -125,12 +130,6 @@ func main() {
 
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
-	api.RegisterMetricsEndpoint(r)
-
-	// Public / Health
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
 
 	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
