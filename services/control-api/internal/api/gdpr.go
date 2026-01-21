@@ -88,9 +88,18 @@ For questions, contact support@proxyhubb.com
 
 	zipWriter.Close()
 
-	// Log the export (simplified call without using LogAudit)
-	auditLogEntry := models.NewAuditLog(&userID, user.Email, models.AuditUserLogin, models.EntityUser, userID.String(), nil)
-	db.DB.Create(auditLogEntry)
+	// Log the export
+	auditLogEntry := models.AuditLog{
+		EventType:   models.AuditUserUpdated,
+		Severity:    models.AuditSeverityInfo,
+		ActorID:     &userID,
+		ActorEmail:  user.Email,
+		TargetType:  "user",
+		TargetID:    userID.String(),
+		Description: "User data export requested",
+		Success:     true,
+	}
+	db.DB.Create(&auditLogEntry)
 
 	c.Header("Content-Type", "application/zip")
 	c.Header("Content-Disposition", "attachment; filename=proxyhubb_export_"+time.Now().Format("20060102")+".zip")
@@ -129,10 +138,17 @@ func deleteAccount(c *gin.Context) {
 	db.DB.Model(&user).Update("scheduled_deletion_at", deletionDate)
 
 	// Log account deletion scheduled
-	auditEntry := models.NewAuditLog(&userID, user.Email, models.AuditUserLogin, models.EntityUser, userID.String(), models.AuditDetails{
-		"scheduled_for": deletionDate,
-	})
-	db.DB.Create(auditEntry)
+	auditEntry := models.AuditLog{
+		EventType:   models.AuditUserDeleted,
+		Severity:    models.AuditSeverityCritical,
+		ActorID:     &userID,
+		ActorEmail:  user.Email,
+		TargetType:  "user",
+		TargetID:    userID.String(),
+		Description: "Account scheduled for deletion",
+		Success:     true,
+	}
+	db.DB.Create(&auditEntry)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "Account scheduled for deletion",

@@ -73,7 +73,7 @@ func getNodeHealth(c *gin.Context) {
 
 	// Get recent health history from audit logs
 	var recentEvents []models.AuditLog
-	db.DB.Where("entity_type = ? AND entity_id = ?", models.EntityNode, nodeID).
+	db.DB.Where("target_type = ? AND target_id = ?", "node", nodeID).
 		Order("created_at DESC").
 		Limit(10).
 		Find(&recentEvents)

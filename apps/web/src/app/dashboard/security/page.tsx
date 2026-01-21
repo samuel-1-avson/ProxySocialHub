@@ -3,9 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
-import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy } from 'lucide-react';
+import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy, Monitor, Clock } from 'lucide-react';
+import { SessionsPanel, AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+type TabType = '2fa' | 'sessions' | 'alerts' | 'history';
 
 interface SetupResponse {
     secret: string;
@@ -30,6 +33,9 @@ export default function SecuritySettingsPage() {
     const [disablePassword, setDisablePassword] = useState('');
     const [disableCode, setDisableCode] = useState('');
     const [showDisableModal, setShowDisableModal] = useState(false);
+
+    // Tab State
+    const [activeTab, setActiveTab] = useState<TabType>('2fa');
 
     useEffect(() => {
         if (!isLoading && !isAuthenticated) {
@@ -204,138 +210,201 @@ export default function SecuritySettingsPage() {
                 </div>
             )}
 
+            {/* Tabs Navigation */}
+            <div className="flex border-b border-border overflow-x-auto">
+                <button
+                    onClick={() => setActiveTab('2fa')}
+                    className={`flex items-center gap-2 px-4 py-3 font-mono text-xs font-bold uppercase border-b-2 transition-colors whitespace-nowrap ${activeTab === '2fa'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    <Lock size={14} /> Two-Factor Auth
+                </button>
+                <button
+                    onClick={() => setActiveTab('sessions')}
+                    className={`flex items-center gap-2 px-4 py-3 font-mono text-xs font-bold uppercase border-b-2 transition-colors whitespace-nowrap ${activeTab === 'sessions'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    <Monitor size={14} /> Sessions
+                </button>
+                <button
+                    onClick={() => setActiveTab('alerts')}
+                    className={`flex items-center gap-2 px-4 py-3 font-mono text-xs font-bold uppercase border-b-2 transition-colors whitespace-nowrap ${activeTab === 'alerts'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    <AlertTriangle size={14} /> Security Alerts
+                </button>
+                <button
+                    onClick={() => setActiveTab('history')}
+                    className={`flex items-center gap-2 px-4 py-3 font-mono text-xs font-bold uppercase border-b-2 transition-colors whitespace-nowrap ${activeTab === 'history'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    <Clock size={14} /> Login History
+                </button>
+            </div>
+
+            {/* Sessions Panel */}
+            {activeTab === 'sessions' && (
+                <div className="card-retro p-6 bg-card">
+                    <SessionsPanel />
+                </div>
+            )}
+
+            {/* Alerts Panel */}
+            {activeTab === 'alerts' && (
+                <div className="card-retro p-6 bg-card">
+                    <AnomaliesPanel />
+                </div>
+            )}
+
+            {/* History Panel */}
+            {activeTab === 'history' && (
+                <div className="card-retro p-6 bg-card">
+                    <LoginHistoryPanel />
+                </div>
+            )}
+
             {/* 2FA Section */}
-            <div className="card-retro p-6 bg-card space-y-6">
-                <div className="flex items-start justify-between border-b border-border pb-6">
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 rounded-sm bg-secondary border border-border">
-                            <Lock className="w-6 h-6 text-primary" />
+            {activeTab === '2fa' && (
+                <div className="card-retro p-6 bg-card space-y-6">
+                    <div className="flex items-start justify-between border-b border-border pb-6">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-sm bg-secondary border border-border">
+                                <Lock className="w-6 h-6 text-primary" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold font-mono uppercase">Two-Factor Authentication</h2>
+                                <p className="text-xs font-mono text-muted-foreground mt-1">ADD AN EXTRA LAYER OF SECURITY TO YOUR ACCOUNT.</p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-lg font-bold font-mono uppercase">Two-Factor Authentication</h2>
-                            <p className="text-xs font-mono text-muted-foreground mt-1">ADD AN EXTRA LAYER OF SECURITY TO YOUR ACCOUNT.</p>
-                        </div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-sm border text-[10px] font-mono font-bold uppercase flex items-center gap-2 ${is2FAEnabled
+                        <span className={`px-2 py-0.5 rounded-sm border text-[10px] font-mono font-bold uppercase flex items-center gap-2 ${is2FAEnabled
                             ? 'bg-green-500/10 text-green-500 border-green-500/20'
                             : 'bg-secondary text-muted-foreground border-border'
-                        }`}>
-                        {is2FAEnabled && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>}
-                        {is2FAEnabled ? 'Protocol Active' : 'Protocol Inactive'}
-                    </span>
-                </div>
-
-                {!is2FAEnabled && !setupData && (
-                    <div className="text-center py-6 space-y-4">
-                        <p className="text-xs font-mono text-muted-foreground max-w-sm mx-auto">
-                            PROTECT YOUR ACCOUNT WITH TIME-BASED ONE-TIME PASSWORDS (TOTP).
-                            RECOMMENDED APPS: GOOGLE AUTHENTICATOR OR AUTHY.
-                        </p>
-                        <button
-                            onClick={handleSetup2FA}
-                            className="btn-retro btn-retro-primary"
-                        >
-                            INITIATE 2FA SETUP
-                        </button>
+                            }`}>
+                            {is2FAEnabled && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>}
+                            {is2FAEnabled ? 'Protocol Active' : 'Protocol Inactive'}
+                        </span>
                     </div>
-                )}
 
-                {/* Setup Flow */}
-                {setupData && (
-                    <div className="space-y-8 animate-in slide-in-from-top-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center border border-dashed border-border p-6 rounded-sm bg-secondary/10">
-                            <div className="text-center space-y-4">
-                                <h3 className="text-sm font-bold font-mono uppercase">1. Scan QR Code</h3>
-                                <div className="inline-block p-2 bg-white rounded-sm border border-border">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={setupData.qr_code} alt="2FA QR Code" className="w-40 h-40 mix-blend-multiply" />
-                                </div>
-                            </div>
-
-                            <div className="space-y-6">
-                                <div className="space-y-2">
-                                    <h3 className="text-sm font-bold font-mono uppercase">2. Manual Entry</h3>
-                                    <p className="text-[10px] font-mono text-muted-foreground">OR ENTER THIS CODE MANUALLY:</p>
-                                    <code className="block w-full p-3 bg-black border border-primary/30 text-primary font-mono text-sm text-center tracking-widest rounded-sm selection:bg-primary selection:text-black">
-                                        {setupData.secret}
-                                    </code>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <h3 className="text-sm font-bold font-mono uppercase">3. Verify</h3>
-                                    <input
-                                        type="text"
-                                        value={verificationCode}
-                                        onChange={e => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                        placeholder="ENTER 6-DIGIT CODE"
-                                        className="w-full bg-secondary border border-border rounded-sm py-3 px-4 text-center text-lg font-mono tracking-[0.5em] focus:border-primary focus:outline-none transition-all placeholder:text-muted-foreground/30 placeholder:tracking-normal placeholder:text-xs"
-                                        maxLength={6}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-4 justify-center">
+                    {!is2FAEnabled && !setupData && (
+                        <div className="text-center py-6 space-y-4">
+                            <p className="text-xs font-mono text-muted-foreground max-w-sm mx-auto">
+                                PROTECT YOUR ACCOUNT WITH TIME-BASED ONE-TIME PASSWORDS (TOTP).
+                                RECOMMENDED APPS: GOOGLE AUTHENTICATOR OR AUTHY.
+                            </p>
                             <button
-                                onClick={() => { setSetupData(null); setVerificationCode(''); }}
-                                className="btn-retro btn-retro-outline"
-                            >
-                                CANCEL
-                            </button>
-                            <button
-                                onClick={handleEnable2FA}
-                                disabled={verificationCode.length !== 6}
+                                onClick={handleSetup2FA}
                                 className="btn-retro btn-retro-primary"
                             >
-                                VERIFY & ENABLE
+                                INITIATE 2FA SETUP
                             </button>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* 2FA Enabled State */}
-                {is2FAEnabled && !setupData && (
-                    <div className="space-y-8 animate-in slide-in-from-top-4">
-                        <div className="flex items-center gap-4 p-4 border border-green-500/20 bg-green-500/5 rounded-sm">
-                            <Check className="w-5 h-5 text-green-500" />
-                            <div>
-                                <div className="text-sm font-bold font-mono text-green-500 uppercase">Two-factor authentication is active</div>
-                                <div className="text-[10px] font-mono text-muted-foreground uppercase opacity-70">Traffic encryption level: High</div>
-                            </div>
-                        </div>
-
-                        {/* Backup Codes */}
-                        <div className="border-t border-dashed border-border pt-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <div>
-                                    <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2">
-                                        <Key size={14} /> Backup Codes
-                                    </h3>
-                                    <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                                        <span className="text-primary font-bold">{backupCodesCount}</span> CODES REMAINING. USE IN CASE OF DEVICE LOSS.
-                                    </p>
+                    {/* Setup Flow */}
+                    {setupData && (
+                        <div className="space-y-8 animate-in slide-in-from-top-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center border border-dashed border-border p-6 rounded-sm bg-secondary/10">
+                                <div className="text-center space-y-4">
+                                    <h3 className="text-sm font-bold font-mono uppercase">1. Scan QR Code</h3>
+                                    <div className="inline-block p-2 bg-white rounded-sm border border-border">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={setupData.qr_code} alt="2FA QR Code" className="w-40 h-40 mix-blend-multiply" />
+                                    </div>
                                 </div>
+
+                                <div className="space-y-6">
+                                    <div className="space-y-2">
+                                        <h3 className="text-sm font-bold font-mono uppercase">2. Manual Entry</h3>
+                                        <p className="text-[10px] font-mono text-muted-foreground">OR ENTER THIS CODE MANUALLY:</p>
+                                        <code className="block w-full p-3 bg-black border border-primary/30 text-primary font-mono text-sm text-center tracking-widest rounded-sm selection:bg-primary selection:text-black">
+                                            {setupData.secret}
+                                        </code>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <h3 className="text-sm font-bold font-mono uppercase">3. Verify</h3>
+                                        <input
+                                            type="text"
+                                            value={verificationCode}
+                                            onChange={e => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                            placeholder="ENTER 6-DIGIT CODE"
+                                            className="w-full bg-secondary border border-border rounded-sm py-3 px-4 text-center text-lg font-mono tracking-[0.5em] focus:border-primary focus:outline-none transition-all placeholder:text-muted-foreground/30 placeholder:tracking-normal placeholder:text-xs"
+                                            maxLength={6}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4 justify-center">
                                 <button
-                                    onClick={handleRegenerateBackupCodes}
-                                    className="btn-retro btn-retro-outline py-2 px-3 text-[10px] flex items-center gap-2"
+                                    onClick={() => { setSetupData(null); setVerificationCode(''); }}
+                                    className="btn-retro btn-retro-outline"
                                 >
-                                    <RefreshCw size={12} /> REGENERATE
+                                    CANCEL
+                                </button>
+                                <button
+                                    onClick={handleEnable2FA}
+                                    disabled={verificationCode.length !== 6}
+                                    className="btn-retro btn-retro-primary"
+                                >
+                                    VERIFY & ENABLE
                                 </button>
                             </div>
                         </div>
+                    )}
 
-                        {/* Disable 2FA */}
-                        <div className="border-t border-dashed border-border pt-6 flex justify-end">
-                            <button
-                                onClick={() => setShowDisableModal(true)}
-                                className="text-[10px] font-bold font-mono uppercase text-destructive hover:underline flex items-center gap-1"
-                            >
-                                <AlertTriangle size={12} /> Disable Authentication Protocol
-                            </button>
+                    {/* 2FA Enabled State */}
+                    {is2FAEnabled && !setupData && (
+                        <div className="space-y-8 animate-in slide-in-from-top-4">
+                            <div className="flex items-center gap-4 p-4 border border-green-500/20 bg-green-500/5 rounded-sm">
+                                <Check className="w-5 h-5 text-green-500" />
+                                <div>
+                                    <div className="text-sm font-bold font-mono text-green-500 uppercase">Two-factor authentication is active</div>
+                                    <div className="text-[10px] font-mono text-muted-foreground uppercase opacity-70">Traffic encryption level: High</div>
+                                </div>
+                            </div>
+
+                            {/* Backup Codes */}
+                            <div className="border-t border-dashed border-border pt-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2">
+                                            <Key size={14} /> Backup Codes
+                                        </h3>
+                                        <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                                            <span className="text-primary font-bold">{backupCodesCount}</span> CODES REMAINING. USE IN CASE OF DEVICE LOSS.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleRegenerateBackupCodes}
+                                        className="btn-retro btn-retro-outline py-2 px-3 text-[10px] flex items-center gap-2"
+                                    >
+                                        <RefreshCw size={12} /> REGENERATE
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Disable 2FA */}
+                            <div className="border-t border-dashed border-border pt-6 flex justify-end">
+                                <button
+                                    onClick={() => setShowDisableModal(true)}
+                                    className="text-[10px] font-bold font-mono uppercase text-destructive hover:underline flex items-center gap-1"
+                                >
+                                    <AlertTriangle size={12} /> Disable Authentication Protocol
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
 
             {/* Backup Codes Modal */}
             {showBackupCodes && backupCodes.length > 0 && (
