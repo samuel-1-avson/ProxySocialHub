@@ -129,11 +129,19 @@ type cryptoDepositRequest struct {
 func verifyCryptoDeposit(c *gin.Context) {
 	var req cryptoDepositRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logging.Error(err).Msg("Failed to bind crypto deposit request JSON")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	userID := c.GetString("userID")
+	logging.Info().
+		Str("user_id", userID).
+		Str("tx_hash", req.TxHash).
+		Float64("amount", req.Amount).
+		Str("chain", req.Chain).
+		Msg("Processing crypto deposit request")
+
 	ctx := context.Background()
 
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
