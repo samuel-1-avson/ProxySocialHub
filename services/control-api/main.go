@@ -172,6 +172,19 @@ func main() {
 		api.RegisterAnalyticsRoutes(protected)
 		api.RegisterGeoRoutes(protected)
 
+		// Proxy Engine Services (Phase 16)
+		api.RegisterProviderServicesRoutes(protected)
+		api.RegisterServiceDiscoveryRoutes(protected)
+
+		// Trustless Proofs (Phase 17)
+		api.RegisterTrustlessRoutes(protected)
+
+		// Quality Attestation (Phase 18)
+		api.RegisterValidatorRoutes(protected)
+
+		// Decentralized Disputes (Phase 19)
+		api.RegisterDisputeJuryRoutes(protected)
+
 		// Blockchain / Solana
 		solanaClient.RegisterRoutes(protected)
 	}
