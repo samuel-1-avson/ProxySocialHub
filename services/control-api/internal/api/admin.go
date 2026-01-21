@@ -435,7 +435,6 @@ func suspendUser(c *gin.Context) {
 		return
 	}
 
-	previousStatus := user.Status
 	user.Status = models.UserStatusSuspended
 	if result := db.DB.Save(&user); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to suspend user"})
@@ -443,11 +442,7 @@ func suspendUser(c *gin.Context) {
 	}
 
 	// Log the action
-	audit.LogUserAction(c, models.AuditUserBanned, userID, models.AuditDetails{
-		"previous_status": previousStatus,
-		"new_status":      user.Status,
-		"action":          "suspended",
-	})
+	audit.LogUserAction(c, models.AuditUserUpdated, userID, "User account suspended")
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "suspended",
@@ -465,7 +460,6 @@ func activateUser(c *gin.Context) {
 		return
 	}
 
-	previousStatus := user.Status
 	user.Status = models.UserStatusActive
 	if result := db.DB.Save(&user); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate user"})
@@ -473,11 +467,7 @@ func activateUser(c *gin.Context) {
 	}
 
 	// Log the action
-	audit.LogUserAction(c, models.AuditUserUnbanned, userID, models.AuditDetails{
-		"previous_status": previousStatus,
-		"new_status":      user.Status,
-		"action":          "activated",
-	})
+	audit.LogUserAction(c, models.AuditUserUpdated, userID, "User account activated")
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "active",

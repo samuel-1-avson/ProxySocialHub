@@ -149,6 +149,17 @@ func Init(dsn string) error {
 
 		// Decentralized Disputes (Phase 19)
 		&models.DisputeJury{},
+
+		// User Security (Phase 21)
+		&models.UserSettings{},
+		&models.UserSession{},
+		&models.LoginAttempt{},
+		&models.AccountLockout{},
+
+		// Advanced Security (Phase 22)
+		&models.AuditLog{},
+		&models.SecurityAnomaly{},
+		&models.WebAuthnCredential{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)

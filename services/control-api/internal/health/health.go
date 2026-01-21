@@ -162,7 +162,7 @@ func (m *HealthMonitor) checkNode(node *models.Node, config Config) {
 				log.Printf("[HealthMonitor] Node %s unhealthy for too long", node.ID)
 
 				// Log the event
-				audit.LogDirect(nil, "system", models.AuditNodeHealthChange, models.EntityNode, node.ID.String(), models.AuditDetails{
+				audit.LogDirect(nil, "system", models.AuditNodeUpdated, "node", node.ID.String(), "Node marked unhealthy due to timeout", map[string]interface{}{
 					"action":       "marked_unhealthy",
 					"reason":       "unhealthy_timeout",
 					"last_seen":    node.LastSeenAt,
@@ -176,7 +176,7 @@ func (m *HealthMonitor) checkNode(node *models.Node, config Config) {
 	if !wasHealthy && isHealthy {
 		log.Printf("[HealthMonitor] Node %s became healthy (latency: %dms)", node.ID, latencyMs)
 
-		audit.LogDirect(nil, "system", models.AuditNodeHealthChange, models.EntityNode, node.ID.String(), models.AuditDetails{
+		audit.LogDirect(nil, "system", models.AuditNodeUpdated, "node", node.ID.String(), "Node recovered and marked healthy", map[string]interface{}{
 			"action":     "recovered",
 			"latency_ms": latencyMs,
 		})

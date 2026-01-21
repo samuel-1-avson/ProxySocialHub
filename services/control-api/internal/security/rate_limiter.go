@@ -1,7 +1,7 @@
-// Package security provides rate limiting and security middleware
 package security
 
 import (
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -11,12 +11,13 @@ import (
 
 // RateLimiter implements a token bucket rate limiter
 type RateLimiter struct {
-	mu          sync.Mutex
-	tokens      map[string]*bucket
-	rate        int           // tokens per interval
-	interval    time.Duration // refill interval
-	maxTokens   int           // max tokens in bucket
-	cleanupTick time.Duration // cleanup interval for expired entries
+	tokens         map[string]*bucket
+	mu             sync.RWMutex
+	maxTokens      int
+	refillRate     int           // tokens per second
+	refillInterval time.Duration // how often to refill
+	cleanupTicker  *time.Ticker
+	stopCleanup    chan struct{}
 }
 
 type bucket struct {
@@ -25,22 +26,54 @@ type bucket struct {
 }
 
 // NewRateLimiter creates a new rate limiter
-func NewRateLimiter(rate int, interval time.Duration, maxTokens int) *RateLimiter {
+// maxTokens: maximum tokens per bucket (burst capacity)
+// refillRate: tokens added per second
+func NewRateLimiter(maxTokens, refillRate int) *RateLimiter {
 	rl := &RateLimiter{
-		tokens:      make(map[string]*bucket),
-		rate:        rate,
-		interval:    interval,
-		maxTokens:   maxTokens,
-		cleanupTick: 5 * time.Minute,
+		tokens:         make(map[string]*bucket),
+		maxTokens:      maxTokens,
+		refillRate:     refillRate,
+		refillInterval: time.Second,
+		stopCleanup:    make(chan struct{}),
 	}
 
-	// Start cleanup goroutine
-	go rl.cleanup()
+	// Start cleanup goroutine to remove stale buckets
+	rl.cleanupTicker = time.NewTicker(5 * time.Minute)
+	go rl.cleanupLoop()
 
 	return rl
 }
 
-// Allow checks if a request from the given key is allowed
+func (rl *RateLimiter) cleanupLoop() {
+	for {
+		select {
+		case <-rl.cleanupTicker.C:
+			rl.cleanup()
+		case <-rl.stopCleanup:
+			rl.cleanupTicker.Stop()
+			return
+		}
+	}
+}
+
+func (rl *RateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	staleTime := time.Now().Add(-10 * time.Minute)
+	for key, b := range rl.tokens {
+		if b.lastCheck.Before(staleTime) {
+			delete(rl.tokens, key)
+		}
+	}
+}
+
+// Stop stops the cleanup goroutine
+func (rl *RateLimiter) Stop() {
+	close(rl.stopCleanup)
+}
+
+// Allow checks if a request from the given key should be allowed
 func (rl *RateLimiter) Allow(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -49,8 +82,9 @@ func (rl *RateLimiter) Allow(key string) bool {
 	b, exists := rl.tokens[key]
 
 	if !exists {
+		// Create new bucket with max tokens
 		rl.tokens[key] = &bucket{
-			tokens:    rl.maxTokens - 1,
+			tokens:    rl.maxTokens - 1, // Use one token for this request
 			lastCheck: now,
 		}
 		return true
@@ -58,10 +92,11 @@ func (rl *RateLimiter) Allow(key string) bool {
 
 	// Refill tokens based on time elapsed
 	elapsed := now.Sub(b.lastCheck)
-	refill := int(elapsed/rl.interval) * rl.rate
-	b.tokens = min(b.tokens+refill, rl.maxTokens)
+	tokensToAdd := int(elapsed.Seconds()) * rl.refillRate
+	b.tokens = min(b.tokens+tokensToAdd, rl.maxTokens)
 	b.lastCheck = now
 
+	// Check if we have tokens
 	if b.tokens > 0 {
 		b.tokens--
 		return true
@@ -72,8 +107,8 @@ func (rl *RateLimiter) Allow(key string) bool {
 
 // RemainingTokens returns remaining tokens for a key
 func (rl *RateLimiter) RemainingTokens(key string) int {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
 
 	if b, exists := rl.tokens[key]; exists {
 		return b.tokens
@@ -81,141 +116,85 @@ func (rl *RateLimiter) RemainingTokens(key string) int {
 	return rl.maxTokens
 }
 
-// cleanup removes stale bucket entries
-func (rl *RateLimiter) cleanup() {
-	ticker := time.NewTicker(rl.cleanupTick)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		rl.mu.Lock()
-		threshold := time.Now().Add(-10 * time.Minute)
-		for key, b := range rl.tokens {
-			if b.lastCheck.Before(threshold) {
-				delete(rl.tokens, key)
-			}
-		}
-		rl.mu.Unlock()
-	}
-}
-
-// Global rate limiters for different tiers
+// Global rate limiters for different endpoints
 var (
-	// Default rate limiter: 100 requests per minute
-	DefaultLimiter = NewRateLimiter(100, time.Minute, 100)
-
-	// API key rate limiter: Higher rate for authenticated apps
-	APIKeyLimiter = NewRateLimiter(1000, time.Minute, 1000)
-
-	// Strict rate limiter for sensitive endpoints
-	StrictLimiter = NewRateLimiter(10, time.Minute, 10)
+	AuthRateLimiter    *RateLimiter
+	GeneralRateLimiter *RateLimiter
+	initOnce           sync.Once
 )
 
-// RateLimitMiddleware returns a rate limiting middleware
-func RateLimitMiddleware(limiter *RateLimiter) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Use user ID if authenticated, otherwise IP
-		key := c.ClientIP()
-		if userID, exists := c.Get("user_id"); exists {
-			key = userID.(string)
-		}
+// InitRateLimiters initializes the global rate limiters
+func InitRateLimiters() {
+	initOnce.Do(func() {
+		// Auth endpoints: 10 requests per minute (stricter)
+		AuthRateLimiter = NewRateLimiter(10, 1) // 10 burst, 1/sec refill
 
-		if !limiter.Allow(key) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":       "Rate limit exceeded",
-				"retry_after": limiter.interval.Seconds(),
+		// General API: 100 requests per minute
+		GeneralRateLimiter = NewRateLimiter(100, 10) // 100 burst, 10/sec refill
+
+		log.Println("[SECURITY] Rate limiters initialized")
+	})
+}
+
+// AuthRateLimit middleware for authentication endpoints
+func AuthRateLimit() gin.HandlerFunc {
+	if AuthRateLimiter == nil {
+		InitRateLimiters()
+	}
+
+	return func(c *gin.Context) {
+		// Use IP as the rate limit key
+		key := c.ClientIP()
+
+		if !AuthRateLimiter.Allow(key) {
+			log.Printf("[SECURITY] Rate limit exceeded for IP=%s on auth endpoint", maskIP(key))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error":       "Too many requests. Please try again later.",
+				"retry_after": 60,
 			})
-			c.Abort()
 			return
 		}
 
 		// Add rate limit headers
-		c.Header("X-RateLimit-Remaining", string(rune(limiter.RemainingTokens(key))))
-		c.Next()
-	}
-}
-
-// SecurityHeaders adds security headers to responses
-func SecurityHeaders() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Prevent clickjacking
-		c.Header("X-Frame-Options", "DENY")
-		// XSS protection
-		c.Header("X-XSS-Protection", "1; mode=block")
-		// Prevent MIME sniffing
-		c.Header("X-Content-Type-Options", "nosniff")
-		// Referrer policy
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		// Permissions policy
-		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		remaining := AuthRateLimiter.RemainingTokens(key)
+		c.Header("X-RateLimit-Limit", "10")
+		c.Header("X-RateLimit-Remaining", string(rune('0'+remaining)))
 
 		c.Next()
 	}
 }
 
-// CSRFProtection provides CSRF protection for state-changing requests
-func CSRFProtection() gin.HandlerFunc {
+// GeneralRateLimit middleware for general API endpoints
+func GeneralRateLimit() gin.HandlerFunc {
+	if GeneralRateLimiter == nil {
+		InitRateLimiters()
+	}
+
 	return func(c *gin.Context) {
-		// Skip for safe methods
-		if c.Request.Method == "GET" || c.Request.Method == "HEAD" || c.Request.Method == "OPTIONS" {
-			c.Next()
+		// Use IP + User ID as the rate limit key
+		key := c.ClientIP()
+		if userID, exists := c.Get("user_id"); exists {
+			key = key + ":" + userID.(string)
+		}
+
+		if !GeneralRateLimiter.Allow(key) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error":       "Too many requests. Please slow down.",
+				"retry_after": 10,
+			})
 			return
 		}
 
-		// Check for CSRF token in header
-		token := c.GetHeader("X-CSRF-Token")
-		if token == "" {
-			// Also check for API key auth (exempt from CSRF)
-			if _, exists := c.Get("api_key"); exists {
-				c.Next()
-				return
-			}
-
-			// For development, skip CSRF if explicitly disabled
-			// In production, this should be removed
-			if gin.Mode() == gin.DebugMode {
-				c.Next()
-				return
-			}
-
-			c.JSON(http.StatusForbidden, gin.H{"error": "CSRF token required"})
-			c.Abort()
-			return
-		}
-
-		// Validate token (simplified - in production use proper CSRF tokens)
-		// This is a placeholder for actual CSRF validation
 		c.Next()
 	}
 }
 
-// IPWhitelist creates middleware that only allows specified IPs
-func IPWhitelist(allowedIPs ...string) gin.HandlerFunc {
-	allowed := make(map[string]bool)
-	for _, ip := range allowedIPs {
-		allowed[ip] = true
+// maskIP masks an IP address for safe logging
+func maskIP(ip string) string {
+	if len(ip) <= 8 {
+		return ip[:2] + "***"
 	}
-
-	return func(c *gin.Context) {
-		if !allowed[c.ClientIP()] {
-			c.JSON(http.StatusForbidden, gin.H{"error": "IP not allowed"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
-
-// AdminOnly restricts access to admin users
-func AdminOnly() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		role, exists := c.Get("user_role")
-		if !exists || role != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
+	return ip[:4] + "***"
 }
 
 func min(a, b int) int {

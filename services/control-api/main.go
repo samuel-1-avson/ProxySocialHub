@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
+	"github.com/proxyhubb/control-api/internal/monitoring"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/worker"
@@ -119,7 +120,11 @@ func main() {
 		c.Next()
 	})
 
-	// Metrics
+	// Metrics Middleware (record all requests)
+	r.Use(monitoring.MetricsMiddleware())
+
+	// Metrics and Monitoring Endpoints
+	monitoring.RegisterMetricsRoutes(r)
 	api.RegisterMetricsEndpoint(r)
 
 	// Public / Health
@@ -184,6 +189,12 @@ func main() {
 
 		// Decentralized Disputes (Phase 19)
 		api.RegisterDisputeJuryRoutes(protected)
+
+		// User Security (Phase 21)
+		api.RegisterSecurityRoutes(protected)
+
+		// Audit & Monitoring (Phase 22)
+		api.RegisterAuditRoutes(protected)
 
 		// Blockchain / Solana
 		solanaClient.RegisterRoutes(protected)
