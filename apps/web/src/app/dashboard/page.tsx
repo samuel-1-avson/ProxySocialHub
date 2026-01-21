@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { ArrowUpRight, ArrowDownRight, Activity, Wifi, Server, DollarSign, Clock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { getAnalyticsOverview, getWallet, getDailyUsage, AnalyticsOverview, Wallet, DailyUsagePoint } from "@/lib/api";
+import { SkeletonDashboard } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
     const { user } = useAuth();
@@ -36,12 +37,7 @@ export default function DashboardPage() {
     }, [user]);
 
     if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[400px]">
-                <div className="w-8 h-8 rounded-sm bg-primary animate-spin"></div>
-                <p className="mt-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">Synchronizing Uplink...</p>
-            </div>
-        );
+        return <SkeletonDashboard />;
     }
 
     const stats = [
