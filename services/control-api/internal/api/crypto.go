@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
+	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -171,13 +172,28 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Msg("Solana deposit verified on-chain")
 
 	} else if req.Chain == "bittensor" {
-		// TODO: Implement real Bittensor verification via bridge
-		// For now, trust the amount but log it
-		verifiedAmount = req.Amount
-		logging.Warn().
+		// Get treasury address
+		treasuryAddress := bittensor.GetTreasuryAddress()
+		if treasuryAddress == "" {
+			logging.Error(nil).Msg("TAO_TREASURY_ADDRESS not configured")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "TAO Treasury not configured"})
+			return
+		}
+
+		// Verify extrinsic on Subscan
+		transfer, err := bittensor.VerifyTransferToTreasury(ctx, req.TxHash, 0)
+		if err != nil {
+			logging.Error(err).Str("tx_hash", req.TxHash).Msg("Bittensor extrinsic verification failed")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Extrinsic verification failed: " + err.Error()})
+			return
+		}
+
+		verifiedAmount = transfer.Amount
+		logging.Info().
 			Str("tx_hash", req.TxHash).
 			Float64("amount_tao", verifiedAmount).
-			Msg("Bittensor deposit - verification pending bridge integration")
+			Int64("block", transfer.BlockNumber).
+			Msg("Bittensor deposit verified on-chain")
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return
