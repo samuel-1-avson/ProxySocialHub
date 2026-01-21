@@ -1,11 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -129,31 +127,13 @@ type cryptoDepositRequest struct {
 
 // verifyCryptoDeposit verifies an external crypto transfer and credits the internal wallet
 func verifyCryptoDeposit(c *gin.Context) {
-	// Read raw body for debugging binding issues
-	bodyBytes, _ := c.GetRawData()
-	// Restore body for ShouldBindJSON
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
 	var req cryptoDepositRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		logging.Error(err).
-			Str("raw_body", string(bodyBytes)).
-			Msg("Failed to bind crypto deposit request JSON")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request format: " + err.Error(),
-			"body":  string(bodyBytes),
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	userID := c.GetString("userID")
-	logging.Info().
-		Str("user_id", userID).
-		Str("tx_hash", req.TxHash).
-		Float64("amount", req.Amount).
-		Str("chain", req.Chain).
-		Msg("Processing crypto deposit request")
-
 	ctx := context.Background()
 
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
