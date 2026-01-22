@@ -96,33 +96,76 @@ export default function FeedScreen() {
     }
 
     return (
-        <View style={styles.container}>
-            <View style={styles.screenHeader}>
-                <Text style={styles.title}>Community Feed</Text>
-                <View style={{ flexDirection: 'row', gap: 16 }}>
-                    <TouchableOpacity onPress={() => router.push('/governance')}>
-                        <Ionicons name="stats-chart" size={24} color="#111827" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => router.push('/forum')}>
-                        <Ionicons name="chatbubbles-outline" size={24} color="#111827" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => router.push('/messages')}>
-                        <Ionicons name="mail-outline" size={24} color="#111827" />
+        <View className="flex-1 bg-background">
+            <View className="pt-16 pb-6 px-6 bg-card border-b-2 border-border flex-row justify-between items-center">
+                <View>
+                    <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Live Signals</Text>
+                    <Text className="text-3xl font-black text-foreground uppercase tracking-tighter">Network_Pulse</Text>
+                </View>
+                <View className="flex-row gap-4">
+                    <TouchableOpacity onPress={() => router.push('/messages')} className="p-2">
+                        <Ionicons name="mail-unread-outline" size={22} color="#18181B" />
                     </TouchableOpacity>
                 </View>
             </View>
+
             <FlatList
                 data={events}
-                renderItem={renderItem}
                 keyExtractor={(item) => item.id}
-                contentContainerStyle={styles.list}
+                contentContainerStyle={{ padding: 20 }}
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#059669" />
                 }
+                renderItem={({ item }) => (
+                    <View className="bg-card border-2 border-border p-5 mb-5 rounded-sm border-l-4 border-l-primary/50">
+                        <View className="flex-row items-start gap-4 mb-4">
+                            <View className="w-12 h-12 bg-secondary border border-border items-center justify-center rounded-sm">
+                                {item.actor?.avatar_url ? (
+                                    <Image source={{ uri: item.actor.avatar_url }} className="w-full h-full" />
+                                ) : (
+                                    <Text className="font-black text-lg text-muted-foreground">
+                                        {(item.actor?.display_name?.[0] || "?").toUpperCase()}
+                                    </Text>
+                                )}
+                            </View>
+                            <View className="flex-1">
+                                <View className="flex-row justify-between items-center mb-1">
+                                    <Text className="font-black text-foreground uppercase text-xs">{item.actor?.display_name || "Anonymous_Node"}</Text>
+                                    <Text className="text-[9px] font-bold text-muted-foreground uppercase">
+                                        {item.created_at ? formatDistanceToNow(new Date(item.created_at), { addSuffix: true }) : ''}
+                                    </Text>
+                                </View>
+                                <View className="flex-row items-center gap-2">
+                                    <View className="px-2 py-0.5 bg-secondary border border-border flex-row items-center gap-1 rounded-sm">
+                                        {getIconForEvent(item.event_type)}
+                                        <Text className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                                            {item.event_type.replace('_', ' ')}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+
+                        <Text className="text-sm font-medium text-foreground leading-6 uppercase mb-4">
+                            {item.content}
+                        </Text>
+
+                        <View className="flex-row border-t border-border border-dashed pt-4 gap-6">
+                            <TouchableOpacity className="flex-row items-center gap-2">
+                                <Ionicons name="heart-outline" size={16} color="#71717A" />
+                                <Text className="text-[9px] font-black text-muted-foreground uppercase">Sync</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity className="flex-row items-center gap-2">
+                                <Ionicons name="chatbubble-outline" size={16} color="#71717A" />
+                                <Text className="text-[9px] font-black text-muted-foreground uppercase">Comms</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
                 ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Ionicons name="people-outline" size={48} color="#D1D5DB" />
-                        <Text style={styles.emptyText}>No activity yet</Text>
+                    <View className="py-20 items-center justify-center border-2 border-dashed border-border rounded-sm bg-secondary/10">
+                        <Ionicons name="radio-outline" size={48} color="#D1D5DB" />
+                        <Text className="mt-4 font-black text-[10px] text-muted-foreground uppercase tracking-[0.2em]">Searching for bandwidth signals...</Text>
                     </View>
                 }
             />

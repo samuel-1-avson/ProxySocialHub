@@ -6,14 +6,21 @@ export default function AppLayout() {
         <Tabs
             screenOptions={{
                 headerShown: false,
-                tabBarActiveTintColor: '#2563EB',
-                tabBarInactiveTintColor: '#6B7280',
+                tabBarActiveTintColor: '#059669', // Primary emerald
+                tabBarInactiveTintColor: '#71717A',
                 tabBarStyle: {
-                    borderTopWidth: 1,
-                    borderTopColor: '#F3F4F6',
-                    height: 60,
-                    paddingBottom: 8,
-                    paddingTop: 8,
+                    borderTopWidth: 2,
+                    borderTopColor: '#E4E4E7',
+                    height: 85,
+                    paddingBottom: 25,
+                    paddingTop: 10,
+                    backgroundColor: '#FDFBF7', // Retro paper
+                },
+                tabBarLabelStyle: {
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
                 },
             }}
         >

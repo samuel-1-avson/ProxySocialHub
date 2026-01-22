@@ -1,7 +1,8 @@
+// @ts-nocheck
 import axios from 'axios';
 
 async function checkHealth() {
-    const API_URL = 'http://127.0.0.1:8082/v1';
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:8081/v1';
 
     // 1. Login as Admin
     console.log(`Logging in as Admin at ${API_URL}/auth/login...`);

@@ -1,12 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { Globe, Settings, CheckCircle, XCircle, LogOut, LayoutDashboard, ShoppingCart, Users, Wallet } from "lucide-react";
-import { auth } from "../lib/api";
-import { CirclesTab } from "../components/CirclesTab";
-import { MarketplaceTab } from "../components/MarketplaceTab";
+import { CheckCircle, XCircle, Zap, TrendingUp, Activity, BarChart3 } from "lucide-react";
 
-// Reusing types from App.tsx (would be better in a shared types file)
 interface ProviderStats {
     connected: boolean;
     total_bytes_up: number;
@@ -20,20 +15,6 @@ interface ProviderStats {
     within_bandwidth_limit: boolean;
 }
 
-interface ProviderSettings {
-    auto_connect: boolean;
-    auto_reconnect: boolean;
-    reconnect_delay_secs: number;
-    max_reconnect_attempts: number;
-    daily_bandwidth_limit_gb: number;
-    monthly_bandwidth_limit_gb: number;
-    schedule_enabled: boolean;
-    schedule_start_hour: number;
-    schedule_end_hour: number;
-    schedule_days: string[];
-    gateway_url: string;
-}
-
 function formatBytes(bytes: number): string {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -42,25 +23,11 @@ function formatBytes(bytes: number): string {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-
 export function Dashboard() {
-    const navigate = useNavigate();
     const [stats, setStats] = useState<ProviderStats | null>(null);
-    const [settings, setSettings] = useState<ProviderSettings | null>(null);
     const [connecting, setConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Tab State
-    const [activeTab, setActiveTab] = useState<"overview" | "marketplace" | "circles">("overview");
-
-    // Auth Check
-    useEffect(() => {
-        if (!auth.isAuthenticated()) {
-            navigate("/login");
-        }
-    }, [navigate]);
-
-    // Refresh stats every 2 seconds
     useEffect(() => {
         const interval = setInterval(async () => {
             try {
@@ -72,183 +39,141 @@ export function Dashboard() {
         }, 2000);
 
         invoke<ProviderStats>("get_provider_stats").then(setStats);
-        invoke<ProviderSettings>("get_settings").then(setSettings);
-
         return () => clearInterval(interval);
     }, []);
 
-    async function connect() {
-        setConnecting(true);
-        setError(null);
-        try {
-            const url = settings?.gateway_url || "127.0.0.1:4000";
-            const user = auth.getUser();
-            if (!user) throw new Error("Not authenticated");
-            const token = localStorage.getItem("auth_token") || "";
-            if (!token) throw new Error("No auth token found");
-
-            await invoke("connect_gateway", { gatewayUrl: url, authKey: token });
-        } catch (e) {
-            setError(String(e));
-        } finally {
-            setConnecting(false);
+    async function toggleNode() {
+        if (stats?.connected) {
+            try {
+                await invoke("disconnect_gateway");
+            } catch (e) {
+                setError(String(e));
+            }
+        } else {
+            setConnecting(true);
+            setError(null);
+            try {
+                // In production these would come from settings/auth
+                const url = "127.0.0.1:4000";
+                const token = localStorage.getItem("proxyhubb_token") || "";
+                await invoke("connect_gateway", { gatewayUrl: url, authKey: token });
+            } catch (e) {
+                setError(String(e));
+            } finally {
+                setConnecting(false);
+            }
         }
     }
 
-    async function disconnect() {
-        try {
-            await invoke("disconnect_gateway");
-        } catch (e) {
-            setError(String(e));
-        }
-    }
+    return (
+        <div className="space-y-8">
+            {/* Page Header */}
+            <div>
+                <h1 className="text-4xl font-mono font-black uppercase tracking-tight">System_Overview</h1>
+                <p className="text-muted-foreground font-mono text-sm uppercase tracking-widest mt-2">Real-time status and analytics</p>
+            </div>
 
-    function handleLogout() {
-        auth.logout();
-        navigate("/login");
-    }
-
-    // Overview Tab Content
-    const renderOverview = () => (
-        <div className="space-y-6 p-6">
-            {/* Simple Connection Card */}
-            <div className="card bg-white dark:bg-gray-800 p-6 rounded-lg shadow border dark:border-gray-700">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-4">
-                        {stats?.connected ?
-                            <div className="relative">
-                                <CheckCircle className="w-12 h-12 text-green-500" />
-                                <span className="absolute top-0 right-0 w-3 h-3 bg-green-400 rounded-full animate-ping"></span>
-                            </div> :
-                            <XCircle className="w-12 h-12 text-gray-400" />
-                        }
-                        <div>
-                            <h2 className="text-xl font-bold">{stats?.connected ? "Node Active" : "Node Offline"}</h2>
-                            <p className="text-sm text-gray-500">Gateway: {settings?.gateway_url || "127.0.0.1:4000"}</p>
-                            {stats?.active_connections ? (
-                                <p className="text-xs text-blue-600 font-medium mt-1">{stats.active_connections} active tunnels</p>
-                            ) : null}
-                        </div>
-                    </div>
-                    <div>
+            {/* Matrix Status Card */}
+            <div className="card-retro p-8 bg-card flex flex-col md:flex-row items-center justify-between gap-8 border-l-8 border-primary">
+                <div className="flex items-center gap-6">
+                    <div className="relative">
                         {stats?.connected ? (
-                            <button onClick={disconnect} className="bg-red-600 text-white px-6 py-2.5 rounded-lg hover:bg-red-700 font-medium transition-colors shadow-sm">Stop Node</button>
+                            <div className="w-20 h-20 bg-primary/10 rounded-sm border-2 border-primary flex items-center justify-center">
+                                <Zap className="w-10 h-10 text-primary animate-pulse" />
+                            </div>
                         ) : (
-                            <button onClick={connect} disabled={connecting} className="bg-green-600 text-white px-6 py-2.5 rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors shadow-sm">
-                                {connecting ? "Starting..." : "Start Node"}
-                            </button>
+                            <div className="w-20 h-20 bg-muted rounded-sm border-2 border-border flex items-center justify-center">
+                                <XCircle className="w-10 h-10 text-muted-foreground" />
+                            </div>
+                        )}
+                        {stats?.connected && (
+                            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-4 w-4 bg-primary"></span>
+                            </span>
                         )}
                     </div>
+                    <div>
+                        <h2 className="text-2xl font-mono font-bold uppercase">{stats?.connected ? "Node_Online" : "Node_Offline"}</h2>
+                        <p className="font-mono text-sm text-muted-foreground">Gateway: 127.0.0.1:4000</p>
+                        {stats?.active_connections ? (
+                            <div className="flex items-center gap-2 mt-2">
+                                <Activity className="w-3 h-3 text-primary" />
+                                <span className="text-xs font-mono font-bold text-primary uppercase">{stats.active_connections} ACTIVE_TUNNELS</span>
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
-                {error && <div className="mt-4 p-3 bg-red-100 text-red-700 rounded text-sm">{error}</div>}
+
+                <div className="flex flex-col gap-2 w-full md:w-auto">
+                    <button
+                        onClick={toggleNode}
+                        className={`btn-retro ${stats?.connected ? "btn-retro-outline border-destructive text-destructive hover:bg-destructive/10" : "btn-retro-primary"} py-4 px-10 text-sm font-bold uppercase tracking-widest`}
+                        disabled={connecting}
+                    >
+                        {connecting ? "INITIALIZING..." : (stats?.connected ? "TERMINATE_NODE" : "START_NODE")}
+                    </button>
+                    {error && <p className="text-[10px] font-mono text-destructive uppercase text-center mt-2 font-bold">{error}</p>}
+                </div>
             </div>
 
             {/* Stats Grid */}
-            <h3 className="text-lg font-bold">Performance Analytics</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border dark:border-gray-700">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-                        <Wallet className="w-4 h-4" /> Earnings
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 tracking-tight">
+                <div className="card-retro p-6 bg-card border-b-4 border-b-primary shadow-sm hover:translate-y-[-4px] transition-all">
+                    <div className="flex items-center gap-3 mb-4 text-muted-foreground">
+                        <TrendingUp className="w-4 h-4" />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Revenue_GHS</span>
                     </div>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">GHS {(stats?.earnings_ghs ?? 0).toFixed(4)}</div>
-                    <div className="text-xs text-green-600 mt-1">+0.00 this session</div>
+                    <div className="text-3xl font-mono font-black">₵{(stats?.earnings_ghs ?? 0).toFixed(4)}</div>
+                    <div className="text-[10px] font-mono text-primary font-bold mt-2 uppercase">EST_YIELD_PER_GB: ₵0.20</div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border dark:border-gray-700">
-                    <div className="text-sm text-gray-500 mb-1">Uploaded</div>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{formatBytes(stats?.total_bytes_up || 0)}</div>
+
+                <div className="card-retro p-6 bg-card border-b-4 border-b-border shadow-sm hover:translate-y-[-4px] transition-all">
+                    <div className="flex items-center gap-3 mb-4 text-muted-foreground">
+                        <BarChart3 className="w-4 h-4" />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Data_Sent</span>
+                    </div>
+                    <div className="text-3xl font-mono font-black">{formatBytes(stats?.total_bytes_up || 0)}</div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border dark:border-gray-700">
-                    <div className="text-sm text-gray-500 mb-1">Downloaded</div>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{formatBytes(stats?.total_bytes_down || 0)}</div>
+
+                <div className="card-retro p-6 bg-card border-b-4 border-b-border shadow-sm hover:translate-y-[-4px] transition-all">
+                    <div className="flex items-center gap-3 mb-4 text-muted-foreground">
+                        <BarChart3 className="w-4 h-4" />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Data_Received</span>
+                    </div>
+                    <div className="text-3xl font-mono font-black">{formatBytes(stats?.total_bytes_down || 0)}</div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border dark:border-gray-700">
-                    <div className="text-sm text-gray-500 mb-1">Uptime</div>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
+
+                <div className="card-retro p-6 bg-card border-b-4 border-b-border shadow-sm hover:translate-y-[-4px] transition-all">
+                    <div className="flex items-center gap-3 mb-4 text-muted-foreground">
+                        <Activity className="w-4 h-4" />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Uptime_Session</span>
+                    </div>
+                    <div className="text-3xl font-mono font-black">
                         {Math.floor((stats?.session_duration_secs || 0) / 60)}m {(stats?.session_duration_secs || 0) % 60}s
                     </div>
                 </div>
             </div>
 
-            <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-900/30">
-                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">💡 Tips to earn more</h4>
-                <ul className="text-sm text-blue-800 dark:text-blue-200 list-disc list-inside space-y-1">
-                    <li>Join a Circle to unlock multiplier bonuses.</li>
-                    <li>Keep your node running during peak hours (18:00 - 23:00).</li>
-                    <li>Ensure stable internet connection for higher quality score.</li>
+            {/* Performance Tips */}
+            <div className="card-retro p-6 bg-secondary/30 border-dashed border-2">
+                <h4 className="font-mono font-bold text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-primary" /> System_Optimization_Guidelines
+                </h4>
+                <ul className="grid md:grid-cols-3 gap-6 text-xs font-mono text-muted-foreground uppercase leading-relaxed">
+                    <li className="flex gap-3">
+                        <span className="text-primary font-black">[01]</span>
+                        <span>Join a High-Performance Circle to unlock multiplier bonuses.</span>
+                    </li>
+                    <li className="flex gap-3">
+                        <span className="text-primary font-black">[02]</span>
+                        <span>Keep your node active during peak hours (18:00 - 23:00) for max yield.</span>
+                    </li>
+                    <li className="flex gap-3">
+                        <span className="text-primary font-black">[03]</span>
+                        <span>Maintain a low latency score (&lt;50ms) to tier up your node quality.</span>
+                    </li>
                 </ul>
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="provider-app h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-            {/* Header */}
-            <header className="header flex justify-between items-center px-6 py-3 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 z-10">
-                <div className="flex items-center gap-2">
-                    <Globe className="w-7 h-7 text-green-600" />
-                    <span className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">ProxySocialHub</span>
-                </div>
-                <div className="header-actions flex items-center gap-3">
-                    <button
-                        className="btn btn-ghost hover:bg-gray-100 dark:hover:bg-gray-700 p-2 rounded-full transition-colors"
-                        onClick={() => alert("Settings modal not implemented yet")}
-                        title="Settings"
-                    >
-                        <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                    </button>
-                    <button
-                        className="btn btn-ghost hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded-full text-red-600 transition-colors"
-                        onClick={handleLogout}
-                        title="Logout"
-                    >
-                        <LogOut className="w-5 h-5" />
-                    </button>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 ${stats?.connected ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-                        <span className={`w-2 h-2 rounded-full ${stats?.connected ? "bg-green-500" : "bg-gray-400"}`}></span>
-                        {stats?.connected ? "Online" : "Offline"}
-                    </span>
-                </div>
-            </header>
-
-            <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar Navigation */}
-                <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-                    <nav className="p-4 space-y-1">
-                        <button
-                            onClick={() => setActiveTab('overview')}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'overview' ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700'}`}
-                        >
-                            <LayoutDashboard className="w-5 h-5" /> Overview
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('marketplace')}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'marketplace' ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700'}`}
-                        >
-                            <ShoppingCart className="w-5 h-5" /> Marketplace
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('circles')}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'circles' ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700'}`}
-                        >
-                            <Users className="w-5 h-5" /> Circles (Clans)
-                        </button>
-                    </nav>
-
-                    <div className="mt-auto p-4 border-t dark:border-gray-700">
-                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded p-3">
-                            <div className="text-xs text-gray-500 mb-1">Current Balance</div>
-                            <div className="font-bold text-lg">GHS 0.00</div>
-                            <button className="text-xs text-blue-600 hover:underline mt-1">Withdraw</button>
-                        </div>
-                    </div>
-                </aside>
-
-                {/* Main Content Area */}
-                <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">
-                    {activeTab === 'overview' && renderOverview()}
-                    {activeTab === 'marketplace' && <MarketplaceTab />}
-                    {activeTab === 'circles' && <CirclesTab />}
-                </main>
             </div>
         </div>
     );
