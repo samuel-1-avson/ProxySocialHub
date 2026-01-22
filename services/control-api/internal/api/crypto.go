@@ -173,6 +173,12 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Msg("Solana deposit verified on-chain")
 
 	} else if req.Chain == "bittensor" {
+		logging.Info().
+			Str("tx_hash", req.TxHash).
+			Float64("amount", req.Amount).
+			Str("chain", req.Chain).
+			Msg("Processing Bittensor deposit request")
+
 		// Get treasury address
 		treasuryAddress := bittensor.GetTreasuryAddress()
 		if treasuryAddress == "" {
@@ -180,6 +186,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "TAO Treasury not configured"})
 			return
 		}
+		logging.Info().Str("treasury", treasuryAddress).Msg("TAO treasury configured")
 
 		// Try to verify extrinsic on Subscan
 		transfer, err := bittensor.VerifyTransferToTreasury(ctx, req.TxHash, 0)
