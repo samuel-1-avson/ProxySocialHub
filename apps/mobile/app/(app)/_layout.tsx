@@ -25,6 +25,20 @@ export default function AppLayout() {
                 }}
             />
             <Tabs.Screen
+                name="marketplace"
+                options={{
+                    title: 'Market',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="cart" size={size} color={color} />,
+                }}
+            />
+            <Tabs.Screen
+                name="feed"
+                options={{
+                    title: 'Community',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
+                }}
+            />
+            <Tabs.Screen
                 name="proxy"
                 options={{
                     title: 'Proxy',
