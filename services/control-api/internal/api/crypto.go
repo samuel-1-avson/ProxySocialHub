@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -180,20 +181,32 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
-		// Verify extrinsic on Subscan
+		// Try to verify extrinsic on Subscan
 		transfer, err := bittensor.VerifyTransferToTreasury(ctx, req.TxHash, 0)
 		if err != nil {
-			logging.Error(err).Str("tx_hash", req.TxHash).Msg("Bittensor extrinsic verification failed")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Extrinsic verification failed: " + err.Error()})
-			return
+			// In testnet mode, fall back to trusting the amount if Subscan fails
+			// This is because testnet may not have a reliable explorer API
+			network := os.Getenv("BITTENSOR_NETWORK")
+			if network == "testnet" {
+				logging.Warn().
+					Err(err).
+					Str("tx_hash", req.TxHash).
+					Float64("claimed_amount", req.Amount).
+					Msg("Bittensor testnet verification failed - using trusted amount for development")
+				verifiedAmount = req.Amount
+			} else {
+				logging.Error(err).Str("tx_hash", req.TxHash).Msg("Bittensor extrinsic verification failed")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Extrinsic verification failed: " + err.Error()})
+				return
+			}
+		} else {
+			verifiedAmount = transfer.Amount
+			logging.Info().
+				Str("tx_hash", req.TxHash).
+				Float64("amount_tao", verifiedAmount).
+				Int64("block", transfer.BlockNumber).
+				Msg("Bittensor deposit verified on-chain")
 		}
-
-		verifiedAmount = transfer.Amount
-		logging.Info().
-			Str("tx_hash", req.TxHash).
-			Float64("amount_tao", verifiedAmount).
-			Int64("block", transfer.BlockNumber).
-			Msg("Bittensor deposit verified on-chain")
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return
