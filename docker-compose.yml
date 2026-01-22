@@ -11,7 +11,7 @@ services:
     environment:
       - PORT=8080
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis-cluster:6379
       - JWT_SECRET=${JWT_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - CORS_ORIGINS=${CORS_ORIGINS}
@@ -31,9 +31,9 @@ services:
       - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
     depends_on:
-      redis:
+      redis-cluster:
         condition: service_healthy
-      postgres:
+      postgres-primary:
         condition: service_healthy
     networks:
       - proxyhubb
@@ -53,7 +53,7 @@ services:
       - "8443:8443"
       - "9090:9090"
     environment:
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis-cluster:6379
       - CONTROL_API_URL=http://control-api:8080
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
@@ -61,7 +61,7 @@ services:
       - ./certs:/app/certs:ro
     depends_on:
       - control-api
-      - redis
+      - redis-cluster
     networks:
       - proxyhubb
     restart: unless-stopped
@@ -79,19 +79,24 @@ services:
       - proxyhubb
     restart: unless-stopped
 
-  # ==================== PostgreSQL ====================
-  postgres:
+  # ==================== PostgreSQL Primary ====================
+  postgres-primary:
     image: postgres:15-alpine
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-proxyhubb}
       - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=replicator_pass
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./infra/postgresql/primary.conf:/etc/postgresql/postgresql.conf
+      - ./infra/postgresql/pg_hba.conf:/etc/postgresql/pg_hba.conf
     ports:
       - "5432:5432"
     networks:
       - proxyhubb
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U proxyhubb"]
       interval: 10s
@@ -99,11 +104,41 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ==================== Redis ====================
-  redis:
-    image: redis:alpine
+  # ==================== PostgreSQL Replica ====================
+  postgres-replica:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-proxyhubb}
+      - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+      - POSTGRES_REPLICATION_USER=replicator
+      - POSTGRES_REPLICATION_PASSWORD=replicator_pass
+      - PRIMARY_HOST=postgres-primary
     volumes:
-      - redis_data:/data
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./infra/postgresql/replica.conf:/etc/postgresql/postgresql.conf
+      - ./infra/postgresql/pg_hba.conf:/etc/postgresql/pg_hba.conf
+    ports:
+      - "5433:5432"
+    networks:
+      - proxyhubb
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxyhubb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== Redis Cluster ====================
+  redis-cluster:
+    image: redis:7-alpine
+    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --bind 0.0.0.0 --protected-mode no
+    volumes:
+      - redis_cluster_data:/data
     networks:
       - proxyhubb
     healthcheck:
@@ -112,6 +147,8 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    deploy:
+      replicas: 6
 
   # ==================== Prometheus ====================
   prometheus:
@@ -182,8 +219,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
-  redis_data:
+  postgres_primary_data:
+  postgres_replica_data:
+  redis_cluster_data:
   subtensor_data:
   grafana_data:
 

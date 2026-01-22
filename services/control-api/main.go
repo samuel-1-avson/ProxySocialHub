@@ -12,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/monitoring"
@@ -40,6 +41,25 @@ func main() {
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
 		log.Printf("Warning: Failed to init Redis: %v", err)
+	}
+
+	// Initialize OpenTelemetry Tracing
+	tracingConfig := middleware.DefaultTracingConfig()
+	if os.Getenv("GIN_MODE") == "release" {
+		tracingConfig = middleware.ProductionTracingConfig()
+	}
+	if jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT"); jaegerEndpoint != "" {
+		tracingConfig.JaegerEndpoint = jaegerEndpoint
+	}
+	if otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); otlpEndpoint != "" {
+		tracingConfig.OTLPEndpoint = otlpEndpoint
+	}
+	tracingCleanup, err := middleware.InitTracing(tracingConfig)
+	if err != nil {
+		log.Printf("Warning: Failed to init tracing: %v", err)
+	} else {
+		defer tracingCleanup()
+		log.Println("OpenTelemetry tracing initialized")
 	}
 
 	// Initialize Solana Oracle (optional)
@@ -75,6 +95,14 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// OpenTelemetry Tracing Middleware (early for full request coverage)
+	r.Use(middleware.TracingMiddleware("proxyhubb-control-api"))
+
+	// WAF & DDoS Protection (before other middleware)
+	wafConfig := middleware.DefaultWAFConfig()
+	r.Use(middleware.WAFMiddleware(wafConfig))
+	r.Use(middleware.DDoSProtectionMiddleware(middleware.DefaultDDoSConfig()))
 
 	// Security Headers
 	r.Use(secure.New(secure.Config{
@@ -114,7 +142,7 @@ func main() {
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
@@ -128,8 +156,17 @@ func main() {
 	// Metrics Middleware (record all requests)
 	r.Use(monitoring.MetricsMiddleware())
 
+	// Circuit Breaker Middleware for external services
+	r.Use(middleware.CircuitBreakerMiddleware("database", middleware.DefaultCircuitBreakerConfigs["database"]))
+	r.Use(middleware.CircuitBreakerMiddleware("redis", middleware.DefaultCircuitBreakerConfigs["redis"]))
+	r.Use(middleware.CircuitBreakerMiddleware("solana", middleware.DefaultCircuitBreakerConfigs["solana"]))
+	r.Use(middleware.CircuitBreakerMiddleware("supabase", middleware.DefaultCircuitBreakerConfigs["supabase"]))
+
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
+
+	// Circuit Breaker Stats Endpoint
+	r.GET("/metrics/circuit-breakers", middleware.CircuitBreakerStatsHandler())
 
 	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
@@ -206,6 +243,9 @@ func main() {
 	// Start Validator Sync
 	btClient := bittensor.NewClient(cfg.Bittensor)
 	worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
+
+	// Start Governance Proposal Worker
+	governance.ScheduleProposalWorker()
 
 	port := os.Getenv("PORT")
 	if port == "" {

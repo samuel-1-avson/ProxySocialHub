@@ -6,12 +6,31 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-var Client *redis.Client
+// RedisClient interface for both single and cluster clients
+type RedisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd
+	Incr(ctx context.Context, key string) *redis.IntCmd
+	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
+	ZRemRangeByScore(ctx context.Context, key, min, max string) *redis.IntCmd
+	ZCard(ctx context.Context, key string) *redis.IntCmd
+	ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd
+	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+	Pipeline() redis.Pipeliner
+	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
+}
+
+var Client RedisClient
 var ctx = context.Background()
 
 type SessionData struct {
@@ -35,16 +54,69 @@ func Init() error {
 		redisURL = "redis://localhost:6379"
 	}
 
-	opt, err := redis.ParseURL(redisURL)
-	if err != nil {
-		return err
+	// Check if this is a cluster configuration (comma-separated URLs)
+	if strings.Contains(redisURL, ",") {
+		return initCluster(redisURL)
 	}
 
-	Client = redis.NewClient(opt)
+	// Single instance Redis
+	return initSingle(redisURL)
+}
+
+// initSingle initializes a single Redis instance
+func initSingle(redisURL string) error {
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse Redis URL: %w", err)
+	}
+
+	client := redis.NewClient(opt)
 
 	// Test connection
-	_, err = Client.Ping(ctx).Result()
-	return err
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		return fmt.Errorf("failed to connect to Redis: %w", err)
+	}
+
+	Client = client
+	return nil
+}
+
+// initCluster initializes Redis cluster
+func initCluster(redisURL string) error {
+	// Parse cluster URLs (comma-separated)
+	addrs := strings.Split(redisURL, ",")
+	
+	// Clean up URLs (remove redis:// prefix if present)
+	for i, addr := range addrs {
+		addr = strings.TrimSpace(addr)
+		if strings.HasPrefix(addr, "redis://") {
+			addr = strings.TrimPrefix(addr, "redis://")
+		}
+		addrs[i] = addr
+	}
+
+	client := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:           addrs,
+		MaxRetries:      3,
+		MinRetryBackoff: 8 * time.Millisecond,
+		MaxRetryBackoff: 512 * time.Millisecond,
+		DialTimeout:     5 * time.Second,
+		ReadTimeout:     3 * time.Second,
+		WriteTimeout:    3 * time.Second,
+		PoolSize:        10,
+		MinIdleConns:    5,
+		ConnMaxLifetime: 30 * time.Minute,
+		PoolTimeout:     4 * time.Second,
+		ConnMaxIdleTime: 5 * time.Minute,
+	})
+
+	// Test connection
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		return fmt.Errorf("failed to connect to Redis cluster: %w", err)
+	}
+
+	Client = client
+	return nil
 }
 
 // StoreSession saves session data to Redis with TTL

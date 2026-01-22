@@ -15,6 +15,7 @@ use tracing::{info, warn, error};
 use uuid::Uuid;
 
 mod auth;
+mod circuitbreaker;
 mod config;
 mod leader;
 mod metering;
@@ -25,6 +26,7 @@ mod tls;
 mod tunnel;
 
 use crate::auth::SessionAuthenticator;
+use crate::circuitbreaker::{CircuitConfig, CircuitError};
 use crate::state::AppState;
 use crate::leader::LeaderElector;
 
@@ -249,26 +251,41 @@ async fn tunnel_to_provider_with_sticky(
             }
         }
         
-        // 4. Open stream and proxy with timeout (5s)
-        match tokio::time::timeout(std::time::Duration::from_secs(5), control.open_stream()).await {
-            Ok(Ok(mut stream)) => {
-                // Send CONNECT command
-                let command = format!("CONNECT {}\n", addr);
-                if let Err(e) = stream.write_all(command.as_bytes()).await {
-                    eprintln!("Failed to write CONNECT command: {}", e);
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Provider Write Failed"));
-                }
+        // 4. Open stream and proxy with circuit breaker protection
+        let circuit_config = CircuitConfig {
+            failure_threshold: 3,
+            timeout: std::time::Duration::from_secs(30),
+            success_threshold: 2,
+            request_timeout: std::time::Duration::from_secs(5),
+        };
+        
+        let circuit_breaker = state.circuit_breakers.get_breaker(&node_id, circuit_config).await;
+        
+        match circuit_breaker.call(|| async {
+            let mut stream = control.open_stream().await.map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::ConnectionRefused, format!("Stream open failed: {}", e))
+            })?;
+            
+            // Send CONNECT command
+            let command = format!("CONNECT {}\n", addr);
+            stream.write_all(command.as_bytes()).await?;
 
-                // Wait for OK
-                let mut response_buf = [0u8; 64];
-                let n = stream.read(&mut response_buf).await.map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Read failed: {}", e))
-                })?;
-                
-                let response = String::from_utf8_lossy(&response_buf[..n]);
-                if !response.starts_with("OK") {
-                    return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("Provider refused: {}", response.trim())));
-                }
+            // Wait for OK
+            let mut response_buf = [0u8; 64];
+            let n = stream.read(&mut response_buf).await?;
+            
+            let response = String::from_utf8_lossy(&response_buf[..n]);
+            if !response.starts_with("OK") {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied, 
+                    format!("Provider refused: {}", response.trim())
+                ));
+            }
+            
+            Ok(stream)
+        }).await {
+            Ok(mut stream) => {
+                info!("🔗 Connected to provider {} for {}", node_id, addr);
                 
                 // Bridge connections
                 use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -279,20 +296,27 @@ async fn tunnel_to_provider_with_sticky(
                 info!("✅ Proxy finished: {} up / {} down", from_client, from_provider);
                 Ok((from_client, from_provider))
             },
-            Ok(Err(e)) => {
-                error!("Failed to open stream on provider {}: {}", node_id, e);
-                // Circuit breaker: mark unhealthy
+            Err(CircuitError::Open) => {
+                warn!("Circuit breaker open for provider {}", node_id);
+                // Mark as unhealthy and try another provider
                 if let Ok(mut registry) = state.registry.lock() {
                     registry.mark_unhealthy(&node_id);
                 }
-                Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Provider Open Stream Failed"))
-            }
-            Err(_) => {
-                error!("Timeout opening stream on provider {}", node_id);
+                Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Circuit breaker open"))
+            },
+            Err(CircuitError::Timeout) => {
+                warn!("Timeout connecting to provider {}", node_id);
                 if let Ok(mut registry) = state.registry.lock() {
                     registry.mark_unhealthy(&node_id);
                 }
-                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Provider Connection Timed Out"))
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Provider connection timeout"))
+            },
+            Err(CircuitError::Failure(e)) => {
+                error!("Failed to connect to provider {}: {}", node_id, e);
+                if let Ok(mut registry) = state.registry.lock() {
+                    registry.mark_unhealthy(&node_id);
+                }
+                Err(e)
             }
         }
     } else {
