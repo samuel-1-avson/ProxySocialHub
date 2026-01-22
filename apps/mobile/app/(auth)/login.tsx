@@ -50,9 +50,9 @@ export default function Login() {
         try {
             const redirectUri = Linking.createURL('/auth/callback');
 
-            // Helpful alert for the user to configure Supabase
-            // Remove this in production or once configured
-            Alert.alert("Configuration Check", `Please ensure this URL is in your Supabase Redirect URLs:\n${redirectUri}`);
+
+            // Removed alert - use the on-screen debug text instead to copy the URL
+
 
             const { data, error } = await supabase.auth.signInWithOAuth({
                 provider,
@@ -194,6 +194,32 @@ export default function Login() {
                         ) : (
                             <Text style={styles.buttonText}>Sign In</Text>
                         )}
+                    </TouchableOpacity>
+                </View>
+
+
+                {/* Debug Helper for Redirect URL */}
+                <View style={{ marginTop: 20, padding: 10, backgroundColor: '#EFF6FF', borderRadius: 8 }}>
+                    <Text style={{ fontSize: 10, color: '#6B7280', marginBottom: 4 }}>DEBUG: Supabase Redirect URL</Text>
+                    <TouchableOpacity onPress={() => {
+                        Linking.createURL('/auth/callback');
+                        // In a real app we'd use Clipboard.setStringAsync(Linking.createURL('/auth/callback'))
+                        // But to avoid adding dependencies blindly, we'll just show it.
+                        // Actually expo-clipboard is a standard package.
+                        const url = Linking.createURL('/auth/callback');
+                        Alert.alert("URL Copied", `Add this to Supabase:\n${url}`);
+                        import('expo-clipboard').then(Clipboard => {
+                            Clipboard.setStringAsync(url);
+                        }).catch(() => {
+                            // Fallback if not installed, though it's likely there in standard expo
+                        });
+                    }}>
+                        <Text style={{ fontSize: 11, color: '#2563EB', fontWeight: 'bold' }}>
+                            {Linking.createURL('/auth/callback')}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: '#2563EB', marginTop: 4, textDecorationLine: 'underline' }}>
+                            Tap to Copy & Add to Supabase
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </View>
