@@ -99,9 +99,14 @@ export default function FeedScreen() {
         <View style={styles.container}>
             <View style={styles.screenHeader}>
                 <Text style={styles.title}>Community Feed</Text>
-                <TouchableOpacity onPress={() => router.push('/messages')}>
-                    <Ionicons name="chatbubbles-outline" size={24} color="#111827" />
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                    <TouchableOpacity onPress={() => router.push('/governance')}>
+                        <Ionicons name="stats-chart" size={24} color="#111827" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/messages')}>
+                        <Ionicons name="chatbubbles-outline" size={24} color="#111827" />
+                    </TouchableOpacity>
+                </View>
             </View>
             <FlatList
                 data={events}
