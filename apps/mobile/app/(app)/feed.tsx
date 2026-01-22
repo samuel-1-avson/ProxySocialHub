@@ -103,8 +103,11 @@ export default function FeedScreen() {
                     <TouchableOpacity onPress={() => router.push('/governance')}>
                         <Ionicons name="stats-chart" size={24} color="#111827" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => router.push('/messages')}>
+                    <TouchableOpacity onPress={() => router.push('/forum')}>
                         <Ionicons name="chatbubbles-outline" size={24} color="#111827" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/messages')}>
+                        <Ionicons name="mail-outline" size={24} color="#111827" />
                     </TouchableOpacity>
                 </View>
             </View>
