@@ -19,7 +19,7 @@ if (-not (Test-Path $exe)) {
 # 2. Check Backend Health
 Write-Host "🏥 Checking Backend Connectivity..." -ForegroundColor Cyan
 try {
-    $response = Invoke-WebRequest -Uri "http://localhost:8080/health" -Method Get -UseBasicParsing -ErrorAction Stop
+    $response = Invoke-WebRequest -Uri "http://localhost:8081/health" -Method Get -UseBasicParsing -ErrorAction Stop
     if ($response.StatusCode -eq 200) {
         Write-Host "✅ Backend is UP!" -ForegroundColor Green
     }
@@ -38,4 +38,4 @@ Write-Host " AND update your Vercel Environment Variable: NEXT_PUBLIC_API_URL"
 Write-Host "================================================================" -ForegroundColor Yellow
 
 # Use start-process to run it in this window or new one? Keeping it here is better for output.
-& $exe tunnel --url http://localhost:8080
+& $exe tunnel --url http://localhost:8081

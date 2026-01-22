@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, Text, ActivityIndicator } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { useAuth } from '../src/context/AuthContext';
 
@@ -14,19 +14,22 @@ export default function Index() {
         const inAuthGroup = segments[0] === '(auth)';
 
         if (!isAuthenticated && !inAuthGroup) {
-            // Redirect to login if not authenticated
             router.replace('/(auth)/login');
         } else if (isAuthenticated && inAuthGroup) {
-            // Redirect to app dashboard if authenticated
             router.replace('/(app)/dashboard');
-        } else if (isAuthenticated && segments.length === 0) {
+        } else if (isAuthenticated && (segments as string[]).length === 0) {
             router.replace('/(app)/dashboard');
         }
     }, [isAuthenticated, loading, segments]);
 
     return (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <ActivityIndicator size="large" color="#007AFF" />
+        <View className="flex-1 bg-background justify-center items-center">
+            <View className="items-center">
+                <View className="w-16 h-16 bg-primary/20 border-2 border-primary rounded-sm items-center justify-center mb-6">
+                    <ActivityIndicator size="small" color="#059669" />
+                </View>
+                <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em]">Synchronizing_Protocol...</Text>
+            </View>
         </View>
     );
 }

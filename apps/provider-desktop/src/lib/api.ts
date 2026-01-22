@@ -4,7 +4,7 @@ import axios from 'axios';
 export const api = axios.create({
     // In development, this might point to localhost:8080.
     // referencing the environment variable or hardcoding for now.
-    baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/v1",
+    baseURL: import.meta.env.VITE_API_URL || "http://localhost:8081/v1",
     headers: {
         "Content-Type": "application/json",
     },

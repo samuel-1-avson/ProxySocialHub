@@ -67,6 +67,29 @@ services:
       - proxyhubb-dev
     restart: unless-stopped
 
+  # ==================== Mobile App Development ====================
+  mobile-app:
+    build:
+      context: ./apps/mobile
+      dockerfile: Dockerfile
+    ports:
+      - "19000:19000"  # Expo development server
+      - "19001:19001"  # Expo development server (secure)
+      - "19002:19002"  # Expo development server (web)
+      - "8081:8081"    # Metro bundler
+    environment:
+      - EXPO_PUBLIC_API_URL=http://host.docker.internal:8080/v1
+      - EXPO_PUBLIC_SUPABASE_URL=https://jkrypzxbnwdcdvhtjxgx.supabase.co
+      - EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprcnlwenhibndkY2R2aHRqeGd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MDcxNTcsImV4cCI6MjA4NDA4MzE1N30.7HjMFgimIhNNmBlEBSX_1U_EM6MUZJcXKNHQhYJLcvg
+    volumes:
+      - ./apps/mobile:/app
+      - /app/node_modules
+    networks:
+      - proxyhubb-dev
+    depends_on:
+      - control-api
+    restart: unless-stopped
+
   # ==================== Redis ====================
   redis:
     image: redis:alpine
