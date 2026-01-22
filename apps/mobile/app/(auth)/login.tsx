@@ -107,28 +107,20 @@ export default function Login() {
             // Constructing the Phantom Deep Link
             // https://docs.phantom.app/phantom-deep-links/provider-methods/connect
 
-            const redirectLink = Linking.createURL('/auth/wallet-callback');
+            const redirectLink = Linking.createURL('/wallet-callback');
             const params = new URLSearchParams({
                 dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
                 cluster: 'mainnet-beta',
-                app_url: 'https://proxyhub.io', // Your app website
+                app_url: 'https://proxyhub.io',
                 redirect_link: redirectLink,
             });
 
             const url = `https://phantom.app/ul/v1/connect?${params.toString()}`;
 
-            // We need to handle the callback to get the shared secret and public key.
-            // This requires setting up a Linking event listener which might be complex to do inline here.
-            // For now, let's inform the user about the complexity or use a simplified approach if possible.
+            // Open Phantom
+            await Linking.openURL(url);
 
-            // ALTERNATIVE: Use a simplified "Watch Address" login if strict security isn't ready? No, we need signature.
-
-            // Let's at least show the redirect URL for OAuth which is the main user complaint.
-            const redirectUri = Linking.createURL('/auth/callback');
-            Alert.alert(
-                "Backend Configuration Required",
-                `To fix the website redirect issue, add this URL to your Supabase Auth Redirect URLs:\n\n${redirectUri}\n\nFor Wallet Login, we need to implement the Phantom Deep Link flow which handles signing.`
-            );
+            // We rely on the app reopening via Deep Link to handle the rest in wallet-callback.tsx
 
         } catch (error: any) {
             Alert.alert('Wallet Error', error.message);
