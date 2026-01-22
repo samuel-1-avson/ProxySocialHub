@@ -25,6 +25,13 @@ export default function AppLayout() {
                 }}
             />
             <Tabs.Screen
+                name="proxy"
+                options={{
+                    title: 'Proxy',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="globe" size={size} color={color} />,
+                }}
+            />
+            <Tabs.Screen
                 name="agents"
                 options={{
                     title: 'Agents',
@@ -48,3 +55,4 @@ export default function AppLayout() {
         </Tabs>
     );
 }
+
