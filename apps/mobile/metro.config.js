@@ -7,6 +7,7 @@ config.resolver.extraNodeModules = {
     crypto: require.resolve('expo-crypto'),
     stream: require.resolve('stream-browserify'),
     buffer: require.resolve('buffer'),
+    process: require.resolve('process/browser'),
 };
 
 module.exports = config;
