@@ -1,3 +1,4 @@
+import "../os-shim"; // Polyfills first
 import { Slot, Stack } from 'expo-router';
 import { AuthProvider } from '../src/context/AuthContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
