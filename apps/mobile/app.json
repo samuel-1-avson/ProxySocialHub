@@ -30,6 +30,18 @@
         "scheme": "proxyhub",
         "plugins": [
             "expo-router"
-        ]
+        ],
+        "deepLinking": {
+            "scheme": "proxyhub",
+            "prefixes": ["proxyhub://"]
+        },
+        "extra": {
+            "eas": {
+                "projectId": "your-project-id"
+            }
+        },
+        "experiments": {
+            "typedRoutes": true
+        }
     }
 }

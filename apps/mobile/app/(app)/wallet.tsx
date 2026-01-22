@@ -131,76 +131,101 @@ export default function WalletScreen() {
     }
 
     return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>My Wallet</Text>
-                <TouchableOpacity onPress={fetchData}>
-                    <Ionicons name="reload" size={20} color="#6B7280" />
+        <View className="flex-1 bg-background">
+            <View className="pt-16 pb-6 px-6 bg-card border-b-2 border-border flex-row justify-between items-center">
+                <View>
+                    <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Asset Terminal</Text>
+                    <Text className="text-3xl font-black text-foreground uppercase tracking-tighter">Financial_Core</Text>
+                </View>
+                <TouchableOpacity onPress={fetchData} className="p-2 bg-secondary border border-border rounded-sm">
+                    <Ionicons name="sync" size={18} color="#18181B" />
                 </TouchableOpacity>
             </View>
 
             <ScrollView
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />}
-                contentContainerStyle={styles.scrollContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#059669" />}
+                className="flex-1"
+                contentContainerStyle={{ padding: 20 }}
             >
                 {/* Balance Card */}
-                <View style={styles.balanceCard}>
-                    <View>
-                        <Text style={styles.balanceLabel}>Total Balance</Text>
-                        <Text style={styles.balanceAmount}>
-                            GHS {wallet?.balance?.toFixed(2) || '0.00'}
+                <View className="bg-primary/5 border-2 border-primary p-6 mb-8 rounded-sm shadow-[4px_4px_0px_#18181B]">
+                    <View className="flex-row justify-between items-center mb-6">
+                        <Text className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Settlement_Balance</Text>
+                        <MaterialCommunityIcons name="finance" size={20} color="#059669" />
+                    </View>
+                    <View className="flex-row items-baseline gap-2 mb-6">
+                        <Text className="text-xs font-bold text-muted-foreground uppercase">₵</Text>
+                        <Text className="text-5xl font-black text-foreground tabular-nums tracking-tighter">
+                            {wallet?.balance?.toFixed(2) || '0.00'}
                         </Text>
                     </View>
-                    <View style={styles.balanceRow}>
-                        <View style={styles.cryptoBadge}>
-                            <FontAwesome5 name="wallet" size={12} color="#FFF" />
-                            <Text style={styles.cryptoText}>
-                                {wallet?.linked_solana_address
-                                    ? `${wallet.linked_solana_address.slice(0, 4)}...${wallet.linked_solana_address.slice(-4)}`
-                                    : 'No Wallet Linked'}
-                            </Text>
-                        </View>
+                    <View className="flex-row items-center gap-2 border-t border-primary/20 pt-4">
+                        <Ionicons name="shield-checkmark-outline" size={14} color="#059669" />
+                        <Text className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                            {wallet?.linked_solana_address ? `Vault: ${wallet.linked_solana_address.slice(0, 6)}...` : 'Identity_Verification_Pending'}
+                        </Text>
                     </View>
                 </View>
 
                 {/* Actions */}
-                <View style={styles.actionsContainer}>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => setDepositModalVisible(true)}>
-                        <View style={[styles.actionIcon, { backgroundColor: '#E0F2FE' }]}>
-                            <Ionicons name="add" size={24} color="#0284C7" />
-                        </View>
-                        <Text style={styles.actionLabel}>Deposit</Text>
+                <View className="flex-row gap-4 mb-10">
+                    <TouchableOpacity
+                        className="flex-1 bg-primary p-4 items-center justify-center rounded-sm shadow-[2px_2px_0px_#18181B]"
+                        onPress={() => setDepositModalVisible(true)}
+                    >
+                        <Ionicons name="arrow-down" size={24} color="#FFF" />
+                        <Text className="text-[10px] font-black text-white uppercase mt-2">Deposit</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => setWithdrawModalVisible(true)}>
-                        <View style={[styles.actionIcon, { backgroundColor: '#FEE2E2' }]}>
-                            <Ionicons name="arrow-up" size={24} color="#DC2626" />
-                        </View>
-                        <Text style={styles.actionLabel}>Withdraw</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.actionBtn}>
-                        <View style={[styles.actionIcon, { backgroundColor: '#F3F4F6' }]}>
-                            <Ionicons name="swap-horizontal" size={24} color="#4B5563" />
-                        </View>
-                        <Text style={styles.actionLabel}>Transfer</Text>
+                    <TouchableOpacity
+                        className="flex-1 bg-card border-2 border-border p-4 items-center justify-center rounded-sm"
+                        onPress={() => setWithdrawModalVisible(true)}
+                    >
+                        <Ionicons name="arrow-up" size={24} color="#18181B" />
+                        <Text className="text-[10px] font-black text-foreground uppercase mt-2">Withdraw</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Transactions */}
-                <Text style={styles.sectionTitle}>Recent Activity</Text>
+                <View className="flex-row justify-between items-center mb-6">
+                    <Text className="text-xs font-black text-muted-foreground uppercase tracking-widest">Transaction_Ledger</Text>
+                    <View className="h-0.5 flex-1 bg-border/30 ml-4" />
+                </View>
+
                 <FlatList
                     data={transactions}
-                    renderItem={renderTransaction}
                     keyExtractor={(item) => item.id}
                     scrollEnabled={false}
+                    renderItem={({ item }) => {
+                        const isCredit = item.type === 'deposit' || item.type === 'earning' || item.type === 'refund';
+                        return (
+                            <View className="bg-card border-2 border-border p-4 mb-3 rounded-sm flex-row items-center">
+                                <View className={`w-10 h-10 border border-border items-center justify-center rounded-sm ${isCredit ? 'bg-primary/10' : 'bg-destructive/10'}`}>
+                                    <Ionicons
+                                        name={isCredit ? "download-outline" : "share-outline"}
+                                        size={18}
+                                        color={isCredit ? "#059669" : "#DC2626"}
+                                    />
+                                </View>
+                                <View className="flex-1 ml-4">
+                                    <Text className="text-[11px] font-black text-foreground uppercase" numberOfLines={1}>{item.description || item.type}</Text>
+                                    <Text className="text-[8px] font-bold text-muted-foreground uppercase mt-1">{new Date(item.created_at).toLocaleDateString()}</Text>
+                                </View>
+                                <Text className={`font-black text-sm tabular-nums ${isCredit ? 'text-primary' : 'text-destructive'}`}>
+                                    {isCredit ? '+' : '-'} {item.amount.toFixed(2)}
+                                </Text>
+                            </View>
+                        );
+                    }}
                     ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>No transactions yet</Text>
+                        <View className="py-12 items-center justify-center border-2 border-dashed border-border rounded-sm">
+                            <Ionicons name="file-tray-outline" size={32} color="#D1D5DB" />
+                            <Text className="mt-2 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Digital_Ledger_Empty</Text>
                         </View>
                     }
                 />
             </ScrollView>
+
 
             {/* Deposit Modal */}
             <Modal

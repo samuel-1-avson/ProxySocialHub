@@ -1,6 +1,12 @@
 // Polyfill for Node.js core modules in React Native
 import { Buffer } from 'buffer';
-import 'react-native-get-random-values';
+
+// Import crypto polyfill first
+try {
+    require('react-native-get-random-values');
+} catch (e) {
+    console.warn('react-native-get-random-values not available:', e);
+}
 
 // Polyfill Buffer
 if (typeof global.Buffer === 'undefined') {
