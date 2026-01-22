@@ -1,0 +1,235 @@
+# Redis Cluster Configuration for High Availability
+# 6-node cluster: 3 masters + 3 replicas with automatic failover
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+  namespace: proxyhubb
+data:
+  redis.conf: |
+    # Redis Cluster Configuration
+    cluster-enabled yes
+    cluster-config-file nodes.conf
+    cluster-node-timeout 5000
+    cluster-announce-ip ${POD_IP}
+    cluster-announce-port 6379
+    cluster-announce-bus-port 16379
+    
+    # Persistence Configuration
+    appendonly yes
+    appendfsync everysec
+    save 900 1
+    save 300 10
+    save 60 10000
+    
+    # Memory and Performance
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    tcp-keepalive 60
+    timeout 0
+    
+    # Security
+    protected-mode no
+    bind 0.0.0.0
+    
+    # Logging
+    loglevel notice
+    logfile ""
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: proxyhubb
+  labels:
+    app: redis-cluster
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: client
+  - port: 16379
+    targetPort: 16379
+    name: gossip
+  clusterIP: None
+  selector:
+    app: redis-cluster
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: proxyhubb
+spec:
+  serviceName: redis-cluster
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        command:
+          - redis-server
+          - /etc/redis/redis.conf
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        volumeMounts:
+        - name: conf
+          mountPath: /etc/redis/
+          readOnly: false
+        - name: data
+          mountPath: /data
+          readOnly: false
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+          periodSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      volumes:
+      - name: conf
+        configMap:
+          name: redis-cluster-config
+          defaultMode: 0755
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+
+---
+# Redis Cluster Initialization Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-cluster-init
+  namespace: proxyhubb
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: redis-cluster-init
+        image: redis:7-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for all Redis pods to be ready
+          echo "Waiting for Redis pods to be ready..."
+          for i in $(seq 0 5); do
+            until redis-cli -h redis-cluster-${i}.redis-cluster.proxyhubb.svc.cluster.local ping; do
+              echo "Waiting for redis-cluster-${i}..."
+              sleep 2
+            done
+          done
+          
+          # Create cluster
+          echo "Creating Redis cluster..."
+          redis-cli --cluster create \
+            redis-cluster-0.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            redis-cluster-1.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            redis-cluster-2.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            redis-cluster-3.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            redis-cluster-4.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            redis-cluster-5.redis-cluster.proxyhubb.svc.cluster.local:6379 \
+            --cluster-replicas 1 \
+            --cluster-yes
+          
+          echo "Redis cluster initialized successfully!"
+
+---
+# PodDisruptionBudget for Redis Cluster
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-cluster-pdb
+  namespace: proxyhubb
+spec:
+  minAvailable: 4  # Ensure at least 4 nodes are available during updates
+  selector:
+    matchLabels:
+      app: redis-cluster
+
+---
+# NetworkPolicy for Redis Cluster
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-cluster-netpol
+  namespace: proxyhubb
+spec:
+  podSelector:
+    matchLabels:
+      app: redis-cluster
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: control-api
+    - podSelector:
+        matchLabels:
+          app: edge-gateway
+    ports:
+    - protocol: TCP
+      port: 6379
+    - protocol: TCP
+      port: 16379
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis-cluster
+    ports:
+    - protocol: TCP
+      port: 6379
+    - protocol: TCP
+      port: 16379
+  - to: []  # Allow DNS resolution
+    ports:
+    - protocol: UDP
+      port: 53

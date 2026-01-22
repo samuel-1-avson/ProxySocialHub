@@ -57,6 +57,11 @@ func (c *IPFSClient) UploadText(content string) (string, error) {
 	return c.uploadToLocalNode(content)
 }
 
+// UploadData uploads binary data to IPFS and returns the CID
+func (c *IPFSClient) UploadData(data []byte) (string, error) {
+	return c.UploadText(string(data))
+}
+
 // uploadToPinata uploads content to Pinata's pinning service
 func (c *IPFSClient) uploadToPinata(content string) (string, error) {
 	url := fmt.Sprintf("%s/pinning/pinFileToIPFS", c.PinataAPIURL)
