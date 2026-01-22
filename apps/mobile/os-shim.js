@@ -9,7 +9,7 @@ if (typeof global.Buffer === 'undefined') {
 
 // Polyfill process
 if (typeof global.process === 'undefined') {
-    global.process = require('process');
+    global.process = require('process/browser');
 }
 
 // Ensure crypto is available globally if needed by some libraries
