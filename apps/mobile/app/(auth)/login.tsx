@@ -52,7 +52,7 @@ export default function Login() {
 
             // Helpful alert for the user to configure Supabase
             // Remove this in production or once configured
-            // Alert.alert("Configuration Check", `Please ensure this URL is in your Supabase Redirect URLs:\n${redirectUri}`);
+            Alert.alert("Configuration Check", `Please ensure this URL is in your Supabase Redirect URLs:\n${redirectUri}`);
 
             const { data, error } = await supabase.auth.signInWithOAuth({
                 provider,
