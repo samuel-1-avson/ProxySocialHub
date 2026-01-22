@@ -8,11 +8,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/ratelimiter"
 )
 
 var ctx = context.Background()
 
-// RateLimitConfig defines rate limiting configuration
+// RateLimitConfig defines rate limiting configuration (legacy)
 type RateLimitConfig struct {
 	// Requests per window
 	Limit int
@@ -22,7 +23,7 @@ type RateLimitConfig struct {
 	KeyFunc func(*gin.Context) string
 }
 
-// DefaultRateLimitConfig returns sensible defaults
+// DefaultRateLimitConfig returns sensible defaults (legacy)
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
 		Limit:  100,         // 100 requests
@@ -37,7 +38,7 @@ func DefaultRateLimitConfig() RateLimitConfig {
 	}
 }
 
-// Stricter rate limit for auth endpoints
+// Stricter rate limit for auth endpoints (legacy)
 func AuthRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
 		Limit:  10,          // 10 requests
@@ -48,7 +49,7 @@ func AuthRateLimitConfig() RateLimitConfig {
 	}
 }
 
-// RateLimit middleware using Redis token bucket
+// RateLimit middleware using Redis token bucket (legacy)
 func RateLimit(config RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if redis.Client == nil {
@@ -100,7 +101,7 @@ func RateLimit(config RateLimitConfig) gin.HandlerFunc {
 	}
 }
 
-// RateLimitByEndpoint returns different limits for different endpoints
+// RateLimitByEndpoint returns different limits for different endpoints (legacy)
 func RateLimitByEndpoint() gin.HandlerFunc {
 	defaultConfig := DefaultRateLimitConfig()
 	authConfig := AuthRateLimitConfig()
@@ -117,4 +118,93 @@ func RateLimitByEndpoint() gin.HandlerFunc {
 		// Default limits for everything else
 		RateLimit(defaultConfig)(c)
 	}
+}
+
+// Advanced Rate Limiting Middleware Functions
+
+// DefaultAdvancedRateLimit returns middleware with default advanced rate limiting
+func DefaultAdvancedRateLimit() gin.HandlerFunc {
+	config := ratelimiter.DefaultAdvancedRateLimitConfig()
+	return ratelimiter.AdvancedRateLimit(config)
+}
+
+// StrictAdvancedRateLimit returns middleware with strict rate limiting for sensitive endpoints
+func StrictAdvancedRateLimit() gin.HandlerFunc {
+	config := ratelimiter.StrictAdvancedRateLimitConfig()
+	return ratelimiter.AdvancedRateLimit(config)
+}
+
+// TokenBucketRateLimit returns middleware with token bucket algorithm
+func TokenBucketRateLimit(limit int, refillRate float64, burstCapacity int) gin.HandlerFunc {
+	config := ratelimiter.AdvancedRateLimitConfig{
+		Algorithm:     ratelimiter.TokenBucket,
+		Limit:         limit,
+		RefillRate:    refillRate,
+		BurstCapacity: burstCapacity,
+		Window:        time.Minute,
+		PenaltyConfig: ratelimiter.PenaltyConfig{
+			Enabled:         true,
+			BasePenalty:     time.Minute * 5,
+			MaxPenalty:      time.Hour,
+			Multiplier:      2.0,
+			ViolationWindow: time.Hour,
+		},
+		KeyFunc: func(c *gin.Context) string {
+			if userID, exists := c.Get("userID"); exists {
+				return "user:" + userID.(string)
+			}
+			return "ip:" + c.ClientIP()
+		},
+	}
+	return ratelimiter.AdvancedRateLimit(config)
+}
+
+// SlidingWindowRateLimit returns middleware with sliding window algorithm
+func SlidingWindowRateLimit(limit int, window time.Duration) gin.HandlerFunc {
+	config := ratelimiter.AdvancedRateLimitConfig{
+		Algorithm: ratelimiter.SlidingWindow,
+		Limit:     limit,
+		Window:    window,
+		PenaltyConfig: ratelimiter.PenaltyConfig{
+			Enabled:         true,
+			BasePenalty:     time.Minute * 5,
+			MaxPenalty:      time.Hour,
+			Multiplier:      2.0,
+			ViolationWindow: time.Hour,
+		},
+		KeyFunc: func(c *gin.Context) string {
+			if userID, exists := c.Get("userID"); exists {
+				return "user:" + userID.(string)
+			}
+			return "ip:" + c.ClientIP()
+		},
+	}
+	return ratelimiter.AdvancedRateLimit(config)
+}
+
+// AdvancedRateLimitByEndpoint returns different advanced rate limits for different endpoints
+func AdvancedRateLimitByEndpoint() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.FullPath()
+
+		switch {
+		case path == "/v1/auth/login" || path == "/v1/auth/register":
+			// Very strict limits for auth endpoints
+			StrictAdvancedRateLimit()(c)
+		case path == "/v1/sessions" || path == "/v1/orders":
+			// Moderate limits for session/order endpoints
+			TokenBucketRateLimit(50, 0.83, 10)(c) // ~50 per minute
+		case path == "/v1/usage" || path == "/v1/analytics":
+			// Higher limits for usage/analytics endpoints
+			SlidingWindowRateLimit(200, time.Minute)(c)
+		default:
+			// Default advanced rate limiting
+			DefaultAdvancedRateLimit()(c)
+		}
+	}
+}
+
+// CustomAdvancedRateLimit allows full customization of rate limiting
+func CustomAdvancedRateLimit(config ratelimiter.AdvancedRateLimitConfig) gin.HandlerFunc {
+	return ratelimiter.AdvancedRateLimit(config)
 }

@@ -1,0 +1,205 @@
+version: "3.8"
+
+services:
+  # ==================== Control API ====================
+  control-api:
+    image: proxyhubb/control-api:latest
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      - GIN_MODE=release
+      - PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - API_BASE_URL=${API_BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
+      - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - proxyhubb
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  # ==================== Edge Gateway ====================
+  edge-gateway:
+    image: proxyhubb/edge-gateway:latest
+    build:
+      context: .
+      dockerfile: services/edge-gateway/Dockerfile
+    ports:
+      - "8443:8443"
+      - "9090:9090"
+    environment:
+      - RUST_LOG=info
+      - REDIS_URL=redis://redis:6379
+      - CONTROL_API_URL=http://control-api:8080
+      - TLS_CERT_PATH=/app/certs/server.crt
+      - TLS_KEY_PATH=/app/certs/server.key
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      - control-api
+      - redis
+    networks:
+      - proxyhubb
+    restart: always
+
+  # ==================== Web (Frontend) ====================
+  web:
+    image: proxyhubb/web:latest
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${API_BASE_URL:-https://api.proxyhubb.com}
+    networks:
+      - proxyhubb
+    restart: always
+
+  # ==================== PostgreSQL ====================
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-proxyhubb}
+      - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - proxyhubb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxyhubb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - proxyhubb
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: always
+
+  # ==================== Prometheus ====================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9091:9090"
+    networks:
+      - proxyhubb
+    restart: always
+
+  # ==================== Grafana ====================
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./infra/grafana/dashboard.json:/etc/grafana/provisioning/dashboards/proxyhubb.json:ro
+    depends_on:
+      - prometheus
+    networks:
+      - proxyhubb
+    restart: always
+
+  # ==================== Subtensor (Optional in Prod) ====================
+  # In production, we might use a remote endpoint instead of running a full node
+  # But keeping it here for completeness if needed.
+  subtensor:
+    image: opentensor/subtensor:latest
+    ports:
+      - "9944:9944"
+      - "30333:30333"
+    volumes:
+      - subtensor_data:/data
+    command:
+      - /usr/local/bin/node-subtensor
+      - --chain
+      - finney
+      - --base-path
+      - /data
+      - --rpc-external
+      - --ws-external
+      - --rpc-cors
+      - all
+      - --sync
+      - warp
+    networks:
+      - proxyhubb
+    restart: always
+    profiles:
+      - blockchain
+
+  # ==================== Bittensor Bridge ====================
+  bittensor-bridge:
+    image: proxyhubb/bittensor-bridge:latest
+    build:
+      context: ./services/bittensor-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      - SUBTENSOR_NETWORK=local
+      - SUBTENSOR_CHAIN_ENDPOINT=ws://subtensor:9944
+    depends_on:
+      - subtensor
+    networks:
+      - proxyhubb
+    restart: always
+    profiles:
+      - blockchain
+
+volumes:
+  postgres_data:
+  redis_data:
+  subtensor_data:
+  grafana_data:
+
+networks:
+  proxyhubb:
+    driver: bridge

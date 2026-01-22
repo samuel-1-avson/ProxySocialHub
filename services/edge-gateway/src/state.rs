@@ -1,3 +1,4 @@
+use crate::circuitbreaker::CircuitBreakerManager;
 use crate::config::Config;
 use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
@@ -259,6 +260,7 @@ pub struct AppState {
     pub config: Config,
     pub rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     pub is_leader: Arc<AtomicBool>,
+    pub circuit_breakers: Arc<CircuitBreakerManager>,
 }
 
 impl AppState {
@@ -274,6 +276,7 @@ impl AppState {
             config,
             rate_limiter,
             is_leader,
+            circuit_breakers: Arc::new(CircuitBreakerManager::new()),
         }
     }
 
@@ -314,6 +317,7 @@ mod tests {
     fn create_test_node(id: &str, latency: u32, active: u32, max: u32, healthy: bool) -> NodeInfo {
         NodeInfo {
             node_id: id.to_string(),
+            user_id: None,
             country_code: "GH".to_string(),
             region: "Accra".to_string(),
             ip_address: "192.168.1.1".to_string(),

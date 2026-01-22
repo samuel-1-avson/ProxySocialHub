@@ -1,0 +1,322 @@
+# NGINX Ingress Controller with SSL Termination and Load Balancing
+# High-performance reverse proxy with connection optimization
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ingress-nginx
+data:
+  # Connection and performance optimizations
+  worker-processes: "auto"
+  worker-connections: "16384"
+  max-worker-open-files: "65536"
+  
+  # Keep-alive settings
+  keep-alive: "75"
+  keep-alive-requests: "1000"
+  upstream-keepalive-connections: "320"
+  upstream-keepalive-requests: "10000"
+  upstream-keepalive-timeout: "60"
+  
+  # Buffer settings
+  proxy-buffer-size: "16k"
+  proxy-buffers-number: "8"
+  proxy-busy-buffers-size: "32k"
+  client-body-buffer-size: "128k"
+  client-header-buffer-size: "4k"
+  large-client-header-buffers: "4 16k"
+  
+  # Timeout settings
+  proxy-connect-timeout: "10"
+  proxy-send-timeout: "60"
+  proxy-read-timeout: "60"
+  client-body-timeout: "60"
+  client-header-timeout: "60"
+  
+  # SSL/TLS settings
+  ssl-protocols: "TLSv1.2 TLSv1.3"
+  ssl-ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"
+  ssl-prefer-server-ciphers: "on"
+  ssl-session-cache: "shared:SSL:10m"
+  ssl-session-timeout: "10m"
+  ssl-session-tickets: "off"
+  
+  # Security headers
+  add-headers: "ingress-nginx/security-headers"
+  
+  # Rate limiting
+  rate-limit-rps: "100"
+  rate-limit-connections: "20"
+  
+  # Compression
+  enable-brotli: "true"
+  brotli-level: "6"
+  gzip-level: "6"
+  gzip-types: "text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript"
+  
+  # Monitoring
+  enable-opentracing: "true"
+  zipkin-collector-host: "jaeger-collector.monitoring.svc.cluster.local"
+  zipkin-service-name: "nginx-ingress"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-headers
+  namespace: ingress-nginx
+data:
+  X-Frame-Options: "DENY"
+  X-Content-Type-Options: "nosniff"
+  X-XSS-Protection: "1; mode=block"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+  Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' wss: https:; frame-ancestors 'none';"
+  Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+  Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=()"
+
+---
+# TLS Certificate Secret (Let's Encrypt or custom)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxyhubb-tls
+  namespace: proxyhubb
+type: kubernetes.io/tls
+data:
+  # Base64 encoded certificate and key
+  # In production, use cert-manager for automatic certificate management
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
+
+---
+# Main Ingress for ProxySocialHub
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: proxyhubb-ingress
+  namespace: proxyhubb
+  annotations:
+    # NGINX Ingress Controller
+    kubernetes.io/ingress.class: "nginx"
+    
+    # SSL/TLS Configuration
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    
+    # Load Balancing
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    nginx.ingress.kubernetes.io/load-balance: "ewma"
+    
+    # Connection Optimization
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    
+    # Health Checks
+    nginx.ingress.kubernetes.io/health-check-path: "/health"
+    nginx.ingress.kubernetes.io/health-check-interval: "10s"
+    nginx.ingress.kubernetes.io/health-check-timeout: "5s"
+    
+    # Rate Limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/rate-limit-connections: "20"
+    
+    # Security
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://proxyhubb.com,https://app.proxyhubb.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    
+    # Monitoring
+    nginx.ingress.kubernetes.io/enable-opentracing: "true"
+    
+spec:
+  tls:
+  - hosts:
+    - api.proxyhubb.com
+    - app.proxyhubb.com
+    - gateway.proxyhubb.com
+    secretName: proxyhubb-tls
+  rules:
+  # Control API
+  - host: api.proxyhubb.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: control-api
+            port:
+              number: 8080
+  
+  # Web Application
+  - host: app.proxyhubb.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web
+            port:
+              number: 3000
+  
+  # Edge Gateway (Proxy Traffic)
+  - host: gateway.proxyhubb.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: edge-gateway
+            port:
+              number: 8443
+
+---
+# Ingress for Monitoring Services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: proxyhubb
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: monitoring-auth
+    nginx.ingress.kubernetes.io/auth-realm: "ProxyHub Monitoring"
+spec:
+  tls:
+  - hosts:
+    - monitoring.proxyhubb.com
+    secretName: proxyhubb-tls
+  rules:
+  - host: monitoring.proxyhubb.com
+    http:
+      paths:
+      # Grafana
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+      # Prometheus
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+      # Jaeger
+      - path: /jaeger
+        pathType: Prefix
+        backend:
+          service:
+            name: jaeger-query
+            port:
+              number: 16686
+
+---
+# Basic Auth Secret for Monitoring
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-auth
+  namespace: proxyhubb
+type: Opaque
+data:
+  # admin:$2y$10$... (bcrypt hash of password)
+  auth: YWRtaW46JDJ5JDEwJC4uLg==
+
+---
+# Network Policy for Ingress Traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-traffic
+  namespace: proxyhubb
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 3000
+    - protocol: TCP
+      port: 8443
+
+---
+# Service Monitor for NGINX Ingress
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nginx-ingress
+  namespace: ingress-nginx
+  labels:
+    app: nginx-ingress
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+  endpoints:
+  - port: prometheus
+    interval: 30s
+    path: /metrics
+
+---
+# HPA for NGINX Ingress Controller
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-ingress-hpa
+  namespace: ingress-nginx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ingress-nginx-controller
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60

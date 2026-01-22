@@ -52,32 +52,33 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2. Fallback to Supabase Auth API
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create auth request"})
-			return
-		}
+		// 2. Fallback to Supabase Auth API with circuit breaker protection
+		var user SupabaseUser
+		err := ProtectedServiceCall(c, "supabase", func() error {
+			req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
+			if err != nil {
+				return err
+			}
 
-		req.Header.Set("Authorization", "Bearer "+tokenString)
-		req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
+			req.Header.Set("Authorization", "Bearer "+tokenString)
+			req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
 
-		client := &http.Client{}
-		resp, err := client.Do(req)
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("invalid token: status %d", resp.StatusCode)
+			}
+
+			return json.NewDecoder(resp.Body).Decode(&user)
+		})
+
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Failed to verify token"})
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			return
-		}
-
-		var user SupabaseUser
-		if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse user data"})
 			return
 		}
 
@@ -152,35 +153,33 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2. Fallback to Supabase Auth API
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
-		if err != nil {
-			// Error creating request, ignore and proceed as guest (or log warning)
-			logging.Warn().Err(err).Msg("Auth optional: failed to create request")
-			c.Next()
-			return
-		}
-
-		req.Header.Set("Authorization", "Bearer "+tokenString)
-		req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			// Request failed, ignore
-			c.Next()
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			// Invalid token, treat as guest
-			c.Next()
-			return
-		}
-
+		// 2. Fallback to Supabase Auth API with circuit breaker protection
 		var user SupabaseUser
-		if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		err := ProtectedServiceCall(c, "supabase", func() error {
+			req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
+			if err != nil {
+				return err
+			}
+
+			req.Header.Set("Authorization", "Bearer "+tokenString)
+			req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("invalid token: status %d", resp.StatusCode)
+			}
+
+			return json.NewDecoder(resp.Body).Decode(&user)
+		})
+
+		if err != nil {
+			// Request failed, ignore and proceed as guest
 			c.Next()
 			return
 		}
