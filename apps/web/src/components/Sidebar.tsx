@@ -15,7 +15,8 @@ import {
     Grid,
     Vote,
     Trophy,
-    ShieldCheck
+    ShieldCheck,
+    Network
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
@@ -28,6 +29,7 @@ export function Sidebar() {
     const menuItems = [
         { href: "/dashboard", label: "OVERVIEW", icon: LayoutDashboard },
         { href: "/dashboard/wallet", label: "WALLET", icon: Wallet },
+        { href: "/dashboard/proxy", label: "PROXY", icon: Network },
         { href: "/marketplace", label: "MARKET", icon: Globe },
         { href: "/agents", label: "AGENTS", icon: Bot },
         { href: "/feed", label: "FEED", icon: Activity },
