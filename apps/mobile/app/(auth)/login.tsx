@@ -6,11 +6,9 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import bs58 from 'bs58';
-import { Buffer } from 'buffer';
 import nacl from 'tweetnacl';
 
-// Polyfill for Random values in React Native if needed
-global.Buffer = global.Buffer || Buffer;
+// Polyfill handled in os-shim.js
 
 WebBrowser.maybeCompleteAuthSession();
 
