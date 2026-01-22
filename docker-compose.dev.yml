@@ -46,6 +46,27 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # ==================== Edge Gateway (Rust Proxy) ====================
+  edge-gateway:
+    build:
+      context: .
+      dockerfile: services/edge-gateway/Dockerfile.standalone
+    ports:
+      - "3128:3128"   # HTTP proxy port
+      - "8090:8090"   # Tunnel server for providers
+    environment:
+      - PROXY_PORT=3128
+      - TUNNEL_PORT=8090
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=proxyhubb-dev-secret-change-in-production
+      - CONTROL_API_URL=http://control-api:8080
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - proxyhubb-dev
+    restart: unless-stopped
+
   # ==================== Redis ====================
   redis:
     image: redis:alpine

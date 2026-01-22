@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::pin::Pin;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -89,8 +88,8 @@ where
     
     // Get the incoming streams + control
     let ctrl = conn.control();
-    let mut incoming = yamux::into_stream(conn);
-    tokio::pin!(incoming);
+    // Use Box::pin for yamux stream since into_stream returns !Unpin
+    let mut incoming = Box::pin(yamux::into_stream(conn));
 
     // AUTHENTICATION HANDSHAKE
     // Expect the FIRST stream to be an Auth channel
