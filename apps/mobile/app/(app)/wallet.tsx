@@ -1,9 +1,23 @@
-import { View, Text } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 
 export default function Wallet() {
     return (
-        <View className="flex-1 justify-center items-center bg-gray-50">
-            <Text className="text-xl font-bold text-gray-400">Wallet Coming Soon</Text>
+        <View style={styles.container}>
+            <Text style={styles.text}>Wallet Coming Soon</Text>
         </View>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+    },
+    text: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#9CA3AF',
+    },
+});
