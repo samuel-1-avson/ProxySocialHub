@@ -55,55 +55,52 @@ func reportUsage(c *gin.Context) {
 	for _, report := range req.Reports {
 		totalBytes := report.BytesUp + report.BytesDown
 
+		// Get session data from Redis (Source of Truth for Edge Gateway)
+		sessionData, err := redisClient.GetSession(report.SessionUsername)
+		if err != nil {
+			logging.Warn().Err(err).Str("session_username", report.SessionUsername).Msg("Session data not found in Redis during reporting, skipping")
+			continue
+		}
+
 		// Update Redis real-time counter (Session based)
 		if err := redisClient.IncrementUsage(report.SessionUsername, totalBytes); err != nil {
-			continue
+			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to increment session usage in Redis")
 		}
 
 		// Update Provider-Link counter (For Oracle claiming)
-		// We need providerID + buyerAddress.
-		// Ideally we get this from Session Data.
-		sData, err := redisClient.GetSession(report.SessionUsername)
-		if err == nil {
-			// Assume UserID is Buyer Address for now (in Crypto flow)
-			_ = redisClient.IncrementProviderUsage(sData.ProviderID, sData.UserID, totalBytes)
-		}
-
-		// Get session data
-		sessionData, err := redisClient.GetSession(report.SessionUsername)
-		if err != nil {
-			continue
+		if sessionData.ProviderID != "" && sessionData.UserID != "" {
+			_ = redisClient.IncrementProviderUsage(sessionData.ProviderID, sessionData.UserID, totalBytes)
 		}
 
 		// Publish Billing Event (Async)
 		// This decouples billing/analytics from the critical path
 		go func(data *redisClient.SessionData, up, down int64) {
-			// Generate Oracle Signature for usage
-			// Matches Smart Contract: keccak256(abi.encodePacked(buyer, provider, bytesUsed, nonce))
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Error(fmt.Errorf("panic in billing event: %v", r)).Msg("Recovered from panic in billing goroutine")
+				}
+			}()
+
 			var signature []byte
-			var nonce uint64 = uint64(time.Now().UnixNano()) // Use timestamp as nonce for now
-			// In production, maintain a nonce counter in Redis
+			var nonce uint64 = uint64(time.Now().UnixNano())
 
 			if signer := GetOracleSigner(); signer != nil {
-				// We need ETH addresses. Assuming UserID/ProviderID stored in Redis were ETH addresses
-				// If not, we can't sign properly. For this demo, we assume they are valid hex addresses
-				// or valid enough for the Signer check (it checks IsHexAddress).
-				// If they are not hex, sign will fail.
+				// We need ETH addresses for the Oracle.
+				// Fallback to internal IDs if address is not stored (handled by signer validation)
 				sig, err := signer.SignUsage(data.UserID, data.ProviderID,
 					new(big.Int).SetUint64(uint64(up+down)),
 					new(big.Int).SetUint64(nonce),
 				)
 				if err != nil {
-					logging.Error(err).Msg("Failed to sign usage data")
+					logging.Debug().Err(err).Msg("Skipped oracle signing (not in crypto mode or invalid addresses)")
 				} else {
 					signature = sig
 				}
 			}
 
 			if q := GetEventQueue(); q != nil {
-				// Use fire-and-forget
 				_ = q.Publish(context.Background(), events.Event{
-					ID:        "evt_bw_" + time.Now().Format("20060102150405"), // Simple ID
+					ID:        fmt.Sprintf("evt_bw_%d_%s", time.Now().Unix(), data.SessionID),
 					Type:      events.EventTypeBandwidthConsumed,
 					Timestamp: time.Now(),
 					Source:    "control-api",
@@ -123,11 +120,10 @@ func reportUsage(c *gin.Context) {
 		}(sessionData, report.BytesUp, report.BytesDown)
 
 		// IaaS Billing Pivot (Real-time Deduction in TAO)
-		// Fetch Proxy Listing for Price Calculation
+		// Fetch Proxy Listing for Price Calculation - Database Check
 		var session models.Session
-		// TODO: Optimize by caching ListingID in Redis SessionData
 		if err := db.DB.Preload("Listing").Where("credentials_user = ?", report.SessionUsername).First(&session).Error; err != nil {
-			logging.Warn().Str("session", report.SessionUsername).Msg("Session not found during billing, skipping deduction")
+			logging.Warn().Str("session", report.SessionUsername).Msg("Session not found in DB during billing, skipping deduction")
 			continue
 		}
 
@@ -136,11 +132,8 @@ func reportUsage(c *gin.Context) {
 			currentPricePerGB = CalculateFairPrice(*session.Listing)
 		}
 
-		// 1. Calculate Cost in GHS first
-		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * currentPricePerGB
-
-		// 2. Convert to TAO
 		rate := GetTaoToGhsRate()
+		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * currentPricePerGB
 		costTAO := costGHS / rate
 
 		// 3. Atomic Balance Deduction (DB Lock)

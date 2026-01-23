@@ -44,21 +44,30 @@ impl LeaderElector {
     /// Run the election loop in the background.
     /// This function blocks, so it should be spawned in a separate task.
     pub async fn run(self) {
-        let mut con = match self.client.get_multiplexed_async_connection().await {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to connect to Redis for leader election: {}", e);
-                return;
-            }
-        };
-
         let sleep_duration = Duration::from_secs((self.ttl_seconds / 2) as u64);
-
         info!("Starting leader election loop for ID: {}", self.service_id);
 
+        let mut con_opt = None;
+
         loop {
+            // Get or recreate connection
+            if con_opt.is_none() {
+                match self.client.get_multiplexed_async_connection().await {
+                    Ok(c) => {
+                        info!("Leader election: Connected to Redis.");
+                        con_opt = Some(c);
+                    }
+                    Err(e) => {
+                        error!("Failed to connect to Redis for leader election: {}. Retrying in {:?}...", e, sleep_duration);
+                        tokio::time::sleep(sleep_duration).await;
+                        continue;
+                    }
+                }
+            }
+
+            let con = con_opt.as_mut().unwrap();
+
             // Try to acquire the lock
-            // SET key service_id NX EX ttl
             let opts = redis::SetOptions::default()
                 .conditional_set(redis::ExistenceCheck::NX)
                 .with_expiration(redis::SetExpiry::EX(self.ttl_seconds));
@@ -67,21 +76,12 @@ impl LeaderElector {
 
             match result {
                 Ok(Some(_)) => {
-                    // Acquired lock!
                     if !self.is_leader.load(Ordering::SeqCst) {
                         info!("Leader lock acquired! I am now the leader.");
                         self.is_leader.store(true, Ordering::SeqCst);
                     }
                 }
                 Ok(None) => {
-                    // Key exists. Check if we hold it (renewal)
-                    // In a real implementation with NX, we can't accidentally overwrite unless we expire.
-                    // But we need to renew if we ARE the leader.
-                    // This simple loop using NX might lose leadership if we sleep too long, 
-                    // or if we rely on NX failing to mean "someone else has it".
-                    
-                    // Better approach for renewal:
-                    // script to check if value == service_id, if so, expire.
                     let script = redis::Script::new(r"
                         if redis.call('get', KEYS[1]) == ARGV[1] then
                             return redis.call('expire', KEYS[1], ARGV[2])
@@ -94,33 +94,39 @@ impl LeaderElector {
                         .key(&self.key)
                         .arg(&self.service_id)
                         .arg(self.ttl_seconds)
-                        .invoke_async(&mut con)
+                        .invoke_async(con)
                         .await;
                         
                      match renew_result {
                         Ok(1) => {
-                            // Renewed successfully
                              if !self.is_leader.load(Ordering::SeqCst) {
                                 info!("Leader lock recovered/renewed.");
                                 self.is_leader.store(true, Ordering::SeqCst);
                             }
                         }
                         Ok(_) => {
-                            // Not our lock
                             if self.is_leader.load(Ordering::SeqCst) {
                                 warn!("Lost leader lock!");
                                 self.is_leader.store(false, Ordering::SeqCst);
                             }
                         }
                         Err(e) => {
-                            error!("Error attempting to renew lock: {}", e);
-                             // Assume lost if error persists
+                            if e.is_connection_dropped() || e.is_connection_refusal() {
+                                warn!("Lost connection to Redis during lock renewal: {}. Reconnecting...", e);
+                                con_opt = None; // Trigger reconnection
+                            } else {
+                                error!("Error attempting to renew lock: {}", e);
+                            }
                         }
                      }
                 }
                 Err(e) => {
-                    error!("Redis error during election: {}", e);
-                    // Don't change status immediately on one error, but risky.
+                    if e.is_connection_dropped() || e.is_connection_refusal() {
+                        warn!("Lost connection to Redis during election: {}. Reconnecting...", e);
+                        con_opt = None; // Trigger reconnection
+                    } else {
+                        error!("Redis error during election: {}", e);
+                    }
                 }
             }
 

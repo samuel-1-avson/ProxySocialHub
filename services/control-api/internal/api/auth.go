@@ -251,7 +251,13 @@ func walletLogin(c *gin.Context) {
 	}
 
 	// 4. Issue JWT
-	cfg, _ := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("[AUTH] Failed to load config for token generation: %v", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Internal configuration error"})
+		return
+	}
+
 	token, err := crypto.GenerateToken(
 		user.ID,
 		user.Role,
@@ -311,7 +317,13 @@ func devLogin(c *gin.Context) {
 		db.DB.Create(&wallet)
 	}
 
-	cfg, _ := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("[AUTH] Failed to load config for dev token: %v", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Internal configuration error"})
+		return
+	}
+
 	token, err := crypto.GenerateToken(
 		user.ID,
 		user.Role,

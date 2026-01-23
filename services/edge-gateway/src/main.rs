@@ -68,12 +68,13 @@ async fn proxy(
                 // Validate session in Redis
                 match authenticator.validate_session(&username).await {
                     Ok(Some(session)) => {
-                        info!("Authenticated session: {} (type: {})", username, session.session_type);
+                        info!("✅ Authenticated session: {} (Role: {}, Tier: {}, Type: {})", 
+                            username, session.user_id, session.trust_tier, session.session_type);
                         (Some(username), Some(session))
                     }
                     Ok(None) => {
-                        warn!("Invalid or expired session: {}", username);
-                        let mut resp = Response::new(Full::new(Bytes::from("Session invalid or expired")));
+                        warn!("❌ Invalid or expired session attempt: {}", username);
+                        let mut resp = Response::new(Full::new(Bytes::from("Proxy session invalid, expired, or bandwidth limit reached")));
                         *resp.status_mut() = StatusCode::PROXY_AUTHENTICATION_REQUIRED;
                         resp.headers_mut().insert(
                             "Proxy-Authenticate",
@@ -82,15 +83,17 @@ async fn proxy(
                         return Ok(resp);
                     }
                     Err(e) => {
-                        error!("Auth error: {}", e);
-                        // Allow through on Redis failure (graceful degradation)
+                        error!("🚨 Auth backend error for {}: {}", username, e);
+                        // Allow through on Redis failure (graceful degradation) for now to prevent total outage
+                        // In high security mode, we should block.
                         (Some("anonymous".to_string()), None)
                     }
                 }
             }
             None => {
                 // No auth provided - require authentication
-                let mut resp = Response::new(Full::new(Bytes::from("Proxy authentication required")));
+                warn!("⚠️ Anonymous CONNECT request rejected from {}", req.remote_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".into()));
+                let mut resp = Response::new(Full::new(Bytes::from("Proxy authentication required (Credentials missing)")));
                 *resp.status_mut() = StatusCode::PROXY_AUTHENTICATION_REQUIRED;
                 resp.headers_mut().insert(
                     "Proxy-Authenticate",
@@ -218,9 +221,11 @@ async fn tunnel_to_provider_with_sticky(
         if let Some(ref bound_node_id) = sticky_node_id {
             // Try to get the specific bound node
             if let Some(control) = registry.get_by_id(bound_node_id) {
+                info!("📍 Sticky hit: Session {} correctly routed to bound node {}", session_id, bound_node_id);
                 (Some(control), bound_node_id.clone())
             } else {
                 // Fallback if sticky node is down
+                warn!("📍 Sticky miss: Bound node {} is unavailable for session {}, selecting new best candidate", bound_node_id, session_id);
                 if let Some((control, id)) = registry.get_best() {
                     (Some(control), id)
                 } else {
@@ -230,10 +235,13 @@ async fn tunnel_to_provider_with_sticky(
         } else {
             // Normal selection: best or random
             if let Some((control, node_id)) = registry.get_best() {
+                info!("🎯 Routed to best node {} for session {}", node_id, session_id);
                 (Some(control), node_id)
             } else if let Some(control) = registry.get_random() {
+                info!("🎲 Routed to random node for session {}", session_id);
                 (Some(control), "random".to_string())
             } else {
+                warn!("🛑 No available nodes found in registry for session {}", session_id);
                 (None, String::new())
             }
         }
