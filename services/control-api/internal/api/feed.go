@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // RegisterFeedRoutes registers feed-related routes
@@ -59,10 +62,33 @@ func getFeed(c *gin.Context) {
 		query = query.Where("actor_id IN ?", followingIDs)
 	} else {
 		// No follows, show all public events
+		// TRY REDIS CACHE FIRST (For Page 1)
+		if page == 1 && redisClient.Client != nil {
+			val, err := redisClient.Client.LRange(context.Background(), "public:feed", 0, int64(limit-1)).Result()
+			if err == nil && len(val) > 0 {
+				var cachedEvents []models.FeedEvent
+				for _, v := range val {
+					var e models.FeedEvent
+					json.Unmarshal([]byte(v), &e)
+					cachedEvents = append(cachedEvents, e)
+				}
+				// Return cached
+				c.JSON(http.StatusOK, gin.H{
+					"events": cachedEvents,
+					"total":  100, // Estimate
+					"page":   page,
+					"limit":  limit,
+					"source": "cache",
+				})
+				return
+			}
+		}
+
 		query = query.Where("event_type IN ?", []string{
 			string(models.FeedEventNewListing),
 			string(models.FeedEventBadgeEarned),
 			string(models.FeedEventMilestone),
+			string(models.FeedEventNewSale), // Added New Sale
 		})
 	}
 
@@ -168,3 +194,26 @@ func getTrendingListings(c *gin.Context) {
 		"limit":    limit,
 	})
 }
+
+// PublishFeedEvent broadcasts and caches a feed event
+func PublishFeedEvent(event models.FeedEvent) {
+	// 1. WebSocket Broadcast
+	BroadcastToAll(string(event.EventType), event)
+
+	// 2. Redis Cache (Public Feed)
+	// We only cache public events (e.g. listings, sales)
+	key := "public:feed"
+
+	// Marshal
+	data, _ := json.Marshal(event)
+
+	// LPUSH + LTRIM
+	if redisClient.Client != nil {
+		ctx := context.Background()
+		redisClient.Client.LPush(ctx, key, data)
+		redisClient.Client.LTrim(ctx, key, 0, 99) // Keep last 100
+	}
+}
+
+// Updated getFeed to use Cache
+// ... (I will update getFeed separately to avoid huge replace block)

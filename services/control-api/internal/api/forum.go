@@ -20,6 +20,7 @@ func RegisterForumRoutes(rg *gin.RouterGroup) {
 	rg.POST("/forum/threads", createThread)
 	rg.POST("/forum/threads/:id/posts", createPost)
 	rg.POST("/forum/posts/:id/vote", votePost)
+	rg.GET("/forum/search", searchForum) // New Search
 	rg.GET("/forum/recent", getRecentThreads)
 }
 
@@ -87,13 +88,28 @@ func getThread(c *gin.Context) {
 	// Increment view count
 	db.DB.Model(&thread).Update("views_count", thread.ViewsCount+1)
 
+	// Pagination
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+	offset := (page - 1) * limit
+
+	var totalPosts int64
+	db.DB.Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts)
+
 	// Get posts
 	var posts []models.ForumPost
-	db.DB.Preload("Author").Where("thread_id = ?", threadID).Order("created_at ASC").Find(&posts)
+	db.DB.Preload("Author").
+		Where("thread_id = ?", threadID).
+		Order("created_at ASC").
+		Offset(offset).Limit(limit).
+		Find(&posts)
 
 	c.JSON(http.StatusOK, gin.H{
-		"thread": thread,
-		"posts":  posts,
+		"thread":      thread,
+		"posts":       posts,
+		"total_posts": totalPosts,
+		"page":        page,
+		"limit":       limit,
 	})
 }
 
@@ -139,6 +155,24 @@ func createThread(c *gin.Context) {
 	}
 
 	db.DB.Preload("Author").Preload("Category").First(&thread, "id = ?", thread.ID)
+
+	// Publish to Feed
+	go func() {
+		feedEvent := models.CreateFeedEvent(
+			&userID,
+			models.FeedEventNewThread,
+			"thread",
+			&thread.ID,
+			"posted in "+category.Name+": "+thread.Title,
+			map[string]interface{}{
+				"thread_id": thread.ID,
+				"slug":      thread.Slug,
+				"category":  category.Name,
+			},
+		)
+		db.DB.Create(feedEvent)      // Persistent
+		PublishFeedEvent(*feedEvent) // Real-time + Cache
+	}()
 
 	c.JSON(http.StatusCreated, thread)
 }
@@ -304,4 +338,42 @@ func slugify(s string) string {
 		s = s[:50]
 	}
 	return s + "-" + time.Now().Format("20060102150405")
+}
+
+// searchForum searches threads by title or content
+func searchForum(c *gin.Context) {
+	queryStr := c.Query("q")
+	if len(queryStr) < 3 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Search term must be at least 3 characters"})
+		return
+	}
+
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+	offset := (page - 1) * limit
+
+	var threads []models.ForumThread
+	var total int64
+
+	// ILIKE search (Case-insensitive)
+	db.DB.Model(&models.ForumThread{}).
+		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
+		Count(&total)
+
+	if err := db.DB.Preload("Author").Preload("Category").
+		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
+		Order("created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&threads).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Search failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"threads": threads,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+		"query":   queryStr,
+	})
 }

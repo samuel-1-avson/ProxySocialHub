@@ -279,6 +279,15 @@ func createListing(c *gin.Context) {
 
 	tx.Commit()
 
+	// Real-time Feed Broadcast & Cache
+	go func() {
+		// Preload actor for the feed event to ensure complete data
+		var fullEvent models.FeedEvent
+		if err := db.DB.Preload("Actor").First(&fullEvent, "id = ?", feedEvent.ID).Error; err == nil {
+			PublishFeedEvent(fullEvent)
+		}
+	}()
+
 	// Reload with seller
 	db.DB.Preload("Seller").First(&listing, "id = ?", listing.ID)
 

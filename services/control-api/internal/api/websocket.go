@@ -76,6 +76,7 @@ const (
 	MsgTypeNewReview   = "new_review"
 	MsgTypeNewFollower = "new_follower"
 	MsgTypeOrderUpdate = "order_update"
+	MsgTypeNewListing  = "new_listing" // Added for real-time feed
 )
 
 var wsHub *Hub
