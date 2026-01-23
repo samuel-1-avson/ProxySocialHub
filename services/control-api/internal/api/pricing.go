@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -102,11 +104,24 @@ func fetchPriceFromAPI() (float64, error) {
 		// 1 TAO = $X USD
 		// $1 USD = $Y GHS
 		// 1 TAO = X * Y GHS
-		rate := taoUsd * FIXED_GHS_USD_RATE
+		// 1 TAO = X * Y GHS
+		ghsRate := getGhsUsdRate()
+		rate := taoUsd * ghsRate
 
 		logging.Info().Float64("tao_usd", taoUsd).Float64("ghs_rate", rate).Msg("Updated Real-Time Exchange Rate")
 		return rate, nil
 	}
 
 	return 0, fmt.Errorf("failed to fetch price after %d attempts: %v", maxRetries, lastErr)
+}
+
+func getGhsUsdRate() float64 {
+	val := os.Getenv("EXCHANGE_RATE_GHS_USD")
+	if val != "" {
+		if rate, err := strconv.ParseFloat(val, 64); err == nil && rate > 0 {
+			return rate
+		}
+		logging.Warn().Str("val", val).Msg("Invalid EXCHANGE_RATE_GHS_USD env var, using default")
+	}
+	return FIXED_GHS_USD_RATE
 }
