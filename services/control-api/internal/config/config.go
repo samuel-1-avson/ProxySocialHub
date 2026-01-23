@@ -92,7 +92,11 @@ func Load() (*Config, error) {
 
 	cors := getEnv("CORS_ORIGINS", "")
 	if cors != "" {
-		cfg.Server.CORSOrigins = strings.Split(cors, ",")
+		origins := strings.Split(cors, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		cfg.Server.CORSOrigins = origins
 	} else {
 		cfg.Server.CORSOrigins = []string{
 			"http://localhost:3000",

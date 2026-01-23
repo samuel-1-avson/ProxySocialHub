@@ -23,9 +23,9 @@ func RegisterProfileRoutes(rg *gin.RouterGroup) {
 
 // getMyProfile returns the authenticated user's profile
 func getMyProfile(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
@@ -40,7 +40,11 @@ func getMyProfile(c *gin.Context) {
 
 // updateProfile updates the authenticated user's profile
 func updateProfile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	var req models.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -231,8 +235,11 @@ func getFollowing(c *gin.Context) {
 
 // followUser follows a user
 func followUser(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	followerID := currentUserID.(uuid.UUID)
+	followerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	followingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -295,8 +302,11 @@ func followUser(c *gin.Context) {
 
 // unfollowUser unfollows a user
 func unfollowUser(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	followerID := currentUserID.(uuid.UUID)
+	followerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	followingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
