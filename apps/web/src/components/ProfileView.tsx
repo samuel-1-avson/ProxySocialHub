@@ -154,7 +154,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         <div className="flex gap-3">
                             {isOwnProfile ? (
                                 <Link
-                                    href="/profile/edit"
+                                    href="/dashboard/profile"
                                     className="btn-retro btn-retro-outline py-2 px-4 text-xs bg-background"
                                 >
                                     <Edit3 size={14} className="mr-2" />
