@@ -23,7 +23,11 @@ func RegisterProfileRoutes(rg *gin.RouterGroup) {
 
 // getMyProfile returns the authenticated user's profile
 func getMyProfile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	var user models.User
 	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
@@ -104,13 +108,24 @@ func getPublicProfile(c *gin.Context) {
 
 	var user models.User
 
-	// Try UUID first, then username
-	if parsedID, err := uuid.Parse(identifier); err == nil {
+	// Handle "me" identifier
+	if identifier == "me" {
+		if currentUserID == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required to view 'me'"})
+			return
+		}
+		if err := db.DB.First(&user, "id = ?", currentUserID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+	} else if parsedID, err := uuid.Parse(identifier); err == nil {
+		// Try UUID
 		if err := db.DB.First(&user, "id = ?", parsedID).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}
 	} else {
+		// Try username
 		if err := db.DB.First(&user, "username = ?", identifier).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
