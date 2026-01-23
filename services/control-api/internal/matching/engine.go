@@ -4,7 +4,6 @@ import (
 	"math"
 	"sort"
 
-	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -64,7 +63,15 @@ func (m *Matcher) GetProfiles() map[UseCaseType]UseCaseProfile {
 
 // Recommend finds the best listings for a given request
 func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
-	// 1. Fetch Candidate Listings
+	// 1. Get Profile
+	profiles := m.GetProfiles()
+	profile, exists := profiles[req.UseCase]
+	if !exists {
+		profile = profiles[UseCaseGeneral]
+	}
+
+	// 2. Build Query with Heuristic Sorting (SQL Optimization)
+	// Instead of fetching all, we sort by the most dominant factor in the profile
 	var listings []models.ProxyListing
 	query := db.DB.Where("status = ?", models.ListingStatusActive)
 
@@ -76,18 +83,24 @@ func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
 		query = query.Where("price_per_gb <= ?", req.MaxPrice)
 	}
 
-	if err := query.Find(&listings).Error; err != nil {
+	// Determine Sort Heuristic
+	// If Latency weight is high (> 0.4), sort by latency
+	// If Bandwidth weight is high, sort by available bandwidth (or uptime)
+	sqlSort := "quality_score DESC" // Default
+	if profile.WeightLatency >= 0.4 {
+		sqlSort = "avg_latency_ms ASC"
+	} else if profile.WeightBandwidth >= 0.4 {
+		sqlSort = "available_bandwidth_gb DESC"
+	} else if profile.WeightUptime >= 0.4 {
+		sqlSort = "uptime_percent DESC"
+	}
+
+	// Fetch Candidates (Limit 200 to prevent O(N) memory usage)
+	if err := query.Order(sqlSort).Limit(200).Find(&listings).Error; err != nil {
 		return nil, err
 	}
 
-	// 2. Get Profile Weights
-	profiles := m.GetProfiles()
-	profile, exists := profiles[req.UseCase]
-	if !exists {
-		profile = profiles[UseCaseGeneral]
-	}
-
-	// 3. Score Each Listing
+	// 3. Precise Scoring (In-Memory on subset)
 	var scoredNodes []ScoredNode
 
 	for _, listing := range listings {
@@ -108,12 +121,6 @@ func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
 		trustScore := listing.QualityScore / 100.0
 		score += (trustScore - 0.5) * profile.WeightTrustScore * 100
 
-		// Bonus for Verified Seller
-		if listing.SellerID != uuid.Nil {
-			// Optimization: Preload sellers or cache verification status
-			// For now, we assume quality_score reflects it
-		}
-
 		scoredNodes = append(scoredNodes, ScoredNode{
 			Listing: listing,
 			Score:   math.Min(100, math.Max(0, score)),
@@ -121,12 +128,12 @@ func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
 		})
 	}
 
-	// 4. Sort by Score (Desc)
+	// 4. Sort by Final Score (Desc)
 	sort.Slice(scoredNodes, func(i, j int) bool {
 		return scoredNodes[i].Score > scoredNodes[j].Score
 	})
 
-	// 5. Limit Results
+	// 5. Limit Results to requested count
 	if req.Count <= 0 {
 		req.Count = 5
 	}
