@@ -92,7 +92,7 @@ export default function DashboardPage() {
         },
         {
             label: "Balance",
-            value: `₵ ${wallet?.balance?.toFixed(2) || "0.00"}`,
+            value: `₵ ${wallet?.balance_ghs?.toFixed(2) || "0.00"}`,
             icon: DollarSign,
             change: wallet?.currency || "GHS",
             trend: "up",

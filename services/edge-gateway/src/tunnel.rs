@@ -6,7 +6,6 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use yamux::{Config, Connection, Mode, WindowUpdateMode};
 use crate::state::{AppState, NodeInfo};
 use crate::tls::{TlsConfig, create_tls_acceptor, is_tls_enabled};
-use uuid::Uuid;
 use futures_util::{StreamExt, AsyncReadExt, AsyncWriteExt};
 use tracing::{info, warn, error};
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
@@ -156,12 +155,37 @@ where
 
     let user_id = authenticated_user_id.unwrap();
     
-    // Generate a random Node ID (or user provided? For now random)
-    let node_id = Uuid::new_v4().to_string();
+    // START: PERSISTENCE CHANGE
+    // Generate a stable Node ID based on User ID (allows reputation to persist)
+    let node_id = format!("node_{}", user_id);
     
     // Create node info with peer address
     let ip_address = peer_addr.ip().to_string();
-    let mut node_info = NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id));
+    
+    // Load existing metadata from Redis
+    let mut node_info = match state.registry_store.load_node(&user_id).await {
+        Ok(Some(mut info)) => {
+            info!("README: Loaded persistent node info for {}", node_id);
+            // Update IP and other transient fields
+            info.ip_address = ip_address.clone();
+            info.node_id = node_id.clone();
+            info.connected_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                .as_secs();
+            info.is_healthy = true; // Reset health on new connection
+            info
+        },
+        Ok(None) => {
+            info!("README: New node detected for user {}", user_id);
+            NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id.clone()))
+        },
+        Err(e) => {
+            error!("Failed to load node info from Redis: {}", e);
+            // Fallback to new node info
+            NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id.clone()))
+        }
+    };
     
     // Detect location (placeholder)
     node_info.country_code = detect_country_from_ip(&ip_address);
@@ -170,7 +194,7 @@ where
     // Register with full node info
     {
         if let Ok(mut registry) = state.registry.lock() {
-            registry.insert(node_id.clone(), ctrl, node_info);
+            registry.insert(node_id.clone(), ctrl, node_info.clone());
         } else {
             error!("Failed to acquire registry lock (poisoned) while registering node {}", node_id);
             return;
@@ -182,12 +206,8 @@ where
     // Drive connection - accept incoming streams
     while let Some(result) = incoming.next().await {
         match result {
-            Ok(stream) => {
-                // If it's the auth stream again or new streams? 
-                // Providers shouldn't open streams unless for bidirectional comms later.
-                // Just log.
-                // warn!("Provider opened a stream (unexpected for outbound tunnel) ID: {}", stream.id());
-                // NOTE: Yamux might yield the auth stream again? No, next() yields new streams.
+            Ok(_stream) => {
+                // ...
             }
             Err(e) => {
                 error!("Stream error for {}: {}", node_id, e);
@@ -201,10 +221,25 @@ where
         }
     }
     
-    // Cleanup
+    // Cleanup and Persist Stats
     {
-        if let Ok(mut registry) = state.registry.lock() {
+        // 1. Get final stats from in-memory registry
+        let final_info = if let Ok(mut registry) = state.registry.lock() {
+            let info_opt = registry.get_node_info(&node_id).cloned();
             registry.remove(&node_id);
+            info_opt
+        } else {
+            None
+        };
+
+        // 2. Save to Redis
+        if let Some(info) = final_info {
+            // Or use the local `node_info` if registry access failed, but registry has the updated stats (bytes served)
+            if let Err(e) = state.registry_store.save_node(&user_id, &info).await {
+                error!("Failed to persist node metadata: {}", e);
+            } else {
+                info!("💾 Persisted node stats for {}", node_id);
+            }
         }
     }
     info!("❌ Provider disconnected: {}", node_id);
