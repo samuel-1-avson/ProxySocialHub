@@ -67,12 +67,15 @@ impl LeaderElector {
 
             let con = con_opt.as_mut().unwrap();
 
-            // Try to acquire the lock
-            let opts = redis::SetOptions::default()
-                .conditional_set(redis::ExistenceCheck::NX)
-                .with_expiration(redis::SetExpiry::EX(self.ttl_seconds));
-
-            let result: redis::RedisResult<Option<String>> = con.set_options(&self.key, &self.service_id, opts).await;
+            // Let's use the low-level cmd approach to be safe.
+            let result: redis::RedisResult<Option<String>> = redis::cmd("SET")
+                .arg(&self.key)
+                .arg(&self.service_id)
+                .arg("NX")
+                .arg("EX")
+                .arg(self.ttl_seconds)
+                .query_async(con)
+                .await;
 
             match result {
                 Ok(Some(_)) => {
