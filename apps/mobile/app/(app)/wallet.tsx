@@ -132,64 +132,89 @@ export default function WalletScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            <View className="pt-16 pb-6 px-6 bg-card border-b-2 border-border flex-row justify-between items-center">
+            <View className="absolute top-0 left-0 right-0 h-48 bg-primary/5 rounded-b-[40px]" />
+
+            <View className="pt-16 pb-6 px-6 flex-row justify-between items-center">
                 <View>
-                    <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Asset Terminal</Text>
-                    <Text className="text-3xl font-black text-foreground uppercase tracking-tighter">Financial_Core</Text>
+                    <View className="flex-row items-center mb-1">
+                        <View className="w-2 h-2 rounded-full bg-emerald-500 mr-2" />
+                        <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Asset Terminal</Text>
+                    </View>
+                    <Text className="text-3xl font-black text-foreground uppercase tracking-tighter italic">
+                        Financial<Text className="text-primary italic">_</Text>Core
+                    </Text>
                 </View>
-                <TouchableOpacity onPress={fetchData} className="p-2 bg-secondary border border-border rounded-sm">
-                    <Ionicons name="sync" size={18} color="#18181B" />
+                <TouchableOpacity
+                    onPress={fetchData}
+                    className="w-12 h-12 bg-white/50 border border-primary/20 rounded-2xl items-center justify-center shadow-sm"
+                >
+                    <Ionicons name="sync" size={20} color="#059669" />
                 </TouchableOpacity>
             </View>
 
             <ScrollView
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#059669" />}
                 className="flex-1"
-                contentContainerStyle={{ padding: 20 }}
+                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                showsVerticalScrollIndicator={false}
             >
-                {/* Balance Card */}
-                <View className="bg-primary/5 border-2 border-primary p-6 mb-8 rounded-sm shadow-[4px_4px_0px_#18181B]">
+                {/* Balance Card - Glassmorphism */}
+                <View className="bg-white/40 border border-white/60 p-8 mb-8 rounded-[32px] shadow-sm backdrop-blur-md overflow-hidden">
+                    <View className="absolute -top-10 -right-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
+
                     <View className="flex-row justify-between items-center mb-6">
-                        <Text className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Settlement_Balance</Text>
+                        <View className="bg-primary/10 px-3 py-1.5 rounded-full border border-primary/10">
+                            <Text className="text-[10px] font-black text-primary uppercase tracking-widest">Settlement_Balance</Text>
+                        </View>
                         <MaterialCommunityIcons name="finance" size={20} color="#059669" />
                     </View>
-                    <View className="flex-row items-baseline gap-2 mb-6">
-                        <Text className="text-xs font-bold text-muted-foreground uppercase">₵</Text>
-                        <Text className="text-5xl font-black text-foreground tabular-nums tracking-tighter">
-                            {wallet?.balance?.toFixed(2) || '0.00'}
+
+                    <View className="flex-row items-baseline">
+                        <Text className="text-xs font-black text-muted-foreground uppercase mr-2 tracking-widest">GHS</Text>
+                        <Text className="text-6xl font-black text-foreground tracking-tighter italic tabular-nums">
+                            {wallet?.balance?.toFixed(2) || '0.00'}<Text className="text-primary">_</Text>
                         </Text>
                     </View>
-                    <View className="flex-row items-center gap-2 border-t border-primary/20 pt-4">
-                        <Ionicons name="shield-checkmark-outline" size={14} color="#059669" />
-                        <Text className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-                            {wallet?.linked_solana_address ? `Vault: ${wallet.linked_solana_address.slice(0, 6)}...` : 'Identity_Verification_Pending'}
+
+                    <View className="mt-10 pt-6 border-t border-primary/10 flex-row items-center">
+                        <View className="bg-primary/10 p-1.5 rounded-lg mr-3">
+                            <Ionicons name="shield-checkmark" size={16} color="#059669" />
+                        </View>
+                        <Text className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex-1">
+                            {wallet?.linked_solana_address ? `Vault Instance: ${wallet.linked_solana_address.slice(0, 12)}...` : 'Identity_Verification_Pending_Sync'}
                         </Text>
                     </View>
                 </View>
 
-                {/* Actions */}
+                {/* Actions Grid */}
                 <View className="flex-row gap-4 mb-10">
                     <TouchableOpacity
-                        className="flex-1 bg-primary p-4 items-center justify-center rounded-sm shadow-[2px_2px_0px_#18181B]"
+                        className="flex-1 bg-primary p-6 items-center justify-center rounded-3xl shadow-lg active:opacity-90 overflow-hidden"
                         onPress={() => setDepositModalVisible(true)}
                     >
-                        <Ionicons name="arrow-down" size={24} color="#FFF" />
-                        <Text className="text-[10px] font-black text-white uppercase mt-2">Deposit</Text>
+                        <View className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -mr-8 -mt-8" />
+                        <Ionicons name="add" size={28} color="#FFF" />
+                        <Text className="text-[10px] font-black text-white uppercase mt-2 tracking-widest">Deposit</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        className="flex-1 bg-card border-2 border-border p-4 items-center justify-center rounded-sm"
+                        className="flex-1 bg-white/40 border border-white/60 p-6 items-center justify-center rounded-3xl shadow-sm backdrop-blur-md active:bg-white/60"
                         onPress={() => setWithdrawModalVisible(true)}
                     >
-                        <Ionicons name="arrow-up" size={24} color="#18181B" />
-                        <Text className="text-[10px] font-black text-foreground uppercase mt-2">Withdraw</Text>
+                        <Ionicons name="exit-outline" size={28} color="#059669" />
+                        <Text className="text-[10px] font-black text-primary uppercase mt-2 tracking-widest">Withdraw</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Transactions */}
-                <View className="flex-row justify-between items-center mb-6">
-                    <Text className="text-xs font-black text-muted-foreground uppercase tracking-widest">Transaction_Ledger</Text>
-                    <View className="h-0.5 flex-1 bg-border/30 ml-4" />
+                {/* Transactions Header */}
+                <View className="flex-row justify-between items-center mb-6 px-2">
+                    <View className="flex-row items-center">
+                        <View className="w-1 h-4 bg-primary rounded-full mr-3" />
+                        <Text className="text-[11px] font-black text-foreground uppercase tracking-[0.2em]">Digital Ledger</Text>
+                    </View>
+                    <View className="bg-primary/5 px-2 py-1 rounded-md">
+                        <Text className="text-[8px] font-bold text-primary italic uppercase tracking-widest">Real-time sync</Text>
+                    </View>
                 </View>
 
                 <FlatList
@@ -199,28 +224,37 @@ export default function WalletScreen() {
                     renderItem={({ item }) => {
                         const isCredit = item.type === 'deposit' || item.type === 'earning' || item.type === 'refund';
                         return (
-                            <View className="bg-card border-2 border-border p-4 mb-3 rounded-sm flex-row items-center">
-                                <View className={`w-10 h-10 border border-border items-center justify-center rounded-sm ${isCredit ? 'bg-primary/10' : 'bg-destructive/10'}`}>
+                            <View className="bg-white/40 border border-white/60 p-5 mb-4 rounded-3xl flex-row items-center shadow-sm">
+                                <View className={`w-12 h-12 rounded-2xl items-center justify-center ${isCredit ? 'bg-emerald-50' : 'bg-rose-50'}`}>
                                     <Ionicons
-                                        name={isCredit ? "download-outline" : "share-outline"}
-                                        size={18}
-                                        color={isCredit ? "#059669" : "#DC2626"}
+                                        name={isCredit ? "trending-up" : "trending-down"}
+                                        size={20}
+                                        color={isCredit ? "#10B981" : "#EF4444"}
                                     />
                                 </View>
-                                <View className="flex-1 ml-4">
-                                    <Text className="text-[11px] font-black text-foreground uppercase" numberOfLines={1}>{item.description || item.type}</Text>
-                                    <Text className="text-[8px] font-bold text-muted-foreground uppercase mt-1">{new Date(item.created_at).toLocaleDateString()}</Text>
+                                <View className="flex-1 ml-4 mr-2">
+                                    <Text className="text-[11px] font-black text-foreground uppercase tracking-tight" numberOfLines={1}>
+                                        {item.description || item.type}
+                                    </Text>
+                                    <Text className="text-[9px] font-bold text-muted-foreground uppercase mt-1">
+                                        {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </Text>
                                 </View>
-                                <Text className={`font-black text-sm tabular-nums ${isCredit ? 'text-primary' : 'text-destructive'}`}>
-                                    {isCredit ? '+' : '-'} {item.amount.toFixed(2)}
-                                </Text>
+                                <View className="items-end">
+                                    <Text className={`font-black text-base tabular-nums italic ${isCredit ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {isCredit ? '+' : '-'} {item.amount.toFixed(2)}
+                                    </Text>
+                                    <Text className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mt-1">GHS</Text>
+                                </View>
                             </View>
                         );
                     }}
                     ListEmptyComponent={
-                        <View className="py-12 items-center justify-center border-2 border-dashed border-border rounded-sm">
-                            <Ionicons name="file-tray-outline" size={32} color="#D1D5DB" />
-                            <Text className="mt-2 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Digital_Ledger_Empty</Text>
+                        <View className="py-16 items-center justify-center bg-white/20 border border-dashed border-primary/20 rounded-[32px]">
+                            <View className="w-16 h-16 bg-primary/5 rounded-full items-center justify-center mb-4">
+                                <Ionicons name="receipt-outline" size={32} color="#059669" opacity={0.3} />
+                            </View>
+                            <Text className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">Ledger_Instance_Empty</Text>
                         </View>
                     }
                 />
