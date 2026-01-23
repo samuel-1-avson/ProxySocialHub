@@ -1,12 +1,15 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // RegisterProviderServicesRoutes registers provider service configuration routes
@@ -15,6 +18,8 @@ func RegisterProviderServicesRoutes(r *gin.RouterGroup) {
 	{
 		services.GET("", listMyServiceConfigs)
 		services.GET("/templates", getServiceTemplates)
+		services.GET("/templates/community", getCommunityTemplates) // User shared
+		services.POST("/templates/share", shareServiceTemplate)     // Share my config
 		services.GET("/:nodeId", getServiceConfig)
 		services.POST("", createServiceConfig)
 		services.PUT("/:nodeId", updateServiceConfig)
@@ -224,13 +229,41 @@ func updateServiceConfig(c *gin.Context) {
 		updates["is_active"] = *req.IsActive
 	}
 
+	if req.IsActive != nil {
+		updates["is_active"] = *req.IsActive
+	}
+
+	// 1. Versioning: Archive old config
+	// Capture current state before update? Or capture what we are changing to?
+	// Usually history tracks "what it was before" or "what it became".
+	// Let's track "what it became" (Snapshot) or just the diff.
+	// Simplest: Snapshot the *previous* state before overwriting.
+	oldConfigJSON, _ := json.Marshal(config)
+	history := models.ServiceConfigHistory{
+		ServiceConfigID: config.ID,
+		ChangedBy:       userID.(uuid.UUID),
+		ChangeReason:    "API Update",
+		ConfigSnapshot:  string(oldConfigJSON),
+	}
+	db.DB.Create(&history)
+
 	if err := db.DB.Model(&config).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update configuration"})
 		return
 	}
 
-	// Reload
-	db.DB.Where("id = ?", config.ID).First(&config)
+	// Reload to get fresh state including DB defaults and relations
+	db.DB.Preload("Node").Where("id = ?", config.ID).First(&config)
+
+	// 2. Redis Sync (Push to Edge)
+	if redisClient.Client != nil {
+		ctx := c.Request.Context()
+		redisKey := "node:config:" + config.NodeID.String()
+		newConfigJSON, _ := json.Marshal(config)
+		// Cache for 1 hour approx, Gateway should cache locally too
+		redisClient.Client.Set(ctx, redisKey, newConfigJSON, 3600*time.Second)
+	}
+
 	c.JSON(http.StatusOK, config)
 }
 
@@ -306,4 +339,56 @@ func bulkUpdateServiceConfigs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"updated": updated, "total": len(req.NodeIDs)})
+}
+
+// ShareTemplateRequest
+type ShareTemplateRequest struct {
+	NodeID      uuid.UUID `json:"node_id" binding:"required"`
+	Name        string    `json:"name" binding:"required"`
+	Description string    `json:"description"`
+	Price       float64   `json:"price"`
+}
+
+// shareServiceTemplate creates a public template from a node config
+func shareServiceTemplate(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uID := userID.(uuid.UUID)
+
+	var req ShareTemplateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Fetch Config
+	var config models.ServiceConfiguration
+	if err := db.DB.Where("node_id = ? AND user_id = ?", req.NodeID, uID).First(&config).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Configuration not found"})
+		return
+	}
+
+	// Serialize Config
+	configJSON, _ := json.Marshal(config)
+
+	template := models.SharedServiceTemplate{
+		UserID:         uID,
+		Name:           req.Name,
+		Description:    req.Description,
+		Price:          req.Price,
+		ConfigSnapshot: string(configJSON),
+	}
+
+	if err := db.DB.Create(&template).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to share template"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, template)
+}
+
+// getCommunityTemplates returns shared templates
+func getCommunityTemplates(c *gin.Context) {
+	var templates []models.SharedServiceTemplate
+	db.DB.Preload("Author").Order("downloads DESC, created_at DESC").Limit(50).Find(&templates)
+	c.JSON(http.StatusOK, gin.H{"templates": templates})
 }

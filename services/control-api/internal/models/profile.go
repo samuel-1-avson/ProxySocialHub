@@ -54,6 +54,24 @@ type UserPublicProfile struct {
 
 	// Relationship status (set dynamically)
 	IsFollowing bool `json:"is_following,omitempty"`
+	IsBlocked   bool `json:"is_blocked,omitempty"`
+
+	// Details
+	SocialLinks  map[string]interface{} `json:"social_links,omitempty"`
+	Skills       []string               `json:"skills,omitempty"`
+	BusinessName *string                `json:"business_name,omitempty"`
+}
+
+// Block represents a user blocking another user
+type Block struct {
+	BlockerID uuid.UUID `gorm:"type:uuid;primary_key" json:"blocker_id"`
+	BlockedID uuid.UUID `gorm:"type:uuid;primary_key" json:"blocked_id"`
+	Reason    string    `gorm:"size:255" json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (Block) TableName() string {
+	return "blocks"
 }
 
 // ToPublicProfile converts a User to a public profile DTO
@@ -77,16 +95,23 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		TotalBandwidthSold: u.TotalBandwidthSold,
 		TrustTier:          u.TrustTier,
 		CreatedAt:          u.CreatedAt,
+		SocialLinks:        u.SocialLinks,
+		Skills:             u.Skills,
+		BusinessName:       u.BusinessName,
 	}
 }
 
 // UpdateProfileRequest represents a request to update user profile
 type UpdateProfileRequest struct {
-	DisplayName   *string `json:"display_name" binding:"omitempty,max=100"`
-	Username      *string `json:"username" binding:"omitempty,min=3,max=50,alphanum"`
-	Bio           *string `json:"bio" binding:"omitempty,max=500"`
-	Location      *string `json:"location" binding:"omitempty,max=100"`
-	Website       *string `json:"website" binding:"omitempty,url,max=255"`
-	AvatarURL     *string `json:"avatar_url" binding:"omitempty,url"`
-	CoverImageURL *string `json:"cover_image_url" binding:"omitempty,url"`
+	DisplayName   *string                `json:"display_name" binding:"omitempty,max=100"`
+	Username      *string                `json:"username" binding:"omitempty,min=3,max=50,alphanum"`
+	Bio           *string                `json:"bio" binding:"omitempty,max=500"`
+	Location      *string                `json:"location" binding:"omitempty,max=100"`
+	Website       *string                `json:"website" binding:"omitempty,url,max=255"`
+	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,url"`
+	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,url"`
+	Skills        []string               `json:"skills"`
+	SocialLinks   map[string]interface{} `json:"social_links"`
+	BusinessName  *string                `json:"business_name" binding:"omitempty,max=100"`
+	TaxID         *string                `json:"tax_id" binding:"omitempty,max=50"`
 }

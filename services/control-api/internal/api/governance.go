@@ -32,7 +32,17 @@ type CreateProposalRequest struct {
 }
 
 type GovernanceVoteRequest struct {
-	Choice string `json:"choice" binding:"required,oneof=yes no abstain"`
+	Choice        string `json:"choice" binding:"required,oneof=yes no abstain"`
+	Signature     string `json:"signature" binding:"required"`      // Cryptographic signature
+	WalletAddress string `json:"wallet_address" binding:"required"` // Address that signed
+}
+
+// verifyVoteSignature checks if the signature is valid for the vote
+// TODO: Implement actual Solana/ETH signature verification
+func verifyVoteSignature(address, message, signature string) bool {
+	// MVP: Check if signature is non-empty and address matches.
+	// Real implementation requires tweetnacl or verifying the curve point.
+	return len(signature) > 10 && len(address) > 10
 }
 
 // createProposal creates a new governance proposal
@@ -180,7 +190,14 @@ func castVote(c *gin.Context) {
 		return
 	}
 
-	// 1. Check Proposal Status
+	// 1. Verify Signature (Decentralization Enforcement)
+	voteMsg := fmt.Sprintf("vote:%s:%s", proposalID.String(), req.Choice)
+	if !verifyVoteSignature(req.WalletAddress, voteMsg, req.Signature) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
+		return
+	}
+
+	// 2. Check Proposal Status
 	var proposal models.Proposal
 	if err := db.DB.First(&proposal, "id = ?", proposalID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})

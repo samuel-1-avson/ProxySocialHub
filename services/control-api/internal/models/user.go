@@ -1,9 +1,13 @@
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -34,13 +38,19 @@ type User struct {
 	KYCStatus KYCStatus  `gorm:"default:'not_started'" json:"kyc_status"`
 
 	// Social Profile fields
-	DisplayName   *string `gorm:"size:100" json:"display_name,omitempty"`
-	Username      *string `gorm:"size:50;unique" json:"username,omitempty"`
-	Bio           *string `json:"bio,omitempty"`
-	AvatarURL     *string `json:"avatar_url,omitempty"`
-	CoverImageURL *string `json:"cover_image_url,omitempty"`
-	Location      *string `gorm:"size:100" json:"location,omitempty"`
-	Website       *string `gorm:"size:255" json:"website,omitempty"`
+	DisplayName   *string        `gorm:"size:100" json:"display_name,omitempty"`
+	Username      *string        `gorm:"size:50;unique" json:"username,omitempty"`
+	Bio           *string        `json:"bio,omitempty"`
+	AvatarURL     *string        `json:"avatar_url,omitempty"`
+	CoverImageURL *string        `json:"cover_image_url,omitempty"`
+	Location      *string        `gorm:"size:100" json:"location,omitempty"`
+	Website       *string        `gorm:"size:255" json:"website,omitempty"`
+	SocialLinks   JSONMap        `gorm:"type:jsonb" json:"social_links,omitempty"` // {"twitter": "...", "github": "..."}
+	Skills        pq.StringArray `gorm:"type:text[]" json:"skills,omitempty"`
+
+	// Business Profile
+	BusinessName *string `gorm:"size:100" json:"business_name,omitempty"`
+	TaxID        *string `gorm:"size:50" json:"tax_id,omitempty"` // Private? Or Verified?
 
 	// Social Stats
 	FollowersCount int     `gorm:"default:0" json:"followers_count"`
@@ -61,6 +71,29 @@ type User struct {
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// JSONMap for generic JSON DB storage
+type JSONMap map[string]interface{}
+
+// Scan implements sql.Scanner
+func (j *JSONMap) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+	return json.Unmarshal(bytes, &j)
+}
+
+// Value implements driver.Valuer
+func (j JSONMap) Value() (driver.Value, error) {
+	if j == nil {
+		return nil, nil
+	}
+	return json.Marshal(j)
 }
 
 // TableName overrides the table name used by User to `profiles`

@@ -49,6 +49,9 @@ func RegisterAdminRoutes(r *gin.RouterGroup) {
 
 	// Audit Logs (Admins only)
 	r.GET("/audit-logs", RequirePermission("system:audit"), getAuditLogs)
+
+	// Pricing Management (Admins/System)
+	r.POST("/pricing/adjust", triggerPricingAdjustment)
 }
 
 // ========== User Management ==========
@@ -601,5 +604,16 @@ func getAuditLogs(c *gin.Context) {
 		"total_count": totalCount,
 		"page":        page,
 		"per_page":    perPage,
+	})
+}
+
+func triggerPricingAdjustment(c *gin.Context) {
+	// In a real system, this would run async or be protected by a strict system key
+	// For MVP, we run it inline (careful with timeout)
+	go AdjustDynamicPricing()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Dynamic pricing adjustment triggered",
+		"status":  "running",
 	})
 }

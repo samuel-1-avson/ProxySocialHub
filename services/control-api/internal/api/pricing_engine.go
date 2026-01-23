@@ -1,6 +1,11 @@
 package api
 
 import (
+	"math"
+	"time"
+
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -17,6 +22,76 @@ const (
 	QualityMultiplierMidTier = 1.0 // 80-95 score
 	QualityMultiplierLowTier = 0.8 // < 80 score
 )
+
+// AdjustDynamicPricing iterates over service configs and adjusts prices based on utilization
+// This should be triggered by a Cron job every 15-60 minutes
+func AdjustDynamicPricing() {
+	var configs []models.ServiceConfiguration
+	if err := db.DB.Where("dynamic_pricing_enabled = ? AND is_active = ?", true, true).Preload("Node").Find(&configs).Error; err != nil {
+		logging.Error(err).Msg("Failed to fetch configs for dynamic pricing")
+		return
+	}
+
+	logging.Info().Msgf("Adjusting pricing for %d configs", len(configs))
+
+	for _, config := range configs {
+		// Calculate current utilization
+		// For MVP, we use Concurrent Connections relative to Max
+		// Real system would query Redis/Prometheus
+
+		limit := float64(config.MaxConcurrentConnections)
+		if limit <= 0 {
+			limit = 100 // Default reference
+		}
+
+		// Mock utilization (Random or based on some state)
+		// We'll assume a random fluctuation for demo, or 50% if unknown
+		// In production: usage := redis.GetActiveConnections(config.NodeID)
+		currentUsage := limit * 0.6 // Mock: 60% load
+
+		utilization := currentUsage / limit
+		target := config.TargetUtilization
+
+		// Dampening factor
+		step := config.AdjustmentStep
+		if step <= 0 {
+			step = 0.05
+		}
+
+		newMultiplier := config.PriceMultiplierHTTP // Base adjustment on HTTP multiplier
+
+		if utilization > target+0.1 {
+			// Overloaded -> Increase Price
+			newMultiplier *= (1 + step)
+		} else if utilization < target-0.1 {
+			// Underloaded -> Decrease Price
+			newMultiplier *= (1 - step)
+		} else {
+			continue // Within acceptable range
+		}
+
+		// Clamp
+		minMult := config.MinPriceMultiplier
+		if minMult <= 0 {
+			minMult = 0.5
+		}
+		maxMult := config.MaxPriceMultiplier
+		if maxMult <= 0 {
+			maxMult = 3.0
+		}
+
+		newMultiplier = math.Max(minMult, math.Min(maxMult, newMultiplier))
+
+		// Update if changed
+		if newMultiplier != config.PriceMultiplierHTTP {
+			db.DB.Model(&config).Updates(map[string]interface{}{
+				"price_multiplier_http":  newMultiplier,
+				"price_multiplier_https": newMultiplier, // Keep in sync
+				"updated_at":             time.Now(),
+			})
+		}
+	}
+}
 
 // CalculateFairPrice determines the price per GB based on proxy metrics
 func CalculateFairPrice(listing models.ProxyListing) float64 {
