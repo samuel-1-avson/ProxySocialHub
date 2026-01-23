@@ -124,7 +124,41 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
+	// Create Feed Event for Sale (with Whale Alert)
+	isWhale := order.TotalPrice >= 500.0
+
+	feedMeta := map[string]interface{}{
+		"price":         order.TotalPrice,
+		"currency":      listing.PricePerGB, // Unit price
+		"bandwidth_gb":  req.BandwidthGB,
+		"listing_title": listing.Title,
+		"is_whale":      isWhale,
+	}
+
+	feedEvent := models.CreateFeedEvent(
+		&buyerID,
+		models.FeedEventNewSale,
+		"listing",
+		&listing.ID,
+		fmt.Sprintf("purchased %.2f GB of '%s'", req.BandwidthGB, listing.Title),
+		feedMeta,
+	)
+	tx.Create(feedEvent)
+
 	tx.Commit()
+
+	// Real-time Broadcast & Cache
+	go func() {
+		// Populate Actor for feed
+		var fullEvent models.FeedEvent
+		if err := db.DB.Preload("Actor").First(&fullEvent, "id = ?", feedEvent.ID).Error; err == nil {
+			PublishFeedEvent(fullEvent) // Handles standard broadcast + Redis Cache
+
+			if isWhale {
+				BroadcastToAll("whale_alert", fullEvent) // Special effect
+			}
+		}
+	}()
 
 	// Store in Redis for Gateway authentication
 	sessionData := &redisClient.SessionData{

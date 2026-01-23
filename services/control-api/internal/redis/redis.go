@@ -30,6 +30,9 @@ type RedisClient interface {
 	Close() error
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 	DecrBy(ctx context.Context, key string, decrement int64) *redis.IntCmd
+	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
+	LTrim(ctx context.Context, key string, start, stop int64) *redis.StatusCmd
+	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 }
 
 var Client RedisClient

@@ -21,6 +21,7 @@ const (
 	FeedEventMilestone      FeedEventType = "milestone"
 	FeedEventNewFollower    FeedEventType = "new_follower"
 	FeedEventNewSale        FeedEventType = "new_sale"
+	FeedEventNewThread      FeedEventType = "new_thread"
 )
 
 // FeedEvent represents an event in the activity feed

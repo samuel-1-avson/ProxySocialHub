@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"runtime/debug"
 	"time"
 
@@ -432,101 +431,15 @@ func initiateDeposit(c *gin.Context) {
 		return
 	}
 
-	// Validate minimum deposit (e.g., 1 GHS)
-	if req.Amount < 1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimum deposit is 1 GHS"})
-		return
-	}
-
-	// Idempotency Check
-	idempotencyKey := c.GetHeader("Idempotency-Key")
-	if idempotencyKey != "" {
-		var existingTx models.PendingTransaction
-		if err := db.DB.Where("idempotency_key = ? AND user_id = ?", idempotencyKey, userID).First(&existingTx).Error; err == nil {
-			// Found existing! Return idempotent success response
-			logging.Info().Str("idempotency_key", idempotencyKey).Msg("Idempotent request matched")
-			c.JSON(http.StatusOK, gin.H{
-				"status":    "success",
-				"reference": existingTx.Reference, // Return original ref
-				"message":   "Payment initialized (Idempotent)",
-				// Note: accessing authorization_url again might need storing it, but for now we assume they have it or this confirms init
-				"idempotent_replay": true,
-			})
-			return
-		}
-	}
-
-	client := payments.NewPaystackClient()
-	if client.SecretKey == "" {
-		logging.Error(nil).Msg("Payment configuration missing: PAYSTACK_SECRET_KEY not set")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Payment configuration missing"})
-		return
-	}
-
-	// Amount in kobo/pesewas (x100)
-	// Paystack expects string for amount to avoid float precision issues, but we pass valid float.
-	// Convert to minor units (pesewas) int, then string
-	amountPesewas := int64(req.Amount * 100)
-	amountStr := fmt.Sprintf("%d", amountPesewas)
-
-	// Generate reference ID
-	reference := uuid.New().String()
-
-	// Initialize Paystack Transaction
-	paystackReq := payments.InitializeRequest{
-		Email:     req.Email,
-		Amount:    amountStr,
-		Currency:  "GHS",
-		Reference: reference,
-		Channels:  []string{"card", "mobile_money"},                         // Enable both
-		Callback:  os.Getenv("FRONTEND_URL") + "/dashboard/wallet/callback", // Frontend callback
-		Metadata: map[string]interface{}{
-			"user_id":      userID,
-			"auto_convert": req.AutoConvert, // Pass preference to metadata
-			"custom_fields": []map[string]string{
-				{
-					"display_name":  "User ID",
-					"variable_name": "user_id",
-					"value":         userID,
-				},
-			},
-		},
-	}
-
-	resp, err := client.InitializeTransaction(paystackReq)
-	if err != nil {
-		logging.Error(err).Msg("Paystack initialization failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to initialize payment: %v", err)})
-		return
-	}
-
-	// Store pending transaction in DB
-	pendingTx := models.PendingTransaction{
-		Reference:      reference,
-		UserID:         userID,
-		Type:           "deposit",
-		Amount:         req.Amount,
-		Currency:       "GHS",
-		Provider:       "paystack",
-		Status:         "pending",
-		IdempotencyKey: idempotencyKey,
-		// Phone is not mandatory for Paystack init, captured during checkout
-	}
-
-	if err := db.DB.Create(&pendingTx).Error; err != nil {
-		logging.Error(err).Msg("Failed to save pending transaction to DB")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return
-	}
-	logging.Info().Str("reference", reference).Msg("Deposit initialized and saved")
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":            "success",
-		"reference":         reference,
-		"authorization_url": resp.Data.AuthorizationURL,
-		"access_code":       resp.Data.AccessCode,
-		"message":           "Payment initialized",
+	// DECENTRALIZATION ENFORCEMENT
+	// Fiat deposits are disabled to ensure the system remains decentralized.
+	c.JSON(http.StatusForbidden, gin.H{
+		"error":   "Fiat deposits are disabled.",
+		"message": "Please use Crypto deposits (Solana or Bittensor) to fund your wallet. This ensures the system remains decentralized.",
+		"action":  "Use /wallet/deposit/crypto or /wallet/deposit/tao",
 	})
+	return
+	return
 }
 
 // Verify payment endpoint
@@ -850,7 +763,7 @@ func initiateWithdrawal(c *gin.Context) {
 // Helper to refund wallet on failure
 // Helper to refund wallet on failure
 func refundWallet(userID string, amount float64) {
-	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userID).Update("balance", gorm.Expr("balance + ?", amount)).Error; err != nil {
+	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userID).Update("balance_ghs", gorm.Expr("balance_ghs + ?", amount)).Error; err != nil {
 		logging.Error(err).Str("user_id", userID).Float64("amount", amount).Msg("Failed to refund wallet")
 	}
 }
