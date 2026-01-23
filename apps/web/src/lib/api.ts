@@ -12,6 +12,7 @@ export * from './services/usage';
 export * from './services/referral';
 export * from './services/matching';
 export * from './services/subscriptions';
+export * from './services/feed';
 
 // Fallback for types that might still be used from "Order" which was just in api.ts
 // I'll create `services/escrow.ts` for Orders to be comprehensive.
