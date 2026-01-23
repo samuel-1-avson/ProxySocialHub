@@ -83,16 +83,13 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Sync user to local DB if not exists
-		// We do this synchronously to ensure downstream handlers find the user
 		var dbUser models.User
-		if result := db.DB.First(&dbUser, "id = ?", user.ID); result.Error != nil {
-			// User not found, create new
-			// We need to parse UUID from string
-			userUUID, err := uuid.Parse(user.ID)
-			if err != nil {
-				logging.Error(err).Str("user_id", user.ID).Msg("Failed to parse UUID for sync")
-				// Don't fail the request, but logging is vital
-			} else {
+		userUUID, err := uuid.Parse(user.ID)
+		if err != nil {
+			logging.Error(err).Str("user_id", user.ID).Msg("Failed to parse UUID for sync")
+		} else {
+			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
+				// User not found, create new
 				username := strings.Split(user.Email, "@")[0]
 				if len(user.ID) >= 8 {
 					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
@@ -100,9 +97,9 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 				newUser := models.User{
 					ID:        userUUID,
 					Email:     user.Email,
-					Username:  &username, // Provide pointer
+					Username:  &username,
 					TrustTier: models.TrustTierNew,
-					Role:      user.Role, // Based on models.User definition, Role is string, not models.UserRole
+					Role:      user.Role,
 				}
 				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
 					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to create user record")
@@ -186,20 +183,22 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 
 		// Sync user to local DB
 		var dbUser models.User
-		if result := db.DB.First(&dbUser, "id = ?", user.ID); result.Error != nil {
-			userUUID, _ := uuid.Parse(user.ID)
-			username := strings.Split(user.Email, "@")[0]
-			if len(user.ID) >= 8 {
-				username = fmt.Sprintf("%s_%s", username, user.ID[:8])
+		userUUID, err := uuid.Parse(user.ID)
+		if err == nil {
+			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
+				username := strings.Split(user.Email, "@")[0]
+				if len(user.ID) >= 8 {
+					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
+				}
+				newUser := models.User{
+					ID:        userUUID,
+					Email:     user.Email,
+					Username:  &username,
+					TrustTier: models.TrustTierNew,
+					Role:      user.Role,
+				}
+				db.DB.Create(&newUser)
 			}
-			newUser := models.User{
-				ID:        userUUID,
-				Email:     user.Email,
-				Username:  &username,
-				TrustTier: models.TrustTierNew,
-				Role:      user.Role,
-			}
-			db.DB.Create(&newUser)
 		}
 
 		// Store in context
