@@ -233,6 +233,9 @@ func walletLogin(c *gin.Context) {
 	var user models.User
 	result := db.DB.Where("bittensor_address = ?", req.Address).First(&user)
 	if result.Error != nil {
+		// Start transaction for atomic user + wallet creation
+		tx := db.DB.Begin()
+
 		// Create new user
 		username := "user_" + req.Address[:8]
 		email := req.Address + "@wallet.proxyhubb.com"
@@ -244,8 +247,30 @@ func walletLogin(c *gin.Context) {
 			Username:         &username,
 			Email:            email,
 		}
-		if err := db.DB.Create(&user).Error; err != nil {
+
+		if err := tx.Create(&user).Error; err != nil {
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
+			return
+		}
+
+		// Create Wallet immediately
+		wallet := models.Wallet{
+			UserID:     user.ID,
+			BalanceTAO: 0,
+			BalanceGHS: 0,
+			Currency:   "MULTI",
+		}
+
+		if err := tx.Create(&wallet).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
+			return
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Transaction commit failed"})
 			return
 		}
 	}

@@ -103,7 +103,7 @@ func verifyTaoDeposit(c *gin.Context) {
 	// Credit Wallet
 	tx := db.DB.Begin()
 	var wallet models.Wallet
-	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
 		return
@@ -510,8 +510,6 @@ func initiateDeposit(c *gin.Context) {
 	})
 }
 
-const FIXED_EXCHANGE_RATE_GHS_USD = 15.0
-
 // Verify payment endpoint
 func verifyDeposit(c *gin.Context) {
 	reference := c.Query("reference")
@@ -578,7 +576,8 @@ func verifyDeposit(c *gin.Context) {
 	}
 
 	// Check if wallet exists or create
-	if result := tx.Where("user_id = ?", pUserID).First(&wallet); result.Error != nil {
+	// Use locking to prevent race conditions during updates
+	if result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", pUserID).First(&wallet); result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			logging.Info().Str("user_id", pUserID.String()).Msg("verifyDeposit: Wallet missing, creating new Multi-Currency wallet")
 			wallet = models.Wallet{
