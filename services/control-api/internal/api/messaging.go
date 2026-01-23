@@ -21,8 +21,11 @@ func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 
 // getConversations returns the current user's conversations
 func getConversations(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
@@ -82,8 +85,11 @@ func getConversations(c *gin.Context) {
 
 // startConversation starts a new conversation or returns existing one
 func startConversation(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	var req models.StartConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -158,8 +164,11 @@ func startConversation(c *gin.Context) {
 
 // getMessages returns messages in a conversation
 func getMessages(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	convID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -207,8 +216,11 @@ func getMessages(c *gin.Context) {
 
 // sendMessage sends a message in a conversation
 func sendMessage(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	convID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -262,8 +274,11 @@ func sendMessage(c *gin.Context) {
 
 // markAsRead marks all messages as read
 func markAsRead(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	convID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

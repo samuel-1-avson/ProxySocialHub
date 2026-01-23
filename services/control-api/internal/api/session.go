@@ -58,18 +58,13 @@ func createSession(c *gin.Context) {
 		return
 	}
 
-	// Get user ID from JWT token
-	userID := c.GetString("userID")
-	if userID == "" {
+	// Get user ID from context
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
-
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
+	userID := userUUID.String()
 
 	// Get user to check trust tier
 	var user models.User
@@ -206,7 +201,12 @@ func createSession(c *gin.Context) {
 
 func getSession(c *gin.Context) {
 	id := c.Param("id")
-	userID := c.GetString("userID")
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userUUID.String()
 
 	var session models.Session
 	if result := db.DB.First(&session, "id = ?", id); result.Error != nil {
@@ -243,11 +243,12 @@ func getSession(c *gin.Context) {
 }
 
 func listSessions(c *gin.Context) {
-	userID := c.GetString("userID")
-	if userID == "" {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
+	userID := userUUID.String()
 
 	var sessions []models.Session
 	if result := db.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&sessions); result.Error != nil {
@@ -283,7 +284,12 @@ func listSessions(c *gin.Context) {
 
 func terminateSession(c *gin.Context) {
 	id := c.Param("id")
-	userID := c.GetString("userID")
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userUUID.String()
 
 	var session models.Session
 	if result := db.DB.First(&session, "id = ?", id); result.Error != nil {

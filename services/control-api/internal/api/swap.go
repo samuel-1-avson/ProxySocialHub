@@ -23,7 +23,12 @@ func swapCurrency(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userUUID.String()
 
 	// Only support GHS -> TAO and TAO -> GHS for now
 	if !((req.FromCurrency == "GHS" && req.ToCurrency == "TAO") || (req.FromCurrency == "TAO" && req.ToCurrency == "GHS")) {

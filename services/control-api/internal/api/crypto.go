@@ -34,11 +34,12 @@ func linkWallet(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
-	if userID == "" {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
+	userID := userUUID.String()
 
 	tx := db.DB.Begin()
 	defer func() {
@@ -135,7 +136,12 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+	userID := userUUID.String()
 	ctx := context.Background()
 
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)

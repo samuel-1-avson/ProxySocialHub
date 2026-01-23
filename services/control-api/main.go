@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/secure"
@@ -123,21 +124,24 @@ func main() {
 		origin := c.Request.Header.Get("Origin")
 		allowOrigin := ""
 
+		// Trim any whitespace from the received origin
+		origin = strings.TrimSpace(origin)
+
 		// Check if origin is allowed
 		for _, o := range cfg.Server.CORSOrigins {
-			if o == origin {
+			if strings.TrimSpace(o) == origin {
 				allowOrigin = origin
 				break
 			}
 		}
 
-		// Fallback for tools/Postman if no origin (or if we want to allow dev tools in dev mode)
-		if allowOrigin == "" && cfg.Server.Environment == "development" {
-			// allowOrigin = "*" // Still unsafe with credentials, better to not set or require origin
-		}
-
 		if allowOrigin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		} else if origin != "" {
+			// Diagnostic log for CORS issues in dev
+			if cfg.Server.Environment == "development" {
+				log.Printf("CORS mismatch: received origin %q, allowed origins: %v", origin, cfg.Server.CORSOrigins)
+			}
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE, PATCH")

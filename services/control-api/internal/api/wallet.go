@@ -73,7 +73,8 @@ func verifyTaoDeposit(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
+	userUUID, _ := GetUserID(c)
+	userID := userUUID.String()
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
@@ -165,7 +166,8 @@ func initiateTaoWithdrawal(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
+	userUUID, _ := GetUserID(c)
+	userID := userUUID.String()
 
 	tx := db.DB.Begin()
 	var wallet models.Wallet
@@ -235,22 +237,15 @@ func getWallet(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal Server Error (Panic): %v", r)})
 		}
 	}()
-	// Get user ID from JWT token
-	userIDStr := c.GetString("userID")
-	logging.Info().Str("user_id", userIDStr).Msg("getWallet: Request received")
-
-	if userIDStr == "" {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		logging.Error(nil).Msg("getWallet: User ID not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Invalid user ID format")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
+	userID := userUUID
+	userIDStr := userID.String()
+	logging.Info().Str("user_id", userIDStr).Msg("getWallet: Request received")
 
 	var wallet models.Wallet
 	// Use Find to avoid GORM 'RecordNotFound' logging noise
@@ -430,7 +425,8 @@ func initiateDeposit(c *gin.Context) {
 	}
 
 	// Get user ID from JWT token
-	userID := c.GetString("userID")
+	userUUID, _ := GetUserID(c)
+	userID := userUUID.String()
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
@@ -711,11 +707,12 @@ func initiateWithdrawal(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("userID")
-	if userID == "" {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
+	userID := userUUID.String()
 
 	// 1. Transactional Balance Check & Deduction
 	tx := db.DB.Begin()
