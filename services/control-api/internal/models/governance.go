@@ -52,11 +52,15 @@ type Proposal struct {
 	YesVotes float64 `gorm:"default:0" json:"yes_votes"`
 	NoVotes  float64 `gorm:"default:0" json:"no_votes"`
 
+	// Link to discussion
+	ThreadID *uuid.UUID `gorm:"type:uuid" json:"thread_id,omitempty"`
+
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-	Proposer *User `gorm:"foreignKey:ProposerID" json:"proposer,omitempty"`
+	Proposer *User        `gorm:"foreignKey:ProposerID" json:"proposer,omitempty"`
+	Thread   *ForumThread `gorm:"foreignKey:ThreadID" json:"thread,omitempty"`
 }
 
 func (Proposal) TableName() string {
