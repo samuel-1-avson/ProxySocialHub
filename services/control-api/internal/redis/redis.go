@@ -28,6 +28,8 @@ type RedisClient interface {
 	Pipeline() redis.Pipeliner
 	Ping(ctx context.Context) *redis.StatusCmd
 	Close() error
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	DecrBy(ctx context.Context, key string, decrement int64) *redis.IntCmd
 }
 
 var Client RedisClient
@@ -85,7 +87,7 @@ func initSingle(redisURL string) error {
 func initCluster(redisURL string) error {
 	// Parse cluster URLs (comma-separated)
 	addrs := strings.Split(redisURL, ",")
-	
+
 	// Clean up URLs (remove redis:// prefix if present)
 	for i, addr := range addrs {
 		addr = strings.TrimSpace(addr)

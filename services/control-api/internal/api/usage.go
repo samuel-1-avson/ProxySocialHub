@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/events"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
-	"gorm.io/gorm"
 )
 
 const PricePerGB = 0.50 // GHS per GB
@@ -32,6 +32,8 @@ type usageReportRequest struct {
 	SessionUsername string `json:"session_username" binding:"required"`
 	BytesUp         int64  `json:"bytes_up"`
 	BytesDown       int64  `json:"bytes_down"`
+	Signature       string `json:"signature"`
+	Nonce           uint64 `json:"nonce"`
 }
 
 type batchUsageRequest struct {
@@ -119,77 +121,20 @@ func reportUsage(c *gin.Context) {
 			}
 		}(sessionData, report.BytesUp, report.BytesDown)
 
-		// IaaS Billing Pivot (Real-time Deduction in TAO)
-		// Fetch Proxy Listing for Price Calculation - Database Check
-		var session models.Session
-		if err := db.DB.Preload("Listing").Where("credentials_user = ?", report.SessionUsername).First(&session).Error; err != nil {
-			logging.Warn().Str("session", report.SessionUsername).Msg("Session not found in DB during billing, skipping deduction")
-			continue
-		}
+		// IaaS Billing (Aggregated)
+		// Instead of locking the DB every time, we push to Redis Aggregator
+		aggregator := billing.NewAggregator()
 
-		var currentPricePerGB float64 = 0.50
-		if session.Listing != nil {
-			currentPricePerGB = CalculateFairPrice(*session.Listing)
-		}
+		// Use Signature from report if we updated the request struct (we didn't yet, assume empty for now or update struct)
+		// For this step, we pass empty signature/nonce as we haven't updated `usageReportRequest` struct in this file yet.
+		// NOTE: We need to update request struct first ideally.
+		// Assuming report struct matches JSON sent by Gateway
 
-		rate := GetTaoToGhsRate()
-		costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * currentPricePerGB
-		costTAO := costGHS / rate
+		// Wait, usageReportRequest in this file needs updating first?
+		// Yes, Gateway sends signature now.
 
-		// 3. Atomic Balance Deduction (DB Lock)
-		var wallet models.Wallet
-		// Use a transaction for safety
-		err = db.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("user_id = ?", sessionData.UserID).First(&wallet).Error; err != nil {
-				return err
-			}
-
-			// AUTO-MIGRATE if needed (Safety check)
-			if wallet.Currency != "TAO" {
-				// Ideally logging here
-			}
-
-			if wallet.BalanceTAO < costTAO {
-				// 4. Insufficient Funds -> Terminate
-				redisClient.DeleteSession(report.SessionUsername)
-
-				// Update session status asynchronously to avoid blocking tx
-				go func() {
-					db.DB.Model(&models.Session{}).
-						Where("credentials_user = ?", report.SessionUsername).
-						Updates(map[string]interface{}{
-							"status":     models.SessionTerminated,
-							"end_reason": "insufficient_funds",
-						})
-				}()
-
-				return fmt.Errorf("insufficient funds")
-			}
-
-			// Deduct
-			wallet.BalanceTAO -= costTAO
-			if err := tx.Save(&wallet).Error; err != nil {
-				return err
-			}
-
-			// Log Transaction
-			ledger := models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       -costTAO,
-				BalanceAfter: wallet.BalanceTAO,
-				Type:         models.TransactionUsage,
-				Description:  fmt.Sprintf("Usage: %d bytes (%.6f TAO @ %.2f/GB)", totalBytes, costTAO, currentPricePerGB),
-				CreatedAt:    time.Now(),
-			}
-			return tx.Create(&ledger).Error
-		})
-
-		if err != nil {
-			// If transaction failed or insufficient funds, we logged it.
-			// Gateway should receive a "Stop" signal ideally.
-			// For HTTP reporting, we can return a directive in the response,
-			// but this function is void in the loop.
-			// We rely on Redis deletion to stop future auth checks.
+		if err := aggregator.AggregateUsage(report.SessionUsername, report.BytesUp, report.BytesDown, report.Signature, report.Nonce); err != nil {
+			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to aggregate usage")
 		}
 
 		processed++

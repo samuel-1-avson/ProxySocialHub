@@ -438,6 +438,24 @@ func initiateDeposit(c *gin.Context) {
 		return
 	}
 
+	// Idempotency Check
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey != "" {
+		var existingTx models.PendingTransaction
+		if err := db.DB.Where("idempotency_key = ? AND user_id = ?", idempotencyKey, userID).First(&existingTx).Error; err == nil {
+			// Found existing! Return idempotent success response
+			logging.Info().Str("idempotency_key", idempotencyKey).Msg("Idempotent request matched")
+			c.JSON(http.StatusOK, gin.H{
+				"status":    "success",
+				"reference": existingTx.Reference, // Return original ref
+				"message":   "Payment initialized (Idempotent)",
+				// Note: accessing authorization_url again might need storing it, but for now we assume they have it or this confirms init
+				"idempotent_replay": true,
+			})
+			return
+		}
+	}
+
 	client := payments.NewPaystackClient()
 	if client.SecretKey == "" {
 		logging.Error(nil).Msg("Payment configuration missing: PAYSTACK_SECRET_KEY not set")
@@ -484,13 +502,14 @@ func initiateDeposit(c *gin.Context) {
 
 	// Store pending transaction in DB
 	pendingTx := models.PendingTransaction{
-		Reference: reference,
-		UserID:    userID,
-		Type:      "deposit",
-		Amount:    req.Amount,
-		Currency:  "GHS",
-		Provider:  "paystack",
-		Status:    "pending",
+		Reference:      reference,
+		UserID:         userID,
+		Type:           "deposit",
+		Amount:         req.Amount,
+		Currency:       "GHS",
+		Provider:       "paystack",
+		Status:         "pending",
+		IdempotencyKey: idempotencyKey,
 		// Phone is not mandatory for Paystack init, captured during checkout
 	}
 

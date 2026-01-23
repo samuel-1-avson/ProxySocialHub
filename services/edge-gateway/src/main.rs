@@ -22,11 +22,15 @@ mod rotation;
 mod state;
 mod tls;
 mod tunnel;
+mod registry; // Register the new module
 
 use crate::auth::SessionAuthenticator;
 use crate::circuitbreaker::{CircuitConfig, CircuitError};
 use crate::state::AppState;
 use crate::leader::LeaderElector;
+use crate::registry::store::RegistryStore;
+
+// ... (existing imports and code)
 
 /// Extract username from Proxy-Authorization header
 /// Format: "Basic base64(username:password)"
@@ -143,6 +147,8 @@ async fn proxy(
                                 if let Err(e) = auth_clone.report_usage(&username, total_bytes as i64).await {
                                     error!("Failed to report usage: {}", e);
                                 }
+                                // Record signed usage for decentralized billing
+                                state.usage_tracker.record(&username, bytes_up, bytes_down).await;
                             }
                             Err(e) => {
                                 error!("server io error: {}", e);
@@ -331,7 +337,6 @@ async fn tunnel_to_provider_with_sticky(
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize tracing
@@ -346,6 +351,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize Redis authenticator
     let authenticator = Arc::new(SessionAuthenticator::new(&config.redis_url)?);
     
+    // Initialize Registry Store
+    let registry_store = Arc::new(RegistryStore::new(&config.redis_url)?);
+
     // Initialize Leader Election
     let service_id = Uuid::new_v4().to_string();
     info!("Starting Edge Gateway with Service ID: {}", service_id);
@@ -365,8 +373,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         leader_elector.run().await;
     });
 
+    // Initialize Helper: Usage Tracker
+    let control_api_url = std::env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+    let usage_tracker = Arc::new(crate::metering::UsageTracker::new(&control_api_url, &config.provider_private_key));
+    usage_tracker.clone().start_flush_task();
+
     // Pass leader status to state
-    let state = Arc::new(AppState::new(config, leader_status));
+    let state = Arc::new(AppState::new(config, leader_status, registry_store, usage_tracker));
 
     let listener = TcpListener::bind(addr).await?;
     info!("Edge Gateway Proxy listening on http://{}", addr);

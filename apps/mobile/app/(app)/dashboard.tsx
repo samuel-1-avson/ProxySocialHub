@@ -87,7 +87,7 @@ export default function Dashboard() {
 
                     <View className="flex-row items-baseline">
                         <Text className="text-5xl font-black text-foreground tracking-tighter italic tabular-nums">
-                            {wallet ? wallet.balance.toFixed(2) : '0.00'}<Text className="text-primary">_</Text>
+                            {wallet ? wallet.balance_ghs.toFixed(2) : '0.00'}<Text className="text-primary">_</Text>
                         </Text>
                         <Text className="text-sm font-black text-muted-foreground uppercase tracking-widest ml-2">GHS</Text>
                     </View>
