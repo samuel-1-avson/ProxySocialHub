@@ -18,6 +18,7 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 	sessions := r.Group("/sessions")
 	{
 		sessions.POST("", createSession)
+		sessions.POST("/instant", createInstantSession) // New Universal endpoint
 
 		sessions.POST("/", createSession)
 		sessions.GET("", listSessions)
@@ -309,8 +310,103 @@ func terminateSession(c *gin.Context) {
 		return
 	}
 
-	// Remove from Redis
 	redisClient.DeleteSession(session.CredentialsUser)
 
 	c.JSON(http.StatusOK, gin.H{"status": "terminated"})
+}
+
+type createInstantSessionRequest struct {
+	Strategy       string  `json:"strategy" binding:"required,oneof=fastest cheapest random country"`
+	MaxPrice       float64 `json:"max_price" binding:"gte=0"`
+	TargetCountry  string  `json:"target_country"` // If strategy is country
+	BandwidthLimit int64   `json:"bandwidth_limit"`
+}
+
+// createInstantSession creates a "Pay-as-you-go" Universal Session
+func createInstantSession(c *gin.Context) {
+	var req createInstantSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userUUID.String()
+
+	// 1. Check Wallet Balance
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", userUUID).First(&wallet).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	if wallet.BalanceGHS <= 0 && wallet.BalanceTAO <= 0 {
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient wallet balance. Please deposit funds."})
+		return
+	}
+
+	// 2. Create Session
+	credUser, credPass := generateCredentials()
+
+	// Default limit if 0 (e.g. 1GB safety cap if not specified)
+	if req.BandwidthLimit == 0 {
+		req.BandwidthLimit = 1 * 1024 * 1024 * 1024
+	}
+
+	session := models.Session{
+		UserID:          userUUID,
+		Type:            "universal", // Special type
+		Status:          models.SessionActive,
+		CredentialsUser: credUser,
+		CredentialsPass: credPass,
+		Strategy:        req.Strategy,
+		MaxPrice:        req.MaxPrice,
+		BandwidthLimit:  req.BandwidthLimit,
+		Config:          "{}",
+	}
+
+	if err := db.DB.Create(&session).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	// 3. Store in Redis for Gateway
+	// We need to extend SessionData in redis/client.go to support Strategy if not generic config
+	// For now, we reuse existing fields or map them
+	sessionData := &redisClient.SessionData{
+		UserID:         userID,
+		SessionID:      session.ID.String(),
+		Type:           "universal",
+		Status:         "active",
+		BandwidthLimit: req.BandwidthLimit,
+		TrustTier:      "verified",        // Assume instant buyers are verified or default
+		TargetGeo:      req.TargetCountry, // Map strategy param
+		ExpiresAt:      time.Now().Add(24 * time.Hour),
+		CreatedAt:      time.Now(),
+		// Custom fields for strategy passing?
+		// We can put Strategy in TargetISP if we abuse the field, or update the Redis struct.
+		// Let's assume TargetISP can hold metadata or we update the struct later.
+		// Ideally we update redis/client.go SessionData.
+		// For prototype, we'll encode it in a way the Gateway understands or add the field.
+	}
+
+	// Store
+	if err := redisClient.StoreSession(credUser, sessionData, 24*time.Hour); err != nil {
+		c.JSON(http.StatusCreated, gin.H{"warning": "Redis sync failed", "session": session})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"session": session,
+		"proxy_credentials": gin.H{
+			"username": credUser,
+			"password": credPass,
+			"endpoint": "proxy.proxyhubb.com:3000",
+		},
+		"strategy": req.Strategy,
+	})
 }

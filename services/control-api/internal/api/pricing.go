@@ -61,58 +61,62 @@ func GetTaoToGhsRate() float64 {
 	return newRate
 }
 
+var oracleClient = &http.Client{
+	Timeout: 10 * time.Second,
+}
+
 func fetchPriceFromAPI() (float64, error) {
-	client := http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	var lastErr error
-	maxRetries := 3
-
-	for i := 0; i < maxRetries; i++ {
-		if i > 0 {
-			time.Sleep(time.Duration(i) * 500 * time.Millisecond) // Backoff
-		}
-
-		resp, err := client.Get(COINGECKO_API_URL)
-		if err != nil {
-			lastErr = err
-			logging.Warn().Err(err).Int("attempt", i+1).Msg("Failed to fetch price, retrying...")
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("API returned non-200 status: %d", resp.StatusCode)
-			logging.Warn().Err(lastErr).Int("attempt", i+1).Msg("API error, retrying...")
-			continue
-		}
-
-		var data CoinGeckoResponse
-		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			lastErr = err
-			continue
-		}
-
-		taoUsd := data.Bittensor.USD
-		if taoUsd == 0 {
-			lastErr = fmt.Errorf("Invalid price data returned")
-			continue
-		}
-
-		// Calculate TAO -> GHS
-		// 1 TAO = $X USD
-		// $1 USD = $Y GHS
-		// 1 TAO = X * Y GHS
-		// 1 TAO = X * Y GHS
-		ghsRate := getGhsUsdRate()
-		rate := taoUsd * ghsRate
-
-		logging.Info().Float64("tao_usd", taoUsd).Float64("ghs_rate", rate).Msg("Updated Real-Time Exchange Rate")
+	// 1. Try CoinGecko
+	rate, err := fetchCoinGecko()
+	if err == nil {
 		return rate, nil
 	}
+	logging.Warn().Err(err).Msg("CoinGecko failed, trying fallback...")
 
-	return 0, fmt.Errorf("failed to fetch price after %d attempts: %v", maxRetries, lastErr)
+	// 2. Try Fallback (Binance or others - placeholder for now)
+	// return fetchBinance()
+
+	return 0, err
+}
+
+func fetchCoinGecko() (float64, error) {
+	apiKey := os.Getenv("COINGECKO_API_KEY")
+	url := COINGECKO_API_URL
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	if apiKey != "" {
+		req.Header.Set("x-cg-demo-api-key", apiKey)
+	}
+
+	resp, err := oracleClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("API returned non-200 status: %d", resp.StatusCode)
+	}
+
+	var data CoinGeckoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, err
+	}
+
+	taoUsd := data.Bittensor.USD
+	if taoUsd == 0 {
+		return 0, fmt.Errorf("Invalid price data returned")
+	}
+
+	ghsRate := getGhsUsdRate()
+	rate := taoUsd * ghsRate
+
+	logging.Info().Float64("tao_usd", taoUsd).Float64("ghs_rate", rate).Msg("Updated Exchange Rate via CoinGecko")
+	return rate, nil
 }
 
 func getGhsUsdRate() float64 {

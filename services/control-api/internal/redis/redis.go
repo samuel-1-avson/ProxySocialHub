@@ -46,6 +46,8 @@ type SessionData struct {
 	TrustTier      string    `json:"trust_tier"`      // new, verified, premium
 	TargetGeo      string    `json:"target_geo"`      // country/region targeting
 	TargetISP      string    `json:"target_isp"`      // ISP targeting
+	Strategy       string    `json:"strategy"`        // Routing strategy: fastest, cheapest
+	MaxPrice       float64   `json:"max_price"`       // Max acceptable price
 	ExpiresAt      time.Time `json:"expires_at"`
 	CreatedAt      time.Time `json:"created_at"`
 }

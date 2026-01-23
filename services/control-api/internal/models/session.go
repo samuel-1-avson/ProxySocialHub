@@ -42,6 +42,10 @@ type Session struct {
 
 	// Relations
 	Listing *ProxyListing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`
+
+	// Universal Session Fields
+	Strategy string  `gorm:"size:50" json:"strategy,omitempty"` // e.g., "fastest", "cheapest", "random"
+	MaxPrice float64 `json:"max_price,omitempty"`               // Max price per GB user is willing to pay
 }
 
 func (s *Session) BeforeCreate(tx *gorm.DB) (err error) {
