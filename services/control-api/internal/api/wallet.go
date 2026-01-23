@@ -290,16 +290,18 @@ func getWallet(c *gin.Context) {
 
 			// Attempt to create user, log error if it fails
 			if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
-				// If we can't create the user AND they don't exist, we can't proceed.
-				// However, if err was nil (DoNothing), we proceed.
-				// If real error, we log.
 				fmt.Printf("DEBUG: Fallback create FAILED: %v\n", err)
 				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed.")
-				// We don't return here anymore, we try to proceed to wallet creation which might succeed if user exists now.
-			} else {
-				fmt.Println("DEBUG: Fallback create success (or conflict ignored)")
+				// We still re-check if user exists now (maybe created by concurrent request)
 			}
-			logging.Info().Str("user_id", userIDStr).Msg("getWallet: Fallback user created successfully")
+
+			// Final check: Does user exist now?
+			if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: User does not exist and fallback creation failed")
+				c.JSON(http.StatusNotFound, gin.H{"error": "User account not initialized. Please log in again."})
+				return
+			}
+			logging.Info().Str("user_id", userIDStr).Msg("getWallet: User profile confirmed/created")
 		}
 
 		// Now attempt wallet creation with higher confidence

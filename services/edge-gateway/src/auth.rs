@@ -10,11 +10,19 @@ use std::time::{Duration, Instant};
 pub struct SessionData {
     pub user_id: String,
     pub session_id: String,
+    #[serde(default)]
+    pub provider_id: String,
     #[serde(rename = "type")]
     pub session_type: String,
     pub status: String,
     pub bandwidth_limit: i64,
     pub bandwidth_used: i64,
+    #[serde(default)]
+    pub trust_tier: String,
+    #[serde(default)]
+    pub target_geo: String,
+    #[serde(default)]
+    pub target_isp: String,
 }
 
 struct CachedSession {
