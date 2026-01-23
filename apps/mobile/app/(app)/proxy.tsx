@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     createSession,
     getSessions,
@@ -30,6 +31,7 @@ export default function ProxyScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'online' | 'offline'>('idle');
     const [credentials, setCredentials] = useState<ProxyCredentials | null>(null);
+    const insets = useSafeAreaInsets();
 
     useEffect(() => {
         fetchSessions();
@@ -108,7 +110,7 @@ export default function ProxyScreen() {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 }]}
             refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={() => {
                     setRefreshing(true);
@@ -379,6 +381,11 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: '#6B7280',
     },
+    testButtonText: {
+        color: '#FFF',
+        fontWeight: '600',
+        marginLeft: 8,
+    },
     testButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -386,11 +393,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#2563EB',
         paddingVertical: 12,
         borderRadius: 8,
-    },
-    testButtonText: {
-        color: '#FFF',
-        fontWeight: '600',
-        marginLeft: 8,
+        minHeight: 44,
     },
     sessionButtons: {
         flexDirection: 'row',
@@ -446,6 +449,7 @@ const styles = StyleSheet.create({
     },
     credentialRow: {
         marginBottom: 8,
+        paddingVertical: 12,
     },
     credentialLabel: {
         fontSize: 12,

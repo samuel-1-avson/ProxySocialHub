@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image, RefreshControl, Alert, Modal, TextInput, ScrollView } from 'react-native';
 import { Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { getWallet, getTransactions, depositWallet, withdrawWallet, Wallet, WalletTransaction } from '../../src/api/wallet';
 import { useAuth } from '../../src/context/AuthContext';
@@ -11,6 +12,7 @@ export default function WalletScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const { user } = useAuth();
+    const insets = useSafeAreaInsets();
 
     // Modal States
     const [depositModalVisible, setDepositModalVisible] = useState(false);
@@ -132,9 +134,15 @@ export default function WalletScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            <View className="absolute top-0 left-0 right-0 h-48 bg-primary/5 rounded-b-[40px]" />
+            <View
+                className="absolute top-0 left-0 right-0 bg-primary/5 rounded-b-[40px]"
+                style={{ height: 160 + insets.top }}
+            />
 
-            <View className="pt-16 pb-6 px-6 flex-row justify-between items-center">
+            <View
+                className="pb-6 px-6 flex-row justify-between items-center"
+                style={{ paddingTop: insets.top + 20 }}
+            >
                 <View>
                     <View className="flex-row items-center mb-1">
                         <View className="w-2 h-2 rounded-full bg-emerald-500 mr-2" />
@@ -155,7 +163,7 @@ export default function WalletScreen() {
             <ScrollView
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#059669" />}
                 className="flex-1"
-                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                contentContainerStyle={{ padding: 24, paddingBottom: 100 + insets.bottom }}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Balance Card - Glassmorphism */}
@@ -189,7 +197,7 @@ export default function WalletScreen() {
                 {/* Actions Grid */}
                 <View className="flex-row gap-4 mb-10">
                     <TouchableOpacity
-                        className="flex-1 bg-primary p-6 items-center justify-center rounded-3xl shadow-lg active:opacity-90 overflow-hidden"
+                        className="flex-1 bg-primary p-6 items-center justify-center rounded-3xl shadow-lg active:opacity-90 overflow-hidden min-h-[140px]"
                         onPress={() => setDepositModalVisible(true)}
                     >
                         <View className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -mr-8 -mt-8" />
@@ -198,7 +206,7 @@ export default function WalletScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        className="flex-1 bg-white/40 border border-white/60 p-6 items-center justify-center rounded-3xl shadow-sm backdrop-blur-md active:bg-white/60"
+                        className="flex-1 bg-white/40 border border-white/60 p-6 items-center justify-center rounded-3xl shadow-sm backdrop-blur-md active:bg-white/60 min-h-[140px]"
                         onPress={() => setWithdrawModalVisible(true)}
                     >
                         <Ionicons name="exit-outline" size={28} color="#059669" />
@@ -272,7 +280,7 @@ export default function WalletScreen() {
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Deposit Funds</Text>
-                            <TouchableOpacity onPress={() => setDepositModalVisible(false)}>
+                            <TouchableOpacity onPress={() => setDepositModalVisible(false)} className="p-3 -mr-3">
                                 <Ionicons name="close" size={24} color="#6B7280" />
                             </TouchableOpacity>
                         </View>
@@ -312,7 +320,7 @@ export default function WalletScreen() {
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Withdraw Funds</Text>
-                            <TouchableOpacity onPress={() => setWithdrawModalVisible(false)}>
+                            <TouchableOpacity onPress={() => setWithdrawModalVisible(false)} className="p-3 -mr-3">
                                 <Ionicons name="close" size={24} color="#6B7280" />
                             </TouchableOpacity>
                         </View>
