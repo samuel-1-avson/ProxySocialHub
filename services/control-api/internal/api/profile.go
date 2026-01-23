@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -19,6 +20,9 @@ func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.GET("/users/:id/following", getFollowing)
 	rg.POST("/users/:id/follow", followUser)
 	rg.DELETE("/users/:id/follow", unfollowUser)
+	rg.POST("/users/:id/block", blockUser)
+	rg.DELETE("/users/:id/block", unblockUser)
+	rg.GET("/users/:id/activity", getUserActivity)
 }
 
 // getMyProfile returns the authenticated user's profile
@@ -91,6 +95,18 @@ func updateProfile(c *gin.Context) {
 	}
 	if req.CoverImageURL != nil {
 		updates["cover_image_url"] = *req.CoverImageURL
+	}
+	if req.Skills != nil {
+		updates["skills"] = pq.StringArray(req.Skills)
+	}
+	if req.SocialLinks != nil {
+		updates["social_links"] = models.JSONMap(req.SocialLinks)
+	}
+	if req.BusinessName != nil {
+		updates["business_name"] = *req.BusinessName
+	}
+	if req.TaxID != nil {
+		updates["tax_id"] = *req.TaxID
 	}
 
 	if len(updates) > 0 {
@@ -360,9 +376,14 @@ func getLimitParam(c *gin.Context, defaultVal int) int {
 }
 
 func parseInt(s string) (int, error) {
-	var i int
-	_, err := parseIntHelper(s, &i)
-	return i, err
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, models.ErrUserNotFound // Just need an error
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, nil
 }
 
 func parseIntHelper(s string, i *int) (int, error) {
@@ -375,4 +396,86 @@ func parseIntHelper(s string, i *int) (int, error) {
 	}
 	*i = n
 	return n, nil
+}
+
+// blockUser blocks a user
+func blockUser(c *gin.Context) {
+	blockerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	blockedID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	if blockerID == blockedID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot block yourself"})
+		return
+	}
+
+	block := models.Block{
+		BlockerID: blockerID,
+		BlockedID: blockedID,
+		Reason:    "User blocked",
+	}
+
+	if err := db.DB.Create(&block).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to block user"})
+		return
+	}
+
+	// Also unfollow if following
+	db.DB.Where("(follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
+		blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{})
+
+	c.JSON(http.StatusOK, gin.H{"message": "User blocked"})
+}
+
+func unblockUser(c *gin.Context) {
+	blockerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	blockedID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	if err := db.DB.Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).
+		Delete(&models.Block{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unblock user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User unblocked"})
+}
+
+// getUserActivity returns recent public actions by a user
+func getUserActivity(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Optional: Check if viewer is blocked by user (Privacy)
+	// For MVP, we assume public feed
+
+	var events []models.FeedEvent
+	if err := db.DB.Where("actor_id = ?", userID).
+		Order("created_at DESC").
+		Limit(20).
+		Find(&events).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch activity"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"activity": events})
 }

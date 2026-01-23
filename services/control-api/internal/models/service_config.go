@@ -80,6 +80,13 @@ type ServiceConfiguration struct {
 	SupportsAutoRotation   bool `gorm:"default:true" json:"supports_auto_rotation"`
 	MinRotationIntervalSec int  `gorm:"default:60" json:"min_rotation_interval_sec"`
 
+	// Dynamic Pricing Settings
+	DynamicPricingEnabled bool    `gorm:"default:false" json:"dynamic_pricing_enabled"`
+	TargetUtilization     float64 `gorm:"default:0.7" json:"target_utilization"` // 0.0 - 1.0 (70%)
+	MinPriceMultiplier    float64 `gorm:"default:0.8" json:"min_price_multiplier"`
+	MaxPriceMultiplier    float64 `gorm:"default:2.0" json:"max_price_multiplier"`
+	AdjustmentStep        float64 `gorm:"default:0.05" json:"adjustment_step"` // +/- 5%
+
 	// Status
 	IsActive  bool      `gorm:"default:true" json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
@@ -88,6 +95,46 @@ type ServiceConfiguration struct {
 	// Relations
 	Node *Node `gorm:"foreignKey:NodeID" json:"node,omitempty"`
 	User *User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+}
+
+// SharedServiceTemplate allows providers to share their configs
+type SharedServiceTemplate struct {
+	ID          uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	UserID      uuid.UUID `gorm:"type:uuid;not null" json:"user_id"` // Author
+	Name        string    `gorm:"type:varchar(100);not null" json:"name"`
+	Description string    `gorm:"type:text" json:"description"`
+	Price       float64   `gorm:"default:0" json:"price"` // 0 = Free
+	Downloads   int       `gorm:"default:0" json:"downloads"`
+	Rating      float64   `gorm:"default:0" json:"rating"`
+
+	// The configuration snapshot (JSON)
+	ConfigSnapshot string `gorm:"type:text" json:"config_snapshot"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	Author *User `gorm:"foreignKey:UserID" json:"author,omitempty"`
+}
+
+func (SharedServiceTemplate) TableName() string {
+	return "shared_service_templates"
+}
+
+// ServiceConfigHistory tracks changes to service configurations
+type ServiceConfigHistory struct {
+	ID              uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ServiceConfigID uuid.UUID `gorm:"type:uuid;not null;index" json:"service_config_id"`
+	ChangedBy       uuid.UUID `gorm:"type:uuid;not null" json:"changed_by"`
+	ChangeReason    string    `gorm:"type:varchar(255)" json:"change_reason"`
+
+	// Snapshot of the config at that time (JSON)
+	ConfigSnapshot string `gorm:"type:text" json:"config_snapshot"`
+
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (ServiceConfigHistory) TableName() string {
+	return "service_config_history"
 }
 
 func (ServiceConfiguration) TableName() string {

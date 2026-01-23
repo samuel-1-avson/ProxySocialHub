@@ -3,13 +3,15 @@ package api
 import (
 	"net/http"
 
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// Seller Tier thresholds (GB sold)
+// Seller Tier thresholds (GB sold) - Defaults
 const (
 	TierBronze  = "bronze"  // 0-99 GB
 	TierSilver  = "silver"  // 100-499 GB
@@ -24,13 +26,46 @@ func RegisterSellerTierRoutes(rg *gin.RouterGroup) {
 	rg.GET("/tiers/leaderboard", getTierLeaderboard)
 }
 
+// getTierThreshold fetches the threshold from Governance Parameters or returns default
+func getTierThreshold(tier string) float64 {
+	defaultVal := 0.0
+	paramName := ""
+
+	switch tier {
+	case TierSilver:
+		defaultVal = 100.0
+		paramName = "tier_threshold_silver"
+	case TierGold:
+		defaultVal = 500.0
+		paramName = "tier_threshold_gold"
+	case TierDiamond:
+		defaultVal = 1000.0
+		paramName = "tier_threshold_diamond"
+	default:
+		return 0.0
+	}
+
+	var param models.ProtocolParameter
+	if err := db.DB.First(&param, "name = ?", paramName).Error; err == nil {
+		if val, err := strconv.ParseFloat(param.Value, 64); err == nil {
+			return val
+		}
+	}
+
+	return defaultVal
+}
+
 // getTierInfo returns tier information
 func getTierInfo(c *gin.Context) {
+	silver := getTierThreshold(TierSilver)
+	gold := getTierThreshold(TierGold)
+	diamond := getTierThreshold(TierDiamond)
+
 	tiers := []gin.H{
-		{"name": "Bronze", "tier": TierBronze, "min_gb": 0, "max_gb": 99, "benefits": []string{"Basic marketplace access", "Standard support"}},
-		{"name": "Silver", "tier": TierSilver, "min_gb": 100, "max_gb": 499, "benefits": []string{"Silver badge", "5% lower fees", "Priority listing"}},
-		{"name": "Gold", "tier": TierGold, "min_gb": 500, "max_gb": 999, "benefits": []string{"Gold badge", "10% lower fees", "Featured seller", "Analytics dashboard"}},
-		{"name": "Diamond", "tier": TierDiamond, "min_gb": 1000, "max_gb": nil, "benefits": []string{"Diamond badge", "15% lower fees", "VIP support", "Custom pricing", "Early access features"}},
+		{"name": "Bronze", "tier": TierBronze, "min_gb": 0, "max_gb": silver - 1, "benefits": []string{"Basic marketplace access", "Standard support"}},
+		{"name": "Silver", "tier": TierSilver, "min_gb": silver, "max_gb": gold - 1, "benefits": []string{"Silver badge", "5% lower fees", "Priority listing"}},
+		{"name": "Gold", "tier": TierGold, "min_gb": gold, "max_gb": diamond - 1, "benefits": []string{"Gold badge", "10% lower fees", "Featured seller", "Analytics dashboard"}},
+		{"name": "Diamond", "tier": TierDiamond, "min_gb": diamond, "max_gb": nil, "benefits": []string{"Diamond badge", "15% lower fees", "VIP support", "Custom pricing", "Early access features"}},
 	}
 
 	c.JSON(http.StatusOK, gin.H{"tiers": tiers})
@@ -84,12 +119,16 @@ func getTierLeaderboard(c *gin.Context) {
 
 // CalculateSellerTier determines tier based on bandwidth sold
 func CalculateSellerTier(bandwidthGB float64) string {
+	diamond := getTierThreshold(TierDiamond)
+	gold := getTierThreshold(TierGold)
+	silver := getTierThreshold(TierSilver)
+
 	switch {
-	case bandwidthGB >= 1000:
+	case bandwidthGB >= diamond:
 		return TierDiamond
-	case bandwidthGB >= 500:
+	case bandwidthGB >= gold:
 		return TierGold
-	case bandwidthGB >= 100:
+	case bandwidthGB >= silver:
 		return TierSilver
 	default:
 		return TierBronze
@@ -98,23 +137,27 @@ func CalculateSellerTier(bandwidthGB float64) string {
 
 // CalculateTierProgress returns progress to next tier
 func CalculateTierProgress(bandwidthGB float64) gin.H {
+	diamond := getTierThreshold(TierDiamond)
+	gold := getTierThreshold(TierGold)
+	silver := getTierThreshold(TierSilver)
+
 	var nextTier string
 	var nextThreshold, current float64
 
 	switch {
-	case bandwidthGB >= 1000:
+	case bandwidthGB >= diamond:
 		return gin.H{"next_tier": nil, "progress_percent": 100.0, "gb_remaining": 0}
-	case bandwidthGB >= 500:
+	case bandwidthGB >= gold:
 		nextTier = TierDiamond
-		nextThreshold = 1000
-		current = bandwidthGB - 500
-	case bandwidthGB >= 100:
+		nextThreshold = diamond
+		current = bandwidthGB - gold
+	case bandwidthGB >= silver:
 		nextTier = TierGold
-		nextThreshold = 500
-		current = bandwidthGB - 100
+		nextThreshold = gold
+		current = bandwidthGB - silver
 	default:
 		nextTier = TierSilver
-		nextThreshold = 100
+		nextThreshold = silver
 		current = bandwidthGB
 	}
 
