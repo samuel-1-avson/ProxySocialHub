@@ -226,10 +226,23 @@ func (w *Watcher) pollForTransactions() {
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
-	// Get initial slot
-	slot, err := w.rpcClient.GetSlot(w.ctx, rpc.CommitmentFinalized)
+	// Get initial slot with retry
+	var slot uint64
+	var err error
+
+	err = w.withRetry(func() error {
+		s, err := w.rpcClient.GetSlot(w.ctx, rpc.CommitmentFinalized)
+		if err != nil {
+			return err
+		}
+		slot = s
+		return nil
+	}, 3, 1*time.Second)
+
 	if err == nil {
 		w.lastSlot = slot
+	} else {
+		log.Printf("[Watcher] Initial slot fetch failed after retries: %v. Starting from 0.", err)
 	}
 
 	for {
@@ -244,13 +257,23 @@ func (w *Watcher) pollForTransactions() {
 
 // checkRecentTransactions checks for recent program transactions
 func (w *Watcher) checkRecentTransactions() {
-	// Get recent signatures for the program
-	sigs, err := w.rpcClient.GetSignaturesForAddress(
-		w.ctx,
-		w.programID,
-	)
+	// Get recent signatures for the program with retry
+	var sigs []*rpc.TransactionSignature
+	err := w.withRetry(func() error {
+		res, err := w.rpcClient.GetSignaturesForAddress(
+			w.ctx,
+			w.programID,
+		)
+		if err != nil {
+			return err
+		}
+		sigs = res
+		return nil
+	}, 3, 500*time.Millisecond)
+
 	if err != nil {
-		log.Printf("[Watcher] Failed to get signatures: %v", err)
+		// Log as warning since it might be transient
+		log.Printf("[Watcher] RPC Error (GetSignaturesForAddress): %v", err)
 		return
 	}
 
@@ -303,6 +326,26 @@ func (w *Watcher) parseTransaction(tx *rpc.GetTransactionResult, txSig string) *
 	}
 
 	return nil
+}
+
+// withRetry executes a function with a specified number of retries and exponential backoff
+func (w *Watcher) withRetry(fn func() error, maxRetries int, baseDelay time.Duration) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		if err := fn(); err != nil {
+			lastErr = err
+			// Check if we should retry (e.g., skip on context cancellation)
+			if w.ctx.Err() != nil {
+				return err
+			}
+
+			delay := baseDelay * (1 << uint(i))
+			time.Sleep(delay)
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 // emitEvent sends an event to all registered handlers

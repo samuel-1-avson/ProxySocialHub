@@ -55,6 +55,10 @@ type User struct {
 	WalletAddress      *string    `gorm:"size:42;index" json:"wallet_address,omitempty"`    // ETH Address
 	BittensorAddress   *string    `gorm:"size:64;index" json:"bittensor_address,omitempty"` // SS58 Address
 
+	// Auth / Verification
+	VerificationToken *string `gorm:"size:255" json:"verification_token,omitempty"`
+	EmailVerified     bool    `gorm:"default:false" json:"email_verified"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

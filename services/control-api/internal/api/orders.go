@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // RegisterOrderRoutes registers order-related routes
@@ -63,6 +65,13 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
+	// Fetch buyer user to get TrustTier for Redis SessionData
+	var buyer models.User
+	if err := db.DB.First(&buyer, "id = ?", buyerID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user profile"})
+		return
+	}
+
 	// Create order (Track allocation, but simple IaaS model)
 	order := models.Order{
 		BuyerID:     buyerID,
@@ -83,29 +92,59 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	// Skipping Upfront Deduction & Escrow for IaaS.
-	// Billing is handled real-time in /usage/report
-
-	// Update listing stats (Just increment connection count, don't reduce available GB if it's IaaS capacity)
-	// Assuming "OrdersCount" can track connections.
+	// Update listing stats
 	tx.Model(&listing).Updates(map[string]interface{}{
 		"orders_count": listing.OrdersCount + 1,
 	})
 
+	// Generate secure credentials
+	credUser, credPass := generateCredentials()
+
 	// Create a session for the buyer (Unlimited/Pay-As-You-Go)
 	session := models.Session{
-		UserID:         buyerID,
-		Type:           models.SessionRotating,
-		Status:         models.SessionActive,
-		BandwidthLimit: 0, // 0 = Unlimited / Pay-As-You-Go
-		Config:         "{}",
+		UserID:          buyerID,
+		ListingID:       &listing.ID,
+		Type:            models.SessionRotating,
+		Status:          models.SessionActive,
+		CredentialsUser: credUser,
+		CredentialsPass: credPass,
+		BandwidthLimit:  0, // 0 = Unlimited / Pay-As-You-Go
+		Config:          "{}",
 	}
-	if err := tx.Create(&session).Error; err == nil {
-		// Link session to order
-		tx.Model(&order).Update("session_id", session.ID)
+	if err := tx.Create(&session).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	// Link session to order
+	if err := tx.Model(&order).Update("session_id", session.ID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link session to order"})
+		return
 	}
 
 	tx.Commit()
+
+	// Store in Redis for Gateway authentication
+	sessionData := &redisClient.SessionData{
+		UserID:         buyerID.String(),
+		SessionID:      session.ID.String(),
+		ProviderID:     listing.SellerID.String(),
+		Type:           string(models.SessionRotating),
+		Status:         "active",
+		BandwidthLimit: 0,
+		BandwidthUsed:  0,
+		TrustTier:      string(buyer.TrustTier),
+		ExpiresAt:      time.Now().Add(24 * time.Hour),
+		CreatedAt:      time.Now(),
+	}
+
+	// Store with 24-hour TTL
+	if err := redisClient.StoreSession(credUser, sessionData, 24*time.Hour); err != nil {
+		// Log but don't fail return - session is still in DB
+		fmt.Printf("WARNING: Redis session sync failed: %v\n", err)
+	}
 
 	// Reload order with relations
 	db.DB.Preload("Buyer").Preload("Seller").Preload("Listing").First(&order, "id = ?", order.ID)
