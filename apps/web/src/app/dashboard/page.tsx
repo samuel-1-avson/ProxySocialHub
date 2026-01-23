@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { ArrowUpRight, ArrowDownRight, Activity, Wifi, Server, DollarSign, Clock, AlertTriangle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Activity, Wifi, Server, DollarSign, Clock, AlertTriangle, AlertCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { getAnalyticsOverview, getWallet, getDailyUsage, AnalyticsOverview, Wallet, DailyUsagePoint } from "@/lib/api";
 import { SkeletonDashboard } from "@/components/ui/skeleton";
@@ -12,32 +12,65 @@ export default function DashboardPage() {
     const [wallet, setWallet] = useState<Wallet | null>(null);
     const [dailyUsage, setDailyUsage] = useState<DailyUsagePoint[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchData = async () => {
+        try {
+            const [analyticsData, walletData, usageData] = await Promise.all([
+                getAnalyticsOverview().catch(() => null),
+                getWallet().catch(() => null),
+                getDailyUsage(7).catch(() => ({ data: [] }))
+            ]);
+
+            if (!analyticsData && !walletData) {
+                throw new Error("Failed to load core data");
+            }
+
+            setAnalytics(analyticsData);
+            setWallet(walletData);
+            setDailyUsage(usageData?.data || []);
+            setError(null);
+        } catch (error) {
+            console.error("Failed to fetch dashboard data", error);
+            // Only set error if we don't have data yet (prevent flashing error on background poll)
+            if (!analytics) {
+                setError("Failed to load dashboard data. Please check your connection.");
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        async function fetchData() {
-            try {
-                const [analyticsData, walletData, usageData] = await Promise.all([
-                    getAnalyticsOverview().catch(() => null),
-                    getWallet().catch(() => null),
-                    getDailyUsage(7).catch(() => ({ data: [] }))
-                ]);
-
-                setAnalytics(analyticsData);
-                setWallet(walletData);
-                setDailyUsage(usageData?.data || []);
-            } catch (error) {
-                console.error("Failed to fetch dashboard data", error);
-            } finally {
-                setLoading(false);
-            }
-        }
         if (user) {
             fetchData();
+            // Poll every 30 seconds
+            const interval = setInterval(fetchData, 30000);
+            return () => clearInterval(interval);
         }
     }, [user]);
 
     if (loading) {
         return <SkeletonDashboard />;
+    }
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-4 animate-in fade-in">
+                <div className="p-4 rounded-full bg-destructive/10 mb-4">
+                    <AlertCircle className="h-12 w-12 text-destructive" />
+                </div>
+                <h2 className="text-xl font-bold font-mono uppercase mb-2">System Unavailable</h2>
+                <p className="text-muted-foreground font-mono text-sm mb-6 max-w-md">{error}</p>
+                <button
+                    onClick={() => { setLoading(true); fetchData(); }}
+                    className="btn-retro btn-retro-primary flex items-center gap-2"
+                >
+                    <RefreshCw className="h-4 w-4" />
+                    Retry Connection
+                </button>
+            </div>
+        );
     }
 
     const stats = [

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/bittensor"
+	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -69,14 +70,21 @@ func createNode(c *gin.Context) {
 	go func(n models.ProviderNode) {
 		client := GetBittensorClient()
 		if client != nil {
-			logging.Info().Str("node_id", n.ID.String()).Msg("Attempting on-chain registration...")
+			// Load config to get dynamic NetUID
+			cfg, err := config.Load()
+			netUID := 1 // Default fallback
+			if err == nil {
+				netUID = cfg.Bittensor.NetUID
+			}
 
-			// Defaulting to NetUID 1 and default wallet for now.
+			logging.Info().Str("node_id", n.ID.String()).Int("net_uid", netUID).Msg("Attempting on-chain registration...")
+
+			// Defaulting to NetUID from config and default wallet for now.
 			// In production, the user would provide their wallet or we pay for them.
 			resp, err := client.RegisterProxy(bittensor.RegisterProxyRequest{
 				IP:           n.IPAddress,
 				Port:         8080, // Assuming default port or we need to capture it from user
-				NetUID:       1,    // Default Subnet
+				NetUID:       netUID,
 				WalletName:   "default",
 				WalletHotkey: "default",
 			})
@@ -88,7 +96,7 @@ func createNode(c *gin.Context) {
 				// Update DB
 				db.DB.Model(&models.ProviderNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{
 					"is_registered_on_chain": true,
-					"net_uid":                1,
+					"net_uid":                netUID,
 					"hotkey":                 "default",
 				})
 			} else {
