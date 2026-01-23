@@ -1,6 +1,4 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::env;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -92,7 +90,7 @@ async fn proxy(
             }
             None => {
                 // No auth provided - require authentication
-                warn!("⚠️ Anonymous CONNECT request rejected from {}", req.remote_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".into()));
+                warn!("⚠️ Anonymous CONNECT request rejected");
                 let mut resp = Response::new(Full::new(Bytes::from("Proxy authentication required (Credentials missing)")));
                 *resp.status_mut() = StatusCode::PROXY_AUTHENTICATION_REQUIRED;
                 resp.headers_mut().insert(
@@ -211,7 +209,7 @@ async fn tunnel_to_provider_with_sticky(
     let (control_opt, node_id) = {
         let registry = match state.registry.lock() {
             Ok(guard) => guard,
-            Err(poisoned) => {
+            Err(_poisoned) => {
                 error!("Registry lock poisoned!");
                 // In a production system, we might try to recover or restart
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, "Internal Server Error: Registry Lock Poisoned"));
