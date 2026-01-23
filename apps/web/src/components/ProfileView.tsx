@@ -2,60 +2,46 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getPublicProfile, followUser, unfollowUser, getUserReviews, type User, type Review } from "@/lib/social-api";
-import { Star, MapPin, ShieldCheck, UserCheck, MessageCircle, Edit3, Heart, Users, Activity, ExternalLink, Calendar, ChevronRight, ArrowRight, Loader2 } from "lucide-react";
+import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/services/profile";
+
+import { Star, MapPin, ShieldCheck, UserCheck, MessageCircle, Edit3, Heart, Users, Activity, ExternalLink, Calendar, ChevronRight, ArrowRight, Loader2, Twitter, Github, Linkedin, MoreVertical, Ban, Briefcase } from "lucide-react";
 
 interface ProfileViewProps {
-    username?: string; // If provided, view this user. If null, view "me" (or handle checks)
+    username?: string;
 }
 
 export function ProfileView({ username: propUsername }: ProfileViewProps) {
     const params = useParams();
+    const router = useRouter(); // For redirect after block
     const { user: currentUser, isAuthenticated } = useAuth();
 
-    // Priority: prop > param > "me" (fallback)
-    // Actually, simple logic: if propUsername is explicitly passed (even empty string?), use it. 
-    // If not, try params.username. If that's missing, default to "me".
     const targetUsername = propUsername ?? (params?.username as string) ?? "me";
 
-    // Check if this is the logged-in user's own profile
-    const isOwnProfile =
-        targetUsername === "me" ||
-        (currentUser && targetUsername === currentUser.id) ||
-        (currentUser && targetUsername === currentUser.user_metadata?.username);
-
-    const [profile, setProfile] = useState<User | null>(null);
+    const [profile, setProfile] = useState<UserPublicProfile | null>(null);
     const [reviews, setReviews] = useState<Review[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [isFollowing, setIsFollowing] = useState(false);
     const [activeTab, setActiveTab] = useState<"listings" | "reviews">("reviews");
     const [followLoading, setFollowLoading] = useState(false);
+    const [showMenu, setShowMenu] = useState(false);
+
+    const isOwnProfile =
+        targetUsername === "me" ||
+        (currentUser && (targetUsername === currentUser.id || targetUsername === currentUser.user_metadata?.username));
 
     useEffect(() => {
         async function fetchData() {
             setLoading(true);
             setError("");
             try {
-                // If "me" but not logged in, we might want to redirect or show error, 
-                // but let existing logic handle it (getPublicProfile("me") usually fails if no auth header).
-                // Actually getPublicProfile("me") might fetch /v1/users/me or /v1/profile depending on impl.
-                // The original code used `isOwnProfile ? "me" : username`.
-
                 const identifier = isOwnProfile ? "me" : targetUsername;
 
-                // If attempting to view "me" but not authenticated
-                if (identifier === "me" && !isAuthenticated) {
-                    // Start loading... allow auth check to settle? 
-                    // useAuth initial load might be async. Assuming isAuthenticated is stable here.
-                    // If not auth, we can't fetch "me".
-                    // But maybe we are just waiting for auth to load?
-                    // For now, proceed. API will throw 401 if token missing.
-                }
-
-                const userData = await getPublicProfile(identifier);
+                // Retrieve Profile
+                // Note: getProfile is imported from 'lib/services/profile'
+                const userData = await getProfile(identifier);
                 setProfile(userData);
                 setIsFollowing(userData.is_following || false);
 
@@ -64,7 +50,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     const reviewsData = await getUserReviews(userData.id);
                     setReviews(reviewsData.reviews || []);
                 } catch {
-                    // Reviews optional
+                    // Reviews optional or failed
                 }
             } catch (err) {
                 console.error("Profile fetch error:", err);
@@ -91,11 +77,25 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                 setProfile(p => p ? { ...p, followers_count: p.followers_count + 1 } : null);
             }
         } catch {
-            // Revert on error
+            // Revert
         } finally {
             setFollowLoading(false);
         }
     };
+
+    const handleBlock = async () => {
+        if (!profile || !isAuthenticated) return;
+        if (!confirm("Are you sure you want to block this user? You will no longer see their content.")) return;
+
+        try {
+            await blockUser(profile.id);
+            // Redirect to home or show blocked state
+            router.push('/');
+        } catch (err) {
+            console.error("Failed to block", err);
+            alert("Failed to block user");
+        }
+    }
 
     if (loading) {
         return (
@@ -123,6 +123,9 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
         );
     }
 
+    // Checking for business verification (simulated by checking business_name presence for now)
+    const isBusiness = !!profile.business_name;
+
     return (
         <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
             {/* Header Card */}
@@ -145,16 +148,45 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
                     <div className="ml-40 flex flex-col md:flex-row justify-between items-start gap-4 min-h-[60px]">
                         <div>
-                            <h1 className="text-3xl font-bold font-mono uppercase leading-none">
-                                {profile.display_name || profile.username || "Anonymous Protocol"}
-                            </h1>
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-3xl font-bold font-mono uppercase leading-none">
+                                    {profile.display_name || profile.username || "Anonymous Protocol"}
+                                </h1>
+                                {isBusiness && (
+                                    <div className="ml-2 px-2 py-0.5 bg-primary/20 border border-primary text-primary text-[10px] font-bold font-mono uppercase flex items-center gap-1 rounded-full">
+                                        <Briefcase size={10} />
+                                        Verified Business
+                                    </div>
+                                )}
+                            </div>
                             <p className="text-lg font-mono text-muted-foreground mt-1">@{profile.username}</p>
+
+                            {/* Social Links */}
+                            {profile.social_links && (
+                                <div className="flex items-center gap-3 mt-3">
+                                    {profile.social_links.twitter && (
+                                        <a href={`https://twitter.com/${profile.social_links.twitter}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                                            <Twitter size={16} />
+                                        </a>
+                                    )}
+                                    {profile.social_links.github && (
+                                        <a href={`https://github.com/${profile.social_links.github}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                                            <Github size={16} />
+                                        </a>
+                                    )}
+                                    {profile.social_links.linkedin && (
+                                        <a href={profile.social_links.linkedin} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                                            <Linkedin size={16} />
+                                        </a>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex gap-3">
                             {isOwnProfile ? (
                                 <Link
-                                    href="/dashboard/profile"
+                                    href="/settings"
                                     className="btn-retro btn-retro-outline py-2 px-4 text-xs bg-background"
                                 >
                                     <Edit3 size={14} className="mr-2" />
@@ -178,6 +210,27 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                         <MessageCircle size={14} className="mr-2" />
                                         MESSAGE
                                     </Link>
+
+                                    {/* More Menu */}
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowMenu(!showMenu)}
+                                            className="btn-retro btn-retro-outline py-2 px-2 h-full bg-background"
+                                        >
+                                            <MoreVertical size={14} />
+                                        </button>
+                                        {showMenu && (
+                                            <div className="absolute right-0 top-full mt-2 w-40 bg-card border border-border bg-popover text-popover-foreground shadow-md z-50 rounded-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                                <button
+                                                    onClick={handleBlock}
+                                                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase hover:bg-destructive/10 hover:text-destructive flex items-center gap-2"
+                                                >
+                                                    <Ban size={12} />
+                                                    Block User
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -190,6 +243,17 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             </p>
                         )}
 
+                        {/* Capability Chips */}
+                        {profile.skills && profile.skills.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {profile.skills.map((skill: string) => (
+                                    <span key={skill} className="bg-secondary/50 text-secondary-foreground border border-border px-2 py-1 rounded-sm text-[10px] font-mono uppercase tracking-wide">
+                                        {skill}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
                         <div className="flex flex-wrap gap-6 text-xs font-mono font-bold text-muted-foreground uppercase">
                             {profile.location && (
                                 <div className="flex items-center gap-2">
@@ -199,7 +263,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             )}
                             <div className="flex items-center gap-2">
                                 <Calendar size={14} className="text-primary" />
-                                Joined Oct 2023
+                                Joined {profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Oct 2023'}
                             </div>
                             {profile.avg_rating > 0 && (
                                 <div className="flex items-center gap-2">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
+import { NetworkFeed } from "@/components/NetworkFeed";
 import { ArrowRight, Shield, Zap, Globe, Wallet } from "lucide-react";
 
 export default function Home() {
@@ -50,7 +51,7 @@ export default function Home() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-0 max-w-5xl mx-auto border border-border bg-card rounded-lg overflow-hidden shadow-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-0 max-w-5xl mx-auto border border-border bg-card rounded-lg overflow-hidden shadow-sm mb-12">
               {[
                 { value: "99.9%", label: "UPTIME" },
                 { value: "<50ms", label: "LATENCY" },
@@ -62,6 +63,11 @@ export default function Home() {
                   <div className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">{stat.label}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Live Feed */}
+            <div className="max-w-3xl mx-auto">
+              <NetworkFeed />
             </div>
           </div>
         </section>
