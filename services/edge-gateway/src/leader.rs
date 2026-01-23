@@ -2,8 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn, error};
-use redis::{Client, Commands, AsyncCommands};
-use uuid::Uuid;
+use redis::{Client, AsyncCommands};
 
 /// LeaderElector handles distributed leader election using Redis.
 /// It attempts to acquire a lock key. If successful, this instance is the leader.

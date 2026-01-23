@@ -32,6 +32,7 @@ yamux = "0.10"
 jsonwebtoken = "9.3"
 governor = "0.6"
 nonzero_ext = "0.3"
+hex = "0.4"
 
 [build-dependencies]
 tonic-build = "0.12"

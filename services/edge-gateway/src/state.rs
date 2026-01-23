@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use yamux::Control;
 
 /// Provider node metadata for intelligent routing
@@ -261,10 +261,17 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     pub is_leader: Arc<AtomicBool>,
     pub circuit_breakers: Arc<CircuitBreakerManager>,
+    pub registry_store: Arc<crate::registry::store::RegistryStore>,
+    pub usage_tracker: Arc<crate::metering::UsageTracker>,
 }
 
 impl AppState {
-    pub fn new(config: Config, is_leader: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        config: Config,
+        is_leader: Arc<AtomicBool>,
+        registry_store: Arc<crate::registry::store::RegistryStore>,
+        usage_tracker: Arc<crate::metering::UsageTracker>,
+    ) -> Self {
         // Rate limit: 10 connections per second per user (adjust as needed)
         // Using expect() because these constants are guaranteed to be non-zero
         let quota = Quota::per_second(NonZeroU32::new(10).expect("non-zero quota"))
@@ -277,6 +284,8 @@ impl AppState {
             rate_limiter,
             is_leader,
             circuit_breakers: Arc::new(CircuitBreakerManager::new()),
+            registry_store,
+            usage_tracker,
         }
     }
 
