@@ -3,12 +3,14 @@ import { View, Text, ScrollView, RefreshControl, TouchableOpacity, StyleSheet } 
 import { useAuth } from '../../src/context/AuthContext';
 import client from '../../src/api/client';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function Dashboard() {
     const { user, logout } = useAuth();
     const [refreshing, setRefreshing] = useState(false);
     const [stats, setStats] = useState<any>(null);
     const [wallet, setWallet] = useState<any>(null);
+    const insets = useSafeAreaInsets();
 
     const fetchData = async () => {
         try {
@@ -37,9 +39,15 @@ export default function Dashboard() {
     return (
         <View className="flex-1 bg-background">
             {/* Header with gradient backdrop */}
-            <View className="absolute top-0 left-0 right-0 h-48 bg-primary/5 rounded-b-[40px]" />
+            <View
+                className="absolute top-0 left-0 right-0 bg-primary/5 rounded-b-[40px]"
+                style={{ height: 160 + insets.top }}
+            />
 
-            <View className="pt-16 pb-6 px-6 flex-row justify-between items-center">
+            <View
+                className="pb-6 px-6 flex-row justify-between items-center"
+                style={{ paddingTop: insets.top + 20 }}
+            >
                 <View>
                     <View className="flex-row items-center mb-1">
                         <View className="w-2 h-2 rounded-full bg-emerald-500 mr-2" />
@@ -52,7 +60,7 @@ export default function Dashboard() {
                 </View>
                 <TouchableOpacity
                     onPress={logout}
-                    className="w-12 h-12 bg-white/50 border border-destructive/20 rounded-2xl items-center justify-center shadow-sm"
+                    className="w-12 h-12 bg-white/50 border border-destructive/20 rounded-2xl items-center justify-center shadow-sm min-w-[44px] min-h-[44px]"
                 >
                     <Ionicons name="power" size={20} color="#EF4444" />
                 </TouchableOpacity>
@@ -60,7 +68,7 @@ export default function Dashboard() {
 
             <ScrollView
                 className="flex-1"
-                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                contentContainerStyle={{ padding: 24, paddingBottom: 100 + insets.bottom }}
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#059669" />}
             >
@@ -89,7 +97,7 @@ export default function Dashboard() {
                             <Ionicons name="checkmark-circle" size={14} color="#059669" />
                             <Text className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest ml-1.5">Network Sync</Text>
                         </View>
-                        <TouchableOpacity className="bg-primary px-4 py-1.5 rounded-full">
+                        <TouchableOpacity className="bg-primary px-4 py-2 rounded-full min-h-[44px] justify-center">
                             <Text className="text-[9px] font-black text-white uppercase tracking-widest">Withdraw</Text>
                         </TouchableOpacity>
                     </View>
@@ -147,7 +155,7 @@ export default function Dashboard() {
                 </View>
 
                 <TouchableOpacity
-                    className="bg-primary/10 border border-primary/20 py-5 rounded-3xl flex-row justify-center items-center active:bg-primary/20"
+                    className="bg-primary/10 border border-primary/20 py-5 rounded-3xl flex-row justify-center items-center active:bg-primary/20 min-h-[56px]"
                     onPress={() => fetchData()}
                 >
                     <Ionicons name="reload" size={16} color="#059669" className="mr-3" />

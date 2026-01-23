@@ -3,12 +3,14 @@ import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Keyb
 import { useAuth } from '../../src/context/AuthContext';
 import client from '../../src/api/client';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { login } = useAuth();
+    const insets = useSafeAreaInsets();
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -39,13 +41,16 @@ export default function Login() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             className="flex-1 bg-background"
         >
-            <View className="absolute top-0 left-0 right-0 h-64 bg-primary/5 rounded-b-[40px]" />
+            <View
+                className="absolute top-0 left-0 right-0 bg-primary/5 rounded-b-[40px]"
+                style={{ height: 256 + insets.top }}
+            />
 
             <ScrollView
-                contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
+                contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: insets.bottom + 24 }}
                 showsVerticalScrollIndicator={false}
             >
-                <View className="items-center mb-10">
+                <View className="items-center mb-10" style={{ paddingTop: insets.top }}>
                     <View className="w-24 h-24 bg-white/80 border-2 border-primary/20 rounded-2xl items-center justify-center mb-6 shadow-xl overflow-hidden">
                         <View className="absolute inset-0 bg-primary/10 opacity-50" />
                         <Ionicons name="shield-checkmark" size={48} color="#059669" />
@@ -72,7 +77,7 @@ export default function Login() {
                                 <Ionicons name="person-outline" size={12} color="#71717A" />
                             </View>
                             <TextInput
-                                className="bg-white/50 border-2 border-border/50 p-4 rounded-xl text-foreground font-bold text-lg"
+                                className="bg-white/50 border-2 border-border/50 p-4 rounded-xl text-foreground font-bold text-lg min-h-[44px]"
                                 placeholder="operator@proxyhubb.net"
                                 placeholderTextColor="#A1A1AA"
                                 value={email}
@@ -88,7 +93,7 @@ export default function Login() {
                                 <Ionicons name="key-outline" size={12} color="#71717A" />
                             </View>
                             <TextInput
-                                className="bg-white/50 border-2 border-border/50 p-4 rounded-xl text-foreground font-bold text-lg"
+                                className="bg-white/50 border-2 border-border/50 p-4 rounded-xl text-foreground font-bold text-lg min-h-[44px]"
                                 placeholder="••••••••"
                                 placeholderTextColor="#A1A1AA"
                                 value={password}
@@ -98,7 +103,7 @@ export default function Login() {
                         </View>
 
                         <TouchableOpacity
-                            className="bg-primary p-5 rounded-2xl mt-8 shadow-lg active:opacity-90 flex-row justify-center items-center overflow-hidden"
+                            className="bg-primary p-5 rounded-2xl mt-8 shadow-lg active:opacity-90 flex-row justify-center items-center overflow-hidden min-h-[56px]"
                             onPress={handleLogin}
                             disabled={isSubmitting}
                         >
@@ -114,7 +119,7 @@ export default function Login() {
                             )}
                         </TouchableOpacity>
 
-                        <TouchableOpacity className="mt-6 items-center py-2">
+                        <TouchableOpacity className="mt-6 items-center py-2 min-h-[44px] justify-center">
                             <Text className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                                 Lost Access? <Text className="text-primary font-black">Initiate Recovery</Text>
                             </Text>
