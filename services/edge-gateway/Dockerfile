@@ -1,7 +1,7 @@
 FROM rust:1.84-alpine AS builder
 
 WORKDIR /app
-RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig
+RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig perl git make gcc g++
 
 # Copy only what we need
 COPY Cargo.toml Cargo.lock ./

@@ -24,6 +24,8 @@ pub struct NodeInfo {
     pub active_connections: u32,
     pub max_connections: u32,
     pub latency_ms: u32, // Last measured latency
+    #[serde(default)]
+    pub bandwidth_rate_kbps: u32, // Estimated bandwidth usage (KB/s)
     pub is_healthy: bool,
 }
 
@@ -43,6 +45,7 @@ impl NodeInfo {
             active_connections: 0,
             max_connections: 100,
             latency_ms: 0,
+            bandwidth_rate_kbps: 0,
             is_healthy: true,
         }
     }
@@ -58,9 +61,14 @@ impl NodeInfo {
         // Penalize high latency
         score = score.saturating_sub(self.latency_ms);
 
-        // Penalize high load
+        // Penalize low connection capacity (connection count load)
         let load_percent = (self.active_connections * 100) / self.max_connections.max(1);
-        score = score.saturating_sub(load_percent * 5);
+        score = score.saturating_sub(load_percent * 5); // 100% load = -500 score
+
+        // Penalize high bandwidth usage
+        // Example: 1000 KB/s (1MB/s) = -10 score. 10MB/s = -100 score.
+        let bw_penalty = self.bandwidth_rate_kbps / 100;
+        score = score.saturating_sub(bw_penalty);
 
         // Bonus for fresh nodes (connected recently)
         let uptime_hours = (std::time::SystemTime::now()
@@ -338,6 +346,7 @@ mod tests {
             active_connections: active,
             max_connections: max,
             latency_ms: latency,
+            bandwidth_rate_kbps: 0,
             is_healthy: healthy,
         }
     }

@@ -57,6 +57,7 @@ services:
       - CONTROL_API_URL=http://control-api:8080
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY}
     volumes:
       - ./certs:/app/certs:ro
     depends_on:
