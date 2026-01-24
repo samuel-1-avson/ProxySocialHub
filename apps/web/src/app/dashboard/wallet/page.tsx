@@ -436,10 +436,10 @@ export default function WalletPage() {
                                     <div className="bg-secondary/5 rounded-sm p-4 border border-border">
                                         <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Active Stake</p>
                                         <p className="text-2xl font-bold font-mono text-white">
-                                            {stakes?.reduce((acc, s) => acc + (s.status === 'active' ? s.amount : 0), 0).toFixed(4)} <span className="text-sm text-muted-foreground">TAO</span>
+                                            {(stakes || []).reduce((acc, s) => acc + (s.status === 'active' ? s.amount : 0), 0).toFixed(4)} <span className="text-sm text-muted-foreground">TAO</span>
                                         </p>
                                         <p className="text-[10px] font-mono text-green-500 mt-1">
-                                            + {stakes?.reduce((acc, s) => acc + (s.current_yield || 0), 0).toFixed(6)} Pending Yield
+                                            + {(stakes || []).reduce((acc, s) => acc + (s.current_yield || 0), 0).toFixed(6)} Pending Yield
                                         </p>
                                     </div>
 
@@ -477,10 +477,10 @@ export default function WalletPage() {
 
                                     {stakingAction === 'unstake' && (
                                         <div className="space-y-2 animate-in fade-in slide-in-from-top-2 pt-2 border-t border-border">
-                                            {stakes.filter(s => s.status === 'active').length === 0 ? (
+                                            {(stakes || []).filter(s => s.status === 'active').length === 0 ? (
                                                 <p className="text-[10px] text-muted-foreground text-center py-2">No active stakes</p>
                                             ) : (
-                                                stakes.filter(s => s.status === 'active').map(s => (
+                                                (stakes || []).filter(s => s.status === 'active').map(s => (
                                                     <div key={s.id} className="flex justify-between items-center bg-secondary/10 p-2 rounded-sm text-xs border border-border">
                                                         <div>
                                                             <div className="font-bold">{s.amount.toFixed(2)} TAO</div>
