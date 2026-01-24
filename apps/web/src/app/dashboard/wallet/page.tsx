@@ -91,7 +91,6 @@ export default function WalletPage() {
         fetchConfig();
         if (activeTab === 'CRYPTO' && user) {
             fetchStakes();
-            detectSubstrateExtensions();
         }
 
         // Auto-refresh mechanism (Polling 10s)
@@ -132,19 +131,6 @@ export default function WalletPage() {
         }
     }
 
-    async function detectSubstrateExtensions() {
-        if (typeof window === 'undefined') return;
-        setIsSubstrateDetecting(true);
-        try {
-            const { web3Enable } = await import('@polkadot/extension-dapp');
-            const extensions = await web3Enable('ProxySocialHub');
-            setSubstrateExtensions(extensions);
-        } catch (e) {
-            console.error("Substrate detection error", e);
-        } finally {
-            setIsSubstrateDetecting(false);
-        }
-    }
 
     async function handleLinkBittensor(selectedAccount?: any) {
         setCryptoProcessing(true);
@@ -189,6 +175,35 @@ export default function WalletPage() {
             console.error(err);
             const errorMessage = err instanceof Error ? err.message : String(err);
             setCryptoResult({ success: false, message: 'Bittensor linking failed: ' + (errorMessage || 'Check extension') });
+        } finally {
+            setCryptoProcessing(false);
+        }
+    }
+
+
+    async function handleUnlinkBittensor() {
+        if (!confirm('Are you sure you want to disconnect your Bittensor wallet?')) return;
+
+        setCryptoProcessing(true);
+        setCryptoResult(null);
+
+        try {
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chain: 'bittensor' }),
+            });
+
+            if (response.ok) {
+                setCryptoResult({ success: true, message: 'Bittensor wallet disconnected.' });
+                fetchWallet();
+            } else {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to disconnect wallet');
+            }
+        } catch (err) {
+            const error = err as Error;
+            setCryptoResult({ success: false, message: error.message || 'Failed to disconnect wallet' });
         } finally {
             setCryptoProcessing(false);
         }
@@ -832,12 +847,21 @@ export default function WalletPage() {
 
                                     {/* Bittensor Link Status */}
                                     {wallet?.linked_bittensor_addr ? (
-                                        <div className="p-4 border border-primary/30 bg-primary/5 rounded-sm flex items-center gap-4">
-                                            <ShieldCheck className="text-primary w-6 h-6" />
-                                            <div>
-                                                <h3 className="text-[10px] font-bold font-mono uppercase text-primary">Bittensor Linked</h3>
-                                                <p className="text-xs font-mono text-muted-foreground">{wallet.linked_bittensor_addr.slice(0, 4)}...{wallet.linked_bittensor_addr.slice(-4)}</p>
+                                        <div className="p-4 border border-primary/30 bg-primary/5 rounded-sm flex flex-col gap-3">
+                                            <div className="flex items-center gap-4">
+                                                <ShieldCheck className="text-primary w-6 h-6" />
+                                                <div>
+                                                    <h3 className="text-[10px] font-bold font-mono uppercase text-primary">Bittensor Linked</h3>
+                                                    <p className="text-xs font-mono text-muted-foreground">{wallet.linked_bittensor_addr.slice(0, 4)}...{wallet.linked_bittensor_addr.slice(-4)}</p>
+                                                </div>
                                             </div>
+                                            <button
+                                                onClick={handleUnlinkBittensor}
+                                                disabled={cryptoProcessing}
+                                                className="text-[10px] font-mono text-zinc-500 hover:text-destructive transition-colors uppercase flex items-center gap-1 justify-center w-full py-1 border border-zinc-500/10 hover:border-destructive/30 rounded-sm"
+                                            >
+                                                {cryptoProcessing ? '...' : 'Disconnect Wallet'}
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
