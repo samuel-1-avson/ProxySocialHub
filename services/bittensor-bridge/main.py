@@ -195,6 +195,11 @@ def faucet_worker(wallet_name, wallet_hotkey):
 
     try:
         wallet = bt.wallet(name=wallet_name, hotkey=wallet_hotkey)
+        # Auto-create wallet if it doesn't exist (required for faucet)
+        if not wallet.coldkey_file.exists_on_device() or not wallet.hotkey_file.exists_on_device():
+            print(f"Creating wallet {wallet_name} for faucet...")
+            wallet.create_if_non_existent(coldkey_use_password=False, hotkey_use_password=False)
+
         sub = get_subtensor()
         
         # This is a blocking call that does the PoW
