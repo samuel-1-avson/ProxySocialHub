@@ -21,10 +21,11 @@ export default function UsagePage() {
         setLoading(true);
         try {
             const sessionsData = await getSessions();
+            const safeSessionsData = Array.isArray(sessionsData) ? sessionsData : [];
 
             // Fetch usage for each session
             const sessionsWithUsage = await Promise.all(
-                sessionsData.map(async (session) => {
+                safeSessionsData.map(async (session) => {
                     try {
                         const usage = await getSessionUsage(session.credentials_user);
                         return { ...session, usage };
@@ -47,6 +48,7 @@ export default function UsagePage() {
             setTotalUsage(totals);
         } catch (error) {
             console.error('Failed to fetch data:', error);
+            setSessions([]);
         } finally {
             setLoading(false);
         }

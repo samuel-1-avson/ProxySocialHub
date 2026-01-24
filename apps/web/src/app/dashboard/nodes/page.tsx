@@ -43,8 +43,8 @@ function NodesContent() {
     }, []);
 
     // Map Real Nodes to UI format
-    // Map Real Nodes to UI format
-    const displayNodes = realNodes.map(n => ({
+    const safeNodes = Array.isArray(realNodes) ? realNodes : [];
+    const displayNodes = safeNodes.map(n => ({
         id: `node-${n.id.substring(0, 4)}`,
         location: n.city || "Unknown",
         type: n.connection_type || "Residential",
@@ -57,9 +57,9 @@ function NodesContent() {
 
     // Calculate generic stats based on real nodes
     const activeStats = {
-        connections: realNodes?.reduce((acc, n) => acc + (n.active_connections || 0), 0) || 0,
-        avgLatency: realNodes?.length > 0 ? Math.round(realNodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0) / realNodes.length) : 0,
-        avgTrust: realNodes?.length > 0 ? (realNodes.reduce((acc, n) => acc + n.quality_score, 0) / realNodes.length).toFixed(1) : "0.0"
+        connections: safeNodes.reduce((acc, n) => acc + (n.active_connections || 0), 0) || 0,
+        avgLatency: safeNodes.length > 0 ? Math.round(safeNodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0) / safeNodes.length) : 0,
+        avgTrust: safeNodes.length > 0 ? (safeNodes.reduce((acc, n) => acc + n.quality_score, 0) / safeNodes.length).toFixed(1) : "0.0"
     };
 
     return (
