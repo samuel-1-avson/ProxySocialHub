@@ -44,6 +44,10 @@ export interface ProviderNode {
     city: string;
     status: string;
     quality_score: number;
+    latency_ms?: number;
+    uptime_percent?: number;
+    active_connections?: number;
+    connection_type?: string;
 }
 
 export async function getProviderNodes(): Promise<{ nodes: ProviderNode[] }> {

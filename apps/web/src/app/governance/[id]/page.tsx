@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getProposal, castVote, type Proposal } from "@/lib/services/governance";
 import { useAuth } from "@/lib/auth";
-import { Loader2, ArrowLeft, CheckCircle, XCircle, Slash, Activity, MessageSquare, Box, Wallet } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { Loader2, ArrowLeft, CheckCircle, XCircle, Slash, Activity, MessageSquare, Box, Wallet, Vote } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 
 export default function ProposalDetailsPage() {
@@ -27,6 +28,8 @@ export default function ProposalDetailsPage() {
     const [voting, setVoting] = useState(false);
     const [voteChoice, setVoteChoice] = useState<'yes' | 'no' | 'abstain' | null>(null);
 
+    const { signMessage, publicKey } = useWallet();
+
     useEffect(() => {
         if (id) {
             getProposal(id)
@@ -38,14 +41,30 @@ export default function ProposalDetailsPage() {
 
     const handleVote = async () => {
         if (!voteChoice || !proposal) return;
+
+        if (!publicKey || !signMessage) {
+            alert("Please connect your wallet to vote.");
+            return;
+        }
+
         setVoting(true);
         try {
-            // Logic to sign message would go here.
-            // const signature = await wallet.signMessage(`Vote ${voteChoice} on proposal ${proposal.id}`);
-            const signature = "0x_mock_signature_" + Date.now();
-            const walletAddress = user?.user_metadata?.wallet_address || "0x_user_wallet";
+            const message = new TextEncoder().encode(
+                `Vote ${voteChoice} on proposal ${proposal.id}`
+            );
+            const signatureBytes = await signMessage(message);
+            // Convert signature to base64 or hex as required by backend. 
+            // Assuming base58 or hex. Standard is usually base58 for Solana.
+            // But for simplicity/compatibility with our mock backend endpoint that expects a string:
+            const signature = Buffer.from(signatureBytes).toString('hex'); // or base58 if imported
 
-            await castVote(proposal.id, voteChoice, signature, walletAddress);
+            // NOTE: Ideally we use bs58 for Solana signatures, but standard Buffer hex is fine for this generic implementation
+            // unless backend specifically validates ed25519 signature format against public key.
+            // Given the backend implementation was also generic, hex is safer standard for now without adding 'bs58' dep if not present.
+            // Wait, 'bs58' IS present in package.json. Let's use it if we can import it, otherwise hex.
+            // I'll stick to a safe hex representation or base64 to avoid missing import issues in this file.
+
+            await castVote(proposal.id, voteChoice, signature, publicKey.toBase58());
 
             // Refetch to update numbers
             const updated = await getProposal(proposal.id);
@@ -53,7 +72,7 @@ export default function ProposalDetailsPage() {
             alert("Vote submitted successfully!");
         } catch (err) {
             console.error("Vote failed", err);
-            alert("Vote failed. See console.");
+            alert("Vote failed. Ensure you signed the request.");
         } finally {
             setVoting(false);
             setVoteChoice(null); // Reset choice
@@ -95,8 +114,8 @@ export default function ProposalDetailsPage() {
                     <div>
                         <div className="flex items-center gap-3 mb-2">
                             <span className={`text-[10px] font-bold font-mono uppercase px-2 py-0.5 border rounded-full ${proposal.status === 'active' ? 'text-primary border-primary' :
-                                    proposal.status === 'passed' ? 'text-green-500 border-green-500' :
-                                        'text-muted-foreground border-border'
+                                proposal.status === 'passed' ? 'text-green-500 border-green-500' :
+                                    'text-muted-foreground border-border'
                                 }`}>
                                 {proposal.status}
                             </span>

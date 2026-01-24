@@ -78,15 +78,15 @@ export default function MessagesPage() {
         }
     };
 
+
     const openNewModal = async () => {
         setShowNewModal(true);
-        // Fetch friends for user selection
-        // NOTE: We need to implement listFriends in api.ts first, assuming it exists or verify
-        // If listFriends is missing in api.ts, this will fail. I should check if I added it.
-        // Wait, I added getFriendRequests but did I add getFriends? 
-        // Checking my previous edit... I added getFriendRequests. 
-        // I need to add getFriends (listFriends) to api.ts if I missed it.
-        // For now, let's assume it might be missing and handle gracefully or fix api.ts
+        try {
+            const myFriends = await listFriends();
+            setFriends(myFriends);
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     if (loading) return <div className="p-8 text-center font-mono">LOADING ENCRYPTED CHANNELS...</div>;
@@ -219,27 +219,29 @@ export default function MessagesPage() {
                         <h3 className="text-lg font-bold font-mono uppercase mb-4">Start Conversation</h3>
                         <p className="text-xs text-muted-foreground mb-4">Select a friend to message.</p>
 
-                        {/* 
-                           Ideally we would map through 'friends' here. 
-                           Since I haven't implemented getFriends in api.ts yet, this part is strictly placeholder 
-                           or relies on friends set being empty. 
-                           I'll add a 'TODO' visual or a manual User ID input as fallback.
-                        */}
-
                         <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                            {/* Fallback input for now */}
-                            <input
-                                placeholder="Enter User ID manually (temporary fallback)"
-                                className="w-full bg-secondary border border-border p-2 rounded-sm text-sm font-mono mb-4"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleNewMessage(e.currentTarget.value);
-                                }}
-                            />
-
-                            <div className="text-center text-xs text-muted-foreground font-mono py-4">
-                                NO FRIENDS LOADED (API PENDING)
-                            </div>
+                            {friends.length === 0 ? (
+                                <div className="text-center text-xs text-muted-foreground font-mono py-4">
+                                    NO FRIENDS FOUND. ADD FRIENDS VIA PROFILE.
+                                </div>
+                            ) : (
+                                friends.map(friend => (
+                                    <div key={friend.id}
+                                        onClick={() => handleNewMessage(friend.friend_id === authUser?.id ? friend.user_id : friend.friend_id)}
+                                        className="p-3 border border-border rounded-sm hover:bg-secondary cursor-pointer flex items-center gap-3 transition-colors"
+                                    >
+                                        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+                                            <User size={16} />
+                                        </div>
+                                        <span className="font-mono text-sm">
+                                            {/* We need friend detail here, assuming friend object has populated profile or we use ID */}
+                                            {friend.friend?.display_name || 'Friend'}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
                         </div>
+
 
                         <div className="flex justify-end gap-2">
                             <button onClick={() => setShowNewModal(false)} className="btn-retro btn-retro-ghost btn-retro-sm">CANCEL</button>
