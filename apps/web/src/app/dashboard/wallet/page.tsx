@@ -7,6 +7,7 @@ import { getWallet, depositWallet, withdrawWallet, linkWallet, getStakes, stakeF
 import { useAccount } from 'wagmi';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { SubstrateWalletModal } from '@/components/SubstrateWalletModal';
 import bs58 from 'bs58';
 import { API_BASE_URL, fetchWithAuth } from '@/lib/services/client';
 import { Connection, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -76,6 +77,7 @@ export default function WalletPage() {
     // Substrate State
     const [substrateExtensions, setSubstrateExtensions] = useState<any[]>([]);
     const [isSubstrateDetecting, setIsSubstrateDetecting] = useState(false);
+    const [isTAOModalOpen, setIsTAOModalOpen] = useState(false);
 
     const [mounted, setMounted] = useState(false);
 
@@ -144,26 +146,25 @@ export default function WalletPage() {
         }
     }
 
-    async function handleLinkBittensor(extensionName?: string) {
+    async function handleLinkBittensor(selectedAccount?: any) {
         setCryptoProcessing(true);
         setCryptoResult(null);
+        setIsTAOModalOpen(false);
 
         try {
-            const { web3Accounts, web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
+            const { web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
             const { stringToHex } = await import('@polkadot/util');
 
             await web3Enable('ProxySocialHub');
-            const allAccounts = await web3Accounts();
 
-            if (allAccounts.length === 0) {
-                throw new Error('No Substrate accounts found. Please unlock your wallet extension.');
-            }
-
-            // If extensionName is provided, filter for it, otherwise take first
-            let account = allAccounts[0];
-            if (extensionName) {
-                const filtered = allAccounts.filter(acc => acc.meta.source === extensionName);
-                if (filtered.length > 0) account = filtered[0];
+            let account = selectedAccount;
+            if (!account) {
+                const { web3Accounts } = await import('@polkadot/extension-dapp');
+                const allAccounts = await web3Accounts();
+                if (allAccounts.length === 0) {
+                    throw new Error('No Substrate accounts found. Please unlock your wallet extension.');
+                }
+                account = allAccounts[0];
             }
 
             const injector = await web3FromSource(account.meta.source);
@@ -842,33 +843,18 @@ export default function WalletPage() {
                                         <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
                                             <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Bittensor Wallet</h3>
 
-                                            {substrateExtensions.length > 0 ? (
-                                                <div className="flex flex-col gap-2 w-full">
-                                                    {substrateExtensions.map((ext) => (
-                                                        <button
-                                                            key={ext.name}
-                                                            onClick={() => handleLinkBittensor(ext.name)}
-                                                            disabled={cryptoProcessing}
-                                                            className="btn-retro btn-retro-outline text-[10px] py-1 px-3 w-full capitalize flex items-center justify-center gap-2"
-                                                        >
-                                                            {cryptoProcessing ? 'Connecting...' : `Connect ${ext.name}`}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <div className="w-full space-y-2">
-                                                    <button
-                                                        onClick={() => handleLinkBittensor()}
-                                                        disabled={cryptoProcessing || isSubstrateDetecting}
-                                                        className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
-                                                    >
-                                                        {isSubstrateDetecting ? 'Detecting...' : 'CONNECT TAO WALLET'}
-                                                    </button>
-                                                    <p className="text-[8px] text-muted-foreground text-center">
-                                                        Supports Subwallet, Bittensor, and Polkadot.js extensions
-                                                    </p>
-                                                </div>
-                                            )}
+                                            <div className="w-full space-y-2">
+                                                <button
+                                                    onClick={() => setIsTAOModalOpen(true)}
+                                                    disabled={cryptoProcessing}
+                                                    className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
+                                                >
+                                                    {cryptoProcessing ? 'Connecting...' : 'CONNECT TAO WALLET'}
+                                                </button>
+                                                <p className="text-[8px] text-muted-foreground text-center">
+                                                    Supports Subwallet, Bittensor, and Polkadot.js extensions
+                                                </p>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -1136,6 +1122,12 @@ export default function WalletPage() {
                     </>
                 )
             }
+            {/* Wallets */}
+            <SubstrateWalletModal
+                isOpen={isTAOModalOpen}
+                onClose={() => setIsTAOModalOpen(false)}
+                onSelect={(account) => handleLinkBittensor(account)}
+            />
         </div>
     );
 }
