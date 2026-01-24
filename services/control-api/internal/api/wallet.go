@@ -41,6 +41,9 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/withdraw", initiateWithdrawal) // Provider MoMo payouts
 		wallet.GET("/verify", verifyDeposit)         // Paystack callback
 		wallet.POST("/swap", swapCurrency)           // GHS <-> TAO conversion
+
+		// General Wallet Info
+		wallet.GET("", getWallet)
 	}
 }
 
