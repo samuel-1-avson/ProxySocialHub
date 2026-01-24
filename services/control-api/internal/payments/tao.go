@@ -36,13 +36,7 @@ func (c *TaoClient) VerifyDeposit(txHash string, expectedAmount float64) (bool, 
 	// 2. Parsed amount == expectedAmount
 	// 3. Status == Confirmed/Finalized
 
-	// Since bridge implementation is mocked:
-	// We assume if txHash starts with "0xvalid", it's good.
-	// In production, MUST implement block scanning.
-
-	if txHash == "0x_mock_deposit" {
-		return true, nil
-	}
+	// In production, MUST implement block scanning or use a third-party indexer.
 
 	return false, fmt.Errorf("transaction verification not implemented fully")
 }

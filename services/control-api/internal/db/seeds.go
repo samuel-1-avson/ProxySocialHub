@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"time"
 
+	"os"
+
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/datatypes"
@@ -17,8 +19,11 @@ func SeedAll() {
 		return
 	}
 
-	log.Println("Seeding Admin User...")
-	seedUsers() // Only seeds admin/critical users if missing
+	log.Println("Cleaning up legacy mock data...")
+	cleanMockData()
+
+	// log.Println("Seeding Admin User...")
+	// seedUsers() // Only seeds admin/critical users if missing
 	// log.Println("Seeding Listings...")
 	// seedListings()
 	// log.Println("Seeding Nodes...")
@@ -30,11 +35,11 @@ func SeedAll() {
 	// log.Println("Seeding Market Agents...")
 	// seedMarketAgents()
 
-	log.Println("Seeding Badges...")
-	seedBadges()
+	// log.Println("Seeding Badges...")
+	// seedBadges()
 	log.Println("Seeding System Config...")
 	seedSystemConfig()
-	log.Println("Database seeding completed (Mock data disabled)")
+	log.Println("Database seeding completed")
 }
 
 func seedUsers() {
@@ -452,30 +457,50 @@ func stringPtr(s string) *string {
 	return &s
 }
 
+func cleanMockData() {
+	// Delete users created by older seeds
+	mockEmails := []string{"admin@proxyhub.com", "provider@proxyhub.com", "user@proxyhub.com"}
+	DB.Unscoped().Where("email IN ?", mockEmails).Delete(&models.User{})
+
+	// Delete listings created by older seeds
+	mockListings := []string{"Premium Residential Proxies (US)", "Mobile 4G Proxies (UK)"}
+	DB.Unscoped().Where("title IN ?", mockListings).Delete(&models.ProxyListing{})
+
+	// Delete mock badges if any
+	DB.Unscoped().Where("name IN ?", []string{"First Sale", "Top Provider", "Global Connector"}).Delete(&models.Badge{})
+
+	log.Println("Successfully purged mock data from database")
+}
+
 func seedSystemConfig() {
 	configs := []models.SystemConfiguration{
 		{
 			Key:         "treasury_wallet_solana",
-			Value:       "8pb5...mock...treasury", // Mock Address
+			Value:       os.Getenv("SOLANA_TREASURY_ADDRESS"),
 			Description: "Central Treasury Wallet for Solana Deposits",
 		},
 		{
 			Key:         "treasury_wallet_bittensor",
-			Value:       "5HT...mock...treasury", // Mock Address
+			Value:       os.Getenv("TAO_TREASURY_ADDRESS"),
 			Description: "Central Treasury Wallet for Bittensor Deposits",
 		},
 	}
 
 	for _, c := range configs {
 		var existing models.SystemConfiguration
-		if err := DB.Where("key = ?", c.Key).First(&existing).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.ID = uuid.New()
-				if err := DB.Create(&c).Error; err != nil {
-					log.Printf("Failed to seed config %s: %v", c.Key, err)
-				} else {
-					log.Printf("Seeded config: %s", c.Key)
-				}
+		if err := DB.Where("key = ?", c.Key).First(&existing).Error; err == nil {
+			// Update existing record
+			if existing.Value != c.Value {
+				DB.Model(&existing).Update("value", c.Value)
+				log.Printf("Updated config: %s to %s", c.Key, c.Value)
+			}
+		} else if err == gorm.ErrRecordNotFound {
+			// Create new record
+			c.ID = uuid.New()
+			if err := DB.Create(&c).Error; err != nil {
+				log.Printf("Failed to seed config %s: %v", c.Key, err)
+			} else {
+				log.Printf("Seeded config: %s", c.Key)
 			}
 		}
 	}
