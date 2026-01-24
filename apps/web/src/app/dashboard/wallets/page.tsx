@@ -1,8 +1,11 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { web3Accounts, web3Enable, web3FromSource } from '@polkadot/extension-dapp';
+import { stringToHex } from '@polkadot/util';
 import styles from './LinkedWallets.module.css';
 
 interface LinkedWallet {
@@ -28,6 +31,7 @@ const CHAIN_COLORS: Record<string, string> = {
 };
 
 export default function LinkedWalletsPage() {
+    const { user } = useAuth();
     const [wallets, setWallets] = useState<LinkedWallet[]>([]);
     const [loading, setLoading] = useState(true);
     const [linking, setLinking] = useState(false);
@@ -105,6 +109,67 @@ export default function LinkedWalletsPage() {
         }
     };
 
+    const linkBittensorWallet = async () => {
+        setLinking(true);
+        setError(null);
+
+        try {
+            const extensions = await web3Enable('ProxySocialHub');
+            if (extensions.length === 0) {
+                throw new Error('No Substrate extension found. Please install Subwallet or Bittensor wallet.');
+            }
+
+            const allAccounts = await web3Accounts();
+            if (allAccounts.length === 0) {
+                throw new Error('No accounts found in your wallet extension.');
+            }
+
+            // For now, take the first account. In a real app, show a picker.
+            const account = allAccounts[0];
+            const injector = await web3FromSource(account.meta.source);
+
+            const message = `Sign this message to link your Bittensor wallet to ProxySocialHub.\n\nWallet: ${account.address}\nUser ID: ${user?.id}\nTimestamp: ${Date.now()}`;
+
+            if (!injector.signer.signRaw) {
+                throw new Error('Wallet does not support raw message signing');
+            }
+
+            const { signature } = await injector.signer.signRaw({
+                address: account.address,
+                data: stringToHex(message),
+                type: 'bytes'
+            });
+
+            // Send to backend
+            const response = await fetch('/api/v1/wallet/link', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    chain: 'bittensor',
+                    wallet_address: account.address,
+                    signature: signature,
+                    message: message,
+                }),
+            });
+
+            if (response.ok) {
+                setSuccess('Bittensor wallet linked successfully!');
+                fetchWallets();
+            } else {
+                const data = await response.json();
+                setError(data.error || 'Failed to link Bittensor wallet');
+            }
+        } catch (err) {
+            const error = err as Error;
+            setError(error.message || 'Failed to link Bittensor wallet');
+        } finally {
+            setLinking(false);
+        }
+    };
+
     const setPrimaryWallet = async (walletId: string) => {
         try {
             const response = await fetch(`/api/v1/linked-wallets/${walletId}/primary`, {
@@ -117,6 +182,7 @@ export default function LinkedWalletsPage() {
                 fetchWallets();
             }
         } catch (err) {
+            console.error('Failed to set primary wallet:', err);
             setError('Failed to set primary wallet');
         }
     };
@@ -135,6 +201,7 @@ export default function LinkedWalletsPage() {
                 fetchWallets();
             }
         } catch (err) {
+            console.error('Failed to unlink wallet:', err);
             setError('Failed to unlink wallet');
         }
     };
@@ -217,11 +284,19 @@ export default function LinkedWalletsPage() {
                             <span className={styles.chainIcon} style={{ background: CHAIN_COLORS.bittensor }}>
                                 {CHAIN_ICONS.bittensor}
                             </span>
-                            <span>Bittensor</span>
+                            <span>Bittensor (TAO)</span>
                         </div>
-                        <button className={styles.linkButtonDisabled} disabled>
-                            Coming Soon
-                        </button>
+                        {isWalletAlreadyLinked('bittensor', '') ? ( // Check if any bittensor wallet is linked
+                            <span className={styles.alreadyLinked}>✓ Linked</span>
+                        ) : (
+                            <button
+                                className={styles.linkButton}
+                                onClick={linkBittensorWallet}
+                                disabled={linking}
+                            >
+                                {linking ? 'Linking...' : 'Link Bittensor Wallet'}
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

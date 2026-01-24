@@ -353,9 +353,10 @@ export default function WalletPage() {
             await linkWallet(publicKey.toBase58(), 'solana', signature, message);
             setCryptoResult({ success: true, message: "Wallet Linked Successfully" });
             fetchWallet();
-        } catch (err: any) {
+        } catch (err) {
             console.error(err);
-            setCryptoResult({ success: false, message: err.message || "Linking failed" });
+            const error = err as Error;
+            setCryptoResult({ success: false, message: error.message || "Linking failed" });
         } finally {
             setCryptoProcessing(false);
         }
@@ -719,34 +720,53 @@ export default function WalletPage() {
 
                             {/* LINK WALLET SECTION */}
                             <div className="md:col-span-2 pt-4 border-t border-border">
-                                {wallet?.linked_solana_address ? (
-                                    <div className="p-4 border border-green-500/30 bg-green-500/5 rounded-sm flex items-center gap-4">
-                                        <ShieldCheck className="text-green-500 w-8 h-8" />
-                                        <div>
-                                            <h3 className="text-xs font-bold font-mono uppercase text-green-500">Wallet Linked</h3>
-                                            <p className="text-xs font-mono text-muted-foreground">{wallet.linked_solana_address.slice(0, 4)}...{wallet.linked_solana_address.slice(-4)}</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Solana Link Status */}
+                                    {wallet?.linked_solana_address ? (
+                                        <div className="p-4 border border-purple-500/30 bg-purple-500/5 rounded-sm flex items-center gap-4">
+                                            <ShieldCheck className="text-purple-500 w-6 h-6" />
+                                            <div>
+                                                <h3 className="text-[10px] font-bold font-mono uppercase text-purple-500">Solana Linked</h3>
+                                                <p className="text-xs font-mono text-muted-foreground">{wallet.linked_solana_address.slice(0, 4)}...{wallet.linked_solana_address.slice(-4)}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center gap-4 p-4 border border-border rounded-sm bg-secondary/5">
-                                        <div className="text-center">
-                                            <h3 className="text-sm font-bold font-mono uppercase text-muted-foreground">Link External Wallet</h3>
-                                            <p className="text-[10px] text-muted-foreground mb-4">Connect Solana wallet to enable features.</p>
+                                    ) : (
+                                        <div className="flex flex-col items-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
+                                            <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Solana Wallet</h3>
+                                            <SolanaWalletButton />
+                                            {connected && publicKey && (
+                                                <button
+                                                    onClick={handleLinkWallet}
+                                                    disabled={cryptoProcessing}
+                                                    className="btn-retro btn-retro-outline text-[10px] py-1 px-3 w-full"
+                                                >
+                                                    {cryptoProcessing ? 'Linking...' : 'Link to Account'}
+                                                </button>
+                                            )}
                                         </div>
+                                    )}
 
-                                        <SolanaWalletButton />
-
-                                        {connected && publicKey && (
-                                            <button
-                                                onClick={handleLinkWallet}
-                                                disabled={cryptoProcessing}
-                                                className="btn-retro btn-retro-outline text-xs py-2 px-4 w-full"
+                                    {/* Bittensor Link Status */}
+                                    {wallet?.linked_bittensor_addr ? (
+                                        <div className="p-4 border border-primary/30 bg-primary/5 rounded-sm flex items-center gap-4">
+                                            <ShieldCheck className="text-primary w-6 h-6" />
+                                            <div>
+                                                <h3 className="text-[10px] font-bold font-mono uppercase text-primary">Bittensor Linked</h3>
+                                                <p className="text-xs font-mono text-muted-foreground">{wallet.linked_bittensor_addr.slice(0, 4)}...{wallet.linked_bittensor_addr.slice(-4)}</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
+                                            <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Bittensor Wallet</h3>
+                                            <a
+                                                href="/dashboard/wallets"
+                                                className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
                                             >
-                                                {cryptoProcessing ? 'Linking...' : `Link ${publicKey.toBase58().slice(0, 6)}... to Account`}
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
+                                                CONNECT TAO WALLET
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
