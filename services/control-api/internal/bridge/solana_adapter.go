@@ -3,7 +3,6 @@ package bridge
 import (
 	"context"
 	"fmt"
-	"os"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -15,10 +14,9 @@ type SolanaAdapter struct {
 }
 
 func NewSolanaAdapter(client *solana.OracleClient) (*SolanaAdapter, error) {
-	vaultStr := os.Getenv("SOLANA_BRIDGE_VAULT")
+	vaultStr := solana.GetTreasuryAddress()
 	if vaultStr == "" {
 		// Fallback for dev if not set, or error
-		// For safety, maybe error, but let's default to oracle key for now if not set
 		return &SolanaAdapter{client: client, vault: client.GetOraclePublicKey()}, nil
 	}
 
