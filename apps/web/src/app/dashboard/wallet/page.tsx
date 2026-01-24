@@ -70,6 +70,14 @@ export default function WalletPage() {
         if (activeTab === 'CRYPTO') {
             fetchStakes();
         }
+
+        // Auto-refresh mechanism (Polling 10s)
+        const interval = setInterval(() => {
+            fetchWallet();
+            if (activeTab === 'CRYPTO') fetchStakes();
+        }, 10000);
+
+        return () => clearInterval(interval);
     }, [activeTab]);
 
     async function fetchConfig() {
@@ -471,14 +479,23 @@ export default function WalletPage() {
                                         className="w-full bg-background border border-border rounded-sm px-3 py-2 text-xs font-mono outline-none focus:border-blue-500"
                                     />
                                     <div className="flex gap-2">
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            placeholder="Amount"
-                                            value={p2pAmount}
-                                            onChange={(e) => setP2PAmount(e.target.value)}
-                                            className="w-2/3 bg-background border border-border rounded-sm px-3 py-2 text-xs font-mono outline-none focus:border-blue-500"
-                                        />
+                                        <div className="relative w-2/3">
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="Amount"
+                                                value={p2pAmount}
+                                                onChange={(e) => setP2PAmount(e.target.value)}
+                                                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-xs font-mono outline-none focus:border-blue-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setP2PAmount(p2pCurrency === 'TAO' ? (wallet?.balance_tao || 0).toString() : (wallet?.balance_ghs || 0).toString())}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-blue-400 font-bold hover:text-blue-300"
+                                            >
+                                                MAX
+                                            </button>
+                                        </div>
                                         <select
                                             value={p2pCurrency}
                                             onChange={(e) => setP2PCurrency(e.target.value as 'TAO' | 'GHS')}
@@ -727,7 +744,23 @@ export default function WalletPage() {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-muted-foreground">
-                                                    {new Date(tx.created_at).toLocaleDateString()}
+                                                    <div className="flex flex-col items-start gap-1">
+                                                        <span>{new Date(tx.created_at).toLocaleDateString()}</span>
+                                                        {/* Explorer Link */}
+                                                        {tx.id && (tx.type === 'deposit' || tx.type.includes('solana') || tx.type.includes('bittensor')) && (
+                                                            <a
+                                                                href={tx.description.includes('TAO')
+                                                                    ? `https://taostats.io/extrinsic/${tx.id}` // Approximation, ID might not be hash, check api response
+                                                                    : `https://solscan.io/tx/${tx.id}?cluster=${process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet'}`
+                                                                }
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="text-[10px] text-blue-400 hover:underline flex items-center gap-1"
+                                                            >
+                                                                View on Chain <ArrowUpRight size={8} />
+                                                            </a>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}
