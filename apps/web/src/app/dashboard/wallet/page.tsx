@@ -556,14 +556,14 @@ export default function UnifiedWalletPage() {
                                 <div className="p-4 bg-white/5 border border-white/5 rounded-sm group relative overflow-hidden">
                                     <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Streaming Earnings (L2)</p>
                                     <p className="text-xl font-black font-mono text-green-500">
-                                        + ₵<VestingTicker base={84.21} rate={0.0001} />
+                                        + ₵<VestingTicker base={0} rate={0} />
                                     </p>
                                     <div className="absolute bottom-0 left-0 h-0.5 bg-green-500/30 w-full animate-progress-ind"></div>
                                 </div>
 
                                 <div className="p-4 bg-white/5 border border-white/5 rounded-sm">
                                     <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Active Collateral</p>
-                                    <p className="text-xl font-black font-mono">1,024.50 <span className="text-xs opacity-50">TAO</span></p>
+                                    <p className="text-xl font-black font-mono">{wallet?.balance_tao?.toFixed(2) || '0.00'} <span className="text-xs opacity-50">TAO</span></p>
                                 </div>
                             </div>
                         </div>
@@ -575,16 +575,16 @@ export default function UnifiedWalletPage() {
                             </h3>
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center text-[10px] font-mono uppercase">
-                                    <span className="text-muted-foreground">Session ID: 8xf2...p9</span>
-                                    <span className="text-primary animate-pulse">LIVE</span>
+                                    <span className="text-muted-foreground">Session ID: {wallet?.id ? `${wallet.id.slice(0, 4)}...${wallet.id.slice(-4)}` : 'NONE'}</span>
+                                    <span className={wallet?.id ? "text-primary animate-pulse" : "text-muted-foreground"}>{wallet?.id ? 'LIVE' : 'IDLE'}</span>
                                 </div>
                                 <div className="flex justify-between items-end border-b border-white/5 pb-2">
                                     <span className="text-[9px] font-mono text-muted-foreground uppercase">Accumulated</span>
-                                    <span className="text-lg font-black font-mono">₵<VestingTicker base={12.45} rate={0.00005} /></span>
+                                    <span className="text-lg font-black font-mono">₵<VestingTicker base={0} rate={0} /></span>
                                 </div>
                                 <div className="flex justify-between items-end">
                                     <span className="text-[9px] font-mono text-muted-foreground uppercase">Node Performance</span>
-                                    <span className="text-xs font-bold font-mono text-green-500">99.8%</span>
+                                    <span className="text-xs font-bold font-mono text-green-500">{wallet?.id ? '99.8%' : '0.0%'}</span>
                                 </div>
                             </div>
                         </div>

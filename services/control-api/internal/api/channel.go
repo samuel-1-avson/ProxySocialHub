@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/billing"
+	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -54,10 +55,13 @@ func (h *ChannelHandler) OpenChannel(c *gin.Context) {
 	}
 	buyerID := uuid.MustParse(userIDStr)
 
-	// In a real system, we'd look up the provider ID from the Session
-	// Mocking Provider ID for now or fetching session
-	// var session models.Session ... db.First ... providerID = session.ProviderID
-	providerID := uuid.New() // Placeholder
+	// Fetch real ProviderID from Session
+	var session models.Session
+	if err := db.DB.Where("id = ?", sessionID).First(&session).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+		return
+	}
+	providerID := *session.NodeID // Simplified: Node owner is the provider
 
 	channel, err := h.service.OpenChannel(sessionID, buyerID, providerID, req.Amount)
 	if err != nil {
