@@ -48,13 +48,16 @@ export async function linkWallet(address: string, chain: 'solana' | 'bittensor',
     return response.json();
 }
 
-export async function depositCrypto(amount: number, txHash: string): Promise<{ status: string; message: string }> {
+export async function depositCrypto(amount: number, txHash: string, chain: 'solana' | 'bittensor', destinationAddress?: string): Promise<{ status: string; message: string; credited_tao?: number }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit/crypto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO', chain: 'solana' }),
+        body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO', chain, destination_address: destinationAddress }),
     });
-    if (!response.ok) throw new Error('Failed to submit crypto deposit');
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to submit crypto deposit');
+    }
     return response.json();
 }
 

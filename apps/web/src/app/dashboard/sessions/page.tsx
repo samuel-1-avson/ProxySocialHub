@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { createSession, getSessions, terminateSession, Session } from '@/lib/api';
-import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock } from 'lucide-react';
+import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock, Activity } from 'lucide-react';
+import { StreamingSessionCard } from '@/components/StreamingSessionCard';
 
 export default function SessionsPage() {
     const [sessions, setSessions] = useState<Session[]>([]);
@@ -165,6 +166,27 @@ export default function SessionsPage() {
                     <span className="text-[10px] font-mono font-bold uppercase text-muted-foreground">
                         {sessions.length} / 10 SLOTS
                     </span>
+                </div>
+
+                {/* Live Streams Section */}
+                <div className="p-6 border-b border-border">
+                    <h2 className="text-sm font-bold font-mono uppercase mb-4 flex items-center gap-2">
+                        <Activity size={16} className="text-green-500" /> Live Streams
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {sessions.filter(s => s.status === 'active').map(session => (
+                            <StreamingSessionCard
+                                key={session.id}
+                                session={session}
+                                onTerminate={handleTerminate}
+                            />
+                        ))}
+                        {sessions.filter(s => s.status === 'active').length === 0 && (
+                            <div className="col-span-full p-8 border border-dashed border-border rounded-sm text-center text-muted-foreground text-xs font-mono uppercase">
+                                No active streams. Initiate a session to see real-time billing.
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {sessions.length === 0 ? (

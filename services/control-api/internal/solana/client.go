@@ -200,3 +200,236 @@ func (c *OracleClient) GetBalance(ctx context.Context) (uint64, error) {
 	}
 	return balance.Value, nil
 }
+
+// ============== ADMIN CONFIG ==============
+
+// AdminConfig represents the on-chain admin configuration account
+type AdminConfig struct {
+	Admin        sol.PublicKey `json:"admin"`
+	PendingAdmin sol.PublicKey `json:"pending_admin"`
+	CreatedAt    int64         `json:"created_at"`
+	UpdatedAt    int64         `json:"updated_at"`
+	Bump         uint8         `json:"bump"`
+}
+
+// AdminConfig account size: 8 (discriminator) + 32 + 32 + 8 + 8 + 1 = 89 bytes
+const AdminConfigLen = 89
+
+// GetAdminConfigPDA derives the admin_config singleton PDA address
+func (c *OracleClient) GetAdminConfigPDA() (sol.PublicKey, uint8, error) {
+	pda, bump, err := sol.FindProgramAddress(
+		[][]byte{
+			[]byte("admin_config"),
+		},
+		c.programID,
+	)
+	if err != nil {
+		return sol.PublicKey{}, 0, fmt.Errorf("failed to derive admin config PDA: %w", err)
+	}
+	return pda, bump, nil
+}
+
+// FetchAdminConfig fetches and decodes the admin config account from the chain
+func (c *OracleClient) FetchAdminConfig(ctx context.Context) (*AdminConfig, error) {
+	pda, _, err := c.GetAdminConfigPDA()
+	if err != nil {
+		return nil, err
+	}
+
+	accountInfo, err := c.rpcClient.GetAccountInfo(ctx, pda)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch admin config account: %w", err)
+	}
+
+	if accountInfo == nil || accountInfo.Value == nil {
+		return nil, fmt.Errorf("admin config account not found - needs to be initialized")
+	}
+
+	data := accountInfo.Value.Data.GetBinary()
+	if len(data) < AdminConfigLen {
+		return nil, fmt.Errorf("account data too short for admin config")
+	}
+
+	// Skip 8-byte discriminator
+	data = data[8:]
+
+	adminConfig := &AdminConfig{
+		Admin:        sol.PublicKeyFromBytes(data[0:32]),
+		PendingAdmin: sol.PublicKeyFromBytes(data[32:64]),
+		CreatedAt:    int64(bytesToUint64(data[64:72])),
+		UpdatedAt:    int64(bytesToUint64(data[72:80])),
+		Bump:         data[80],
+	}
+
+	return adminConfig, nil
+}
+
+// IsAdmin checks if the given public key is the current admin
+func (c *OracleClient) IsAdmin(ctx context.Context, pubkey sol.PublicKey) (bool, error) {
+	adminConfig, err := c.FetchAdminConfig(ctx)
+	if err != nil {
+		return false, err
+	}
+	return adminConfig.Admin.Equals(pubkey), nil
+}
+
+// GetDisputePDA derives the dispute PDA address for an escrow
+func (c *OracleClient) GetDisputePDA(escrowPDA sol.PublicKey) (sol.PublicKey, uint8, error) {
+	pda, bump, err := sol.FindProgramAddress(
+		[][]byte{
+			[]byte("dispute"),
+			escrowPDA.Bytes(),
+		},
+		c.programID,
+	)
+	if err != nil {
+		return sol.PublicKey{}, 0, fmt.Errorf("failed to derive dispute PDA: %w", err)
+	}
+	return pda, bump, nil
+}
+
+// ============== PRECISION HELPERS ==============
+
+// LamportsPerSOL is the number of lamports in 1 SOL
+const LamportsPerSOL uint64 = 1_000_000_000
+
+// LamportsToSOL converts lamports to SOL as a float
+func LamportsToSOL(lamports uint64) float64 {
+	return float64(lamports) / float64(LamportsPerSOL)
+}
+
+// SOLToLamports converts SOL to lamports
+func SOLToLamports(sol float64) uint64 {
+	return uint64(sol * float64(LamportsPerSOL))
+}
+
+// CalculateProportionalPayout calculates payout using fixed-point arithmetic
+// Returns (sellerPayout, buyerRefund)
+func CalculateProportionalPayout(totalAmount, usedGB, limitGB uint64) (uint64, uint64) {
+	if limitGB == 0 {
+		return 0, totalAmount
+	}
+
+	// Cap usage at limit
+	cappedUsage := usedGB
+	if cappedUsage > limitGB {
+		cappedUsage = limitGB
+	}
+
+	// seller_payout = (amount * used) / limit
+	sellerPayout := (totalAmount * cappedUsage) / limitGB
+	buyerRefund := totalAmount - sellerPayout
+
+	return sellerPayout, buyerRefund
+}
+
+// GBToBytes converts gigabytes to bytes
+func GBToBytes(gb uint64) uint64 {
+	return gb * 1024 * 1024 * 1024
+}
+
+// BytesToGB converts bytes to gigabytes
+func BytesToGB(bytes uint64) uint64 {
+	return bytes / (1024 * 1024 * 1024)
+}
+
+// PricePerGBToLamportsPerByte converts price per GB (in SOL) to lamports per byte
+func PricePerGBToLamportsPerByte(pricePerGB float64) uint64 {
+	lamportsPerGB := SOLToLamports(pricePerGB)
+	// Divide by bytes in 1 GB
+	return lamportsPerGB / GBToBytes(1)
+}
+
+// ============== NFT ACCESS CONTROL ==============
+
+// HasNFT checks if a wallet holds a specific NFT/Token mint
+// limit 1 for now, as passes are usually 1
+func (c *OracleClient) HasNFT(ctx context.Context, wallet sol.PublicKey, mint sol.PublicKey) (bool, error) {
+	// Find associated token account
+	ata, _, err := sol.FindAssociatedTokenAddress(wallet, mint)
+	if err != nil {
+		return false, fmt.Errorf("failed to derive ATA: %w", err)
+	}
+
+	// Fetch account info
+	accountInfo, err := c.rpcClient.GetAccountInfo(ctx, ata)
+	if err != nil {
+		// If account doesn't exist, they don't have it
+		return false, nil
+	}
+
+	if accountInfo == nil || accountInfo.Value == nil {
+		return false, nil
+	}
+
+	// Parse token data manually to avoid full dependency bloat if simple
+	// Layout: mint(32) + owner(32) + amount(8) + ...
+	data := accountInfo.Value.Data.GetBinary()
+	if len(data) < 72 {
+		return false, nil
+	}
+
+	amount := bytesToUint64(data[64:72])
+	return amount > 0, nil
+}
+
+// ============== BRIDGE VERIFICATION ==============
+
+// VerifyTransaction checks if a transaction is finalized and transfers SOL to a destination
+func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, expectedDest sol.PublicKey) (uint64, error) {
+	sig, err := sol.SignatureFromBase58(signature)
+	if err != nil {
+		return 0, fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Fetch transaction
+	// MaxRetries: nil (default)
+	tx, err := c.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
+		Commitment: rpc.CommitmentFinalized,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch transaction: %w", err)
+	}
+
+	if tx == nil {
+		return 0, fmt.Errorf("transaction not found")
+	}
+
+	if tx.Meta.Err != nil {
+		return 0, fmt.Errorf("transaction failed on-chain")
+	}
+
+	// Decode transaction object
+	decodedTx, err := tx.Transaction.GetTransaction()
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode transaction: %w", err)
+	}
+
+	// Find index of expectedDest
+	destIndex := -1
+	for i, key := range decodedTx.Message.AccountKeys {
+		if key.Equals(expectedDest) {
+			destIndex = i
+			break
+		}
+	}
+
+	if destIndex == -1 {
+		return 0, fmt.Errorf("destination not found in transaction")
+	}
+
+	// Calculate balance change
+	// Note: AccountKeys order aligns with Pre/PostBalances
+	if destIndex >= len(tx.Meta.PreBalances) || destIndex >= len(tx.Meta.PostBalances) {
+		return 0, fmt.Errorf("balance data not available for destination")
+	}
+
+	preBalance := tx.Meta.PreBalances[destIndex]
+	postBalance := tx.Meta.PostBalances[destIndex]
+
+	if postBalance <= preBalance {
+		return 0, fmt.Errorf("no net positive transfer to destination")
+	}
+
+	return uint64(postBalance - preBalance), nil
+}

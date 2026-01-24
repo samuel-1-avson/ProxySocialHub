@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/bittensor"
+	"github.com/proxyhubb/control-api/internal/bridge"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -166,9 +167,10 @@ func linkWallet(c *gin.Context) {
 }
 
 type cryptoDepositRequest struct {
-	TxHash string  `json:"tx_hash" binding:"required"`
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-	Chain  string  `json:"chain" binding:"required"` // "solana", "bittensor"
+	TxHash             string  `json:"tx_hash" binding:"required"`
+	Amount             float64 `json:"amount" binding:"required,gt=0"`
+	Chain              string  `json:"chain" binding:"required"` // "solana", "bittensor"
+	DestinationAddress string  `json:"destination_address"`      // Optional: For direct bridge
 }
 
 // verifyCryptoDeposit verifies an external crypto transfer and credits the internal wallet
@@ -187,10 +189,69 @@ func verifyCryptoDeposit(c *gin.Context) {
 	userID := userUUID.String()
 	ctx := context.Background()
 
+	// --- DIRECT BRIDGE FLOW (Solana -> Bittensor) ---
+	if req.Chain == "solana" && req.DestinationAddress != "" {
+		logging.Info().Str("tx", req.TxHash).Str("dest", req.DestinationAddress).Msg("Initiating Direct Bridge")
+
+		// Initialize Bridge Service (On-the-fly)
+		cfg := solana.Config{
+			RPCEndpoint:       os.Getenv("SOLANA_RPC_ENDPOINT"),
+			OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
+		}
+		if cfg.RPCEndpoint == "" {
+			cfg.RPCEndpoint = "https://api.devnet.solana.com"
+		}
+
+		oracleClient, err := solana.NewOracleClient(cfg)
+		if err != nil {
+			logging.Error(err).Msg("Failed to init oracle client for bridge")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Bridge service unavailable"})
+			return
+		}
+
+		// Import cycle note: 'bridge' package imports 'solana', ensuring no cycle if 'api' imports 'bridge'.
+		// We need to import "github.com/proxyhubb/control-api/internal/bridge"
+		// If 'api' is not importing it yet, we need to add it.
+		// Since I can't add imports easily with replace_file_content mid-file, I will assume I need to fix imports in a separate step or add it now if I can replace the header.
+		// Detailed plan: I'll replace the whole file imports later. For now, I'll write the logic assuming 'bridge' is imported.
+
+		// Actually, I'll use a helper to get the service if possible, or just instantiate here.
+		// Since I can't easily edit imports in this specific tool call if I don't target the top...
+		// I will split this into two calls. First add import, then add logic.
+		// Or I will replace header AND this section.
+		// Wait, replace_file_content can do imports if I include the top.
+
+		// Let's assume I will fix imports after.
+		bridgeService, err := bridge.NewService(oracleClient)
+		if err != nil {
+			logging.Error(err).Msg("Failed to create bridge service")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Bridge service init failed"})
+			return
+		}
+
+		result, err := bridgeService.ProcessSolanaToBittensor(ctx, req.TxHash, req.DestinationAddress)
+		if err != nil {
+			logging.Error(err).Msg("Bridge transfer failed")
+			// Detailed error
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bridge failed: " + err.Error()})
+			return
+		}
+
+		// Success -> Return immediately (funds bridged, no internal credit)
+		c.JSON(http.StatusOK, gin.H{
+			"status":        "success",
+			"message":       "Funds bridged successfully",
+			"source_amount": result.AmountSource,
+			"dest_amount":   result.AmountDest,
+			"dest_tx":       result.DestTx,
+		})
+		return
+	}
+
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
 	var verifiedAmount float64
 
-	if req.Chain == "solana" {
+	if req.Chain == "solana" && req.DestinationAddress == "" {
 		// Get treasury address
 		treasuryAddress := solana.GetTreasuryAddress()
 		if treasuryAddress == "" {
@@ -263,6 +324,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 				Int64("block", transfer.BlockNumber).
 				Msg("Bittensor deposit verified on-chain")
 		}
+	} else if req.DestinationAddress != "" {
+		// Chain is not solana but dest address provided? unsupported for direct bridge now
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Direct bridge only supported for Solana -> Bittensor currently"})
+		return
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return

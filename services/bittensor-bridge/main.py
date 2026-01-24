@@ -288,13 +288,27 @@ from typing import Dict, List
 # ==========================================
 
 class Validator:
-    def __init__(self):
-        self.scores = {} # Map netuid -> { hotkey -> score }
+    def __init__(self, wallet_name: str = "validator", wallet_hotkey: str = "default"):
+        self.scores = {}  # Map netuid -> { hotkey -> score }
         self.lock = threading.Lock()
         self.running = True
-        self.sub = None 
-        # In a real environment, we'd Initialize Subtensor here
-        # self.sub = get_subtensor() 
+        self.sub = None
+        self.wallet = None
+        self.netuid = int(os.getenv("BITTENSOR_NETUID", "1"))
+        self.weight_update_cooldown = 300  # 5 minutes between weight updates
+        self.last_weight_update = 0
+        
+        # Initialize wallet and subtensor for weight submission
+        try:
+            self.wallet = bt.wallet(name=wallet_name, hotkey=wallet_hotkey)
+            if self.wallet.hotkey_file.exists_on_device():
+                print(f"Validator: Loaded wallet {wallet_name}/{wallet_hotkey}")
+            else:
+                print(f"Validator: Wallet {wallet_name}/{wallet_hotkey} not found, weights will not be submitted")
+                self.wallet = None
+        except Exception as e:
+            print(f"Validator: Failed to load wallet: {e}")
+            self.wallet = None
 
     def check_proxy(self, ip: str, port: int) -> float:
         """
@@ -307,8 +321,8 @@ class Validator:
             "https": proxy_url,
         }
         
-        target_url = "http://google.com" # Or a dedicated benchmark endpoint
-        timeout = 5.0 # 5 seconds max latency
+        target_url = "http://google.com"  # Or a dedicated benchmark endpoint
+        timeout = 5.0  # 5 seconds max latency
 
         try:
             start_time = time.time()
@@ -330,7 +344,7 @@ class Validator:
                 else:
                     return 0.1
             else:
-                 return 0.0 # Connected but failed request
+                return 0.0  # Connected but failed request
                  
         except Exception as e:
             # print(f"Proxy check failed for {proxy_url}: {e}")
@@ -340,50 +354,99 @@ class Validator:
         print("Validator: Starting validation loop...")
         while self.running:
             try:
-                # In a real subnet, we would:
-                # 1. Query metagraph for all registered uids
-                # 2. Extract IP/Port from Axon info
-                
-                # For this implementation, we will simulate fetching from Metagraph
-                # but perform REAL HTTP checks if IP is reachable (or simulate check if local)
-                
                 # Fetch live Metagraph state from Subtensor
                 nodes_to_check = {}
+                metagraph = None
                 try:
                     sub = get_subtensor()
-                    metagraph = sub.metagraph(netuid=1)
+                    metagraph = sub.metagraph(netuid=self.netuid)
                     for neuron in metagraph.neurons:
                         if neuron.axon_info.is_serving:
-                             nodes_to_check[neuron.hotkey] = {
-                                 "ip": neuron.axon_info.ip,
-                                 "port": neuron.axon_info.port
-                             }
+                            nodes_to_check[neuron.hotkey] = {
+                                "uid": neuron.uid,
+                                "ip": neuron.axon_info.ip,
+                                "port": neuron.axon_info.port
+                            }
                 except Exception as e:
                     print(f"Validator: Could not fetch metagraph: {e}")
+                    time.sleep(30)
+                    continue
 
                 new_scores = {}
                 
                 for hotkey, info in nodes_to_check.items():
                     # PERFORM REAL CHECK
                     score = self.check_proxy(info["ip"], info["port"])
-                    new_scores[hotkey] = score
+                    new_scores[hotkey] = {
+                        "uid": info["uid"],
+                        "score": score
+                    }
                     
                     if score > 0:
-                        print(f"Validator: Proxy {info['ip']}:{info['port']} is ALIVE! Score: {score}")
+                        print(f"Validator: Proxy {info['ip']}:{info['port']} (UID {info['uid']}) is ALIVE! Score: {score}")
 
                 with self.lock:
-                    self.scores[1] = new_scores
+                    self.scores[self.netuid] = {k: v["score"] for k, v in new_scores.items()}
                 
-                # In Real Logic:
-                # uids = ...
-                # weights = [new_scores[k] for k in uids]
-                # self.sub.set_weights(netuid=1, uids=uids, weights=weights, ...)
+                # Submit weights to chain if wallet is available and cooldown has passed
+                current_time = time.time()
+                if (self.wallet and metagraph and 
+                    (current_time - self.last_weight_update) >= self.weight_update_cooldown):
+                    
+                    self._submit_weights(sub, metagraph, new_scores)
+                    self.last_weight_update = current_time
                 
-                print(f"Validator: Updated scores: {self.scores}")
-                time.sleep(60) # Validate every 60s
+                print(f"Validator: Validated {len(new_scores)} nodes. Sleeping for 60s...")
+                time.sleep(60)  # Validate every 60s
+                
             except Exception as e:
                 print(f"Validator Error: {e}")
                 time.sleep(5)
+
+    def _submit_weights(self, sub, metagraph, scores: Dict):
+        """
+        Submit weights to Bittensor chain.
+        Normalizes scores and calls set_weights.
+        """
+        try:
+            if not scores:
+                print("Validator: No scores to submit")
+                return
+            
+            # Build UIDs and weights arrays
+            uids = []
+            weights = []
+            
+            for hotkey, data in scores.items():
+                uids.append(data["uid"])
+                weights.append(data["score"])
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(weights)
+            if total_weight > 0:
+                weights = [w / total_weight for w in weights]
+            else:
+                # Equal weights if all scores are 0
+                weights = [1.0 / len(weights)] * len(weights)
+            
+            print(f"Validator: Submitting weights for {len(uids)} UIDs...")
+            
+            success = sub.set_weights(
+                netuid=self.netuid,
+                wallet=self.wallet,
+                uids=uids,
+                weights=weights,
+                wait_for_inclusion=True,
+                wait_for_finalization=False
+            )
+            
+            if success:
+                print(f"Validator: Successfully submitted weights to chain!")
+            else:
+                print(f"Validator: Weight submission returned False")
+                
+        except Exception as e:
+            print(f"Validator: Failed to submit weights: {e}")
 
     def get_score(self, netuid: int, hotkey: str) -> float:
         with self.lock:

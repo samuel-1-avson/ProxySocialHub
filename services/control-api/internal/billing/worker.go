@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -120,6 +121,22 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
 			return err
+		}
+
+		// Update Provider Score
+		var providerID uuid.UUID
+		if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
+			providerID = session.Listing.SellerID
+		}
+
+		if providerID != uuid.Nil {
+			var score models.ProviderScore
+			if err := tx.FirstOrCreate(&score, models.ProviderScore{ProviderID: providerID}).Error; err == nil {
+				// Mock latency for now (would come from session stats)
+				latency := 100.0 // Default/Placeholder
+				score.RecordSessionCompletion(true, totalBytes, latency)
+				tx.Save(&score)
+			}
 		}
 
 		// 4. Clear Redis Pending

@@ -46,10 +46,14 @@ export async function updatePreferences(prefs: Partial<UserPreferences>): Promis
     return response.json();
 }
 
-export async function getRecommendations(useCaseId?: string): Promise<{ recommendations: Recommendation[], preferences?: UserPreferences, use_case?: UseCase }> {
-    const url = useCaseId
+export async function getRecommendations(useCaseId?: string, minScore?: number): Promise<{ recommendations: Recommendation[], preferences?: UserPreferences, use_case?: UseCase }> {
+    let url = useCaseId
         ? `${API_BASE_URL}/v1/matching/recommend/${useCaseId}`
         : `${API_BASE_URL}/v1/matching/recommend`;
+
+    if (minScore !== undefined) {
+        url += `${url.includes('?') ? '&' : '?'}min_score=${minScore}`;
+    }
 
     const response = await fetchWithAuth(url);
     if (!response.ok) throw new Error('Failed to fetch recommendations');

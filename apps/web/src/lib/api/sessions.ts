@@ -22,6 +22,12 @@ export interface Session {
     created_at: string;
     expires_at?: string;
     terminated_at?: string;
+    listing?: {
+        id: string;
+        price_per_gb?: number;
+        price_per_hour?: number;
+    };
+    escrow_address?: string; // Derived or same as tx_hash in some contexts
 }
 
 export interface ProxyCredentials {

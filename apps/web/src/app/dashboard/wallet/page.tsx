@@ -656,39 +656,58 @@ export default function WalletPage() {
                             </div>
 
                             <div className="md:col-span-2 card-retro p-6 bg-card border-border">
-                                <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground mb-4">Deposit Crypto</h3>
-
-                                {/* Chain Selector */}
-                                <div className="flex gap-2 mb-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setCryptoChain('solana')}
-                                        className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'solana'
-                                            ? 'bg-purple-500/20 border-purple-500 text-purple-400'
-                                            : 'border-border text-muted-foreground hover:border-purple-500/50'
-                                            }`}
-                                    >
-                                        SOL (Solana)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCryptoChain('bittensor')}
-                                        className={`flex-1 py-2 px-4 text-xs font-mono font-bold uppercase rounded-sm border transition-all ${cryptoChain === 'bittensor'
-                                            ? 'bg-primary/20 border-primary text-primary'
-                                            : 'border-border text-muted-foreground hover:border-primary/50'
-                                            }`}
-                                    >
-                                        TAO (Bittensor)
-                                    </button>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-xs font-bold font-mono uppercase text-muted-foreground flex items-center gap-2">
+                                        <Layers size={14} className="text-primary" /> Multi-Chain Bridge
+                                    </h3>
+                                    <div className="flex bg-secondary/20 rounded-sm p-0.5">
+                                        <button
+                                            onClick={() => { setCryptoChain('solana'); setP2PRecipient(''); }} // P2PRecipient recycled as Dest Addr? Better use new state.
+                                            className={`px-3 py-1 text-[10px] font-bold uppercase rounded-sm transition-all ${cryptoChain === 'solana' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                        >
+                                            SOL -&gt; TAO
+                                        </button>
+                                        <button
+                                            onClick={() => setCryptoChain('bittensor')}
+                                            className={`px-3 py-1 text-[10px] font-bold uppercase rounded-sm transition-all ${cryptoChain === 'bittensor' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                        >
+                                            TAO -&gt; SOL
+                                        </button>
+                                    </div>
                                 </div>
 
-                                {/* Smart Deposit Logic */}
-                                {cryptoChain === 'solana' ? (
-                                    <div className="space-y-4">
-                                        <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-sm">
-                                            <p className="text-[10px] font-mono text-purple-400 uppercase mb-2 flex items-center gap-2">
-                                                <Zap size={12} /> Instant Deposit
-                                            </p>
+                                {/* Bridge Interface */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground mb-2">
+                                        <span className={`px-2 py-1 rounded-sm border ${cryptoChain === 'solana' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-secondary border-border'}`}>
+                                            {cryptoChain === 'solana' ? 'Solana (Source)' : 'Bittensor (Source)'}
+                                        </span>
+                                        <ArrowRight size={12} />
+                                        <span className={`px-2 py-1 rounded-sm border ${cryptoChain === 'solana' ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-purple-500/10 border-purple-500/30 text-purple-400'}`}>
+                                            {cryptoChain === 'solana' ? 'Bittensor (Dest)' : 'Solana (Dest)'}
+                                        </span>
+                                    </div>
+
+                                    {cryptoChain === 'solana' ? (
+                                        <div className="p-4 bg-purple-500/5 border border-purple-500/20 rounded-sm space-y-4">
+                                            {/* Destination Input (Optional for Self-Credit, Required for Bridge) */}
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-mono text-purple-400 uppercase">Destination (Bittensor Address)</label>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Leave empty to credit Balance"
+                                                        value={p2pRecipient} // Reusing p2pRecipient state for simplicity as "Destination"
+                                                        onChange={(e) => setP2PRecipient(e.target.value)}
+                                                        className="flex-1 bg-background border border-border rounded-sm px-3 py-2 font-mono text-xs outline-none focus:border-purple-500"
+                                                    />
+                                                    <div className="flex items-center px-2 text-[10px] text-muted-foreground bg-secondary/10 border border-border rounded-sm">
+                                                        {p2pRecipient ? 'DIRECT BRIDGE' : 'TOP UP WALLET'}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Amount Input */}
                                             <div className="flex gap-2">
                                                 <input
                                                     type="number"
@@ -699,201 +718,250 @@ export default function WalletPage() {
                                                     className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-purple-500"
                                                 />
                                                 <button
-                                                    onClick={handleSmartDeposit}
+                                                    onClick={async () => {
+                                                        try {
+                                                            // Logic duplication from handleSmartDeposit but optimized
+                                                            if (!publicKey || !signTransaction) return;
+                                                            if (!treasuryConfig?.treasury_solana) throw new Error('Treasury config missing');
+
+                                                            setCryptoProcessing(true);
+                                                            setCryptoResult(null);
+
+                                                            const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com');
+                                                            const destPubkey = new PublicKey(treasuryConfig.treasury_solana);
+                                                            const validAmount = parseFloat(cryptoAmount);
+                                                            if (!validAmount) throw new Error("Invalid amount");
+
+                                                            const transaction = new Transaction().add(
+                                                                SystemProgram.transfer({
+                                                                    fromPubkey: publicKey,
+                                                                    toPubkey: destPubkey,
+                                                                    lamports: BigInt(Math.floor(validAmount * LAMPORTS_PER_SOL)),
+                                                                })
+                                                            );
+
+                                                            const { blockhash } = await connection.getLatestBlockhash();
+                                                            transaction.recentBlockhash = blockhash;
+                                                            transaction.feePayer = publicKey;
+
+                                                            const signature = await sendTransaction(transaction, connection);
+                                                            await connection.confirmTransaction(signature, 'processed');
+
+                                                            // Backend Verify (Bridge or Credit)
+                                                            // Pass p2pRecipient as destinationAddress if not empty
+                                                            const res = await depositCrypto(validAmount, signature, 'solana', p2pRecipient || undefined);
+
+                                                            setCryptoResult({
+                                                                success: true,
+                                                                message: res.message || `Bridge Successful! ${res.credited_tao ? 'Credited ' + res.credited_tao.toFixed(4) + ' TAO' : 'Transfer Initiated'}`
+                                                            });
+                                                            setCryptoAmount('');
+                                                            fetchWallet();
+
+                                                        } catch (err: any) {
+                                                            setCryptoResult({ success: false, message: 'Bridge failed: ' + (err.message || 'Unknown error') });
+                                                        } finally {
+                                                            setCryptoProcessing(false);
+                                                        }
+                                                    }}
                                                     disabled={cryptoProcessing || !cryptoAmount || !connected}
                                                     className="btn-retro bg-purple-600 text-white border-purple-800 text-xs py-2 px-6 disabled:opacity-50 hover:bg-purple-700"
                                                 >
-                                                    {cryptoProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'DEPOSIT SOL'}
+                                                    {cryptoProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'BRIDGE FUNDS'}
                                                 </button>
                                             </div>
                                             {!connected && <p className="text-[10px] text-red-400 mt-2">Connect Wallet first!</p>}
                                         </div>
-                                    </div>
 
-                                ) : (
-                                    <div className="mb-4 p-3 bg-secondary/10 border border-border rounded-sm">
-                                        {/* Bittensor Fallback (Manual) */}
-                                        <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">
-                                            Send TAO to Treasury:
-                                        </p>
-                                        <p className="text-xs font-mono text-foreground break-all select-all">
-                                            {treasuryConfig?.treasury_tao || 'Loading...'}
-                                        </p>
+                                    ) : (
+                                        <div className="mb-4 p-3 bg-secondary/10 border border-border rounded-sm">
+                                            {/* Bittensor Fallback (Manual) */}
+                                            <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">
+                                                Coming Soon: Direct Bittensor Bridge
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mb-4">
+                                                For now, deposit TAO to the treasury to Top Up your internal wallet.
+                                            </p>
 
-                                        <form onSubmit={handleCryptoDeposit} className="space-y-3 mt-4">
-                                            <input
-                                                type="text"
-                                                placeholder="TRANSACTION HASH"
-                                                value={cryptoTxHash}
-                                                onChange={(e) => setCryptoTxHash(e.target.value)}
-                                                className="w-full bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                                            />
-                                            <div className="flex gap-2">
+                                            <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">
+                                                Send TAO to Treasury:
+                                            </p>
+                                            <p className="text-xs font-mono text-foreground break-all select-all bg-background p-2 rounded border border-border">
+                                                {treasuryConfig?.treasury_tao || 'Loading...'}
+                                            </p>
+
+                                            <div className="mt-4 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-sm text-[10px] text-yellow-500">
+                                                <Info size={12} className="inline mr-1" />
+                                                Provide Transaction Hash from your Polkadot.js / Bittensor wallet below.
+                                            </div>
+
+                                            <form onSubmit={handleCryptoDeposit} className="space-y-3 mt-4">
                                                 <input
-                                                    type="number"
-                                                    step="0.0001"
-                                                    placeholder="AMOUNT (TAO)"
-                                                    value={cryptoAmount}
-                                                    onChange={(e) => setCryptoAmount(e.target.value)}
-                                                    className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                                    type="text"
+                                                    placeholder="TRANSACTION HASH"
+                                                    value={cryptoTxHash}
+                                                    onChange={(e) => setCryptoTxHash(e.target.value)}
+                                                    className="w-full bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                                                 />
-                                                <button
-                                                    type="submit"
-                                                    disabled={cryptoProcessing || !cryptoTxHash || !cryptoAmount}
-                                                    className="btn-retro btn-retro-primary text-xs py-2 px-6 disabled:opacity-50"
-                                                >
-                                                    {cryptoProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'VERIFY'}
-                                                </button>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="number"
+                                                        step="0.0001"
+                                                        placeholder="AMOUNT (TAO)"
+                                                        value={cryptoAmount}
+                                                        onChange={(e) => setCryptoAmount(e.target.value)}
+                                                        className="flex-1 bg-background border border-border rounded-sm px-4 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                                    />
+                                                    <button
+                                                        type="submit"
+                                                        disabled={cryptoProcessing || !cryptoTxHash || !cryptoAmount}
+                                                        className="btn-retro btn-retro-primary text-xs py-2 px-6 disabled:opacity-50"
+                                                    >
+                                                        {cryptoProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'VERIFY'}
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Faucet Section (Only for Bittensor) */}
+                            {cryptoChain === 'bittensor' && (
+                                <div className="mt-6 pt-6 border-t border-border">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h4 className="text-xs font-bold font-mono uppercase text-muted-foreground flex items-center gap-2">
+                                                <Hammer size={14} className="text-yellow-500" /> Testnet Faucet
+                                            </h4>
+                                            <p className="text-[10px] text-muted-foreground">Mine local testnet tokens (PoW)</p>
+                                        </div>
+                                        {faucetStatus === 'MINING' && (
+                                            <div className="text-[10px] font-mono text-yellow-500 animate-pulse">
+                                                Mining... {faucetElapsed}s
                                             </div>
-                                        </form>
+                                        )}
                                     </div>
 
-                                )}
-
-                                {/* Faucet Section (Only for Bittensor) */}
-                                {cryptoChain === 'bittensor' && (
-                                    <div className="mt-6 pt-6 border-t border-border">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div>
-                                                <h4 className="text-xs font-bold font-mono uppercase text-muted-foreground flex items-center gap-2">
-                                                    <Hammer size={14} className="text-yellow-500" /> Testnet Faucet
-                                                </h4>
-                                                <p className="text-[10px] text-muted-foreground">Mine local testnet tokens (PoW)</p>
-                                            </div>
-                                            {faucetStatus === 'MINING' && (
-                                                <div className="text-[10px] font-mono text-yellow-500 animate-pulse">
-                                                    Mining... {faucetElapsed}s
+                                    {faucetStatus === 'MINING' || faucetStatus === 'STARTING' ? (
+                                        <div className="bg-secondary/10 p-4 rounded-sm border border-border">
+                                            <div className="flex items-center gap-3">
+                                                <Loader2 className="animate-spin text-yellow-500" size={20} />
+                                                <div className="space-y-1 w-full">
+                                                    <p className="text-xs font-mono">{faucetMessage || "Solving Proof-of-Work..."}</p>
+                                                    <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
+                                                        <div className="h-full bg-yellow-500 animate-pulse w-full"></div>
+                                                    </div>
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
+                                    ) : faucetStatus === 'SUCCESS' ? (
+                                        <div className="bg-green-500/10 p-4 rounded-sm border border-green-500/20 text-green-500 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <CheckCircle size={16} />
+                                                <span className="text-xs font-mono font-bold">TOKENS RECEIVED</span>
+                                            </div>
+                                            <button onClick={() => setFaucetStatus('IDLE')} className="text-[10px] underline hover:text-green-400">Reset</button>
+                                        </div>
+                                    ) : faucetStatus === 'ERROR' ? (
+                                        <div className="bg-destructive/10 p-4 rounded-sm border border-destructive/20 text-destructive flex items-center justify-between">
+                                            <div className="flex items-start gap-2">
+                                                <AlertCircle size={16} className="mt-0.5" />
+                                                <div>
+                                                    <span className="text-xs font-mono font-bold block">FAUCET FAILED</span>
+                                                    <span className="text-[10px] opacity-80">{faucetMessage}</span>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setFaucetStatus('IDLE')} className="text-[10px] underline hover:text-red-400">Retry</button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={handleStartFaucet}
+                                            className="w-full btn-retro border-yellow-500/30 text-yellow-600 bg-yellow-500/5 hover:bg-yellow-500/10 text-xs py-3"
+                                        >
+                                            START MINING (5-15 MINS)
+                                        </button>
+                                    )}
+                                </div>
+                            )}
 
-                                        {faucetStatus === 'MINING' || faucetStatus === 'STARTING' ? (
-                                            <div className="bg-secondary/10 p-4 rounded-sm border border-border">
-                                                <div className="flex items-center gap-3">
-                                                    <Loader2 className="animate-spin text-yellow-500" size={20} />
-                                                    <div className="space-y-1 w-full">
-                                                        <p className="text-xs font-mono">{faucetMessage || "Solving Proof-of-Work..."}</p>
-                                                        <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
-                                                            <div className="h-full bg-yellow-500 animate-pulse w-full"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : faucetStatus === 'SUCCESS' ? (
-                                            <div className="bg-green-500/10 p-4 rounded-sm border border-green-500/20 text-green-500 flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <CheckCircle size={16} />
-                                                    <span className="text-xs font-mono font-bold">TOKENS RECEIVED</span>
-                                                </div>
-                                                <button onClick={() => setFaucetStatus('IDLE')} className="text-[10px] underline hover:text-green-400">Reset</button>
-                                            </div>
-                                        ) : faucetStatus === 'ERROR' ? (
-                                            <div className="bg-destructive/10 p-4 rounded-sm border border-destructive/20 text-destructive flex items-center justify-between">
-                                                <div className="flex items-start gap-2">
-                                                    <AlertCircle size={16} className="mt-0.5" />
-                                                    <div>
-                                                        <span className="text-xs font-mono font-bold block">FAUCET FAILED</span>
-                                                        <span className="text-[10px] opacity-80">{faucetMessage}</span>
-                                                    </div>
-                                                </div>
-                                                <button onClick={() => setFaucetStatus('IDLE')} className="text-[10px] underline hover:text-red-400">Retry</button>
-                                            </div>
-                                        ) : (
+                            {cryptoResult && (
+                                <div className={`mt-4 p-3 border text-xs font-mono break-all rounded-sm ${cryptoResult.success ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-destructive/10 border-destructive/20 text-destructive'
+                                    }`}>
+                                    {cryptoResult.message}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* LINK WALLET SECTION */}
+                        <div className="md:col-span-2 pt-4 border-t border-border">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Solana Link Status */}
+                                {wallet?.linked_solana_address ? (
+                                    <div className="p-4 border border-purple-500/30 bg-purple-500/5 rounded-sm flex items-center gap-4">
+                                        <ShieldCheck className="text-purple-500 w-6 h-6" />
+                                        <div>
+                                            <h3 className="text-[10px] font-bold font-mono uppercase text-purple-500">Solana Linked</h3>
+                                            <p className="text-xs font-mono text-muted-foreground">{wallet.linked_solana_address.slice(0, 4)}...{wallet.linked_solana_address.slice(-4)}</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
+                                        <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Solana Wallet</h3>
+                                        <SolanaWalletButton />
+                                        {connected && publicKey && (
                                             <button
-                                                onClick={handleStartFaucet}
-                                                className="w-full btn-retro border-yellow-500/30 text-yellow-600 bg-yellow-500/5 hover:bg-yellow-500/10 text-xs py-3"
+                                                onClick={handleLinkWallet}
+                                                disabled={cryptoProcessing}
+                                                className="btn-retro btn-retro-outline text-[10px] py-1 px-3 w-full"
                                             >
-                                                START MINING (5-15 MINS)
+                                                {cryptoProcessing ? 'Linking...' : 'Link to Account'}
                                             </button>
                                         )}
                                     </div>
                                 )}
 
-                                {cryptoResult && (
-                                    <div className={`mt-4 p-3 border text-xs font-mono break-all rounded-sm ${cryptoResult.success ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-destructive/10 border-destructive/20 text-destructive'
-                                        }`}>
-                                        {cryptoResult.message}
+                                {/* Bittensor Link Status */}
+                                {wallet?.linked_bittensor_addr ? (
+                                    <div className="p-4 border border-primary/30 bg-primary/5 rounded-sm flex flex-col gap-3">
+                                        <div className="flex items-center gap-4">
+                                            <ShieldCheck className="text-primary w-6 h-6" />
+                                            <div>
+                                                <h3 className="text-[10px] font-bold font-mono uppercase text-primary">Bittensor Linked</h3>
+                                                <p className="text-xs font-mono text-muted-foreground">{wallet.linked_bittensor_addr.slice(0, 4)}...{wallet.linked_bittensor_addr.slice(-4)}</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={handleUnlinkBittensor}
+                                            disabled={cryptoProcessing}
+                                            className="text-[10px] font-mono text-zinc-500 hover:text-destructive transition-colors uppercase flex items-center gap-1 justify-center w-full py-1 border border-zinc-500/10 hover:border-destructive/30 rounded-sm"
+                                        >
+                                            {cryptoProcessing ? '...' : 'Disconnect Wallet'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
+                                        <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Bittensor Wallet</h3>
+
+                                        <div className="w-full space-y-2">
+                                            <button
+                                                onClick={() => setIsTAOModalOpen(true)}
+                                                disabled={cryptoProcessing}
+                                                className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
+                                            >
+                                                {cryptoProcessing ? 'Connecting...' : 'CONNECT TAO WALLET'}
+                                            </button>
+                                            <p className="text-[8px] text-muted-foreground text-center">
+                                                Supports Subwallet, Bittensor, and Polkadot.js extensions
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
-                            </div>
-
-                            {/* LINK WALLET SECTION */}
-                            <div className="md:col-span-2 pt-4 border-t border-border">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Solana Link Status */}
-                                    {wallet?.linked_solana_address ? (
-                                        <div className="p-4 border border-purple-500/30 bg-purple-500/5 rounded-sm flex items-center gap-4">
-                                            <ShieldCheck className="text-purple-500 w-6 h-6" />
-                                            <div>
-                                                <h3 className="text-[10px] font-bold font-mono uppercase text-purple-500">Solana Linked</h3>
-                                                <p className="text-xs font-mono text-muted-foreground">{wallet.linked_solana_address.slice(0, 4)}...{wallet.linked_solana_address.slice(-4)}</p>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
-                                            <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Solana Wallet</h3>
-                                            <SolanaWalletButton />
-                                            {connected && publicKey && (
-                                                <button
-                                                    onClick={handleLinkWallet}
-                                                    disabled={cryptoProcessing}
-                                                    className="btn-retro btn-retro-outline text-[10px] py-1 px-3 w-full"
-                                                >
-                                                    {cryptoProcessing ? 'Linking...' : 'Link to Account'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Bittensor Link Status */}
-                                    {wallet?.linked_bittensor_addr ? (
-                                        <div className="p-4 border border-primary/30 bg-primary/5 rounded-sm flex flex-col gap-3">
-                                            <div className="flex items-center gap-4">
-                                                <ShieldCheck className="text-primary w-6 h-6" />
-                                                <div>
-                                                    <h3 className="text-[10px] font-bold font-mono uppercase text-primary">Bittensor Linked</h3>
-                                                    <p className="text-xs font-mono text-muted-foreground">{wallet.linked_bittensor_addr.slice(0, 4)}...{wallet.linked_bittensor_addr.slice(-4)}</p>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={handleUnlinkBittensor}
-                                                disabled={cryptoProcessing}
-                                                className="text-[10px] font-mono text-zinc-500 hover:text-destructive transition-colors uppercase flex items-center gap-1 justify-center w-full py-1 border border-zinc-500/10 hover:border-destructive/30 rounded-sm"
-                                            >
-                                                {cryptoProcessing ? '...' : 'Disconnect Wallet'}
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
-                                            <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Bittensor Wallet</h3>
-
-                                            <div className="w-full space-y-2">
-                                                <button
-                                                    onClick={() => setIsTAOModalOpen(true)}
-                                                    disabled={cryptoProcessing}
-                                                    className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
-                                                >
-                                                    {cryptoProcessing ? 'Connecting...' : 'CONNECT TAO WALLET'}
-                                                </button>
-                                                <p className="text-[8px] text-muted-foreground text-center">
-                                                    Supports Subwallet, Bittensor, and Polkadot.js extensions
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
-
-
-
-
-
-
-
             {/* FIAT MODE */}
             {
                 activeTab === 'FIAT' && (
