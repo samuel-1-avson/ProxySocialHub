@@ -40,3 +40,9 @@ export async function getMyOrders(): Promise<Order[]> {
   const data = await response.json();
   return data.orders || [];
 }
+
+export async function getSystemConfig(): Promise<{ treasury_solana: string; treasury_tao: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/v1/system/config/public`);
+  if (!response.ok) return { treasury_solana: '', treasury_tao: '' };
+  return response.json();
+}
