@@ -3,6 +3,7 @@ package worker
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -42,8 +43,13 @@ func syncScores(client *bittensor.Client, netUID int) {
 	for hotkey, score := range resp.Scores {
 		// Find node by Hotkey
 		var node models.ProviderNode
-		if err := db.DB.Where("hotkey = ? AND net_uid = ?", hotkey, netUID).First(&node).Error; err != nil {
-			// Node usually doesn't exist yet in dev, skip silently
+		// Use Find with Limit(1) to avoid 'record not found' error in logs if missing
+		if err := db.DB.Where("hotkey = ? AND net_uid = ?", hotkey, netUID).Limit(1).Find(&node).Error; err != nil {
+			logging.Error(err).Str("hotkey", hotkey).Msg("ValidatorSync: DB Error")
+			continue
+		}
+		// If ID is nil/empty, record wasn't found
+		if node.ID == uuid.Nil {
 			continue
 		}
 
