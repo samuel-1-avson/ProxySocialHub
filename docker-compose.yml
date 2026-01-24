@@ -34,6 +34,8 @@ services:
       - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
       - BITTENSOR_BRIDGE_URL=http://bittensor-bridge:8000
+      - SOLANA_TREASURY_ADDRESS=${NEXT_PUBLIC_SOLANA_TREASURY}
+      - TAO_TREASURY_ADDRESS=${NEXT_PUBLIC_TAO_TREASURY}
     depends_on:
       redis:
         condition: service_healthy
