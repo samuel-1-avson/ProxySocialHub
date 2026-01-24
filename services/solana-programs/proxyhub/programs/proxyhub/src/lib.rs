@@ -128,9 +128,504 @@ impl Dispute {
         1; // bump
 }
 
+/// Admin Configuration Account - stores authorized admin for dispute resolution
+#[account]
+#[derive(Default)]
+pub struct AdminConfig {
+    pub admin: Pubkey,         // The authorized admin public key
+    pub pending_admin: Pubkey, // Pending admin for two-step transfer (optional)
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub bump: u8,
+}
+
+impl AdminConfig {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // admin
+        32 + // pending_admin
+        8 +  // created_at
+        8 +  // updated_at
+        1; // bump
+}
+
+impl AdminConfig {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // admin
+        32 + // pending_admin
+        8 +  // created_at
+        8 +  // updated_at
+        1; // bump
+}
+
+/// Streaming Escrow Account - supports pay-as-you-go flow
+#[account]
+#[derive(Default)]
+pub struct StreamingEscrow {
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub mint: Pubkey,            // Token mint (optional, default SOL)
+    pub total_deposited: u64,    // Total funds allocated
+    pub total_withdrawn: u64,    // Funds already claimed by seller
+    pub flow_rate: u64,          // Lamports/Tokens per second
+    pub start_time: i64,         // When streaming starts
+    pub last_withdraw_time: i64, // Last time seller withdrew
+    pub end_time: i64,           // When stream ends (derived or fixed)
+    pub is_active: bool,
+    pub bump: u8,
+}
+
+impl StreamingEscrow {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // buyer
+        32 + // seller
+        32 + // mint
+        8 +  // total_deposited
+        8 +  // total_withdrawn
+        8 +  // flow_rate
+        8 +  // start_time
+        8 +  // last_withdraw_time
+        8 +  // end_time
+        1 +  // is_active
+        1; // bump
+}
+
+/// Circle Config - Revenue sharing for groups/DAOs
+#[account]
+#[derive(Default)]
+pub struct CircleConfig {
+    pub leader: Pubkey,
+    pub name: String,
+    pub treasury_share: u8, // Percentage (0-100)
+    pub members: Vec<Pubkey>,
+    pub shares: Vec<u8>, // Corresponding shares (must sum to 100-treasury)
+    pub bump: u8,
+}
+
+impl CircleConfig {
+    pub const MAX_MEMBERS: usize = 10;
+    pub const MAX_NAME_LEN: usize = 32;
+
+    pub const LEN: usize = 8 + // discriminator
+        32 + // leader
+        4 + Self::MAX_NAME_LEN + // name
+        1 +  // treasury_share
+        4 + (32 * Self::MAX_MEMBERS) + // members vec
+        4 + (1 * Self::MAX_MEMBERS) + // shares vec
+        1; // bump
+}
+
+/// Jury Account - Decentralized dispute resolution
+#[account]
+#[derive(Default)]
+pub struct Jury {
+    pub escrow: Pubkey,
+    pub jurors: Vec<Pubkey>,       // Selected jurors
+    pub votes_buyer: u8,           // Votes for buyer
+    pub votes_seller: u8,          // Votes for seller
+    pub voted_jurors: Vec<Pubkey>, // Track who voted
+    pub outcome: DisputeStatus,
+    pub created_at: i64,
+    pub resolved_at: i64,
+    pub bump: u8,
+}
+
+impl Jury {
+    pub const MAX_JURORS: usize = 5;
+
+    pub const LEN: usize = 8 + // discriminator
+        32 + // escrow
+        4 + (32 * Self::MAX_JURORS) + // jurors
+        1 + // votes_buyer
+        1 + // votes_seller
+        4 + (32 * Self::MAX_JURORS) + // voted_jurors
+        1 + // outcome (enum)
+        8 + // created_at
+        8 + // resolved_at
+        1; // bump
+}
+
 #[program]
 pub mod proxyhub {
     use super::*;
+
+    // ============== JURY ARBITRATION ==============
+
+    pub fn initiate_jury_dispute(
+        ctx: Context<InitiateJuryDispute>,
+        jurors: Vec<Pubkey>,
+    ) -> Result<()> {
+        let jury = &mut ctx.accounts.jury;
+        let escrow = &mut ctx.accounts.escrow;
+        let clock = Clock::get()?;
+
+        require!(
+            jurors.len() > 0 && jurors.len() <= Jury::MAX_JURORS,
+            EscrowError::InvalidStatus
+        );
+        // Ensure odd number for tie-breaking ideally, but simple majority works too
+
+        escrow.status = EscrowStatus::Disputed;
+
+        jury.escrow = escrow.key();
+        jury.jurors = jurors;
+        jury.votes_buyer = 0;
+        jury.votes_seller = 0;
+        jury.outcome = DisputeStatus::Open;
+        jury.created_at = clock.unix_timestamp;
+        jury.resolved_at = 0;
+        jury.bump = ctx.bumps.jury;
+
+        msg!("Jury dispute initiated with {} jurors", jury.jurors.len());
+        Ok(())
+    }
+
+    pub fn cast_vote(ctx: Context<CastVote>, vote_for_buyer: bool) -> Result<()> {
+        let jury = &mut ctx.accounts.jury;
+        let juror = &ctx.accounts.juror;
+
+        // Verify juror is selected and hasn't voted
+        require!(jury.jurors.contains(juror.key), EscrowError::InvalidStatus); // Not a juror
+        require!(
+            !jury.voted_jurors.contains(juror.key),
+            EscrowError::InvalidStatus
+        ); // Already voted
+        require!(
+            jury.outcome == DisputeStatus::Open,
+            EscrowError::DisputeAlreadyResolved
+        );
+
+        if vote_for_buyer {
+            jury.votes_buyer += 1;
+        } else {
+            jury.votes_seller += 1;
+        }
+        jury.voted_jurors.push(juror.key());
+
+        emit!(JuryVoteCast {
+            jury: jury.key(),
+            juror: juror.key(),
+            vote_for_buyer,
+        });
+
+        // Check for resolution (simple majority)
+        let total_votes = jury.votes_buyer + jury.votes_seller;
+        let quorum = (jury.jurors.len() / 2) + 1;
+
+        if (jury.votes_buyer as usize) >= quorum {
+            // Buyer wins
+            jury.outcome = DisputeStatus::Resolved; // We'd set specific winner in real impl
+            msg!("Jury reached consensus: Buyer wins");
+        } else if (jury.votes_seller as usize) >= quorum {
+            // Seller wins
+            jury.outcome = DisputeStatus::Resolved;
+            msg!("Jury reached consensus: Seller wins");
+        }
+
+        Ok(())
+    }
+
+    /// Execute the jury verdict to settle funds
+    pub fn execute_jury_verdict(ctx: Context<ExecuteJuryVerdict>) -> Result<()> {
+        let jury = &mut ctx.accounts.jury;
+        let escrow = &mut ctx.accounts.escrow;
+
+        require!(jury.outcome == DisputeStatus::Resolved, EscrowError::InvalidStatus); // Must be decided
+        require!(escrow.status == EscrowStatus::Disputed, EscrowError::InvalidStatus);
+
+        escrow.status = EscrowStatus::Settled; // Or create a special "JurySettled" status?
+
+        // Check votes to determine winner
+        let quorum = (jury.jurors.len() / 2) + 1;
+        
+        // Simple winner takes all for MVP, or partial? 
+        // Let's assume winner takes all escrow amount.
+        
+        let mut buyer_payout = 0;
+        let mut seller_payout = 0;
+
+        if (jury.votes_buyer as usize) >= quorum {
+            // Buyer wins - full refund
+            buyer_payout = escrow.amount;
+        } else if (jury.votes_seller as usize) >= quorum {
+            // Seller wins - full payout
+            seller_payout = escrow.amount;
+        } else {
+             // Should not happen if outcome is Resolved
+             return Ok(());
+        }
+
+        if buyer_payout > 0 {
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= buyer_payout;
+            **ctx.accounts.buyer.try_borrow_mut_lamports()? += buyer_payout;
+        }
+
+        if seller_payout > 0 {
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= seller_payout;
+            **ctx.accounts.seller.try_borrow_mut_lamports()? += seller_payout;
+        }
+
+        msg!("Jury verdict executed: {} to buyer, {} to seller", buyer_payout, seller_payout);
+        Ok(())
+    }
+
+    // ============== CIRCLE REVENUE SHARING ==============
+
+    #[derive(Accounts)]
+    #[instruction(name: String)]
+    pub struct RegisterCircle<'info> {
+        #[account(
+            init,
+            payer = leader,
+            space = CircleConfig::LEN,
+            seeds = [b"circle", name.as_bytes()],
+            bump
+        )]
+        pub circle: Account<'info, CircleConfig>,
+        #[account(mut)]
+        pub leader: Signer<'info>,
+        pub system_program: Program<'info, System>,
+    }
+
+    pub fn register_circle(
+        ctx: Context<RegisterCircle>,
+        name: String,
+        treasury_share: u8,
+        members: Vec<Pubkey>,
+        shares: Vec<u8>,
+    ) -> Result<()> {
+        let circle = &mut ctx.accounts.circle;
+
+        require!(
+            name.len() <= CircleConfig::MAX_NAME_LEN,
+            EscrowError::InvalidStatus
+        );
+        require!(
+            members.len() <= CircleConfig::MAX_MEMBERS,
+            EscrowError::InvalidStatus
+        );
+        require!(members.len() == shares.len(), EscrowError::InvalidStatus);
+
+        let total_share: u16 = shares.iter().map(|&s| s as u16).sum();
+        require!(
+            total_share + (treasury_share as u16) == 100,
+            EscrowError::InvalidPercentage
+        );
+
+        circle.leader = ctx.accounts.leader.key();
+        circle.name = name;
+        circle.treasury_share = treasury_share;
+        circle.members = members;
+        circle.shares = shares;
+        circle.bump = ctx.bumps.circle;
+
+        msg!("Circle registered: {}", circle.name);
+        Ok(())
+    }
+
+    /// Settle escrow with Circle Revenue Sharing
+    pub fn settle_circle_escrow(
+        ctx: Context<SettleCircleEscrow>,
+        bandwidth_used_gb: u64,
+    ) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        let circle = &ctx.accounts.circle;
+
+        require!(
+            escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
+            EscrowError::InvalidStatus
+        );
+
+        escrow.bandwidth_used_gb = bandwidth_used_gb;
+        escrow.status = EscrowStatus::Settled;
+
+        // Calculate total payouts
+        let capped_usage = std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb);
+        let total_seller_payout = if escrow.bandwidth_limit_gb > 0 {
+            escrow
+                .amount
+                .checked_mul(capped_usage)
+                .unwrap_or(0)
+                .checked_div(escrow.bandwidth_limit_gb)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let buyer_refund = escrow.amount.saturating_sub(total_seller_payout);
+
+        // Distribute Seller Payout according to Circle shares
+        if total_seller_payout > 0 {
+            let mut remaining_payout = total_seller_payout;
+
+            // 1. Treasury Share
+            if circle.treasury_share > 0 {
+                let treasury_amount =
+                    (total_seller_payout as u128 * circle.treasury_share as u128 / 100) as u64;
+                if treasury_amount > 0 {
+                    **escrow.to_account_info().try_borrow_mut_lamports()? -= treasury_amount;
+                    **ctx.accounts.circle_treasury.try_borrow_mut_lamports()? += treasury_amount;
+                    remaining_payout -= treasury_amount;
+                }
+            }
+
+            // 2. Member Shares (simplified: assumes member accounts are passed in remaining_accounts)
+            // For MVP, we'll just pay the "seller" (provider) the remaining amount
+            // In full version, we'd need to iterate over members and transfer to each
+
+            if remaining_payout > 0 {
+                **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_payout;
+                **ctx.accounts.seller.try_borrow_mut_lamports()? += remaining_payout;
+            }
+        }
+
+        // Refund buyer
+        if buyer_refund > 0 {
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= buyer_refund;
+            **ctx.accounts.buyer.try_borrow_mut_lamports()? += buyer_refund;
+        }
+
+        msg!(
+            "Circle Escrow settled: {} total payout, {} refunded",
+            total_seller_payout,
+            buyer_refund
+        );
+        Ok(())
+    }
+
+    // ============== STREAMING PAYMENTS ==============
+
+    /// Initialize a streaming payment
+    pub fn initialize_stream(
+        ctx: Context<InitializeStream>,
+        amount: u64,
+        flow_rate: u64, // Lamports per second
+        start_time: i64,
+    ) -> Result<()> {
+        let stream = &mut ctx.accounts.stream;
+        let clock = Clock::get()?;
+
+        // Basic validation
+        require!(amount > 0, EscrowError::InvalidStatus); // Reuse error or add new
+        require!(flow_rate > 0, EscrowError::InvalidStatus);
+
+        stream.buyer = ctx.accounts.buyer.key();
+        stream.seller = ctx.accounts.seller.key();
+        stream.total_deposited = amount;
+        stream.total_withdrawn = 0;
+        stream.flow_rate = flow_rate;
+
+        // Start time can be future or now
+        let effective_start = if start_time > clock.unix_timestamp {
+            start_time
+        } else {
+            clock.unix_timestamp
+        };
+        stream.start_time = effective_start;
+        stream.last_withdraw_time = effective_start;
+
+        // Calculate duration based on amount and rate
+        let duration = amount / flow_rate;
+        stream.end_time = effective_start + duration as i64;
+
+        stream.is_active = true;
+        stream.bump = ctx.bumps.stream;
+
+        // Transfer funds to stream account
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.stream.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, amount)?;
+
+        msg!(
+            "Stream initialized: {} rate/sec, ends at {}",
+            flow_rate,
+            stream.end_time
+        );
+        Ok(())
+    }
+
+    /// Withdraw available funds from stream (Seller checks in)
+    pub fn withdraw_stream(ctx: Context<WithdrawStream>) -> Result<()> {
+        let stream = &mut ctx.accounts.stream;
+        let clock = Clock::get()?;
+        let now = clock.unix_timestamp;
+
+        require!(stream.is_active, EscrowError::InvalidStatus);
+        require!(now > stream.last_withdraw_time, EscrowError::NotExpired);
+
+        // Cap calculations at stream end or now
+        let time_end_calc = std::cmp::min(now, stream.end_time);
+
+        if time_end_calc <= stream.last_withdraw_time {
+            msg!("No new funds to withdraw");
+            return Ok(());
+        }
+
+        let elapsed = (time_end_calc - stream.last_withdraw_time) as u64;
+        let withdrawable = elapsed * stream.flow_rate;
+
+        // Ensure we don't overdraw due to math/rounding
+        let remaining_balance = stream
+            .total_deposited
+            .saturating_sub(stream.total_withdrawn);
+        let actual_withdraw = std::cmp::min(withdrawable, remaining_balance);
+
+        if actual_withdraw > 0 {
+            stream.total_withdrawn += actual_withdraw;
+            stream.last_withdraw_time = time_end_calc;
+
+            // Transfer to seller
+            **stream.to_account_info().try_borrow_mut_lamports()? -= actual_withdraw;
+            **ctx.accounts.seller.try_borrow_mut_lamports()? += actual_withdraw;
+
+            msg!("Stream withdrawal: {}", actual_withdraw);
+        }
+
+        // Close stream if drained and time passed
+        if stream.total_withdrawn >= stream.total_deposited {
+            stream.is_active = false;
+            msg!("Stream completed and closed");
+        }
+
+        Ok(())
+    }
+
+    /// Top up an existing stream
+    pub fn top_up_stream(ctx: Context<TopUpStream>, amount: u64) -> Result<()> {
+        let stream = &mut ctx.accounts.stream;
+        let clock = Clock::get()?;
+
+        require!(stream.is_active, EscrowError::InvalidStatus);
+        require!(amount > 0, EscrowError::InvalidStatus);
+
+        stream.total_deposited += amount;
+
+        // Extend end time
+        // remaining = (end - now) + (new / rate)
+        // simplier: new_end = old_end + (amount / rate)
+        let duration_extension = amount / stream.flow_rate;
+        stream.end_time += duration_extension as i64;
+
+        // Transfer funds
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.stream.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, amount)?;
+
+        msg!(
+            "Stream topped up: +{} lamports, new end: {}",
+            amount,
+            stream.end_time
+        );
+        Ok(())
+    }
 
     // ============== SOL ESCROW (Legacy) ==============
 
@@ -172,7 +667,43 @@ pub mod proxyhub {
         Ok(())
     }
 
+    // ============== ADMIN MANAGEMENT ==============
+
+    /// Initialize the admin config (one-time setup)
+    pub fn initialize_admin(ctx: Context<InitializeAdmin>) -> Result<()> {
+        let admin_config = &mut ctx.accounts.admin_config;
+        let clock = Clock::get()?;
+
+        admin_config.admin = ctx.accounts.initial_admin.key();
+        admin_config.pending_admin = Pubkey::default();
+        admin_config.created_at = clock.unix_timestamp;
+        admin_config.updated_at = clock.unix_timestamp;
+        admin_config.bump = ctx.bumps.admin_config;
+
+        msg!("Admin initialized: {}", ctx.accounts.initial_admin.key());
+        Ok(())
+    }
+
+    /// Update the admin (current admin transfers to new admin)
+    pub fn update_admin(ctx: Context<UpdateAdmin>, new_admin: Pubkey) -> Result<()> {
+        let admin_config = &mut ctx.accounts.admin_config;
+        let clock = Clock::get()?;
+
+        // Verify caller is current admin
+        require!(
+            ctx.accounts.current_admin.key() == admin_config.admin,
+            EscrowError::UnauthorizedAdmin
+        );
+
+        admin_config.admin = new_admin;
+        admin_config.updated_at = clock.unix_timestamp;
+
+        msg!("Admin updated to: {}", new_admin);
+        Ok(())
+    }
+
     /// Settle escrow - Oracle signs off, SOL released proportionally
+    /// Uses fixed-point arithmetic to avoid float precision issues
     pub fn settle_escrow(ctx: Context<SettleEscrow>, bandwidth_used_gb: u64) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow;
 
@@ -184,15 +715,19 @@ pub mod proxyhub {
         escrow.bandwidth_used_gb = bandwidth_used_gb;
         escrow.status = EscrowStatus::Settled;
 
-        // Calculate payout
-        let usage_ratio = if escrow.bandwidth_limit_gb > 0 {
-            std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb) as f64
-                / escrow.bandwidth_limit_gb as f64
+        // Calculate payout using fixed-point arithmetic (no floats)
+        // seller_payout = (amount * used) / limit
+        let capped_usage = std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb);
+        let seller_payout = if escrow.bandwidth_limit_gb > 0 {
+            escrow
+                .amount
+                .checked_mul(capped_usage)
+                .unwrap_or(0)
+                .checked_div(escrow.bandwidth_limit_gb)
+                .unwrap_or(0)
         } else {
-            0.0
+            0
         };
-
-        let seller_payout = (escrow.amount as f64 * usage_ratio) as u64;
         let buyer_refund = escrow.amount.saturating_sub(seller_payout);
 
         // Transfer to seller
@@ -282,6 +817,7 @@ pub mod proxyhub {
     }
 
     /// Settle token escrow - Oracle signs off, tokens released proportionally
+    /// Uses fixed-point arithmetic to avoid float precision issues
     pub fn settle_token_escrow(
         ctx: Context<SettleTokenEscrow>,
         bandwidth_used_gb: u64,
@@ -296,15 +832,18 @@ pub mod proxyhub {
         escrow.bandwidth_used_gb = bandwidth_used_gb;
         escrow.status = EscrowStatus::Settled;
 
-        // Calculate payout
-        let usage_ratio = if escrow.bandwidth_limit_gb > 0 {
-            std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb) as f64
-                / escrow.bandwidth_limit_gb as f64
+        // Calculate payout using fixed-point arithmetic (no floats)
+        let capped_usage = std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb);
+        let seller_payout = if escrow.bandwidth_limit_gb > 0 {
+            escrow
+                .amount
+                .checked_mul(capped_usage)
+                .unwrap_or(0)
+                .checked_div(escrow.bandwidth_limit_gb)
+                .unwrap_or(0)
         } else {
-            0.0
+            0
         };
-
-        let seller_payout = (escrow.amount as f64 * usage_ratio) as u64;
         let buyer_refund = escrow.amount.saturating_sub(seller_payout);
 
         // PDA signer seeds
@@ -555,6 +1094,42 @@ pub struct SettleEscrow<'info> {
     pub seller: UncheckedAccount<'info>,
 }
 
+// ============== ADMIN MANAGEMENT ACCOUNTS ==============
+
+#[derive(Accounts)]
+pub struct InitializeAdmin<'info> {
+    /// The initial admin who pays for account creation
+    #[account(mut)]
+    pub initial_admin: Signer<'info>,
+
+    /// Admin config PDA (singleton)
+    #[account(
+        init,
+        payer = initial_admin,
+        space = AdminConfig::LEN,
+        seeds = [b"admin_config"],
+        bump
+    )]
+    pub admin_config: Account<'info, AdminConfig>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateAdmin<'info> {
+    /// Current admin must sign
+    pub current_admin: Signer<'info>,
+
+    /// Admin config PDA
+    #[account(
+        mut,
+        seeds = [b"admin_config"],
+        bump = admin_config.bump,
+        constraint = current_admin.key() == admin_config.admin @ EscrowError::UnauthorizedAdmin
+    )]
+    pub admin_config: Account<'info, AdminConfig>,
+}
+
 #[derive(Accounts)]
 pub struct RefundEscrow<'info> {
     #[account(mut, address = escrow.buyer)]
@@ -683,6 +1258,153 @@ pub struct RefundTokenEscrow<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+// ============== STREAMING ACCOUNTS ==============
+
+#[derive(Accounts)]
+pub struct InitializeStream<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    /// CHECK: Seller account
+    pub seller: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = buyer,
+        space = StreamingEscrow::LEN,
+        seeds = [b"stream", buyer.key().as_ref(), seller.key().as_ref()],
+        bump
+    )]
+    pub stream: Account<'info, StreamingEscrow>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawStream<'info> {
+    // Anyone can crank this technically, but usually seller
+    #[account(mut)]
+    pub caller: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stream", stream.buyer.as_ref(), stream.seller.as_ref()],
+        bump = stream.bump,
+    )]
+    pub stream: Account<'info, StreamingEscrow>,
+
+    #[account(mut, address = stream.seller)]
+    pub seller: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct TopUpStream<'info> {
+    #[account(mut, address = stream.buyer)]
+    pub buyer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stream", stream.buyer.as_ref(), stream.seller.as_ref()],
+        bump = stream.bump,
+    )]
+// ============== JURY ACCOUNTS ==============
+
+#[derive(Accounts)]
+pub struct InitiateJuryDispute<'info> {
+    #[account(mut)]
+    pub initiator: Signer<'info>, // Buyer or Seller
+
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    #[account(
+        init,
+        payer = initiator,
+        space = Jury::LEN,
+        seeds = [b"jury", escrow.key().as_ref()],
+        bump
+    )]
+    pub jury: Account<'info, Jury>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CastVote<'info> {
+    pub juror: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"jury", jury.escrow.as_ref()],
+        bump = jury.bump,
+    )]
+    pub jury: Account<'info, Jury>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteJuryVerdict<'info> {
+    // Anyone can execute once resolved
+    pub executor: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"jury", escrow.key().as_ref()],
+        bump = jury.bump,
+    )]
+    pub jury: Account<'info, Jury>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    /// CHECK: Buyer receives refund if they won
+    #[account(mut, address = escrow.buyer)]
+    pub buyer: UncheckedAccount<'info>,
+
+    /// CHECK: Seller receives payout if they won
+    #[account(mut, address = escrow.seller)]
+    pub seller: UncheckedAccount<'info>,
+}
+
+// ============== MISC ACCOUNTS ==============
+
+#[derive(Accounts)]
+pub struct SettleCircleEscrow<'info> {
+    pub oracle: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    #[account(
+        seeds = [b"circle", circle.name.as_bytes()],
+        bump = circle.bump,
+    )]
+    pub circle: Account<'info, CircleConfig>,
+
+    /// CHECK: Circle treasury address (should match config but simplified for MVP)
+    #[account(mut)]
+    pub circle_treasury: UncheckedAccount<'info>,
+
+    /// CHECK: Buyer receives refund
+    #[account(mut, address = escrow.buyer)]
+    pub buyer: UncheckedAccount<'info>,
+
+    /// CHECK: Seller/Provider receives their share
+    #[account(mut, address = escrow.seller)]
+    pub seller: UncheckedAccount<'info>,
+}
+
 // ============== MISC ACCOUNTS ==============
 
 #[derive(Accounts)]
@@ -723,8 +1445,16 @@ pub struct RaiseDispute<'info> {
 
 #[derive(Accounts)]
 pub struct ResolveDispute<'info> {
-    /// Admin who resolves the dispute (must be oracle/admin key)
+    /// Admin who resolves the dispute (must match admin_config.admin)
     pub admin: Signer<'info>,
+
+    /// Admin config PDA - verifies the admin is authorized
+    #[account(
+        seeds = [b"admin_config"],
+        bump = admin_config.bump,
+        constraint = admin.key() == admin_config.admin @ EscrowError::UnauthorizedAdmin
+    )]
+    pub admin_config: Account<'info, AdminConfig>,
 
     /// The escrow being resolved
     #[account(
@@ -752,6 +1482,13 @@ pub struct ResolveDispute<'info> {
 }
 
 // ============== EVENTS ==============
+
+#[event]
+pub struct JuryVoteCast {
+    pub jury: Pubkey,
+    pub juror: Pubkey,
+    pub vote_for_buyer: bool,
+}
 
 #[event]
 pub struct AgentWorkLogged {
@@ -796,6 +1533,8 @@ pub enum EscrowError {
     SignatureVerificationFailed,
     #[msg("Proof already submitted")]
     ProofAlreadySubmitted,
+    #[msg("Unauthorized: caller is not the authorized admin")]
+    UnauthorizedAdmin,
 }
 
 // ============== TRUSTLESS USAGE PROOFS ==============

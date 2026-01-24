@@ -7,6 +7,15 @@ export interface Session {
     credentials_user: string;
     credentials_pass: string;
     created_at: string;
+    listing?: {
+        id: string;
+        price_per_gb?: number;
+        price_per_hour?: number;
+    };
+    escrow_address?: string;
+    tx_hash?: string;
+    bytes_used?: number;
+    bytes_limit?: number;
 }
 
 export async function createSession(type: 'rotating' | 'sticky', nodeId?: string): Promise<{ session: Session; proxy_credentials: { username: string; password: string; endpoint: string } }> {

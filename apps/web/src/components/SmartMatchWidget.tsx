@@ -13,6 +13,7 @@ export function SmartMatchWidget() {
     const [loading, setLoading] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [showResults, setShowResults] = useState(false);
+    const [minScore, setMinScore] = useState(0);
 
     useEffect(() => {
         fetchUseCases();
@@ -41,7 +42,7 @@ export function SmartMatchWidget() {
 
         try {
             setLoading(true);
-            const data = await getRecommendations(selectedUseCase);
+            const data = await getRecommendations(selectedUseCase, minScore);
             setRecommendations(data?.recommendations || []);
             setAnalyzing(false);
             setShowResults(true);
@@ -105,6 +106,28 @@ export function SmartMatchWidget() {
                                 </div>
                             </button>
                         ))}
+
+                    </div>
+
+                    {/* Filters */}
+                    <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Minimum Trust Score</label>
+                            <span className="text-xs font-mono font-bold text-purple-400">{minScore}%</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="10"
+                            value={minScore}
+                            onChange={(e) => setMinScore(parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500 hover:accent-purple-400"
+                        />
+                        <div className="flex justify-between mt-1 px-1">
+                            <span className="text-[8px] text-white/20">ANY</span>
+                            <span className="text-[8px] text-white/20">PLATINUM</span>
+                        </div>
                     </div>
 
                     <button
@@ -257,6 +280,6 @@ export function SmartMatchWidget() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
