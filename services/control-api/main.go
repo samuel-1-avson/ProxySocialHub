@@ -298,10 +298,13 @@ func main() {
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
 
+	// Start ZK-Settlement Worker (Phase 8 Asynchronous Confidential Settlement)
+	zkWorker := worker.NewZKSettlementWorker()
+	zkWorker.Start(context.Background())
+	log.Println("ZK-Settlement Worker started")
+
 	// Start Provisioning Worker (Phase 5.2 Event-Driven)
-	// We need a dummy or existing repo implementation for this demo refactor
-	// In full hexagonal, we use the secondary adapter Implementation
-	pw := worker.NewProvisioningWorker(nil, nil) // Dependencies passed in real impl
+	pw := worker.NewProvisioningWorker(nil, nil)
 	if err := pw.Start(context.Background()); err != nil {
 		log.Printf("Failed to start Provisioning Worker: %v", err)
 	}
