@@ -4,8 +4,6 @@ import { useAuth } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { web3Accounts, web3Enable, web3FromSource } from '@polkadot/extension-dapp';
-import { stringToHex } from '@polkadot/util';
 import styles from './LinkedWallets.module.css';
 
 interface LinkedWallet {
@@ -102,8 +100,9 @@ export default function LinkedWalletsPage() {
                 const data = await response.json();
                 setError(data.error || 'Failed to link wallet');
             }
-        } catch (err: any) {
-            setError(err.message || 'Failed to sign message');
+        } catch (err) {
+            const error = err as Error;
+            setError(error.message || 'Failed to sign message');
         } finally {
             setLinking(false);
         }
@@ -114,6 +113,10 @@ export default function LinkedWalletsPage() {
         setError(null);
 
         try {
+            // Dynamically import browser-only libraries to avoid SSR errors
+            const { web3Accounts, web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
+            const { stringToHex } = await import('@polkadot/util');
+
             const extensions = await web3Enable('ProxySocialHub');
             if (extensions.length === 0) {
                 throw new Error('No Substrate extension found. Please install Subwallet or Bittensor wallet.');
