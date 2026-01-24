@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { SubstrateWalletModal } from '@/components/SubstrateWalletModal';
 import { API_BASE_URL, fetchWithAuth } from '@/lib/services/client';
 import styles from './LinkedWallets.module.css';
 
@@ -39,6 +40,7 @@ export default function LinkedWalletsPage() {
 
     const { publicKey, signMessage, connected } = useWallet();
     const [mounted, setMounted] = useState(false);
+    const [isTAOModalOpen, setIsTAOModalOpen] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -111,29 +113,28 @@ export default function LinkedWalletsPage() {
         }
     };
 
-    const linkBittensorWallet = async () => {
+    const linkBittensorWallet = async (selectedAccount?: any) => {
         setLinking(true);
         setError(null);
+        setIsTAOModalOpen(false);
 
         try {
-            // Dynamically import browser-only libraries to avoid SSR errors
-            const { web3Accounts, web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
+            const { web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
             const { stringToHex } = await import('@polkadot/util');
 
-            const extensions = await web3Enable('ProxySocialHub');
-            if (extensions.length === 0) {
-                throw new Error('No Substrate extension found. Please install Subwallet or Bittensor wallet.');
+            await web3Enable('ProxySocialHub');
+
+            let account = selectedAccount;
+            if (!account) {
+                const { web3Accounts } = await import('@polkadot/extension-dapp');
+                const allAccounts = await web3Accounts();
+                if (allAccounts.length === 0) {
+                    throw new Error('No Substrate accounts found. Please unlock your wallet extension.');
+                }
+                account = allAccounts[0];
             }
 
-            const allAccounts = await web3Accounts();
-            if (allAccounts.length === 0) {
-                throw new Error('No accounts found in your wallet extension.');
-            }
-
-            // For now, take the first account. In a real app, show a picker.
-            const account = allAccounts[0];
             const injector = await web3FromSource(account.meta.source);
-
             const message = `Sign this message to link your Bittensor wallet to ProxySocialHub.\n\nWallet: ${account.address}\nUser ID: ${user?.id}\nTimestamp: ${Date.now()}`;
 
             if (!injector.signer.signRaw) {
@@ -372,6 +373,12 @@ export default function LinkedWalletsPage() {
                     </div>
                 )}
             </div>
+            {/* Modal */}
+            <SubstrateWalletModal
+                isOpen={isTAOModalOpen}
+                onClose={() => setIsTAOModalOpen(false)}
+                onSelect={(account) => linkBittensorWallet(account)}
+            />
         </div>
     );
 }
