@@ -22,7 +22,7 @@ export interface WalletTransaction {
 }
 
 export async function getWallet(): Promise<Wallet> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet`);
     if (!response.ok) throw new Error('Failed to fetch wallet');
     const data = await response.json();
     return data.wallet;
@@ -112,7 +112,7 @@ export interface StakingPosition {
 }
 
 export async function getStakes(): Promise<StakingPosition[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking`);
     if (!response.ok) throw new Error('Failed to fetch stakes');
     return response.json();
 }
