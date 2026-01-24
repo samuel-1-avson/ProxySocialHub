@@ -143,15 +143,14 @@ services:
     command:
       - /usr/local/bin/node-subtensor
       - --chain
-      - finney
+      - local
       - --base-path
       - /data
       - --rpc-external
       - --ws-external
       - --rpc-cors
       - all
-      - --sync
-      - warp
+      - --alice
     networks:
       - proxyhubb
     restart: unless-stopped
