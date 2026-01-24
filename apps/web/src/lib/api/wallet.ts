@@ -120,8 +120,14 @@ export function withdraw(data: WithdrawRequest) {
 /**
  * Link a blockchain wallet
  */
-export function linkWallet(data: LinkWalletRequest) {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/link', data);
+export function linkWallet(address: string, chain: 'solana' | 'bittensor', signature: string, message: string, label?: string) {
+    return apiPost<{ status: string; message: string }>('/v1/wallet/link', {
+        wallet_address: address,
+        chain,
+        signature,
+        message,
+        label
+    });
 }
 
 /**
