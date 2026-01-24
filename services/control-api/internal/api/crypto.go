@@ -273,15 +273,9 @@ func verifyCryptoDeposit(c *gin.Context) {
 		// Get real exchange rate from CoinGecko
 		rate, err := prices.GetSOLToTAORate(ctx)
 		if err != nil {
-			logging.Warn().Err(err).Msg("Failed to fetch exchange rate, using fallback")
-			// Fallback: fetch individual prices and calculate
-			solPrice, _ := prices.GetSOLPrice(ctx)
-			taoPrice, _ := prices.GetTAOPrice(ctx)
-			if taoPrice > 0 {
-				rate = solPrice / taoPrice
-			} else {
-				rate = 1.0 // Last resort fallback
-			}
+			logging.Error(err).Msg("Failed to fetch exchange rate from Oracle")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Exchange rate oracle unavailable. Please try again later."})
+			return
 		}
 		creditAmountTAO = verifiedAmount * rate
 		description = fmt.Sprintf("SOL Deposit: %.6f SOL -> %.4f TAO (rate: %.4f)", verifiedAmount, creditAmountTAO, rate)

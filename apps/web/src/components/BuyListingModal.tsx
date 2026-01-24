@@ -31,31 +31,31 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
         setLoading(true);
         setError('');
         try {
-            // 1. Calculate Deposit (e.g., 5 GHS/GB worth of SOL, simplified here to fixed amount for demo)
-            // Real world: Fetch SOL price, convert. 
-            // Demo: Lock 0.1 SOL (~$15) as deposit buffer
-            const depositLamports = 0.1 * 10 ** 9;
+            // 1. Create Backend Order (Lock Rate)
+            console.log("Creating Order...");
+            const order = await createOrder(listing.id, 10); // 10GB hardcoded for now
 
-            // 2. Initialize On-Chain Escrow
-            // We need the seller's Solana Key. 
-            // Assuming listing.seller.wallet_address is available, or use a platform hot wallet as proxy for now.
-            const sellerKey = listing.seller?.wallet_address || "C6P5a3w5y5T5k5h5o5t5W5a5l5l5e5t5A5d5d5r5e5s5s"; // Fallback demo key
+            // 2. Initiate Smart Contract Payment (Get PDA & Params)
+            console.log("Initiating Payment for Order:", order.id);
+            // Dynamic import to avoid SSR issues if initiateSmartContractPayment was not in initial bundle? No, it's fine.
+            const { initiateSmartContractPayment } = await import('@/lib/services/market');
+            const params = await initiateSmartContractPayment(order.id);
 
-            console.log("Starting Solana Transaction...");
-            const { tx, escrowPda } = await initializeEscrow(
+            // 3. Initialize On-Chain Escrow using Backend Params
+            console.log("Starting Solana Transaction with PDA:", params.escrow_pda);
+
+            // We use the seller key verified by backend (params.seller_pubkey)
+            const { tx } = await initializeEscrow(
                 wallet,
-                sellerKey,
-                depositLamports,
-                10 // 10 GB Limit for this session loop
+                params.seller_pubkey,
+                params.amount_lamports,
+                params.bandwidth_gb
             );
 
             console.log("Solana Tx Success:", tx);
 
-            // 3. Create Order on Backend (passing Escrow PDA)
-            // We pass the PDA as a meta field or "payment_ref"
-            const order = await createOrder(listing.id, 1); // API tracks the connection
-
-            // TODO: Update order with escrow_pda in backend (or send it in createOrder payload)
+            // Backend listener will pick up the event and activate the order.
+            // We can poll order status here if we want immediate feedback, or just succeed.
 
             setSuccess(true);
             setTimeout(() => {

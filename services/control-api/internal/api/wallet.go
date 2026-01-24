@@ -21,17 +21,19 @@ import (
 func RegisterWalletRoutes(r *gin.RouterGroup) {
 	wallet := r.Group("/wallet")
 	{
-		// Core wallet endpoints
-		wallet.GET("/", getWallet)
+
+		// P2P Transfers
+		wallet.POST("/transfer", transferP2P)
 
 		// CRYPTO DEPOSITS (Primary method for users)
-		wallet.POST("/deposit/crypto", verifyCryptoDeposit)
+		// Strict rate limit: 5 requests per minute per IP/User to prevent RPC scanning
+		wallet.POST("/deposit/crypto", RateLimitWithConfig(5, time.Minute), verifyCryptoDeposit)
 		wallet.POST("/link", linkWallet)
 
 		// TAO Routes (Bittensor)
 		wallet.POST("/deposit/tao", initiateTaoDeposit)
 		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
-		wallet.POST("/verify/tao", verifyTaoDeposit)
+		wallet.POST("/verify/tao", RateLimitWithConfig(5, time.Minute), verifyTaoDeposit)
 
 		// FIAT ROUTES (Provider payouts via Mobile Money - kept for provider withdrawals)
 		// Deposits via Paystack deprecated for users - use crypto instead
@@ -167,6 +169,20 @@ func initiateTaoWithdrawal(c *gin.Context) {
 
 	userUUID, _ := GetUserID(c)
 	userID := userUUID.String()
+
+	// Whitelist Check (24h Cooldown)
+	// Destination must appear in LinkedWallets for this user AND be > 24h old
+	var linkedWallet models.LinkedWallet
+	if err := db.DB.Where("user_id = ? AND address = ?", userID, req.Destination).First(&linkedWallet).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Destination address is not linked to your account. Please link it first."})
+		return
+	}
+
+	// Calculate age
+	if time.Since(linkedWallet.CreatedAt) < 24*time.Hour {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Withdrawals to new addresses are restricted for 24 hours. Please try again later."})
+		return
+	}
 
 	tx := db.DB.Begin()
 	var wallet models.Wallet
@@ -699,24 +715,38 @@ func initiateWithdrawal(c *gin.Context) {
 
 	// 2. Perform Paystack Transfer (Outside DB Lock)
 	client := payments.NewPaystackClient()
+	var recipientCode string
 
-	// Create Recipient
-	recipientReq := payments.CreateRecipientRequest{
-		Type:          "mobile_money",
-		Name:          "ProxyHubb User", // Ideally fetch real name from profile
-		AccountNumber: req.Phone,
-		BankCode:      req.Network, // e.g. "MTN", "VOD", "ATL" - Frontend must send correct codes
-		Currency:      "GHS",
-	}
+	// Check for cached recipient code
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err == nil && user.PaystackRecipientCode != nil {
+		recipientCode = *user.PaystackRecipientCode
+	} else {
+		// Create Recipient
+		recipientReq := payments.CreateRecipientRequest{
+			Type:          "mobile_money",
+			Name:          "ProxyHubb User", // Ideally fetch real name from profile
+			AccountNumber: req.Phone,
+			BankCode:      req.Network, // e.g. "MTN", "VOD", "ATL" - Frontend must send correct codes
+			Currency:      "GHS",
+		}
 
-	recipient, err := client.CreateTransferRecipient(recipientReq)
-	if err != nil {
-		// Refund on failure
-		refundWallet(userID, req.Amount)
-		updateTxStatus(reference, "failed")
-		logging.Error(err).Msg("Paystack create recipient failed")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account details: " + err.Error()})
-		return
+		recipient, err := client.CreateTransferRecipient(recipientReq)
+		if err != nil {
+			// Refund on failure
+			refundWallet(userID, req.Amount)
+			updateTxStatus(reference, "failed")
+			logging.Error(err).Msg("Paystack create recipient failed")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account details: " + err.Error()})
+			return
+		}
+
+		recipientCode = recipient.Data.RecipientCode
+
+		// Cache the recipient code
+		if err := db.DB.Model(&models.User{}).Where("id = ?", userID).Update("paystack_recipient_code", recipientCode).Error; err != nil {
+			logging.Warn().Err(err).Msg("Failed to cache Paystack recipient code")
+		}
 	}
 
 	// Initiate Transfer
@@ -724,7 +754,7 @@ func initiateWithdrawal(c *gin.Context) {
 	transferReq := payments.TransferRequest{
 		Source:    "balance",
 		Amount:    fmt.Sprintf("%d", amountPesewas),
-		Recipient: recipient.Data.RecipientCode,
+		Recipient: recipientCode,
 		Reason:    "ProxyHubb Payout",
 		Reference: reference,
 	}
@@ -770,4 +800,156 @@ func refundWallet(userID string, amount float64) {
 
 func updateTxStatus(ref, status string) {
 	db.DB.Model(&models.PendingTransaction{}).Where("reference = ?", ref).Update("status", status)
+}
+
+type p2pTransferRequest struct {
+	RecipientIdentifier string  `json:"recipient" binding:"required"` // Email or Username
+	Amount              float64 `json:"amount" binding:"required,gt=0"`
+	Currency            string  `json:"currency" binding:"required"` // TAO or GHS
+}
+
+func transferP2P(c *gin.Context) {
+	var req p2pTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	senderUUID, _ := GetUserID(c)
+	senderID := senderUUID.String()
+
+	// Prevent self-transfer
+	if req.RecipientIdentifier == senderID { // Weak check, RecipientIdentifier is email/username usually
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot transfer to yourself"})
+		return
+	}
+
+	tx := db.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. Find Recipient
+	var recipient models.User
+	if err := tx.Where("email = ? OR username = ?", req.RecipientIdentifier, req.RecipientIdentifier).First(&recipient).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Recipient not found"})
+		return
+	}
+
+	if recipient.ID == senderUUID {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot transfer to yourself"})
+		return
+	}
+
+	// 2. Lock Wallets (Sort by ID to prevent Deadlock)
+	// We need both wallet IDs. Fetch them first without lock, then key-lock?
+	// Or just fetch them.
+	ids := []string{senderID, recipient.ID.String()}
+	// Simple string sort
+	if ids[0] > ids[1] {
+		ids[0], ids[1] = ids[1], ids[0]
+	}
+
+	var senderWallet, recipientWallet models.Wallet
+
+	// Lock First
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", ids[0]).First(
+		map[string]*models.Wallet{senderID: &senderWallet, recipient.ID.String(): &recipientWallet}[ids[0]],
+	).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lock wallet 1"})
+		return
+	}
+
+	// Lock Second
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", ids[1]).First(
+		map[string]*models.Wallet{senderID: &senderWallet, recipient.ID.String(): &recipientWallet}[ids[1]],
+	).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lock wallet 2"})
+		return
+	}
+
+	// Ensure wallets were found (Create recipient wallet if missing?)
+	if recipientWallet.ID == uuid.Nil {
+		// Create if missing
+		recipientWallet = models.Wallet{UserID: recipient.ID, Currency: "MULTI"}
+		if err := tx.Create(&recipientWallet).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to init recipient wallet"})
+			return
+		}
+	}
+
+	// 3. Check Balance & Transfer
+	if req.Currency == "TAO" {
+		if senderWallet.BalanceTAO < req.Amount {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO funds"})
+			return
+		}
+		senderWallet.BalanceTAO -= req.Amount
+		recipientWallet.BalanceTAO += req.Amount
+	} else if req.Currency == "GHS" {
+		if senderWallet.BalanceGHS < req.Amount {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient GHS funds"})
+			return
+		}
+		senderWallet.BalanceGHS -= req.Amount
+		recipientWallet.BalanceGHS += req.Amount
+	} else {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported currency"})
+		return
+	}
+
+	if err := tx.Save(&senderWallet).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sender"})
+		return
+	}
+	if err := tx.Save(&recipientWallet).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update recipient"})
+		return
+	}
+
+	// 4. Record Ledger Entries
+	refID := uuid.New().String()
+
+	senderLedger := models.WalletLedgerEntry{
+		WalletID:     senderWallet.ID,
+		Amount:       -req.Amount,
+		BalanceAfter: getBalance(&senderWallet, req.Currency),
+		Type:         "p2p_sent",
+		ReferenceID:  refID,
+		Description:  fmt.Sprintf("Sent to %s", req.RecipientIdentifier),
+	}
+
+	recipientLedger := models.WalletLedgerEntry{
+		WalletID:     recipientWallet.ID,
+		Amount:       req.Amount,
+		BalanceAfter: getBalance(&recipientWallet, req.Currency),
+		Type:         "p2p_received",
+		ReferenceID:  refID,
+		Description:  fmt.Sprintf("Received from %s", senderID), // Use username if available
+	}
+
+	tx.Create(&senderLedger)
+	tx.Create(&recipientLedger)
+
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transfer complete", "reference": refID})
+}
+
+func getBalance(w *models.Wallet, currency string) float64 {
+	if currency == "TAO" {
+		return w.BalanceTAO
+	}
+	return w.BalanceGHS
 }

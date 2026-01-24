@@ -32,19 +32,7 @@ export interface Order {
   escrow_status?: string;
 }
 
-export async function createOrder(listingId: string, bandwidthGb: number): Promise<Order> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ listing_id: listingId, bandwidth_gb: bandwidthGb }),
-  });
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to create order');
-  }
-  const data = await response.json();
-  return data.order;
-}
+// createOrder moved to services/market.ts
 
 export async function getMyOrders(): Promise<Order[]> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`);

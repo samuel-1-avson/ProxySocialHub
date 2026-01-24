@@ -55,3 +55,50 @@ export async function getProviderNodes(): Promise<{ nodes: ProviderNode[] }> {
     if (!response.ok) return { nodes: [] };
     return response.json();
 }
+
+export interface Order {
+    id: string;
+    buyer_id: string;
+    seller_id: string;
+    listing_id: string;
+    bandwidth_gb: number;
+    total_price: number;
+    status: 'pending' | 'active' | 'completed' | 'disputed' | 'cancelled';
+    escrow_pda?: string;
+    tx_signature?: string;
+    created_at: string;
+}
+
+export interface SolanaPaymentParams {
+    program_id: string;
+    escrow_pda: string;
+    buyer_pubkey: string;
+    seller_pubkey: string;
+    amount_lamports: number;
+    amount_sol: number;
+    bandwidth_gb: number;
+    oracle_pubkey: string;
+}
+
+export async function createOrder(listingId: string, bandwidthGb: number): Promise<Order> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listingId, bandwidth_gb: bandwidthGb }),
+    });
+    if (!response.ok) throw new Error('Failed to create order');
+    const data = await response.json();
+    return data.order;
+}
+
+export async function initiateSmartContractPayment(orderId: string): Promise<SolanaPaymentParams> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders/${orderId}/pay/solana`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to initiate payment');
+    }
+    return response.json();
+}
