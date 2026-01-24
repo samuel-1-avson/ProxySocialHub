@@ -35,6 +35,10 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
 		wallet.POST("/verify/tao", RateLimitWithConfig(5, time.Minute), verifyTaoDeposit)
 
+		// Faucet Routes (Dev/Testnet only)
+		wallet.POST("/faucet/start", startFaucet)
+		wallet.GET("/faucet/status", getFaucetStatus)
+
 		// FIAT ROUTES (Provider payouts via Mobile Money - kept for provider withdrawals)
 		// Deposits via Paystack deprecated for users - use crypto instead
 		wallet.POST("/deposit", initiateDeposit)     // Legacy/Provider only
@@ -156,6 +160,46 @@ func verifyTaoDeposit(c *gin.Context) {
 
 	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"status": "success", "new_balance": newBalance})
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{"status": "success", "new_balance": newBalance})
+}
+
+// Faucet Handlers
+
+type startFaucetRequest struct {
+	WalletName   string `json:"wallet_name"`
+	WalletHotkey string `json:"wallet_hotkey"`
+}
+
+func startFaucet(c *gin.Context) {
+	var req startFaucetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Default to proxyhubb wallet if not provided, just for safety or convenience
+		req.WalletName = "proxyhubb" // Default for this context
+		req.WalletHotkey = "default"
+	}
+
+	// Permission check? For now, open for dev.
+
+	client := payments.NewTaoClient(GetBittensorClient())
+	resp, err := client.StartFaucet(req.WalletName, req.WalletHotkey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start faucet: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func getFaucetStatus(c *gin.Context) {
+	client := payments.NewTaoClient(GetBittensorClient())
+	resp, err := client.GetFaucetStatus()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get faucet status: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 type taoWithdrawRequest struct {

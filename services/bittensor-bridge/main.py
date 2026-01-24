@@ -164,6 +164,93 @@ def transfer_tao(req: TransferRequest):
          return {"status": "error", "message": str(e)}
 
 # ==========================================
+# Faucet Monitoring
+# ==========================================
+
+# Global state to track faucet progress
+# Status: "IDLE", "MINING", "VERIFYING", "SUCCESS", "ERROR"
+FAUCET_STATE = {
+    "status": "IDLE",
+    "message": "Ready to start faucet",
+    "start_time": None,
+    "last_updated": None
+}
+faucet_lock = threading.Lock()
+
+def faucet_worker(wallet_name, wallet_hotkey):
+    global FAUCET_STATE
+    
+    with faucet_lock:
+        FAUCET_STATE["status"] = "MINING"
+        FAUCET_STATE["message"] = "Starting PoW mining (this may take 10-20 mins)..."
+        FAUCET_STATE["start_time"] = time.time()
+        FAUCET_STATE["last_updated"] = time.time()
+
+    try:
+        wallet = bt.wallet(name=wallet_name, hotkey=wallet_hotkey)
+        sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+        
+        # This is a blocking call that does the PoW
+        # We can't easily get granular progress from the SDK without capturing stdout
+        # but we know it's working if it's blocking here.
+        success = sub.faucet(wallet=wallet, wait_for_inclusion=True, wait_for_finalization=False)
+
+        with faucet_lock:
+            if success:
+                FAUCET_STATE["status"] = "SUCCESS"
+                FAUCET_STATE["message"] = "Faucet tokens received successfully!"
+            else:
+                FAUCET_STATE["status"] = "ERROR"
+                FAUCET_STATE["message"] = "Faucet failed to verify or include transaction."
+            FAUCET_STATE["last_updated"] = time.time()
+            
+    except Exception as e:
+        with faucet_lock:
+            FAUCET_STATE["status"] = "ERROR"
+            FAUCET_STATE["message"] = f"Faucet error: {str(e)}"
+            FAUCET_STATE["last_updated"] = time.time()
+
+class FaucetRequest(BaseModel):
+    wallet_name: str
+    wallet_hotkey: str = "default"
+
+@app.post("/faucet/start")
+def start_faucet(req: FaucetRequest):
+    global FAUCET_STATE
+    with faucet_lock:
+        if FAUCET_STATE["status"] in ["MINING", "VERIFYING"]:
+             return {"status": "error", "message": "Faucet is already running"}
+        
+        # Reset state
+        FAUCET_STATE = {
+            "status": "STARTING",
+            "message": "Initializing...",
+            "start_time": time.time(),
+            "last_updated": time.time()
+        }
+
+    # Start background thread
+    t = threading.Thread(target=faucet_worker, args=(req.wallet_name, req.wallet_hotkey), daemon=True)
+    t.start()
+    
+    return {"status": "success", "message": "Faucet process started in background"}
+
+@app.get("/faucet/status")
+def get_faucet_status():
+    with faucet_lock:
+        # Add elapsed time if mining
+        elapsed = 0
+        if FAUCET_STATE["start_time"]:
+            elapsed = int(time.time() - FAUCET_STATE["start_time"])
+            
+        return {
+            "status": FAUCET_STATE["status"],
+            "message": FAUCET_STATE["message"],
+            "elapsed_seconds": elapsed,
+            "updated_at": FAUCET_STATE["last_updated"]
+        }
+
+# ==========================================
 # Validator / Compute Logic (Phase 4)
 # ==========================================
 
