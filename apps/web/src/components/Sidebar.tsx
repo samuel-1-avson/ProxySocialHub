@@ -52,27 +52,16 @@ export function Sidebar() {
                 }`}
         >
             {/* Header */}
-            <div className={`p-4 border-b border-border flex items-center ${isSidebarCollapsed ? "justify-center" : "justify-between"}`}>
-                {!isSidebarCollapsed && (
-                    <Link href="/" className="flex items-center gap-3 group">
-                        <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-none transition-all">
-                            <span className="font-bold font-mono text-sm">PS</span>
-                        </div>
-                        <span className="text-lg font-bold font-mono uppercase tracking-tight animate-in fade-in duration-300">ProxyHub</span>
-                    </Link>
-                )}
-                {isSidebarCollapsed && (
-                    <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground">
+            {/* Header */}
+            <div className={`p-4 border-b border-border flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
+                <Link href="/" className="flex items-center gap-3 group">
+                    <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-none transition-all">
                         <span className="font-bold font-mono text-sm">PS</span>
                     </div>
-                )}
-
-                <button
-                    onClick={toggleSidebar}
-                    className={`p-1.5 rounded-sm hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${isSidebarCollapsed ? "mt-4" : ""}`}
-                >
-                    {isSidebarCollapsed ? <LayoutDashboard size={18} className="rotate-90" /> : <div className="w-1 h-4 bg-muted-foreground/30 rounded-full" />}
-                </button>
+                    {!isSidebarCollapsed && (
+                        <span className="text-lg font-bold font-mono uppercase tracking-tight animate-in fade-in duration-300">ProxyHub</span>
+                    )}
+                </Link>
             </div>
 
             {/* User Status - Minimized in collapse mode */}
@@ -162,14 +151,13 @@ export function Sidebar() {
             </div>
 
             {/* Toggle Button (Floating at bottom right of sidebar) */}
-            {!isSidebarCollapsed && (
-                <button
-                    onClick={toggleSidebar}
-                    className="absolute -right-3 top-1/2 w-6 h-6 bg-card border border-border rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-sm z-50"
-                >
-                    <LayoutDashboard size={12} className="rotate-180" />
-                </button>
-            )}
+            <button
+                onClick={toggleSidebar}
+                className="absolute -right-3 top-24 w-6 h-6 bg-card border border-border rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-sm z-50"
+                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+                <LayoutDashboard size={12} className={`transition-transform duration-300 ${isSidebarCollapsed ? "rotate-90" : "-rotate-90"}`} />
+            </button>
         </aside>
     );
 }
