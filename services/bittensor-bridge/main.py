@@ -18,8 +18,11 @@ SUBTENSOR_CHAIN_ENDPOINT = os.getenv("SUBTENSOR_CHAIN_ENDPOINT", "ws://subtensor
 def get_subtensor():
     try:
         # Connecting to the local node
-        # SDK Compatibility: Pass arguments directly to constructor to avoid config issues
-        sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+        # SDK Compatibility: Use config object for custom endpoints in 6.x+
+        config = bt.config()
+        config.subtensor.chain_endpoint = SUBTENSOR_CHAIN_ENDPOINT
+        config.subtensor.network = SUBTENSOR_NETWORK
+        sub = bt.subtensor(config=config)
         return sub
     except Exception as e:
         print(f"Error connecting to subtensor: {e}")
