@@ -17,10 +17,11 @@ import (
 type UsageProofStatus string
 
 const (
-	UsageProofPending  UsageProofStatus = "pending"  // Awaiting signatures
-	UsageProofSigned   UsageProofStatus = "signed"   // Both parties signed
-	UsageProofOnChain  UsageProofStatus = "on_chain" // Submitted to blockchain
-	UsageProofDisputed UsageProofStatus = "disputed" // One party disputes
+	UsageProofPending              UsageProofStatus = "pending"               // Awaiting signatures
+	UsageProofSigned               UsageProofStatus = "signed"                // Both parties signed
+	UsageProofSettlingConfidential UsageProofStatus = "settling_confidential" // Being processed by ZK worker
+	UsageProofOnChain              UsageProofStatus = "on_chain"              // Submitted to blockchain
+	UsageProofDisputed             UsageProofStatus = "disputed"              // One party disputes
 )
 
 // UsageProof represents a cryptographically signed usage report
