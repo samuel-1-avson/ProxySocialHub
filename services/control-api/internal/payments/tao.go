@@ -52,3 +52,13 @@ func (c *TaoClient) Transfer(recipient string, amount float64) error {
 	// Using default wallet to send
 	return c.btClient.TransferTAO("default", "default", recipient, amount)
 }
+
+// StartFaucet triggers the background PoW mining
+func (c *TaoClient) StartFaucet(walletName, hotkey string) (*bittensor.FaucetResponse, error) {
+	return c.btClient.StartFaucet(walletName, hotkey)
+}
+
+// GetFaucetStatus returns the current status of the faucet worker
+func (c *TaoClient) GetFaucetStatus() (*bittensor.FaucetStatusResponse, error) {
+	return c.btClient.GetFaucetStatus()
+}

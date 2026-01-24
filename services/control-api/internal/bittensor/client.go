@@ -338,3 +338,67 @@ func (c *Client) GetEvents(fromBlock int64) ([]ChainEvent, int64, error) {
 
 	return response.Events, response.LatestBlock, nil
 }
+
+type FaucetStartRequest struct {
+	WalletName   string `json:"wallet_name"`
+	WalletHotkey string `json:"wallet_hotkey"`
+}
+
+type FaucetResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type FaucetStatusResponse struct {
+	Status         string  `json:"status"`
+	Message        string  `json:"message"`
+	ElapsedSeconds int     `json:"elapsed_seconds"`
+	UpdatedAt      float64 `json:"updated_at"`
+}
+
+func (c *Client) StartFaucet(walletName, hotkey string) (*FaucetResponse, error) {
+	req := FaucetStartRequest{
+		WalletName:   walletName,
+		WalletHotkey: hotkey,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(fmt.Sprintf("%s/faucet/start", c.baseURL), "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start faucet: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var response FaucetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &response, nil
+}
+
+func (c *Client) GetFaucetStatus() (*FaucetStatusResponse, error) {
+	resp, err := c.httpClient.Get(fmt.Sprintf("%s/faucet/status", c.baseURL))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get faucet status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var response FaucetStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &response, nil
+}
