@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm/clause"
@@ -184,9 +185,15 @@ func unstakePosition(c *gin.Context) {
 }
 
 func getStakingPositions(c *gin.Context) {
-	userUUID, _ := GetUserID(c)
+	userUUID, ok := GetUserID(c)
+	if !ok || userUUID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	var stakes []models.StakingPosition
 	if err := db.DB.Where("user_id = ?", userUUID).Order("created_at DESC").Find(&stakes).Error; err != nil {
+		fmt.Printf("Error fetching stakes for user %s: %v\n", userUUID, err) // Log error
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stakes"})
 		return
 	}
