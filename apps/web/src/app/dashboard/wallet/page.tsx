@@ -179,25 +179,11 @@ export default function WalletPage() {
                 type: 'bytes'
             });
 
-            // Send to backend using standardized helper (which we'll update in lib/api if needed, but fetchWithAuth is safer here)
-            const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chain: 'bittensor',
-                    address: account.address,
-                    signature: signature,
-                    message: message,
-                }),
-            });
+            // Send to backend using standardized helper
+            await linkWallet(account.address, 'bittensor', signature, message);
 
-            if (response.ok) {
-                setCryptoResult({ success: true, message: 'Bittensor wallet linked successfully!' });
-                fetchWallet();
-            } else {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to link Bittensor wallet');
-            }
+            setCryptoResult({ success: true, message: 'Bittensor wallet linked successfully!' });
+            fetchWallet();
         } catch (err: unknown) {
             console.error(err);
             const errorMessage = err instanceof Error ? err.message : String(err);
