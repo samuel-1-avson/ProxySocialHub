@@ -200,7 +200,7 @@ def faucet_worker(wallet_name, wallet_hotkey):
         # This is a blocking call that does the PoW
         # We can't easily get granular progress from the SDK without capturing stdout
         # but we know it's working if it's blocking here.
-        success = sub.faucet(wallet=wallet, wait_for_inclusion=True, wait_for_finalization=False)
+        success = sub.run_faucet(wallet=wallet, wait_for_inclusion=True, wait_for_finalization=False)
 
         with faucet_lock:
             if success:
