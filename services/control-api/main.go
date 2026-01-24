@@ -183,6 +183,7 @@ func main() {
 		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
 		api.RegisterProfileRoutes(v1) // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
+		api.RegisterSystemRoutes(v1)
 	}
 
 	// Protected Routes (Require Authentication)
