@@ -31,6 +31,10 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
+      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - SOLANA_ORACLE_KEYPAIR=${SOLANA_ORACLE_KEYPAIR} # Path or json content
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
     depends_on:
       redis:
         condition: service_healthy
@@ -76,6 +80,10 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8081}
+      - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - NEXT_PUBLIC_SOLANA_TREASURY=${NEXT_PUBLIC_SOLANA_TREASURY}
+      - NEXT_PUBLIC_TAO_TREASURY=${NEXT_PUBLIC_TAO_TREASURY}
     networks:
       - proxyhubb
     restart: unless-stopped
