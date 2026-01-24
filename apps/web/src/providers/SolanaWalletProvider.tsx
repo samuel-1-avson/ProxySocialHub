@@ -1,6 +1,6 @@
 'use client';
 
-import { FC, ReactNode, useMemo } from 'react';
+import { FC, ReactNode, useMemo, useState, useEffect } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
@@ -14,6 +14,12 @@ interface Props {
 }
 
 export const SolanaWalletProvider: FC<Props> = ({ children }) => {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     // Use devnet for development, mainnet-beta for production
     const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet'
         ? 'mainnet-beta'
@@ -31,6 +37,10 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         ],
         []
     );
+
+    if (!mounted) {
+        return <>{children}</>;
+    }
 
     return (
         <ConnectionProvider endpoint={endpoint}>
