@@ -505,7 +505,6 @@ func initiateDeposit(c *gin.Context) {
 		"action":  "Use /wallet/deposit/crypto or /wallet/deposit/tao",
 	})
 	return
-	return
 }
 
 // Verify payment endpoint

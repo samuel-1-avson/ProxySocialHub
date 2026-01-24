@@ -128,6 +128,11 @@ func (c *OracleClient) GetOraclePublicKey() sol.PublicKey {
 	return c.oracleKey.PublicKey()
 }
 
+// GetNetwork returns the current network (devnet, mainnet-beta, etc)
+func (c *OracleClient) GetNetwork() string {
+	return c.network
+}
+
 // GetEscrowPDA derives the escrow PDA address for a buyer-seller pair
 func (c *OracleClient) GetEscrowPDA(buyer, seller sol.PublicKey) (sol.PublicKey, uint8, error) {
 	pda, bump, err := sol.FindProgramAddress(

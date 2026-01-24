@@ -22,21 +22,15 @@ func SeedAll() {
 	log.Println("Cleaning up legacy mock data...")
 	cleanMockData()
 
-	// log.Println("Seeding Admin User...")
-	// seedUsers() // Only seeds admin/critical users if missing
-	// log.Println("Seeding Listings...")
+	// All functional seeds are disabled for production reality
+	// seedUsers()
 	// seedListings()
-	// log.Println("Seeding Nodes...")
 	// seedNodes()
-	// log.Println("Seeding Wallet & Transactions...")
 	// seedWallet()
-	// log.Println("Seeding Sessions & Usage...")
 	// seedSessionsAndUsage()
-	// log.Println("Seeding Market Agents...")
 	// seedMarketAgents()
-
-	// log.Println("Seeding Badges...")
 	// seedBadges()
+
 	log.Println("Seeding System Config...")
 	seedSystemConfig()
 	log.Println("Database seeding completed")
