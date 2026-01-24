@@ -112,7 +112,7 @@ export interface StakingPosition {
 }
 
 export async function getStakes(): Promise<StakingPosition[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/`);
     if (!response.ok) throw new Error('Failed to fetch stakes');
     return response.json();
 }
