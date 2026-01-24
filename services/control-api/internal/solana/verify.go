@@ -182,5 +182,5 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 
 // GetTreasuryAddress returns the platform treasury address
 func GetTreasuryAddress() string {
-	return config.GetSystemSetting("solana_treasury_address", "SOLANA_TREASURY_ADDRESS", "")
+	return config.GetSystemSetting("treasury_wallet_solana", "SOLANA_TREASURY_ADDRESS", "")
 }
