@@ -38,6 +38,8 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
                 // Suppress "source not authorized" errors from autoConnect which are expected if user declined
                 if (err.message?.includes('not authorized') || err.message?.includes('The source')) {
                     console.log('Wallet auto-connect declined or not authorized yet.');
+                } else if (err.name === 'WalletConnectionError' && err.message?.includes('The source')) {
+                    console.log('Wallet connection waiting for user approval.');
                 } else {
                     console.error('Wallet Error:', err);
                 }
