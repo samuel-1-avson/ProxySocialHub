@@ -29,6 +29,7 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		// Strict rate limit: 5 requests per minute per IP/User to prevent RPC scanning
 		wallet.POST("/deposit/crypto", RateLimitWithConfig(5, time.Minute), verifyCryptoDeposit)
 		wallet.POST("/link", linkWallet)
+		wallet.DELETE("/link", linkWallet)
 
 		// TAO Routes (Bittensor)
 		wallet.POST("/deposit/tao", initiateTaoDeposit)

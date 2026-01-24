@@ -20,13 +20,13 @@ import (
 )
 
 type linkWalletRequest struct {
-	WalletAddress string `json:"wallet_address" binding:"required"`
+	WalletAddress string `json:"wallet_address"`
 	Chain         string `json:"chain" binding:"required"` // "solana", "bittensor"
 	Signature     string `json:"signature"`
 	Message       string `json:"message"`
 }
 
-// LinkWalletEndpoint links an external wallet address to the user profile
+// linkWallet links or unlinks an external wallet address to the user profile
 func linkWallet(c *gin.Context) {
 	var req linkWalletRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -55,6 +55,29 @@ func linkWallet(c *gin.Context) {
 		return
 	}
 
+	// Handle Unlink (DELETE)
+	if c.Request.Method == "DELETE" {
+		if req.Chain == "solana" {
+			user.WalletAddress = nil
+		} else if req.Chain == "bittensor" {
+			user.BittensorAddress = nil
+		} else {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
+			return
+		}
+
+		if err := tx.Save(&user).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
+			return
+		}
+		tx.Commit()
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet unlinked successfully"})
+		return
+	}
+
+	// Handle Link (POST)
 	// Update appropriate field based on chain
 	if req.Chain == "solana" {
 		// 1. Verify Verification Params
