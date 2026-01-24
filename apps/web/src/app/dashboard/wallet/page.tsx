@@ -74,6 +74,12 @@ export default function WalletPage() {
     const [faucetElapsed, setFaucetElapsed] = useState<number>(0);
     const [faucetMessage, setFaucetMessage] = useState<string>('');
 
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
 
     useEffect(() => {
         fetchWallet();
@@ -364,6 +370,14 @@ export default function WalletPage() {
 
 
     /* ... render methods ... */
+
+    if (!mounted) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-background">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">

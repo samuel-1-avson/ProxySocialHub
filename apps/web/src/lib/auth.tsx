@@ -7,6 +7,8 @@ import { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
 export interface AuthContextType {
   user: User | null;
   isLoading: boolean;
@@ -41,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const token = localStorage.getItem('proxyhubb_token');
           if (token) {
             // Validate token with backend
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'}/v1/auth/me`, {
+            const res = await fetch(`${API_URL}/v1/auth/me`, {
               headers: {
                 'Authorization': `Bearer ${token}`
               }
@@ -137,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const walletLogin = async (address: string, signer: any) => {
     try {
       // 1. Get Challenge
-      const challengeRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'}/v1/auth/wallet/challenge`, {
+      const challengeRes = await fetch(`${API_URL}/v1/auth/wallet/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address })
@@ -169,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Login
-      const loginRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'}/v1/auth/wallet/login`, {
+      const loginRes = await fetch(`${API_URL}/v1/auth/wallet/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
