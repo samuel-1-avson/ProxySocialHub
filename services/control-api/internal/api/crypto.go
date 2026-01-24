@@ -99,7 +99,27 @@ func linkWallet(c *gin.Context) {
 
 		user.WalletAddress = &req.WalletAddress
 	} else if req.Chain == "bittensor" {
-		// TODO: Add support for Substrate signature verification (sr25519)
+		// Verify signature using the Bittensor bridge
+		client := GetBittensorClient()
+		if client == nil {
+			tx.Rollback()
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Bittensor bridge client not initialized"})
+			return
+		}
+
+		isValid, err := client.VerifySignature(req.WalletAddress, req.Message, req.Signature)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bittensor signature verification failed: " + err.Error()})
+			return
+		}
+
+		if !isValid {
+			tx.Rollback()
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Bittensor signature"})
+			return
+		}
+
 		user.BittensorAddress = &req.WalletAddress
 	} else {
 		tx.Rollback()
