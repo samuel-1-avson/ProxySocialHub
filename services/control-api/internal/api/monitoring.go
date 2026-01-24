@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/nats"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
 
@@ -48,16 +49,16 @@ func getOperationalMetrics(c *gin.Context) {
 	}
 
 	// 2. Fetch Treasury Balance via Oracle Client (if available)
-	// We need access to the singleton oracle client or re-init a temporary one
-	// For simplicity, we try to use a static GetBalance if implemented in solana package
-	// Or we use the oracle key from config
-	// Assuming solana.GetBalance(ctx) is a package level helper or similar
-	// But solana package usually has a global OracleClient instance if we Init it
-
-	// For now, returning mock/config network
-	metrics.Treasury.Network = "devnet"
-	// lamports, _ := solana.GetBalance(ctx) // Need to verify if this exists as global
-	metrics.Treasury.SolBalance = 10.5 // Mock for dashboard until bridge call is clean
+	if solana.IsOracleConfigured() {
+		oracle := solana.GetOracle()
+		metrics.Treasury.Network = oracle.GetNetwork()
+		if balance, err := oracle.GetBalance(ctx); err == nil {
+			metrics.Treasury.SolBalance = float64(balance) / 1e9
+		}
+	} else {
+		metrics.Treasury.Network = "not configured"
+		metrics.Treasury.SolBalance = 0
+	}
 
 	// 3. Fetch Watchtower status
 	wt := treasury.NewWatchtower()

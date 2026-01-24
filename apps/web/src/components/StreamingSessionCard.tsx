@@ -21,8 +21,12 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
     const activateTurbo = async () => {
         setLoadingTurbo(true);
         try {
-            // Open payment channel with 1 SOL/TAO deposit (mocked amount)
-            const channel = await openChannel(session.id, 1000000000);
+            // Calculate deposit based on listing price or a default (e.g. 1 hour of browsing)
+            const pricePerHour = session.listing?.price_per_hour || 0.1;
+            const depositAmount = Math.floor(pricePerHour * 1e9); // 1 hour worth of TAO/SOL
+
+            // Open payment channel with real amount
+            const channel = await openChannel(session.id, depositAmount);
             setChannelId(channel.id);
             setIsTurbo(true);
             console.log("State Channel Opened:", channel.id);
