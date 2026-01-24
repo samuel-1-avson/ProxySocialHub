@@ -146,7 +146,7 @@ export default function UnifiedWalletPage() {
     const fetchWallet = async () => {
         try {
             const data = await getWallet();
-            setWallet(data);
+            setWallet(data || { id: '', balance_ghs: 0, balance_tao: 0, currency: 'MULTI', transactions: [] });
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
     };
@@ -161,8 +161,11 @@ export default function UnifiedWalletPage() {
     const fetchStakes = async () => {
         try {
             const data = await getStakes();
-            setStakes(data);
-        } catch (e) { console.error(e); }
+            setStakes(Array.isArray(data) ? data : []);
+        } catch (e) {
+            console.error(e);
+            setStakes([]);
+        }
     };
 
     // Linking Logic
@@ -486,7 +489,7 @@ export default function UnifiedWalletPage() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="card-retro p-4 bg-primary/5 border-primary/20">
                                         <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Total Staked</p>
-                                        <p className="text-xl font-mono font-black">{stakes.reduce((acc, s) => acc + s.amount, 0).toFixed(2)} TAO</p>
+                                        <p className="text-xl font-mono font-black">{(stakes || []).reduce((acc, s) => acc + s.amount, 0).toFixed(2)} TAO</p>
                                     </div>
                                     <div className="card-retro p-4 bg-green-500/5 border-green-500/20">
                                         <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Target APY</p>
@@ -504,7 +507,7 @@ export default function UnifiedWalletPage() {
                                     </div>
 
                                     <div className="space-y-3">
-                                        {stakes.length === 0 ? (
+                                        {(!stakes || stakes.length === 0) ? (
                                             <div className="py-10 text-center text-[10px] font-mono text-muted-foreground uppercase">No active stakes found in the vault.</div>
                                         ) : (
                                             stakes.map(stake => (

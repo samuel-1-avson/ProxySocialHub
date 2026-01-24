@@ -51,7 +51,8 @@ function formatBytes(bytes: number): string {
 }
 
 function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
-    const maxValue = Math.max(...data.map(d => d.gb_used), 0.01);
+    const safeData = Array.isArray(data) ? data : [];
+    const maxValue = Math.max(...safeData.map(d => d.gb_used), 0.01);
 
     return (
         <div className="space-y-4 h-full flex flex-col">
@@ -60,7 +61,7 @@ function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
                 <span>Max: {maxValue.toFixed(2)} GB</span>
             </div>
             <div className="flex items-end h-40 gap-2 flex-1">
-                {data.map((point, index) => {
+                {safeData.map((point, index) => {
                     const height = (point.gb_used / maxValue) * 100;
                     return (
                         <div key={index} className="flex-1 flex flex-col items-center group relative">
@@ -83,11 +84,12 @@ function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
 }
 
 function GeoChart({ data }: { data: GeoStats[] }) {
-    const total = data?.reduce((sum, d) => sum + d.request_count, 0) || 1;
+    const safeData = Array.isArray(data) ? data : [];
+    const total = safeData.reduce((sum, d) => sum + d.request_count, 0) || 1;
 
     return (
         <div className="space-y-4">
-            {data.map((geo, index) => {
+            {safeData.map((geo, index) => {
                 const percent = (geo.request_count / total) * 100;
                 return (
                     <div key={geo.country_code} className="space-y-1">
@@ -123,16 +125,16 @@ export default function AnalyticsPage() {
         try {
             setLoading(true);
             const [overviewRes, dailyRes, geoRes, destRes] = await Promise.all([
-                fetchWithAuth(`${API_BASE_URL}/v1/analytics/overview`).then(r => r.json()).catch(() => null),
-                fetchWithAuth(`${API_BASE_URL}/v1/analytics/usage/daily?days=${days}`).then(r => r.json()).catch(() => ({ data: [] })),
-                fetchWithAuth(`${API_BASE_URL}/v1/analytics/geo`).then(r => r.json()).catch(() => ({ data: [] })),
-                fetchWithAuth(`${API_BASE_URL}/v1/analytics/top-destinations`).then(r => r.json()).catch(() => ({ data: [] })),
+                fetchWithAuth(`${API_BASE_URL}/v1/analytics/overview`).then(r => r.ok ? r.json() : null).catch(() => null),
+                fetchWithAuth(`${API_BASE_URL}/v1/analytics/usage/daily?days=${days}`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+                fetchWithAuth(`${API_BASE_URL}/v1/analytics/geo`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+                fetchWithAuth(`${API_BASE_URL}/v1/analytics/top-destinations`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
             ]);
 
             setOverview(overviewRes);
-            setDailyUsage(dailyRes.data || []);
-            setGeoData(geoRes.data || []);
-            setDestinations(destRes.data || []);
+            setDailyUsage(Array.isArray(dailyRes?.data) ? dailyRes.data : []);
+            setGeoData(Array.isArray(geoRes?.data) ? geoRes.data : []);
+            setDestinations(Array.isArray(destRes?.data) ? destRes.data : []);
         } catch {
             setError('Failed to load analytics');
         } finally {
