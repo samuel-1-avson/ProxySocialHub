@@ -184,6 +184,8 @@ func startFaucet(c *gin.Context) {
 	client := payments.NewTaoClient(GetBittensorClient())
 	resp, err := client.StartFaucet(req.WalletName, req.WalletHotkey)
 	if err != nil {
+		fmt.Printf("FAUCET ERROR: %v\n", err) // Temporary debug log
+		logging.Error(err).Msg("Failed to start faucet")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start faucet: " + err.Error()})
 		return
 	}
