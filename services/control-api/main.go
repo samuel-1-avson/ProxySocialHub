@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/treasury"
 	"github.com/proxyhubb/control-api/internal/worker"
 )
 
@@ -241,6 +243,9 @@ func main() {
 		// Audit & Monitoring (Phase 22)
 		api.RegisterAuditRoutes(protected)
 
+		// State Channels (Phase 5)
+		api.RegisterChannelRoutes(protected)
+
 		// Blockchain / Solana
 		solanaClient.RegisterRoutes(protected)
 	}
@@ -257,6 +262,30 @@ func main() {
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker()
 
+	// Start Liquidity Manager (Phase 5.2)
+	// Needs authentic Oracle Client instance, not just global init
+	oracleConfig := solanaClient.Config{
+		RPCEndpoint:       os.Getenv("SOLANA_RPC_ENDPOINT"),
+		OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
+		Network:           "devnet",
+	}
+	// Defaults if empty
+	if oracleConfig.RPCEndpoint == "" {
+		oracleConfig.RPCEndpoint = "https://api.devnet.solana.com"
+	}
+	if oracleConfig.OracleKeypairPath == "" {
+		oracleConfig.OracleKeypairPath = "oracle-keypair.json"
+	}
+
+	// Try to load oracle client, but don't crash if keypair missing (dev mode)
+	if oracleClient, err := solanaClient.NewOracleClient(oracleConfig); err == nil {
+		lm := treasury.NewLiquidityManager(oracleClient, &treasury.MockJupiterClient{})
+		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
+		log.Println("Liquidity Manager started")
+	} else {
+		log.Printf("Skipping Liquidity Manager: %v", err)
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -264,4 +293,11 @@ func main() {
 
 	log.Printf("Server starting on port %s", port)
 	r.Run(":" + port)
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
