@@ -38,6 +38,7 @@ func main() {
 	if err := db.Init(cfg.Database.DatabaseURL); err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
+	db.SeedAll()
 
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
