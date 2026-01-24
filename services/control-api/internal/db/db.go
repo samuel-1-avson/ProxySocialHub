@@ -49,6 +49,7 @@ func Init(dsn string) error {
 		// &models.OAuthIdentity{}, // Removed for Supabase
 		&models.Wallet{},
 		&models.WalletLedgerEntry{},
+		&models.StakingPosition{}, // Added missing model
 		&models.Session{},
 		&models.Node{},
 		&models.KycVerification{},
