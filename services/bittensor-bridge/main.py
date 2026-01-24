@@ -34,6 +34,14 @@ def get_subtensor():
         print(f"Error connecting to subtensor: {e}")
         raise HTTPException(status_code=503, detail=f"Failed to connect to Subtensor: {str(e)}")
 
+@app.on_event("startup")
+def startup_event():
+    print("BRIDGE SERVICE STARTING...")
+    # Start validator in background
+    t = threading.Thread(target=validator.run_validation_loop, daemon=True)
+    t.start()
+    print("Validator background thread started.")
+
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "bittensor-bridge"}
@@ -242,6 +250,7 @@ def start_faucet(req: FaucetRequest):
         }
 
     # Start background thread
+    print(f"Starting faucet worker for wallet: {req.wallet_name}")
     t = threading.Thread(target=faucet_worker, args=(req.wallet_name, req.wallet_hotkey), daemon=True)
     t.start()
     
@@ -376,9 +385,7 @@ class Validator:
         return 0.0
 
 validator = Validator()
-# Start background thread
-t = threading.Thread(target=validator.run_validation_loop, daemon=True)
-t.start()
+# Background thread moved to startup_event
 
 @app.get("/validators/scores")
 def get_validator_scores(netuid: int = 1):
@@ -429,4 +436,4 @@ def verify_signature(req: VerifySignatureRequest):
         return {"is_valid": False, "error": str(e)}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
