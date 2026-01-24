@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { API_BASE_URL, fetchWithAuth } from '@/lib/services/client';
 import styles from './LinkedWallets.module.css';
 
 interface LinkedWallet {
@@ -37,12 +38,15 @@ export default function LinkedWalletsPage() {
     const [success, setSuccess] = useState<string | null>(null);
 
     const { publicKey, signMessage, connected } = useWallet();
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const fetchWallets = async () => {
         try {
-            const response = await fetch('/api/v1/linked-wallets', {
-                credentials: 'include',
-            });
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/linked-wallets`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -78,12 +82,11 @@ export default function LinkedWalletsPage() {
             const signatureBase64 = Buffer.from(signature).toString('base64');
 
             // Send to backend
-            const response = await fetch('/api/v1/linked-wallets', {
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/linked-wallets`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                credentials: 'include',
                 body: JSON.stringify({
                     chain: 'solana',
                     address: publicKey.toString(),
@@ -144,12 +147,11 @@ export default function LinkedWalletsPage() {
             });
 
             // Send to backend
-            const response = await fetch('/api/v1/wallet/link', {
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                credentials: 'include',
                 body: JSON.stringify({
                     chain: 'bittensor',
                     wallet_address: account.address,
@@ -175,9 +177,8 @@ export default function LinkedWalletsPage() {
 
     const setPrimaryWallet = async (walletId: string) => {
         try {
-            const response = await fetch(`/api/v1/linked-wallets/${walletId}/primary`, {
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/linked-wallets/${walletId}/primary`, {
                 method: 'PUT',
-                credentials: 'include',
             });
 
             if (response.ok) {
@@ -194,9 +195,8 @@ export default function LinkedWalletsPage() {
         if (!confirm('Are you sure you want to unlink this wallet?')) return;
 
         try {
-            const response = await fetch(`/api/v1/linked-wallets/${walletId}`, {
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/linked-wallets/${walletId}`, {
                 method: 'DELETE',
-                credentials: 'include',
             });
 
             if (response.ok) {
@@ -216,6 +216,10 @@ export default function LinkedWalletsPage() {
     const isWalletAlreadyLinked = (chain: string, address: string) => {
         return wallets.some(w => w.chain === chain && w.address === address);
     };
+
+    if (!mounted) {
+        return <div className={styles.container}>Loading dashboard...</div>;
+    }
 
     return (
         <div className={styles.container}>
