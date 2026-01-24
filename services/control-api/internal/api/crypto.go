@@ -103,15 +103,15 @@ func linkWallet(c *gin.Context) {
 
 		// 3. Decode & Verify Signature
 		pubKeyBytes, err := base58.Decode(req.WalletAddress)
-		if err != nil {
+		if err != nil || len(pubKeyBytes) != 32 {
 			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet address encoding"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet address encoding or length"})
 			return
 		}
 		sigBytes, err := base58.Decode(req.Signature)
-		if err != nil {
+		if err != nil || len(sigBytes) != 64 {
 			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature encoding"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature encoding or length"})
 			return
 		}
 
