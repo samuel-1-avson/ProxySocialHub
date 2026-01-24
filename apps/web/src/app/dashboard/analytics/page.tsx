@@ -83,7 +83,7 @@ function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
 }
 
 function GeoChart({ data }: { data: GeoStats[] }) {
-    const total = data.reduce((sum, d) => sum + d.request_count, 0) || 1;
+    const total = data?.reduce((sum, d) => sum + d.request_count, 0) || 1;
 
     return (
         <div className="space-y-4">
@@ -308,15 +308,15 @@ export default function AnalyticsPage() {
                     <ul className="space-y-3 font-mono text-xs">
                         <li className="flex justify-between border-b border-dashed border-border pb-2">
                             <span>Total Expenditure</span>
-                            <span className="font-bold text-primary">₵{(dailyUsage.reduce((sum, d) => sum + d.cost_ghs, 0)).toFixed(2)}</span>
+                            <span className="font-bold text-primary">₵{(dailyUsage?.reduce((sum, d) => sum + d.cost_ghs, 0) || 0).toFixed(2)}</span>
                         </li>
                         <li className="flex justify-between border-b border-dashed border-border pb-2">
                             <span>Daily Avg.</span>
-                            <span className="font-bold">{(dailyUsage.reduce((sum, d) => sum + d.gb_used, 0) / (dailyUsage.length || 1)).toFixed(3)} GB</span>
+                            <span className="font-bold">{(dailyUsage?.reduce((sum, d) => sum + d.gb_used, 0) / (dailyUsage?.length || 1) || 0).toFixed(3)} GB</span>
                         </li>
                         <li className="flex justify-between border-b border-dashed border-border pb-2">
                             <span>Peak Load</span>
-                            <span className="font-bold">{dailyUsage.reduce((max, d) => d.gb_used > max.gb_used ? d : max, { date: 'N/A', gb_used: 0 }).date}</span>
+                            <span className="font-bold">{dailyUsage?.reduce((max, d) => d.gb_used > max.gb_used ? d : max, { date: 'N/A', gb_used: 0 }).date || 'N/A'}</span>
                         </li>
                     </ul>
                 </div>

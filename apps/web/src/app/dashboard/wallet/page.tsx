@@ -436,10 +436,10 @@ export default function WalletPage() {
                                     <div className="bg-secondary/5 rounded-sm p-4 border border-border">
                                         <p className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Active Stake</p>
                                         <p className="text-2xl font-bold font-mono text-white">
-                                            {stakes.reduce((acc, s) => acc + (s.status === 'active' ? s.amount : 0), 0).toFixed(4)} <span className="text-sm text-muted-foreground">TAO</span>
+                                            {stakes?.reduce((acc, s) => acc + (s.status === 'active' ? s.amount : 0), 0).toFixed(4)} <span className="text-sm text-muted-foreground">TAO</span>
                                         </p>
                                         <p className="text-[10px] font-mono text-green-500 mt-1">
-                                            + {stakes.reduce((acc, s) => acc + (s.current_yield || 0), 0).toFixed(6)} Pending Yield
+                                            + {stakes?.reduce((acc, s) => acc + (s.current_yield || 0), 0).toFixed(6)} Pending Yield
                                         </p>
                                     </div>
 
