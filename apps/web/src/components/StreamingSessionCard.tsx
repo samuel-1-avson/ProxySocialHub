@@ -1,6 +1,7 @@
 import { Session } from '@/lib/services/market';
+import { openChannel, updateChannelState, signStateUpdate } from '@/lib/services/channel';
 import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface StreamingSessionCardProps {
     session: Session;
@@ -10,6 +11,57 @@ interface StreamingSessionCardProps {
 export function StreamingSessionCard({ session, onTerminate }: StreamingSessionCardProps) {
     const [elapsed, setElapsed] = useState(0);
     const [cost, setCost] = useState(0);
+
+    // Turbo Mode States
+    const [isTurbo, setIsTurbo] = useState(false);
+    const [loadingTurbo, setLoadingTurbo] = useState(false);
+    const [channelId, setChannelId] = useState<string | null>(null);
+    const nonceRef = useRef(0);
+
+    const activateTurbo = async () => {
+        setLoadingTurbo(true);
+        try {
+            // Open payment channel with 1 SOL/TAO deposit (mocked amount)
+            const channel = await openChannel(session.id, 1000000000);
+            setChannelId(channel.id);
+            setIsTurbo(true);
+            console.log("State Channel Opened:", channel.id);
+        } catch (e) {
+            console.error("Failed to open channel", e);
+            alert("Failed to upgrade to L2");
+        } finally {
+            setLoadingTurbo(false);
+        }
+    };
+
+    // State Channel Loop
+    useEffect(() => {
+        if (!isTurbo || !channelId) return;
+
+        const updateInterval = setInterval(async () => {
+            try {
+                const currentNonce = nonceRef.current + 1;
+                nonceRef.current = currentNonce;
+
+                // Sign current state
+                // Note: cost is in TAO, converting to atomic units roughly
+                const atomicAmount = Math.floor(cost * 1e9);
+                const atomicBytes = session.bytes_used || 0;
+
+                const sig = await signStateUpdate(channelId, currentNonce, atomicAmount, atomicBytes);
+
+                // Transmit to Backend
+                await updateChannelState(channelId, currentNonce, atomicAmount, atomicBytes, sig);
+
+                console.log(`L2 Update Sent: Nonce ${currentNonce}`);
+            } catch (e) {
+                console.error("L2 Update Failed", e);
+            }
+        }, 2000); // Send heartbeat every 2s
+
+        return () => clearInterval(updateInterval);
+    }, [isTurbo, channelId, cost, session.bytes_used]);
+
 
     // Calculate real-time stats
     useEffect(() => {
@@ -103,6 +155,25 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 >
                     <Square size={12} fill="currentColor" /> Stop Stream
                 </button>
+            </div>
+
+            {/* Turbo Mode Toggle */}
+            <div className="px-4 py-2 bg-black/40 border-t border-dashed border-border flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <Zap size={12} className={isTurbo ? "text-yellow-400 animate-pulse" : "text-muted-foreground"} />
+                    <span className={`text-[10px] font-bold font-mono uppercase ${isTurbo ? "text-yellow-400" : "text-muted-foreground"}`}>
+                        {isTurbo ? "TURBO L2 CHANNEL ACTIVE" : "STANDARD SETTLEMENT"}
+                    </span>
+                </div>
+                {!isTurbo && (
+                    <button
+                        onClick={activateTurbo}
+                        disabled={loadingTurbo}
+                        className="text-[10px] font-bold font-mono uppercase text-green-500 hover:underline disabled:opacity-50"
+                    >
+                        {loadingTurbo ? "OPENING..." : "UPGRADE TO L2"}
+                    </button>
+                )}
             </div>
 
             {/* Progress Bar (Time Remaining or Funds Remaining visualization) */}
