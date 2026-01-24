@@ -139,7 +139,7 @@ services:
       - "9944:9944"
       - "30333:30333"
     volumes:
-      - subtensor_data:/data
+      - subtensor_local_data:/data
     command:
       - /usr/local/bin/node-subtensor
       - --chain
@@ -173,7 +173,8 @@ services:
 
 volumes:
   redis_data:
-  subtensor_data:
+  subtensor_data: # Kept for mainnet if needed later
+  subtensor_local_data: # New volume for local chain
   grafana_data:
 
 networks:
