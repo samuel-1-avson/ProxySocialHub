@@ -93,6 +93,45 @@ func main() {
 
 	r := gin.Default()
 
+	// CORS (Must be first to handle preflight requests properly even if WAF blocks later)
+	r.Use(func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		allowOrigin := ""
+
+		// Trim any whitespace from the received origin
+		origin = strings.TrimSpace(origin)
+
+		// Check if origin is allowed
+		for _, o := range cfg.Server.CORSOrigins {
+			if strings.TrimSpace(o) == origin {
+				allowOrigin = origin
+				break
+			}
+		}
+
+		if allowOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		} else if origin != "" {
+			// Diagnostic log for CORS issues in dev
+			if cfg.Server.Environment == "development" {
+				// Log to standard output as well for visibility in Docker logs
+				log.Printf("CORS mismatch: received origin %q, allowed origins: %v", origin, cfg.Server.CORSOrigins)
+			}
+		}
+
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE, PATCH")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
 	// Health endpoint BEFORE security middleware (for Docker healthchecks)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -119,44 +158,6 @@ func main() {
 		ContentSecurityPolicy: "default-src 'self'",
 		ReferrerPolicy:        "strict-origin-when-cross-origin",
 	}))
-
-	// CORS
-	r.Use(func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-		allowOrigin := ""
-
-		// Trim any whitespace from the received origin
-		origin = strings.TrimSpace(origin)
-
-		// Check if origin is allowed
-		for _, o := range cfg.Server.CORSOrigins {
-			if strings.TrimSpace(o) == origin {
-				allowOrigin = origin
-				break
-			}
-		}
-
-		if allowOrigin != "" {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-		} else if origin != "" {
-			// Diagnostic log for CORS issues in dev
-			if cfg.Server.Environment == "development" {
-				log.Printf("CORS mismatch: received origin %q, allowed origins: %v", origin, cfg.Server.CORSOrigins)
-			}
-		}
-
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE, PATCH")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
 
 	// Metrics Middleware (record all requests)
 	r.Use(monitoring.MetricsMiddleware())
