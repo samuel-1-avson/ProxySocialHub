@@ -19,10 +19,12 @@ import {
     Network
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useUIStore } from "@/lib/store/ui-store";
 
 export function Sidebar() {
     const pathname = usePathname();
     const { user, logout } = useAuth();
+    const { isSidebarCollapsed, toggleSidebar } = useUIStore();
 
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
@@ -45,38 +47,61 @@ export function Sidebar() {
     ];
 
     return (
-        <aside className="fixed left-0 top-0 h-screen w-64 bg-card border-r-2 border-border hidden md:flex flex-col z-40">
+        <aside
+            className={`fixed left-0 top-0 h-screen bg-card border-r border-border hidden md:flex flex-col z-40 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-20" : "w-64"
+                }`}
+        >
             {/* Header */}
-            <div className="p-6 border-b-2 border-border">
-                <Link href="/" className="flex items-center gap-3 group">
-                    <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-none transition-all">
+            <div className={`p-4 border-b border-border flex items-center ${isSidebarCollapsed ? "justify-center" : "justify-between"}`}>
+                {!isSidebarCollapsed && (
+                    <Link href="/" className="flex items-center gap-3 group">
+                        <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-none transition-all">
+                            <span className="font-bold font-mono text-sm">PS</span>
+                        </div>
+                        <span className="text-lg font-bold font-mono uppercase tracking-tight animate-in fade-in duration-300">ProxyHub</span>
+                    </Link>
+                )}
+                {isSidebarCollapsed && (
+                    <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground">
                         <span className="font-bold font-mono text-sm">PS</span>
                     </div>
-                    <span className="text-lg font-bold font-mono uppercase tracking-tight">ProxyHub</span>
-                </Link>
+                )}
+
+                <button
+                    onClick={toggleSidebar}
+                    className={`p-1.5 rounded-sm hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${isSidebarCollapsed ? "mt-4" : ""}`}
+                >
+                    {isSidebarCollapsed ? <LayoutDashboard size={18} className="rotate-90" /> : <div className="w-1 h-4 bg-muted-foreground/30 rounded-full" />}
+                </button>
             </div>
 
-            {/* User Status */}
-            <div className="p-4 border-b border-border bg-secondary/20">
-                <div className="flex items-center gap-3 p-2 rounded-sm border border-border bg-background">
-                    <div className="w-8 h-8 rounded-sm bg-primary/20 flex items-center justify-center border border-primary/30">
+            {/* User Status - Minimized in collapse mode */}
+            <div className={`border-b border-border bg-secondary/10 transition-all duration-300 ${isSidebarCollapsed ? "p-2" : "p-4"}`}>
+                <div className={`flex items-center gap-3 rounded-sm border border-border bg-background transition-all ${isSidebarCollapsed ? "p-1.5 justify-center border-transparent bg-transparent" : "p-2"}`}>
+                    <div className="w-8 h-8 min-w-[32px] rounded-sm bg-primary/20 flex items-center justify-center border border-primary/30 relative">
                         <span className="font-mono text-xs font-bold text-primary">
                             {user?.email?.slice(0, 2).toUpperCase() || "OP"}
                         </span>
+                        {isSidebarCollapsed && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse border-2 border-background"></span>}
                     </div>
-                    <div className="overflow-hidden">
-                        <p className="text-xs font-bold font-mono truncate">{user?.email || "OPERATOR"}</p>
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                            <span className="text-[10px] text-muted-foreground font-mono uppercase">ONLINE</span>
+
+                    {!isSidebarCollapsed && (
+                        <div className="overflow-hidden animate-in fade-in duration-300">
+                            <p className="text-xs font-bold font-mono truncate max-w-[120px]">{user?.email || "OPERATOR"}</p>
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                <span className="text-[10px] text-muted-foreground font-mono uppercase">ONLINE</span>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
             {/* Main Menu */}
-            <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
-                <p className="px-2 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4">Main Modules</p>
+            <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+                {!isSidebarCollapsed && (
+                    <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4 animate-in fade-in">Main Modules</p>
+                )}
 
                 {menuItems.map((item) => {
                     const Icon = item.icon;
@@ -85,20 +110,28 @@ export function Sidebar() {
                         <Link
                             key={item.href}
                             href={item.href}
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all group ${active
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all group relative ${active
                                 ? "bg-primary text-primary-foreground font-bold border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)]"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent hover:border-l-4 hover:border-primary"
-                                }`}
+                                } ${isSidebarCollapsed ? "justify-center px-0 border-0 hover:border-0" : ""}`}
+                            title={isSidebarCollapsed ? item.label : undefined}
                         >
-                            <Icon size={18} className={active ? "stroke-2" : "stroke-[1.5]"} />
-                            <span className="font-mono text-xs tracking-wide">{item.label}</span>
+                            <Icon size={isSidebarCollapsed ? 20 : 18} className={`transition-all ${active ? "stroke-2" : "stroke-[1.5]"}`} />
+                            {!isSidebarCollapsed && (
+                                <span className="font-mono text-xs tracking-wide animate-in fade-in duration-200">{item.label}</span>
+                            )}
+
+                            {/* Tooltip-ish indicator for collapsed active state if shadow is hidden */}
+                            {isSidebarCollapsed && active && (
+                                <div className="absolute inset-0 border-2 border-foreground rounded-sm pointer-events-none" />
+                            )}
                         </Link>
                     );
                 })}
             </div>
 
             {/* Bottom Actions */}
-            <div className="p-4 border-t-2 border-border bg-background">
+            <div className={`border-t border-border bg-background transition-all duration-300 ${isSidebarCollapsed ? "p-2" : "p-4"}`}>
                 <div className="space-y-1 mb-4">
                     {bottomItems.map((item) => {
                         const Icon = item.icon;
@@ -108,34 +141,35 @@ export function Sidebar() {
                                 key={item.href}
                                 href={item.href}
                                 className={`flex items-center gap-3 px-3 py-2 rounded-sm transition-colors ${active ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                    }`}
+                                    } ${isSidebarCollapsed ? "justify-center" : ""}`}
+                                title={isSidebarCollapsed ? item.label : undefined}
                             >
                                 <Icon size={16} />
-                                <span className="font-mono text-xs">{item.label}</span>
+                                {!isSidebarCollapsed && <span className="font-mono text-xs animate-in fade-in">{item.label}</span>}
                             </Link>
                         );
                     })}
-
-                    {user?.role === "admin" && (
-                        <Link
-                            href="/dashboard/admin"
-                            className={`flex items-center gap-3 px-3 py-2 rounded-sm transition-colors ${isActive("/dashboard/admin") ? "text-destructive font-bold" : "text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                                }`}
-                        >
-                            <ShieldCheck size={16} />
-                            <span className="font-mono text-xs">SYSTEM</span>
-                        </Link>
-                    )}
                 </div>
 
                 <button
                     onClick={() => logout()}
-                    className="w-full flex items-center justify-center gap-2 p-2 rounded-sm border border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                    className={`w-full flex items-center justify-center gap-2 p-2 rounded-sm border border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors ${isSidebarCollapsed ? "aspect-square p-0" : ""}`}
+                    title="Terminate Session"
                 >
                     <LogOut size={14} />
-                    <span className="font-mono text-xs font-bold uppercase">Terminate Session</span>
+                    {!isSidebarCollapsed && <span className="font-mono text-xs font-bold uppercase animate-in fade-in">Terminate Session</span>}
                 </button>
             </div>
+
+            {/* Toggle Button (Floating at bottom right of sidebar) */}
+            {!isSidebarCollapsed && (
+                <button
+                    onClick={toggleSidebar}
+                    className="absolute -right-3 top-1/2 w-6 h-6 bg-card border border-border rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-sm z-50"
+                >
+                    <LayoutDashboard size={12} className="rotate-180" />
+                </button>
+            )}
         </aside>
     );
 }
