@@ -31,13 +31,14 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
-      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
-      - SOLANA_ORACLE_KEYPAIR=${SOLANA_ORACLE_KEYPAIR} # Path or json content
       - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      - BITTENSOR_BRIDGE_URL=http://bittensor-bridge:8000
     depends_on:
       redis:
         condition: service_healthy
+      bittensor-bridge:
+        condition: service_started
     networks:
       - proxyhubb
     healthcheck:
