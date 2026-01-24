@@ -4,15 +4,14 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { getWallet, depositWallet, withdrawWallet, linkWallet, getStakes, stakeFunds, unstakeFunds, transferFunds, getSystemConfig, startFaucet, getFaucetStatus, Wallet as WalletType, StakingPosition } from '@/lib/api'; // Added getSystemConfig
 
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
 import bs58 from 'bs58';
+import { API_BASE_URL, fetchWithAuth } from '@/lib/services/client';
 import { Connection, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import {
     Wallet as WalletIcon,
-    CreditCard,
     Smartphone,
     History,
     Zap,
@@ -74,6 +73,10 @@ export default function WalletPage() {
     const [faucetElapsed, setFaucetElapsed] = useState<number>(0);
     const [faucetMessage, setFaucetMessage] = useState<string>('');
 
+    // Substrate State
+    const [substrateExtensions, setSubstrateExtensions] = useState<any[]>([]);
+    const [isSubstrateDetecting, setIsSubstrateDetecting] = useState(false);
+
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -86,6 +89,7 @@ export default function WalletPage() {
         fetchConfig();
         if (activeTab === 'CRYPTO' && user) {
             fetchStakes();
+            detectSubstrateExtensions();
         }
 
         // Auto-refresh mechanism (Polling 10s)
@@ -120,8 +124,86 @@ export default function WalletPage() {
             const res = await startFaucet();
             setFaucetStatus('STARTING');
             setFaucetMessage(res.message);
-        } catch (e: any) {
-            setCryptoResult({ success: false, message: e.message || 'Failed to start faucet' });
+        } catch (err) {
+            const error = err as Error;
+            setCryptoResult({ success: false, message: error.message || 'Failed to start faucet' });
+        }
+    }
+
+    async function detectSubstrateExtensions() {
+        if (typeof window === 'undefined') return;
+        setIsSubstrateDetecting(true);
+        try {
+            const { web3Enable } = await import('@polkadot/extension-dapp');
+            const extensions = await web3Enable('ProxySocialHub');
+            setSubstrateExtensions(extensions);
+        } catch (e) {
+            console.error("Substrate detection error", e);
+        } finally {
+            setIsSubstrateDetecting(false);
+        }
+    }
+
+    async function handleLinkBittensor(extensionName?: string) {
+        setCryptoProcessing(true);
+        setCryptoResult(null);
+
+        try {
+            const { web3Accounts, web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
+            const { stringToHex } = await import('@polkadot/util');
+
+            await web3Enable('ProxySocialHub');
+            const allAccounts = await web3Accounts();
+
+            if (allAccounts.length === 0) {
+                throw new Error('No Substrate accounts found. Please unlock your wallet extension.');
+            }
+
+            // If extensionName is provided, filter for it, otherwise take first
+            let account = allAccounts[0];
+            if (extensionName) {
+                const filtered = allAccounts.filter(acc => acc.meta.source === extensionName);
+                if (filtered.length > 0) account = filtered[0];
+            }
+
+            const injector = await web3FromSource(account.meta.source);
+            const message = `Sign this message to link your Bittensor wallet to ProxySocialHub.\n\nWallet: ${account.address}\nUser ID: ${user?.id}\nTimestamp: ${Date.now()}`;
+
+            if (!injector.signer.signRaw) {
+                throw new Error('Wallet does not support raw message signing');
+            }
+
+            const { signature } = await injector.signer.signRaw({
+                address: account.address,
+                data: stringToHex(message),
+                type: 'bytes'
+            });
+
+            // Send to backend using standardized helper (which we'll update in lib/api if needed, but fetchWithAuth is safer here)
+            const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chain: 'bittensor',
+                    address: account.address,
+                    signature: signature,
+                    message: message,
+                }),
+            });
+
+            if (response.ok) {
+                setCryptoResult({ success: true, message: 'Bittensor wallet linked successfully!' });
+                fetchWallet();
+            } else {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to link Bittensor wallet');
+            }
+        } catch (err: unknown) {
+            console.error(err);
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            setCryptoResult({ success: false, message: 'Bittensor linking failed: ' + (errorMessage || 'Check extension') });
+        } finally {
+            setCryptoProcessing(false);
         }
     }
 
@@ -172,9 +254,10 @@ export default function WalletPage() {
             setCryptoAmount('');
             fetchWallet();
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err);
-            setCryptoResult({ success: false, message: 'Deposit failed: ' + (err.message || 'Transaction denied') });
+            const error = err instanceof Error ? err : new Error(String(err));
+            setCryptoResult({ success: false, message: 'Stake failed: ' + (error.message || 'Check balance') });
         } finally {
             setCryptoProcessing(false);
         }
@@ -772,12 +855,34 @@ export default function WalletPage() {
                                     ) : (
                                         <div className="flex flex-col items-center justify-center gap-2 p-4 border border-border rounded-sm bg-secondary/5">
                                             <h3 className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Bittensor Wallet</h3>
-                                            <a
-                                                href="/dashboard/wallets"
-                                                className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
-                                            >
-                                                CONNECT TAO WALLET
-                                            </a>
+
+                                            {substrateExtensions.length > 0 ? (
+                                                <div className="flex flex-col gap-2 w-full">
+                                                    {substrateExtensions.map((ext) => (
+                                                        <button
+                                                            key={ext.name}
+                                                            onClick={() => handleLinkBittensor(ext.name)}
+                                                            disabled={cryptoProcessing}
+                                                            className="btn-retro btn-retro-outline text-[10px] py-1 px-3 w-full capitalize flex items-center justify-center gap-2"
+                                                        >
+                                                            {cryptoProcessing ? 'Connecting...' : `Connect ${ext.name}`}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="w-full space-y-2">
+                                                    <button
+                                                        onClick={() => handleLinkBittensor()}
+                                                        disabled={cryptoProcessing || isSubstrateDetecting}
+                                                        className="btn-retro btn-retro-outline text-[10px] py-2 px-4 w-full text-center"
+                                                    >
+                                                        {isSubstrateDetecting ? 'Detecting...' : 'CONNECT TAO WALLET'}
+                                                    </button>
+                                                    <p className="text-[8px] text-muted-foreground text-center">
+                                                        Supports Subwallet, Bittensor, and Polkadot.js extensions
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
