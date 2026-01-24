@@ -10,7 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/prices"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/solana"
+
+	sol "github.com/gagliardetto/solana-go"
 )
 
 // RegisterOrderRoutes registers order-related routes
@@ -19,6 +23,128 @@ func RegisterOrderRoutes(rg *gin.RouterGroup) {
 	rg.GET("/orders", getMyOrders)
 	rg.GET("/orders/:id", getOrder)
 	rg.GET("/sales", getMySales)
+	rg.POST("/orders/:id/pay/solana", initiateSolanaPayment)
+}
+
+// initiateSolanaPayment prepares a non-custodial escrow transaction
+func initiateSolanaPayment(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	buyerID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	var order models.Order
+	if err := db.DB.Preload("Seller").First(&order, "id = ?", orderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	if order.BuyerID != buyerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not your order"})
+		return
+	}
+
+	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusActive { // Allow re-init if active but unpaid/failed? Active usually means paid/provisioned.
+		// If order is newly created (Active in createOrder but session might need payment if not pay-as-you-go?),
+		// Actually createOrder sets Active status for Pay-As-You-Go.
+		// Non-Custodial implies Pre-Pay Escrow usually.
+		// If createOrder made it Active, does it need payment?
+		// "Status: OrderStatusActive" in createOrder means it's running.
+		// Maybe we need OrderStatusPendingPayment?
+		// For now, assuming we can attach escrow to Active order too as a "top-up" or initial lock.
+	}
+
+	// Fetch Buyer's Linked Wallet
+	var buyerWallet models.LinkedWallet
+	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", buyerID, models.ChainSolana).First(&buyerWallet).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet first"})
+		return
+	}
+
+	// Fetch Seller's Linked Wallet
+	var sellerWallet models.LinkedWallet
+	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", order.SellerID, models.ChainSolana).First(&sellerWallet).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Seller has not linked a Solana wallet. Cannot use smart contract payment."})
+		return
+	}
+
+	// Validate Addresses
+	buyerPubKey, err := sol.PublicKeyFromBase58(buyerWallet.Address)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid buyer wallet address"})
+		return
+	}
+	sellerPubKey, err := sol.PublicKeyFromBase58(sellerWallet.Address)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid seller wallet address"})
+		return
+	}
+
+	// Derive PDA
+	oracle := solana.GetOracle()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
+		return
+	}
+
+	pda, _, err := oracle.GetEscrowPDA(buyerPubKey, sellerPubKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
+		return
+	}
+
+	// Calculate Amount in SOL
+	// Assuming Order.TotalPrice is USD (or whatever listing currency was)
+	// We need Listing to know currency? Assuming USD for safe smart contract logic.
+	solPrice, err := prices.GetSOLPrice(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price"})
+		return
+	}
+
+	// Safety buffer: 1.05x to account for fluctuations? Or fixed USD value?
+	// Smart contract usually locks specific SOL amount.
+	// Amount in SOL = TotalPrice / SOL_Price
+	amountSOL := order.TotalPrice / solPrice
+	amountLamports := uint64(amountSOL * 1e9)
+
+	// Update Order with Intent
+	db.DB.Model(&order).Updates(map[string]interface{}{
+		"payment_method":     "solana_escrow",
+		"escrow_pda":         pda.String(),
+		"buyer_wallet":       buyerWallet.Address,
+		"seller_wallet":      sellerWallet.Address,
+		"amount_locked_sol":  amountSOL,
+		"bandwidth_limit_gb": uint64(order.BandwidthGB), // Type conversion
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"program_id":      solana.ProgramID,
+		"escrow_pda":      pda.String(),
+		"buyer_pubkey":    buyerWallet.Address,
+		"seller_pubkey":   sellerWallet.Address,
+		"amount_lamports": amountLamports,
+		"amount_sol":      amountSOL,
+		"bandwidth_gb":    order.BandwidthGB,
+		"oracle_pubkey":   oracle.GetOraclePublicKey().String(),
+	})
 }
 
 // createOrder creates a new order (purchase)
