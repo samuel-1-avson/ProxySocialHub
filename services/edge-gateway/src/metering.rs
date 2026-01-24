@@ -14,16 +14,16 @@ pub struct UsageTracker {
 }
 
 impl UsageTracker {
-    pub fn new(control_api_url: &str, private_key_hex: &str) -> Self {
+    pub fn new(control_api_url: &str, private_key_hex: &str) -> Result<Self, String> {
         // Parse private key seed (32 bytes) from hex
-        let seed_bytes = hex::decode(private_key_hex).expect("Invalid private key hex");
-        let key_pair = signature::Ed25519KeyPair::from_seed_unchecked(&seed_bytes).expect("Invalid key seed");
+        let seed_bytes = hex::decode(private_key_hex).map_err(|e| format!("Invalid private key hex: {}", e))?;
+        let key_pair = signature::Ed25519KeyPair::from_seed_unchecked(&seed_bytes).map_err(|e| format!("Invalid key seed: {}", e))?;
 
-        Self {
+        Ok(Self {
             usage: Arc::new(RwLock::new(HashMap::new())),
             control_api_url: control_api_url.to_string(),
             key_pair: Arc::new(key_pair),
-        }
+        })
     }
 
     /// Record usage for a session

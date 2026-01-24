@@ -138,6 +138,7 @@ func Init(dsn string) error {
 		// Proxy Engine (Phase 16)
 		&models.ServiceConfiguration{},
 		&models.SessionConfiguration{},
+		&models.SystemConfiguration{}, // Added missing model
 		&models.RoutingProfile{},
 
 		// Trustless Proofs (Phase 17)
