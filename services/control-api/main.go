@@ -250,6 +250,7 @@ func main() {
 
 	// Start Validator Sync
 	btClient := bittensor.NewClient(cfg.Bittensor)
+	api.InitBittensorClient(btClient) // Initialize singleton for handlers
 	worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
 
 	// Start Governance Proposal Worker
