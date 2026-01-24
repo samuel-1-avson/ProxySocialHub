@@ -141,3 +141,26 @@ export async function unstakeFunds(stakeId: string): Promise<{ message: string; 
     }
     return response.json();
 }
+
+export async function startFaucet(): Promise<{ status: string; message: string }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/faucet/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_name: 'proxyhubb' }),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to start faucet');
+    }
+    return response.json();
+}
+
+export async function getFaucetStatus(): Promise<{ status: string; message: string; elapsed_seconds: number }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/faucet/status`);
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to get status');
+    }
+    return response.json();
+}
+
