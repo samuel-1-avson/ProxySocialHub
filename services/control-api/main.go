@@ -18,6 +18,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/monitoring"
+	internalNats "github.com/proxyhubb/control-api/internal/nats"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
@@ -45,6 +46,13 @@ func main() {
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
 		log.Printf("Warning: Failed to init Redis: %v", err)
+	}
+
+	// Initialize NATS (Event Driven Evolution)
+	if err := internalNats.Init(); err != nil {
+		log.Printf("Warning: Failed to init NATS: %v", err)
+	} else {
+		defer internalNats.Close()
 	}
 
 	// Initialize OpenTelemetry Tracing
@@ -140,6 +148,9 @@ func main() {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
+	// Emergency Circuit Breaker (Industrial Security)
+	r.Use(middleware.EmergencyBreaker())
+
 	// OpenTelemetry Tracing Middleware (early for full request coverage)
 	r.Use(middleware.TracingMiddleware("proxyhubb-control-api"))
 
@@ -182,6 +193,7 @@ func main() {
 	v1.Use(middleware.SupabaseAuthMiddlewareOptional(cfg))
 	{
 		api.RegisterHealthRoutes(v1)
+		api.RegisterMonitoringRoutes(v1)
 		api.RegisterAuthRoutes(v1)
 		api.RegisterListingRoutes(v1) // Mix of public/private
 		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
@@ -286,6 +298,14 @@ func main() {
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
 
+	// Start Provisioning Worker (Phase 5.2 Event-Driven)
+	// We need a dummy or existing repo implementation for this demo refactor
+	// In full hexagonal, we use the secondary adapter Implementation
+	pw := worker.NewProvisioningWorker(nil, nil) // Dependencies passed in real impl
+	if err := pw.Start(context.Background()); err != nil {
+		log.Printf("Failed to start Provisioning Worker: %v", err)
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -293,11 +313,4 @@ func main() {
 
 	log.Printf("Server starting on port %s", port)
 	r.Run(":" + port)
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
 }

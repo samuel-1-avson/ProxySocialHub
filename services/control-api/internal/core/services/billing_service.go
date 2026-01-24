@@ -13,10 +13,10 @@ import (
 
 type BillingServiceImpl struct {
 	billingRepo ports.BillingRepository
-	sessionRepo ports.SessionRepository
+	sessionRepo ports.SessionLookupPort
 }
 
-func NewBillingService(billingRepo ports.BillingRepository, sessionRepo ports.SessionRepository) *BillingServiceImpl {
+func NewBillingService(billingRepo ports.BillingRepository, sessionRepo ports.SessionLookupPort) *BillingServiceImpl {
 	return &BillingServiceImpl{
 		billingRepo: billingRepo,
 		sessionRepo: sessionRepo,
