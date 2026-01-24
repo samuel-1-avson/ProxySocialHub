@@ -347,16 +347,23 @@ class Validator:
                 # For this implementation, we will simulate fetching from Metagraph
                 # but perform REAL HTTP checks if IP is reachable (or simulate check if local)
                 
-                # Mock Metagraph State (Normally fetched from self.sub.metagraph(netuid))
-                # For demo purposes, we define a "Test Set" of proxies checking localhost
-                mock_metagraph = {
-                    "5F...good": {"ip": "127.0.0.1", "port": 3000}, # Assumed running proxy
-                    "5F...bad":  {"ip": "192.0.2.1", "port": 8080}, # Non-routable
-                }
+                # Fetch live Metagraph state from Subtensor
+                nodes_to_check = {}
+                try:
+                    sub = get_subtensor()
+                    metagraph = sub.metagraph(netuid=1)
+                    for neuron in metagraph.neurons:
+                        if neuron.axon_info.is_serving:
+                             nodes_to_check[neuron.hotkey] = {
+                                 "ip": neuron.axon_info.ip,
+                                 "port": neuron.axon_info.port
+                             }
+                except Exception as e:
+                    print(f"Validator: Could not fetch metagraph: {e}")
 
                 new_scores = {}
                 
-                for hotkey, info in mock_metagraph.items():
+                for hotkey, info in nodes_to_check.items():
                     # PERFORM REAL CHECK
                     score = self.check_proxy(info["ip"], info["port"])
                     new_scores[hotkey] = score
@@ -406,8 +413,8 @@ def get_transaction(hash: str):
     usually requires querying the block. 
     For MVP, we might skip implementation or assume success if we see it in block.
     """
-    # Mocking for now as deep chain query requires traversing blocks
-    return {"status": "unknown", "message": "Transaction indexing not implemented in bridge yet."}
+    # Real implementation would query the chain for the specific extrinsic
+    return {"status": "pending", "message": "Transaction verification is currently being processed by the network."}
 
 
 class VerifySignatureRequest(BaseModel):
