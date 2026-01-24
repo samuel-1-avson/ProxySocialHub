@@ -18,9 +18,11 @@ SUBTENSOR_CHAIN_ENDPOINT = os.getenv("SUBTENSOR_CHAIN_ENDPOINT", "ws://subtensor
 def get_subtensor():
     try:
         # Connecting to the local node
+        # SDK Compatibility: chain_endpoint might be deprecated for constructor in favor of config
         config = bt.config()
         config.subtensor.network = SUBTENSOR_NETWORK
         config.subtensor.chain_endpoint = SUBTENSOR_CHAIN_ENDPOINT
+        # Use config to initialize which is more stable across versions
         sub = bt.subtensor(config=config)
         return sub
     except Exception as e:
@@ -61,7 +63,7 @@ def register_proxy_on_chain(req: ProxyRegistrationRequest):
              return {"status": "error", "message": "Wallet not found", "data": {}}
 
         # Connect to Subtensor
-        sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+        sub = get_subtensor()
         
         # Check if already registered (mock check or real check)
         # For simplicity in dev, we just attempt serve_axon which is the standard "Announce IP"
@@ -122,7 +124,7 @@ def get_wallet(name: str = "default", hotkey: str = "default"):
         
         balance = "0.0"
         try:
-            sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+            sub = get_subtensor()
             balance_obj = sub.get_balance(wallet.coldkeypub.ss58_address)
             balance = str(balance_obj.tao)
         except:
@@ -146,7 +148,7 @@ class TransferRequest(BaseModel):
 def transfer_tao(req: TransferRequest):
     try:
         wallet = bt.wallet(name=req.wallet_name, hotkey=req.wallet_hotkey)
-        sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+        sub = get_subtensor()
         
         success = sub.transfer(
             wallet=wallet,
@@ -188,7 +190,7 @@ def faucet_worker(wallet_name, wallet_hotkey):
 
     try:
         wallet = bt.wallet(name=wallet_name, hotkey=wallet_hotkey)
-        sub = bt.subtensor(network=SUBTENSOR_NETWORK, chain_endpoint=SUBTENSOR_CHAIN_ENDPOINT)
+        sub = get_subtensor()
         
         # This is a blocking call that does the PoW
         # We can't easily get granular progress from the SDK without capturing stdout
