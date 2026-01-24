@@ -32,6 +32,8 @@ func SeedAll() {
 
 	log.Println("Seeding Badges...")
 	seedBadges()
+	log.Println("Seeding System Config...")
+	seedSystemConfig()
 	log.Println("Database seeding completed (Mock data disabled)")
 }
 
@@ -448,4 +450,33 @@ func seedBadges() {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func seedSystemConfig() {
+	configs := []models.SystemConfiguration{
+		{
+			Key:         "treasury_wallet_solana",
+			Value:       "8pb5...mock...treasury", // Mock Address
+			Description: "Central Treasury Wallet for Solana Deposits",
+		},
+		{
+			Key:         "treasury_wallet_bittensor",
+			Value:       "5HT...mock...treasury", // Mock Address
+			Description: "Central Treasury Wallet for Bittensor Deposits",
+		},
+	}
+
+	for _, c := range configs {
+		var existing models.SystemConfiguration
+		if err := DB.Where("key = ?", c.Key).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.ID = uuid.New()
+				if err := DB.Create(&c).Error; err != nil {
+					log.Printf("Failed to seed config %s: %v", c.Key, err)
+				} else {
+					log.Printf("Seeded config: %s", c.Key)
+				}
+			}
+		}
+	}
 }
