@@ -13,6 +13,7 @@ services:
       - APP_ENV=development
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - CORS_ORIGINS=${CORS_ORIGINS}
@@ -39,6 +40,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       bittensor-bridge:
         condition: service_started
     networks:
@@ -61,6 +64,7 @@ services:
     environment:
       - RUST_LOG=info
       - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
       - CONTROL_API_URL=http://control-api:8080
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
@@ -70,8 +74,25 @@ services:
     depends_on:
       - control-api
       - redis
+      - nats
     networks:
       - proxyhubb
+    restart: unless-stopped
+
+  # ==================== NATS (Message Bus) ====================
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"] # Enable JetStream and Monitoring
+    ports:
+      - "4222:4222"
+      - "8222:8222" # Monitor port
+    networks:
+      - proxyhubb
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/varz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   # ==================== Web (Frontend) ====================
