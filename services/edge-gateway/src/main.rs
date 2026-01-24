@@ -416,7 +416,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Initialize Helper: Usage Tracker
     let control_api_url = std::env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
-    let usage_tracker = Arc::new(crate::metering::UsageTracker::new(&control_api_url, &config.provider_private_key));
+    let usage_tracker = Arc::new(crate::metering::UsageTracker::new(&control_api_url, &config.provider_private_key).expect("Failed to create usage tracker"));
     usage_tracker.clone().start_flush_task();
 
     // Pass leader status to state
