@@ -78,7 +78,7 @@ export default function WalletPage() {
     useEffect(() => {
         fetchWallet();
         fetchConfig();
-        if (activeTab === 'CRYPTO') {
+        if (activeTab === 'CRYPTO' && user) {
             fetchStakes();
         }
 
