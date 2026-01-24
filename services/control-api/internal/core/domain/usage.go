@@ -9,11 +9,3 @@ type Usage struct {
 	BytesDown int64
 	Timestamp time.Time
 }
-
-// Session represents the minimal session data needed for billing
-type Session struct {
-	ID         string
-	ProviderID string
-	BuyerID    string
-	Status     string
-}

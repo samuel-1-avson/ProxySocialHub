@@ -12,9 +12,9 @@ type BillingRepository interface {
 	IncrementProviderEarnings(ctx context.Context, providerID string, amount int64) error
 }
 
-// SessionRepository defines how to retrieve session data
-type SessionRepository interface {
-	GetSession(ctx context.Context, sessionID string) (*domain.Session, error)
+// SessionLookupPort defines how to retrieve session data for billing
+type SessionLookupPort interface {
+	GetSession(ctx context.Context, sessionID string) (*domain.SessionEntity, error)
 	GetProviderPublicKey(ctx context.Context, providerID string) (string, error)
 }
 
