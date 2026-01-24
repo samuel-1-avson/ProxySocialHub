@@ -43,7 +43,7 @@ func syncScores(client *bittensor.Client, netUID int) {
 		// Find node by Hotkey
 		var node models.ProviderNode
 		if err := db.DB.Where("hotkey = ? AND net_uid = ?", hotkey, netUID).First(&node).Error; err != nil {
-			// Node not found or error, skip
+			// Node usually doesn't exist yet in dev, skip silently
 			continue
 		}
 
