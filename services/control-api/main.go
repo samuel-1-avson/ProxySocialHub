@@ -88,6 +88,7 @@ func main() {
 		solanaClient.InitSessionActivator()
 		solanaClient.RegisterSessionActivatorWithWatcher()
 		solanaClient.StartWatcher()
+		worker.RegisterEscrowEventListener()
 	}
 
 	r := gin.Default()
@@ -191,6 +192,7 @@ func main() {
 		api.RegisterProviderNodeRoutes(protected)
 		api.RegisterSessionRoutes(protected)
 		api.RegisterWalletRoutes(protected)
+		api.RegisterStakingRoutes(protected)
 		api.RegisterOrderRoutes(protected)
 		api.RegisterEscrowRoutes(protected)
 		api.RegisterUsageRoutes(protected)

@@ -73,3 +73,71 @@ export async function withdrawWallet(amount: number, phone: string, network: str
     if (!response.ok) throw new Error('Failed to initiate withdrawal');
     return response.json();
 }
+
+export async function withdrawTao(amount: number, destination: string): Promise<{ status: string; tx_hash: string }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw/tao`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, destination }),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to withdraw TAO');
+    }
+    return response.json();
+}
+
+export async function transferFunds(recipient: string, amount: number, currency: 'TAO' | 'GHS'): Promise<{ status: string; message: string }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient, amount, currency }),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to transfer funds');
+    }
+    return response.json();
+}
+
+export interface StakingPosition {
+    id: string;
+    amount: number;
+    currency: string;
+    apy: number;
+    start_time: string;
+    status: 'active' | 'unstaked';
+    accrued_yield: number;
+    current_yield?: number;
+}
+
+export async function getStakes(): Promise<StakingPosition[]> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/`);
+    if (!response.ok) throw new Error('Failed to fetch stakes');
+    return response.json();
+}
+
+export async function stakeFunds(amount: number): Promise<{ message: string; stake: StakingPosition }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/stake`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount }),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to stake funds');
+    }
+    return response.json();
+}
+
+export async function unstakeFunds(stakeId: string): Promise<{ message: string; yield: number; total: number }> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/unstake/${stakeId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to unstake');
+    }
+    return response.json();
+}
