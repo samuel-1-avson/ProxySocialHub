@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 )
 
@@ -57,7 +57,7 @@ type ExtrinsicResponse struct {
 
 // GetTreasuryAddress returns the platform TAO treasury address
 func GetTreasuryAddress() string {
-	return config.GetSystemSetting("tao_treasury_address", "TAO_TREASURY_ADDRESS", os.Getenv("BITTENSOR_TREASURY_ADDRESS"))
+	return db.GetSystemSetting("tao_treasury_address", "TAO_TREASURY_ADDRESS", os.Getenv("BITTENSOR_TREASURY_ADDRESS"))
 }
 
 // VerifyTransfer verifies a TAO transfer to the treasury

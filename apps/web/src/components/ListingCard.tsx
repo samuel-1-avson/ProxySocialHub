@@ -9,7 +9,9 @@ import {
     Globe,
     Shield,
     Server,
-    ArrowRight
+    ArrowRight,
+    ChevronUp,
+    TrendingDown
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
@@ -57,13 +59,24 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                     </div>
                 </div>
 
-                {/* Live Pulse Indicator */}
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="relative flex h-1.5 w-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                    </span>
-                    <span className="text-[8px] font-black text-emerald-400 uppercase tracking-tighter">Live</span>
+                {/* Live Pulse Indicator or Priority Badge */}
+                <div className="absolute top-4 right-4 flex items-center gap-2">
+                    {listing.is_priority && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-sm bg-yellow-500/10 border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.2)]">
+                            <ChevronUp size={10} className="text-yellow-500 animate-bounce" />
+                            <span className="text-[8px] font-black text-yellow-500 uppercase tracking-tighter">Priority Protocol</span>
+                            {listing.staked_amount > 0 && (
+                                <span className="text-[8px] text-yellow-500/50 font-mono ml-1">{listing.staked_amount} TAO</span>
+                            )}
+                        </div>
+                    )}
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                        <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-[8px] font-black text-emerald-400 uppercase tracking-tighter">Live</span>
+                    </div>
                 </div>
             </div>
 
@@ -87,25 +100,57 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 </div>
             </div>
 
-            {/* Technical Detail Strip */}
-            <div className="px-5 py-3 flex items-center justify-between text-[10px] font-bold text-white/40 border-b border-white/5">
-                <div className="flex items-center gap-1.5">
-                    <Globe size={12} className="text-blue-400/60" />
-                    {listing.country || 'Global Network'}
+            {/* Technical Detail Strip / Privacy HUD */}
+            <div className="px-5 py-3 flex items-center justify-between text-[10px] font-bold text-white/40 border-b border-white/5 bg-white/[0.01]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <Globe size={12} className={listing.privacy_enabled ? "text-purple-400/80" : "text-blue-400/60"} />
+                    <span className="truncate">
+                        {listing.privacy_enabled ? (
+                            <span className="flex items-center gap-1">
+                                <span className="px-1.5 py-0.5 rounded-[4px] bg-purple-500/10 border border-purple-500/30 text-[7px] text-purple-400 uppercase tracking-tighter">Private Region</span>
+                                {listing.country}
+                            </span>
+                        ) : (
+                            listing.country || 'Global Network'
+                        )}
+                    </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    <Shield size={12} className="text-purple-400/60" />
-                    {listing.isp || 'Verified Provider'}
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <Shield size={12} className={listing.privacy_enabled ? "text-emerald-400/80" : "text-purple-400/60"} />
+                    <span className="truncate">
+                        {listing.privacy_enabled ? (
+                            <span className="flex items-center gap-1">
+                                <span className="px-1.5 py-0.5 rounded-[4px] bg-emerald-500/10 border border-emerald-500/30 text-[7px] text-emerald-400 uppercase tracking-tighter sm:hidden md:inline-block">ZK-Verified</span>
+                                {listing.zk_proof ? "Tier Multi-Sig" : "High Performance"}
+                            </span>
+                        ) : (
+                            listing.isp || 'Verified Provider'
+                        )}
+                    </span>
                 </div>
             </div>
 
             {/* Pricing & CTA */}
             <div className="p-5 flex items-center justify-between">
                 <div>
-                    <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/30 mb-0.5">Rate Control</div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                        <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/30">Rate Control</div>
+                        {(listing.quality_score > 90 || (listing.uptime_percent || 0) < 95) && (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-purple-500/10 border border-purple-500/30 text-[7px] font-black uppercase text-purple-400">
+                                <TrendingDown size={8} className="animate-pulse" />
+                                Elastic Rate
+                            </div>
+                        )}
+                    </div>
                     <div className="flex items-baseline gap-1">
-                        <span className="text-lg font-black text-white">₵{listing.price_per_gb}</span>
+                        <span className="text-lg font-black text-white">₵{listing.price_per_gb.toFixed(2)}</span>
                         <span className="text-[10px] font-bold text-white/40 uppercase">/ GB</span>
+                        {listing.privacy_enabled && (
+                            <div className="ml-2 flex items-center gap-1 px-1 py-0.5 rounded-sm bg-blue-500/10 border border-blue-500/30 text-[6px] font-black uppercase text-blue-400">
+                                <Activity size={6} />
+                                Milestone Payout
+                            </div>
+                        )}
                     </div>
                 </div>
                 <button

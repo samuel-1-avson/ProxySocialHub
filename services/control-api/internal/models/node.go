@@ -97,3 +97,16 @@ func (n *Node) GetEarningsMultiplier() float64 {
 	}
 	return 0.70 // 30% penalty
 }
+
+// RegistryNode represents the node data stored on-chain in the Solana program
+type RegistryNode struct {
+	Pubkey        string  `json:"pubkey"`
+	Owner         string  `json:"owner"`
+	IPAddr        string  `json:"ip_address"`
+	Port          int     `json:"port"`
+	ProxyType     string  `json:"proxy_type"`
+	StakedAmount  float64 `json:"staked_amount"`
+	UptimePercent float64 `json:"uptime_percent"`
+	QualityScore  float64 `json:"quality_score"`
+	LastSeen      int64   `json:"last_seen"`
+}

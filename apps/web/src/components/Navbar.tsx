@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { ModeToggle } from "@/components/ModeToggle";
 import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User } from "lucide-react";
+import { AlertCenter } from "@/components/AlertCenter";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -58,14 +59,10 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                 <div className="flex items-center gap-4">
                     <ModeToggle />
 
-                    {/* Notifications */}
-                    <Link
-                        href="/notifications"
-                        className="relative p-2 rounded-sm hover:bg-accent transition-colors hidden md:flex border border-transparent hover:border-border"
-                    >
-                        <Bell className="w-5 h-5 text-foreground" />
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    </Link>
+                    {/* Infrastructure Alerts */}
+                    <div className="hidden md:flex">
+                        <AlertCenter />
+                    </div>
 
                     {/* Profile */}
                     {showAuth && (
