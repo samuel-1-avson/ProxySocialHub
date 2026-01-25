@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useUIStore } from "@/lib/store/ui-store";
 import { AlertCenter } from "@/components/AlertCenter";
+import { motion, AnimatePresence } from "framer-motion";
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -50,38 +51,45 @@ export function Sidebar() {
 
     return (
         <aside
-            className={`fixed left-0 top-0 h-screen bg-card border-r border-border hidden md:flex flex-col z-40 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-20" : "w-64"
+            className={`fixed left-0 top-0 h-screen glass-card !rounded-none border-0 border-r border-white/5 hidden md:flex flex-col z-40 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-20" : "w-64"
                 }`}
         >
             {/* Header */}
-            {/* Header */}
-            <div className={`p-4 border-b border-border flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
-                <Link href="/" className="flex items-center gap-3 group">
-                    <div className="w-8 h-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-none transition-all">
-                        <span className="font-bold font-mono text-sm">PS</span>
-                    </div>
+            <div className={`p-6 border-b border-white/5 flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
+                <Link href="/" className="flex items-center gap-3 group relative">
+                    <motion.div
+                        whileHover={{ scale: 1.1, rotate: 5 }}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center bg-primary text-primary-foreground shadow-[0_0_20px_rgba(16,185,129,0.3)] group-hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all"
+                    >
+                        <span className="font-black font-mono text-base">PS</span>
+                    </motion.div>
                     {!isSidebarCollapsed && (
-                        <span className="text-lg font-bold font-mono uppercase tracking-tight animate-in fade-in duration-300">ProxyHub</span>
+                        <motion.span
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            className="text-xl font-black font-mono uppercase tracking-tighter"
+                        >
+                            Proxy<span className="text-primary">Hub</span>
+                        </motion.span>
                     )}
                 </Link>
             </div>
 
-            {/* User Status - Minimized in collapse mode */}
-            <div className={`border-b border-border bg-secondary/10 transition-all duration-300 ${isSidebarCollapsed ? "p-2" : "p-4"}`}>
-                <div className={`flex items-center gap-3 rounded-sm border border-border bg-background transition-all ${isSidebarCollapsed ? "p-1.5 justify-center border-transparent bg-transparent" : "p-2"}`}>
-                    <div className="w-8 h-8 min-w-[32px] rounded-sm bg-primary/20 flex items-center justify-center border border-primary/30 relative">
-                        <span className="font-mono text-xs font-bold text-primary">
+            {/* User Status */}
+            <div className={`border-b border-white/5 bg-white/2 transition-all duration-300 ${isSidebarCollapsed ? "p-3" : "p-4"}`}>
+                <div className={`flex items-center gap-3 rounded-2xl transition-all ${isSidebarCollapsed ? "justify-center" : "p-2 bg-white/5 border border-white/5"}`}>
+                    <div className="w-10 h-10 min-w-[40px] rounded-xl bg-primary/20 flex items-center justify-center border border-primary/20 relative group">
+                        <span className="font-mono text-xs font-black text-primary">
                             {user?.email?.slice(0, 2).toUpperCase() || "OP"}
                         </span>
-                        {isSidebarCollapsed && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse border-2 border-background"></span>}
+                        <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#18181b] animate-pulse"></span>
                     </div>
 
                     {!isSidebarCollapsed && (
-                        <div className="overflow-hidden animate-in fade-in duration-300">
-                            <p className="text-xs font-bold font-mono truncate max-w-[120px]">{user?.email || "OPERATOR"}</p>
+                        <div className="overflow-hidden">
+                            <p className="text-[10px] font-black font-mono truncate text-foreground/80 tracking-tight">{user?.email || "OPERATOR"}</p>
                             <div className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                                <span className="text-[10px] text-muted-foreground font-mono uppercase">ONLINE</span>
+                                <span className="text-[9px] text-emerald-500 font-black font-mono uppercase tracking-widest">Authorized</span>
                             </div>
                         </div>
                     )}
@@ -89,9 +97,9 @@ export function Sidebar() {
             </div>
 
             {/* Main Menu */}
-            <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+            <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1.5 scrollbar-hide">
                 {!isSidebarCollapsed && (
-                    <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4 animate-in fade-in">Main Modules</p>
+                    <p className="px-3 text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground/40 mb-3">Protocol Modules</p>
                 )}
 
                 {menuItems.map((item) => {
@@ -101,20 +109,22 @@ export function Sidebar() {
                         <Link
                             key={item.href}
                             href={item.href}
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all group relative ${active
-                                ? "bg-primary text-primary-foreground font-bold border-2 border-foreground shadow-[2px_2px_0px_var(--foreground)]"
-                                : "text-muted-foreground hover:text-foreground hover:bg-accent hover:border-l-4 hover:border-primary"
-                                } ${isSidebarCollapsed ? "justify-center px-0 border-0 hover:border-0" : ""}`}
+                            className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${active
+                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                                } ${isSidebarCollapsed ? "justify-center" : ""}`}
                             title={isSidebarCollapsed ? item.label : undefined}
                         >
-                            <Icon size={isSidebarCollapsed ? 20 : 18} className={`transition-all ${active ? "stroke-2" : "stroke-[1.5]"}`} />
+                            <Icon size={isSidebarCollapsed ? 22 : 18} className={`transition-all ${active ? "stroke-[2.5px]" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
                             {!isSidebarCollapsed && (
-                                <span className="font-mono text-xs tracking-wide animate-in fade-in duration-200">{item.label}</span>
+                                <span className="font-mono text-[11px] font-bold tracking-wider">{item.label}</span>
                             )}
 
-                            {/* Tooltip-ish indicator for collapsed active state if shadow is hidden */}
-                            {isSidebarCollapsed && active && (
-                                <div className="absolute inset-0 border-2 border-foreground rounded-sm pointer-events-none" />
+                            {active && !isSidebarCollapsed && (
+                                <motion.div
+                                    layoutId="sidebar-active"
+                                    className="absolute right-0 w-1 h-6 bg-primary-foreground/50 rounded-l-full"
+                                />
                             )}
                         </Link>
                     );
@@ -122,7 +132,7 @@ export function Sidebar() {
             </div>
 
             {/* Bottom Actions */}
-            <div className={`border-t border-border bg-background transition-all duration-300 ${isSidebarCollapsed ? "p-2" : "p-4"}`}>
+            <div className={`border-t border-white/5 bg-white/2 transition-all duration-300 ${isSidebarCollapsed ? "p-3" : "p-4"}`}>
                 <div className="space-y-1 mb-4">
                     {bottomItems.map((item) => {
                         const Icon = item.icon;
@@ -131,12 +141,12 @@ export function Sidebar() {
                             <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`flex items-center gap-3 px-3 py-2 rounded-sm transition-colors ${active ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${active ? "text-primary font-black bg-primary/5 border border-primary/20" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
                                     } ${isSidebarCollapsed ? "justify-center" : ""}`}
                                 title={isSidebarCollapsed ? item.label : undefined}
                             >
                                 <Icon size={16} />
-                                {!isSidebarCollapsed && <span className="font-mono text-xs animate-in fade-in">{item.label}</span>}
+                                {!isSidebarCollapsed && <span className="font-mono text-[10px] font-bold tracking-widest">{item.label}</span>}
                             </Link>
                         );
                     })}
@@ -146,24 +156,27 @@ export function Sidebar() {
                     <AlertCenter />
                 </div>
 
-                <button
+                <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => logout()}
-                    className={`w-full flex items-center justify-center gap-2 p-2 rounded-sm border border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors ${isSidebarCollapsed ? "aspect-square p-0" : ""}`}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-rose-500/20 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-[0_0_15px_rgba(244,63,94,0.1)] ${isSidebarCollapsed ? "aspect-square p-0" : ""}`}
                     title="Terminate Session"
                 >
-                    <LogOut size={14} />
-                    {!isSidebarCollapsed && <span className="font-mono text-xs font-bold uppercase animate-in fade-in">Terminate Session</span>}
-                </button>
+                    <LogOut size={16} />
+                    {!isSidebarCollapsed && <span className="font-mono text-[10px] font-black uppercase tracking-widest">Logout</span>}
+                </motion.button>
             </div>
 
-            {/* Toggle Button (Floating at bottom right of sidebar) */}
-            <button
+            {/* Toggle Button */}
+            <motion.button
+                whileHover={{ scale: 1.1 }}
                 onClick={toggleSidebar}
-                className="absolute -right-3 top-24 w-6 h-6 bg-card border border-border rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-sm z-50"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                className="absolute -right-3 top-24 w-7 h-7 bg-[#18181b] border border-white/10 rounded-full flex items-center justify-center text-primary hover:text-emerald-400 transition-all shadow-xl z-50 overflow-hidden"
             >
-                <LayoutDashboard size={12} className={`transition-transform duration-300 ${isSidebarCollapsed ? "rotate-90" : "-rotate-90"}`} />
-            </button>
+                <div className="absolute inset-0 bg-primary/5 animate-pulse" />
+                <LayoutDashboard size={14} className={`relative transition-transform duration-500 ${isSidebarCollapsed ? "rotate-180" : "rotate-0"}`} />
+            </motion.button>
         </aside>
     );
 }
