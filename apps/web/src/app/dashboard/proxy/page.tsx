@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { createSession, getSessions, Session } from '@/lib/api';
+import { createSession, getSessions, Session, getAnalyticsOverview, type AnalyticsOverview } from '@/lib/api';
 import {
     Globe,
     Shield,
@@ -34,7 +34,9 @@ const PROXY_ENDPOINT = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhub
 
 export default function ProxyPage() {
     const [sessions, setSessions] = useState<Session[]>([]);
+    const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
     const [loading, setLoading] = useState(true);
+    const [analyticsLoading, setAnalyticsLoading] = useState(true);
     const [creating, setCreating] = useState(false);
     const [testing, setTesting] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'online' | 'offline'>('idle');
@@ -42,7 +44,19 @@ export default function ProxyPage() {
 
     useEffect(() => {
         fetchSessions();
+        fetchAnalytics();
     }, []);
+
+    async function fetchAnalytics() {
+        try {
+            const data = await getAnalyticsOverview();
+            setAnalytics(data);
+        } catch (error) {
+            console.error('Failed to fetch analytics:', error);
+        } finally {
+            setAnalyticsLoading(false);
+        }
+    }
 
     async function fetchSessions() {
         try {
@@ -365,13 +379,17 @@ export default function ProxyPage() {
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
                     {[
-                        { label: "Requests Today", value: "14,302", color: "text-foreground" },
-                        { label: "Data Pipeline", value: "1.24 GB", color: "text-primary" },
-                        { label: "Avg Latency", value: "42ms", color: "text-foreground" },
-                        { label: "Success index", value: "99.98%", color: "text-emerald-500" },
+                        { label: "Requests Today", value: analytics?.total_requests?.toLocaleString() || "0", color: "text-foreground" },
+                        { label: "Data Pipeline", value: `${analytics?.total_bandwidth_gb?.toFixed(2) || "0.00"} GB`, color: "text-primary" },
+                        { label: "Avg Latency", value: `${analytics?.avg_latency_ms || "0"}ms`, color: "text-foreground" },
+                        { label: "Success Rate", value: `${analytics?.success_rate || "0"}%`, color: "text-emerald-500" },
                     ].map((stat, i) => (
                         <div key={i} className="p-6 glass-card bg-white/5 border-white/5 rounded-2xl group hover:bg-white/10 transition-all">
-                            <div className={`text-3xl font-mono font-black tracking-tighter mb-2 ${stat.color}`}>{stat.value}</div>
+                            {analyticsLoading ? (
+                                <div className="h-10 w-20 bg-white/5 animate-pulse rounded mb-2" />
+                            ) : (
+                                <div className={`text-3xl font-mono font-black tracking-tighter mb-2 ${stat.color}`}>{stat.value}</div>
+                            )}
                             <div className="text-[9px] font-mono font-black uppercase text-muted-foreground/30 tracking-widest">{stat.label}</div>
                         </div>
                     ))}

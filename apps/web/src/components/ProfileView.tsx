@@ -6,7 +6,40 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/services/profile";
 
-import { Star, MapPin, ShieldCheck, UserCheck, MessageCircle, Edit3, Heart, Users, Activity, ExternalLink, Calendar, ChevronRight, ArrowRight, Loader2, Twitter, Github, Linkedin, MoreVertical, Ban, Briefcase } from "lucide-react";
+import {
+    Star,
+    MapPin,
+    ShieldCheck,
+    UserCheck,
+    MessageCircle,
+    Edit3,
+    Heart,
+    Users,
+    Activity,
+    ExternalLink,
+    Calendar,
+    ChevronRight,
+    ArrowRight,
+    Loader2,
+    Twitter,
+    Github,
+    Linkedin,
+    MoreVertical,
+    Ban,
+    Briefcase,
+    Hexagon,
+    Target,
+    Fingerprint,
+    Cpu,
+    Globe,
+    Shield,
+    Terminal,
+    Zap,
+    History,
+    Key
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { GlassCard } from "@/components/ui/glass-card";
 
 interface ProfileViewProps {
     username?: string;
@@ -14,7 +47,7 @@ interface ProfileViewProps {
 
 export function ProfileView({ username: propUsername }: ProfileViewProps) {
     const params = useParams();
-    const router = useRouter(); // For redirect after block
+    const router = useRouter();
     const { user: currentUser, isAuthenticated } = useAuth();
 
     const targetUsername = propUsername ?? (params?.username as string) ?? "me";
@@ -38,19 +71,15 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
             setError("");
             try {
                 const identifier = isOwnProfile ? "me" : targetUsername;
-
-                // Retrieve Profile
-                // Note: getProfile is imported from 'lib/services/profile'
                 const userData = await getProfile(identifier);
                 setProfile(userData);
                 setIsFollowing(userData.is_following || false);
 
-                // Fetch reviews
                 try {
                     const reviewsData = await getUserReviews(userData.id);
                     setReviews(reviewsData.reviews || []);
                 } catch {
-                    // Reviews optional or failed
+                    // Reviews optional
                 }
             } catch (err) {
                 console.error("Profile fetch error:", err);
@@ -64,7 +93,6 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const handleFollow = async () => {
         if (!profile || !isAuthenticated) return;
-
         setFollowLoading(true);
         try {
             if (isFollowing) {
@@ -85,298 +113,362 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const handleBlock = async () => {
         if (!profile || !isAuthenticated) return;
-        if (!confirm("Are you sure you want to block this user? You will no longer see their content.")) return;
-
+        if (!confirm("Confirm target isolation? This entity will be purged from your network segment.")) return;
         try {
             await blockUser(profile.id);
-            // Redirect to home or show blocked state
             router.push('/');
         } catch (err) {
-            console.error("Failed to block", err);
-            alert("Failed to block user");
+            alert("Protocol deviation detected. Purge failed.");
         }
     }
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center py-40 gap-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Scanning protocol identity...</p>
+            <div className="flex flex-col items-center justify-center py-60 gap-8">
+                <div className="relative">
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        className="w-20 h-20 border-t-2 border-primary rounded-full"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <Fingerprint className="text-primary/40" size={32} />
+                    </div>
+                </div>
+                <p className="font-black text-[10px] uppercase tracking-[0.6em] text-muted-foreground animate-pulse">Scanning Neural ID...</p>
             </div>
         );
     }
 
     if (error || !profile) {
         return (
-            <div className="container py-20 text-center space-y-6">
-                <div className="w-20 h-20 rounded-sm bg-destructive/10 border border-destructive/20 flex items-center justify-center mx-auto text-destructive">
-                    <Activity size={32} />
+            <div className="max-w-xl mx-auto py-40 text-center space-y-10">
+                <div className="w-24 h-24 rounded-[2rem] bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500 shadow-2xl">
+                    <Zap size={40} className="animate-pulse" />
                 </div>
-                <div className="space-y-2">
-                    <h2 className="text-2xl font-bold font-mono uppercase tracking-tight">Identity Mismatch</h2>
-                    <p className="font-mono text-xs text-muted-foreground max-w-xs mx-auto">{error || "The requested protocol signature could not be verified."}</p>
+                <div className="space-y-4">
+                    <h2 className="text-4xl font-black uppercase tracking-tighter text-white">Grid Signal Lost</h2>
+                    <p className="text-[11px] font-black uppercase text-muted-foreground/40 tracking-widest leading-relaxed">
+                        {error || "The requested protocol signature could not be verified in the current mesh sector."}
+                    </p>
                 </div>
-                <Link href="/marketplace" className="btn-retro btn-retro-outline inline-flex items-center gap-2">
-                    Browse Marketplace
+                <Link href="/marketplace" className="inline-flex items-center gap-4 px-10 py-5 bg-white text-black font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-white/90 transition-all active:scale-95 shadow-2xl">
+                    <ArrowRight size={20} /> Browse Sectors
                 </Link>
             </div>
         );
     }
 
-    // Checking for business verification (simulated by checking business_name presence for now)
-    const isBusiness = !!profile.business_name;
+    const containerVariants = {
+        hidden: { opacity: 0 },
+        show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+    };
+
+    const itemVariants = {
+        hidden: { opacity: 0, y: 20 },
+        show: { opacity: 1, y: 0 }
+    };
 
     return (
-        <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
-            {/* Header Card */}
-            <div className="card-retro p-0 bg-card overflow-hidden">
-                <div className="h-32 bg-secondary/30 border-b border-border relative">
-                    <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]"></div>
-                </div>
-                <div className="p-8 relative">
-                    <div className="absolute -top-16 left-8">
-                        <div className="w-32 h-32 rounded-sm bg-background border-2 border-foreground p-1 shadow-[4px_4px_0px_var(--foreground)]">
-                            {profile.avatar_url ? (
-                                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <div className="w-full h-full bg-secondary flex items-center justify-center text-4xl font-mono font-bold">
-                                    {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
+        <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="max-w-6xl mx-auto space-y-12 pb-40 font-mono"
+        >
+            {/* Immersive Tactical Header */}
+            <motion.div variants={itemVariants} className="group relative">
+                <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-20 pointer-events-none" />
+                <GlassCard className="!p-0 border-white/5 bg-white/[0.02] overflow-hidden rounded-[3rem] shadow-2xl relative">
+                    {/* Cover Area */}
+                    <div className="h-48 bg-black/40 relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-10"
+                            style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }} />
+                        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
+
+                        {/* Top Protocol Status */}
+                        <div className="absolute top-8 inset-x-10 flex justify-between items-start pointer-events-none opacity-40">
+                            <div className="space-y-1">
+                                <div className="text-[8px] font-black uppercase tracking-[0.4em]">Node Origin</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                    <Globe size={12} /> {profile.location || 'Global Mesh'}
                                 </div>
-                            )}
+                            </div>
+                            <div className="text-right space-y-1">
+                                <div className="text-[8px] font-black uppercase tracking-[0.4em]">Registry Tier</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 justify-end">
+                                    {profile.trust_tier || 'Alpha'} <Shield size={12} />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="ml-40 flex flex-col md:flex-row justify-between items-start gap-4 min-h-[60px]">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h1 className="text-3xl font-bold font-mono uppercase leading-none">
-                                    {profile.display_name || profile.username || "Anonymous Protocol"}
-                                </h1>
-                                {isBusiness && (
-                                    <div className="ml-2 px-2 py-0.5 bg-primary/20 border border-primary text-primary text-[10px] font-bold font-mono uppercase flex items-center gap-1 rounded-full">
-                                        <Briefcase size={10} />
-                                        Verified Business
+                    <div className="px-12 pb-12 relative flex flex-col md:flex-row gap-12 items-end -mt-16">
+                        {/* Avatar HUD */}
+                        <div className="relative group/avatar">
+                            <div className="absolute -inset-2 bg-primary/20 rounded-[2.5rem] blur-xl opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-500" />
+                            <div className="w-44 h-44 rounded-[2.2rem] bg-black border-4 border-white/5 p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
+                                {profile.avatar_url ? (
+                                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[1.8rem]" />
+                                ) : (
+                                    <div className="w-full h-full bg-white/[0.05] rounded-[1.8rem] flex items-center justify-center text-5xl font-black text-white/10 uppercase italic">
+                                        {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
                                     </div>
                                 )}
+                                {/* Status Indicator */}
+                                <div className="absolute bottom-4 right-4 w-6 h-6 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_15px_rgba(16,185,129,0.5)] flex items-center justify-center">
+                                    <Activity size={10} className="text-black" />
+                                </div>
                             </div>
-                            <p className="text-lg font-mono text-muted-foreground mt-1">@{profile.username}</p>
+                        </div>
 
-                            {/* Social Links */}
+                        {/* Identity & Social Hub */}
+                        <div className="flex-1 space-y-6 pb-2">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-4">
+                                    <h1 className="text-5xl font-black uppercase tracking-tighter text-white">
+                                        {profile.display_name || profile.username}
+                                    </h1>
+                                    {profile.verified && (
+                                        <div className="p-2 rounded-xl bg-primary/20 border border-primary/20 text-primary animate-pulse-slow">
+                                            <ShieldCheck size={20} />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-6">
+                                    <div className="text-sm font-black text-primary/60 tracking-widest uppercase">
+                                        @{profile.username}
+                                    </div>
+                                    <div className="h-4 w-px bg-white/5" />
+                                    <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
+                                        <History size={12} /> Joined {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Social Links Cockpit */}
                             {profile.social_links && (
-                                <div className="flex items-center gap-3 mt-3">
-                                    {profile.social_links.twitter && (
-                                        <a href={`https://twitter.com/${profile.social_links.twitter}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-                                            <Twitter size={16} />
-                                        </a>
-                                    )}
-                                    {profile.social_links.github && (
-                                        <a href={`https://github.com/${profile.social_links.github}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-                                            <Github size={16} />
-                                        </a>
-                                    )}
-                                    {profile.social_links.linkedin && (
-                                        <a href={profile.social_links.linkedin} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-                                            <Linkedin size={16} />
-                                        </a>
-                                    )}
+                                <div className="flex items-center gap-3">
+                                    {Object.entries(profile.social_links).map(([platform, handle]) => {
+                                        if (!handle) return null;
+                                        const Icon = platform === 'twitter' ? Twitter : platform === 'github' ? Github : Linkedin;
+                                        return (
+                                            <motion.a
+                                                key={platform}
+                                                whileHover={{ y: -2, scale: 1.1 }}
+                                                href={platform === 'linkedin' ? handle : `https://${platform}.com/${handle}`}
+                                                target="_blank"
+                                                className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-primary hover:border-primary/20 transition-all shadow-xl"
+                                            >
+                                                <Icon size={16} />
+                                            </motion.a>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
 
-                        <div className="flex gap-3">
+                        {/* Actions Control Unit */}
+                        <div className="flex gap-4 pb-4">
                             {isOwnProfile ? (
                                 <Link
                                     href="/settings"
-                                    className="btn-retro btn-retro-outline py-2 px-4 text-xs bg-background"
+                                    className="px-10 py-5 rounded-2xl bg-white text-black font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-2xl hover:scale-105 transition-all active:scale-95"
                                 >
-                                    <Edit3 size={14} className="mr-2" />
-                                    EDIT PROFILE
+                                    <Edit3 size={18} /> Edit Local Buffer
                                 </Link>
                             ) : (
-                                <>
+                                <div className="flex gap-4 items-center">
                                     <button
                                         onClick={handleFollow}
-                                        disabled={followLoading}
-                                        className={`btn-retro py-2 px-4 text-xs flex items-center gap-2 ${isFollowing ? "btn-retro-outline bg-background" : "btn-retro-primary"
+                                        className={`px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-2xl ${isFollowing
+                                                ? 'bg-white/5 border border-white/10 text-white/40 hover:bg-white/10'
+                                                : 'bg-primary text-primary-foreground hover:shadow-primary/30'
                                             }`}
                                     >
-                                        {isFollowing ? <UserCheck size={14} /> : <Users size={14} />}
-                                        {followLoading ? "PROCESSING..." : isFollowing ? "FOLLOWING" : "CONNECT"}
+                                        {isFollowing ? <UserCheck size={18} /> : <Users size={18} />}
+                                        {isFollowing ? 'Purge Sync' : 'Initialize Sync'}
                                     </button>
                                     <Link
                                         href={`/messages?to=${profile.id}`}
-                                        className="btn-retro btn-retro-outline py-2 px-4 text-xs bg-background"
+                                        className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all shadow-xl"
                                     >
-                                        <MessageCircle size={14} className="mr-2" />
-                                        MESSAGE
+                                        <MessageCircle size={20} />
                                     </Link>
-
-                                    {/* More Menu */}
-                                    <div className="relative">
-                                        <button
-                                            onClick={() => setShowMenu(!showMenu)}
-                                            className="btn-retro btn-retro-outline py-2 px-2 h-full bg-background"
-                                        >
-                                            <MoreVertical size={14} />
-                                        </button>
-                                        {showMenu && (
-                                            <div className="absolute right-0 top-full mt-2 w-40 bg-card border border-border bg-popover text-popover-foreground shadow-md z-50 rounded-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                                <button
-                                                    onClick={handleBlock}
-                                                    className="w-full text-left px-4 py-2 text-xs font-mono uppercase hover:bg-destructive/10 hover:text-destructive flex items-center gap-2"
-                                                >
-                                                    <Ban size={12} />
-                                                    Block User
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
+                                    <button
+                                        onClick={handleBlock}
+                                        className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all shadow-xl"
+                                    >
+                                        <Ban size={20} />
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>
+                </GlassCard>
+            </motion.div>
 
-                    <div className="mt-8 space-y-6">
-                        {profile.bio && (
-                            <p className="font-mono text-sm max-w-3xl leading-relaxed border-l-2 border-primary pl-4">
-                                {profile.bio}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                {/* Left Unit: Bio & Stats HUD */}
+                <div className="lg:col-span-4 space-y-12">
+                    <motion.div variants={itemVariants} className="space-y-6">
+                        <div className="flex items-center gap-3 px-6">
+                            <div className="h-px bg-white/5 flex-1" />
+                            <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Neural Summary</div>
+                            <div className="h-px bg-white/5 flex-1" />
+                        </div>
+                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] relative group">
+                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                                <Terminal size={40} />
+                            </div>
+                            <p className="text-sm font-black text-white/60 leading-relaxed italic">
+                                "{profile.bio || "No neural description recorded in current protocol sector."}"
                             </p>
-                        )}
+                        </GlassCard>
+                    </motion.div>
 
-                        {/* Capability Chips */}
-                        {profile.skills && profile.skills.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                                {profile.skills.map((skill: string) => (
-                                    <span key={skill} className="bg-secondary/50 text-secondary-foreground border border-border px-2 py-1 rounded-sm text-[10px] font-mono uppercase tracking-wide">
+                    {/* Stats Matrix */}
+                    <motion.div variants={itemVariants} className="grid grid-cols-2 gap-6">
+                        {[
+                            { label: 'Network Reach', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
+                            { label: 'Relay Nodes', value: profile.following_count || 0, icon: Hexagon, color: 'text-white/40' },
+                            { label: 'Protocol Rating', value: profile.avg_rating > 0 ? profile.avg_rating.toFixed(1) : '5.0', icon: Star, color: 'text-yellow-500' },
+                            { label: 'Consensus Proof', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
+                        ].map((stat, i) => (
+                            <GlassCard key={i} className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem] hover:scale-105 transition-transform">
+                                <stat.icon className={`${stat.color} mb-3`} size={18} />
+                                <div className="text-2xl font-black text-white tracking-tighter">{stat.value}</div>
+                                <div className="text-[8px] font-black uppercase text-white/20 tracking-widest mt-1">{stat.label}</div>
+                            </GlassCard>
+                        ))}
+                    </motion.div>
+
+                    {/* Capability Map */}
+                    {profile.skills && profile.skills.length > 0 && (
+                        <motion.div variants={itemVariants} className="space-y-6">
+                            <div className="flex items-center gap-3 px-6">
+                                <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Capacity Matrix</div>
+                                <div className="h-px bg-white/5 flex-1" />
+                            </div>
+                            <div className="flex flex-wrap gap-2 px-1">
+                                {profile.skills.map(skill => (
+                                    <span key={skill} className="px-5 py-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-primary hover:border-primary/20 transition-all cursor-default">
                                         {skill}
                                     </span>
                                 ))}
                             </div>
+                        </motion.div>
+                    )}
+                </div>
+
+                {/* Right Unit: Activity & Trust Ledger */}
+                <div className="lg:col-span-8 space-y-12">
+                    <motion.div variants={itemVariants} className="flex gap-8 border-b border-white/5">
+                        {[
+                            { id: 'reviews', label: 'Trust Ledger', count: reviews.length, icon: Heart },
+                            ...(profile?.role === 'provider' ? [{ id: 'listings', label: 'Active Grid', count: 'GRID', icon: Activity }] : []),
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`relative flex items-center gap-3 px-8 py-5 text-[10px] font-black uppercase tracking-[0.3em] transition-all ${activeTab === tab.id ? "text-primary" : "text-white/20 hover:text-white/40"
+                                    }`}
+                            >
+                                <tab.icon size={14} />
+                                {tab.label}
+                                <span className={`ml-2 px-2 py-0.5 rounded-md text-[8px] border font-black ${activeTab === tab.id ? "bg-primary/20 border-primary/20" : "bg-white/5 border-white/5"
+                                    }`}>
+                                    {tab.count}
+                                </span>
+                                {activeTab === tab.id && (
+                                    <motion.div layoutId="profile-tab" className="absolute bottom-0 inset-x-0 h-1 bg-primary rounded-full shadow-[0_0_20px_rgba(16,185,129,0.5)]" />
+                                )}
+                            </button>
+                        ))}
+                    </motion.div>
+
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        {activeTab === "reviews" && (
+                            <div className="space-y-6">
+                                {reviews.length === 0 ? (
+                                    <div className="py-40 text-center border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]">
+                                        <div className="relative w-20 h-20 mx-auto mb-8">
+                                            <div className="absolute inset-0 rounded-full border border-white/5 animate-ping opacity-20" />
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                <Star size={32} className="text-white/5" />
+                                            </div>
+                                        </div>
+                                        <h4 className="text-xl font-black uppercase tracking-tighter opacity-40">Zero Consensus Proofs</h4>
+                                        <p className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] mt-4">No decentralized identity logs recorded.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {reviews.map((review) => (
+                                            <GlassCard key={review.id} className="group !p-8 border-white/5 bg-white/[0.02] rounded-[2.5rem] hover:bg-white/[0.04] transition-all">
+                                                <div className="flex items-start justify-between gap-6 mb-8">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className="w-12 h-12 rounded-2xl bg-black border border-white/5 flex items-center justify-center text-xs font-black text-primary overflow-hidden">
+                                                            {review.reviewer?.avatar_url ? (
+                                                                <img src={review.reviewer.avatar_url} alt="" className="w-full h-full object-cover opacity-50" />
+                                                            ) : (
+                                                                (review.reviewer?.username?.[0] || "A").toUpperCase()
+                                                            )}
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <div className="text-[11px] font-black text-white uppercase tracking-wider">
+                                                                @{review.reviewer?.username || "Anonymous"}
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                {Array.from({ length: 5 }).map((_, i) => (
+                                                                    <Star key={i} size={10} className={i < review.rating ? "fill-primary text-primary" : "text-white/10"} />
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-[9px] font-black text-white/10 uppercase tracking-widest">{new Date(review.created_at).toLocaleDateString()}</div>
+                                                        <div className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mt-1 flex items-center gap-1 justify-end">
+                                                            <Shield size={8} /> ZK_PROOF_SYNC
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="relative pl-6">
+                                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/20 rounded-full" />
+                                                    <p className="text-sm font-black text-white/60 leading-relaxed italic">
+                                                        "{review.content}"
+                                                    </p>
+                                                </div>
+                                            </GlassCard>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         )}
 
-                        <div className="flex flex-wrap gap-6 text-xs font-mono font-bold text-muted-foreground uppercase">
-                            {profile.location && (
-                                <div className="flex items-center gap-2">
-                                    <MapPin size={14} className="text-primary" />
-                                    {profile.location}
-                                </div>
-                            )}
-                            <div className="flex items-center gap-2">
-                                <Calendar size={14} className="text-primary" />
-                                Joined {profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Oct 2023'}
-                            </div>
-                            {profile.avg_rating > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <Star size={14} className="text-primary fill-current" />
-                                    {profile.avg_rating.toFixed(1)} / 5.0 Rating
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Stats */}
-                        <div className="grid grid-cols-3 gap-4 border-t border-border pt-6 max-w-lg">
-                            <div>
-                                <div className="text-2xl font-bold font-mono">{profile.followers_count?.toLocaleString() || 0}</div>
-                                <div className="text-[10px] uppercase text-muted-foreground font-mono">Followers</div>
-                            </div>
-                            <div>
-                                <div className="text-2xl font-bold font-mono">{profile.following_count?.toLocaleString() || 0}</div>
-                                <div className="text-[10px] uppercase text-muted-foreground font-mono">Following</div>
-                            </div>
-                            <div>
-                                <div className="text-2xl font-bold font-mono">{profile.reviews_count || 0}</div>
-                                <div className="text-[10px] uppercase text-muted-foreground font-mono">Reviews</div>
-                            </div>
-                        </div>
+                        {activeTab === "listings" && (
+                            <Link href={`/marketplace?seller_id=${profile?.id}`} className="group block">
+                                <GlassCard className="!p-12 border-white/5 bg-white/[0.02] rounded-[3rem] items-center justify-between flex group-hover:bg-primary/[0.03] group-hover:border-primary/20 transition-all">
+                                    <div className="flex items-center gap-10">
+                                        <div className="w-24 h-24 rounded-[2.5rem] bg-black/40 border border-white/5 flex items-center justify-center text-primary relative overflow-hidden group-hover:border-primary/30 transition-colors">
+                                            <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            <Cpu size={40} className="relative z-10 group-hover:scale-110 transition-transform duration-500" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h3 className="text-3xl font-black uppercase tracking-tighter text-white">Active Grid Assets</h3>
+                                            <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em] flex items-center gap-3">
+                                                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" /> Synchronize Current Load Factors
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="w-20 h-20 rounded-[2.5rem] bg-white/[0.02] border border-white/5 flex items-center justify-center text-white/20 group-hover:text-primary group-hover:border-primary/20 transition-all">
+                                        <ArrowRight size={32} className="group-hover:translate-x-2 transition-transform" />
+                                    </div>
+                                </GlassCard>
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>
-
-            {/* Content Tabs */}
-            <div className="space-y-6">
-                <div className="flex gap-4 border-b border-border">
-                    {[
-                        { id: 'reviews', label: `Trust Ledger (${reviews.length})`, icon: Heart },
-                        ...(profile?.role === 'provider' ? [{ id: 'listings', label: 'Active Nodes', icon: Activity }] : []),
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
-                            className={`flex items-center gap-2 px-6 py-3 text-xs font-bold font-mono uppercase border-b-2 transition-all ${activeTab === tab.id
-                                ? "border-primary text-primary"
-                                : "border-transparent text-muted-foreground hover:text-foreground"
-                                }`}
-                        >
-                            <tab.icon size={14} />
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Content Area */}
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {activeTab === "reviews" && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {reviews.length === 0 ? (
-                                <div className="col-span-full py-12 text-center border-2 border-dashed border-border rounded-sm">
-                                    <Star size={24} className="mx-auto text-muted-foreground opacity-50 mb-2" />
-                                    <p className="font-mono text-xs text-muted-foreground uppercase">No identity proofs recorded.</p>
-                                </div>
-                            ) : (
-                                reviews.map((review) => (
-                                    <div key={review.id} className="card-retro p-6 bg-card">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-sm bg-secondary border border-border flex items-center justify-center text-xs font-bold font-mono">
-                                                    {review.reviewer?.display_name?.[0] || review.reviewer?.username?.[0] || "A"}
-                                                </div>
-                                                <div>
-                                                    <div className="font-bold font-mono text-sm">
-                                                        {review.reviewer?.display_name || review.reviewer?.username || "Anonymous"}
-                                                    </div>
-                                                    <div className="flex gap-0.5 text-primary">
-                                                        {Array.from({ length: 5 }).map((_, i) => (
-                                                            <Star
-                                                                key={i}
-                                                                size={10}
-                                                                className={i < review.rating ? "fill-current" : "text-muted-foreground opacity-30"}
-                                                            />
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase">
-                                                {new Date(review.created_at).toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                        <p className="font-mono text-xs text-muted-foreground italic border-l-2 border-border pl-3">"{review.content}"</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    )}
-
-                    {activeTab === "listings" && (
-                        <div className="space-y-4">
-                            <Link
-                                href={`/marketplace?seller_id=${profile?.id}`}
-                                className="card-retro p-8 bg-card flex items-center justify-between group hover:border-primary transition-colors"
-                            >
-                                <div className="flex items-center gap-6">
-                                    <div className="p-4 bg-primary/10 rounded-sm border border-primary/20 text-primary">
-                                        <Activity size={32} />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold font-mono uppercase">Node Infrastructure</h3>
-                                        <p className="text-xs font-mono text-muted-foreground">VIEW ALL ACTIVE BANDWIDTH LISTINGS</p>
-                                    </div>
-                                </div>
-                                <ArrowRight size={24} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                            </Link>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
+        </motion.div>
     );
 }

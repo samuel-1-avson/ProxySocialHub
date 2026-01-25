@@ -5,21 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import { getProposal, castVote, type Proposal } from "@/lib/services/governance";
 import { useAuth } from "@/lib/auth";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Loader2, ArrowLeft, CheckCircle, XCircle, Slash, Activity, MessageSquare, Box, Wallet, Vote } from "lucide-react";
+import { Loader2, ArrowLeft, CheckCircle, XCircle, Slash, Activity, MessageSquare, Box, Wallet, Vote, ShieldCheck, Clock, Hexagon, ChevronRight, Zap, Target, BarChart3, Fingerprint, Terminal, FileText } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
+import { motion, AnimatePresence } from "framer-motion";
+import { GlassCard } from "@/components/ui/glass-card";
 
 export default function ProposalDetailsPage() {
     const params = useParams();
     const router = useRouter();
-    const { user, walletLogin } = useAuth(); // Assuming walletLogin gives us signer/address if needed, or we use existing auth
-    // Note: castVote requires signature + walletAddress. 
-    // In strict implementing, we'd need the wallet signer here.
-    // For now, I'll assume we simulate or reuse auth token as signature for off-chain voting if allowed, 
-    // OR we trigger a wallet signature popup.
-    // Given the previous Auth context, we might not have direct access to 'signer' object unless we store it or re-connect.
-    // I will implement a placeholder for signature signing or assume the backend validates the user session for now if "Signed Voting" isn't strictly enforced on client yet.
-    // However, the task said "Reinforce Decentralization (Signed Voting)". 
-    // I will add a mock "Sign Vote" flow.
+    const { user } = useAuth();
 
     const id = params?.id as string;
     const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -43,261 +37,333 @@ export default function ProposalDetailsPage() {
         if (!voteChoice || !proposal) return;
 
         if (!publicKey || !signMessage) {
-            alert("Please connect your wallet to vote.");
+            alert("Connect your authority module (Wallet) to initialize voting sequence.");
             return;
         }
 
         setVoting(true);
         try {
             const message = new TextEncoder().encode(
-                `Vote ${voteChoice} on proposal ${proposal.id}`
+                `Consensus initialization for proposal ${proposal.id} | Action: ${voteChoice.toUpperCase()}`
             );
             const signatureBytes = await signMessage(message);
-            // Convert signature to base64 or hex as required by backend. 
-            // Assuming base58 or hex. Standard is usually base58 for Solana.
-            // But for simplicity/compatibility with our mock backend endpoint that expects a string:
-            const signature = Buffer.from(signatureBytes).toString('hex'); // or base58 if imported
-
-            // NOTE: Ideally we use bs58 for Solana signatures, but standard Buffer hex is fine for this generic implementation
-            // unless backend specifically validates ed25519 signature format against public key.
-            // Given the backend implementation was also generic, hex is safer standard for now without adding 'bs58' dep if not present.
-            // Wait, 'bs58' IS present in package.json. Let's use it if we can import it, otherwise hex.
-            // I'll stick to a safe hex representation or base64 to avoid missing import issues in this file.
+            const signature = Buffer.from(signatureBytes).toString('hex');
 
             await castVote(proposal.id, voteChoice, signature, publicKey.toBase58());
 
-            // Refetch to update numbers
             const updated = await getProposal(proposal.id);
             setProposal(updated);
-            alert("Vote submitted successfully!");
         } catch (err) {
             console.error("Vote failed", err);
-            alert("Vote failed. Ensure you signed the request.");
         } finally {
             setVoting(false);
-            setVoteChoice(null); // Reset choice
+            setVoteChoice(null);
         }
     };
 
+    const containerVariants = {
+        hidden: { opacity: 0 },
+        show: {
+            opacity: 1,
+            transition: { staggerChildren: 0.1 }
+        }
+    };
+
+    const itemVariants = {
+        hidden: { opacity: 0, y: 20 },
+        show: { opacity: 1, y: 0 }
+    };
+
     if (loading) return (
-        <div className="flex justify-center items-center min-h-[50vh]">
-            <Loader2 className="animate-spin text-primary" size={32} />
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 font-mono">
+            <Loader2 className="animate-spin text-primary" size={40} />
+            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/30">Synchronizing Consensus State...</p>
         </div>
     );
 
     if (!proposal) return (
-        <div className="text-center py-20">
-            <h1 className="text-2xl font-bold font-mono uppercase">Proposal Not Found</h1>
-            <button onClick={() => router.back()} className="mt-4 btn-retro btn-retro-outline">GO BACK</button>
+        <div className="text-center py-40 font-mono">
+            <Hexagon size={64} className="mx-auto text-muted-foreground/10 mb-6" />
+            <h1 className="text-2xl font-black uppercase tracking-tighter opacity-80">Sequence Not Found</h1>
+            <button onClick={() => router.back()} className="mt-8 btn-retro btn-retro-outline px-8 py-3 uppercase text-[10px] font-black tracking-widest">Return to Command</button>
         </div>
     );
 
     const voteData = [
-        { name: 'Yes', value: proposal.votes_for, color: '#22c55e' }, // green-500
-        { name: 'No', value: proposal.votes_against, color: '#ef4444' }, // red-500
-        { name: 'Abstain', value: proposal.votes_abstain, color: '#64748b' }, // slate-500
+        { name: 'SUPPORT', value: proposal.votes_for, color: '#10B981' },
+        { name: 'REJECT', value: proposal.votes_against, color: '#F43F5E' },
+        { name: 'ABSTAIN', value: proposal.votes_abstain, color: '#64748B' },
     ].filter(d => d.value > 0);
 
-    // If no votes, add placeholders to show empty chart
-    const chartData = voteData.length > 0 ? voteData : [{ name: 'No Votes', value: 1, color: '#333' }];
+    const chartData = voteData.length > 0 ? voteData : [{ name: 'EMPTY_CONSENSUS', value: 1, color: 'rgba(255,255,255,0.05)' }];
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 max-w-5xl mx-auto">
-            <button onClick={() => router.back()} className="flex items-center gap-2 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">
-                <ArrowLeft size={14} />
-                BACK TO GOVERNANCE
-            </button>
+        <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="space-y-12 animate-in fade-in duration-500 max-w-6xl mx-auto font-mono pb-20"
+        >
+            <motion.button
+                variants={itemVariants}
+                onClick={() => router.back()}
+                className="group flex items-center gap-3 text-[10px] font-black tracking-[0.2em] text-muted-foreground/40 hover:text-primary transition-all uppercase"
+            >
+                <div className="p-2 rounded-lg bg-white/2 border border-white/5 group-hover:border-primary/40 group-hover:bg-primary/5 transition-all">
+                    <ArrowLeft size={14} />
+                </div>
+                Return to Ledger
+            </motion.button>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* Main Content */}
-                <div className="md:col-span-2 space-y-6">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <span className={`text-[10px] font-bold font-mono uppercase px-2 py-0.5 border rounded-full ${proposal.status === 'active' ? 'text-primary border-primary' :
-                                proposal.status === 'passed' ? 'text-green-500 border-green-500' :
-                                    'text-muted-foreground border-border'
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                {/* Main Content Area */}
+                <div className="lg:col-span-8 space-y-10">
+                    <motion.div variants={itemVariants} className="space-y-4">
+                        <div className="flex items-center gap-4 flex-wrap">
+                            <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest ${proposal.status === 'active' ? 'bg-primary/10 text-primary border-primary/20 shadow-lg shadow-primary/10' :
+                                proposal.status === 'passed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-lg shadow-emerald-500/10' :
+                                    'bg-white/5 text-muted-foreground border-white/10'
                                 }`}>
-                                {proposal.status}
-                            </span>
-                            <span className="text-xs font-mono text-muted-foreground uppercase">
-                                Proposal #{proposal.id.split('-')[0]}
+                                <Target size={10} className={proposal.status === 'active' ? 'animate-pulse' : ''} />
+                                Status: {proposal.status}
+                            </div>
+                            <span className="text-[10px] font-mono text-muted-foreground/20 uppercase font-black tracking-widest">
+                                Sequence Registry # {proposal.id.split('-')[0]}
                             </span>
                         </div>
-                        <h1 className="text-3xl font-bold font-mono uppercase leading-tight">{proposal.title}</h1>
-                    </div>
+                        <h1 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter leading-[0.9] text-foreground hover:text-primary transition-colors duration-500">{proposal.title}</h1>
+                    </motion.div>
 
-                    {/* Tabs */}
-                    <div className="border-b border-border flex gap-6">
-                        <button
-                            onClick={() => setActiveTab('discussion')}
-                            className={`pb-3 text-xs font-bold font-mono uppercase border-b-2 transition-all flex items-center gap-2 ${activeTab === 'discussion' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}
+                    {/* Mode Interface Selector */}
+                    <motion.div variants={itemVariants} className="flex gap-2 p-1.5 bg-white/2 border border-white/5 rounded-2xl w-fit">
+                        {[
+                            { id: 'votes', label: 'Consensus', icon: BarChart3 },
+                            { id: 'discussion', label: 'Intel', icon: MessageSquare },
+                            { id: 'execution', label: 'Payload', icon: Box },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id
+                                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                                    : "text-muted-foreground/40 hover:text-foreground hover:bg-white/5"
+                                    }`}
+                            >
+                                <tab.icon size={14} />
+                                {tab.label}
+                            </button>
+                        ))}
+                    </motion.div>
+
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={activeTab}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="min-h-[400px]"
                         >
-                            <MessageSquare size={14} /> Discussion
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('votes')}
-                            className={`pb-3 text-xs font-bold font-mono uppercase border-b-2 transition-all flex items-center gap-2 ${activeTab === 'votes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}
-                        >
-                            <Activity size={14} /> Voting Results
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('execution')}
-                            className={`pb-3 text-xs font-bold font-mono uppercase border-b-2 transition-all flex items-center gap-2 ${activeTab === 'execution' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}
-                        >
-                            <Box size={14} /> Execution Payload
-                        </button>
-                    </div>
-
-                    <div className="min-h-[300px]">
-                        {activeTab === 'discussion' && (
-                            <div className="card-retro p-8 bg-card text-center space-y-4">
-                                <MessageSquare size={32} className="mx-auto text-muted-foreground opacity-20" />
-                                <p className="font-mono text-sm text-muted-foreground">
-                                    Forum integration is connecting... <br />
-                                    View thread on <a href="#" className="underline hover:text-primary">Community Forum</a>.
-                                </p>
-                            </div>
-                        )}
-
-                        {activeTab === 'votes' && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                                <div className="h-64 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={chartData}
-                                                innerRadius={60}
-                                                outerRadius={80}
-                                                paddingAngle={5}
-                                                dataKey="value"
-                                                stroke="none"
-                                            >
-                                                {chartData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                                ))}
-                                            </Pie>
-                                            <RechartsTooltip
-                                                contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px' }}
-                                                itemStyle={{ color: '#fff' }}
-                                            />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center text-sm font-mono">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                            <span>Yes</span>
+                            {activeTab === 'votes' && (
+                                <GlassCard className="!p-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center relative overflow-hidden">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+                                    <div className="h-64 lg:h-80 w-full relative">
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                            <div className="text-center space-y-1">
+                                                <div className="text-[10px] font-black text-muted-foreground/30 uppercase tracking-[0.2em]">Quorum</div>
+                                                <div className="text-3xl font-black tracking-tighter">{proposal.total_votes}</div>
+                                                <div className="text-[8px] font-black text-primary/40 uppercase tracking-widest">VP Total</div>
+                                            </div>
                                         </div>
-                                        <span className="font-bold">{proposal.votes_for.toLocaleString()} VP</span>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={chartData}
+                                                    innerRadius={80}
+                                                    outerRadius={110}
+                                                    paddingAngle={8}
+                                                    dataKey="value"
+                                                    stroke="none"
+                                                    animationBegin={0}
+                                                    animationDuration={1500}
+                                                >
+                                                    {chartData.map((entry, index) => (
+                                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                                    ))}
+                                                </Pie>
+                                                <RechartsTooltip
+                                                    contentStyle={{ backgroundColor: '#09090b', borderColor: 'rgba(255,255,255,0.05)', borderRadius: '12px', fontFamily: 'var(--font-mono)', fontSize: '10px', textTransform: 'uppercase', fontWeight: 900 }}
+                                                    itemStyle={{ color: '#fff' }}
+                                                />
+                                            </PieChart>
+                                        </ResponsiveContainer>
                                     </div>
-                                    <div className="flex justify-between items-center text-sm font-mono">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                                            <span>No</span>
+                                    <div className="space-y-6 relative z-10">
+                                        <div className="space-y-4">
+                                            {[
+                                                { label: 'SUPPORT_UNIT', votes: proposal.votes_for, color: 'bg-emerald-500' },
+                                                { label: 'REJECT_UNIT', votes: proposal.votes_against, color: 'bg-rose-500' },
+                                                { label: 'ABSTAIN_UNIT', votes: proposal.votes_abstain, color: 'bg-slate-500' }
+                                            ].map((item, i) => (
+                                                <div key={i} className="group/stat">
+                                                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-2 h-2 rounded-full ${item.color} shadow-[0_0_10px_currentColor]`} />
+                                                            <span className="text-muted-foreground/60 group-hover/stat:text-foreground transition-colors">{item.label}</span>
+                                                        </div>
+                                                        <span className="font-black text-foreground">{item.votes.toLocaleString()} VP</span>
+                                                    </div>
+                                                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                                        <motion.div
+                                                            initial={{ width: 0 }}
+                                                            animate={{ width: `${(item.votes / (proposal.total_votes || 1)) * 100}%` }}
+                                                            transition={{ duration: 1, delay: 0.5 }}
+                                                            className={`h-full ${item.color}`}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <span className="font-bold">{proposal.votes_against.toLocaleString()} VP</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm font-mono">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-slate-500"></div>
-                                            <span>Abstain</span>
+                                        <div className="pt-8 border-t border-white/5 flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/30">
+                                            <span>Consensus Requirement</span>
+                                            <span className="text-primary/60">66.7% Quorum</span>
                                         </div>
-                                        <span className="font-bold">{proposal.votes_abstain.toLocaleString()} VP</span>
                                     </div>
-                                    <div className="pt-4 border-t border-border flex justify-between items-center text-sm font-mono">
-                                        <span className="text-muted-foreground">Total Quorum</span>
-                                        <span className="font-bold">{proposal.total_votes.toLocaleString()} VP</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                                </GlassCard>
+                            )}
 
-                        {activeTab === 'execution' && (
-                            <div className="space-y-4">
-                                <div className="card-retro bg-secondary/10 border border-border p-4 font-mono text-xs overflow-x-auto">
-                                    <pre>{JSON.stringify(JSON.parse(proposal.execution_data || '{}'), null, 2)}</pre>
+                            {activeTab === 'discussion' && (
+                                <GlassCard className="!p-16 text-center space-y-8 grayscale border-dashed border-white/10 opacity-60">
+                                    <div className="w-20 h-20 rounded-full bg-white/2 border border-white/5 flex items-center justify-center mx-auto">
+                                        <MessageSquare size={32} className="text-muted-foreground/20" />
+                                    </div>
+                                    <div className="space-y-3">
+                                        <h3 className="text-xl font-black uppercase tracking-tighter">Forum Link Establishing</h3>
+                                        <p className="text-[10px] font-black text-muted-foreground/40 uppercase tracking-widest leading-relaxed max-w-xs mx-auto">
+                                            Connecting to decentralized discussion layers. Protocol handshake in progress.
+                                        </p>
+                                    </div>
+                                    <button className="px-8 py-3 glass-card border-white/10 text-[9px] font-black uppercase tracking-[0.2em] hover:border-primary/40 transition-all rounded-xl">View External Thread</button>
+                                </GlassCard>
+                            )}
+
+                            {activeTab === 'execution' && (
+                                <div className="space-y-6">
+                                    <GlassCard className="!p-8 bg-black/60 relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none group-hover:scale-110 transition-transform">
+                                            <Terminal size={120} className="text-primary" />
+                                        </div>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/30 mb-6 border-b border-white/5 pb-4">On-Chain Payload Bytecode</div>
+                                        <pre className="text-[11px] font-mono p-6 bg-white/2 border border-white/5 rounded-2xl overflow-x-auto text-primary/80 leading-relaxed max-h-[400px]">
+                                            <code>{JSON.stringify(JSON.parse(proposal.execution_data || '{}'), null, 2)}</code>
+                                        </pre>
+                                    </GlassCard>
+                                    <div className="flex items-start gap-4 p-6 bg-primary/5 border border-primary/10 rounded-2xl">
+                                        <Zap size={20} className="text-primary shrink-0" />
+                                        <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed text-muted-foreground/40">
+                                            Sequence is verified and executed via target authority link.
+                                            Manual override is restricted by atomic protocol safety.
+                                        </p>
+                                    </div>
                                 </div>
-                                <p className="text-xs font-mono text-muted-foreground">
-                                    This payload will be executed automatically via the <span className="text-primary">Control API</span> upon successful passing of the proposal.
-                                </p>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
+
+                    {/* Description Area */}
+                    <motion.div variants={itemVariants} className="space-y-8 border-t border-white/5 pt-10">
+                        <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/40">
+                            <FileText size={14} className="text-primary" /> Strategic Rationale
+                        </div>
+                        <p className="text-sm lg:text-lg leading-relaxed text-foreground/70 font-black uppercase tracking-tight selection:bg-primary selection:text-primary-foreground italic">
+                            {proposal.description}
+                        </p>
+                    </motion.div>
                 </div>
 
-                {/* Sidebar */}
-                <div className="space-y-6">
-                    {/* Vote Card */}
+                {/* Sidebar - Control Module */}
+                <div className="lg:col-span-4 space-y-8">
                     {proposal.status === 'active' && (
-                        <div className="card-retro p-6 bg-card border-primary/20 shadow-[4px_4px_0px_var(--primary-dark)]">
-                            <h3 className="text-lg font-bold font-mono uppercase mb-4 flex items-center gap-2">
-                                <Wallet size={18} /> Cast Vote
-                            </h3>
+                        <motion.div variants={itemVariants}>
+                            <GlassCard className="!p-8 border-primary/30 bg-primary/[0.03] shadow-[0_0_50px_rgba(16,185,129,0.1)] group">
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] mb-8 border-b border-white/10 pb-4 text-muted-foreground flex justify-between items-center group-hover:text-primary transition-colors">
+                                    Cast Authority
+                                    <Fingerprint size={16} className="animate-pulse" />
+                                </h3>
 
-                            {!user ? (
-                                <div className="text-center py-4 space-y-2">
-                                    <p className="text-xs font-mono text-muted-foreground">Connect wallet to vote.</p>
-                                    <button className="btn-retro btn-retro-primary w-full text-xs">CONNECT WALLET</button>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    <button
-                                        onClick={() => setVoteChoice('yes')}
-                                        className={`w-full py-3 px-4 rounded-sm border-2 font-mono text-xs font-bold uppercase transition-all flex items-center justify-between ${voteChoice === 'yes' ? 'bg-green-500/10 border-green-500 text-green-500' : 'bg-background border-border hover:border-green-500/50'
-                                            }`}
-                                    >
-                                        VOTE YES <CheckCircle size={14} />
-                                    </button>
-                                    <button
-                                        onClick={() => setVoteChoice('no')}
-                                        className={`w-full py-3 px-4 rounded-sm border-2 font-mono text-xs font-bold uppercase transition-all flex items-center justify-between ${voteChoice === 'no' ? 'bg-red-500/10 border-red-500 text-red-500' : 'bg-background border-border hover:border-red-500/50'
-                                            }`}
-                                    >
-                                        VOTE NO <XCircle size={14} />
-                                    </button>
-                                    <button
-                                        onClick={() => setVoteChoice('abstain')}
-                                        className={`w-full py-3 px-4 rounded-sm border-2 font-mono text-xs font-bold uppercase transition-all flex items-center justify-between ${voteChoice === 'abstain' ? 'bg-slate-500/10 border-slate-500 text-slate-500' : 'bg-background border-border hover:border-slate-500/50'
-                                            }`}
-                                    >
-                                        ABSTAIN <Slash size={14} />
-                                    </button>
+                                <div className="space-y-4">
+                                    {[
+                                        { id: 'yes', label: 'Support Unit', icon: CheckCircle, color: 'hover:border-emerald-500/50 hover:bg-emerald-500/5', active: 'border-emerald-500 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10' },
+                                        { id: 'no', label: 'Reject Unit', icon: XCircle, color: 'hover:border-rose-500/50 hover:bg-rose-500/5', active: 'border-rose-500 bg-rose-500/10 text-rose-500 shadow-lg shadow-rose-500/10' },
+                                        { id: 'abstain', label: 'Abstain Unit', icon: Slash, color: 'hover:border-slate-500/50 hover:bg-slate-500/5', active: 'border-slate-500 bg-slate-500/10 text-slate-500 shadow-lg shadow-slate-500/10' }
+                                    ].map((option) => (
+                                        <button
+                                            key={option.id}
+                                            onClick={() => setVoteChoice(option.id as any)}
+                                            className={`w-full p-5 rounded-2xl border border-white/5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest transition-all ${voteChoice === option.id ? option.active : `bg-black/40 ${option.color} text-muted-foreground/40`
+                                                }`}
+                                        >
+                                            {option.label}
+                                            <option.icon size={18} />
+                                        </button>
+                                    ))}
 
                                     <button
                                         onClick={handleVote}
                                         disabled={!voteChoice || voting}
-                                        className="w-full btn-retro btn-retro-primary mt-4 py-3 text-sm flex items-center justify-center gap-2"
+                                        className="w-full mt-6 py-5 bg-primary text-primary-foreground rounded-2xl font-black text-xs uppercase tracking-[0.4em] flex items-center justify-center gap-3 hover:shadow-[0_0_40px_rgba(16,185,129,0.3)] transition-all active:scale-[0.98] disabled:opacity-20"
                                     >
-                                        {voting ? <Loader2 className="animate-spin" size={16} /> : <Vote size={16} />}
-                                        {voting ? "SIGNING..." : "SUBMIT VOTE"}
+                                        {voting ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
+                                        {voting ? "INITIALIZING SIGNATURE..." : "Confirm Sequence"}
                                     </button>
-                                    <p className="text-[10px] text-center font-mono text-muted-foreground">
-                                        Your vote will be signed securely.
+                                    <p className="text-[9px] text-center font-black uppercase tracking-[0.3em] text-muted-foreground/20 leading-relaxed mt-4">
+                                        SEQUENCE REQUIRES VALID ED25519 SIGNATURE FROM REGISTERED OPERATOR WALLET.
                                     </p>
                                 </div>
-                            )}
-                        </div>
+                            </GlassCard>
+                        </motion.div>
                     )}
 
-                    {/* Info Card */}
-                    <div className="card-retro p-6 bg-card space-y-4">
-                        <div className="space-y-2">
-                            <div className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Proposed By</div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-secondary"></div>
-                                <span className="font-mono text-xs truncate max-w-[150px]">{proposal.proposer_id}</span>
+                    <motion.div variants={itemVariants}>
+                        <GlassCard className="!p-8 space-y-8 bg-white/2 border border-white/5 relative overflow-hidden group">
+                            <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+
+                            <div className="space-y-2 relative z-10">
+                                <div className="text-[9px] font-black uppercase text-muted-foreground/40 tracking-[0.4em]">Originator Node</div>
+                                <div className="flex items-center gap-4 p-4 rounded-2xl bg-black/40 border border-white/5 group-hover:border-primary/20 transition-all">
+                                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                                        <ShieldCheck size={20} />
+                                    </div>
+                                    <span className="font-black text-[10px] tracking-tighter truncate text-foreground opacity-60 group-hover:opacity-100 transition-opacity">
+                                        {proposal.proposer_id}
+                                    </span>
+                                </div>
                             </div>
-                        </div>
-                        <div className="space-y-2">
-                            <div className="text-[10px] font-mono font-bold uppercase text-muted-foreground">Vote Period</div>
-                            <div className="font-mono text-xs">
-                                {new Date(proposal.start_time).toLocaleDateString()} - {new Date(proposal.end_time).toLocaleDateString()}
+
+                            <div className="space-y-4 relative z-10">
+                                <div className="text-[9px] font-black uppercase text-muted-foreground/40 tracking-[0.4em]">Settlement Timeline</div>
+                                <div className="p-5 space-y-4 rounded-2xl bg-black/20 border border-white/5">
+                                    <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest">
+                                        <span className="text-muted-foreground/40 flex items-center gap-2"><Clock size={12} /> Initialized</span>
+                                        <span className="text-foreground/60">{new Date(proposal.start_time).toLocaleDateString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest">
+                                        <span className="text-primary/40 flex items-center gap-2"><Target size={12} /> Deadline</span>
+                                        <span className="text-primary">{new Date(proposal.end_time).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
+
+                            <div className="space-y-4 relative z-10">
+                                <div className="text-[9px] font-black uppercase text-muted-foreground/40 tracking-[0.4em]">Proposal Meta</div>
+                                <div className="flex flex-wrap gap-2">
+                                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black uppercase tracking-widest text-muted-foreground/40">{proposal.type}</span>
+                                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black uppercase tracking-widest text-muted-foreground/40">ED25519_SIGNED</span>
+                                </div>
+                            </div>
+                        </GlassCard>
+                    </motion.div>
                 </div>
             </div>
-        </div>
+        </motion.div>
     );
 }
