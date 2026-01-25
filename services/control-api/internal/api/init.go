@@ -8,9 +8,15 @@ import (
 	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/events"
+	"github.com/proxyhubb/control-api/internal/worker"
 )
 
 var (
+	// agentDispatcher is the global singleton for agent job orchestration
+	agentDispatcher *worker.AgentTaskDispatcher
+	// agentOnce ensures thread-safe initialization
+	agentOnce sync.Once
+
 	// configManager is the global singleton for dynamic configuration
 	configManager *config.ConfigManager
 	// configOnce ensures thread-safe initialization
@@ -89,4 +95,16 @@ func InitConfigManager(m *config.ConfigManager) {
 // GetConfigManager returns the global config manager
 func GetConfigManager() *config.ConfigManager {
 	return configManager
+}
+
+// InitAgentDispatcher initializes the global agent dispatcher
+func InitAgentDispatcher(d *worker.AgentTaskDispatcher) {
+	agentOnce.Do(func() {
+		agentDispatcher = d
+	})
+}
+
+// GetAgentDispatcher returns the global agent dispatcher
+func GetAgentDispatcher() *worker.AgentTaskDispatcher {
+	return agentDispatcher
 }

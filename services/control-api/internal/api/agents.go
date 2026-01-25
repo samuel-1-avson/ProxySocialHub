@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -114,7 +115,24 @@ func ExecuteAgentJob(c *gin.Context) {
 		return
 	}
 
-	// TODO: Dispatch to worker queue (Redis/Asynq)
-	// For now, we just acknowledge the queueing
-	c.JSON(http.StatusAccepted, gin.H{"message": "Job queued", "job_id": job.ID})
+	// 3. Dispatch to Redis Queue (Phase 13 Orchestration)
+	dispatcher := GetAgentDispatcher()
+	if dispatcher != nil {
+		if err := dispatcher.DispatchJob(c.Request.Context(), job.ID); err != nil {
+			log.Printf("[API] Failed to dispatch AgentJob=%s: %v", job.ID, err)
+			// Don't fail the request if it's in DB, but notify of queue delay
+			c.JSON(http.StatusAccepted, gin.H{
+				"message": "Job created but queue dispatch delayed",
+				"job_id":  job.ID,
+				"status":  "pending",
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Job queued for autonomous execution",
+		"job_id":  job.ID,
+		"status":  "queued",
+	})
 }
