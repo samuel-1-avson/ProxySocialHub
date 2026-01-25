@@ -16,7 +16,11 @@ import {
     Hexagon,
     ChevronRight,
     TrendingUp,
-    ShieldCheck
+    ShieldCheck,
+    Globe,
+    Layers,
+    Server,
+    Radar
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SmartMatchWidget } from "@/components/SmartMatchWidget";
@@ -86,201 +90,220 @@ export default function MarketplacePage() {
             variants={containerVariants}
             initial="hidden"
             animate="show"
-            className="min-h-screen bg-[#09090b] text-foreground p-8 md:p-12 space-y-12 font-mono selection:bg-primary/30"
+            className="space-y-16 pb-32 font-mono selection:bg-primary/30"
         >
-            {/* V3 Alpha-Terminal Header */}
-            <motion.header variants={itemVariants} className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8 border-b border-white/5 pb-12">
-                <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_30px_rgba(16,185,129,0.1)] group relative overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            <Cpu size={32} className="text-primary relative z-10" />
+            {/* Tactical Protocol Header */}
+            <motion.header variants={itemVariants} className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-12 border-b border-white/5 pb-16">
+                <div className="space-y-6">
+                    <div className="flex items-center gap-5">
+                        <div className="w-20 h-20 rounded-[2rem] bg-gradient-to-br from-primary/20 to-emerald-500/5 flex items-center justify-center border border-primary/20 shadow-2xl group relative overflow-hidden">
+                            <div className="absolute inset-0 bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <Radar size={40} className="text-primary group-hover:scale-110 transition-transform duration-500" />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.4em] mb-1">
-                                <Hexagon size={12} className="animate-spin-slow" /> Protocol Acquisition
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-3 text-primary text-[10px] font-black uppercase tracking-[0.5em] mb-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                Protocol Registry // Sector Active
                             </div>
-                            <h1 className="text-5xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">Node Market</h1>
-                            <p className="text-muted-foreground/40 font-mono text-[10px] mt-2 flex items-center gap-3 uppercase tracking-tighter">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Global Liquidity Pool V3.1 // Sector Active
+                            <h1 className="text-6xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary via-emerald-400 to-white">Node Market</h1>
+                            <p className="text-muted-foreground/30 font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
+                                Total Grid Capacity: <span className="text-foreground/60">{total.toLocaleString()} Units</span>
                             </p>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-8 glass-card !p-6 border border-white/5 bg-white/2 backdrop-blur-3xl !rounded-3xl shadow-2xl">
-                    <div className="text-center px-6 border-r border-white/5">
-                        <div className="text-3xl font-black tracking-tighter">{total}</div>
-                        <div className="text-[9px] text-muted-foreground/40 uppercase tracking-[0.2em] font-black">Active Grid</div>
+                <div className="flex flex-wrap items-center gap-10">
+                    <div className="flex items-center gap-10 p-6 px-10 glass-card border-white/5 bg-white/[0.02] rounded-[2.5rem] shadow-2xl backdrop-blur-3xl">
+                        <div className="space-y-1">
+                            <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Global Liquidity</div>
+                            <div className="text-3xl font-black tracking-tighter text-white">99.9<span className="text-sm opacity-20 ml-1">%</span></div>
+                        </div>
+                        <div className="w-px h-10 bg-white/5" />
+                        <div className="space-y-1">
+                            <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Registry State</div>
+                            <div className="text-[11px] font-black uppercase text-emerald-500 flex items-center gap-2">
+                                <Activity size={12} className="animate-pulse" /> Normalized
+                            </div>
+                        </div>
                     </div>
-                    <div className="text-center px-6 border-r border-white/5 text-emerald-500">
-                        <div className="text-3xl font-black tracking-tighter">99.9%</div>
-                        <div className="text-[9px] text-muted-foreground/40 uppercase tracking-[0.2em] font-black">Uptime index</div>
-                    </div>
+
                     {user?.role === 'provider' && (
-                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                            <Link href="/marketplace/create" className="px-8 py-4 rounded-2xl bg-primary text-primary-foreground font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-xl hover:shadow-primary/20 transition-all">
-                                <Plus size={18} /> Sell Nodes
-                            </Link>
-                        </motion.div>
+                        <Link href="/marketplace/create" className="group relative px-10 py-5 rounded-[1.8rem] bg-primary text-primary-foreground font-black text-xs uppercase tracking-[0.3em] flex items-center gap-3 shadow-2xl shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-[0.98]">
+                            <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+                            Submit Sequence
+                        </Link>
                     )}
                 </div>
             </motion.header>
 
-            {/* Smart Match - Elevated UI */}
-            <motion.section variants={itemVariants} className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-emerald-500/20 rounded-[2.5rem] blur-2xl opacity-20 group-hover:opacity-40 transition duration-1000"></div>
-                <div className="relative">
+            {/* Neural Context Hub */}
+            <motion.section variants={itemVariants}>
+                <div className="relative group">
+                    <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
                     <SmartMatchWidget />
                 </div>
             </motion.section>
 
-            {/* Marketplace Grid Controls */}
-            <motion.div variants={itemVariants} className="sticky top-6 z-40 flex flex-col lg:flex-row gap-6 items-center justify-between p-6 glass-card border border-white/10 !bg-black/60 backdrop-blur-3xl !rounded-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)]">
-                <div className="flex gap-3 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 px-2">
-                    {['', 'residential', 'mobile', 'datacenter'].map((type) => (
-                        <button
-                            key={type}
-                            onClick={() => {
-                                setFilters({ ...filters, proxy_type: type });
-                                setPage(1);
-                            }}
-                            className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border whitespace-nowrap ${filters.proxy_type === type
-                                ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                                : 'bg-white/5 border-white/5 text-muted-foreground/40 hover:text-foreground hover:border-white/20'
-                                }`}
-                        >
-                            {type === '' ? 'Global Pool' : type}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="flex items-center gap-4 w-full lg:w-auto border-t lg:border-t-0 lg:border-l border-white/5 pt-4 lg:pt-0 lg:pl-6">
-                    <button
-                        onClick={() => {
-                            setFilters({ proxy_type: "", sort_by: "newest", country: "", min_price: "", max_price: "" });
-                            setPage(1);
-                        }}
-                        className="p-3 rounded-2xl bg-white/5 border border-white/10 text-muted-foreground/40 hover:text-primary hover:border-primary/50 transition-all"
-                    >
-                        <Filter size={18} />
-                    </button>
-                    <div className="relative flex-1 lg:flex-none">
-                        <select
-                            className="w-full lg:w-[200px] bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest rounded-2xl px-5 py-3 outline-none focus:border-primary/50 text-foreground/80 appearance-none cursor-pointer"
-                            value={filters.sort_by}
-                            onChange={(e) => {
-                                setFilters({ ...filters, sort_by: e.target.value });
-                                setPage(1);
-                            }}
-                        >
-                            <option value="newest">Latest Signals</option>
-                            <option value="price_asc">Rate: Ascending</option>
-                            <option value="price_desc">Rate: Descending</option>
-                            <option value="popular">Trust Rating</option>
-                        </select>
-                        <ChevronRight size={14} className="absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-muted-foreground/30 pointer-events-none" />
+            {/* Grid Control Interface */}
+            <div className="space-y-10">
+                <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 items-center justify-between p-2 glass-card border border-white/10 !bg-white/[0.01] backdrop-blur-3xl rounded-[2.5rem] shadow-2xl">
+                    <div className="flex flex-wrap gap-2 p-1.5 flex-1">
+                        {[
+                            { id: '', label: 'Global Grid', icon: Globe },
+                            { id: 'residential', label: 'Residential', icon: Server },
+                            { id: 'mobile', label: 'Mobile Mesh', icon: Zap },
+                            { id: 'datacenter', label: 'Vault Data', icon: Layers }
+                        ].map((type) => (
+                            <button
+                                key={type.id}
+                                onClick={() => {
+                                    setFilters({ ...filters, proxy_type: type.id });
+                                    setPage(1);
+                                }}
+                                className={`px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all gap-3 flex items-center whitespace-nowrap ${filters.proxy_type === type.id
+                                    ? 'bg-primary text-primary-foreground shadow-xl shadow-primary/20'
+                                    : 'text-muted-foreground/40 hover:text-foreground hover:bg-white/5'
+                                    }`}
+                            >
+                                <type.icon size={14} className={filters.proxy_type === type.id ? 'opacity-100' : 'opacity-20'} />
+                                {type.label}
+                            </button>
+                        ))}
                     </div>
-                </div>
-            </motion.div>
 
-            {/* Error Interface */}
-            <AnimatePresence>
-                {error && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="p-6 glass-card border border-rose-500/20 bg-rose-500/5 text-rose-500 text-[10px] font-black uppercase tracking-[0.2em] flex justify-between items-center rounded-3xl"
-                    >
-                        <div className="flex items-center gap-4">
-                            <Zap size={16} className="animate-pulse" />
-                            SIGNAL INTERRUPTION: {error}
-                        </div>
-                        <button onClick={fetchListings} className="px-4 py-2 bg-rose-500/10 rounded-xl hover:bg-rose-500/20 transition-all">RESCAN GRID</button>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Listings Grid */}
-            <AnimatePresence mode="wait">
-                {loading ? (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="py-60 flex flex-col items-center justify-center space-y-8"
-                    >
+                    <div className="flex items-center gap-4 p-2 pl-6 border-l border-white/5">
+                        <button
+                            onClick={() => {
+                                setFilters({ proxy_type: "", sort_by: "newest", country: "", min_price: "", max_price: "" });
+                                setPage(1);
+                            }}
+                            className="p-4 rounded-2xl bg-white/5 border border-white/5 text-muted-foreground/30 hover:text-primary hover:border-primary/40 transition-all"
+                            title="Reset Parameters"
+                        >
+                            <Filter size={18} />
+                        </button>
                         <div className="relative">
+                            <select
+                                className="bg-black/40 border border-white/5 text-[10px] font-black uppercase tracking-widest rounded-2xl px-8 py-4 outline-none focus:border-primary/40 text-foreground/60 appearance-none cursor-pointer min-w-[240px] transition-all"
+                                value={filters.sort_by}
+                                onChange={(e) => {
+                                    setFilters({ ...filters, sort_by: e.target.value });
+                                    setPage(1);
+                                }}
+                            >
+                                <option value="newest">LATEST_SYNC_SIGNALS</option>
+                                <option value="price_asc">RATE_INT_ASCENDING</option>
+                                <option value="price_desc">RATE_INT_DESCENDING</option>
+                                <option value="popular">TRUST_CRED_RATING</option>
+                            </select>
+                            <ChevronRight size={14} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-white/10 pointer-events-none" />
+                        </div>
+                    </div>
+                </motion.div>
+
+                {/* Grid Visualizer */}
+                <div className="min-h-[600px] relative">
+                    <AnimatePresence mode="wait">
+                        {error && (
                             <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                                className="w-24 h-24 border-t-2 border-r-2 border-primary rounded-full"
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center">
-                                <Loader2 className="w-8 h-8 animate-spin text-primary opacity-50" />
+                                initial={{ opacity: 0, y: -20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="mb-10 p-6 glass-card border-rose-500/20 bg-rose-500/5 text-rose-500 text-[10px] font-black uppercase tracking-[0.3em] flex justify-between items-center rounded-3xl"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <Zap size={16} className="animate-pulse" />
+                                    SIGNAL INTERRUPTION: {error}
+                                </div>
+                                <button onClick={fetchListings} className="px-6 py-2 bg-rose-500/10 rounded-xl hover:bg-rose-500/20 transition-all border border-rose-500/20">RESCAN_SECTOR</button>
+                            </motion.div>
+                        )}
+
+                        {loading ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="py-40 flex flex-col items-center justify-center space-y-10"
+                            >
+                                <div className="relative w-32 h-32">
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                                        className="absolute inset-0 border-b-2 border-primary rounded-full"
+                                    />
+                                    <motion.div
+                                        animate={{ rotate: -360 }}
+                                        transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                                        className="absolute inset-4 border-t-2 border-primary/20 rounded-full"
+                                    />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <Loader2 className="animate-spin text-primary/40" size={32} />
+                                    </div>
+                                </div>
+                                <p className="text-[10px] font-black text-muted-foreground/20 uppercase tracking-[0.8em] animate-pulse">Syncing Grid Segments...</p>
+                            </motion.div>
+                        ) : listings.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="py-60 text-center border border-dashed border-white/5 rounded-[4rem] bg-white/[0.01]"
+                            >
+                                <Database size={80} className="mx-auto text-white/5 mb-10" />
+                                <h3 className="font-black text-3xl uppercase tracking-tighter opacity-80">Grid Sector Dark</h3>
+                                <p className="font-black text-[10px] text-muted-foreground/30 mt-6 uppercase tracking-[0.4em] max-w-sm mx-auto leading-relaxed">
+                                    No node signatures detected in the current filter spectrum. Reset parameters or wait for mesh sync.
+                                </p>
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8"
+                            >
+                                {listings.map((listing) => (
+                                    <ListingCard
+                                        key={listing.id}
+                                        listing={listing}
+                                        onSelect={setSelectedListing}
+                                    />
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+
+                {/* Tactical Pagination */}
+                {total > 20 && (
+                    <motion.footer variants={itemVariants} className="flex justify-center items-center gap-10 pt-32">
+                        <button
+                            onClick={() => setPage(Math.max(1, page - 1))}
+                            disabled={page === 1}
+                            className="w-16 h-16 rounded-[1.8rem] bg-white/[0.02] border border-white/5 flex items-center justify-center text-white hover:border-primary/40 transition-all disabled:opacity-10 group"
+                        >
+                            <ChevronRight size={24} className="rotate-180 group-hover:-translate-x-1 transition-transform" />
+                        </button>
+
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">Sector Access</div>
+                            <div className="text-2xl font-black text-white px-10 py-3 rounded-2xl bg-white/5 border border-white/5">
+                                {page} <span className="opacity-10 mx-3">/</span> {Math.ceil(total / 20)}
                             </div>
                         </div>
-                        <p className="font-mono text-[11px] text-muted-foreground/30 uppercase tracking-[0.5em] animate-pulse">Scanning Grid Segments...</p>
-                    </motion.div>
-                ) : listings.length === 0 ? (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="py-40 text-center border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]"
-                    >
-                        <Database size={64} className="mx-auto text-white/5 mb-8" />
-                        <p className="font-black text-2xl uppercase tracking-tighter opacity-80">Zero Nodes Detected</p>
-                        <p className="font-mono text-[10px] text-muted-foreground/30 mt-4 uppercase tracking-[0.3em] max-w-sm mx-auto">
-                            The requested sector is currently dark. Adjust filters or wait for mesh synchronization.
-                        </p>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10"
-                    >
-                        {listings.map((listing) => (
-                            <ListingCard
-                                key={listing.id}
-                                listing={listing}
-                                onSelect={setSelectedListing}
-                            />
-                        ))}
-                    </motion.div>
+
+                        <button
+                            onClick={() => setPage(page + 1)}
+                            disabled={page >= Math.ceil(total / 20)}
+                            className="w-16 h-16 rounded-[1.8rem] bg-primary/20 border border-primary/30 text-primary flex items-center justify-center font-black disabled:opacity-5 group shadow-2xl shadow-primary/10"
+                        >
+                            <ChevronRight size={24} className="group-hover:translate-x-1 transition-transform" />
+                        </button>
+                    </motion.footer>
                 )}
-            </AnimatePresence>
+            </div>
 
-            {/* Deep Pagination */}
-            {total > 20 && (
-                <motion.footer variants={itemVariants} className="flex justify-center gap-8 pt-20">
-                    <motion.button
-                        whileHover={{ scale: 1.1, x: -5 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => setPage(Math.max(1, page - 1))}
-                        disabled={page === 1}
-                        className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40 disabled:opacity-10 hover:bg-white/10 transition-all font-black"
-                    >
-                        <div className="rotate-180"><ChevronRight size={24} /></div>
-                    </motion.button>
-                    <div className="h-14 px-10 rounded-2xl bg-white/5 border border-white/5 flex items-center font-mono font-black text-xs uppercase tracking-[0.4em] text-muted-foreground/40 shadow-xl">
-                        Sector <span className="text-primary ml-4 mr-1 text-lg">{page}</span> / {Math.ceil(total / 20)}
-                    </div>
-                    <motion.button
-                        whileHover={{ scale: 1.1, x: 5 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => setPage(page + 1)}
-                        disabled={page >= Math.ceil(total / 20)}
-                        className="w-14 h-14 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center font-black disabled:opacity-20 shadow-xl shadow-primary/20"
-                    >
-                        <ChevronRight size={24} />
-                    </motion.button>
-                </motion.footer>
-            )}
-
-            {/* Acquisition Protocol Modal */}
+            {/* Acquisition Protocol Overlay */}
             <AnimatePresence>
                 {selectedListing && (
                     <BuyListingModal
