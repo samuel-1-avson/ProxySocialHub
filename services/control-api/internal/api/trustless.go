@@ -2,10 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
-	"os"
 	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -383,41 +384,51 @@ func verifySignature(c *gin.Context) {
 // submitProofToSolana submits a usage proof to the Solana blockchain
 // Returns (txHash, slot, error)
 func submitProofToSolana(ctx context.Context, proof *models.UsageProof) (string, int64, error) {
-	// Get the settlement client
-	treasuryAddress := solana.GetTreasuryAddress()
-	if treasuryAddress == "" {
-		// If no treasury configured, mark as pending
-		logging.Warn().Str("proof_id", proof.ID.String()).Msg("No treasury address configured, proof pending")
-		return "", 0, nil
+	service := solana.GetProofService()
+	if service == nil {
+		return "", 0, fmt.Errorf("ProofService not initialized")
 	}
 
-	// In production, this would:
-	// 1. Serialize the usage proof data
-	// 2. Call the Solana program's submit_usage_proof instruction
-	// 3. Sign with the oracle/system keypair
-	// 4. Broadcast and confirm the transaction
+	// We need the Escrow PDA. In a real scenario, this would be stored in the session or order.
+	// For this flow, we'll derive it from buyer and seller wallet if possible,
+	// but ideally the proof model should have it.
 
-	// For now, we use the settlement package to batch proofs
-	// The settlement worker will pick these up and submit them
-
-	programID := os.Getenv("SOLANA_PROGRAM_ID")
-	if programID == "" {
-		logging.Warn().Msg("SOLANA_PROGRAM_ID not configured, using pending submission")
-		// Return empty to indicate deferred/pending submission
-		return "", 0, nil
+	// Assuming the session/order linked to the proof has the necessary info.
+	var session models.Session
+	if err := db.DB.Preload("Listing").Where("id = ?", proof.SessionID).First(&session).Error; err != nil {
+		return "", 0, fmt.Errorf("failed to find session: %w", err)
 	}
 
-	// TODO: Implement actual Solana program submission
-	// This would use the solana-go SDK to build and submit the transaction
-	// For now, log and return pending status
+	buyerPubKey, err := solanaGo.PublicKeyFromBase58(proof.BuyerWallet)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid buyer wallet: %w", err)
+	}
 
-	logging.Info().
-		Str("proof_id", proof.ID.String()).
-		Str("session_id", proof.SessionID.String()).
-		Int64("bytes", proof.TotalBytes).
-		Msg("Usage proof queued for on-chain submission")
+	sellerPubKey, err := solanaGo.PublicKeyFromBase58(proof.ProviderWallet)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid provider wallet: %w", err)
+	}
 
-	// Return empty to indicate the proof is pending batch submission
-	// The settlement worker will handle actual submission
-	return "", 0, nil
+	oracle := solana.GetOracle()
+	escrowPDA, _, err := oracle.GetEscrowPDA(buyerPubKey, sellerPubKey)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to derive escrow PDA: %w", err)
+	}
+
+	// Construct usage statement
+	statement := &solana.UsageStatement{
+		EscrowPDA:   escrowPDA,
+		TotalBytes:  uint64(proof.TotalBytes),
+		PeriodStart: proof.PeriodStart.Unix(),
+		PeriodEnd:   proof.PeriodEnd.Unix(),
+	}
+
+	// Submit to chain
+	// Note: We use 0 as proof index for now, should be tracked per escrow
+	txHash, err := service.SubmitProofToChain(ctx, statement, 0)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return txHash, 0, nil
 }

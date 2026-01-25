@@ -301,9 +301,12 @@ func main() {
 
 	// Try to load oracle client, but don't crash if keypair missing (dev mode)
 	if oracleClient, err := solanaClient.NewOracleClient(oracleConfig); err == nil {
+		solanaClient.InitStakingService(oracleClient)
+		solanaClient.InitProofService(oracleClient)
+
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
-		log.Println("Liquidity Manager started")
+		log.Println("Liquidity Manager, Staking and Proof services started")
 	} else {
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
