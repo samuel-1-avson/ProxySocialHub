@@ -170,9 +170,10 @@ export function initiateSmartContractPayment(orderId: string) {
 /**
  * Get user's orders
  */
-export function getOrders(status?: Order['status']) {
+export async function getOrders(status?: Order['status']) {
     const params = status ? { status } : undefined;
-    return apiGet<Order[]>('/v1/orders', params);
+    const data = await apiGet<Order[] | { orders: Order[] }>('/v1/orders', params);
+    return Array.isArray(data) ? data : data.orders || [];
 }
 
 /**

@@ -41,7 +41,8 @@ export interface FeedEvent {
  * Get unified social feed
  */
 export async function getFeed() {
-    return apiGet<FeedEvent[]>('/v1/social/feed');
+    const data = await apiGet<{ events: FeedEvent[] }>('/v1/social/feed');
+    return data.events || [];
 }
 
 /**
@@ -49,7 +50,7 @@ export async function getFeed() {
  */
 export async function getConversations() {
     const data = await apiGet<{ conversations: ConversationWithPreview[] }>('/v1/conversations');
-    return data.conversations;
+    return data.conversations || [];
 }
 
 /**
@@ -57,7 +58,7 @@ export async function getConversations() {
  */
 export async function getMessages(conversationId: string) {
     const data = await apiGet<{ messages: Message[] }>(`/v1/conversations/${conversationId}/messages`);
-    return data.messages;
+    return data.messages || [];
 }
 
 /**
@@ -78,5 +79,6 @@ export async function startConversation(recipientId: string, message: string) {
  * List verified friends for session sharing
  */
 export async function listFriends() {
-    return apiGet<Friendship[]>('/v1/social/friends');
+    const data = await apiGet<{ friends: Friendship[] }>('/v1/social/friends');
+    return data.friends || [];
 }

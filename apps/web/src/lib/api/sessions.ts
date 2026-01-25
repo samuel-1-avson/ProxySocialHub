@@ -64,8 +64,12 @@ export interface UsageStats {
 /**
  * Get all user sessions
  */
-export function getSessions() {
-    return apiGet<Session[]>('/v1/sessions');
+export async function getSessions() {
+    const data = await apiGet<{ sessions: any[] }>('/v1/sessions');
+    if (data && Array.isArray(data.sessions)) {
+        return data.sessions.map((item: any) => item.session || item) as Session[];
+    }
+    return [] as Session[];
 }
 
 /**

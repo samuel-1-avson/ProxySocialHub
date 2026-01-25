@@ -32,14 +32,16 @@ export interface AgentInstance {
  * List available agents in the marketplace
  */
 export async function getMarketAgents() {
-    return apiGet<MarketAgent[]>('/v1/agents/marketplace');
+    const data = await apiGet<MarketAgent[]>('/v1/agents/marketplace');
+    return Array.isArray(data) ? data : (data as any).agents || [];
 }
 
 /**
  * List user's rented agent instances
  */
 export async function getMyAgents() {
-    return apiGet<AgentInstance[]>('/v1/agents/my');
+    const data = await apiGet<AgentInstance[]>('/v1/agents/my');
+    return Array.isArray(data) ? data : (data as any).instances || [];
 }
 
 /**
