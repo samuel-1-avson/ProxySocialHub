@@ -9,15 +9,16 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastContainer } from "@/components/Toast";
 import { SkipLink } from "@/components/Accessibility";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+// Replaced Google Fonts with a standard system stack to fix Docker build errors (Network/DNS issues)
+// const geistSans = Geist({
+//   variable: "--font-geist-sans",
+//   subsets: ["latin"],
+// });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// const geistMono = Geist_Mono({
+//   variable: "--font-geist-mono",
+//   subsets: ["latin"],
+// });
 
 export const metadata: Metadata = {
   title: "ProxyHub - Ghana's Premium Proxy Marketplace",
@@ -34,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className="antialiased"
       >
         <SkipLink />
         <ThemeProvider
