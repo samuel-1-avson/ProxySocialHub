@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/cache"
+	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -58,68 +58,38 @@ func getListings(c *gin.Context) {
 		return
 	}
 
-	page := getPageParam(c, 1)
-	limit := getLimitParam(c, 20)
-	offset := (page - 1) * limit
+	// Map query params to filters map
+	filters := make(map[string]interface{})
+	if pt := c.Query("proxy_type"); pt != "" {
+		filters["proxy_type"] = pt
+	}
+	// ... add other filters as needed by the service implementation ...
 
-	query := db.DB.Model(&models.ProxyListing{}).
-		Where("status = ?", models.ListingStatusActive).
-		Preload("Seller")
-
-	// Apply filters
-	if proxyType := c.Query("proxy_type"); proxyType != "" {
-		query = query.Where("proxy_type = ?", proxyType)
-	}
-	if protocol := c.Query("protocol"); protocol != "" {
-		query = query.Where("protocol = ?", protocol)
-	}
-	if minPrice := c.Query("min_price"); minPrice != "" {
-		query = query.Where("price_per_gb >= ?", minPrice)
-	}
-	if maxPrice := c.Query("max_price"); maxPrice != "" {
-		query = query.Where("price_per_gb <= ?", maxPrice)
-	}
-	if sellerID := c.Query("seller_id"); sellerID != "" {
-		query = query.Where("seller_id = ?", sellerID)
-	}
-	if country := c.Query("country"); country != "" {
-		query = query.Where("country = ?", country)
-	}
-	if isp := c.Query("isp"); isp != "" {
-		query = query.Where("isp ILIKE ?", "%"+isp+"%") // Case-insensitive search
-	}
-	if rotation := c.Query("rotation_type"); rotation != "" {
-		query = query.Where("rotation_type = ?", rotation)
-	}
-
-	// Sorting
-	switch c.Query("sort_by") {
-	case "price_asc":
-		query = query.Order("price_per_gb ASC")
-	case "price_desc":
-		query = query.Order("price_per_gb DESC")
-	case "popular":
-		query = query.Order("orders_count DESC")
-	case "newest":
-		query = query.Order("created_at DESC")
-	default:
-		query = query.Order("created_at DESC")
-	}
-
-	var total int64
-	db.DB.Model(&models.ProxyListing{}).Where("status = ?", models.ListingStatusActive).Count(&total)
-
-	var listings []models.ProxyListing
-	if err := query.Offset(offset).Limit(limit).Find(&listings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch listings"})
+	entities, total, err := GetMarketplaceService().BrowseMarket(c.Request.Context(), filters)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to browse marketplace"})
 		return
 	}
 
+	// Map domain entities back to API response models
+	apiListings := make([]models.ProxyListing, len(entities))
+	for i, e := range entities {
+		apiListings[i] = models.ProxyListing{
+			ID:                   e.ID,
+			SellerID:             e.SellerID,
+			Title:                e.Title,
+			PricePerGB:           e.PricePerGB,
+			AvailableBandwidthGB: e.AvailableBandwidthGB,
+			Status:               models.ListingStatus(e.Status),
+			QualityScore:         e.QualityScore,
+		}
+	}
+
 	response := ListingsResponse{
-		Listings: listings,
+		Listings: apiListings,
 		Total:    total,
-		Page:     page,
-		Limit:    limit,
+		Page:     getPageParam(c, 1),
+		Limit:    getLimitParam(c, 20),
 	}
 
 	// Cache result (60 seconds)
@@ -197,101 +167,29 @@ func createListing(c *gin.Context) {
 		return
 	}
 
-	// Check if user is a provider
-	var user models.User
-	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	if user.Role != "provider" && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Only providers can create listings"})
-		return
-	}
-
 	var req models.CreateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Manual normalization and validation
-	req.Protocol = strings.ToUpper(req.Protocol)
-	if req.Protocol != "HTTP" && req.Protocol != "HTTPS" && req.Protocol != "SOCKS5" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid protocol"})
-		return
-	}
-	if req.ProxyType != "residential" && req.ProxyType != "mobile" && req.ProxyType != "datacenter" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proxy type"})
-		return
-	}
-
-	// Set provider_since if not already set
-	if user.ProviderSince == nil {
-		now := time.Now()
-		db.DB.Model(&user).Update("provider_since", now)
-	}
-
-	// Marshal bulk discounts
-	discountsJSON, _ := json.Marshal(req.BulkDiscounts)
-
-	listing := models.ProxyListing{
-		SellerID:             userID,
+	// Modernized call to Core Service
+	entity := domain.ListingEntity{
 		Title:                req.Title,
 		Description:          req.Description,
-		ProxyType:            req.ProxyType,
-		Protocol:             req.Protocol,
-		RotationType:         req.RotationType,
-		Country:              req.Country,
-		ISP:                  req.ISP,
 		PricePerGB:           req.PricePerGB,
-		MinPurchaseGB:        req.MinPurchaseGB,
-		BulkDiscounts:        discountsJSON,
 		AvailableBandwidthGB: req.AvailableBandwidthGB,
-		MaxConcurrency:       req.MaxConcurrency,
-		Status:               models.ListingStatusActive,
+		ProxyType:            domain.ProxyType(req.ProxyType),
+		Protocol:             req.Protocol,
 	}
 
-	if listing.MinPurchaseGB == 0 {
-		listing.MinPurchaseGB = 1
-	}
-	if listing.MaxConcurrency == 0 {
-		listing.MaxConcurrency = 5
-	}
-
-	tx := db.DB.Begin()
-
-	if err := tx.Create(&listing).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create listing"})
+	published, err := GetMarketplaceService().PublishListing(c.Request.Context(), userID, entity)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Create feed event
-	feedEvent := models.FeedEvent{
-		ActorID:    &userID,
-		EventType:  models.FeedEventNewListing,
-		TargetType: "listing",
-		TargetID:   &listing.ID,
-		Content:    listing.Title,
-	}
-	tx.Create(&feedEvent)
-
-	tx.Commit()
-
-	// Real-time Feed Broadcast & Cache
-	go func() {
-		// Preload actor for the feed event to ensure complete data
-		var fullEvent models.FeedEvent
-		if err := db.DB.Preload("Actor").First(&fullEvent, "id = ?", feedEvent.ID).Error; err == nil {
-			PublishFeedEvent(fullEvent)
-		}
-	}()
-
-	// Reload with seller
-	db.DB.Preload("Seller").First(&listing, "id = ?", listing.ID)
-
-	c.JSON(http.StatusCreated, listing)
+	c.JSON(http.StatusCreated, published)
 }
 
 // updateListing updates an existing listing

@@ -232,3 +232,28 @@ h6 {
 .animate-grid-fade {
   animation: grid-fade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Industrial Visual Accents V3 */
+.glass-industrial {
+  background: rgba(20, 20, 21, 0.6);
+  backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scanline-effect {
+  background: linear-gradient(
+    to bottom,
+    transparent 50%,
+    rgba(0, 255, 127, 0.02) 50%
+  );
+  background-size: 100% 4px;
+}
+
+.blinking-cursor::after {
+  content: '|';
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}

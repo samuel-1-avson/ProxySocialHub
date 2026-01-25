@@ -31,7 +31,7 @@ export interface Listing {
     seller_id: string;
     title: string;
     description: string;
-    proxy_type: 'residential' | 'mobile' | 'datacenter';
+    proxy_type: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | 'both';
     protocol: string;
     price_per_gb: number;
     min_purchase_gb: number;

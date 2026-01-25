@@ -34,6 +34,8 @@ type RedisClient interface {
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	LTrim(ctx context.Context, key string, start, stop int64) *redis.StatusCmd
 	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
+	SAdd(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
+	SRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
 }
 
 const Nil = redis.Nil
@@ -86,9 +88,7 @@ func initCluster(redisURL string) error {
 	addrs := strings.Split(redisURL, ",")
 	for i, addr := range addrs {
 		addr = strings.TrimSpace(addr)
-		if strings.HasPrefix(addr, "redis://") {
-			addr = strings.TrimPrefix(addr, "redis://")
-		}
+		addr = strings.TrimPrefix(addr, "redis://")
 		addrs[i] = addr
 	}
 	client := redis.NewClusterClient(&redis.ClusterOptions{

@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -38,23 +39,30 @@ func Init() error {
 		return fmt.Errorf("failed to initialize JetStream: %w", err)
 	}
 
-	// Create persistent stream if not exists
-	streamName := "SESSIONS"
-	subjects := []string{"proxy.sessions.v1.>"}
+	// Create persistent streams
+	streams := []struct {
+		name     string
+		subjects []string
+	}{
+		{name: "SESSIONS", subjects: []string{"proxy.sessions.v1.>"}},
+		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}},
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     streamName,
-		Subjects: subjects,
-		Storage:  jetstream.FileStorage,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create JetStream stream: %w", err)
+	for _, s := range streams {
+		_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+			Name:     s.name,
+			Subjects: s.subjects,
+			Storage:  jetstream.FileStorage,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create JetStream stream %s: %w", s.name, err)
+		}
 	}
 
-	log.Printf("Successfully connected to NATS and initialized stream %s", streamName)
+	log.Printf("Successfully connected to NATS and initialized streams")
 
 	Conn = nc
 	JS = js
@@ -79,4 +87,19 @@ func Close() {
 	if Conn != nil {
 		Conn.Close()
 	}
+}
+
+// Publish serializes and sends an event to the specified NATS subject
+func Publish(ctx context.Context, subject string, data interface{}) error {
+	if JS == nil {
+		return fmt.Errorf("JetStream not initialized")
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	_, err = JS.Publish(ctx, subject, jsonData)
+	return err
 }
