@@ -400,14 +400,10 @@ export default function UnifiedWalletPage() {
                                 <div className="p-6 glass-card bg-white/5 border-white/10 rounded-2xl group transition-all hover:bg-white/10">
                                     <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">Estimated ROI (L2 Streaming)</p>
                                     <div className="text-2xl font-black font-mono text-emerald-500 flex items-baseline gap-1">
-                                        + $<VestingTicker base={0} rate={0.00001} />
+                                        + $0.00000
                                     </div>
                                     <div className="mt-4 h-0.5 bg-emerald-500/20 w-full overflow-hidden rounded-full">
-                                        <motion.div
-                                            animate={{ x: [-100, 100] }}
-                                            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                                            className="h-full w-12 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,1)]"
-                                        />
+                                        <div className="h-full w-full bg-emerald-500/10" />
                                     </div>
                                 </div>
 
@@ -433,7 +429,7 @@ export default function UnifiedWalletPage() {
                                 </div>
                                 <div className="flex justify-between items-end border-b border-white/5 pb-4">
                                     <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Cumulative Flow</span>
-                                    <span className="text-2xl font-black font-mono tracking-tighter">$<VestingTicker base={0} rate={0.00005} /></span>
+                                    <span className="text-2xl font-black font-mono tracking-tighter">$0.00</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-2">
@@ -455,7 +451,7 @@ export default function UnifiedWalletPage() {
                                 <span className="text-[10px] font-black font-mono uppercase text-emerald-500 tracking-[0.2em]">Sentinel Protocol</span>
                             </div>
                             <p className="text-[10px] font-mono text-emerald-500/70 leading-relaxed uppercase font-bold">
-                                Monitoring audit trails. Multi-signature consensus cleared 15,302 transitions. No anomalies detected.
+                                Monitoring treasury audit trails. Multi-signature consensus active. System synchronized.
                             </p>
                         </motion.div>
                     </motion.div>
@@ -463,19 +459,4 @@ export default function UnifiedWalletPage() {
             )}
         </motion.div>
     );
-}
-
-// Utility Component for real-time tickers
-function VestingTicker({ base, rate }: { base: number, rate: number }) {
-    const [val, setVal] = useState(base);
-
-    useEffect(() => {
-        if (rate === 0) return;
-        const interval = setInterval(() => {
-            setVal(v => v + rate);
-        }, 100);
-        return () => clearInterval(interval);
-    }, [rate]);
-
-    return <span>{val.toFixed(5)}</span>;
 }
