@@ -345,8 +345,11 @@ func listTransactions(c *gin.Context) {
 
 	var transactions []models.ExplorerTransaction
 	if err := query.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&transactions).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Failed to fetch transactions")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Proxy Explorer: Failed to fetch transactions"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listTransactions")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch transactions",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -477,7 +480,11 @@ func getWalletTransactions(c *gin.Context) {
 
 	var transactions []models.ExplorerTransaction
 	if err := query.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&transactions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch transactions"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for getWalletTransactions")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch wallet transactions",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -525,7 +532,11 @@ func listBlocks(c *gin.Context) {
 
 	var blocks []models.ExplorerBlock
 	if err := query.Order("block_number DESC").Offset(offset).Limit(pageSize).Find(&blocks).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch blocks"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listBlocks")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch blocks",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -637,7 +648,11 @@ func listExplorerNodes(c *gin.Context) {
 
 	var nodes []models.ExplorerNode
 	if err := query.Order("uptime_percent DESC").Offset(offset).Limit(pageSize).Find(&nodes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch nodes"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listExplorerNodes")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch nodes",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -716,7 +731,11 @@ func listExplorerValidators(c *gin.Context) {
 
 	var validators []models.ExplorerNode
 	if err := query.Order("stake_amount DESC").Offset(offset).Limit(pageSize).Find(&validators).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch validators"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listExplorerValidators")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch validators",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -772,7 +791,11 @@ func listContracts(c *gin.Context) {
 
 	var contracts []models.ExplorerContract
 	if err := query.Order("total_calls DESC").Offset(offset).Limit(pageSize).Find(&contracts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch contracts"})
+		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listContracts")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Proxy Explorer: Failed to fetch contracts",
+			"details": err.Error(),
+		})
 		return
 	}
 
