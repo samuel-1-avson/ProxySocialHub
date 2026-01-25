@@ -21,6 +21,15 @@ type SettleEscrowParams struct {
 	BandwidthUsedGB uint64
 }
 
+// SubmitUsageProofParams contains parameters for submitting a usage proof
+type SubmitUsageProofParams struct {
+	EscrowPDA   sol.PublicKey
+	ProofIndex  uint32
+	TotalBytes  uint64
+	PeriodStart int64
+	PeriodEnd   int64
+}
+
 // SettleEscrow creates and sends a settle_escrow transaction
 // This transfers funds proportionally: used portion to seller, remainder to buyer
 func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowParams) (string, error) {
@@ -85,6 +94,144 @@ func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Ins
 		},
 		data: data,
 	}
+}
+
+// EmergencyRefund executes an emergency refund after timeout
+func (c *OracleClient) EmergencyRefund(ctx context.Context, params RefundEscrowParams) (string, error) {
+	// Instruction discriminator for "emergency_refund"
+	discriminator := []byte{119, 215, 203, 76, 12, 10, 205, 59}
+
+	instruction := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: params.Buyer, IsSigner: true, IsWritable: true},
+			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
+		},
+		data: discriminator,
+	}
+
+	// This would be signed by the buyer, but for testing we use oracle if it has authority
+	// In production, the frontend handles buyer signing.
+	return c.sendInstruction(ctx, instruction)
+}
+
+// SlashStakeParams contains parameters for slashing
+type SlashStakeParams struct {
+	ProviderWallet sol.PublicKey
+	Amount         uint64
+}
+
+// SlashStake executes a slash_stake instruction
+func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) (string, error) {
+	// Instruction discriminator for "slash_stake"
+	discriminator := []byte{216, 57, 137, 237, 208, 127, 26, 172}
+
+	stakePDA, _, _ := sol.FindProgramAddress(
+		[][]byte{[]byte("stake"), params.ProviderWallet.Bytes()},
+		c.programID,
+	)
+
+	adminConfigPDA, _, _ := sol.FindProgramAddress(
+		[][]byte{[]byte("admin_config")},
+		c.programID,
+	)
+
+	// Encode amount
+	data := make([]byte, 8+8)
+	copy(data[0:8], discriminator)
+	for i := 0; i < 8; i++ {
+		data[8+i] = byte(params.Amount >> (8 * i))
+	}
+
+	instruction := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false}, // admin
+			{PublicKey: stakePDA, IsSigner: false, IsWritable: true},
+			{PublicKey: c.oracleKey.PublicKey(), IsSigner: false, IsWritable: true}, // oracle_wallet (payout)
+			{PublicKey: adminConfigPDA, IsSigner: false, IsWritable: false},
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
+		},
+		data: data,
+	}
+
+	return c.sendInstruction(ctx, instruction)
+}
+
+// SubmitUsageProof executes a submit_usage_proof instruction
+func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageProofParams) (string, error) {
+	// Instruction discriminator for "submit_usage_proof"
+	discriminator := []byte{142, 105, 140, 164, 42, 63, 114, 219}
+
+	usageProofPDA, _, _ := sol.FindProgramAddress(
+		[][]byte{
+			[]byte("usage_proof"),
+			params.EscrowPDA.Bytes(),
+			{byte(params.ProofIndex), byte(params.ProofIndex >> 8), byte(params.ProofIndex >> 16), byte(params.ProofIndex >> 24)},
+		},
+		c.programID,
+	)
+
+	// Encode data (Disc + index(u32) + bytes(u64) + start(i64) + end(i64))
+	data := make([]byte, 8+4+8+8+8)
+	copy(data[0:8], discriminator)
+	for i := 0; i < 4; i++ {
+		data[8+i] = byte(params.ProofIndex >> (8 * i))
+	}
+	for i := 0; i < 8; i++ {
+		data[12+i] = byte(params.TotalBytes >> (8 * i))
+	}
+	for i := 0; i < 8; i++ {
+		data[20+i] = byte(uint64(params.PeriodStart) >> (8 * i))
+	}
+	for i := 0; i < 8; i++ {
+		data[28+i] = byte(uint64(params.PeriodEnd) >> (8 * i))
+	}
+
+	instruction := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true}, // submitter
+			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
+			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},
+			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false},
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
+		},
+		data: data,
+	}
+
+	return c.sendInstruction(ctx, instruction)
+}
+
+// sendInstruction is a helper to sign and send an instruction
+func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Instruction) (string, error) {
+	recentBlockhash, err := c.rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", err
+	}
+
+	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(c.oracleKey.PublicKey()))
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
+		if key.Equals(c.oracleKey.PublicKey()) {
+			return &c.oracleKey
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	sig, err := c.rpcClient.SendTransaction(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+
+	return sig.String(), nil
 }
 
 // RefundEscrowParams contains the parameters for refunding an escrow
