@@ -37,7 +37,12 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 	instruction := c.buildSettleInstruction(params)
 
 	// Get recent blockhash
-	recentBlockhash, err := c.rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	var recentBlockhash *rpc.GetLatestBlockhashResult
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
@@ -64,9 +69,71 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 	}
 
 	// Send transaction
-	sig, err := c.rpcClient.SendTransaction(ctx, tx)
+	var sig sol.Signature
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		sig, err = client.SendTransaction(ctx, tx)
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to send transaction: %w", err)
+	}
+
+	return sig.String(), nil
+}
+
+// BatchSettleEscrows builds and sends a transaction with multiple settle_escrow instructions
+func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEscrowParams) (string, error) {
+	if len(batch) == 0 {
+		return "", fmt.Errorf("empty batch")
+	}
+
+	instructions := make([]sol.Instruction, len(batch))
+	for i, params := range batch {
+		instructions[i] = c.buildSettleInstruction(params)
+	}
+
+	// Get recent blockhash
+	var recentBlockhash *rpc.GetLatestBlockhashResult
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+		return err
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+
+	// Build transaction with all instructions
+	tx, err := sol.NewTransaction(
+		instructions,
+		recentBlockhash.Value.Blockhash,
+		sol.TransactionPayer(c.oracleKey.PublicKey()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to build batch transaction: %w", err)
+	}
+
+	// Sign transaction
+	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
+		if key.Equals(c.oracleKey.PublicKey()) {
+			return &c.oracleKey
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to sign batch transaction: %w", err)
+	}
+
+	// Send transaction
+	var sig sol.Signature
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		sig, err = client.SendTransaction(ctx, tx)
+		return err
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to send batch transaction: %w", err)
 	}
 
 	return sig.String(), nil
@@ -206,7 +273,12 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 
 // sendInstruction is a helper to sign and send an instruction
 func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Instruction) (string, error) {
-	recentBlockhash, err := c.rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	var recentBlockhash *rpc.GetLatestBlockhashResult
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +298,12 @@ func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Inst
 		return "", err
 	}
 
-	sig, err := c.rpcClient.SendTransaction(ctx, tx)
+	var sig sol.Signature
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		sig, err = client.SendTransaction(ctx, tx)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}

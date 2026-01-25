@@ -474,11 +474,6 @@ func seedSystemConfig() {
 			Value:       os.Getenv("SOLANA_TREASURY_ADDRESS"),
 			Description: "Central Treasury Wallet for Solana Deposits",
 		},
-		{
-			Key:         "treasury_wallet_bittensor",
-			Value:       os.Getenv("TAO_TREASURY_ADDRESS"),
-			Description: "Central Treasury Wallet for Bittensor Deposits",
-		},
 	}
 
 	for _, c := range configs {

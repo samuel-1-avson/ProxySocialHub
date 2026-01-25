@@ -193,12 +193,24 @@ func verifyCryptoDeposit(c *gin.Context) {
 		logging.Info().Str("tx", req.TxHash).Str("dest", req.DestinationAddress).Msg("Initiating Direct Bridge")
 
 		// Initialize Bridge Service (On-the-fly)
-		cfg := solana.Config{
-			RPCEndpoint:       os.Getenv("SOLANA_RPC_ENDPOINT"),
-			OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
+		endpointsStr := os.Getenv("SOLANA_RPC_ENDPOINTS")
+		var rpcEndpoints []string
+		if endpointsStr != "" {
+			rpcEndpoints = strings.Split(endpointsStr, ",")
+			for i := range rpcEndpoints {
+				rpcEndpoints[i] = strings.TrimSpace(rpcEndpoints[i])
+			}
+		} else {
+			rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+			if rpcEndpoint == "" {
+				rpcEndpoint = "https://api.devnet.solana.com"
+			}
+			rpcEndpoints = []string{rpcEndpoint}
 		}
-		if cfg.RPCEndpoint == "" {
-			cfg.RPCEndpoint = "https://api.devnet.solana.com"
+
+		cfg := solana.Config{
+			RPCEndpoints:      rpcEndpoints,
+			OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
 		}
 
 		oracleClient, err := solana.NewOracleClient(cfg)

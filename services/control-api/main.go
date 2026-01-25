@@ -77,23 +77,35 @@ func main() {
 		log.Println("OpenTelemetry tracing initialized")
 	}
 
-	// Initialize Solana Oracle (optional)
-	if err := solanaClient.InitOracleFromEnv(); err != nil {
-		log.Printf("Warning: Failed to init Solana oracle: %v", err)
+	// --- Solana Initialization (Phase 5 Infrastructure) ---
+	endpointsStr := os.Getenv("SOLANA_RPC_ENDPOINTS")
+	var rpcEndpoints []string
+	if endpointsStr != "" {
+		rpcEndpoints = strings.Split(endpointsStr, ",")
+		for i := range rpcEndpoints {
+			rpcEndpoints[i] = strings.TrimSpace(rpcEndpoints[i])
+		}
+	} else {
+		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+		if rpcEndpoint == "" {
+			rpcEndpoint = "https://api.devnet.solana.com"
+		}
+		rpcEndpoints = []string{rpcEndpoint}
 	}
 
-	// Initialize Solana Event Watcher (optional)
-	rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-	if rpcEndpoint == "" {
-		rpcEndpoint = "https://api.devnet.solana.com"
-	}
 	wsEndpoint := os.Getenv("SOLANA_WS_ENDPOINT")
 	if wsEndpoint == "" {
 		wsEndpoint = "wss://api.devnet.solana.com"
 	}
 
+	// 1. Initialize Global Oracle (API Handlers)
+	if err := solanaClient.InitOracleFromEnv(); err != nil {
+		log.Printf("Warning: Failed to init Solana oracle: %v", err)
+	}
+
+	// 2. Initialize Event Watcher
 	if err := solanaClient.InitWatcher(solanaClient.WatcherConfig{
-		RPCEndpoint:  rpcEndpoint,
+		RPCEndpoints: rpcEndpoints,
 		WSEndpoint:   wsEndpoint,
 		PollInterval: 30 * time.Second,
 	}); err != nil {
@@ -285,15 +297,10 @@ func main() {
 	log.Println("Marketplace Core Service initialized")
 
 	// Start Liquidity Manager (Phase 5.2)
-	// Needs authentic Oracle Client instance, not just global init
 	oracleConfig := solanaClient.Config{
-		RPCEndpoint:       os.Getenv("SOLANA_RPC_ENDPOINT"),
+		RPCEndpoints:      rpcEndpoints,
 		OracleKeypairPath: os.Getenv("SOLANA_ORACLE_KEYPAIR"),
 		Network:           "devnet",
-	}
-	// Defaults if empty
-	if oracleConfig.RPCEndpoint == "" {
-		oracleConfig.RPCEndpoint = "https://api.devnet.solana.com"
 	}
 	if oracleConfig.OracleKeypairPath == "" {
 		oracleConfig.OracleKeypairPath = "oracle-keypair.json"
@@ -306,7 +313,12 @@ func main() {
 
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
-		log.Println("Liquidity Manager, Staking and Proof services started")
+
+		wt := treasury.NewWatchtower()
+		gp := treasury.NewGhostProber(wt)
+		gp.StartProbingLoop(context.Background(), 5*time.Minute)
+
+		log.Println("Liquidity Manager, Ghost Prober, Staking and Proof services started")
 	} else {
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
