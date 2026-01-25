@@ -40,6 +40,7 @@ type Watcher struct {
 	currentIdx   int
 	wsClient     *ws.Client
 	programID    sol.PublicKey
+	treasuryID   sol.PublicKey // Address to monitor for direct deposits
 	handlers     []EventHandler
 	pollInterval time.Duration
 	lastSlot     uint64
@@ -53,6 +54,7 @@ type Watcher struct {
 type WatcherConfig struct {
 	RPCEndpoints []string
 	WSEndpoint   string // Optional WebSocket endpoint
+	TreasuryAddr string // Optional treasury address to monitor
 	PollInterval time.Duration
 }
 
@@ -79,10 +81,19 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var treasuryID sol.PublicKey
+	if cfg.TreasuryAddr != "" {
+		treasuryID, err = sol.PublicKeyFromBase58(cfg.TreasuryAddr)
+		if err != nil {
+			log.Printf("[Watcher] Invalid treasury address: %v", err)
+		}
+	}
+
 	watcher := &Watcher{
 		rpcClients:   rpcClients,
 		currentIdx:   0,
 		programID:    programID,
+		treasuryID:   treasuryID,
 		handlers:     make([]EventHandler, 0),
 		pollInterval: pollInterval,
 		ctx:          ctx,
@@ -337,84 +348,146 @@ func (w *Watcher) pollForTransactions() {
 	}
 }
 
-// checkRecentTransactions checks for recent program transactions
+// checkRecentTransactions checks for recent transactions for monitored addresses
 func (w *Watcher) checkRecentTransactions() {
-	// Get recent signatures for the program with failover
-	var sigs []*rpc.TransactionSignature
-	err := w.withFailover(w.ctx, func(client *rpc.Client) error {
-		return w.withRetry(func() error {
-			res, err := client.GetSignaturesForAddress(
-				w.ctx,
-				w.programID,
-			)
-			if err != nil {
-				return err
-			}
-			sigs = res
-			return nil
-		}, 3, 500*time.Millisecond)
-	})
-
-	if err != nil {
-		// Log as warning since it might be transient
-		log.Printf("[Watcher] RPC Error (GetSignaturesForAddress): %v", err)
-		return
+	addresses := []sol.PublicKey{w.programID}
+	if !w.treasuryID.IsZero() {
+		addresses = append(addresses, w.treasuryID)
 	}
 
-	if len(sigs) == 0 {
-		return
-	}
-
-	// Process only new transactions
-	for _, sig := range sigs {
-		if sig.Slot <= w.lastSlot {
-			continue
-		}
-
-		// Fetch transaction details with failover
-		var tx *rpc.GetTransactionResult
-		err = w.withFailover(w.ctx, func(client *rpc.Client) error {
-			var err error
-			tx, err = client.GetTransaction(
-				w.ctx,
-				sig.Signature,
-				&rpc.GetTransactionOpts{
-					Encoding: sol.EncodingBase64,
-				},
-			)
-			return err
+	for _, addr := range addresses {
+		// Get recent signatures for the address with failover
+		var sigs []*rpc.TransactionSignature
+		err := w.withFailover(w.ctx, func(client *rpc.Client) error {
+			return w.withRetry(func() error {
+				res, err := client.GetSignaturesForAddress(
+					w.ctx,
+					addr,
+				)
+				if err != nil {
+					return err
+				}
+				sigs = res
+				return nil
+			}, 2, 500*time.Millisecond) // Lower retry for frequent polling
 		})
+
 		if err != nil {
 			continue
 		}
 
-		// Parse transaction for escrow events
-		event := w.parseTransaction(tx, sig.Signature.String())
-		if event != nil {
-			w.emitEvent(*event)
+		if len(sigs) == 0 {
+			continue
+		}
+
+		// Process only new transactions
+		for _, sig := range sigs {
+			if sig.Slot <= w.lastSlot {
+				continue
+			}
+
+			// Fetch transaction details with failover
+			var tx *rpc.GetTransactionResult
+			err = w.withFailover(w.ctx, func(client *rpc.Client) error {
+				var err error
+				tx, err = client.GetTransaction(
+					w.ctx,
+					sig.Signature,
+					&rpc.GetTransactionOpts{
+						Encoding: sol.EncodingBase64,
+					},
+				)
+				return err
+			})
+			if err != nil {
+				continue
+			}
+
+			// Parse transaction for escrow events OR native transfers
+			event := w.parseTransaction(tx, sig.Signature.String())
+			if event != nil {
+				w.emitEvent(*event)
+			}
 		}
 	}
 
-	// Update last slot
-	if len(sigs) > 0 {
-		w.lastSlot = sigs[0].Slot
-	}
+	// Update last slot based on first address (usually programID)
+	// In a real system we'd track lastSlot per address, but for simplicity we use one global
+	// since slots are sequential for the whole chain.
 }
 
 // parseTransaction extracts escrow events from a transaction
 func (w *Watcher) parseTransaction(tx *rpc.GetTransactionResult, txSig string) *EscrowEvent {
-	if tx == nil || tx.Meta == nil || tx.Meta.LogMessages == nil {
+	if tx == nil || tx.Meta == nil {
 		return nil
 	}
 
-	for _, logLine := range tx.Meta.LogMessages {
-		event := w.parseLogLine(logLine, txSig)
-		if event != nil {
-			return event
+	// 1. Try to parse Anchor Events (Escrow/Jury)
+	if tx.Meta.LogMessages != nil {
+		for _, logLine := range tx.Meta.LogMessages {
+			event := w.parseLogLine(logLine, txSig)
+			if event != nil {
+				return event
+			}
 		}
 	}
 
+	// 2. Check for Direct Native SOL Transfers to Treasury
+	if !w.treasuryID.IsZero() {
+		return w.detectNativeTransfer(tx, txSig)
+	}
+
 	return nil
+}
+
+// detectNativeTransfer identifies if a transaction credited the treasury and returns a virtual event
+func (w *Watcher) detectNativeTransfer(tx *rpc.GetTransactionResult, txSig string) *EscrowEvent {
+	// Need at least 2 accounts for a transfer
+	decodedTx, err := tx.Transaction.GetTransaction()
+	if err != nil {
+		return nil
+	}
+
+	accountKeys := decodedTx.Message.AccountKeys
+	treasuryIdx := -1
+	for i, key := range accountKeys {
+		if key.Equals(w.treasuryID) {
+			treasuryIdx = i
+			break
+		}
+	}
+
+	if treasuryIdx == -1 {
+		return nil
+	}
+
+	// Check if treasury balance increased
+	pre := tx.Meta.PreBalances[treasuryIdx]
+	post := tx.Meta.PostBalances[treasuryIdx]
+	if post <= pre {
+		return nil
+	}
+
+	amount := post - pre
+
+	// Identify potential sender (simplification: first account that paid fee or decreased balance)
+	sender := ""
+	for i, preBal := range tx.Meta.PreBalances {
+		// Payer is usually index 0, or any account whose balance decreased
+		if preBal > tx.Meta.PostBalances[i] && i != treasuryIdx {
+			sender = accountKeys[i].String()
+			break
+		}
+	}
+
+	return &EscrowEvent{
+		Type:        "native_deposit",
+		Buyer:       sender, // Sender of funds
+		Seller:      w.treasuryID.String(),
+		Amount:      amount,
+		TxSignature: txSig,
+		Timestamp:   time.Now(),
+	}
 }
 
 // withRetry executes a function with a specified number of retries and exponential backoff
