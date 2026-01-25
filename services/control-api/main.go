@@ -288,7 +288,7 @@ func main() {
 	// Needs authentic Oracle Client instance, not just global init
 	oracleConfig := solanaClient.Config{
 		RPCEndpoint:       os.Getenv("SOLANA_RPC_ENDPOINT"),
-		OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
+		OracleKeypairPath: os.Getenv("SOLANA_ORACLE_KEYPAIR"),
 		Network:           "devnet",
 	}
 	// Defaults if empty

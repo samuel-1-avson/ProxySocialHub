@@ -32,6 +32,11 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
+      - SOLANA_ORACLE_KEYPAIR=${SOLANA_ORACLE_KEYPAIR}
+      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT}
+      - SOLANA_NETWORK=${SOLANA_NETWORK}
+    volumes:
+      - ./infra:/root/infra:ro
     depends_on:
       redis:
         condition: service_healthy
