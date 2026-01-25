@@ -48,9 +48,9 @@ impl SessionAuthenticator {
     }
 
     /// Validate session and return session data if valid
-    pub async fn validate_session(&self, username: &str) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
+    pub async fn validate_session(&self, username: &str, force_refresh: bool) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
         // Check cache first
-        {
+        if !force_refresh {
             let cache = self.cache.read().await;
             if let Some(cached) = cache.get(username) {
                 if cached.cached_at.elapsed() < self.cache_ttl {

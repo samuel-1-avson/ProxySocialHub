@@ -22,7 +22,8 @@ mod rotation;
 mod state;
 mod tls;
 mod tunnel;
-mod registry; // Register the new module
+mod registry;
+mod qos;
 
 use crate::auth::SessionAuthenticator;
 use crate::circuitbreaker::{CircuitConfig, CircuitError};
@@ -68,7 +69,7 @@ async fn proxy(
         let (session_username, session_data) = match credentials {
             Some((username, _password)) => {
                 // Validate session in Redis
-                match authenticator.validate_session(&username).await {
+                match authenticator.validate_session(&username, false).await {
                     Ok(Some(session)) => {
                         info!("✅ Authenticated session: {} (Role: {}, Tier: {}, Type: {})", 
                             username, session.user_id, session.trust_tier, session.session_type);
@@ -323,29 +324,89 @@ async fn bridge_to_provider(
         
         Ok(stream)
     }).await {
-        Ok(mut stream) => {
+        Ok(stream) => {
             info!("🔗 Connected to provider {} for {}", node_id, addr);
             
             // Bridge connections
             use tokio_util::compat::FuturesAsyncReadCompatExt;
-            let mut stream = stream.compat();
+            let stream = stream.compat();
+            
+            // Wrap with Traffic Shaper (QoS)
+            let mut stream = state.shaper.wrap(stream, username.clone());
+            
             let mut upgraded = TokioIo::new(upgraded);
             
-            // Measure bandwidth for load balancing stats
+            // Measure bandwidth for load balancing + Enforcement
             let start = std::time::Instant::now();
             
-            let (from_client, from_provider) = tokio::io::copy_bidirectional(&mut upgraded, &mut stream).await?;
+            let mut from_client = 0u64;
+            let mut from_provider = 0u64;
+            let mut last_reval_total = 0u64;
+            let reval_threshold = 100 * 1024 * 1024; // 100MB
+
+            let mut buf_cp = [0u8; 16384];
+            let mut buf_pc = [0u8; 16384];
+
+            // Perform manual bidirectional copy with enforcement
+            let res = loop {
+                tokio::select! {
+                    read_res = tokio::io::AsyncReadExt::read(&mut upgraded, &mut buf_cp) => {
+                        match read_res {
+                            Ok(0) => break Ok(()), // EOF
+                            Ok(n) => {
+                                if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut stream, &buf_cp[..n]).await {
+                                    break Err(e);
+                                }
+                                from_client += n as u64;
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    }
+                    read_res = tokio::io::AsyncReadExt::read(&mut stream, &mut buf_pc) => {
+                        match read_res {
+                            Ok(0) => break Ok(()), // EOF
+                            Ok(n) => {
+                                if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut upgraded, &buf_pc[..n]).await {
+                                    break Err(e);
+                                }
+                                from_provider += n as u64;
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    }
+                }
+
+                // Enforcement Check
+                let total = from_client + from_provider;
+                if total - last_reval_total > reval_threshold {
+                    last_reval_total = total;
+                    // Force re-validation against Redis (bypass cache)
+                    match auth_clone.validate_session(&username, true).await {
+                        Ok(Some(_)) => {
+                            // Still good
+                        }
+                        _ => {
+                            warn!("🛑 Session {} limit reached or status changed. Terminating.", username);
+                            break Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Bandwidth limit reached"));
+                        }
+                    }
+                }
+            };
+
+            if let Err(e) = res {
+                if e.kind() != std::io::ErrorKind::PermissionDenied {
+                    error!("Bridge error: {}", e);
+                }
+                // Don't necessarily return error if it's just a clean close
+            }
             
             // Update node stats
             let duration = start.elapsed().as_secs_f64();
             if duration > 0.0 {
                 let _bytes_per_sec = (from_client + from_provider) as f64 / duration;
-                // Update bandwidth in registry (need a method for this)
-                // Since this is heavy, maybe we skip or optimize
-                // state.registry.lock().unwrap().update_bandwidth(node_id, bytes_per_sec)
             }
             
-            // Report to Auth (Legacy/Backup)
+            // Report final usage
             let total_bytes = from_client + from_provider;
             if let Err(e) = auth_clone.report_usage(&username, total_bytes as i64).await {
                 error!("Failed to report usage: {}", e);

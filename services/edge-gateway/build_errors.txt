@@ -1,0 +1,61 @@
+    Checking edge-gateway v0.1.0 (C:\Users\samue\Desktop\project\proxyhubb\services\edge-gateway)
+warning: unused import: `AsyncCommands`
+ --> src\leader.rs:5:21
+  |
+5 | use redis::{Client, AsyncCommands};
+  |                     ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+ --> src\tls.rs:3:5
+  |
+3 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `prelude::*`
+ --> src\qos.rs:2:16
+  |
+2 | use governor::{prelude::*, Quota, RateLimiter};
+  |                ^^^^^^^^^^
+
+warning: variable `auth_stream_handle` is assigned to, but never used
+  --> src\tunnel.rs:96:13
+   |
+96 |     let mut auth_stream_handle: Option<yamux::Stream> = None;
+   |             ^^^^^^^^^^^^^^^^^^
+   |
+   = note: consider using `_auth_stream_handle` instead
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `auth_stream_handle` is never read
+   --> src\tunnel.rs:124:33
+    |
+124 | ...                   auth_stream_handle = Some(stream); // Keep stream open or close? Usually keep open or close gracefully.
+    |                       ^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+error[E0515]: cannot return value referencing function parameter `n`
+   --> src\tunnel.rs:199:87
+    |
+199 |                 if let Some(city_name) = city.city.and_then(|c| c.names).and_then(|n| n.get("en")) {
+    |                                                                                       -^^^^^^^^^^
+    |                                                                                       |
+    |                                                                                       returns a value referencing data owned by the current function
+    |                                                                                       `n` is borrowed here
+
+warning: variable does not need to be mutable
+   --> src\main.rs:327:12
+    |
+327 |         Ok(mut stream) => {
+    |            ----^^^^^^
+    |            |
+    |            help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0515`.
+warning: `edge-gateway` (bin "edge-gateway") generated 6 warnings
+error: could not compile `edge-gateway` (bin "edge-gateway") due to 1 previous error; 6 warnings emitted
