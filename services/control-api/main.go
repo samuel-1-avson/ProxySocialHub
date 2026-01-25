@@ -202,6 +202,7 @@ func main() {
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterReputationRoutes(v1) // Phase 9.2 Trust Layer
+		api.RegisterExplorerRoutes(v1)   // System Explorer (Public blockchain explorer)
 	}
 
 	// Protected Routes (Require Authentication)
