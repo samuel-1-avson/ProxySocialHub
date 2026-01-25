@@ -30,11 +30,11 @@ export default function AgentsPage() {
     const handleRent = async (agent: MarketAgent) => {
         setRentingId(agent.id);
         try {
-            await rentAgent(agent.id, `${agent.name} Instance`, {});
+            await rentAgent(agent.id);
             alert(`${agent.name} has been added to your instances.`);
         } catch (error) {
             console.error('Failed to rent agent:', error);
-            alert('Rental Failed. Ensure you have enough balance in your TAO wallet.');
+            alert('Rental Failed. Ensure you have enough balance in your SOL/USDT wallet.');
         } finally {
             setRentingId(null);
         }
@@ -74,7 +74,7 @@ export default function AgentsPage() {
                                         <Bot size={24} />
                                     </div>
                                     <span className="px-2 py-1 rounded-sm bg-secondary border border-border text-[10px] font-mono font-bold uppercase">
-                                        v{agent.version}
+                                        ACTIVE
                                     </span>
                                 </div>
 
@@ -84,17 +84,15 @@ export default function AgentsPage() {
                                 </p>
 
                                 <div className="flex flex-wrap gap-2 mb-6">
-                                    {agent.categories?.map((cat) => (
-                                        <span key={cat} className="px-2 py-0.5 rounded-sm border border-border text-[10px] font-mono font-bold text-muted-foreground uppercase">
-                                            {cat}
-                                        </span>
-                                    ))}
+                                    <span className="px-2 py-0.5 rounded-sm border border-border text-[10px] font-mono font-bold text-muted-foreground uppercase">
+                                        {agent.category}
+                                    </span>
                                 </div>
 
                                 <div className="mt-auto pt-4 border-t border-dashed border-border flex items-center justify-between">
                                     <div className="flex flex-col">
                                         <span className="text-[10px] font-mono text-muted-foreground uppercase">Rate / Run</span>
-                                        <span className="font-bold font-mono text-primary">{agent.price_per_run} CREDITS</span>
+                                        <span className="font-bold font-mono text-primary">{agent.price_per_hour} Credits / HR</span>
                                     </div>
                                     <button
                                         onClick={() => handleRent(agent)}

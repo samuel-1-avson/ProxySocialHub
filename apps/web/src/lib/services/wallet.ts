@@ -3,11 +3,11 @@ import { API_BASE_URL, fetchWithAuth } from './client';
 export interface Wallet {
     id: string;
     balance_ghs: number;
-    balance_tao: number;
+    balance_sol: number;
+    balance_usdt: number;
     currency: string;
     transactions: WalletTransaction[];
     linked_solana_address?: string;
-    linked_bittensor_addr?: string;
 }
 
 export interface WalletTransaction {
@@ -38,7 +38,7 @@ export async function depositWallet(amount: number, email: string): Promise<{ st
     return response.json();
 }
 
-export async function linkWallet(address: string, chain: 'solana' | 'bittensor', signature?: string, message?: string): Promise<{ status: string; message: string }> {
+export async function linkWallet(address: string, chain: 'solana', signature?: string, message?: string): Promise<{ status: string; message: string }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -48,11 +48,11 @@ export async function linkWallet(address: string, chain: 'solana' | 'bittensor',
     return response.json();
 }
 
-export async function depositCrypto(amount: number, txHash: string, chain: 'solana' | 'bittensor', destinationAddress?: string): Promise<{ status: string; message: string; credited_tao?: number }> {
+export async function depositCrypto(amount: number, txHash: string, chain: 'solana', destinationAddress?: string): Promise<{ status: string; message: string; credited_sol?: number }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit/crypto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, tx_hash: txHash, currency: 'TAO', chain, destination_address: destinationAddress }),
+        body: JSON.stringify({ amount, tx_hash: txHash, currency: 'SOL', chain, destination_address: destinationAddress }),
     });
     if (!response.ok) {
         const err = await response.json();
@@ -77,20 +77,7 @@ export async function withdrawWallet(amount: number, phone: string, network: str
     return response.json();
 }
 
-export async function withdrawTao(amount: number, destination: string): Promise<{ status: string; tx_hash: string }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw/tao`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, destination }),
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to withdraw TAO');
-    }
-    return response.json();
-}
-
-export async function transferFunds(recipient: string, amount: number, currency: 'TAO' | 'GHS'): Promise<{ status: string; message: string }> {
+export async function transferFunds(recipient: string, amount: number, currency: 'SOL' | 'GHS'): Promise<{ status: string; message: string }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,68 +89,3 @@ export async function transferFunds(recipient: string, amount: number, currency:
     }
     return response.json();
 }
-
-export interface StakingPosition {
-    id: string;
-    amount: number;
-    currency: string;
-    apy: number;
-    start_time: string;
-    status: 'active' | 'unstaked';
-    accrued_yield: number;
-    current_yield?: number;
-}
-
-export async function getStakes(): Promise<StakingPosition[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/`);
-    if (!response.ok) throw new Error('Failed to fetch stakes');
-    return response.json();
-}
-
-export async function stakeFunds(amount: number): Promise<{ message: string; stake: StakingPosition }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/stake`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount }),
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to stake funds');
-    }
-    return response.json();
-}
-
-export async function unstakeFunds(stakeId: string): Promise<{ message: string; yield: number; total: number }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/staking/unstake/${stakeId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to unstake');
-    }
-    return response.json();
-}
-
-export async function startFaucet(): Promise<{ status: string; message: string }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/faucet/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet_name: 'proxyhubb' }),
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to start faucet');
-    }
-    return response.json();
-}
-
-export async function getFaucetStatus(): Promise<{ status: string; message: string; elapsed_seconds: number }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/faucet/status`);
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to get status');
-    }
-    return response.json();
-}
-

@@ -128,7 +128,7 @@ export default function UsagePage() {
                                                     <span className="font-bold">{session.id.slice(0, 8)}...</span>
                                                     {session.tx_hash && (
                                                         <a
-                                                            href={`https://bittensor.subscan.io/extrinsic/${session.tx_hash}`}
+                                                            href={`https://solscan.io/tx/${session.tx_hash}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="flex items-center gap-1 text-[10px] text-primary hover:underline font-bold uppercase"

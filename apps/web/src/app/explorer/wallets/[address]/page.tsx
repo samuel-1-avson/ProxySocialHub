@@ -97,7 +97,7 @@ export default function WalletInspectorPage() {
                                             </div>
                                         )}
                                         <p className="text-xs text-gray-500 mt-1">
-                                            ≈ ${(wallet?.balance_sol * 145).toFixed(2)} USD
+                                            ≈ ${(wallet?.balance_sol ? wallet.balance_sol * 145 : 0).toFixed(2)} USD
                                         </p>
                                     </div>
                                 </div>
@@ -105,10 +105,7 @@ export default function WalletInspectorPage() {
 
                             {/* Asset Strip */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/10">
-                                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                                    <p className="text-xs text-gray-400 mb-1">TAO Balance</p>
-                                    <p className="font-mono text-lg">{wallet?.balance_tao.toFixed(4)}</p>
-                                </div>
+
                                 <div className="bg-white/5 rounded-xl p-4 border border-white/5">
                                     <p className="text-xs text-gray-400 mb-1">Platform Credit</p>
                                     <p className="font-mono text-lg">{wallet?.balance_platform.toFixed(2)}</p>
@@ -159,7 +156,7 @@ export default function WalletInspectorPage() {
                                         ) : transactions?.transactions?.map((tx) => (
                                             <tr key={tx.tx_hash} className="hover:bg-white/5 transition-colors">
                                                 <td className="p-4">
-                                                    <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-cyan-400 hover:underline">
+                                                    <Link href={`https://solscan.io/tx/${tx.tx_hash}`} className="font-mono text-cyan-400 hover:underline">
                                                         {tx.tx_hash.slice(0, 12)}...
                                                     </Link>
                                                 </td>
