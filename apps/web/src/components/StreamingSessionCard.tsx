@@ -1,4 +1,4 @@
-import { Session } from '@/lib/services/market';
+import { Session } from '@/lib/api';
 import { openChannel, updateChannelState, signStateUpdate } from '@/lib/services/channel';
 import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
@@ -25,8 +25,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             // We lock in 2 hours worth of bandwidth by default for smooth streaming
             const pricePerHour = session.listing?.price_per_hour || 0.1;
             const depositHours = 2;
-            const minDeposit = 0.05; // Industrial safety floor (TAO)
-
+            const minDeposit = 0.05; // Industrial safety floor (USDT/Credits)
             const calculatedDeposit = Math.max(pricePerHour * depositHours, minDeposit);
             const depositAmountLamports = Math.floor(calculatedDeposit * 1e9);
 
@@ -123,11 +122,11 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 <div className="z-10">
                     <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Vested Amount</p>
                     <div className="text-3xl font-black font-mono tracking-tighter text-white flex items-baseline gap-1">
-                        {cost.toFixed(6)} <span className="text-sm text-green-500">TAO</span>
+                        {cost.toFixed(6)} <span className="text-sm text-green-500">USDT</span>
                     </div>
                     <div className="flex items-center gap-1 mt-2 text-[10px] font-mono text-green-400/80">
                         <Zap size={10} />
-                        Rate: {(session.listing?.price_per_hour || 0.1).toFixed(3)} TAO/hr
+                        Rate: {(session.listing?.price_per_hour || 0.1).toFixed(3)} USDT/hr
                     </div>
                 </div>
 

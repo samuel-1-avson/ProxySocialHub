@@ -7,7 +7,6 @@ import { apiGet } from './client';
 
 export interface SystemConfig {
     treasury_solana: string;
-    treasury_tao: string;
     [key: string]: any;
 }
 

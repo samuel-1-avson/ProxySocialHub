@@ -65,9 +65,6 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded-sm bg-yellow-500/10 border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.2)]">
                             <ChevronUp size={10} className="text-yellow-500 animate-bounce" />
                             <span className="text-[8px] font-black text-yellow-500 uppercase tracking-tighter">Priority Protocol</span>
-                            {listing.staked_amount > 0 && (
-                                <span className="text-[8px] text-yellow-500/50 font-mono ml-1">{listing.staked_amount} TAO</span>
-                            )}
                         </div>
                     )}
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">

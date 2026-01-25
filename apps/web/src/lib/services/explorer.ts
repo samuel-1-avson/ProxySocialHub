@@ -76,7 +76,6 @@ export interface WalletDetails {
     address: string;
     chain: string;
     balance_sol: number;
-    balance_tao: number;
     balance_platform: number;
     transaction_count: number;
     first_activity: string;
@@ -96,7 +95,6 @@ export interface TransactionDetail extends TransactionSummary {
 export interface NetworkHealth {
     status: string;
     solana_health: string;
-    bittensor_health: string;
     database_health: string;
     active_nodes: number;
     avg_response_time_ms: number;
