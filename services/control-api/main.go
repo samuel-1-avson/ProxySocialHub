@@ -107,6 +107,7 @@ func main() {
 	if err := solanaClient.InitWatcher(solanaClient.WatcherConfig{
 		RPCEndpoints: rpcEndpoints,
 		WSEndpoint:   wsEndpoint,
+		TreasuryAddr: os.Getenv("SOLANA_TREASURY_ADDRESS"),
 		PollInterval: 30 * time.Second,
 	}); err != nil {
 		log.Printf("Warning: Failed to init Solana watcher: %v", err)
