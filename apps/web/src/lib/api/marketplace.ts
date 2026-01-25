@@ -83,6 +83,31 @@ export interface CreateOrderRequest {
     session_type: 'rotating' | 'sticky';
 }
 
+export interface SolanaPaymentParams {
+    program_id: string;
+    escrow_pda: string;
+    buyer_pubkey: string;
+    seller_pubkey: string;
+    amount_lamports: number;
+    amount_sol: number;
+    bandwidth_gb: number;
+    oracle_pubkey: string;
+}
+
+export interface ProviderNode {
+    id: string;
+    name: string;
+    ip_address: string;
+    country: string;
+    city: string;
+    status: string;
+    quality_score: number;
+    latency_ms?: number;
+    uptime_percent?: number;
+    active_connections?: number;
+    connection_type?: string;
+}
+
 // ============ API Functions ============
 
 /**
@@ -98,6 +123,13 @@ export function getListings(filters?: ListingFilters) {
         });
     }
     return apiGet<{ listings: Listing[]; total: number; page: number }>('/v1/listings', params);
+}
+
+/**
+ * Get detailed telemetry for all provider nodes
+ */
+export function getProviderNodes() {
+    return apiGet<{ nodes: ProviderNode[] }>('/v1/provider/nodes');
 }
 
 /**
@@ -126,6 +158,13 @@ export function searchListings(query: string) {
  */
 export function createOrder(data: CreateOrderRequest) {
     return apiPost<Order>('/v1/orders', data);
+}
+
+/**
+ * Initiate a Solana escrow payment for an order
+ */
+export function initiateSmartContractPayment(orderId: string) {
+    return apiPost<SolanaPaymentParams>(`/v1/orders/${orderId}/pay/solana`);
 }
 
 /**

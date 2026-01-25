@@ -13,9 +13,9 @@ export interface UsageMetric {
 }
 
 /**
- * Get daily bandwidth consumption for the user
+ * Get daily bandwidth consumption for the user (Account level)
  */
-export async function getDailyUsage() {
+export async function getAccountDailyUsage() {
     return apiGet<UsageMetric[]>('/v1/usage/daily');
 }
 
