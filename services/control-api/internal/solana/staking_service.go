@@ -66,9 +66,9 @@ func (s *StakingService) SyncStakeBalance(ctx context.Context, providerID uuid.U
 		return 0, nil // No stake found
 	}
 
-	// Simple decoding (Layout: 8 (disc) + 32 (owner) + 8 (amount) + ...)
+	// Anchor account discriminator for StakeAccount (8 bytes)
 	data := accountInfo.Value.Data.GetBinary()
-	if len(data) < 48 {
+	if len(data) < 74 { // 8 + 32 + 8 + 8 + 8 + 1 + 1 (bump)
 		return 0, fmt.Errorf("stake account data too short")
 	}
 
@@ -80,13 +80,32 @@ func (s *StakingService) SyncStakeBalance(ctx context.Context, providerID uuid.U
 }
 
 // SlashProvider triggers a slashing instruction on-chain (Admin only)
-func (s *StakingService) SlashProvider(ctx context.Context, providerID uuid.UUID, reason string) error {
-	// 1. Verify admin permissions
-	// 2. Build Transaction with Slash instruction
-	// 3. Sign and Broadcast
-	log.Printf("[StakingService] SLASHING provider %s for: %s", providerID, reason)
+func (s *StakingService) SlashProvider(ctx context.Context, providerID uuid.UUID, amount uint64, reason string) error {
+	var user models.User
+	if err := db.DB.First(&user, providerID).Error; err != nil {
+		return err
+	}
 
-	// Placeholder for actual CPI-equivalent call to slash_stake
+	if user.WalletAddress == nil {
+		return fmt.Errorf("provider has no wallet address linked")
+	}
+
+	wallet, err := sol.PublicKeyFromBase58(*user.WalletAddress)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("[StakingService] SLASHING provider %s for %v lamports. Reason: %s", providerID, amount, reason)
+
+	txSig, err := s.client.SlashStake(ctx, SlashStakeParams{
+		ProviderWallet: wallet,
+		Amount:         amount,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to execute slashing: %w", err)
+	}
+
+	log.Printf("[StakingService] Slash successful: %s", txSig)
 	return nil
 }
 
@@ -97,4 +116,14 @@ func binaryToUint64(b []byte) uint64 {
 	}
 	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+}
+
+var globalStakingService *StakingService
+
+func InitStakingService(client *OracleClient) {
+	globalStakingService = NewStakingService(client)
+}
+
+func GetStakingService() *StakingService {
+	return globalStakingService
 }

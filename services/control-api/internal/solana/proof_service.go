@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"time"
 
@@ -62,17 +63,20 @@ func (s *ProofService) SubmitProofToChain(ctx context.Context, statement *UsageS
 	log.Printf("[ProofService] Submitting usage proof for escrow %s: %v bytes",
 		statement.EscrowPDA, statement.TotalBytes)
 
-	// Placeholder for actual Transaction construction using SubmitUsageProof instruction
-	// This would involve:
-	// 1. Deriving UsageProof PDA
-	// 2. Building Instruction
-	// 3. Signing and Sending
-
-	// For simulation/MVP:
-	txHash := "SIMULATED_TX_HASH_" + uuid.New().String()
+	// Broadcast to Solana
+	txHash, err := s.client.SubmitUsageProof(ctx, SubmitUsageProofParams{
+		EscrowPDA:   statement.EscrowPDA,
+		ProofIndex:  proofIndex,
+		TotalBytes:  statement.TotalBytes,
+		PeriodStart: statement.PeriodStart,
+		PeriodEnd:   statement.PeriodEnd,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to submit proof: %w", err)
+	}
 
 	// Update database state to reflect proof submission
-	err := db.DB.Model(&models.UsageProof{}).Create(&models.UsageProof{
+	err = db.DB.Model(&models.UsageProof{}).Create(&models.UsageProof{
 		ID:            uuid.New(),
 		OrderID:       uuid.New(), // In real app, look up from escrow
 		TotalBytes:    int64(statement.TotalBytes),
@@ -97,4 +101,14 @@ func (s *ProofService) VerifyDualSignature(statement *UsageStatement, buyerSig, 
 	sellerOK := ed25519.Verify(seller.Bytes(), msg, sellerSig)
 
 	return buyerOK && sellerOK
+}
+
+var globalProofService *ProofService
+
+func InitProofService(client *OracleClient) {
+	globalProofService = NewProofService(client)
+}
+
+func GetProofService() *ProofService {
+	return globalProofService
 }

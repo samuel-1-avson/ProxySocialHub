@@ -1175,6 +1175,55 @@ pub mod proxyhub {
         Ok(())
     }
 
+    pub fn unstake_request(ctx: Context<StakeTokens>) -> Result<()> {
+        let stake = &mut ctx.accounts.stake_account;
+        let clock = Clock::get()?;
+
+        require!(stake.amount > 0, EscrowError::InvalidStatus);
+        require!(stake.unstake_request_time == 0, EscrowError::InvalidStatus);
+
+        stake.unstake_request_time = clock.unix_timestamp;
+        msg!("Unstake requested. Cooldown started.");
+        Ok(())
+    }
+
+    pub fn withdraw_stake(ctx: Context<StakeTokens>) -> Result<()> {
+        let stake = &mut ctx.accounts.stake_account;
+        let clock = Clock::get()?;
+
+        const COOLDOWN: i64 = 604800; // 7 days
+
+        require!(stake.unstake_request_time > 0, EscrowError::InvalidStatus);
+        require!(clock.unix_timestamp > stake.unstake_request_time + COOLDOWN, EscrowError::NotExpired);
+
+        let amount = stake.amount;
+        stake.amount = 0;
+        stake.unstake_request_time = 0;
+
+        // Transfer funds back to provider
+        **stake.to_account_info().try_borrow_mut_lamports()? -= amount;
+        **ctx.accounts.provider.try_borrow_mut_lamports()? += amount;
+
+        msg!("Stake withdrawn: {} lamports", amount);
+        Ok(())
+    }
+
+    pub fn slash_stake(ctx: Context<SlashStake>, amount: u64) -> Result<()> {
+        let stake = &mut ctx.accounts.stake_account;
+        
+        require!(stake.amount >= amount, EscrowError::InvalidStatus);
+        
+        stake.amount -= amount;
+        stake.is_slashed = true;
+
+        // Transfer slashed funds to treasury (oracle in this context)
+        **stake.to_account_info().try_borrow_mut_lamports()? -= amount;
+        **ctx.accounts.oracle_wallet.try_borrow_mut_lamports()? += amount;
+
+        msg!("Slashed stake: {} lamports", amount);
+        Ok(())
+    }
+
     // ============== BANDWIDTH USAGE PROOFS (TRUSTLESS) ==============
 
     pub fn submit_usage_proof(
@@ -1858,4 +1907,27 @@ pub struct UsageProofSubmitted {
     pub period_start: i64,
     pub period_end: i64,
     pub timestamp: i64,
+}
+
+#[derive(Accounts)]
+pub struct SlashStake<'info> {
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake", stake_account.owner.as_ref()],
+        bump = stake_account.bump,
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+
+    /// CHECK: Admin receives slashed funds
+    #[account(mut, address = admin_config.admin)]
+    pub oracle_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [b"admin_config"],
+        bump = admin_config.bump,
+        constraint = admin.key() == admin_config.admin @ EscrowError::UnauthorizedAdmin
+    )]
+    pub admin_config: Account<'info, AdminConfig>,
 }
