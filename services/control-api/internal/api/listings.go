@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/core/domain"
+	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/privacy"
@@ -24,8 +25,9 @@ func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.DELETE("/listings/:id", deleteListing)
 	rg.POST("/listings/:id/save", saveListing)
 	rg.DELETE("/listings/:id/save", unsaveListing)
-	rg.GET("/listings/saved", getSavedListings)
-	rg.GET("/listings/my", getMyListings)
+	rg.GET("/saved", getSavedListings)
+	rg.GET("/my", getMyListings)
+	rg.GET("/suggest-price", suggestPrice)
 }
 
 // ListingsResponse is the cached response structure
@@ -505,4 +507,24 @@ func getMyListings(c *gin.Context) {
 		"page":     page,
 		"limit":    limit,
 	})
+}
+
+// suggestPrice returns a recommended price based on node attributes
+func suggestPrice(c *gin.Context) {
+	country := c.Query("country")
+	proxyType := c.Query("proxy_type")
+
+	if country == "" || proxyType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "country and proxy_type are required"})
+		return
+	}
+
+	oracle := services.NewPricingOracle()
+	suggestion, err := oracle.SuggestPrice(c.Request.Context(), country, proxyType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate price suggestion"})
+		return
+	}
+
+	c.JSON(http.StatusOK, suggestion)
 }

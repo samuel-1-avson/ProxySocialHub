@@ -178,9 +178,12 @@ type ProviderNode struct {
 	CreatedAt        time.Time  `json:"created_at"`
 
 	// On-Chain Registry
-	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
-	NetUID              int    `json:"net_uid"`
-	Hotkey              string `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
+	IsRegisteredOnChain bool    `gorm:"default:false" json:"is_registered_on_chain"`
+	NetUID              int     `json:"net_uid"`
+	Hotkey              string  `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
+	StakedAmountSOL     float64 `gorm:"default:0" json:"staked_amount_sol"`
+	StakePDA            string  `gorm:"size:64" json:"stake_pda,omitempty"`
+	StakeStatus         string  `gorm:"size:20;default:'none'" json:"stake_status"` // none, pending, staked
 }
 
 func (ProviderNode) TableName() string {

@@ -432,6 +432,14 @@ pub mod proxyhub {
         circle.bump = ctx.bumps.circle;
 
         msg!("Circle registered: {}", circle.name);
+        
+        emit!(CircleRegisteredEvent {
+            circle: circle.key(),
+            leader: circle.leader,
+            name: circle.name.clone(),
+            treasury_share: circle.treasury_share,
+        });
+
         Ok(())
     }
 
@@ -501,6 +509,15 @@ pub mod proxyhub {
             total_seller_payout,
             buyer_refund
         );
+
+        emit!(CircleSettledEvent {
+            escrow: escrow.key(),
+            circle: circle.key(),
+            seller_payout: total_seller_payout,
+            buyer_refund,
+            bandwidth_used: bandwidth_used_gb,
+        });
+
         Ok(())
     }
 
@@ -1809,6 +1826,23 @@ pub struct EscrowRefundedEvent {
     pub buyer: Pubkey,
     pub amount: u64,
     pub reason: String,
+}
+
+#[event]
+pub struct CircleSettledEvent {
+    pub escrow: Pubkey,
+    pub circle: Pubkey,
+    pub seller_payout: u64,
+    pub buyer_refund: u64,
+    pub bandwidth_used: u64,
+}
+
+#[event]
+pub struct CircleRegisteredEvent {
+    pub circle: Pubkey,
+    pub leader: Pubkey,
+    pub name: String,
+    pub treasury_share: u8,
 }
 
 // ============== ERRORS ==============
