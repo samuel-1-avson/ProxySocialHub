@@ -82,31 +82,36 @@ export function SmartMatchWidget() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-2">
-                        {(useCases || []).map((useCase) => (
-                            <button
-                                key={useCase.id}
-                                onClick={() => setSelectedUseCase(useCase.id)}
-                                className={`group relative p-4 rounded-xl text-left transition-all duration-300 border ${selectedUseCase === useCase.id
-                                    ? 'bg-white/10 border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]'
-                                    : 'bg-white/5 border-transparent hover:bg-white/[0.07] hover:border-white/10'
-                                    }`}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className={`font-bold text-sm tracking-wide ${selectedUseCase === useCase.id ? 'text-white' : 'text-white/70 group-hover:text-white'}`}>
-                                            {useCase.name}
+                        {!Array.isArray(useCases) || useCases.length === 0 ? (
+                            <div className="p-8 text-center text-[10px] font-mono text-white/20 border border-dashed border-white/10 rounded-xl">
+                                INITIALIZING NEURAL ENGINE...
+                            </div>
+                        ) : (
+                            useCases.map((useCase) => (
+                                <button
+                                    key={useCase.id}
+                                    onClick={() => setSelectedUseCase(useCase.id)}
+                                    className={`group relative p-4 rounded-xl text-left transition-all duration-300 border ${selectedUseCase === useCase.id
+                                        ? 'bg-white/10 border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]'
+                                        : 'bg-white/5 border-transparent hover:bg-white/[0.07] hover:border-white/10'
+                                        }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <div className={`font-bold text-sm tracking-wide ${selectedUseCase === useCase.id ? 'text-white' : 'text-white/70 group-hover:text-white'}`}>
+                                                {useCase.name}
+                                            </div>
+                                            <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider mt-0.5 group-hover:text-white/60">
+                                                {useCase.description}
+                                            </div>
                                         </div>
-                                        <div className="text-[10px] text-white/40 font-bold uppercase tracking-wider mt-0.5 group-hover:text-white/60">
-                                            {useCase.description}
-                                        </div>
+                                        {selectedUseCase === useCase.id && (
+                                            <motion.div layoutId="active-indicator" className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)]" />
+                                        )}
                                     </div>
-                                    {selectedUseCase === useCase.id && (
-                                        <motion.div layoutId="active-indicator" className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.8)]" />
-                                    )}
-                                </div>
-                            </button>
-                        ))}
-
+                                </button>
+                            ))
+                        )}
                     </div>
 
                     {/* Filters */}

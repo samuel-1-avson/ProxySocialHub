@@ -13,6 +13,7 @@ export interface Wallet {
     balance_tao: number;
     balance?: number; // Legacy/Unified
     currency: string;
+    transactions?: WalletTransaction[];
     linked_solana_address?: string;
     linked_bittensor_addr?: string;
     created_at: string;

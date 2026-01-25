@@ -22,7 +22,8 @@ export interface Recommendation {
  * List supported AI/Proxy use cases
  */
 export async function getUseCases() {
-    return apiGet<UseCase[]>('/v1/matching/use-cases');
+    const data = await apiGet<{ use_cases: UseCase[] }>('/v1/matching/use-cases');
+    return data.use_cases || [];
 }
 
 /**

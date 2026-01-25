@@ -107,7 +107,7 @@ export default function DashboardPage() {
         },
     ];
 
-    const maxBytes = Math.max(...dailyUsage.map(d => d.bytes_used), 1);
+    const maxBytes = Math.max(...(dailyUsage || []).map(d => d.bytes_used), 1);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -193,7 +193,7 @@ export default function DashboardPage() {
                             <h3 className="font-bold font-mono uppercase">Traffic Activity (7 Days)</h3>
                         </div>
                         <div className="flex-1 p-6 flex items-end justify-between gap-2 relative bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]">
-                            {dailyUsage.length === 0 ? (
+                            {!Array.isArray(dailyUsage) || dailyUsage.length === 0 ? (
                                 <div className="absolute inset-0 flex items-center justify-center text-muted-foreground font-mono text-xs uppercase">
                                     No traffic data available
                                 </div>
@@ -236,12 +236,12 @@ export default function DashboardPage() {
                             <h3 className="font-bold font-mono uppercase">Recent Transactions</h3>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[300px]">
-                            {!wallet?.transactions || wallet.transactions.length === 0 ? (
+                            {!Array.isArray(wallet?.transactions) || wallet.transactions.length === 0 ? (
                                 <div className="text-center py-10 text-muted-foreground font-mono text-xs uppercase">
                                     No recent activity
                                 </div>
                             ) : (
-                                wallet.transactions.slice(0, 5).map((tx) => (
+                                (wallet?.transactions || []).slice(0, 5).map((tx) => (
                                     <div key={tx.id} className="flex gap-3 items-start p-3 hover:bg-accent/50 rounded-sm transition-colors border border-transparent hover:border-border/50">
                                         <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${tx.status === 'success' || tx.status === 'completed' ? 'bg-green-500' :
                                             tx.status === 'failed' ? 'bg-destructive' : 'bg-yellow-500'
