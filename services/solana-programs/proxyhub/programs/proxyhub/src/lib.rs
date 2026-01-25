@@ -443,6 +443,45 @@ pub mod proxyhub {
         Ok(())
     }
 
+    /// Register a Federated Gateway Node with stake
+    pub fn register_gateway(
+        ctx: Context<RegisterGateway>,
+        endpoint: String,
+        stake_amount: u64,
+    ) -> Result<()> {
+        let gateway = &mut ctx.accounts.gateway;
+        let clock = Clock::get()?;
+
+        gateway.owner = ctx.accounts.owner.key();
+        gateway.endpoint = endpoint.clone();
+        gateway.stake_amount = stake_amount;
+        gateway.status = GatewayStatus::Active;
+        gateway.registered_at = clock.unix_timestamp;
+        gateway.last_heartbeat = clock.unix_timestamp;
+        gateway.bump = ctx.bumps.gateway;
+
+        // Transfer SOL stake from owner to gateway account (or a central vault)
+        // For simplicity in this instruction, we assume the gateway account IS the vault
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.owner.to_account_info(),
+                to: gateway.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, stake_amount)?;
+
+        emit!(GatewayRegisteredEvent {
+            gateway: gateway.key(),
+            owner: gateway.owner,
+            endpoint,
+            stake: stake_amount,
+        });
+
+        msg!("Gateway registered: {}", gateway.key());
+        Ok(())
+    }
+
     /// Settle escrow with Circle Revenue Sharing
     pub fn settle_circle_escrow(
         ctx: Context<SettleCircleEscrow>,
@@ -1845,6 +1884,21 @@ pub struct CircleRegisteredEvent {
     pub treasury_share: u8,
 }
 
+#[event]
+pub struct GatewayRegisteredEvent {
+    pub gateway: Pubkey,
+    pub owner: Pubkey,
+    pub endpoint: String,
+    pub stake: u64,
+}
+
+#[event]
+pub struct GatewaySlashedEvent {
+    pub gateway: Pubkey,
+    pub amount: u64,
+    pub reason: String,
+}
+
 // ============== ERRORS ==============
 
 #[error_code]
@@ -1964,4 +2018,58 @@ pub struct SlashStake<'info> {
         constraint = admin.key() == admin_config.admin @ EscrowError::UnauthorizedAdmin
     )]
     pub admin_config: Account<'info, AdminConfig>,
+}
+
+#[derive(Accounts)]
+#[instruction(endpoint: String, stake_amount: u64)]
+pub struct RegisterGateway<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = GatewayNode::LEN,
+        seeds = [b"gateway", owner.key().as_ref()],
+        bump
+    )]
+    pub gateway: Account<'info, GatewayNode>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[account]
+#[derive(Default)]
+pub struct GatewayNode {
+    pub owner: Pubkey,
+    pub endpoint: String, // "proxy-1.hub.com:3000"
+    pub stake_amount: u64,
+    pub status: GatewayStatus,
+    pub registered_at: i64,
+    pub last_heartbeat: i64,
+    pub bump: u8,
+}
+
+impl GatewayNode {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // owner
+        64 + // endpoint (max 64 chars)
+        8 +  // stake_amount
+        1 +  // status
+        8 +  // registered_at
+        8 +  // last_heartbeat
+        1;   // bump
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum GatewayStatus {
+    Active,
+    Inactive,
+    Slashed,
+}
+
+impl Default for GatewayStatus {
+    fn default() -> Self {
+        GatewayStatus::Active
+    }
 }

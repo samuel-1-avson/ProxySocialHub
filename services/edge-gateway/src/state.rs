@@ -271,6 +271,8 @@ pub struct AppState {
     pub circuit_breakers: Arc<CircuitBreakerManager>,
     pub registry_store: Arc<crate::registry::store::RegistryStore>,
     pub usage_tracker: Arc<crate::metering::UsageTracker>,
+    pub geoip: Option<Arc<maxminddb::Reader<Vec<u8>>>>,
+    pub shaper: Arc<crate::qos::TrafficShaper>,
 }
 
 impl AppState {
@@ -280,6 +282,23 @@ impl AppState {
         registry_store: Arc<crate::registry::store::RegistryStore>,
         usage_tracker: Arc<crate::metering::UsageTracker>,
     ) -> Self {
+        // ... (geoip initialization already implemented)
+
+        // Initialize Traffic Shaper (Default 10MB/s quota)
+        let shaper = Arc::new(crate::qos::TrafficShaper::new(10 * 1024 * 1024));
+        // Load GeoIP if path provided
+        let geoip = config.geoip_db_path.as_ref().and_then(|path| {
+            match maxminddb::Reader::open_readfile(path) {
+                Ok(reader) => {
+                    println!("[GeoIP] Loaded database from {}", path);
+                    Some(Arc::new(reader))
+                }
+                Err(e) => {
+                    eprintln!("[GeoIP] FAILED to load database: {}", e);
+                    None
+                }
+            }
+        });
         // Rate limit: 10 connections per second per user (adjust as needed)
         // Using expect() because these constants are guaranteed to be non-zero
         let quota = Quota::per_second(NonZeroU32::new(10).expect("non-zero quota"))
@@ -294,6 +313,8 @@ impl AppState {
             circuit_breakers: Arc::new(CircuitBreakerManager::new()),
             registry_store,
             usage_tracker,
+            geoip,
+            shaper,
         }
     }
 

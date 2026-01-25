@@ -33,6 +33,7 @@ jsonwebtoken = "9.3"
 governor = "0.6"
 nonzero_ext = "0.3"
 hex = "0.4"
+maxminddb = "0.24"
 
 [build-dependencies]
 tonic-build = "0.12"

@@ -187,9 +187,25 @@ where
         }
     };
     
-    // Detect location (placeholder)
-    node_info.country_code = detect_country_from_ip(&ip_address);
-    node_info.region = detect_region_from_ip(&ip_address);
+    // Detect location using professional GeoIP if available
+    if let Some(ref reader) = state.geoip {
+        if let Ok(addr) = ip_address.parse() {
+            if let Ok(country) = reader.lookup::<maxminddb::geoip2::Country>(addr) {
+                if let Some(iso_code) = country.country.and_then(|c| c.iso_code) {
+                    node_info.country_code = iso_code.to_string();
+                }
+            }
+            if let Ok(city) = reader.lookup::<maxminddb::geoip2::City>(addr) {
+                if let Some(city_name) = city.city.and_then(|c| c.names).and_then(|n| n.get("en").map(|s| s.to_string())) {
+                    node_info.region = city_name;
+                }
+            }
+        }
+    } else {
+        // Fallback to minimal hardcoded detection
+        node_info.country_code = detect_country_from_ip(&ip_address);
+        node_info.region = detect_region_from_ip(&ip_address);
+    }
     
     // Register with full node info
     {
