@@ -5,6 +5,14 @@
 
 import { apiGet } from './client';
 
+export interface AlertEvent {
+    type: string;
+    severity: 'INFO' | 'WARNING' | 'CRITICAL';
+    message: string;
+    resource: string;
+    timestamp: string;
+}
+
 export interface OperationalMetrics {
     nats: {
         stream_name: string;
@@ -27,4 +35,11 @@ export interface OperationalMetrics {
  */
 export async function getOperationalMetrics() {
     return apiGet<OperationalMetrics>('/v1/monitoring/operational');
+}
+
+/**
+ * Get historical Watchtower alerts
+ */
+export async function getWatchtowerAlerts() {
+    return apiGet<AlertEvent[]>('/v1/monitoring/alerts');
 }

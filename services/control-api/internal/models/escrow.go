@@ -32,9 +32,32 @@ type EscrowTransaction struct {
 	UpdatedAt     time.Time    `json:"updated_at"`
 
 	// Relations
-	Order  *Order `gorm:"foreignKey:OrderID" json:"order,omitempty"`
-	Buyer  *User  `gorm:"foreignKey:BuyerID" json:"buyer,omitempty"`
-	Seller *User  `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
+	Order      *Order            `gorm:"foreignKey:OrderID" json:"order,omitempty"`
+	Buyer      *User             `gorm:"foreignKey:BuyerID" json:"buyer,omitempty"`
+	Seller     *User             `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
+	Milestones []EscrowMilestone `gorm:"foreignKey:EscrowID" json:"milestones,omitempty"`
+}
+
+// EscrowMilestone represents a granular release stage
+type EscrowMilestone struct {
+	ID                uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
+	EscrowID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"escrow_id"`
+	ByteThreshold     int64      `json:"byte_threshold"` // Release after X bytes
+	Amount            float64    `json:"amount"`         // Release amount
+	Status            string     `json:"status"`         // pending, released
+	ReleasedAt        *time.Time `json:"released_at,omitempty"`
+	VerificationProof string     `json:"verification_proof"` // ZK Proof Link/Hash
+}
+
+func (EscrowMilestone) TableName() string {
+	return "escrow_milestones"
+}
+
+func (m *EscrowMilestone) BeforeCreate(tx *gorm.DB) error {
+	if m.ID == uuid.Nil {
+		m.ID = uuid.New()
+	}
+	return nil
 }
 
 func (EscrowTransaction) TableName() string {

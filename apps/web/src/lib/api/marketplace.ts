@@ -33,6 +33,11 @@ export interface Listing {
     total_sales: number;
     rating: number;
     bulk_discounts?: any[];
+    staked_amount: number;
+    priority_rank: number;
+    is_priority: boolean;
+    zk_proof?: string;
+    privacy_enabled?: boolean;
     created_at: string;
     seller?: {
         id: string;
@@ -78,9 +83,17 @@ export interface ListingFilters {
 }
 
 export interface CreateOrderRequest {
-    listing_id: string;
     bandwidth_gb: number;
     session_type: 'rotating' | 'sticky';
+}
+
+export interface StakeNodeRequest {
+    amount_sol: number;
+    listing_id: string;
+}
+
+export interface UnstakeNodeRequest {
+    listing_id: string;
 }
 
 export interface SolanaPaymentParams {
@@ -177,10 +190,38 @@ export async function getOrders(status?: Order['status']) {
 }
 
 /**
+ * Initiate a node staking session to boost priority
+ */
+export async function stakeNode(data: StakeNodeRequest) {
+    return apiPost<{ tx_hash: string; new_rank: number }>('/v1/staking/node/stake', data);
+}
+
+/**
+ * Initiate unstaking cooldown
+ */
+export async function unstakeNode(data: UnstakeNodeRequest) {
+    return apiPost<{ message: string; available_at: string }>('/v1/staking/node/unstake', data);
+}
+
+/**
  * Get a specific order
  */
 export function getOrder(id: string) {
     return apiGet<Order>(`/v1/orders/${id}`);
+}
+
+/**
+ * Get reputation telemetry fragments for ZK-proof generation
+ */
+export async function getReputationTelemetry() {
+    return apiGet<{ fragments: any[]; trust_root: string }>('/v1/reputation/telemetry');
+}
+
+/**
+ * Submit a generated ZK-reputation proof for verification
+ */
+export async function verifyReputationProof(proof: any) {
+    return apiPost<{ token: string; expires_at: string }>('/v1/reputation/verify', { proof });
 }
 
 /**

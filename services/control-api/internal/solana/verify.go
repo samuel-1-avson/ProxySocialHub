@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 )
 
@@ -182,5 +182,5 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 
 // GetTreasuryAddress returns the platform treasury address
 func GetTreasuryAddress() string {
-	return config.GetSystemSetting("treasury_wallet_solana", "SOLANA_TREASURY_ADDRESS", "")
+	return db.GetSystemSetting("solana_treasury_address", "SOLANA_TREASURY_ADDRESS", os.Getenv("SOLANA_TREASURY_ADDRESS"))
 }
