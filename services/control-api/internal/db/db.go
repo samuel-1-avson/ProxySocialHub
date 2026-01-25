@@ -44,7 +44,13 @@ func Init(dsn string) error {
 	}
 
 	// Auto-migrate schema
+	// Ensure explorer tables are migrated first to avoid issues
 	err = DB.AutoMigrate(
+		&models.ExplorerBlock{},
+		&models.ExplorerTransaction{},
+		&models.ExplorerNode{},
+		&models.ExplorerContract{},
+		&models.ExplorerMetrics{},
 		&models.User{},
 		// &models.OAuthIdentity{}, // Removed for Supabase
 		&models.Wallet{},
