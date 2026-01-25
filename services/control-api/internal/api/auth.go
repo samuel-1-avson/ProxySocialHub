@@ -256,10 +256,11 @@ func walletLogin(c *gin.Context) {
 
 		// Create Wallet immediately
 		wallet := models.Wallet{
-			UserID:     user.ID,
-			BalanceTAO: 0,
-			BalanceGHS: 0,
-			Currency:   "MULTI",
+			UserID:      user.ID,
+			BalanceSOL:  0,
+			BalanceUSDT: 0,
+			BalanceGHS:  0,
+			Currency:    "MULTI",
 		}
 
 		if err := tx.Create(&wallet).Error; err != nil {
@@ -336,8 +337,8 @@ func devLogin(c *gin.Context) {
 		// Fund wallet
 		wallet := models.Wallet{
 			UserID:     user.ID,
-			BalanceTAO: 1000.0,
-			Currency:   "TAO",
+			BalanceSOL: 1000.0,
+			Currency:   "SOL",
 		}
 		db.DB.Create(&wallet)
 	}

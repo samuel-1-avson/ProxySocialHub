@@ -119,7 +119,7 @@ func releaseEscrow(c *gin.Context) {
 			// Credit Clan Owner
 			var clanOwnerWallet models.Wallet
 			if err := tx.First(&clanOwnerWallet, "user_id = ?", order.Listing.Circle.OwnerID).Error; err != nil {
-				clanOwnerWallet = models.Wallet{UserID: order.Listing.Circle.OwnerID, BalanceGHS: 0, BalanceTAO: 0, Currency: "GHS"}
+				clanOwnerWallet = models.Wallet{UserID: order.Listing.Circle.OwnerID, BalanceGHS: 0, BalanceSOL: 0, BalanceUSDT: 0, Currency: "GHS"}
 				tx.Create(&clanOwnerWallet)
 			}
 
@@ -142,7 +142,7 @@ func releaseEscrow(c *gin.Context) {
 	var sellerWallet models.Wallet
 	if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err != nil {
 		// If seller wallet doesn't exist, create it (should ideally exist)
-		sellerWallet = models.Wallet{UserID: escrow.SellerID, BalanceGHS: 0, BalanceTAO: 0, Currency: "GHS"}
+		sellerWallet = models.Wallet{UserID: escrow.SellerID, BalanceGHS: 0, Currency: "GHS"}
 		tx.Create(&sellerWallet)
 	}
 	newBalance := sellerWallet.BalanceGHS + sellerAmount

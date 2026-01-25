@@ -16,7 +16,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
-	"github.com/proxyhubb/control-api/internal/prices"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -353,10 +352,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if err.Error() == "record not found" {
 			wallet = models.Wallet{
-				UserID:     uuid.MustParse(userID),
-				BalanceTAO: 0,
-				BalanceGHS: 0,
-				Currency:   "MULTI",
+				UserID:      uuid.MustParse(userID),
+				BalanceSOL:  0,
+				BalanceUSDT: 0,
+				BalanceGHS:  0,
+				Currency:    "MULTI",
 			}
 			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
@@ -370,26 +370,18 @@ func verifyCryptoDeposit(c *gin.Context) {
 		}
 	}
 
-	// Calculate Credit Amount using REAL exchange rates
-	creditAmountTAO := 0.0
-	description := ""
+	// Logic for credits
+	creditedAmount := 0.0
+	currency := ""
 
-	if req.Chain == "bittensor" {
-		creditAmountTAO = verifiedAmount
-		description = fmt.Sprintf("TAO Deposit: %.4f TAO", verifiedAmount)
-	} else if req.Chain == "solana" {
-		// Get real exchange rate from CoinGecko
-		rate, err := prices.GetSOLToTAORate(ctx)
-		if err != nil {
-			logging.Error(err).Msg("Failed to fetch exchange rate from Oracle")
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Exchange rate oracle unavailable. Please try again later."})
-			return
-		}
-		creditAmountTAO = verifiedAmount * rate
-		description = fmt.Sprintf("SOL Deposit: %.6f SOL -> %.4f TAO (rate: %.4f)", verifiedAmount, creditAmountTAO, rate)
+	if req.Chain == "solana" {
+		// Assuming native SOL deposit
+		// TODO: Support SPL Tokens (USDT) check here later
+		creditedAmount = verifiedAmount
+		currency = "SOL"
+		wallet.BalanceSOL += verifiedAmount
 	}
 
-	wallet.BalanceTAO += creditAmountTAO
 	if err := tx.Save(&wallet).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
@@ -402,7 +394,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 		Reference:   req.TxHash,
 		Type:        "crypto_deposit",
 		Amount:      req.Amount,
-		Currency:    req.Chain,
+		Currency:    currency,
 		Provider:    "blockchain",
 		Status:      "completed",
 		ExternalRef: req.TxHash,
@@ -422,11 +414,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	ledger := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
-		Amount:       creditAmountTAO,
-		BalanceAfter: wallet.BalanceTAO,
+		Amount:       creditedAmount,
+		BalanceAfter: wallet.BalanceSOL,
 		Type:         "deposit",
 		ReferenceID:  req.TxHash,
-		Description:  description,
+		Description:  fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
 	}
 	if err := tx.Create(&ledger).Error; err != nil {
 		tx.Rollback()
@@ -437,8 +429,9 @@ func verifyCryptoDeposit(c *gin.Context) {
 	tx.Commit()
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":       "success",
-		"credited_tao": creditAmountTAO,
-		"new_balance":  wallet.BalanceTAO,
+		"status":      "success",
+		"credited":    creditedAmount,
+		"currency":    currency,
+		"new_balance": wallet.BalanceSOL,
 	})
 }

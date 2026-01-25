@@ -31,257 +31,19 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/link", linkWallet)
 		wallet.DELETE("/link", linkWallet)
 
-		// TAO Routes (Bittensor)
-		wallet.POST("/deposit/tao", initiateTaoDeposit)
-		wallet.POST("/withdraw/tao", initiateTaoWithdrawal)
-		wallet.POST("/verify/tao", RateLimitWithConfig(5, time.Minute), verifyTaoDeposit)
-
-		// Faucet Routes (Dev/Testnet only)
-		wallet.POST("/faucet/start", startFaucet)
-		wallet.GET("/faucet/status", getFaucetStatus)
-
 		// FIAT ROUTES (Provider payouts via Mobile Money - kept for provider withdrawals)
 		// Deposits via Paystack deprecated for users - use crypto instead
 		wallet.POST("/deposit", initiateDeposit)     // Legacy/Provider only
 		wallet.POST("/withdraw", initiateWithdrawal) // Provider MoMo payouts
 		wallet.GET("/verify", verifyDeposit)         // Paystack callback
-		wallet.POST("/swap", swapCurrency)           // GHS <-> TAO conversion
+		wallet.POST("/swap", swapCurrency)           // GHS <-> SOL conversion
 
 		// General Wallet Info
 		wallet.GET("", getWallet)
 	}
 }
 
-type taoDepositRequest struct {
-	TxHash string  `json:"tx_hash" binding:"required"`
-	Amount float64 `json:"amount" binding:"required"`
-}
-
-func initiateTaoDeposit(c *gin.Context) {
-	// For "Push" deposits (user sends first), this endpoint just gives info
-	// or user calls verify after sending.
-	// We can return the system deposit address.
-
-	client := payments.NewTaoClient(GetBittensorClient())
-	addr, err := client.GetDepositAddress()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get deposit address"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"address": addr,
-		"message": "Send TAO to this address and call /verify/tao with tx_hash",
-	})
-}
-
-func verifyTaoDeposit(c *gin.Context) {
-	var req taoDepositRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	userUUID, _ := GetUserID(c)
-	userID := userUUID.String()
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	client := payments.NewTaoClient(GetBittensorClient())
-
-	// Verify On-Chain
-	isValid, err := client.VerifyDeposit(req.TxHash, req.Amount)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Verification failed: " + err.Error()})
-		return
-	}
-	if !isValid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction"})
-		return
-	}
-
-	// Check if already processed
-	var existingTx models.PendingTransaction
-	if err := db.DB.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
-		return
-	}
-
-	// Credit Wallet
-	tx := db.DB.Begin()
-	var wallet models.Wallet
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	// If wallet is GHS, we might need conversion or just switch to TAO.
-	// Switching to TAO for this "Total Decentralization" goal.
-	// If wallet is GHS, we might need conversion or just switch to TAO.
-	// Switching to TAO for this "Total Decentralization" goal.
-	if wallet.Currency != "TAO" {
-		wallet.Currency = "TAO" // Force switch
-		// BalanceTAO is already 0 or whatever it was.
-		// If they had BalanceGHS, it stays there. The prompt implies using TAO mainly.
-		tx.Save(&wallet)
-	}
-
-	newBalance := wallet.BalanceTAO + req.Amount
-	if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
-		return
-	}
-
-	// Record Transaction
-	pendingTx := models.PendingTransaction{
-		UserID:      userID,
-		Reference:   req.TxHash, // TX Hash as reference
-		Type:        "deposit",
-		Amount:      req.Amount,
-		Currency:    "TAO",
-		Provider:    "bittensor",
-		Status:      "completed",
-		ExternalRef: req.TxHash,
-	}
-	tx.Create(&pendingTx)
-
-	ledger := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       req.Amount,
-		BalanceAfter: newBalance,
-		Type:         models.TransactionTopup,
-		ReferenceID:  req.TxHash,
-		Description:  "TAO Deposit via Bridge",
-	}
-	tx.Create(&ledger)
-
-	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"status": "success", "new_balance": newBalance})
-	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"status": "success", "new_balance": newBalance})
-}
-
 // Faucet Handlers
-
-type startFaucetRequest struct {
-	WalletName   string `json:"wallet_name"`
-	WalletHotkey string `json:"wallet_hotkey"`
-}
-
-func startFaucet(c *gin.Context) {
-	var req startFaucetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// Default to proxyhubb wallet if not provided, just for safety or convenience
-		req.WalletName = "proxyhubb" // Default for this context
-		req.WalletHotkey = "default"
-	}
-
-	// Permission check? For now, open for dev.
-
-	client := payments.NewTaoClient(GetBittensorClient())
-	resp, err := client.StartFaucet(req.WalletName, req.WalletHotkey)
-	if err != nil {
-		fmt.Printf("FAUCET ERROR: %v\n", err) // Temporary debug log
-		logging.Error(err).Msg("Failed to start faucet")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start faucet: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
-
-func getFaucetStatus(c *gin.Context) {
-	client := payments.NewTaoClient(GetBittensorClient())
-	resp, err := client.GetFaucetStatus()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get faucet status: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
-
-type taoWithdrawRequest struct {
-	Amount      float64 `json:"amount" binding:"required,gt=0"`
-	Destination string  `json:"destination" binding:"required"`
-}
-
-func initiateTaoWithdrawal(c *gin.Context) {
-	var req taoWithdrawRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	userUUID, _ := GetUserID(c)
-	userID := userUUID.String()
-
-	// Whitelist Check (24h Cooldown)
-	// Destination must appear in LinkedWallets for this user AND be > 24h old
-	var linkedWallet models.LinkedWallet
-	if err := db.DB.Where("user_id = ? AND address = ?", userID, req.Destination).First(&linkedWallet).Error; err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Destination address is not linked to your account. Please link it first."})
-		return
-	}
-
-	// Calculate age
-	if time.Since(linkedWallet.CreatedAt) < 24*time.Hour {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Withdrawals to new addresses are restricted for 24 hours. Please try again later."})
-		return
-	}
-
-	tx := db.DB.Begin()
-	var wallet models.Wallet
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	if wallet.BalanceTAO < req.Amount {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO funds"})
-		return
-	}
-
-	// Deduct
-	newBalance := wallet.BalanceTAO - req.Amount
-	if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to deduct funds"})
-		return
-	}
-
-	// Call Bridge
-	client := payments.NewTaoClient(GetBittensorClient())
-	err := client.Transfer(req.Destination, req.Amount)
-
-	if err != nil {
-		tx.Rollback()
-		logging.Error(err).Msg("TAO Transfer failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed: " + err.Error()})
-		return
-	}
-
-	// Record
-	ref := uuid.New().String()
-	ledger := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       -req.Amount,
-		BalanceAfter: newBalance,
-		Type:         models.TransactionPayout,
-		ReferenceID:  ref,
-		Description:  fmt.Sprintf("TAO Withdrawal to %s", req.Destination),
-	}
-	tx.Create(&ledger)
-
-	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"status": "success", "tx_hash": "pending_bridge_tx"})
-}
 
 // TransactionDTO for unified response
 type TransactionDTO struct {
@@ -367,7 +129,7 @@ func getWallet(c *gin.Context) {
 		// Now attempt wallet creation with higher confidence
 		wallet = models.Wallet{
 			UserID:     userID,
-			BalanceTAO: 0,
+			BalanceSOL: 0,
 			BalanceGHS: 0,
 			Currency:   "MULTI",
 		}
@@ -457,21 +219,20 @@ func getWallet(c *gin.Context) {
 
 	// Fetch user to checks linked wallets
 	var user models.User
-	if err := db.DB.Select("wallet_address", "bittensor_address").First(&user, "id = ?", userID).Error; err != nil {
+	if err := db.DB.Select("wallet_address").First(&user, "id = ?", userID).Error; err != nil {
 		logging.Warn().Err(err).Msg("Failed to fetch user linked wallets")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": gin.H{
 			"wallet_id":             wallet.ID,
-			"balance":               wallet.BalanceTAO, // Default display is now TAO
+			"balance":               wallet.BalanceSOL, // Default display is now SOL
 			"balance_ghs":           wallet.BalanceGHS,
-			"balance_tao":           wallet.BalanceTAO,
-			"balance_usdt":          0, // Migrated/Deprecated
+			"balance_sol":           wallet.BalanceSOL,
+			"balance_usdt":          wallet.BalanceUSDT,
 			"currency":              wallet.Currency,
 			"transactions":          transactions,
 			"linked_solana_address": user.WalletAddress,
-			"linked_bittensor_addr": user.BittensorAddress,
 		},
 	})
 }
@@ -501,8 +262,8 @@ func initiateDeposit(c *gin.Context) {
 	// Fiat deposits are disabled to ensure the system remains decentralized.
 	c.JSON(http.StatusForbidden, gin.H{
 		"error":   "Fiat deposits are disabled.",
-		"message": "Please use Crypto deposits (Solana or Bittensor) to fund your wallet. This ensures the system remains decentralized.",
-		"action":  "Use /wallet/deposit/crypto or /wallet/deposit/tao",
+		"message": "Please use Crypto deposits (Solana) to fund your wallet. This ensures the system remains decentralized.",
+		"action":  "Use /wallet/deposit/crypto",
 	})
 	return
 }
@@ -578,10 +339,11 @@ func verifyDeposit(c *gin.Context) {
 		if result.Error == gorm.ErrRecordNotFound {
 			logging.Info().Str("user_id", pUserID.String()).Msg("verifyDeposit: Wallet missing, creating new Multi-Currency wallet")
 			wallet = models.Wallet{
-				UserID:     pUserID,
-				BalanceGHS: 0,
-				BalanceTAO: 0, // Initialize explicitly
-				Currency:   "MULTI",
+				UserID:      pUserID,
+				BalanceGHS:  0,
+				BalanceSOL:  0,
+				BalanceUSDT: 0,
+				Currency:    "MULTI",
 			}
 			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
@@ -598,26 +360,21 @@ func verifyDeposit(c *gin.Context) {
 	// --- FINANCIAL CORE: FIAT TO CRYPTO BRIDGE ---
 
 	// FETCH REAL TIME RATE
-	currentRate := GetTaoToGhsRate()
+	// Mocking GHS to SOL rate for MVP (e.g., 1 SOL = 2200 GHS)
+	// In production, fetch SOL/USD and USD/GHS
+	currentRate := 2200.0
 
-	// Calculate crypto value (TAO)
+	// Calculate crypto value (SOL)
 	// Formula: CryptoAmount = FiatAmount / Rate
 	fiatAmount := pendingTx.Amount // In GHS
 	cryptoAmount := fiatAmount / currentRate
 
 	// Switch Wallet to Crypto Native if not already
-	previousCurrency := wallet.Currency
-	if wallet.Currency != "TAO" {
-		logging.Info().Str("user_id", wallet.UserID.String()).Msg("Migrating wallet to TAO")
-		wallet.Currency = "TAO"
-
-		// If they had GHS balance, we should ideally convert it too.
-		if previousCurrency == "GHS" && wallet.BalanceGHS > 0 {
-			// ... (keep logic, but maybe update migration rate too?)
-			// For now, let's just focus on the new deposit.
-		} else if wallet.BalanceTAO == 0 {
-			// Just switch currency
-		}
+	// previousCurrency := wallet.Currency
+	if wallet.Currency != "SOL" && wallet.Currency != "MULTI" {
+		logging.Info().Str("user_id", wallet.UserID.String()).Msg("Migrating wallet to SOL preference")
+		wallet.Currency = "SOL"
+		tx.Save(&wallet)
 	}
 
 	// Determine Logic: Auto-Swap OR Manual Hold
@@ -631,12 +388,12 @@ func verifyDeposit(c *gin.Context) {
 	finalMessage := "Wallet credited with GHS"
 
 	if autoConvert {
-		// SWAP LOGIC (GHS -> TAO)
-		newBalance := wallet.BalanceTAO + cryptoAmount
+		// SWAP LOGIC (GHS -> SOL)
+		newBalance := wallet.BalanceSOL + cryptoAmount
 
-		if err := tx.Model(&wallet).Update("balance_tao", newBalance).Error; err != nil {
+		if err := tx.Model(&wallet).Update("balance_sol", newBalance).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit TAO"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit SOL"})
 			return
 		}
 
@@ -646,11 +403,11 @@ func verifyDeposit(c *gin.Context) {
 			BalanceAfter: newBalance,
 			Type:         "auto_swap_deposit",
 			ReferenceID:  reference,
-			Description:  fmt.Sprintf("Auto-Swap: %.2f GHS -> %.4f TAO (Rate: %.2f)", fiatAmount, cryptoAmount, currentRate),
+			Description:  fmt.Sprintf("Auto-Swap: %.2f GHS -> %.4f SOL (Rate: %.2f)", fiatAmount, cryptoAmount, currentRate),
 		}
 		tx.Create(&ledgerEntry)
 
-		finalMessage = fmt.Sprintf("Auto-Swapped %.2f GHS to %.4f TAO (Rate: %.2f)", fiatAmount, cryptoAmount, currentRate)
+		finalMessage = fmt.Sprintf("Auto-Swapped %.2f GHS to %.4f SOL", fiatAmount, cryptoAmount)
 
 	} else {
 		// HOLD LOGIC (Manual Option)
@@ -935,14 +692,14 @@ func transferP2P(c *gin.Context) {
 	}
 
 	// 3. Check Balance & Transfer
-	if req.Currency == "TAO" {
-		if senderWallet.BalanceTAO < req.Amount {
+	if req.Currency == "SOL" {
+		if senderWallet.BalanceSOL < req.Amount {
 			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO funds"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL funds"})
 			return
 		}
-		senderWallet.BalanceTAO -= req.Amount
-		recipientWallet.BalanceTAO += req.Amount
+		senderWallet.BalanceSOL -= req.Amount
+		recipientWallet.BalanceSOL += req.Amount
 	} else if req.Currency == "GHS" {
 		if senderWallet.BalanceGHS < req.Amount {
 			tx.Rollback()
@@ -997,8 +754,8 @@ func transferP2P(c *gin.Context) {
 }
 
 func getBalance(w *models.Wallet, currency string) float64 {
-	if currency == "TAO" {
-		return w.BalanceTAO
+	if currency == "SOL" {
+		return w.BalanceSOL
 	}
 	return w.BalanceGHS
 }

@@ -159,7 +159,7 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 	wallet := &models.Wallet{
 		UserID:     user.ID,
 		BalanceGHS: 100.0, // Start with some GHS balance for testing
-		BalanceTAO: 10.0,  // Start with some TAO balance for testing
+		BalanceSOL: 10.0,  // Start with some SOL balance for testing
 	}
 	db.DB.Create(wallet)
 

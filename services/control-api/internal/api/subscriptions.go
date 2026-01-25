@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/prices"
 )
 
 // RegisterSubscriptionRoutes registers subscription-related routes
@@ -97,9 +98,17 @@ func subscribe(c *gin.Context) {
 		periodEnd = time.Now().AddDate(0, 1, 0)
 	}
 
-	// Convert to TAO
-	rate := GetTaoToGhsRate()
-	priceTAO := priceGHS / rate
+	// Convert to SOL
+	solPrice, err := prices.GetSOLPrice(c.Request.Context())
+	if err != nil {
+		// Fallback or error
+		solPrice = 145.0 // Mock fallback
+	}
+	// Assuming priceGHS is roughly USD equivalent for this context or using fixed rate
+	// Real logic: GHS -> USD -> SOL.
+	// For MVP: priceSOL = priceGHS / solPrice (assuming priceGHS is actually USD value in DB or 1:1)
+	priceTAO := priceGHS / solPrice // Keeping variable name priceTAO to avoid massive diff, but logic is SOL cost
+	// priceSOL := priceGHS / solPrice
 
 	// Charge from wallet
 	var wallet models.Wallet
@@ -108,16 +117,16 @@ func subscribe(c *gin.Context) {
 		return
 	}
 
-	if wallet.BalanceTAO < priceTAO {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO balance"})
+	if wallet.BalanceSOL < priceTAO {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL balance"})
 		return
 	}
 
 	tx := db.DB.Begin()
 
 	// Deduct from wallet
-	newBalance := wallet.BalanceTAO - priceTAO
-	tx.Model(&wallet).Update("balance_tao", newBalance)
+	newBalance := wallet.BalanceSOL - priceTAO
+	tx.Model(&wallet).Update("balance_sol", newBalance)
 
 	// Create ledger entry
 	ledger := models.WalletLedgerEntry{

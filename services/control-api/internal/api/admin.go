@@ -289,12 +289,12 @@ func getPendingPayouts(c *gin.Context) {
 	for _, provider := range providers {
 		var wallet models.Wallet
 		if db.DB.Where("user_id = ?", provider.ID).First(&wallet).Error == nil {
-			if wallet.BalanceTAO > 0.01 { // Minimum threshold appropriate for TAO
+			if wallet.BalanceSOL > 0.01 { // Minimum threshold appropriate for SOL
 				payouts = append(payouts, PendingPayout{
 					UserID:      provider.ID.String(),
 					Email:       provider.Email,
 					Role:        provider.Role,
-					EarningsGHS: wallet.BalanceTAO, // Naming mismatch in DTO (EarningsGHS vs TAO value), keeping for now or should update struct.
+					EarningsGHS: wallet.BalanceSOL, // Naming mismatch in DTO (EarningsGHS vs SOL value)
 					// Let's rely on frontend interpreting the value. Ideally rename struct field but avoiding cascade to frontend TS.
 				})
 			}
@@ -304,13 +304,13 @@ func getPendingPayouts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"payouts":       payouts,
 		"count":         len(payouts),
-		"min_threshold": 5.0,
+		"min_threshold": 0.1, // Adjusted for SOL (approx $15)
 	})
 }
 
 type ProcessPayoutRequest struct {
 	Phone  string  `json:"phone" binding:"required"`
-	Amount float64 `json:"amount" binding:"required,min=5"`
+	Amount float64 `json:"amount" binding:"required,min=0.1"`
 }
 
 func processPayout(c *gin.Context) {
@@ -328,10 +328,8 @@ func processPayout(c *gin.Context) {
 		return
 	}
 
-	// For Payouts, are we paying out GHS or TAO?
-	// If req.Amount is 5, is it 5 GHS or 5 TAO?
-	// Assuming Payouts are in TAO now.
-	if wallet.BalanceTAO < req.Amount {
+	// Payouts in SOL
+	if wallet.BalanceSOL < req.Amount {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
 		return
 	}
@@ -340,7 +338,7 @@ func processPayout(c *gin.Context) {
 	reference := "payout-" + time.Now().Format("20060102150405")
 
 	// Deduct from wallet
-	wallet.BalanceTAO -= req.Amount
+	wallet.BalanceSOL -= req.Amount
 	db.DB.Save(&wallet)
 
 	// Create ledger entry
@@ -348,7 +346,7 @@ func processPayout(c *gin.Context) {
 		WalletID:    wallet.ID,
 		Type:        models.TransactionPayout,
 		Amount:      -req.Amount,
-		Description: "Provider payout to " + req.Phone, // Payout in TAO
+		Description: "Provider payout to " + req.Phone, // Payout in SOL
 	}
 	db.DB.Create(&ledger)
 
@@ -356,7 +354,7 @@ func processPayout(c *gin.Context) {
 		"status":      "processed",
 		"reference":   reference,
 		"amount":      req.Amount,
-		"new_balance": wallet.BalanceTAO,
+		"new_balance": wallet.BalanceSOL,
 	})
 }
 

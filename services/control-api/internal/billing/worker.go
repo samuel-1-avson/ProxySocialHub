@@ -97,13 +97,13 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			return err
 		}
 
-		if wallet.BalanceTAO < costTAO {
+		if wallet.BalanceSOL < costTAO {
 			// Insufficient funds handling (should have been caught by real-time layer)
 			// We force deduct resulting in negative balance? Or terminate?
 			// For settlement, we take what we can or go negative.
-			wallet.BalanceTAO -= costTAO
+			wallet.BalanceSOL -= costTAO
 		} else {
-			wallet.BalanceTAO -= costTAO
+			wallet.BalanceSOL -= costTAO
 		}
 
 		if err := tx.Save(&wallet).Error; err != nil {
@@ -114,9 +114,9 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		ledger := models.WalletLedgerEntry{
 			WalletID:     wallet.ID,
 			Amount:       -costTAO,
-			BalanceAfter: wallet.BalanceTAO,
+			BalanceAfter: wallet.BalanceSOL,
 			Type:         models.TransactionUsage,
-			Description:  fmt.Sprintf("Hourly Settlement: %d bytes (%.6f TAO)", totalBytes, costTAO),
+			Description:  fmt.Sprintf("Hourly Settlement: %d bytes (%.6f SOL)", totalBytes, costTAO),
 			CreatedAt:    time.Now(),
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
