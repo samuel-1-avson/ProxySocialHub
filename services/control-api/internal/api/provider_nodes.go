@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -8,9 +9,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/nats"
 )
 
 // RegisterProviderNodeRoutes registers provider node management routes
@@ -214,23 +217,18 @@ func getNodeUptime(c *gin.Context) {
 
 // UpdateNodeStatus updates a node's online status (called by gateway)
 func UpdateNodeStatus(nodeID uuid.UUID, isOnline bool, latencyMs int) {
-	status := models.NodeOffline
-	if isOnline {
-		status = models.NodeOnline
+	// Replaced legacy DB updates with Hexagonal Service call
+	err := GetMarketplaceService().UpdateNodeStatus(context.Background(), nodeID, isOnline, latencyMs)
+	if err != nil {
+		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node status via core service")
 	}
 
-	now := time.Now()
-	db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
-		"status":       status,
-		"last_seen_at": now,
-	})
-
-	// Record uptime check
-	check := models.UptimeCheck{
-		NodeID:    nodeID,
-		IsUp:      isOnline,
+	// Phase 9.1 Real-time Telemetry: Publish Heartbeat to NATS
+	heartbeat := domain.NodeHeartbeatEvent{
+		NodeID:    nodeID.String(),
+		IsHealthy: isOnline,
 		LatencyMs: latencyMs,
-		CheckedAt: now,
+		Timestamp: time.Now(),
 	}
-	db.DB.Create(&check)
+	nats.Publish(context.Background(), "proxy.telemetry.v1.heartbeat", heartbeat)
 }

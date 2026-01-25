@@ -17,3 +17,11 @@ type SessionTerminatedEvent struct {
 	SessionID string    `json:"session_id"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+// NodeHeartbeatEvent is published by nodes to signal health and performance
+type NodeHeartbeatEvent struct {
+	NodeID    string    `json:"node_id"`
+	IsHealthy bool      `json:"is_healthy"`
+	LatencyMs int       `json:"latency_ms"`
+	Timestamp time.Time `json:"timestamp"`
+}

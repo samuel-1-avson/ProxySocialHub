@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/proxyhubb/control-api/internal/bittensor"
+	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/events"
 )
@@ -15,9 +16,13 @@ var (
 	oracleSigner *crypto.Signer
 	// bittensorClient is the global singleton for the bittensor client
 	bittensorClient *bittensor.Client
+	// marketplaceService is the core logic engine
+	marketplaceService ports.MarketplaceService
+
 	queueOnce       sync.Once
 	signerOnce      sync.Once
 	bittensorOnce   sync.Once
+	marketplaceOnce sync.Once
 )
 
 // InitEventQueue initializes the global event queue
@@ -54,4 +59,16 @@ func InitBittensorClient(c *bittensor.Client) {
 // GetBittensorClient returns the global bittensor client
 func GetBittensorClient() *bittensor.Client {
 	return bittensorClient
+}
+
+// InitMarketplaceService initializes the global marketplace service
+func InitMarketplaceService(s ports.MarketplaceService) {
+	marketplaceOnce.Do(func() {
+		marketplaceService = s
+	})
+}
+
+// GetMarketplaceService returns the global marketplace service
+func GetMarketplaceService() ports.MarketplaceService {
+	return marketplaceService
 }

@@ -9,30 +9,37 @@ import { apiGet, apiPost, apiPut, apiDelete } from './client';
 
 export interface Listing {
     id: string;
-    provider_id: string;
+    seller_id: string;
     node_id: string;
     title: string;
     description: string;
     price_per_gb: number;
-    min_bandwidth_gb: number;
-    max_bandwidth_gb?: number;
+    min_purchase_gb: number;
     available_bandwidth_gb: number;
-    status: 'active' | 'paused' | 'sold_out';
-    proxy_type: 'rotating' | 'sticky' | 'both';
+    max_concurrency: number;
+    proxy_type: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | 'both';
+    protocol: string;
+    status: 'active' | 'paused' | 'sold_out' | string;
     country?: string;
     city?: string;
     isp?: string;
     uptime_percent: number;
     avg_latency_ms: number;
+    success_rate: number;
+    quality_score: number;
+    views_count: number;
+    saves_count: number;
+    orders_count: number;
     total_sales: number;
     rating: number;
+    bulk_discounts?: any[];
     created_at: string;
-    provider?: {
+    seller?: {
         id: string;
         username: string;
         display_name?: string;
         avatar_url?: string;
-        rating: number;
+        avg_rating?: number;
         verified: boolean;
     };
 }
@@ -55,9 +62,9 @@ export interface ListingFilters {
     country?: string;
     min_price?: number;
     max_price?: number;
-    proxy_type?: 'rotating' | 'sticky';
+    proxy_type?: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | string;
     min_rating?: number;
-    sort_by?: 'price' | 'rating' | 'sales' | 'uptime';
+    sort_by?: 'price' | 'rating' | 'sales' | 'uptime' | string;
     sort_order?: 'asc' | 'desc';
     page?: number;
     limit?: number;

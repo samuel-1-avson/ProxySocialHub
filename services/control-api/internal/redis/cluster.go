@@ -90,7 +90,7 @@ func NewClusterClient(config *ClusterConfig) (*ClusterClient, error) {
 // NewClusterClientFromURL creates a Redis cluster client from URL
 func NewClusterClientFromURL(url string) (*ClusterClient, error) {
 	config := DefaultClusterConfig()
-	
+
 	// Parse cluster URLs (comma-separated)
 	if strings.Contains(url, ",") {
 		config.Addrs = strings.Split(url, ",")
@@ -102,9 +102,7 @@ func NewClusterClientFromURL(url string) (*ClusterClient, error) {
 	// Clean up URLs (remove redis:// prefix if present)
 	for i, addr := range config.Addrs {
 		addr = strings.TrimSpace(addr)
-		if strings.HasPrefix(addr, "redis://") {
-			addr = strings.TrimPrefix(addr, "redis://")
-		}
+		addr = strings.TrimPrefix(addr, "redis://")
 		config.Addrs[i] = addr
 	}
 
