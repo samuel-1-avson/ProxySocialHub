@@ -46,6 +46,7 @@ func Init() error {
 	}{
 		{name: "SESSIONS", subjects: []string{"proxy.sessions.v1.>"}},
 		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}},
+		{name: "MESSAGING", subjects: []string{"proxy.messaging.v1.>"}},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
