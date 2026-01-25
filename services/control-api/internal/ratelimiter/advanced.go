@@ -58,31 +58,31 @@ type PenaltyConfig struct {
 
 // TokenBucketState represents the state of a token bucket
 type TokenBucketState struct {
-	Tokens       float64   `json:"tokens"`
-	LastRefill   time.Time `json:"last_refill"`
-	Violations   int       `json:"violations"`
+	Tokens        float64   `json:"tokens"`
+	LastRefill    time.Time `json:"last_refill"`
+	Violations    int       `json:"violations"`
 	LastViolation time.Time `json:"last_violation"`
-	PenaltyUntil time.Time `json:"penalty_until"`
+	PenaltyUntil  time.Time `json:"penalty_until"`
 }
 
 // SlidingWindowState represents the state of a sliding window
 type SlidingWindowState struct {
-	Requests     []time.Time `json:"requests"`
-	Violations   int         `json:"violations"`
-	LastViolation time.Time  `json:"last_violation"`
-	PenaltyUntil time.Time   `json:"penalty_until"`
+	Requests      []time.Time `json:"requests"`
+	Violations    int         `json:"violations"`
+	LastViolation time.Time   `json:"last_violation"`
+	PenaltyUntil  time.Time   `json:"penalty_until"`
 }
 
 // DefaultAdvancedRateLimitConfig returns sensible defaults for advanced rate limiting
 func DefaultAdvancedRateLimitConfig() AdvancedRateLimitConfig {
 	return AdvancedRateLimitConfig{
 		Algorithm:     TokenBucket,
-		Limit:         100,
+		Limit:         300,
 		Window:        time.Minute,
-		RefillRate:    1.67, // ~100 tokens per minute
-		BurstCapacity: 20,
+		RefillRate:    5.0, // 300 tokens per minute
+		BurstCapacity: 100,
 		PenaltyConfig: PenaltyConfig{
-			Enabled:         true,
+			Enabled:         false, // Disabled to prevent blocking developers during testing
 			BasePenalty:     time.Minute * 5,
 			MaxPenalty:      time.Hour,
 			Multiplier:      2.0,
@@ -169,9 +169,9 @@ func AdvancedRateLimit(config AdvancedRateLimitConfig) gin.HandlerFunc {
 				Msg("Request blocked due to penalty")
 
 			c.JSON(429, gin.H{
-				"error":       "rate_limit_penalty",
-				"message":     "Too many violations. You are temporarily banned.",
-				"retry_after": retryAfter,
+				"error":         "rate_limit_penalty",
+				"message":       "Too many violations. You are temporarily banned.",
+				"retry_after":   retryAfter,
 				"penalty_until": penaltyUntil.Unix(),
 			})
 			c.Abort()
@@ -204,11 +204,11 @@ func AdvancedRateLimit(config AdvancedRateLimitConfig) gin.HandlerFunc {
 // checkTokenBucket implements token bucket algorithm with Redis
 func checkTokenBucket(ctx context.Context, key string, config AdvancedRateLimitConfig) (bool, int, time.Time, time.Time) {
 	now := time.Now()
-	
+
 	// Get current state
 	stateJSON, err := redis.Client.Get(ctx, key).Result()
 	var state TokenBucketState
-	
+
 	if err != nil {
 		// Initialize new bucket
 		state = TokenBucketState{
@@ -236,11 +236,11 @@ func checkTokenBucket(ctx context.Context, key string, config AdvancedRateLimitC
 	// Check if request can be allowed
 	if state.Tokens >= 1.0 {
 		state.Tokens -= 1.0
-		
+
 		// Save state
 		stateJSON, _ := json.Marshal(state)
 		redis.Client.Set(ctx, key, string(stateJSON), config.Window*2)
-		
+
 		remaining := int(math.Floor(state.Tokens))
 		resetTime := now.Add(time.Duration((float64(config.BurstCapacity)-state.Tokens)/config.RefillRate) * time.Second)
 		return true, remaining, resetTime, time.Time{}
@@ -250,15 +250,15 @@ func checkTokenBucket(ctx context.Context, key string, config AdvancedRateLimitC
 	if config.PenaltyConfig.Enabled {
 		state.Violations++
 		state.LastViolation = now
-		
+
 		// Calculate penalty duration
 		penaltyDuration := time.Duration(float64(config.PenaltyConfig.BasePenalty) * math.Pow(config.PenaltyConfig.Multiplier, float64(state.Violations-1)))
 		if penaltyDuration > config.PenaltyConfig.MaxPenalty {
 			penaltyDuration = config.PenaltyConfig.MaxPenalty
 		}
-		
+
 		state.PenaltyUntil = now.Add(penaltyDuration)
-		
+
 		logging.Warn().
 			Str("key", key).
 			Int("violations", state.Violations).
@@ -283,7 +283,7 @@ func checkSlidingWindow(ctx context.Context, key string, config AdvancedRateLimi
 	// Get current state
 	stateJSON, err := redis.Client.Get(ctx, key).Result()
 	var state SlidingWindowState
-	
+
 	if err != nil {
 		state = SlidingWindowState{
 			Requests: []time.Time{},
@@ -312,11 +312,11 @@ func checkSlidingWindow(ctx context.Context, key string, config AdvancedRateLimi
 	// Check if request can be allowed
 	if len(state.Requests) < config.Limit {
 		state.Requests = append(state.Requests, now)
-		
+
 		// Save state
 		stateJSON, _ := json.Marshal(state)
 		redis.Client.Set(ctx, key, string(stateJSON), config.Window*2)
-		
+
 		remaining := config.Limit - len(state.Requests)
 		resetTime := state.Requests[0].Add(config.Window)
 		return true, remaining, resetTime, time.Time{}
@@ -326,13 +326,13 @@ func checkSlidingWindow(ctx context.Context, key string, config AdvancedRateLimi
 	if config.PenaltyConfig.Enabled {
 		state.Violations++
 		state.LastViolation = now
-		
+
 		// Calculate penalty duration
 		penaltyDuration := time.Duration(float64(config.PenaltyConfig.BasePenalty) * math.Pow(config.PenaltyConfig.Multiplier, float64(state.Violations-1)))
 		if penaltyDuration > config.PenaltyConfig.MaxPenalty {
 			penaltyDuration = config.PenaltyConfig.MaxPenalty
 		}
-		
+
 		state.PenaltyUntil = now.Add(penaltyDuration)
 	}
 
@@ -381,10 +381,10 @@ func checkFixedWindow(ctx context.Context, key string, config AdvancedRateLimitC
 			if penaltyDuration > config.PenaltyConfig.MaxPenalty {
 				penaltyDuration = config.PenaltyConfig.MaxPenalty
 			}
-			
+
 			penaltyUntil := now.Add(penaltyDuration)
 			redis.Client.Set(ctx, key+":penalty_until", penaltyUntil.Unix(), penaltyDuration)
-			
+
 			return false, 0, windowStart.Add(config.Window), penaltyUntil
 		}
 	}
@@ -395,11 +395,11 @@ func checkFixedWindow(ctx context.Context, key string, config AdvancedRateLimitC
 
 // RateLimitStats provides statistics about rate limiting
 type RateLimitStats struct {
-	Algorithm     string    `json:"algorithm"`
-	TotalRequests int64     `json:"total_requests"`
-	BlockedRequests int64   `json:"blocked_requests"`
-	PenalizedClients int    `json:"penalized_clients"`
-	LastReset     time.Time `json:"last_reset"`
+	Algorithm        string    `json:"algorithm"`
+	TotalRequests    int64     `json:"total_requests"`
+	BlockedRequests  int64     `json:"blocked_requests"`
+	PenalizedClients int       `json:"penalized_clients"`
+	LastReset        time.Time `json:"last_reset"`
 }
 
 // GetRateLimitStats returns rate limiting statistics
@@ -407,10 +407,10 @@ func GetRateLimitStats(ctx context.Context) (*RateLimitStats, error) {
 	// This would typically aggregate stats from Redis
 	// Implementation depends on specific monitoring requirements
 	return &RateLimitStats{
-		Algorithm:       "token_bucket",
-		TotalRequests:   0,
-		BlockedRequests: 0,
+		Algorithm:        "token_bucket",
+		TotalRequests:    0,
+		BlockedRequests:  0,
 		PenalizedClients: 0,
-		LastReset:       time.Now(),
+		LastReset:        time.Now(),
 	}, nil
 }
