@@ -44,17 +44,6 @@ export default function TransactionsPage() {
                             <h1 className="text-3xl font-bold">Transactions</h1>
                         </div>
 
-                        <div className="flex gap-2">
-                            <select
-                                className="bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-cyan-500/50"
-                                value={chainFilter || ''}
-                                onChange={(e) => setChainFilter(e.target.value || undefined)}
-                            >
-                                <option value="">All Chains</option>
-                                <option value="solana">Solana</option>
-                                <option value="bittensor">Bittensor</option>
-                            </select>
-                        </div>
                     </div>
 
                     <GlassCard className="overflow-hidden">
@@ -86,7 +75,7 @@ export default function TransactionsPage() {
                                         <tr key={tx.tx_hash} className="hover:bg-white/5 transition-colors group">
                                             <td className="p-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`w-1 h-8 rounded-full ${tx.chain === 'solana' ? 'bg-green-500' : 'bg-purple-500'}`} />
+                                                    <span className="w-1 h-8 rounded-full bg-cyan-500" />
                                                     <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-cyan-400 hover:underline flex items-center gap-1">
                                                         {tx.tx_hash.slice(0, 8)}...{tx.tx_hash.slice(-8)}
                                                     </Link>
