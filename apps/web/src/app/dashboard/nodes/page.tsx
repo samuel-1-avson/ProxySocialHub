@@ -22,13 +22,11 @@ import {
 } from "lucide-react";
 import { ProviderNode } from "@/lib/api";
 import { stakeNode, unstakeNode } from "@/lib/api/marketplace";
-import { StakeModal } from "@/components/StakeModal";
 
 function NodesContent() {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [realNodes, setNodes] = useState<ProviderNode[]>([]);
-    const [selectedNodeForStake, setSelectedNodeForStake] = useState<string | null>(null);
 
     useEffect(() => {
         // Fetch Real Nodes
@@ -192,15 +190,7 @@ function NodesContent() {
                                     </div>
                                 </div>
 
-                                {/* Staking / Boost Section */}
-                                <div className="mt-6 flex items-center justify-between gap-3">
-                                    <button
-                                        className="flex-1 py-2 px-3 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 text-yellow-500 rounded-sm text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 group/boost"
-                                        onClick={() => setSelectedNodeForStake(node.id)}
-                                    >
-                                        <TrendingUp size={12} className="group-hover/boost:-translate-y-0.5 transition-transform" />
-                                        Stake to Boost
-                                    </button>
+                                <div className="mt-6 flex justify-end">
                                     <button className="p-2 border border-border hover:border-primary text-muted-foreground hover:text-primary transition-all rounded-sm">
                                         <ArrowRight size={14} />
                                     </button>
@@ -211,18 +201,7 @@ function NodesContent() {
                 )}
             </div>
 
-            {/* Stake Management Modal */}
-            {selectedNodeForStake && (
-                <StakeModal
-                    nodeId={selectedNodeForStake}
-                    onClose={() => setSelectedNodeForStake(null)}
-                    onSuccess={() => {
-                        // Refresh nodes to reflect new stake/rank
-                        setLoading(true);
-                        // In real impl, fetchNodes() would be called again
-                    }}
-                />
-            )}
+
 
             {/* Action Bar */}
             {!loading && displayNodes.length > 0 && (
