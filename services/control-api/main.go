@@ -59,6 +59,11 @@ func main() {
 	api.InitConfigManager(cm)
 	log.Println("Internal Config Manager initialized and synced")
 
+	// Initialize Agent Dispatcher (Phase 13 Orchestration)
+	ad := worker.NewAgentTaskDispatcher()
+	api.InitAgentDispatcher(ad)
+	log.Println("AI Agent Orchestration Dispatcher initialized")
+
 	// Initialize NATS (Event Driven Evolution)
 	if err := internalNats.Init(); err != nil {
 		log.Printf("Warning: Failed to init NATS: %v", err)
@@ -331,7 +336,11 @@ func main() {
 		gp := treasury.NewGhostProber(wt)
 		gp.StartProbingLoop(context.Background(), 5*time.Minute)
 
-		log.Println("Liquidity Manager, Ghost Prober, Staking and Proof services started")
+		// Start Automated Settlement Aggregator (Phase 14)
+		sa := worker.NewSettlementAggregator(oracleClient, 1*time.Hour)
+		go sa.Start(context.Background())
+
+		log.Println("Liquidity Manager, Ghost Prober, Staking, Proof and Settlement services started")
 	} else {
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
@@ -357,6 +366,11 @@ func main() {
 	rw := indexer.NewRegistrySyncWorker(5 * time.Minute)
 	go rw.Start(context.Background())
 	log.Println("Registry Sync Worker started")
+
+	// Start AI Agent Worker (Phase 13 Orchestration)
+	aw := worker.NewAgentWorker()
+	go aw.Start(context.Background())
+	log.Println("AI Agent Execution Worker started")
 
 	port := os.Getenv("PORT")
 	if port == "" {
