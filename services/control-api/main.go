@@ -11,7 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/proxyhubb/control-api/internal/api"
-	"github.com/proxyhubb/control-api/internal/bittensor"
+
+	// "github.com/proxyhubb/control-api/internal/bittensor" // Removed for simplification
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -221,7 +222,7 @@ func main() {
 		api.RegisterSmartMatchingRoutes(protected)
 		api.RegisterGovernanceRoutes(protected)
 		api.RegisterOnboardingRoutes(protected)
-		api.RegisterBittensorRoutes(protected)
+		// api.RegisterBittensorRoutes(protected) // Removed
 		api.RegisterCircleRoutes(protected)
 
 		api.RegisterReferralRoutes(protected)
@@ -234,7 +235,7 @@ func main() {
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
 		api.RegisterAgentRegistryRoutes(protected)
-		api.RegisterSubtensorRoutes(protected)
+		// api.RegisterSubtensorRoutes(protected) // Removed
 
 		// Analytics & Geo
 		api.RegisterAnalyticsRoutes(protected)
@@ -248,7 +249,7 @@ func main() {
 		api.RegisterTrustlessRoutes(protected)
 
 		// Quality Attestation (Phase 18)
-		api.RegisterValidatorRoutes(protected)
+		// api.RegisterValidatorRoutes(protected) // Removed
 
 		// Decentralized Disputes (Phase 19)
 		api.RegisterDisputeJuryRoutes(protected)
@@ -271,9 +272,9 @@ func main() {
 	idx.Start()
 
 	// Start Validator Sync
-	btClient := bittensor.NewClient(cfg.Bittensor)
-	api.InitBittensorClient(btClient) // Initialize singleton for handlers
-	worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
+	// btClient := bittensor.NewClient(cfg.Bittensor)
+	// api.InitBittensorClient(btClient)
+	// worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
 
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker()
