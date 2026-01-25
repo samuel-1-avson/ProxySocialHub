@@ -47,15 +47,22 @@ export interface Listing {
 export interface Order {
     id: string;
     buyer_id: string;
+    seller_id: string;
     listing_id: string;
     node_id: string;
     bandwidth_gb: number;
     price_total: number;
-    status: 'pending' | 'paid' | 'active' | 'completed' | 'cancelled' | 'refunded';
+    amount?: number; // Legacy support
+    status: 'pending' | 'paid' | 'active' | 'completed' | 'cancelled' | 'refunded' | string;
     session_type: 'rotating' | 'sticky';
     session_id?: string;
+    tx_hash?: string;
     created_at: string;
     completed_at?: string;
+    listing?: {
+        title: string;
+    };
+    escrow_status?: string;
 }
 
 export interface ListingFilters {

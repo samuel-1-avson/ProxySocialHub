@@ -89,25 +89,6 @@ export function terminateSession(id: string) {
     return apiDelete(`/v1/sessions/${id}`);
 }
 
-/**
- * Get session usage stats
- */
-export function getSessionUsage(id: string) {
-    return apiGet<UsageStats>(`/v1/sessions/${id}/usage`);
-}
-
-/**
- * Get user's total usage
- */
-export function getUserUsage() {
-    return apiGet<{
-        total_bytes: number;
-        total_gb: number;
-        total_cost_ghs: number;
-        sessions: UsageStats[];
-    }>('/v1/usage');
-}
-
 // ============ Query Keys ============
 
 export const sessionKeys = {

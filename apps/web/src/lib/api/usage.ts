@@ -1,0 +1,46 @@
+/**
+ * Usage & Analytics API Module
+ * Tracking bandwidth and session consumption metrics
+ */
+
+import { apiGet } from './client';
+
+export interface UsageMetric {
+    date: string;
+    bandwidth_gb: number;
+    cost_ghs: number;
+    sessions_count: number;
+}
+
+/**
+ * Get daily bandwidth consumption for the user
+ */
+export async function getDailyUsage() {
+    return apiGet<UsageMetric[]>('/v1/usage/daily');
+}
+
+/**
+ * Get aggregate usage metrics for a specific user
+ */
+export async function getUserUsage() {
+    return apiGet<{
+        total_bandwidth?: number;
+        total_sessions?: number;
+        total_bytes?: number;
+        total_gb?: number;
+        total_cost_ghs?: number;
+        sessions?: any[];
+    }>('/v1/usage');
+}
+
+/**
+ * Get real-time usage for a specific session
+ */
+export async function getSessionUsage(sessionId: string) {
+    return apiGet<{
+        current_bandwidth: number;
+        elapsed_time: number;
+        bytes_used?: number;
+        gb_used?: number;
+    }>(`/v1/usage/session/${sessionId}`);
+}
