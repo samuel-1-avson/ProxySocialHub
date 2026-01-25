@@ -50,7 +50,7 @@ func (lm *LiquidityManager) StartRebalanceLoop(ctx context.Context, interval tim
 // CheckBalances checks Treasury balances and alerts if low
 func (lm *LiquidityManager) CheckBalances(ctx context.Context) error {
 	// 1. Get Oracle/Treasury Balance (Operational Wallet)
-	lamports, err := lm.client.GetBalance(ctx)
+	lamports, err := lm.client.GetBalance(ctx, lm.client.GetOraclePublicKey())
 	if err != nil {
 		return fmt.Errorf("failed to get balance: %w", err)
 	}

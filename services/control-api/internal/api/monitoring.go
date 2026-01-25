@@ -53,7 +53,7 @@ func getOperationalMetrics(c *gin.Context) {
 	if solana.IsOracleConfigured() {
 		oracle := solana.GetOracle()
 		metrics.Treasury.Network = oracle.GetNetwork()
-		if balance, err := oracle.GetBalance(ctx); err == nil {
+		if balance, err := oracle.GetBalance(ctx, oracle.GetOraclePublicKey()); err == nil {
 			metrics.Treasury.SolBalance = float64(balance) / 1e9
 		}
 	} else {

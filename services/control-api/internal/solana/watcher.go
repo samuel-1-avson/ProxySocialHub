@@ -15,6 +15,8 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
 )
 
 // EscrowEvent represents an on-chain escrow event
@@ -407,6 +409,27 @@ func (w *Watcher) emitEvent(event EscrowEvent) {
 	// Log the event
 	eventJSON, _ := json.Marshal(event)
 	log.Printf("[Watcher] Event: %s", string(eventJSON))
+
+	// Persist to Block Explorer Tables
+	if db.DB != nil {
+		explorerTx := models.ExplorerTransaction{
+			TxHash:      event.TxSignature,
+			Chain:       "solana",
+			FromAddress: event.Buyer,
+			ToAddress:   event.Seller,
+			Amount:      float64(event.Amount) / 1e9,
+			Currency:    "SOL",
+			Status:      "confirmed",
+			TxType:      event.Type,
+			Timestamp:   event.Timestamp,
+		}
+
+		// Use Upsert logic to avoid duplicates if polling and websocket both catch it
+		if err := db.DB.Where(models.ExplorerTransaction{TxHash: event.TxSignature}).
+			FirstOrCreate(&explorerTx).Error; err != nil {
+			log.Printf("[Watcher] Failed to persist explorer tx: %v", err)
+		}
+	}
 }
 
 // Global watcher instance

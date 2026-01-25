@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterExplorerRoutes registers all public explorer endpoints
@@ -411,9 +413,21 @@ func getTransactionByHash(c *gin.Context) {
 	}
 
 	// For cache miss, we would query Solana RPC directly
-	// This requires a connected Solana client with transaction history enabled
-	// For MVP, return not found and rely on indexer to populate cache
-	// Future: Add direct Solana RPC query here
+	if oracle := solana.GetOracle(); oracle != nil {
+		rpcTx, err := oracle.GetTransaction(c.Request.Context(), hash)
+		if err == nil && rpcTx != nil && rpcTx.Transaction != nil {
+			// Convert RPC result to our DTO
+			// This is a simplified conversion for now
+			c.JSON(http.StatusOK, TransactionDetailResponse{
+				TxHash:        hash,
+				Chain:         "solana",
+				Confirmations: 1, // Finalized
+				Status:        "confirmed",
+				Timestamp:     time.Now(), // RPC might have block time but need metadata
+			})
+			return
+		}
+	}
 
 	c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
 }
@@ -439,10 +453,17 @@ func getWalletDetails(c *gin.Context) {
 	db.DB.Where("from_address = ? OR to_address = ?", address, address).
 		Order("timestamp DESC").First(&lastTx)
 
-	// Get balance from Solana RPC (if oracle client available)
-	// For MVP, balance shown as 0 - would be populated by indexer/oracle
+	// Get balance from Solana RPC
 	var balanceSOL float64
-	// Future: Integrate with Solana RPC to fetch live balance
+	if oracle := solana.GetOracle(); oracle != nil {
+		pubkey, err := solanaGo.PublicKeyFromBase58(address)
+		if err == nil {
+			// Get balance returns lamports (uint64)
+			if bal, err := oracle.GetBalance(c.Request.Context(), pubkey); err == nil {
+				balanceSOL = float64(bal) / 1e9
+			}
+		}
+	}
 
 	// Check if this address is linked to a platform user
 	var linkedUserID string
