@@ -9,26 +9,38 @@ import { apiGet, apiPost } from './client';
 
 export interface Wallet {
     id: string;
-    user_id: string;
-    balance: number;
+    balance_ghs: number;
+    balance_tao: number;
+    balance?: number; // Legacy/Unified
     currency: string;
     linked_solana_address?: string;
     linked_bittensor_addr?: string;
     created_at: string;
-    updated_at: string;
+    updated_at?: string;
 }
 
 export interface WalletTransaction {
     id: string;
-    wallet_id: string;
+    wallet_id?: string;
     amount: number;
     balance_after: number;
-    type: 'deposit' | 'withdrawal' | 'purchase' | 'earning' | 'refund';
+    type: 'deposit' | 'withdrawal' | 'purchase' | 'earning' | 'refund' | string;
     description: string;
     reference?: string;
     tx_hash?: string;
-    status: 'pending' | 'completed' | 'failed';
+    status?: 'pending' | 'completed' | 'failed' | string;
     created_at: string;
+}
+
+export interface StakingPosition {
+    id: string;
+    amount: number;
+    currency: string;
+    apy: number;
+    start_time: string;
+    status: 'active' | 'unstaked';
+    accrued_yield: number;
+    current_yield?: number;
 }
 
 export interface DepositRequest {
@@ -80,8 +92,9 @@ export interface CryptoDepositResponse {
 /**
  * Get user's wallet
  */
-export function getWallet() {
-    return apiGet<Wallet>('/v1/wallet');
+export async function getWallet() {
+    const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
+    return data.wallet;
 }
 
 /**
@@ -98,8 +111,8 @@ export function getTransactions(limit = 20, offset = 0) {
  * Initiate a deposit via Paystack (Admin/Legacy only)
  * @deprecated Use depositCrypto for user deposits
  */
-export function deposit(data: DepositRequest) {
-    return apiPost<DepositResponse>('/v1/wallet/deposit', data);
+export function depositWallet(amount: number, email: string) {
+    return apiPost<DepositResponse>('/v1/wallet/deposit', { amount, email });
 }
 
 /**
@@ -107,26 +120,25 @@ export function deposit(data: DepositRequest) {
  * @deprecated
  */
 export function verifyDeposit(reference: string) {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/verify', { reference });
+    return apiGet<{ status: string; message: string }>(`/v1/wallet/verify?reference=${reference}`);
 }
 
 /**
  * Initiate a withdrawal (Mobile Money - Providers only)
  */
-export function withdraw(data: WithdrawRequest) {
-    return apiPost<WithdrawResponse>('/v1/wallet/withdraw', data);
+export function withdrawWallet(amount: number, phone: string, network: string) {
+    return apiPost<WithdrawResponse>('/v1/wallet/withdraw', { amount, phone, network });
 }
 
 /**
  * Link a blockchain wallet
  */
-export function linkWallet(address: string, chain: 'solana' | 'bittensor', signature: string, message: string, label?: string) {
+export function linkWallet(address: string, chain: 'solana' | 'bittensor', signature?: string, message?: string) {
     return apiPost<{ status: string; message: string }>('/v1/wallet/link', {
         wallet_address: address,
         chain,
         signature,
-        message,
-        label
+        message
     });
 }
 
@@ -138,8 +150,51 @@ export function depositCrypto(amount: number, txHash: string, chain: 'solana' | 
     return apiPost<CryptoDepositResponse>('/v1/wallet/deposit/crypto', {
         amount,
         tx_hash: txHash,
-        chain
+        chain,
+        currency: 'TAO'
     });
+}
+
+/**
+ * Get active staking positions
+ */
+export function getStakes() {
+    return apiGet<StakingPosition[]>('/v1/staking/');
+}
+
+/**
+ * Stake funds for yield
+ */
+export function stakeFunds(amount: number) {
+    return apiPost<{ message: string; stake: StakingPosition }>('/v1/staking/stake', { amount });
+}
+
+/**
+ * Unstake funds and claim yield
+ */
+export function unstakeFunds(stakeId: string) {
+    return apiPost<{ message: string; yield: number; total: number }>(`/v1/staking/unstake/${stakeId}`);
+}
+
+/**
+ * Transfer funds between internal wallets
+ */
+export function transferFunds(recipient: string, amount: number, currency: 'TAO' | 'GHS') {
+    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount, currency });
+}
+
+/**
+ * Initiate the bittensor devnet faucet
+ */
+export function startFaucet() {
+    return apiPost<{ status: string; message: string }>('/v1/wallet/faucet/start', { wallet_name: 'proxyhubb' });
+}
+
+/**
+ * Get faucet status and cooldown
+ */
+export function getFaucetStatus() {
+    return apiGet<{ status: string; message: string; elapsed_seconds: number }>('/v1/wallet/faucet/status');
 }
 
 // ============ Query Keys ============
@@ -148,4 +203,5 @@ export const walletKeys = {
     all: ['wallet'] as const,
     detail: () => [...walletKeys.all, 'detail'] as const,
     transactions: (page?: number) => [...walletKeys.all, 'transactions', page] as const,
+    stakes: () => [...walletKeys.all, 'stakes'] as const,
 };
