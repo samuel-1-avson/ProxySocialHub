@@ -37,9 +37,6 @@ export function SmartMatchWidget() {
         setAnalyzing(true);
         setShowResults(false);
 
-        // Simulate AI analysis delay
-        await new Promise(r => setTimeout(r, 1500));
-
         try {
             setLoading(true);
             const data = await getRecommendations(selectedUseCase, minScore);

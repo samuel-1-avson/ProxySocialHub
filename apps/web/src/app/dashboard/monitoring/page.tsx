@@ -141,31 +141,10 @@ export default function MonitoringPage() {
                     <Zap size={16} className="text-muted-foreground" />
                     <h2 className="text-xs font-bold font-mono uppercase text-muted-foreground tracking-widest">Recent System Events</h2>
                 </div>
-                <div className="bg-black/40 border border-white/5 rounded-sm overflow-hidden">
-                    <table className="w-full text-left font-mono text-[10px]">
-                        <thead className="bg-white/5 uppercase text-muted-foreground border-b border-white/5">
-                            <tr>
-                                <th className="px-4 py-2 font-medium">Timestamp</th>
-                                <th className="px-4 py-2 font-medium">Component</th>
-                                <th className="px-4 py-2 font-medium">Description</th>
-                                <th className="px-4 py-2 font-medium">Level</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            <tr>
-                                <td className="px-4 py-2 text-muted-foreground">{new Date().toLocaleTimeString()}</td>
-                                <td className="px-4 py-2">JetStream</td>
-                                <td className="px-4 py-2">Durable consumer 'provisioning-worker' ack session_821</td>
-                                <td className="px-4 py-2 text-green-500 font-bold">INFO</td>
-                            </tr>
-                            <tr>
-                                <td className="px-4 py-2 text-muted-foreground">{new Date(Date.now() - 60000).toLocaleTimeString()}</td>
-                                <td className="px-4 py-2">Treasury</td>
-                                <td className="px-4 py-2">Auto-rebalance check completed. Balance sufficient.</td>
-                                <td className="px-4 py-2 text-green-500 font-bold">INFO</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div className="bg-black/40 border border-white/5 rounded-sm overflow-hidden p-8 text-center">
+                    <Zap size={32} className="mx-auto text-muted-foreground opacity-10 mb-4" />
+                    <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest">Awaiting industrial event signal...</p>
+                    <p className="font-mono text-[10px] text-muted-foreground/40 mt-1">REAL-TIME TELEMETRY STREAM IS ACTIVE</p>
                 </div>
             </section>
         </div>
