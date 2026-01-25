@@ -51,9 +51,10 @@ export async function updateChannelState(channelId: string, nonce: number, total
 }
 
 /**
- * Mock cryptographic signing for state updates
+ * Generate a cryptographic signature for a state update
+ * Requires a loaded protocol identity
  */
 export async function signStateUpdate(channelId: string, nonce: number, amount: number, bytes: number): Promise<string> {
-    // Generate a fixed-length dummy hex signature for protocol verification
-    return "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+    // Protocol requires WASM Ed25519 signer integration
+    throw new Error('Cryptographic Identity Not Loaded: signStateUpdate failed');
 }

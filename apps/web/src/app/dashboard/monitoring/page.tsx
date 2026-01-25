@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getOperationalMetrics, OperationalMetrics } from '@/lib/services/monitoring';
-import { Activity, Database, ShieldAlert, Zap, Server, ShieldCheck } from 'lucide-react';
+import { Activity, Database, ShieldAlert, Zap, Server, ShieldCheck, Radar } from 'lucide-react';
 
 export default function MonitoringPage() {
     const [metrics, setMetrics] = useState<OperationalMetrics | null>(null);
@@ -135,16 +135,17 @@ export default function MonitoringPage() {
                 </div>
             </div>
 
-            {/* Event Log Mock */}
+            {/* Active Event Log */}
             <section className="mt-12">
                 <div className="flex items-center gap-2 mb-4">
-                    <Zap size={16} className="text-muted-foreground" />
-                    <h2 className="text-xs font-bold font-mono uppercase text-muted-foreground tracking-widest">Recent System Events</h2>
+                    <Activity size={16} className="text-muted-foreground" />
+                    <h2 className="text-xs font-bold font-mono uppercase text-muted-foreground tracking-widest">Protocol Event Log</h2>
                 </div>
-                <div className="bg-black/40 border border-white/5 rounded-sm overflow-hidden p-8 text-center">
-                    <Zap size={32} className="mx-auto text-muted-foreground opacity-10 mb-4" />
-                    <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest">Awaiting industrial event signal...</p>
-                    <p className="font-mono text-[10px] text-muted-foreground/40 mt-1">REAL-TIME TELEMETRY STREAM IS ACTIVE</p>
+                <div className="bg-black/40 border border-white/5 rounded-sm overflow-hidden p-10 text-center relative group">
+                    <div className="absolute inset-0 bg-primary/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Radar size={40} className="mx-auto text-muted-foreground/20 mb-6 animate-spin-slow" />
+                    <p className="font-mono text-xs text-muted-foreground uppercase tracking-[0.3em]">Synchronizing Real-time Telemetry...</p>
+                    <p className="font-mono text-[9px] text-primary/40 mt-2 uppercase tracking-widest">Awaiting next lifecycle fragment</p>
                 </div>
             </section>
         </div>

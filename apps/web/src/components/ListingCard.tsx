@@ -11,7 +11,13 @@ import {
     Server,
     ArrowRight,
     ChevronUp,
-    TrendingDown
+    TrendingDown,
+    Zap,
+    Hexagon,
+    Target,
+    ShieldCheck,
+    Cpu,
+    Command
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
@@ -28,142 +34,134 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -4 }}
-            className={`group relative overflow-hidden rounded-2xl border transition-all duration-300 ${isHighQuality
-                ? 'bg-gradient-to-br from-emerald-500/10 to-blue-500/5 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]'
-                : 'bg-black/40 backdrop-blur-md border-white/5 hover:border-white/20'
+            whileHover={{ y: -4, scale: 1.01 }}
+            className={`group relative overflow-hidden rounded-[2rem] border transition-all duration-500 ${isHighQuality
+                    ? 'bg-primary/[0.03] border-primary/30 shadow-[0_0_40px_rgba(16,185,129,0.1)]'
+                    : 'bg-white/[0.02] border-white/5 hover:border-white/20'
                 }`}
         >
-            {/* Header / Identity */}
-            <div className="p-5 border-b border-white/5 flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
+            {/* Background Texture */}
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none z-0"
+                style={{ backgroundImage: 'linear-gradient(90deg, white 1px, transparent 0), linear-gradient(0deg, white 1px, transparent 0)', backgroundSize: '20px 20px' }} />
+
+            {/* Tactical Header */}
+            <div className="relative z-10 p-6 pb-4 flex justify-between items-start gap-4">
+                <div className="flex gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-black/40 border border-white/5 flex items-center justify-center relative group-hover:border-primary/40 transition-colors overflow-hidden">
                         {listing.seller?.avatar_url ? (
                             <img src={listing.seller.avatar_url} alt="" className="w-full h-full object-cover" />
                         ) : (
-                            <span className="font-mono font-black text-sm text-white/40">{(listing.seller?.display_name?.[0] || "?").toUpperCase()}</span>
+                            <div className="text-[10px] font-black text-primary/40">{(listing.seller?.display_name?.[0] || "?").toUpperCase()}</div>
                         )}
+                        <div className="absolute inset-x-0 bottom-0 h-1 bg-primary/40 scale-x-0 group-hover:scale-x-100 transition-transform" />
                     </div>
-                    <div>
-                        <h3 className="font-black text-white text-sm leading-tight line-clamp-1 uppercase tracking-tight">{listing.title}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                            <div className="flex items-center gap-1 text-[10px] font-black text-yellow-500">
-                                <Star size={10} className="fill-current" />
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-black text-white text-[11px] uppercase tracking-wider group-hover:text-primary transition-colors">{listing.title}</h3>
+                            {listing.is_priority && <Target size={10} className="text-primary animate-pulse" />}
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 text-[9px] font-black text-white/20 uppercase tracking-widest">
+                                <Star size={10} className="text-yellow-500 fill-yellow-500/20" />
                                 {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
                             </div>
-                            <span className="text-white/20 text-[10px]">•</span>
-                            <div className="text-[10px] font-black uppercase text-emerald-400 font-mono tracking-wider">
+                            <div className={`px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest border ${listing.proxy_type === 'residential' ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-white/5 border-white/10 text-white/40'
+                                }`}>
                                 {listing.proxy_type}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Live Pulse Indicator or Priority Badge */}
-                <div className="absolute top-4 right-4 flex items-center gap-2">
-                    {listing.is_priority && (
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-sm bg-yellow-500/10 border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.2)]">
-                            <ChevronUp size={10} className="text-yellow-500 animate-bounce" />
-                            <span className="text-[8px] font-black text-yellow-500 uppercase tracking-tighter">Priority Protocol</span>
-                        </div>
-                    )}
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                <div className="flex flex-col items-end gap-1.5 px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 backdrop-blur-md">
+                    <div className="flex items-center gap-2">
                         <span className="relative flex h-1.5 w-1.5">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                         </span>
-                        <span className="text-[8px] font-black text-emerald-400 uppercase tracking-tighter">Live</span>
+                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Active</span>
+                    </div>
+                    <div className="text-[8px] font-black text-white/10 tracking-[0.2em]">{listing.id.split('-')[0]}</div>
+                </div>
+            </div>
+
+            {/* Technical Detail Grid */}
+            <div className="relative z-10 px-6 py-4 grid grid-cols-2 gap-4 border-t border-b border-white/5 bg-white/[0.01]">
+                <div className="space-y-1.5">
+                    <div className="text-[8px] font-black text-white/10 uppercase tracking-[0.3em] flex items-center gap-2">
+                        <Signal size={10} className="text-primary/40" /> Latency
+                    </div>
+                    <div className="text-sm font-black text-white flex items-baseline gap-1">
+                        {listing.avg_latency_ms || '40'}<span className="text-[10px] text-white/20">ms</span>
+                    </div>
+                    <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(100, 100 - (listing.avg_latency_ms || 40) / 2)}%` }}
+                            className="h-full bg-primary/40"
+                        />
+                    </div>
+                </div>
+                <div className="space-y-1.5">
+                    <div className="text-[8px] font-black text-white/10 uppercase tracking-[0.3em] flex items-center gap-2">
+                        <Activity size={10} className="text-primary/40" /> Capacity
+                    </div>
+                    <div className="text-sm font-black text-white flex items-baseline gap-1">
+                        {(listing.quality_score || 95).toFixed(0)}<span className="text-[10px] text-white/20">%</span>
+                    </div>
+                    <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${listing.quality_score || 95}%` }}
+                            className="h-full bg-primary/40"
+                        />
                     </div>
                 </div>
             </div>
 
-            {/* Performance Grid */}
-            <div className="grid grid-cols-2 divide-x divide-white/5 border-b border-white/5 bg-white/[0.02]">
-                <div className="p-4 space-y-1">
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-white/30 uppercase tracking-widest">
-                        <Signal size={10} /> Latency
+            {/* Protocol Meta Strip */}
+            <div className="relative z-10 px-6 py-3 flex items-center justify-between bg-white/[0.02] border-b border-white/5">
+                <div className="flex items-center gap-5 text-[9px] font-black uppercase tracking-widest text-white/30">
+                    <div className="flex items-center gap-2">
+                        <Globe size={10} className="text-primary/40" />
+                        {listing.country || 'Global'}
                     </div>
-                    <div className="font-mono font-black text-xs text-white flex items-baseline gap-0.5">
-                        {listing.avg_latency_ms || '<50'}<span className="text-[10px] text-white/40">ms</span>
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck size={10} className="text-primary/40" />
+                        ZK-MultiSig
                     </div>
                 </div>
-                <div className="p-4 space-y-1">
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-white/30 uppercase tracking-widest">
-                        <Activity size={10} /> Node Score
-                    </div>
-                    <div className="font-mono font-black text-xs text-white">
-                        {(listing.quality_score || 0).toFixed(0)}<span className="text-[10px] text-white/40">/100</span>
-                    </div>
+                <div className="p-1 px-2 rounded-lg bg-black/40 border border-white/5 group-hover:border-primary/20 transition-colors">
+                    <Cpu size={12} className="text-white/10" />
                 </div>
             </div>
 
-            {/* Technical Detail Strip / Privacy HUD */}
-            <div className="px-5 py-3 flex items-center justify-between text-[10px] font-bold text-white/40 border-b border-white/5 bg-white/[0.01]">
-                <div className="flex items-center gap-1.5 min-w-0">
-                    <Globe size={12} className={listing.privacy_enabled ? "text-purple-400/80" : "text-blue-400/60"} />
-                    <span className="truncate">
-                        {listing.privacy_enabled ? (
-                            <span className="flex items-center gap-1">
-                                <span className="px-1.5 py-0.5 rounded-[4px] bg-purple-500/10 border border-purple-500/30 text-[7px] text-purple-400 uppercase tracking-tighter">Private Region</span>
-                                {listing.country}
-                            </span>
-                        ) : (
-                            listing.country || 'Global Network'
-                        )}
-                    </span>
+            {/* Pricing Hub & Action */}
+            <div className="relative z-10 p-6 flex items-center justify-between gap-6">
+                <div className="space-y-1">
+                    <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-black text-white tracking-tighter">₵{listing.price_per_gb.toFixed(2)}</span>
+                        <span className="text-[10px] font-black text-white/20 uppercase">/ Gb</span>
+                    </div>
                 </div>
-                <div className="flex items-center gap-1.5 min-w-0">
-                    <Shield size={12} className={listing.privacy_enabled ? "text-emerald-400/80" : "text-purple-400/60"} />
-                    <span className="truncate">
-                        {listing.privacy_enabled ? (
-                            <span className="flex items-center gap-1">
-                                <span className="px-1.5 py-0.5 rounded-[4px] bg-emerald-500/10 border border-emerald-500/30 text-[7px] text-emerald-400 uppercase tracking-tighter sm:hidden md:inline-block">ZK-Verified</span>
-                                {listing.zk_proof ? "Tier Multi-Sig" : "High Performance"}
-                            </span>
-                        ) : (
-                            listing.isp || 'Verified Provider'
-                        )}
-                    </span>
-                </div>
-            </div>
 
-            {/* Pricing & CTA */}
-            <div className="p-5 flex items-center justify-between">
-                <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                        <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/30">Rate Control</div>
-                        {(listing.quality_score > 90 || (listing.uptime_percent || 0) < 95) && (
-                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-purple-500/10 border border-purple-500/30 text-[7px] font-black uppercase text-purple-400">
-                                <TrendingDown size={8} className="animate-pulse" />
-                                Elastic Rate
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                        <span className="text-lg font-black text-white">₵{listing.price_per_gb.toFixed(2)}</span>
-                        <span className="text-[10px] font-bold text-white/40 uppercase">/ GB</span>
-                        {listing.privacy_enabled && (
-                            <div className="ml-2 flex items-center gap-1 px-1 py-0.5 rounded-sm bg-blue-500/10 border border-blue-500/30 text-[6px] font-black uppercase text-blue-400">
-                                <Activity size={6} />
-                                Milestone Payout
-                            </div>
-                        )}
-                    </div>
-                </div>
                 <button
                     onClick={() => onSelect(listing)}
-                    className="group/btn relative px-5 py-2.5 rounded-xl bg-white text-black font-black text-[10px] uppercase tracking-widest flex items-center gap-2 overflow-hidden transition-all hover:scale-105 active:scale-95"
+                    className="flex-1 group/btn relative py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.95]"
                 >
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent translate-x-[-200%] group-hover/btn:translate-x-[200%] transition-transform duration-700"></div>
-                    <Wifi size={14} className="group-hover/btn:animate-pulse" />
-                    Link Node
-                    <ArrowRight size={12} className="opacity-0 -translate-x-2 group-hover/btn:opacity-100 group-hover/btn:translate-x-0 transition-all" />
+                    <div className="absolute inset-0 bg-white/10 translate-x-[-200%] group-hover/btn:translate-x-[200%] transition-transform duration-700" />
+                    <Zap size={14} className="group-hover/btn:animate-pulse" />
+                    Inject
+                    <ArrowRight size={12} className="opacity-40 group-hover/btn:opacity-100 group-hover/btn:translate-x-1 transition-all" />
                 </button>
             </div>
 
-            {/* Background HUD effect */}
-            <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none">
-                <Server size={64} className="rotate-12" />
+            {/* Decorative Protocol Accents */}
+            <div className="absolute bottom-2 right-6 flex gap-1 items-end pointer-events-none opacity-20">
+                <div className="w-1 h-3 bg-white/10 rounded-full" />
+                <div className="w-1 h-6 bg-primary/40 rounded-full" />
+                <div className="w-1 h-4 bg-white/10 rounded-full" />
             </div>
         </motion.div>
     );
