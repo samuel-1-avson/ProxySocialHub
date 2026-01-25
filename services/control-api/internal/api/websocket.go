@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/nats-io/nats.go/jetstream"
+	internalNats "github.com/proxyhubb/control-api/internal/nats"
 )
 
 // ========== WebSocket Hub ==========
@@ -76,7 +79,7 @@ const (
 	MsgTypeNewReview   = "new_review"
 	MsgTypeNewFollower = "new_follower"
 	MsgTypeOrderUpdate = "order_update"
-	MsgTypeNewListing  = "new_listing" // Added for real-time feed
+	MsgTypeNewListing  = "new_listing"
 )
 
 var wsHub *Hub
@@ -98,6 +101,9 @@ func NewHub() *Hub {
 
 // Run starts the hub
 func (h *Hub) Run() {
+	// 1. Subscribe to NATS for distributed updates (Phase 15 Scaling)
+	go h.listenToNATS()
+
 	for {
 		select {
 		case client := <-h.register:
@@ -125,8 +131,10 @@ func (h *Hub) Run() {
 					default:
 						h.mu.RUnlock()
 						h.mu.Lock()
-						close(client.Send)
-						delete(h.clients, client.ID)
+						if _, ok := h.clients[client.ID]; ok {
+							close(client.Send)
+							delete(h.clients, client.ID)
+						}
 						h.mu.Unlock()
 						h.mu.RLock()
 					}
@@ -134,6 +142,40 @@ func (h *Hub) Run() {
 			}
 			h.mu.RUnlock()
 		}
+	}
+}
+
+func (h *Hub) listenToNATS() {
+	if internalNats.JS == nil {
+		log.Println("[WSHub] Skipping NATS subscription: JetStream not ready")
+		return
+	}
+
+	ctx := context.Background()
+	consumer, err := internalNats.JS.CreateOrUpdateConsumer(ctx, "MESSAGING", jetstream.ConsumerConfig{
+		Durable:       "ws-hub-consumer",
+		FilterSubject: "proxy.messaging.v1.broadcast",
+	})
+	if err != nil {
+		log.Printf("[WSHub] Failed to create NATS consumer: %v", err)
+		return
+	}
+
+	iter, _ := consumer.Messages()
+	for {
+		msg, err := iter.Next()
+		if err != nil {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		var wsMsg Message
+		if err := json.Unmarshal(msg.Data(), &wsMsg); err == nil {
+			// Don't use channel to avoid deadlock if Run is busy, or use a separate worker pool
+			// For simplicity we push to broadcast channel
+			h.broadcast <- &wsMsg
+		}
+		msg.Ack()
 	}
 }
 
@@ -155,7 +197,9 @@ func BroadcastToUser(userID string, msgType string, data interface{}) {
 		Data:      data,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	wsHub.broadcast <- msg
+
+	// Publish to NATS (Distributed)
+	_ = internalNats.Publish(context.Background(), "proxy.messaging.v1.broadcast", msg)
 }
 
 // BroadcastToAll sends a message to all connected clients
@@ -166,7 +210,9 @@ func BroadcastToAll(msgType string, data interface{}) {
 		Data:      data,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	wsHub.broadcast <- msg
+
+	// Publish to NATS (Distributed)
+	_ = internalNats.Publish(context.Background(), "proxy.messaging.v1.broadcast", msg)
 }
 
 // ========== WebSocket Handler ==========
