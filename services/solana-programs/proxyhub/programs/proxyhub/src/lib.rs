@@ -148,12 +148,25 @@ impl AdminConfig {
         1; // bump
 }
 
-impl AdminConfig {
+/// Stake Account - tracks provider's locked tokens for security
+#[account]
+#[derive(Default)]
+pub struct StakeAccount {
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub last_stake_time: i64,
+    pub unstake_request_time: i64, // 0 if no request, otherwise timestamp
+    pub is_slashed: bool,
+    pub bump: u8,
+}
+
+impl StakeAccount {
     pub const LEN: usize = 8 + // discriminator
-        32 + // admin
-        32 + // pending_admin
-        8 +  // created_at
-        8 +  // updated_at
+        32 + // owner
+        8 +  // amount
+        8 +  // last_stake_time
+        8 +  // unstake_request_time
+        1 +  // is_slashed
         1; // bump
 }
 
@@ -664,6 +677,15 @@ pub mod proxyhub {
             amount,
             bandwidth_limit_gb
         );
+
+        emit!(EscrowInitializedEvent {
+            escrow: escrow.key(),
+            buyer: escrow.buyer,
+            seller: escrow.seller,
+            amount: escrow.amount,
+            limit_gb: escrow.bandwidth_limit_gb,
+        });
+
         Ok(())
     }
 
@@ -747,6 +769,14 @@ pub mod proxyhub {
             seller_payout,
             buyer_refund
         );
+
+        emit!(EscrowSettledEvent {
+            escrow: escrow.key(),
+            seller_payout,
+            buyer_refund,
+            bandwidth_used: bandwidth_used_gb,
+        });
+
         Ok(())
     }
 
@@ -772,6 +802,41 @@ pub mod proxyhub {
         **ctx.accounts.buyer.try_borrow_mut_lamports()? += escrow_lamports;
 
         msg!("Escrow refunded: {} lamports to buyer", escrow_lamports);
+        Ok(())
+    }
+
+    /// Emergency Refund - Buyer can reclaim funds after long timeout (7 days) if Oracle fails to settle
+    pub fn emergency_refund(ctx: Context<RefundEscrow>) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        let clock = Clock::get()?;
+
+        // Higher timeout than normal refund (expires_at + 7 days)
+        const EMERGENCY_TIMEOUT: i64 = 604800; 
+
+        require!(
+            escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
+            EscrowError::InvalidStatus
+        );
+        require!(
+            clock.unix_timestamp > escrow.expires_at + EMERGENCY_TIMEOUT,
+            EscrowError::NotExpired
+        );
+
+        escrow.status = EscrowStatus::Refunded;
+
+        // Transfer all funds back to buyer
+        let escrow_lamports = escrow.to_account_info().lamports();
+        **escrow.to_account_info().try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.buyer.try_borrow_mut_lamports()? += escrow_lamports;
+
+        emit!(EscrowRefundedEvent {
+            escrow: escrow.key(),
+            buyer: ctx.accounts.buyer.key(),
+            amount: escrow_lamports,
+            reason: "emergency_timeout".to_string(),
+        });
+
+        msg!("Emergency refund triggered: {} lamports returned", escrow_lamports);
         Ok(())
     }
 
@@ -1047,6 +1112,117 @@ pub mod proxyhub {
             buyer_payout,
             seller_payout
         );
+        Ok(())
+    }
+
+    // ============== PROOF OF SERVICE (HEARTBEATS) ==============
+
+    pub fn submit_heartbeat(
+        ctx: Context<SubmitHeartbeat>,
+        node_id: [u8; 16], // UUID
+        timestamp: i64,
+        signature: [u8; 64],
+    ) -> Result<()> {
+        // In a full implementation, we would verify the signature here
+        // using the Ed25519 program or a built-in sysvar check.
+        // For the MVP, we log the heartbeat on-chain for verification by the Oracle.
+
+        emit!(HeartbeatLogged {
+            provider: ctx.accounts.provider.key(),
+            node_id,
+            timestamp,
+            signature,
+        });
+
+        msg!("Heartbeat logged for node: {:?}", node_id);
+        Ok(())
+    }
+
+    // ============== STAKING ==============
+
+    pub fn initialize_stake(ctx: Context<InitializeStake>) -> Result<()> {
+        let stake = &mut ctx.accounts.stake_account;
+        let clock = Clock::get()?;
+
+        stake.owner = ctx.accounts.provider.key();
+        stake.amount = 0;
+        stake.last_stake_time = clock.unix_timestamp;
+        stake.unstake_request_time = 0;
+        stake.is_slashed = false;
+        stake.bump = ctx.bumps.stake_account;
+
+        Ok(())
+    }
+
+    pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
+        let stake = &mut ctx.accounts.stake_account;
+        let clock = Clock::get()?;
+
+        // Transfer SOL to stake account (acting as stake for now, or use SPL)
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.provider.to_account_info(),
+                to: stake.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, amount)?;
+
+        stake.amount += amount;
+        stake.last_stake_time = clock.unix_timestamp;
+
+        msg!("Staked {} lamports", amount);
+        Ok(())
+    }
+
+    // ============== BANDWIDTH USAGE PROOFS (TRUSTLESS) ==============
+
+    pub fn submit_usage_proof(
+        ctx: Context<SubmitUsageProof>,
+        proof_index: u32,
+        total_bytes: u64,
+        period_start: i64,
+        period_end: i64,
+    ) -> Result<()> {
+        let proof = &mut ctx.accounts.usage_proof;
+        let escrow = &mut ctx.accounts.escrow;
+        let clock = Clock::get()?;
+
+        require!(escrow.status == EscrowStatus::Active, EscrowError::InvalidStatus);
+
+        proof.escrow = escrow.key();
+        proof.buyer = escrow.buyer;
+        proof.seller = escrow.seller;
+        proof.total_bytes = total_bytes;
+        proof.period_start = period_start;
+        proof.period_end = period_end;
+        proof.submitted_at = clock.unix_timestamp;
+        proof.bump = ctx.bumps.usage_proof;
+
+        // In a real implementation, we would verify dual signatures from the buyer and seller here
+        // using the instructions_sysvar (Ed25519 verification).
+        // For the MVP, we assume the submitter provides a valid statement that the Oracle validates.
+        
+        proof.buyer_signed = true; // Placeholder for actual signature check
+        proof.seller_signed = true;
+
+        emit!(UsageProofSubmitted {
+            escrow: escrow.key(),
+            buyer: escrow.buyer,
+            seller: escrow.seller,
+            total_bytes,
+            period_start,
+            period_end,
+            timestamp: clock.unix_timestamp,
+        });
+
+        // Update escrow usage
+        let new_used_gb = total_bytes / (1024 * 1024 * 1024);
+        if new_used_gb > escrow.bandwidth_used_gb {
+            escrow.bandwidth_used_gb = new_used_gb;
+        }
+
+        msg!("Usage proof submitted: {} bytes for escrow {}", total_bytes, escrow.key());
         Ok(())
     }
 }
@@ -1481,6 +1657,44 @@ pub struct ResolveDispute<'info> {
     pub seller: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct SubmitHeartbeat<'info> {
+    #[account(mut)]
+    pub provider: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeStake<'info> {
+    #[account(mut)]
+    pub provider: Signer<'info>,
+
+    #[account(
+        init,
+        payer = provider,
+        space = StakeAccount::LEN,
+        seeds = [b"stake", provider.key().as_ref()],
+        bump
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct StakeTokens<'info> {
+    #[account(mut)]
+    pub provider: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake", provider.key().as_ref()],
+        bump = stake_account.bump,
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+
+    pub system_program: Program<'info, System>,
+}
+
 // ============== EVENTS ==============
 
 #[event]
@@ -1513,6 +1727,39 @@ pub struct DisputeResolved {
     pub seller_payout: u64,
     pub resolution: String,
     pub timestamp: i64,
+}
+
+#[event]
+pub struct HeartbeatLogged {
+    pub provider: Pubkey,
+    pub node_id: [u8; 16],
+    pub timestamp: i64,
+    pub signature: [u8; 64],
+}
+
+#[event]
+pub struct EscrowInitializedEvent {
+    pub escrow: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub limit_gb: u64,
+}
+
+#[event]
+pub struct EscrowSettledEvent {
+    pub escrow: Pubkey,
+    pub seller_payout: u64,
+    pub buyer_refund: u64,
+    pub bandwidth_used: u64,
+}
+
+#[event]
+pub struct EscrowRefundedEvent {
+    pub escrow: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub reason: String,
 }
 
 // ============== ERRORS ==============

@@ -3,6 +3,9 @@ package solana
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -182,43 +185,85 @@ func (w *Watcher) processLogResult(result *ws.LogResult) {
 	}
 }
 
-// parseLogLine attempts to parse an escrow event from a log line
+// parseLogLine attempts to parse an escrow event from a log line (Binary Anchor Events)
 func (w *Watcher) parseLogLine(logLine string, txSig string) *EscrowEvent {
-	// Anchor logs escrow initialization as: "Program log: Escrow initialized: X lamports for Y GB"
-	if len(logLine) > 50 && logLine[:12] == "Program log:" {
-		msg := logLine[13:]
+	// Anchor logs binary events as: "Program data: <base64>"
+	const prefix = "Program data: "
+	if len(logLine) <= len(prefix) || logLine[:len(prefix)] != prefix {
+		return nil
+	}
 
-		// Check for escrow initialized
-		if len(msg) > 20 && msg[:18] == "Escrow initialized:" {
-			event := &EscrowEvent{
-				Type:        "initialized",
-				TxSignature: txSig,
-				Timestamp:   time.Now(),
-			}
-			// Parse amount and limit from log (simplified)
-			return event
+	data, err := base64.StdEncoding.DecodeString(logLine[len(prefix):])
+	if err != nil || len(data) < 8 {
+		return nil
+	}
+
+	discriminator := data[:8]
+	eventData := data[8:]
+
+	// Calculate discriminators for Anchor events
+	// Note: Anchor discriminator is sha256("event:<EventName>")[0:8]
+
+	switch fmt.Sprintf("%x", discriminator) {
+	case getEventDiscriminator("EscrowInitializedEvent"):
+		if len(eventData) < 32+32+32+8+8 {
+			return nil
 		}
-
-		// Check for escrow settled
-		if len(msg) > 15 && msg[:14] == "Escrow settled:" {
-			return &EscrowEvent{
-				Type:        "settled",
-				TxSignature: txSig,
-				Timestamp:   time.Now(),
-			}
+		return &EscrowEvent{
+			Type:        "initialized",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
+			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(),
+			Seller:      sol.PublicKeyFromBytes(eventData[64:96]).String(),
+			Amount:      binary.LittleEndian.Uint64(eventData[96:104]),
+			LimitGB:     binary.LittleEndian.Uint64(eventData[104:112]),
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
 		}
-
-		// Check for escrow refunded
-		if len(msg) > 16 && msg[:15] == "Escrow refunded:" {
-			return &EscrowEvent{
-				Type:        "refunded",
-				TxSignature: txSig,
-				Timestamp:   time.Now(),
-			}
+	case getEventDiscriminator("EscrowSettledEvent"):
+		if len(eventData) < 32+8+8+8 {
+			return nil
+		}
+		return &EscrowEvent{
+			Type:        "settled",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
+		}
+	case getEventDiscriminator("EscrowRefundedEvent"):
+		if len(eventData) < 32+32+8 {
+			return nil
+		}
+		return &EscrowEvent{
+			Type:        "refunded",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
+			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(),
+			Amount:      binary.LittleEndian.Uint64(eventData[64:72]),
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
+		}
+	case getEventDiscriminator("UsageProofSubmitted"):
+		if len(eventData) < 32+32+32+8+8+8+8 {
+			return nil
+		}
+		return &EscrowEvent{
+			Type:        "usage_proof_submitted",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
+			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(),
+			Seller:      sol.PublicKeyFromBytes(eventData[64:96]).String(),
+			Amount:      binary.LittleEndian.Uint64(eventData[96:104]), // total_bytes
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
 		}
 	}
 
 	return nil
+}
+
+// getEventDiscriminator returns the 8-byte hex discriminator for an Anchor event name
+func getEventDiscriminator(eventName string) string {
+	h := sha256.New()
+	h.Write([]byte(fmt.Sprintf("event:%s", eventName)))
+	return fmt.Sprintf("%x", h.Sum(nil)[:8])
 }
 
 // pollForTransactions polls for recent transactions to the program
