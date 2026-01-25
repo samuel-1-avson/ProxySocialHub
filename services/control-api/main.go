@@ -37,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	log.Printf("Loaded CORS Origins: %v", cfg.Server.CORSOrigins)
 
 	// Initialize DB
 	if err := db.Init(cfg.Database.DatabaseURL); err != nil {
