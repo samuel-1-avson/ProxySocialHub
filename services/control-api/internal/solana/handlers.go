@@ -79,7 +79,7 @@ func healthHandler(c *gin.Context) {
 		return
 	}
 
-	balance, err := oracleClient.GetBalance(context.Background())
+	balance, err := oracleClient.GetBalance(context.Background(), oracleClient.GetOraclePublicKey())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to get balance"})
 		return

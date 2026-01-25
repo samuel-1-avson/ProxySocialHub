@@ -197,9 +197,9 @@ func bytesToUint64(b []byte) uint64 {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 }
 
-// GetBalance returns the SOL balance of the oracle wallet
-func (c *OracleClient) GetBalance(ctx context.Context) (uint64, error) {
-	balance, err := c.rpcClient.GetBalance(ctx, c.oracleKey.PublicKey(), rpc.CommitmentFinalized)
+// GetBalance returns the SOL balance of the specified wallet
+func (c *OracleClient) GetBalance(ctx context.Context, pubkey sol.PublicKey) (uint64, error) {
+	balance, err := c.rpcClient.GetBalance(ctx, pubkey, rpc.CommitmentFinalized)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get balance: %w", err)
 	}
@@ -437,6 +437,24 @@ func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, 
 	}
 
 	return uint64(postBalance - preBalance), nil
+}
+
+// GetTransaction fetches a transaction by signature
+func (c *OracleClient) GetTransaction(ctx context.Context, signature string) (*rpc.GetTransactionResult, error) {
+	sig, err := sol.SignatureFromBase58(signature)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
+	}
+
+	tx, err := c.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
+		Commitment: rpc.CommitmentFinalized,
+		Encoding:   sol.EncodingBase64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch transaction: %w", err)
+	}
+
+	return tx, nil
 }
 
 // Global oracle client instance
