@@ -51,7 +51,7 @@ export default function ProxyPage() {
     async function handleQuickStart(type: 'rotating' | 'sticky') {
         setCreating(true);
         try {
-            const result = await createSession(type);
+            const result = await createSession({ type });
             await fetchSessions();
             // Auto-copy credentials
             if (result.proxy_credentials) {
@@ -112,7 +112,7 @@ export default function ProxyPage() {
                 </div>
                 <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Proxy Gateway</h1>
                 <p className="text-muted-foreground font-mono text-xs max-w-lg">
-                    CONNECT TO THE DECENTRALIZED RESIDENTIAL PROXY NETWORK. POWERED BY BITTENSOR.
+                    CONNECT TO THE DECENTRALIZED RESIDENTIAL PROXY NETWORK.
                 </p>
             </div>
 

@@ -103,7 +103,7 @@ export default function ExplorerDashboard() {
                             loading={loadingMetrics}
                         />
                         <MetricCard
-                            label="24h Volume (TAO)"
+                            label="24h Volume (SOL)"
                             value={metrics?.total_volume ? metrics.total_volume.toFixed(2) : '-'}
                             icon={<Activity className="text-green-400" />}
                             loading={loadingMetrics}
@@ -125,9 +125,6 @@ export default function ExplorerDashboard() {
                                 <div className="flex gap-4 text-sm text-gray-400">
                                     <span className="flex items-center gap-1">
                                         <span className={`w-2 h-2 rounded-full ${health?.solana_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Solana
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                        <span className={`w-2 h-2 rounded-full ${health?.bittensor_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Bittensor
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <span className={`w-2 h-2 rounded-full ${health?.database_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Indexer
@@ -269,7 +266,7 @@ function MetricCard({ label, value, icon, loading }: { label: string, value: str
     return (
         <GlassCard className="p-6 flex flex-col justify-between h-32 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity transform group-hover:scale-110 duration-500">
-                {React.cloneElement(icon as React.ReactElement, { size: 48 })}
+                {React.cloneElement(icon as React.ReactElement<any>, { size: 48 })}
             </div>
             <div className="relative z-10">
                 <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">

@@ -29,7 +29,7 @@ export default function SessionsPage() {
     async function handleCreateSession(type: 'rotating' | 'sticky') {
         setCreating(true);
         try {
-            const result = await createSession(type);
+            const result = await createSession({ type });
             setNewCredentials(result.proxy_credentials);
             await fetchSessions();
         } catch (error) {
@@ -216,7 +216,7 @@ export default function SessionsPage() {
                                                 <span>{session.id.slice(0, 8)}...</span>
                                                 {session.tx_hash && (
                                                     <a
-                                                        href={`https://bittensor.subscan.io/extrinsic/${session.tx_hash}`}
+                                                        href={`https://solscan.io/tx/${session.tx_hash}`}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="flex items-center gap-1 text-[8px] text-primary hover:underline font-bold uppercase tracking-wider"

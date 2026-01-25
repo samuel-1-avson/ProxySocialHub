@@ -39,10 +39,8 @@ export function Sidebar() {
         { href: "/agents", label: "AGENTS", icon: Bot },
         { href: "/feed", label: "FEED", icon: Activity },
         { href: "/messages", label: "COMMS", icon: MessageSquare },
-        // { href: "/dashboard/intelligence", label: "INTEL", icon: Activity }, // Removed (Bittensor)
         { href: "/forum", label: "FORUM", icon: Grid },
         { href: "/governance", label: "VOTE", icon: Vote },
-        // { href: "/leaderboards", label: "RANK", icon: Trophy }, // Removed (Bittensor)
     ];
 
     const bottomItems = [
