@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/privacy"
 )
 
 // RegisterMessagingRoutes registers messaging-related routes
@@ -246,10 +247,13 @@ func sendMessage(c *gin.Context) {
 		return
 	}
 
+	// Apply Privacy Shield (Phase 15)
+	safeContent := privacy.MaskPII(req.Content)
+
 	msg := models.Message{
 		ConversationID: convID,
 		SenderID:       userID,
-		Content:        req.Content,
+		Content:        safeContent,
 	}
 
 	tx := db.DB.Begin()
