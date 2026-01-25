@@ -118,7 +118,7 @@ export default function ExplorerDashboard() {
                             loading={loadingMetrics}
                         />
                         <MetricCard
-                            label="24h Volume (SOL)"
+                            label="24h Volume"
                             value={metrics?.total_volume ? metrics.total_volume.toFixed(2) : '-'}
                             icon={<Activity className="text-green-400" />}
                             loading={loadingMetrics}
@@ -139,7 +139,7 @@ export default function ExplorerDashboard() {
                                 <h3 className="font-semibold text-lg">Network Status: {health?.status === 'healthy' ? 'Operational' : 'Degraded'}</h3>
                                 <div className="flex gap-4 text-sm text-gray-400">
                                     <span className="flex items-center gap-1">
-                                        <span className={`w-2 h-2 rounded-full ${health?.solana_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Solana
+                                        <span className={`w-2 h-2 rounded-full ${health?.solana_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Blockchain
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <span className={`w-2 h-2 rounded-full ${health?.database_health === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`} /> Indexer
