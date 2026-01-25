@@ -302,6 +302,38 @@ func (w *Watcher) parseLogLine(logLine string, txSig string) *EscrowEvent {
 			TxSignature: txSig,
 			Timestamp:   time.Now(),
 		}
+	case getEventDiscriminator("CircleRegisteredEvent"):
+		if len(eventData) < 32+32+4+8 {
+			return nil
+		}
+		// Length of name (u32) is at offset 32+32
+		nameLen := binary.LittleEndian.Uint32(eventData[64:68])
+		if len(eventData) < 32+32+4+int(nameLen)+1 {
+			return nil
+		}
+		name := string(eventData[68 : 68+nameLen])
+
+		return &EscrowEvent{
+			Type:        "circle_registered",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),  // circle_pda
+			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(), // leader
+			Seller:      name,                                              // Using seller field for extra metadata (name)
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
+		}
+	case getEventDiscriminator("CircleSettledEvent"):
+		if len(eventData) < 32+32+8+8+8 {
+			return nil
+		}
+		return &EscrowEvent{
+			Type:        "circle_settled",
+			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),  // escrow_pda
+			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(), // circle_pda
+			Amount:      binary.LittleEndian.Uint64(eventData[64:72]),      // seller_payout
+			LimitGB:     binary.LittleEndian.Uint64(eventData[80:88]),      // bandwidth_used
+			TxSignature: txSig,
+			Timestamp:   time.Now(),
+		}
 	}
 
 	return nil

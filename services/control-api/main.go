@@ -315,6 +315,10 @@ func main() {
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
 
+		// Start Escrow Cleaner (Phase 6 - Reliability)
+		cleaner := worker.NewEscrowCleaner(oracleClient)
+		cleaner.Start(context.Background(), 30*time.Minute)
+
 		wt := treasury.NewWatchtower()
 		gp := treasury.NewGhostProber(wt)
 		gp.StartProbingLoop(context.Background(), 5*time.Minute)

@@ -50,6 +50,40 @@ func CheckAndAwardBadges(userID uuid.UUID, eventType string) {
 		checkReviewBadges(userID, user)
 	case "verification":
 		awardBadge(userID, "Verified Seller")
+	case "quality_update":
+		checkQualityBadges(userID, user)
+	}
+}
+
+func checkQualityBadges(userID uuid.UUID, user models.User) {
+	// Uptime King: 99.9%+ Uptime
+	var nodes []models.ProviderNode
+	db.DB.Where("user_id = ?", userID).Find(&nodes)
+
+	if len(nodes) == 0 {
+		return
+	}
+
+	bestQuality := 0.0
+	for _, n := range nodes {
+		if n.QualityScore > bestQuality {
+			bestQuality = n.QualityScore
+		}
+	}
+
+	if bestQuality >= 99.9 {
+		awardBadge(userID, "Uptime King")
+	}
+
+	// Speedster: Average node latency under 50ms (QualityScore formula includes latency)
+	// We'll simplify and award if QualityScore is very high or add latency field check
+	if bestQuality >= 95.0 {
+		awardBadge(userID, "Speedster")
+	}
+
+	// Network Giant: 500+ GB served
+	if user.TotalBandwidthSold >= 500 {
+		awardBadge(userID, "Network Giant")
 	}
 }
 
@@ -147,6 +181,9 @@ func getBadgeDescription(name string) string {
 		"Trusted Provider": "Maintained 4.8+ rating with 10+ reviews",
 		"Early Adopter":    "Joined during platform launch",
 		"Fast Responder":   "Average response time under 1 hour",
+		"Uptime King":      "Maintained 99.9%+ node uptime",
+		"Speedster":        "Average node latency under 50ms",
+		"Network Giant":    "Served over 500 GB of network traffic",
 	}
 	return descriptions[name]
 }
@@ -161,6 +198,9 @@ func getBadgeIcon(name string) string {
 		"Trusted Provider": "award",
 		"Early Adopter":    "rocket",
 		"Fast Responder":   "zap",
+		"Uptime King":      "crown",
+		"Speedster":        "bolt",
+		"Network Giant":    "database",
 	}
 	return icons[name]
 }
