@@ -1,9 +1,36 @@
 package api
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
 )
+
+// RecordAuditLog creates a new audit log entry
+func RecordAuditLog(c *gin.Context, eventType models.AuditEventType, severity models.AuditSeverity, actorID *uuid.UUID, targetType, targetID, description string, success bool) {
+	metadata := fmt.Sprintf(`{"ip": "%s", "ua": "%s"}`, c.ClientIP(), c.Request.UserAgent())
+
+	log := models.AuditLog{
+		EventType:   eventType,
+		Severity:    severity,
+		ActorID:     actorID,
+		ActorType:   "user",
+		TargetType:  targetType,
+		TargetID:    targetID,
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		Description: description,
+		Metadata:    metadata,
+		Success:     success,
+		CreatedAt:   time.Now(),
+	}
+
+	db.DB.Create(&log)
+}
 
 // GetUserID safely extracts the user UUID from the context.
 // It checks both "user_id" (UUID) and "userID" (string) keys.
