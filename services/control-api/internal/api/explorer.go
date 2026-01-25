@@ -107,7 +107,6 @@ type WalletDetailsResponse struct {
 	Address          string    `json:"address"`
 	Chain            string    `json:"chain"`
 	BalanceSOL       float64   `json:"balance_sol"`
-	BalanceTAO       float64   `json:"balance_tao"`
 	BalancePlatform  float64   `json:"balance_platform"`
 	TransactionCount int64     `json:"transaction_count"`
 	FirstActivity    time.Time `json:"first_activity"`
@@ -209,7 +208,6 @@ type ProviderBWStats struct {
 type NetworkHealthResponse struct {
 	Status            string    `json:"status"` // "healthy", "degraded", "down"
 	SolanaHealth      string    `json:"solana_health"`
-	BittensorHealth   string    `json:"bittensor_health"`
 	DatabaseHealth    string    `json:"database_health"`
 	ActiveNodes       int64     `json:"active_nodes"`
 	AvgResponseTimeMs float64   `json:"avg_response_time_ms"`
@@ -222,6 +220,11 @@ type NetworkHealthResponse struct {
 
 func getExplorerMetrics(c *gin.Context) {
 	chain := c.DefaultQuery("chain", "all")
+
+	// Default to solana if 'all' is requested, as we only want proxy blockchain now
+	if chain == "all" || chain == "" {
+		chain = "solana"
+	}
 
 	// Get from cache first, fallback to live query
 	var metrics models.ExplorerMetrics
@@ -248,8 +251,8 @@ func getExplorerMetrics(c *gin.Context) {
 	var nodeCount int64
 	var walletCount int64
 
-	db.DB.Model(&models.ExplorerTransaction{}).Count(&txCount)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&nodeCount)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Count(&txCount)
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
 	db.DB.Model(&models.Wallet{}).Count(&walletCount)
 
 	// Get latest block height from Solana (via RPC if available)
@@ -296,9 +299,9 @@ func getNetworkStats(c *gin.Context) {
 		ActiveNodes int64
 	}
 
-	db.DB.Model(&models.ExplorerTransaction{}).Count(&stats.TotalTx)
-	db.DB.Model(&models.ExplorerTransaction{}).Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&stats.ActiveNodes)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Count(&stats.TotalTx)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total_transactions": stats.TotalTx,
@@ -444,7 +447,7 @@ func getWalletDetails(c *gin.Context) {
 	// Check if this address is linked to a platform user
 	var linkedUserID string
 	var user models.User
-	if err := db.DB.Where("wallet_address = ? OR bittensor_address = ?", address, address).First(&user).Error; err == nil {
+	if err := db.DB.Where("wallet_address = ?", address).First(&user).Error; err == nil {
 		linkedUserID = user.ID.String()
 	}
 
@@ -634,7 +637,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerNode{})
+	query := db.DB.Model(&models.ExplorerNode{}).Where("chain = ?", "solana")
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
 	}
@@ -644,7 +647,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	var total, activeCount int64
 	query.Count(&total)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&activeCount)
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&activeCount)
 
 	var nodes []models.ExplorerNode
 	if err := query.Order("uptime_percent DESC").Offset(offset).Limit(pageSize).Find(&nodes).Error; err != nil {
@@ -726,7 +729,7 @@ func listExplorerValidators(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.DB.Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ?", true, true)
+	query := db.DB.Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
 	query.Count(&total)
 
 	var validators []models.ExplorerNode
@@ -778,7 +781,7 @@ func listContracts(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerContract{})
+	query := db.DB.Model(&models.ExplorerContract{}).Where("chain = ?", "solana")
 	if contractType != "" {
 		query = query.Where("contract_type = ?", contractType)
 	}
@@ -917,14 +920,6 @@ func getNetworkHealth(c *gin.Context) {
 		health.SolanaHealth = "healthy"
 	} else {
 		health.SolanaHealth = "unavailable"
-	}
-
-	// Check Bittensor (via bridge)
-	bittensorClient := GetBittensorClient()
-	if bittensorClient != nil {
-		health.BittensorHealth = "healthy"
-	} else {
-		health.BittensorHealth = "unavailable"
 	}
 
 	// Check Database
