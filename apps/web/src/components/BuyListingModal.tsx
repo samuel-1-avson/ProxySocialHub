@@ -21,6 +21,8 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
 
+    const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
+
     const handleConnect = async () => {
         if (!wallet || !publicKey) {
             alert("Please connect your Solana wallet first!");
@@ -31,11 +33,11 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
         setError('');
         try {
             // 1. Create Backend Order (Lock Rate)
-            console.log("Creating Order...");
+            console.log("Creating Order with dynamic bandwidth:", bandwidth);
             // Modernized V3 Order Signature
             const order = await createOrder({
                 listing_id: listing.id,
-                bandwidth_gb: 10,
+                bandwidth_gb: bandwidth,
                 session_type: (listing.proxy_type === 'sticky' ? 'sticky' : 'rotating')
             });
 
@@ -133,10 +135,36 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
                         </p>
                     </div>
 
-                    <div className="space-y-2 pt-4 border-t border-white/5">
-                        <div className="flex justify-between items-center bg-white/5 p-3 rounded-lg">
-                            <span className="text-sm text-muted-foreground">Current Rate</span>
-                            <span className="font-mono text-xl font-black text-white">₵{listing.price_per_gb.toFixed(2)}<span className="text-xs text-muted-foreground font-sans font-normal ml-1">/ GB</span></span>
+                    <div className="space-y-4 pt-4 border-t border-white/5">
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Bandwidth Quota</label>
+                                <span className="text-xs font-mono font-bold text-white">{bandwidth} GB</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={listing.min_purchase_gb || 1}
+                                max={Math.min(listing.available_bandwidth_gb || 1000, 100)}
+                                step="1"
+                                value={bandwidth}
+                                onChange={(e) => setBandwidth(parseInt(e.target.value))}
+                                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400"
+                            />
+                            <div className="flex justify-between text-[8px] text-white/20 font-mono">
+                                <span>MIN: {listing.min_purchase_gb || 1}GB</span>
+                                <span>AVAIL: {listing.available_bandwidth_gb || 'UNTETHERED'}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
+                            <div>
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Total Estimated Cost</p>
+                                <p className="font-mono text-2xl font-black text-emerald-400">₵{(listing.price_per_gb * bandwidth).toFixed(2)}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Rate</p>
+                                <p className="text-xs font-mono text-white/60">₵{listing.price_per_gb.toFixed(2)}/GB</p>
+                            </div>
                         </div>
                     </div>
 

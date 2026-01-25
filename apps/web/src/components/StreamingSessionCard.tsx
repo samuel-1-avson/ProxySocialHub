@@ -21,15 +21,20 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
     const activateTurbo = async () => {
         setLoadingTurbo(true);
         try {
-            // Calculate deposit based on listing price or a default (e.g. 1 hour of browsing)
+            // Dynamically calculate L2 deposit based on listing price
+            // We lock in 2 hours worth of bandwidth by default for smooth streaming
             const pricePerHour = session.listing?.price_per_hour || 0.1;
-            const depositAmount = Math.floor(pricePerHour * 1e9); // 1 hour worth of TAO/SOL
+            const depositHours = 2;
+            const minDeposit = 0.05; // Industrial safety floor (TAO)
 
-            // Open payment channel with real amount
-            const channel = await openChannel(session.id, depositAmount);
+            const calculatedDeposit = Math.max(pricePerHour * depositHours, minDeposit);
+            const depositAmountLamports = Math.floor(calculatedDeposit * 1e9);
+
+            // Open payment channel with live calculated amount
+            const channel = await openChannel(session.id, depositAmountLamports);
             setChannelId(channel.id);
             setIsTurbo(true);
-            console.log("State Channel Opened:", channel.id);
+            console.log("Live State Channel Opened:", channel.id);
         } catch (e) {
             console.error("Failed to open channel", e);
             alert("Failed to upgrade to L2");
