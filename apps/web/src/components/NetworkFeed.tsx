@@ -61,12 +61,12 @@ export function NetworkFeed() {
                     </div>
                 ) : (
                     <div className="divide-y divide-border/50">
-                        {events.length === 0 ? (
+                        {!Array.isArray(events) || events.length === 0 ? (
                             <div className="p-8 text-center text-xs font-mono text-muted-foreground">
                                 No network activity detected.
                             </div>
                         ) : (
-                            events.map((event) => (
+                            (events || []).map((event) => (
                                 <div key={event.id} className="p-3 hover:bg-secondary/5 transition-colors flex gap-3 group animate-in slide-in-from-left duration-300">
                                     <div className="mt-1 min-w-[24px] h-6 flex items-center justify-center rounded-sm bg-secondary/30 border border-border/50 font-mono text-xs">
                                         {getIcon(event.event_type)}
