@@ -23,6 +23,25 @@ func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.POST("/users/:id/block", blockUser)
 	rg.DELETE("/users/:id/block", unblockUser)
 	rg.GET("/users/:id/activity", getUserActivity)
+	rg.GET("/profile/security/history", getSecurityHistory)
+}
+
+// getSecurityHistory returns the recent login and security logs for the user
+func getSecurityHistory(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	var logs []models.AuditLog
+	if err := db.DB.Where("actor_id = ? AND event_type LIKE ?", userID, "auth.%").
+		Order("created_at DESC").Limit(50).Find(&logs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch security history"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"history": logs})
 }
 
 // getMyProfile returns the authenticated user's profile
@@ -107,6 +126,18 @@ func updateProfile(c *gin.Context) {
 	}
 	if req.TaxID != nil {
 		updates["tax_id"] = *req.TaxID
+	}
+	if req.ProfessionalTitle != nil {
+		updates["professional_title"] = *req.ProfessionalTitle
+	}
+	if req.ExperienceYears != nil {
+		updates["experience_years"] = *req.ExperienceYears
+	}
+	if req.Languages != nil {
+		updates["languages"] = pq.StringArray(req.Languages)
+	}
+	if req.PrimarySpecialization != nil {
+		updates["primary_specialization"] = *req.PrimarySpecialization
 	}
 
 	if len(updates) > 0 {

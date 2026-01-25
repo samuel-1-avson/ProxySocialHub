@@ -56,6 +56,12 @@ type UserPublicProfile struct {
 	IsFollowing bool `json:"is_following,omitempty"`
 	IsBlocked   bool `json:"is_blocked,omitempty"`
 
+	// Professional Identity
+	ProfessionalTitle     *string  `json:"professional_title,omitempty"`
+	ExperienceYears       int      `json:"experience_years"`
+	Languages             []string `json:"languages,omitempty"`
+	PrimarySpecialization *string  `json:"primary_specialization,omitempty"`
+
 	// Details
 	SocialLinks  map[string]interface{} `json:"social_links,omitempty"`
 	Skills       []string               `json:"skills,omitempty"`
@@ -74,8 +80,12 @@ func (Block) TableName() string {
 	return "blocks"
 }
 
-// ToPublicProfile converts a User to a public profile DTO
+// ToPublicProfile converts a User to a public profile DTO with Privacy Masking
 func (u *User) ToPublicProfile() UserPublicProfile {
+	// STRICT PRIVACY MASK: Ensure sensitive PII like Email, TaxID, and Real Names
+	// are NEVER included in the public DTO. This ensures they stay off-chain
+	// during any blockchain-assisted listing fetches.
+
 	return UserPublicProfile{
 		ID:                 u.ID,
 		Username:           u.Username,
@@ -95,9 +105,16 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		TotalBandwidthSold: u.TotalBandwidthSold,
 		TrustTier:          u.TrustTier,
 		CreatedAt:          u.CreatedAt,
-		SocialLinks:        u.SocialLinks,
-		Skills:             u.Skills,
-		BusinessName:       u.BusinessName,
+
+		// Professional Info
+		ProfessionalTitle:     u.ProfessionalTitle,
+		ExperienceYears:       u.ExperienceYears,
+		Languages:             u.Languages,
+		PrimarySpecialization: u.PrimarySpecialization,
+
+		SocialLinks:  u.SocialLinks,
+		Skills:       u.Skills,
+		BusinessName: u.BusinessName,
 	}
 }
 
@@ -114,4 +131,10 @@ type UpdateProfileRequest struct {
 	SocialLinks   map[string]interface{} `json:"social_links"`
 	BusinessName  *string                `json:"business_name" binding:"omitempty,max=100"`
 	TaxID         *string                `json:"tax_id" binding:"omitempty,max=50"`
+
+	// New Professional fields
+	ProfessionalTitle     *string  `json:"professional_title" binding:"omitempty,max=100"`
+	ExperienceYears       *int     `json:"experience_years" binding:"omitempty,gte=0"`
+	Languages             []string `json:"languages"`
+	PrimarySpecialization *string  `json:"primary_specialization" binding:"omitempty,max=100"`
 }

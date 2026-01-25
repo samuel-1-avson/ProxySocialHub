@@ -48,6 +48,12 @@ type User struct {
 	SocialLinks   JSONMap        `gorm:"type:jsonb" json:"social_links,omitempty"` // {"twitter": "...", "github": "..."}
 	Skills        pq.StringArray `gorm:"type:text[]" json:"skills,omitempty"`
 
+	// Professional Identity
+	ProfessionalTitle     *string        `gorm:"size:100" json:"professional_title,omitempty"`
+	ExperienceYears       int            `gorm:"default:0" json:"experience_years"`
+	Languages             pq.StringArray `gorm:"type:text[]" json:"languages,omitempty"`
+	PrimarySpecialization *string        `gorm:"size:100" json:"primary_specialization,omitempty"`
+
 	// Business Profile
 	BusinessName *string `gorm:"size:100" json:"business_name,omitempty"`
 	TaxID        *string `gorm:"size:50" json:"tax_id,omitempty"` // Private? Or Verified?
