@@ -61,3 +61,9 @@ type NodeEntity struct {
 	QualityScore   float64
 	LastSeenAt     time.Time
 }
+
+type UptimeCheck struct {
+	IsUp      bool
+	LatencyMs int
+	CheckedAt time.Time
+}
