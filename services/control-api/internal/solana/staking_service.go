@@ -6,6 +6,7 @@ import (
 	"log"
 
 	sol "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -57,7 +58,12 @@ func (s *StakingService) SyncStakeBalance(ctx context.Context, providerID uuid.U
 	}
 
 	// Fetch account info
-	accountInfo, err := s.client.rpcClient.GetAccountInfo(ctx, pda)
+	var accountInfo *rpc.GetAccountInfoResult
+	err = s.client.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		accountInfo, err = client.GetAccountInfo(ctx, pda)
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch stake account: %w", err)
 	}

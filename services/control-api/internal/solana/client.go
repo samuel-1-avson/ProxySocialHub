@@ -63,16 +63,17 @@ type Escrow struct {
 
 // OracleClient provides methods to interact with the ProxyHub Solana program
 type OracleClient struct {
-	rpcClient *rpc.Client
-	programID sol.PublicKey
-	oracleKey sol.PrivateKey
-	network   string
+	rpcClients []*rpc.Client
+	currentIdx int
+	programID  sol.PublicKey
+	oracleKey  sol.PrivateKey
+	network    string
 }
 
 // Config holds the Solana client configuration
 type Config struct {
-	// RPC endpoint (e.g., https://api.devnet.solana.com)
-	RPCEndpoint string
+	// RPC endpoints (comma-separated or slice)
+	RPCEndpoints []string
 	// Path to oracle keypair JSON file
 	OracleKeypairPath string
 	// Network name for logging (devnet, mainnet-beta)
@@ -93,15 +94,33 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		return nil, fmt.Errorf("failed to load oracle keypair: %w", err)
 	}
 
-	// Create RPC client
-	rpcClient := rpc.New(cfg.RPCEndpoint)
+	if len(cfg.RPCEndpoints) == 0 {
+		return nil, fmt.Errorf("no RPC endpoints provided")
+	}
+
+	// Create RPC clients
+	rpcClients := make([]*rpc.Client, len(cfg.RPCEndpoints))
+	for i, endpoint := range cfg.RPCEndpoints {
+		rpcClients[i] = rpc.New(endpoint)
+	}
 
 	return &OracleClient{
-		rpcClient: rpcClient,
-		programID: programID,
-		oracleKey: oracleKey,
-		network:   cfg.Network,
+		rpcClients: rpcClients,
+		currentIdx: 0,
+		programID:  programID,
+		oracleKey:  oracleKey,
+		network:    cfg.Network,
 	}, nil
+}
+
+// rpc returns the current active RPC client
+func (c *OracleClient) rpc() *rpc.Client {
+	return c.rpcClients[c.currentIdx]
+}
+
+// rotateRPC switches to the next available RPC endpoint
+func (c *OracleClient) rotateRPC() {
+	c.currentIdx = (c.currentIdx + 1) % len(c.rpcClients)
 }
 
 // loadKeypair loads a Solana keypair from a JSON file
@@ -149,9 +168,31 @@ func (c *OracleClient) GetEscrowPDA(buyer, seller sol.PublicKey) (sol.PublicKey,
 	return pda, bump, nil
 }
 
+// withFailover executes an RPC call with automatic failover
+func (c *OracleClient) withFailover(ctx context.Context, f func(client *rpc.Client) error) error {
+	var lastErr error
+	for i := 0; i < len(c.rpcClients); i++ {
+		err := f(c.rpc())
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		// Rotate if not the last attempt
+		if i < len(c.rpcClients)-1 {
+			c.rotateRPC()
+		}
+	}
+	return lastErr
+}
+
 // FetchEscrow fetches and decodes an escrow account from the chain
 func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey) (*Escrow, error) {
-	accountInfo, err := c.rpcClient.GetAccountInfo(ctx, escrowPDA)
+	var accountInfo *rpc.GetAccountInfoResult
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		accountInfo, err = client.GetAccountInfo(ctx, escrowPDA)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch escrow account: %w", err)
 	}
@@ -199,11 +240,40 @@ func bytesToUint64(b []byte) uint64 {
 
 // GetBalance returns the SOL balance of the specified wallet
 func (c *OracleClient) GetBalance(ctx context.Context, pubkey sol.PublicKey) (uint64, error) {
-	balance, err := c.rpcClient.GetBalance(ctx, pubkey, rpc.CommitmentFinalized)
+	var balance *rpc.GetBalanceResult
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		balance, err = client.GetBalance(ctx, pubkey, rpc.CommitmentFinalized)
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to get balance: %w", err)
 	}
 	return balance.Value, nil
+}
+
+// GetTokenBalance returns the balance of an SPL token ATA
+func (c *OracleClient) GetTokenBalance(ctx context.Context, wallet, mint sol.PublicKey) (uint64, error) {
+	ata, _, err := sol.FindAssociatedTokenAddress(wallet, mint)
+	if err != nil {
+		return 0, err
+	}
+
+	var balance *rpc.GetTokenAccountBalanceResult
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		balance, err = client.GetTokenAccountBalance(ctx, ata, rpc.CommitmentFinalized)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if balance == nil || balance.Value == nil {
+		return 0, nil
+	}
+
+	return bytesToUint64([]byte(balance.Value.Amount)), nil // Simplified since we just need the raw amount
 }
 
 // ============== ADMIN CONFIG ==============
@@ -241,7 +311,12 @@ func (c *OracleClient) FetchAdminConfig(ctx context.Context) (*AdminConfig, erro
 		return nil, err
 	}
 
-	accountInfo, err := c.rpcClient.GetAccountInfo(ctx, pda)
+	var accountInfo *rpc.GetAccountInfoResult
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		accountInfo, err = client.GetAccountInfo(ctx, pda)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch admin config account: %w", err)
 	}
@@ -357,7 +432,12 @@ func (c *OracleClient) HasNFT(ctx context.Context, wallet sol.PublicKey, mint so
 	}
 
 	// Fetch account info
-	accountInfo, err := c.rpcClient.GetAccountInfo(ctx, ata)
+	var accountInfo *rpc.GetAccountInfoResult
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		accountInfo, err = client.GetAccountInfo(ctx, ata)
+		return err
+	})
 	if err != nil {
 		// If account doesn't exist, they don't have it
 		return false, nil
@@ -387,10 +467,13 @@ func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, 
 		return 0, fmt.Errorf("invalid signature: %w", err)
 	}
 
-	// Fetch transaction
-	// MaxRetries: nil (default)
-	tx, err := c.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
-		Commitment: rpc.CommitmentFinalized,
+	var tx *rpc.GetTransactionResult
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		tx, err = client.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
+			Commitment: rpc.CommitmentFinalized,
+		})
+		return err
 	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch transaction: %w", err)
@@ -446,9 +529,14 @@ func (c *OracleClient) GetTransaction(ctx context.Context, signature string) (*r
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
-	tx, err := c.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
-		Commitment: rpc.CommitmentFinalized,
-		Encoding:   sol.EncodingBase64,
+	var tx *rpc.GetTransactionResult
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var err error
+		tx, err = client.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
+			Commitment: rpc.CommitmentFinalized,
+			Encoding:   sol.EncodingBase64,
+		})
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch transaction: %w", err)
