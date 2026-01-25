@@ -36,7 +36,8 @@ type EventHandler func(event EscrowEvent)
 
 // Watcher monitors the Solana blockchain for escrow events
 type Watcher struct {
-	rpcClient    *rpc.Client
+	rpcClients   []*rpc.Client
+	currentIdx   int
 	wsClient     *ws.Client
 	programID    sol.PublicKey
 	handlers     []EventHandler
@@ -50,7 +51,7 @@ type Watcher struct {
 
 // WatcherConfig holds configuration for the event watcher
 type WatcherConfig struct {
-	RPCEndpoint  string
+	RPCEndpoints []string
 	WSEndpoint   string // Optional WebSocket endpoint
 	PollInterval time.Duration
 }
@@ -62,7 +63,14 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 		return nil, fmt.Errorf("invalid program ID: %w", err)
 	}
 
-	rpcClient := rpc.New(cfg.RPCEndpoint)
+	if len(cfg.RPCEndpoints) == 0 {
+		return nil, fmt.Errorf("no RPC endpoints provided")
+	}
+
+	rpcClients := make([]*rpc.Client, len(cfg.RPCEndpoints))
+	for i, endpoint := range cfg.RPCEndpoints {
+		rpcClients[i] = rpc.New(endpoint)
+	}
 
 	pollInterval := cfg.PollInterval
 	if pollInterval == 0 {
@@ -72,7 +80,8 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	watcher := &Watcher{
-		rpcClient:    rpcClient,
+		rpcClients:   rpcClients,
+		currentIdx:   0,
 		programID:    programID,
 		handlers:     make([]EventHandler, 0),
 		pollInterval: pollInterval,
@@ -139,6 +148,32 @@ func (w *Watcher) Stop() {
 	}
 
 	log.Printf("[Watcher] Event watcher stopped")
+}
+
+// rpc returns the current active RPC client
+func (w *Watcher) rpc() *rpc.Client {
+	return w.rpcClients[w.currentIdx]
+}
+
+// rotateRPC switches to the next available RPC endpoint
+func (w *Watcher) rotateRPC() {
+	w.currentIdx = (w.currentIdx + 1) % len(w.rpcClients)
+}
+
+// withFailover executes an RPC call with automatic failover
+func (w *Watcher) withFailover(ctx context.Context, f func(client *rpc.Client) error) error {
+	var lastErr error
+	for i := 0; i < len(w.rpcClients); i++ {
+		err := f(w.rpc())
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if i < len(w.rpcClients)-1 {
+			w.rotateRPC()
+		}
+	}
+	return lastErr
 }
 
 // subscribeToLogs subscribes to program logs via WebSocket
@@ -273,18 +308,18 @@ func (w *Watcher) pollForTransactions() {
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
-	// Get initial slot with retry
+	// Get initial slot with failover
 	var slot uint64
-	var err error
-
-	err = w.withRetry(func() error {
-		s, err := w.rpcClient.GetSlot(w.ctx, rpc.CommitmentFinalized)
-		if err != nil {
-			return err
-		}
-		slot = s
-		return nil
-	}, 3, 1*time.Second)
+	err := w.withFailover(w.ctx, func(client *rpc.Client) error {
+		return w.withRetry(func() error {
+			s, err := client.GetSlot(w.ctx, rpc.CommitmentFinalized)
+			if err != nil {
+				return err
+			}
+			slot = s
+			return nil
+		}, 3, 1*time.Second)
+	})
 
 	if err == nil {
 		w.lastSlot = slot
@@ -304,19 +339,21 @@ func (w *Watcher) pollForTransactions() {
 
 // checkRecentTransactions checks for recent program transactions
 func (w *Watcher) checkRecentTransactions() {
-	// Get recent signatures for the program with retry
+	// Get recent signatures for the program with failover
 	var sigs []*rpc.TransactionSignature
-	err := w.withRetry(func() error {
-		res, err := w.rpcClient.GetSignaturesForAddress(
-			w.ctx,
-			w.programID,
-		)
-		if err != nil {
-			return err
-		}
-		sigs = res
-		return nil
-	}, 3, 500*time.Millisecond)
+	err := w.withFailover(w.ctx, func(client *rpc.Client) error {
+		return w.withRetry(func() error {
+			res, err := client.GetSignaturesForAddress(
+				w.ctx,
+				w.programID,
+			)
+			if err != nil {
+				return err
+			}
+			sigs = res
+			return nil
+		}, 3, 500*time.Millisecond)
+	})
 
 	if err != nil {
 		// Log as warning since it might be transient
@@ -334,14 +371,19 @@ func (w *Watcher) checkRecentTransactions() {
 			continue
 		}
 
-		// Fetch transaction details
-		tx, err := w.rpcClient.GetTransaction(
-			w.ctx,
-			sig.Signature,
-			&rpc.GetTransactionOpts{
-				Encoding: sol.EncodingBase64,
-			},
-		)
+		// Fetch transaction details with failover
+		var tx *rpc.GetTransactionResult
+		err = w.withFailover(w.ctx, func(client *rpc.Client) error {
+			var err error
+			tx, err = client.GetTransaction(
+				w.ctx,
+				sig.Signature,
+				&rpc.GetTransactionOpts{
+					Encoding: sol.EncodingBase64,
+				},
+			)
+			return err
+		})
 		if err != nil {
 			continue
 		}
