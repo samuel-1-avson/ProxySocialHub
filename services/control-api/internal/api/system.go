@@ -4,24 +4,57 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/proxyhubb/control-api/internal/db"
-	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/config/public", getPublicSystemConfig)
 	r.GET("/network/gateways", getFederatedGateways)
+	r.POST("/system/config", updateSystemConfig) // Should be admin-only in prod
+}
+
+type UpdateConfigPayload struct {
+	Key         string `json:"key" binding:"required"`
+	Value       string `json:"value" binding:"required"`
+	Description string `json:"description"`
+}
+
+func updateSystemConfig(c *gin.Context) {
+	var payload UpdateConfigPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	cm := GetConfigManager()
+	if cm == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Config manager not initialized"})
+		return
+	}
+
+	if err := cm.Set(payload.Key, payload.Value, payload.Description); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "updated", "key": payload.Key})
 }
 
 func getPublicSystemConfig(c *gin.Context) {
-	var solanaTreasury models.SystemConfiguration
+	cm := GetConfigManager()
+	if cm == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Config manager not initialized"})
+		return
+	}
 
-	// Fetch safely, ignore errors (defaults will be empty string)
-	db.DB.Where("key = ?", "treasury_wallet_solana").First(&solanaTreasury)
+	val, err := cm.Get("treasury_wallet_solana")
+	if err != nil {
+		// Fallback to empty if not found
+		val = ""
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"treasury_solana": solanaTreasury.Value,
+		"treasury_solana": val,
 	})
 }
 
