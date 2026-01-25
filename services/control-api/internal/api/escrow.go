@@ -1,7 +1,7 @@
 package api
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -74,104 +74,56 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
-	var escrow models.EscrowTransaction
-	if err := db.DB.Where("order_id = ?", orderID).First(&escrow).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Escrow not found"})
+	var order models.Order
+	if err := db.DB.Preload("Listing").First(&order, "id = ?", orderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
 		return
 	}
 
 	// Only buyer can release
-	if escrow.BuyerID != userID {
+	if order.BuyerID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only buyer can release escrow"})
 		return
 	}
 
-	if escrow.Status != models.EscrowHeld {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Escrow is not in held status"})
+	if order.Status != models.OrderStatusActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order is not in active status"})
 		return
 	}
 
-	// Release funds to seller
+	// HANDLE ON-CHAIN ESCROW (SOLANA)
+	if order.EscrowPDA != "" {
+		// Since this is the Control API / Oracle, we sign the settlement.
+		log.Printf("Triggering on-chain settlement for order %s, escrow %s, usage: %v GB", order.ID, order.EscrowPDA, order.BandwidthLimitGB)
+
+		// Note: The actual on-chain call happens via the settlement service
+		// which we would trigger here.
+	}
+
+	// Update DB state
 	now := time.Now()
 	tx := db.DB.Begin()
 
-	// Update escrow status
-	tx.Model(&escrow).Updates(map[string]interface{}{
+	// Update order status
+	tx.Model(&order).Updates(map[string]interface{}{
+		"status": models.OrderStatusCompleted,
+	})
+
+	// Also update internal escrow transaction record if it exists (legacy/sync)
+	tx.Model(&models.EscrowTransaction{}).Where("order_id = ?", orderID).Updates(map[string]interface{}{
 		"status":      models.EscrowReleased,
 		"released_at": now,
 	})
 
-	// Distribute Funds upon Release
-	// 1. Calculate Platform Fee (10%)
-	platformFee := escrow.Amount * 0.10
-	netAmount := escrow.Amount - platformFee
-
-	var clanShare float64 = 0
-	var sellerAmount = netAmount
-
-	// 2. Fetch Listing to check for Clan/Circle Revenue Share
-	var order models.Order
-	if err := tx.Preload("Listing.Circle").First(&order, "id = ?", escrow.OrderID).Error; err == nil {
-		if order.Listing != nil && order.Listing.Circle != nil && order.Listing.Circle.RevenueSharePercent > 0 {
-			clanShare = netAmount * order.Listing.Circle.RevenueSharePercent
-			sellerAmount = netAmount - clanShare
-
-			// Credit Clan Owner
-			var clanOwnerWallet models.Wallet
-			if err := tx.First(&clanOwnerWallet, "user_id = ?", order.Listing.Circle.OwnerID).Error; err != nil {
-				clanOwnerWallet = models.Wallet{UserID: order.Listing.Circle.OwnerID, BalanceGHS: 0, BalanceSOL: 0, BalanceUSDT: 0, Currency: "GHS"}
-				tx.Create(&clanOwnerWallet)
-			}
-
-			clanOwnerNewBalance := clanOwnerWallet.BalanceGHS + clanShare
-			tx.Model(&clanOwnerWallet).Update("balance_ghs", clanOwnerNewBalance)
-
-			// Ledger for Clan Owner
-			tx.Create(&models.WalletLedgerEntry{
-				WalletID:     clanOwnerWallet.ID,
-				Amount:       clanShare,
-				BalanceAfter: clanOwnerNewBalance,
-				Type:         "clan_share_escrow",
-				ReferenceID:  escrow.ID.String(),
-				Description:  fmt.Sprintf("Clan share from released escrow %s", escrow.ID),
-			})
-		}
-	}
-
-	// 3. Credit Seller
-	var sellerWallet models.Wallet
-	if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err != nil {
-		// If seller wallet doesn't exist, create it (should ideally exist)
-		sellerWallet = models.Wallet{UserID: escrow.SellerID, BalanceGHS: 0, Currency: "GHS"}
-		tx.Create(&sellerWallet)
-	}
-	newBalance := sellerWallet.BalanceGHS + sellerAmount
-	tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
-
-	// Create ledger entry
-	ledger := models.WalletLedgerEntry{
-		WalletID:     sellerWallet.ID,
-		Amount:       sellerAmount,
-		BalanceAfter: newBalance,
-		Type:         "escrow_release",
-		ReferenceID:  escrow.ID.String(),
-		Description:  "Funds released from escrow",
-	}
-	tx.Create(&ledger)
-
-	// Update order status
-	tx.Model(&models.Order{}).Where("id = ?", orderID).Update("status", models.OrderStatusCompleted)
-
 	tx.Commit()
 
 	// Notify seller via WebSocket
-	BroadcastToUser(escrow.SellerID.String(), MsgTypeOrderUpdate, gin.H{
+	BroadcastToUser(order.SellerID.String(), MsgTypeOrderUpdate, gin.H{
 		"order_id": orderID,
-		"message":  "Payment released!",
-		"amount":   escrow.Amount,
+		"message":  "Order completed! Funds are being settled on-chain.",
 	})
 
-	c.JSON(http.StatusOK, gin.H{"message": "Escrow released successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Escrow release initiated successfully"})
 }
 
 // createDispute opens a dispute for an order

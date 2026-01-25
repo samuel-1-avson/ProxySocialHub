@@ -2,9 +2,11 @@
 package solana
 
 import (
+	"context"
 	"log"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -102,7 +104,7 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		log.Printf("[SessionActivator] Created order %s from on-chain escrow", order.ID)
 
 		// Create session for this order
-		a.createSessionForOrder(&order, &seller, event)
+		a.createSessionForOrder(&order, &seller, event, false)
 		return
 	}
 
@@ -121,10 +123,24 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 
 	log.Printf("[SessionActivator] Activated order %s (Escrow: %s)", order.ID, event.EscrowPDA)
 
+	// Phase 3: NFT Access Check
+	// If buyer has the Premium NFT, we could grant them bonus bandwidth or lower tiers.
+	// For now, we log the status and potentially upgrade the session.
+	hasPremium := false
+	oracle := GetOracleClient() // Assuming a global getter exists or adding it
+	if oracle != nil {
+		buyerPub, _ := sol.PublicKeyFromBase58(event.Buyer)
+		premiumMint, _ := sol.PublicKeyFromBase58("NFT_MINT_ADDRESS_HERE") // Placeholder
+		if ok, _ := oracle.HasNFT(context.Background(), buyerPub, premiumMint); ok {
+			hasPremium = true
+			log.Printf("[SessionActivator] User %s holds Premium NFT pass!", event.Buyer)
+		}
+	}
+
 	// Create a session for this order
 	var seller models.User
 	if err := a.db.First(&seller, order.SellerID).Error; err == nil {
-		a.createSessionForOrder(&order, &seller, event)
+		a.createSessionForOrder(&order, &seller, event, hasPremium)
 	}
 }
 
@@ -193,12 +209,19 @@ func (a *SessionActivator) onEscrowRefunded(event EscrowEvent) {
 }
 
 // createSessionForOrder creates a proxy session for an activated order
-func (a *SessionActivator) createSessionForOrder(order *models.Order, seller *models.User, event EscrowEvent) {
+func (a *SessionActivator) createSessionForOrder(order *models.Order, seller *models.User, event EscrowEvent, isPremium bool) {
 	// Find provider's node
 	var node models.ProviderNode
 	if err := a.db.Where("user_id = ? AND status = ?", seller.ID, "online").First(&node).Error; err != nil {
 		log.Printf("[SessionActivator] No online node found for provider")
 		return
+	}
+
+	bandwidthLimit := int64(event.LimitGB) * 1024 * 1024 * 1024
+	if isPremium {
+		// Example: Give 20% bonus bandwidth to NFT holders
+		bandwidthLimit = int64(float64(bandwidthLimit) * 1.2)
+		log.Printf("[SessionActivator] Applying 20%% bandwidth bonus for Premium NFT")
 	}
 
 	// Create session
@@ -210,7 +233,7 @@ func (a *SessionActivator) createSessionForOrder(order *models.Order, seller *mo
 		Type:           models.SessionRotating,
 		Status:         models.SessionActive,
 		TxHash:         event.TxSignature,
-		BandwidthLimit: int64(event.LimitGB) * 1024 * 1024 * 1024, // Convert GB to bytes
+		BandwidthLimit: bandwidthLimit,
 		StartTime:      time.Now(),
 	}
 

@@ -438,3 +438,21 @@ func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, 
 
 	return uint64(postBalance - preBalance), nil
 }
+
+// Global oracle client instance
+var globalOracleClient *OracleClient
+
+// InitOracleClient initializes the global oracle client
+func InitOracleClient(cfg Config) error {
+	client, err := NewOracleClient(cfg)
+	if err != nil {
+		return err
+	}
+	globalOracleClient = client
+	return nil
+}
+
+// GetOracleClient returns the global oracle client instance
+func GetOracleClient() *OracleClient {
+	return globalOracleClient
+}
