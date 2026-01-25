@@ -33,7 +33,7 @@ export function Sidebar() {
     const menuItems = [
         { href: "/dashboard", label: "OVERVIEW", icon: LayoutDashboard },
         { href: "/dashboard/wallet", label: "WALLET", icon: Wallet },
-        { href: "/explorer", label: "EXPLORE", icon: Search },
+        { href: "/explorer", label: "EXPLORER", icon: Search },
         { href: "/dashboard/proxy", label: "PROXY", icon: Network },
         { href: "/marketplace", label: "MARKET", icon: Globe },
         { href: "/agents", label: "AGENTS", icon: Bot },

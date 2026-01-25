@@ -52,16 +52,17 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 // ============================================================
 
 type ExplorerMetricsResponse struct {
-	Chain             string    `json:"chain"`
-	TotalTransactions uint64    `json:"total_transactions"`
-	TotalVolume       float64   `json:"total_volume"`
-	ActiveWallets     uint64    `json:"active_wallets"`
-	ActiveNodes       uint64    `json:"active_nodes"`
-	BlockHeight       uint64    `json:"block_height"`
-	AvgBlockTime      float64   `json:"avg_block_time_ms"`
-	TotalBandwidthGB  float64   `json:"total_bandwidth_gb"`
-	TPS               float64   `json:"transactions_per_second"`
-	LastUpdated       time.Time `json:"last_updated"`
+	Chain              string         `json:"chain"`
+	TotalTransactions  uint64         `json:"total_transactions"`
+	TotalVolume        float64        `json:"total_volume"`
+	ActiveWallets      uint64         `json:"active_wallets"`
+	ActiveNodes        uint64         `json:"active_nodes"`
+	BlockHeight        uint64         `json:"block_height"`
+	AvgBlockTime       float64        `json:"avg_block_time_ms"`
+	TotalBandwidthGB   float64        `json:"total_bandwidth_gb"`
+	TPS                float64        `json:"transactions_per_second"`
+	RegionDistribution map[string]int `json:"region_distribution,omitempty"`
+	LastUpdated        time.Time      `json:"last_updated"`
 }
 
 type TransactionListResponse struct {
@@ -260,13 +261,30 @@ func getExplorerMetrics(c *gin.Context) {
 		blockHeight = latestBlock.BlockNumber
 	}
 
+	// Get regional distribution
+	var regionStats []struct {
+		Region string
+		Count  int
+	}
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Select("region, count(*) as count").Group("region").Scan(&regionStats)
+
+	regionDist := make(map[string]int)
+	for _, s := range regionStats {
+		rname := s.Region
+		if rname == "" {
+			rname = "Other"
+		}
+		regionDist[rname] = s.Count
+	}
+
 	c.JSON(http.StatusOK, ExplorerMetricsResponse{
-		Chain:             chain,
-		TotalTransactions: uint64(txCount),
-		ActiveWallets:     uint64(walletCount),
-		ActiveNodes:       uint64(nodeCount),
-		BlockHeight:       blockHeight,
-		LastUpdated:       time.Now(),
+		Chain:              chain,
+		TotalTransactions:  uint64(txCount),
+		ActiveWallets:      uint64(walletCount),
+		ActiveNodes:        uint64(nodeCount),
+		BlockHeight:        blockHeight,
+		RegionDistribution: regionDist,
+		LastUpdated:        time.Now(),
 	})
 }
 
@@ -327,8 +345,8 @@ func listTransactions(c *gin.Context) {
 
 	var transactions []models.ExplorerTransaction
 	if err := query.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&transactions).Error; err != nil {
-		logging.Error(err).Msg("Failed to fetch transactions")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch transactions"})
+		logging.Error(err).Msg("[ProxyExplorer] Failed to fetch transactions")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Proxy Explorer: Failed to fetch transactions"})
 		return
 	}
 
