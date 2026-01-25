@@ -36,6 +36,9 @@ type RedisClient interface {
 	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	SAdd(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
 	SRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
+	HGet(ctx context.Context, key, field string) *redis.StringCmd
+	HSet(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
+	Publish(ctx context.Context, channel string, message interface{}) *redis.IntCmd
 }
 
 const Nil = redis.Nil

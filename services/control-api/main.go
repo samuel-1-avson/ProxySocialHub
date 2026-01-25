@@ -51,6 +51,14 @@ func main() {
 		log.Printf("Warning: Failed to init Redis: %v", err)
 	}
 
+	// Initialize Config Manager (Redis + DB Sync)
+	cm := config.NewConfigManager(redisClient.Client, db.DB)
+	if err := cm.RefreshAll(); err != nil {
+		log.Printf("Warning: Failed to sync DB configs to Redis: %v", err)
+	}
+	api.InitConfigManager(cm)
+	log.Println("Internal Config Manager initialized and synced")
+
 	// Initialize NATS (Event Driven Evolution)
 	if err := internalNats.Init(); err != nil {
 		log.Printf("Warning: Failed to init NATS: %v", err)

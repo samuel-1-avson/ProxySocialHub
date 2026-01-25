@@ -1,5 +1,7 @@
 use std::env;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -59,5 +61,34 @@ impl Config {
         format!("{}:{}", self.host, self.port)
             .parse()
             .expect("Invalid address format")
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DynamicConfig {
+    pub treasury_solana: String,
+    pub global_bw_limit_mb: u64,
+    pub maintenance_mode: bool,
+}
+
+pub type SharedDynamicConfig = Arc<RwLock<DynamicConfig>>;
+
+impl DynamicConfig {
+    pub async fn update_from_redis(
+        redis: &mut redis::aio::Connection,
+    ) -> Result<Self, redis::RedisError> {
+        use redis::AsyncCommands;
+        
+        let treasury: String = redis.hget("sys:config:hash", "treasury_wallet_solana").await.unwrap_or_default();
+        let limit_str: String = redis.hget("sys:config:hash", "global_bandwidth_limit").await.unwrap_or_else(|_| "0".to_string());
+        let maintenance: bool = redis.hget("sys:config:hash", "maintenance_mode").await.unwrap_or(false);
+
+        let limit = limit_str.parse().unwrap_or(0);
+
+        Ok(Self {
+            treasury_solana: treasury,
+            global_bw_limit_mb: limit,
+            maintenance_mode: maintenance,
+        })
     }
 }
