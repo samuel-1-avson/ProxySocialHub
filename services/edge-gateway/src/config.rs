@@ -10,6 +10,7 @@ pub struct Config {
     pub sticky_ttl_secs: u64,
     pub jwt_secret: String,
     pub provider_private_key: String,
+    pub geoip_db_path: Option<String>,
 }
 
 impl Config {
@@ -40,6 +41,8 @@ impl Config {
             "0000000000000000000000000000000000000000000000000000000000000000".to_string()
         });
 
+        let geoip_db_path = env::var("GEOIP_DB_PATH").ok();
+
         Self {
             host,
             port,
@@ -48,6 +51,7 @@ impl Config {
             sticky_ttl_secs,
             jwt_secret,
             provider_private_key,
+            geoip_db_path,
         }
     }
 
