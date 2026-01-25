@@ -3,6 +3,7 @@ package treasury
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -57,8 +58,9 @@ func (lm *LiquidityManager) StartRebalanceLoop(ctx context.Context, interval tim
 
 // CheckBalances checks Treasury balances and alerts if low
 func (lm *LiquidityManager) CheckBalances(ctx context.Context) error {
-	// 1. Get Oracle/Treasury Balance (Operational Wallet)
-	lamports, err := lm.client.GetBalance(ctx, lm.client.GetOraclePublicKey())
+	// 1. Get Treasury Balance
+	treasury := lm.getTreasuryAddress()
+	lamports, err := lm.client.GetBalance(ctx, treasury)
 	if err != nil {
 		return fmt.Errorf("failed to get balance: %w", err)
 	}
@@ -78,7 +80,7 @@ func (lm *LiquidityManager) CheckBalances(ctx context.Context) error {
 // CheckTokenLiquidity monitors USDC/USDT balances
 func (lm *LiquidityManager) CheckTokenLiquidity(ctx context.Context) error {
 	tokens := []string{USDCMint, USDTMint}
-	treasury := lm.client.GetOraclePublicKey()
+	treasury := lm.getTreasuryAddress()
 
 	for _, mintStr := range tokens {
 		mint := sol.MustPublicKeyFromBase58(mintStr)
@@ -103,4 +105,15 @@ func (lm *LiquidityManager) YieldGenerationHook(ctx context.Context) {
 	// 2. If yes, check Kamino/Solend rates
 	// 3. Deposit portion of idle funds to earn yield
 	// logging.Info().Msg("Yield generation check: All funds active.")
+}
+
+func (lm *LiquidityManager) getTreasuryAddress() sol.PublicKey {
+	addr := os.Getenv("SOLANA_TREASURY_ADDRESS")
+	if addr != "" {
+		pk, err := sol.PublicKeyFromBase58(addr)
+		if err == nil {
+			return pk
+		}
+	}
+	return lm.client.GetOraclePublicKey()
 }
