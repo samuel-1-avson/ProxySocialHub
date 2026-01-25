@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 )
 
@@ -160,13 +160,13 @@ func ConvertSOLToTAO(ctx context.Context, solAmount float64) (float64, error) {
 // CheckCircuitBreaker checks if the new rate deviates too much from the last trusted rate
 func CheckCircuitBreaker(pair string, currentRate float64) error {
 	// 1. Check Global Status
-	status := config.GetSystemSetting("circuit_breaker_status", "", "CLOSED")
+	status := db.GetSystemSetting("circuit_breaker_status", "", "CLOSED")
 	if status == "OPEN" {
 		return fmt.Errorf("circuit breaker is OPEN. transactions halted due to volatility")
 	}
 
 	// 2. Fetch Last Known Rate
-	lastRateStr := config.GetSystemSetting("last_rate_"+pair, "", "0")
+	lastRateStr := db.GetSystemSetting("last_rate_"+pair, "", "0")
 	var lastRate float64
 	fmt.Sscanf(lastRateStr, "%f", &lastRate)
 

@@ -201,6 +201,7 @@ func main() {
 		api.RegisterProfileRoutes(v1) // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
+		api.RegisterReputationRoutes(v1) // Phase 9.2 Trust Layer
 	}
 
 	// Protected Routes (Require Authentication)
@@ -321,6 +322,11 @@ func main() {
 	if err := pw.Start(context.Background()); err != nil {
 		log.Printf("Failed to start Provisioning Worker: %v", err)
 	}
+
+	// Start On-Chain Registry Sync Worker (Phase 9.3 Lifecycle Integrity)
+	rw := indexer.NewRegistrySyncWorker(5 * time.Minute)
+	go rw.Start(context.Background())
+	log.Println("Registry Sync Worker started")
 
 	port := os.Getenv("PORT")
 	if port == "" {

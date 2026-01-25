@@ -45,6 +45,17 @@ export interface DestinationStats {
     avg_latency_ms: number;
 }
 
+export interface ZKPerformanceMetrics {
+    total_proofs: number;
+    avg_aggregation_time_ms: number;
+    max_aggregation_time_ms: number;
+    throughput_cps: number;
+    compression_ratio: number;
+    last_updated: string;
+}
+
+export type LatencyDistribution = Record<string, number>;
+
 /**
  * Get high-level performance analytics for the user
  */
@@ -78,4 +89,11 @@ export async function getGeoAnalytics() {
  */
 export async function getTopDestinations() {
     return apiGet<{ data: DestinationStats[] }>('/v1/analytics/top-destinations');
+}
+
+/**
+ * Get industrial performance benchmarks for ZK-Compression
+ */
+export async function getZKPerformanceBenchmarks() {
+    return apiGet<{ metrics: ZKPerformanceMetrics; distribution: LatencyDistribution }>('/v1/analytics/performance/benchmarks');
 }

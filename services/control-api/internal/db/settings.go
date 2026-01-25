@@ -1,9 +1,8 @@
-package config
+package db
 
 import (
 	"os"
 
-	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -11,9 +10,9 @@ import (
 // If not found in DB, it falls back to Environment Variable, then to defaultVal.
 func GetSystemSetting(key, envVar, defaultVal string) string {
 	// 1. Try DB
-	if db.DB != nil {
+	if DB != nil {
 		var config models.SystemConfiguration
-		if err := db.DB.Where("key = ?", key).First(&config).Error; err == nil {
+		if err := DB.Where("key = ?", key).First(&config).Error; err == nil {
 			return config.Value
 		}
 	}

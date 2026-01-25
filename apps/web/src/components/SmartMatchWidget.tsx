@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Sparkles, ArrowRight, Check, BrainCircuit, Search } from 'lucide-react';
+import { Sparkles, ArrowRight, Check, BrainCircuit, Search, ShieldCheck, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getUseCases, getRecommendations, UseCase, Recommendation } from '@/lib/api';
+import { useZKReputation } from '@/lib/hooks/useZKReputation';
 import Link from 'next/link';
 
 export function SmartMatchWidget() {
+    const { isVerified, loading: reputationLoading } = useZKReputation();
     const [useCases, setUseCases] = useState<UseCase[]>([]);
     const [selectedUseCase, setSelectedUseCase] = useState<string | null>(null);
     const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -62,19 +64,43 @@ export function SmartMatchWidget() {
                 {/* Left: Controls */}
                 <div className="lg:col-span-5 space-y-8">
                     <div className="space-y-4">
-                        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-[0.2em] shadow-[0_0_15px_rgba(168,85,247,0.1)]">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
-                            </span>
-                            AI Neural Match
+                        <div className="flex flex-wrap gap-2">
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-[0.2em] shadow-[0_0_15px_rgba(168,85,247,0.1)]">
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+                                </span>
+                                AI Neural Match
+                            </div>
+
+                            {isVerified && (
+                                <motion.div
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-[0.2em]"
+                                >
+                                    <ShieldCheck size={12} />
+                                    Verified Operator
+                                </motion.div>
+                            )}
+
+                            {reputationLoading && (
+                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white/40 text-[10px] font-black uppercase tracking-[0.2em]">
+                                    <Loader2 size={12} className="animate-spin" />
+                                    Proving Reputation...
+                                </div>
+                            )}
                         </div>
+
                         <h2 className="text-4xl md:text-5xl font-black text-white tracking-tighter leading-[0.9]">
                             Intelligent<br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">Proxy Matching</span>
                         </h2>
                         <p className="text-white/50 text-base leading-relaxed font-medium max-w-md">
-                            Select your specialized use case. Our neural engine will analyze millions of parameters to find your perfect node.
+                            {isVerified
+                                ? "Elite Operator status detected. Our neural engine has prioritized high-performance nodes for your reputation level."
+                                : "Select your specialized use case. Our neural engine will analyze millions of parameters to find your perfect node."
+                            }
                         </p>
                     </div>
 
@@ -246,7 +272,12 @@ export function SmartMatchWidget() {
                                                             {rec.listing?.title || 'High Performance Node'}
                                                         </h4>
                                                         <div className="flex flex-wrap gap-2 mt-2">
-                                                            {(rec.reasons || []).slice(0, 3).map((reason, i) => (
+                                                            {isVerified && (
+                                                                <span className="text-[9px] font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-[0.15em] flex items-center gap-1">
+                                                                    <ShieldCheck size={10} /> Reputation Match
+                                                                </span>
+                                                            )}
+                                                            {(rec.reasons || []).slice(0, 2).map((reason, i) => (
                                                                 <span key={i} className="text-[9px] font-bold px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 uppercase tracking-wider">
                                                                     {reason}
                                                                 </span>

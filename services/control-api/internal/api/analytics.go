@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -20,6 +21,7 @@ func RegisterAnalyticsRoutes(r *gin.RouterGroup) {
 		analytics.GET("/usage/hourly", getHourlyUsage)
 		analytics.GET("/geo", getGeoAnalytics)
 		analytics.GET("/top-destinations", getTopDestinations)
+		analytics.GET("/performance/benchmarks", getZKBenchmarks)
 	}
 }
 
@@ -521,4 +523,15 @@ func CreateUsageRecord(userID uuid.UUID, sessionID uuid.UUID, bytesUsed int64) e
 		BytesUsed: bytesUsed,
 	}
 	return db.DB.Create(&record).Error
+}
+
+func getZKBenchmarks(c *gin.Context) {
+	engine := billing.GetBenchmarkEngine()
+	metrics := engine.GetMetrics()
+	distribution := engine.GetLatencyDistribution()
+
+	c.JSON(http.StatusOK, gin.H{
+		"metrics":      metrics,
+		"distribution": distribution,
+	})
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/redis"
 )
 
@@ -24,11 +25,18 @@ func NewWatchtower() *Watchtower {
 	return &Watchtower{}
 }
 
+// AlertEvent represents an infrastructure signal sent via NATS
+type AlertEvent struct {
+	Type      string    `json:"type"`
+	Severity  string    `json:"severity"` // INFO, WARNING, CRITICAL
+	Message   string    `json:"message"`
+	Resource  string    `json:"resource"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // RecordOutflow records a transaction amount and checks for velocity spikes
 func (w *Watchtower) RecordOutflow(ctx context.Context, amountSOL float64) error {
 	// 1. Increment hourly bucket
-	// Strategy: Use a Redis key that expires after 1 hour or a sorted set for sliding window
-	// For MVP: Simple hourly key
 	now := time.Now().Hour()
 	key := fmt.Sprintf("%s:%d", HourlyOutflowKey, now)
 
@@ -44,16 +52,45 @@ func (w *Watchtower) RecordOutflow(ctx context.Context, amountSOL float64) error
 
 	// 3. Check Velocity Spike
 	if val > MaxHourlySOLOutflow {
-		logging.Warn().
-			Float64("current_hourly", val).
-			Float64("threshold", MaxHourlySOLOutflow).
-			Msg("VELOCITY ALERT: Outflow threshold exceeded. Triggering Emergency Pause.")
-
+		w.TriggerAlert(ctx, "CRITICAL", "High Outflow Velocity detected", fmt.Sprintf("%.2f SOL/hr", val))
 		return w.TriggerEmergencyPause(ctx, "Automatic Velocity Breach")
 	}
 
-	logging.Debug().Float64("outflow", amountSOL).Float64("hourly_total", val).Msg("Watchtower Log")
+	if amountSOL > 50.0 {
+		w.TriggerAlert(ctx, "WARNING", "Large Outflow detected", fmt.Sprintf("%.2f SOL", amountSOL))
+	}
+
 	return nil
+}
+
+// RecordNodeOffline triggers an alert for infrastructure degradation
+func (w *Watchtower) RecordNodeOffline(ctx context.Context, nodeID string) {
+	w.TriggerAlert(ctx, "WARNING", "Node Connectivity Lost", nodeID)
+}
+
+// RecordEconomicRisk triggers an alert for high-value treasury operations
+func (w *Watchtower) RecordEconomicRisk(ctx context.Context, message string, resource string) {
+	w.TriggerAlert(ctx, "CRITICAL", message, resource)
+}
+
+// RecordSecurityAnomaly triggers an alert for unauthorized protocol actions
+func (w *Watchtower) RecordSecurityAnomaly(ctx context.Context, message string, resource string) {
+	w.TriggerAlert(ctx, "CRITICAL", "Security Anomaly detected", resource)
+}
+
+// TriggerAlert publishes a high-fidelity signal to NATS
+func (w *Watchtower) TriggerAlert(ctx context.Context, severity, message, resource string) {
+	event := AlertEvent{
+		Type:      "watchtower_trigger",
+		Severity:  severity,
+		Message:   message,
+		Resource:  resource,
+		Timestamp: time.Now(),
+	}
+
+	// Publish to alerts stream
+	nats.Publish(ctx, "proxy.telemetry.v1.alerts", event)
+	logging.Info().Str("severity", severity).Str("msg", message).Msg("Watchtower Alert Triggered")
 }
 
 // TriggerEmergencyPause sets the global shutdown flag

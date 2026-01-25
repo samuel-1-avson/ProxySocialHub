@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useUIStore } from "@/lib/store/ui-store";
+import { AlertCenter } from "@/components/AlertCenter";
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -36,6 +37,7 @@ export function Sidebar() {
         { href: "/agents", label: "AGENTS", icon: Bot },
         { href: "/feed", label: "FEED", icon: Activity },
         { href: "/messages", label: "COMMS", icon: MessageSquare },
+        { href: "/dashboard/intelligence", label: "INTEL", icon: Activity },
         { href: "/forum", label: "FORUM", icon: Grid },
         { href: "/governance", label: "VOTE", icon: Vote },
         { href: "/leaderboards", label: "RANK", icon: Trophy },
@@ -138,6 +140,10 @@ export function Sidebar() {
                             </Link>
                         );
                     })}
+                </div>
+
+                <div className="mb-4">
+                    <AlertCenter />
                 </div>
 
                 <button

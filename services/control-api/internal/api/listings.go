@@ -12,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/privacy"
 )
 
 // RegisterListingRoutes registers marketplace listing routes
@@ -74,7 +75,7 @@ func getListings(c *gin.Context) {
 	// Map domain entities back to API response models
 	apiListings := make([]models.ProxyListing, len(entities))
 	for i, e := range entities {
-		apiListings[i] = models.ProxyListing{
+		listingModel := models.ProxyListing{
 			ID:                   e.ID,
 			SellerID:             e.SellerID,
 			Title:                e.Title,
@@ -82,7 +83,18 @@ func getListings(c *gin.Context) {
 			AvailableBandwidthGB: e.AvailableBandwidthGB,
 			Status:               models.ListingStatus(e.Status),
 			QualityScore:         e.QualityScore,
+			UptimePercent:        e.UptimePercent,
+			AvgLatencyMs:         e.AvgLatencyMs,
 		}
+
+		// Apply Elastic Pricing adjustment
+		listingModel.PricePerGB = CalculateFairPrice(listingModel)
+
+		// Apply ZK-Privacy Obfuscation (Security Audit Sweep)
+		sentry := privacy.NewZKMetadataSentry()
+		sentry.SanitizeListing(&listingModel)
+
+		apiListings[i] = listingModel
 	}
 
 	response := ListingsResponse{
@@ -142,6 +154,10 @@ func getListing(c *gin.Context) {
 			isSaved = true
 		}
 	}
+
+	// Apply ZK-Privacy Obfuscation (Security Audit Sweep)
+	sentry := privacy.NewZKMetadataSentry()
+	sentry.SanitizeListing(&listing)
 
 	c.JSON(http.StatusOK, gin.H{
 		"listing":  listing,
