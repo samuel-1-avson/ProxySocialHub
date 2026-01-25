@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/api"
 	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
@@ -274,6 +275,12 @@ func main() {
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker()
 
+	// Initialize Marketplace Core (Phase 9 Hexagonal Architecture)
+	marketRepo := db.NewMarketplaceRepository()
+	marketService := services.NewMarketplaceService(marketRepo)
+	api.InitMarketplaceService(marketService)
+	log.Println("Marketplace Core Service initialized")
+
 	// Start Liquidity Manager (Phase 5.2)
 	// Needs authentic Oracle Client instance, not just global init
 	oracleConfig := solanaClient.Config{
@@ -302,6 +309,12 @@ func main() {
 	zkWorker := worker.NewZKSettlementWorker()
 	zkWorker.Start(context.Background())
 	log.Println("ZK-Settlement Worker started")
+
+	// Start Marketplace Watcher (Phase 9.1 Real-time Telemetry)
+	mw := worker.NewMarketplaceWatcher()
+	if err := mw.Start(context.Background()); err != nil {
+		log.Printf("Failed to start Marketplace Watcher: %v", err)
+	}
 
 	// Start Provisioning Worker (Phase 5.2 Event-Driven)
 	pw := worker.NewProvisioningWorker(nil, nil)

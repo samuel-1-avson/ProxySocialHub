@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { X, ShieldCheck, Zap, Globe, Power, AlertCircle, CheckCircle, Wifi } from 'lucide-react';
-import { Listing } from '@/lib/social-api';
-import { createOrder } from '@/lib/api';
+import { Listing, createOrder } from '@/lib/api/marketplace';
 import { useAuth } from '@/lib/auth';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
@@ -33,11 +32,15 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
         try {
             // 1. Create Backend Order (Lock Rate)
             console.log("Creating Order...");
-            const order = await createOrder(listing.id, 10); // 10GB hardcoded for now
+            // Modernized V3 Order Signature
+            const order = await createOrder({
+                listing_id: listing.id,
+                bandwidth_gb: 10,
+                session_type: (listing.proxy_type === 'sticky' ? 'sticky' : 'rotating')
+            });
 
             // 2. Initiate Smart Contract Payment (Get PDA & Params)
             console.log("Initiating Payment for Order:", order.id);
-            // Dynamic import to avoid SSR issues if initiateSmartContractPayment was not in initial bundle? No, it's fine.
             const { initiateSmartContractPayment } = await import('@/lib/services/market');
             const params = await initiateSmartContractPayment(order.id);
 
