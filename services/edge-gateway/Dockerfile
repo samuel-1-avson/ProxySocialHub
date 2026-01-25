@@ -4,9 +4,10 @@ WORKDIR /app
 RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig perl git make gcc g++
 
 # Copy only what we need
-COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
-COPY src ./src
+COPY services/edge-gateway/Cargo.toml services/edge-gateway/Cargo.lock ./
+COPY services/edge-gateway/build.rs ./
+COPY services/edge-gateway/src ./src
+COPY proto ./proto
 
 # Build
 RUN cargo build --release
