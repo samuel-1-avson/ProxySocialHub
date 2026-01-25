@@ -167,8 +167,8 @@ func CreditReferralReward(rewardID uuid.UUID) {
 	// Credit wallet
 	var wallet models.Wallet
 	if err := tx.First(&wallet, "user_id = ?", reward.ReferrerID).Error; err == nil {
-		newBalance := wallet.BalanceTAO + reward.RewardAmount
-		tx.Model(&wallet).Update("balance_tao", newBalance)
+		newBalance := wallet.BalanceSOL + reward.RewardAmount
+		tx.Model(&wallet).Update("balance_sol", newBalance)
 
 		ledger := models.WalletLedgerEntry{
 			WalletID:     wallet.ID,
