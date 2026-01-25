@@ -11,6 +11,7 @@ export interface ExplorerMetrics {
     avg_block_time_ms: number;
     total_bandwidth_gb: number;
     transactions_per_second: number;
+    region_distribution?: Record<string, number>;
     last_updated: string;
 }
 

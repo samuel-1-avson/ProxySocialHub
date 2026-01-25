@@ -62,25 +62,40 @@ export default function ExplorerDashboard() {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
                             <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-600">
-                                System Explorer
+                                Proxy Explorer
                             </h1>
                             <p className="text-gray-400 mt-2">
-                                Real-time visibility into the ProxyHub Hybrid Blockchain Network
+                                Real-time visibility into the ProxyHub Decentralized Provider Network
                             </p>
                         </div>
 
                         <div className="relative w-full md:w-96">
                             <input
                                 type="text"
-                                placeholder="Search tx hash, address, or block..."
+                                placeholder="Search Proxy ID, Tx Hash, or Wallet..."
                                 className="w-full bg-white/5 border border-white/10 rounded-full py-3 px-12 focus:outline-none focus:border-cyan-500/50 transition-colors"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                        // Implement search navigation
-                                        const val = e.currentTarget.value;
-                                        if (val.length > 60) window.location.href = `/explorer/transactions/${val}`;
-                                        else if (val.length > 30) window.location.href = `/explorer/wallets/${val}`;
-                                        else window.location.href = `/explorer/blocks/${val}`;
+                                        const val = e.currentTarget.value.trim();
+                                        if (!val) return;
+
+                                        // 1. Transaction Hash (Solana) - Base58, ~88 characters (can vary)
+                                        // Usually 64 to 90 characters
+                                        if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(val)) {
+                                            window.location.href = `/explorer/transactions/${val}`;
+                                        }
+                                        // 2. Solana Address - Base58, 32 to 44 characters
+                                        else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(val)) {
+                                            window.location.href = `/explorer/wallets/${val}`;
+                                        }
+                                        // 3. Block Number - Numeric
+                                        else if (/^\d+$/.test(val)) {
+                                            window.location.href = `/explorer/blocks/${val}`;
+                                        }
+                                        // 4. Default to search/nodes if ID
+                                        else {
+                                            window.location.href = `/explorer/nodes?q=${val}`;
+                                        }
                                     }
                                 }}
                             />
@@ -238,16 +253,41 @@ export default function ExplorerDashboard() {
                                 </div>
                                 <div className="space-y-4">
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-gray-500">Active Validators</span>
+                                        <span className="text-gray-500">Active Providers</span>
                                         <span className="text-white font-mono">{metrics?.active_nodes || '-'}</span>
                                     </div>
-                                    <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
-                                        <div className="bg-cyan-500 h-full w-[70%]" />
-                                    </div>
-                                    <div className="flex justify-between text-xs text-gray-500 pt-2">
-                                        <span>North America (70%)</span>
-                                        <span>Europe (30%)</span>
-                                    </div>
+
+                                    {metrics?.region_distribution && Object.keys(metrics.region_distribution).length > 0 ? (
+                                        <div className="space-y-3">
+                                            {Object.entries(metrics.region_distribution).slice(0, 3).map(([region, count], idx) => {
+                                                const percentage = ((count / metrics.active_nodes) * 100).toFixed(0);
+                                                return (
+                                                    <div key={region}>
+                                                        <div className="flex justify-between text-[10px] text-gray-400 mb-1 uppercase tracking-tighter">
+                                                            <span>{region}</span>
+                                                            <span>{percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full ${idx === 0 ? 'bg-cyan-500' : idx === 1 ? 'bg-purple-500' : 'bg-pink-500'}`}
+                                                                style={{ width: `${percentage}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                                                <div className="bg-cyan-500 h-full w-[100%]" />
+                                            </div>
+                                            <div className="flex justify-between text-xs text-gray-500 pt-2">
+                                                <span>Global Distribution</span>
+                                                <span>100%</span>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                                 <Link href="/explorer/nodes" className="block w-full text-center mt-6 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm transition-colors">
                                     View Node Map
