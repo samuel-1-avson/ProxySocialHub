@@ -162,6 +162,13 @@ func Init(dsn string) error {
 		&models.AuditLog{},
 		&models.SecurityAnomaly{},
 		&models.WebAuthnCredential{},
+
+		// System Explorer (Public blockchain explorer)
+		&models.ExplorerBlock{},
+		&models.ExplorerTransaction{},
+		&models.ExplorerNode{},
+		&models.ExplorerContract{},
+		&models.ExplorerMetrics{},
 	)
 	if err != nil {
 		log.Printf("Failed to migrate database: %v", err)
