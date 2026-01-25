@@ -112,3 +112,42 @@ func (r *marketplaceRepository) RecordUptimeCheck(ctx context.Context, nodeID uu
 	}
 	return DB.Create(&check).Error
 }
+
+func (r *marketplaceRepository) GetLast24HoursChecks(ctx context.Context, nodeID uuid.UUID) ([]domain.UptimeCheck, error) {
+	var checks []models.UptimeCheck
+	cutoff := time.Now().Add(-24 * time.Hour)
+
+	if err := DB.Where("node_id = ? AND checked_at > ?", nodeID, cutoff).Find(&checks).Error; err != nil {
+		return nil, err
+	}
+
+	domainChecks := make([]domain.UptimeCheck, len(checks))
+	for i, c := range checks {
+		domainChecks[i] = domain.UptimeCheck{
+			IsUp:      c.IsUp,
+			LatencyMs: c.LatencyMs,
+			CheckedAt: c.CheckedAt,
+		}
+	}
+	return domainChecks, nil
+}
+
+func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID uuid.UUID, score float64) error {
+	// Update Node score
+	if err := DB.Model(&models.Node{}).Where("id = ?", nodeID).Update("quality_score", score).Error; err != nil {
+		return err
+	}
+
+	// Update active listings score for visibility
+	// Assuming Node is linked to a Seller (User), and Listings belong to Seller.
+	// Since we strictly link Node -> Provider, and Listing -> Provider.
+	// We first get the node to find the provider (UserID).
+	var node models.Node
+	if err := DB.Select("user_id").First(&node, "id = ?", nodeID).Error; err != nil {
+		return err
+	}
+
+	return DB.Model(&models.ProxyListing{}).
+		Where("seller_id = ? AND status = ?", node.ProviderUserID, models.ListingStatusActive).
+		Update("quality_score", score).Error
+}

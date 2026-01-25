@@ -17,6 +17,8 @@ type MarketplaceRepository interface {
 	GetNodeByID(ctx context.Context, id uuid.UUID) (*domain.NodeEntity, error)
 	UpdateNodeStatus(ctx context.Context, nodeID uuid.UUID, isHealthy bool, latency int) error
 	RecordUptimeCheck(ctx context.Context, nodeID uuid.UUID, isUp bool, latency int) error
+	GetLast24HoursChecks(ctx context.Context, nodeID uuid.UUID) ([]domain.UptimeCheck, error)
+	UpdateQualityScore(ctx context.Context, nodeID uuid.UUID, score float64) error
 }
 
 // MarketplaceService defines the primary use cases for the node market

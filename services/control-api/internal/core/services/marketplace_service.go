@@ -64,5 +64,49 @@ func (s *marketplaceService) UpdateNodeStatus(ctx context.Context, nodeID uuid.U
 	}
 
 	// Also record history for uptime scoring
-	return s.repo.RecordUptimeCheck(ctx, nodeID, isHealthy, latency)
+	if err := s.repo.RecordUptimeCheck(ctx, nodeID, isHealthy, latency); err != nil {
+		return err
+	}
+
+	// Recalculate Quality Score (The "Oracle")
+	checks, err := s.repo.GetLast24HoursChecks(ctx, nodeID)
+	if err != nil {
+		logging.Error(err).Msg("Failed to retrieve metrics for scoring")
+		return nil // Don't fail the heartbeat if scoring fails
+	}
+
+	if len(checks) > 0 {
+		var upCount int
+		var totalLatency int
+
+		for _, c := range checks {
+			if c.IsUp {
+				upCount++
+			}
+			totalLatency += c.LatencyMs
+		}
+
+		uptimePct := float64(upCount) / float64(len(checks)) * 100.0
+		avgLatency := float64(totalLatency) / float64(len(checks))
+
+		// Score Formula: 70% Uptime + 30% Latency Performance
+		// Latency Score: 100 points for 0ms, 0 points for >1000ms
+		latencyScore := 100.0 - (avgLatency / 10.0)
+		if latencyScore < 0 {
+			latencyScore = 0
+		}
+
+		finalScore := (uptimePct * 0.7) + (latencyScore * 0.3)
+
+		logging.Info().
+			Str("node_id", nodeID.String()).
+			Float64("score", finalScore).
+			Float64("uptime", uptimePct).
+			Float64("latency", avgLatency).
+			Msg("MarketplaceService: Updated Quality Score")
+
+		return s.repo.UpdateQualityScore(ctx, nodeID, finalScore)
+	}
+
+	return nil
 }
