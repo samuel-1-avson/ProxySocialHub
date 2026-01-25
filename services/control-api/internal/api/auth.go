@@ -225,6 +225,7 @@ func walletLogin(c *gin.Context) {
 	}
 
 	if !isValid {
+		RecordAuditLog(c, models.AuditAuthLoginFailed, models.AuditSeverityWarning, nil, "wallet", req.Address, "Invalid signature login attempt", false)
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature (Solana/Bittensor verification failed)"})
 		return
 	}
