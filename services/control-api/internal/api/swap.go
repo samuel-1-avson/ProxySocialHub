@@ -16,6 +16,16 @@ type swapRequest struct {
 	Amount       float64 `json:"amount" binding:"required,gt=0"`
 }
 
+// GetSolToUsdtRate returns the current exchange rate (Mock or Real)
+func GetSolToUsdtRate() float64 {
+	// TODO: Fetch from Oracle/Coingecko
+	return 145.50 // 1 SOL = ~145 USDT (Mock)
+}
+
+func RegisterSwapRoutes(r *gin.RouterGroup) {
+	r.POST("/wallet/swap", swapCurrency)
+}
+
 func swapCurrency(c *gin.Context) {
 	var req swapRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -30,9 +40,12 @@ func swapCurrency(c *gin.Context) {
 	}
 	userID := userUUID.String()
 
-	// Only support GHS -> TAO and TAO -> GHS for now
-	if !((req.FromCurrency == "GHS" && req.ToCurrency == "TAO") || (req.FromCurrency == "TAO" && req.ToCurrency == "GHS")) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported currency pair"})
+	// Only support SOL <-> USDT
+	validPair := (req.FromCurrency == "SOL" && req.ToCurrency == "USDT") ||
+		(req.FromCurrency == "USDT" && req.ToCurrency == "SOL")
+
+	if !validPair {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported currency pair. Only SOL <-> USDT supported."})
 		return
 	}
 
@@ -52,34 +65,33 @@ func swapCurrency(c *gin.Context) {
 
 	var convertedAmount float64
 	var rate float64
-	// Convert using Real-Time Rate
-	currentRate := GetTaoToGhsRate()
+	currentRate := GetSolToUsdtRate()
 
-	if req.FromCurrency == "GHS" {
-		// GHS -> TAO
-		if wallet.BalanceGHS < req.Amount {
+	if req.FromCurrency == "SOL" {
+		// SOL -> USDT
+		if wallet.BalanceSOL < req.Amount {
 			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient GHS balance"})
-			return
-		}
-		rate = 1.0 / currentRate
-		convertedAmount = req.Amount / currentRate
-
-		wallet.BalanceGHS -= req.Amount
-		wallet.BalanceTAO += convertedAmount
-
-	} else {
-		// TAO -> GHS
-		if wallet.BalanceTAO < req.Amount {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient TAO balance"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL balance"})
 			return
 		}
 		rate = currentRate
-		convertedAmount = req.Amount * currentRate
+		convertedAmount = req.Amount * rate
 
-		wallet.BalanceTAO -= req.Amount
-		wallet.BalanceGHS += convertedAmount
+		wallet.BalanceSOL -= req.Amount
+		wallet.BalanceUSDT += convertedAmount
+
+	} else {
+		// USDT -> SOL
+		if wallet.BalanceUSDT < req.Amount {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient USDT balance"})
+			return
+		}
+		rate = 1.0 / currentRate
+		convertedAmount = req.Amount * rate
+
+		wallet.BalanceUSDT -= req.Amount
+		wallet.BalanceSOL += convertedAmount
 	}
 
 	if err := tx.Save(&wallet).Error; err != nil {
@@ -91,10 +103,10 @@ func swapCurrency(c *gin.Context) {
 	// Ledger Entry
 	ledger := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
-		Amount:       0, // Metadata swap
-		BalanceAfter: wallet.BalanceTAO,
+		Amount:       0,                 // Metadata swap
+		BalanceAfter: wallet.BalanceSOL, // Tracking SOL balance for primary reference? Or maybe split?
 		Type:         "swap",
-		Description:  fmt.Sprintf("Swap %.2f %s -> %.4f %s (Rate: %.2f)", req.Amount, req.FromCurrency, convertedAmount, req.ToCurrency, rate),
+		Description:  fmt.Sprintf("Swap %.4f %s -> %.4f %s (Rate: %.2f)", req.Amount, req.FromCurrency, convertedAmount, req.ToCurrency, rate),
 		ReferenceID:  uuid.New().String(),
 	}
 	tx.Create(&ledger)
@@ -107,8 +119,8 @@ func swapCurrency(c *gin.Context) {
 		"from_amount": req.Amount,
 		"to_amount":   convertedAmount,
 		"new_balances": gin.H{
-			"ghs": wallet.BalanceGHS,
-			"tao": wallet.BalanceTAO,
+			"sol":  wallet.BalanceSOL,
+			"usdt": wallet.BalanceUSDT,
 		},
 	})
 }

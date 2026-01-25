@@ -208,10 +208,11 @@ func seedWallet() {
 	var wallet models.Wallet
 	if err := DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
 		wallet = models.Wallet{
-			UserID:     user.ID,
-			BalanceGHS: 0,
-			BalanceTAO: 0,
-			Currency:   "MULTI",
+			UserID:      user.ID,
+			BalanceGHS:  0,
+			BalanceSOL:  0,
+			BalanceUSDT: 0,
+			Currency:    "MULTI",
 		}
 		if err := DB.Create(&wallet).Error; err != nil {
 			log.Printf("Failed to create wallet: %v", err)

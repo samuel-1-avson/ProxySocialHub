@@ -16,23 +16,16 @@ const (
 
 	// Tokens
 	WSOLMint = "So11111111111111111111111111111111111111112"
-	TAOMint  = "tao..." // Deduced from config or DB
+	TAOMint  = "" // Removed
 )
 
 type LiquidityManager struct {
 	client *solana.OracleClient
-	dex    DEXAggregator
 }
 
-type DEXAggregator interface {
-	GetQuote(inputMint, outputMint string, amount uint64) (uint64, error)
-	Swap(inputMint, outputMint string, amount uint64) (string, error) // Returns tx signature
-}
-
-func NewLiquidityManager(client *solana.OracleClient, dex DEXAggregator) *LiquidityManager {
+func NewLiquidityManager(client *solana.OracleClient) *LiquidityManager {
 	return &LiquidityManager{
 		client: client,
-		dex:    dex,
 	}
 }
 
@@ -45,17 +38,17 @@ func (lm *LiquidityManager) StartRebalanceLoop(ctx context.Context, interval tim
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := lm.CheckAndRebalance(ctx); err != nil {
+				if err := lm.CheckBalances(ctx); err != nil {
 					// Log error but continue loop
-					fmt.Printf("Liquidity Rebalance Failed: %v\n", err)
+					fmt.Printf("Liquidity Check Failed: %v\n", err)
 				}
 			}
 		}
 	}()
 }
 
-// CheckAndRebalance checks Treasury balances and swaps if needed
-func (lm *LiquidityManager) CheckAndRebalance(ctx context.Context) error {
+// CheckBalances checks Treasury balances and alerts if low
+func (lm *LiquidityManager) CheckBalances(ctx context.Context) error {
 	// 1. Get Oracle/Treasury Balance (Operational Wallet)
 	lamports, err := lm.client.GetBalance(ctx)
 	if err != nil {
@@ -63,38 +56,13 @@ func (lm *LiquidityManager) CheckAndRebalance(ctx context.Context) error {
 	}
 
 	balanceSOL := solana.LamportsToSOL(lamports)
-	logging.Info().Float64("SOL", balanceSOL).Msg("Checking Liquidity")
+	logging.Info().Float64("SOL", balanceSOL).Msg("Checking Treasury Liquidity")
 
-	// 2. Logic: If Balance < Min, Swap TAO -> SOL
+	// 2. Alert if low
 	if lamports < MinSOLLamports {
-		logging.Warn().Float64("current", balanceSOL).Msg("Low SOL Liquidity. Initiating Swap.")
-
-		neededLamports := TargetSOLLamports - lamports
-		_ = neededLamports // Use in real implementation
-
-		// In a real impl, we'd calculate exact amount based on Oracle price
-		// Assuming we swap 50 TAO for SOL
-		swapAmountAtomic := uint64(50 * 1e9) // 50 TAO
-
-		sig, err := lm.dex.Swap(TAOMint, WSOLMint, swapAmountAtomic)
-		if err != nil {
-			return fmt.Errorf("swap failed: %w", err)
-		}
-
-		logging.Info().Str("tx", sig).Msg("Rebalance Swap Successful")
+		logging.Warn().Float64("current", balanceSOL).Msg("CRITICAL: Low SOL Liquidity in Treasury. Please Top Up.")
+		// In a real system, send an email or Slack alert here
 	}
 
 	return nil
-}
-
-// MockJupiterClient implements DEXAggregator for now
-type MockJupiterClient struct{}
-
-func (m *MockJupiterClient) GetQuote(in, out string, amt uint64) (uint64, error) {
-	return amt * 100, nil // Mock rate
-}
-
-func (m *MockJupiterClient) Swap(in, out string, amt uint64) (string, error) {
-	logging.Info().Msgf("MOCK SWAP: %d %s -> %s", amt, in, out)
-	return "mock_tx_signature_jupiter", nil
 }

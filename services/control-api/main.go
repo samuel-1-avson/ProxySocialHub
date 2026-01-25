@@ -214,7 +214,6 @@ func main() {
 		api.RegisterProviderNodeRoutes(protected)
 		api.RegisterSessionRoutes(protected)
 		api.RegisterWalletRoutes(protected)
-		api.RegisterStakingRoutes(protected)
 		api.RegisterOrderRoutes(protected)
 		api.RegisterEscrowRoutes(protected)
 		api.RegisterUsageRoutes(protected)
@@ -302,7 +301,7 @@ func main() {
 
 	// Try to load oracle client, but don't crash if keypair missing (dev mode)
 	if oracleClient, err := solanaClient.NewOracleClient(oracleConfig); err == nil {
-		lm := treasury.NewLiquidityManager(oracleClient, &treasury.MockJupiterClient{})
+		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
 		log.Println("Liquidity Manager started")
 	} else {

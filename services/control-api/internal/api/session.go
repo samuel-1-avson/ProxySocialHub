@@ -344,7 +344,7 @@ func createInstantSession(c *gin.Context) {
 		return
 	}
 
-	if wallet.BalanceGHS <= 0 && wallet.BalanceTAO <= 0 {
+	if wallet.BalanceSOL <= 0 {
 		c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient wallet balance. Please deposit funds."})
 		return
 	}
