@@ -147,57 +147,9 @@ services:
       - proxyhubb
     restart: always
 
-  # ==================== Subtensor (Optional in Prod) ====================
-  # In production, we might use a remote endpoint instead of running a full node
-  # But keeping it here for completeness if needed.
-  subtensor:
-    image: opentensor/subtensor:latest
-    ports:
-      - "9944:9944"
-      - "30333:30333"
-    volumes:
-      - subtensor_data:/data
-    command:
-      - /usr/local/bin/node-subtensor
-      - --chain
-      - finney
-      - --base-path
-      - /data
-      - --rpc-external
-      - --ws-external
-      - --rpc-cors
-      - all
-      - --sync
-      - warp
-    networks:
-      - proxyhubb
-    restart: always
-    profiles:
-      - blockchain
-
-  # ==================== Bittensor Bridge ====================
-  bittensor-bridge:
-    image: proxyhubb/bittensor-bridge:latest
-    build:
-      context: ./services/bittensor-bridge
-      dockerfile: Dockerfile
-    ports:
-      - "8002:8000"
-    environment:
-      - SUBTENSOR_NETWORK=local
-      - SUBTENSOR_CHAIN_ENDPOINT=ws://subtensor:9944
-    depends_on:
-      - subtensor
-    networks:
-      - proxyhubb
-    restart: always
-    profiles:
-      - blockchain
-
 volumes:
   postgres_data:
   redis_data:
-  subtensor_data:
   grafana_data:
 
 networks:
