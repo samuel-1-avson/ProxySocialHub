@@ -77,12 +77,24 @@ export default function WalletInspectorPage() {
                                     </div>
                                     <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-lg border border-white/5 backdrop-blur-sm">
                                         <span className="font-mono text-gray-300 break-all">{address}</span>
-                                        <button className="text-gray-500 hover:text-white transition-colors" title="Copy Address">
+                                        <button
+                                            className="text-gray-500 hover:text-white transition-colors"
+                                            title="Copy Address"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(address);
+                                            }}
+                                        >
                                             <Copy className="w-4 h-4" />
                                         </button>
-                                        <button className="text-gray-500 hover:text-white transition-colors" title="View on Solana Explorer">
+                                        <a
+                                            href={`https://solscan.io/account/${address}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-gray-500 hover:text-cyan-400 transition-colors"
+                                            title="View on Solscan"
+                                        >
                                             <ExternalLink className="w-4 h-4" />
-                                        </button>
+                                        </a>
                                     </div>
                                 </div>
 
