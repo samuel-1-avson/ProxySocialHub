@@ -39,6 +39,7 @@ type RedisClient interface {
 	HGet(ctx context.Context, key, field string) *redis.StringCmd
 	HSet(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	Publish(ctx context.Context, channel string, message interface{}) *redis.IntCmd
+	Exists(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 const Nil = redis.Nil
@@ -132,6 +133,23 @@ func GetSession(sessionID string) (*SessionData, error) {
 func DeleteSession(sessionID string) error {
 	key := "session:" + sessionID
 	return Client.Del(ctx, key).Err()
+}
+
+func SessionExists(sessionID string) (bool, error) {
+	if Client == nil {
+		return false, nil
+	}
+	key := "session:" + sessionID
+	count, err := Client.Exists(ctx, key).Result()
+	return count > 0, err
+}
+
+func Exists(key string) (bool, error) {
+	if Client == nil {
+		return false, nil
+	}
+	count, err := Client.Exists(ctx, key).Result()
+	return count > 0, err
 }
 
 func IncrementUsage(sessionID string, bytes int64) error {

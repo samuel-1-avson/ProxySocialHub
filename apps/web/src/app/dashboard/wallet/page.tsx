@@ -61,7 +61,7 @@ export default function UnifiedWalletPage() {
     const [amount, setAmount] = useState('');
 
     // Solana Wallet
-    const { connected, publicKey, signMessage, sendTransaction } = useSolanaWallet();
+    const { connected, publicKey, signMessage, sendTransaction, disconnect } = useSolanaWallet();
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -340,7 +340,19 @@ export default function UnifiedWalletPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="space-y-6">
-                                                        <SolanaWalletButton />
+                                                        <div className="flex flex-col gap-4">
+                                                            <SolanaWalletButton />
+                                                            {connected && (
+                                                                <motion.button
+                                                                    whileHover={{ scale: 1.02 }}
+                                                                    whileTap={{ scale: 0.98 }}
+                                                                    onClick={() => disconnect()}
+                                                                    className="w-full p-2 bg-white/5 border border-white/10 hover:border-rose-500/50 text-rose-500 text-[9px] uppercase font-black tracking-widest rounded-xl transition-all"
+                                                                >
+                                                                    Terminate Session
+                                                                </motion.button>
+                                                            )}
+                                                        </div>
                                                         {connected && (
                                                             <motion.button
                                                                 whileHover={{ scale: 1.02 }}
@@ -385,12 +397,12 @@ export default function UnifiedWalletPage() {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-[10px] font-black font-mono uppercase tracking-[0.2em] opacity-40">
                                         <span>Treasury Liquidity</span>
-                                        <span className="text-primary">100.00%</span>
+                                        <span className="text-primary">{wallet?.balance_sol || wallet?.balance_usdt ? 'Optimal' : 'Checking...'}</span>
                                     </div>
                                     <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                                         <motion.div
                                             initial={{ width: 0 }}
-                                            animate={{ width: "100%" }}
+                                            animate={{ width: (wallet?.balance_sol || wallet?.balance_usdt) ? "100%" : "30%" }}
                                             transition={{ duration: 1.5 }}
                                             className="h-full bg-gradient-to-r from-primary to-emerald-400"
                                         />
@@ -422,21 +434,21 @@ export default function UnifiedWalletPage() {
                             </h3>
                             <div className="space-y-6 relative z-10">
                                 <div className="flex justify-between items-center text-[10px] font-black font-mono uppercase tracking-widest">
-                                    <span className="text-muted-foreground/60 italic font-medium">Session Fragment</span>
+                                    <span className="text-muted-foreground/60 italic font-medium">Session Segment</span>
                                     <span className="bg-secondary/50 px-2 py-1 rounded text-primary border border-primary/10">
-                                        {wallet?.id ? `${wallet.id.slice(0, 4)}...${wallet.id.slice(-4)}` : 'IDLE_INIT'}
+                                        {wallet?.linked_solana_address ? `${wallet.linked_solana_address.slice(0, 4)}...${wallet.linked_solana_address.slice(-4)}` : 'IDLE_INIT'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-end border-b border-white/5 pb-4">
                                     <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Cumulative Flow</span>
-                                    <span className="text-2xl font-black font-mono tracking-tighter">$0.00</span>
+                                    <span className="text-2xl font-black font-mono tracking-tighter">${wallet?.balance_sol?.toFixed(2) || '0.00'}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-2">
-                                        <div className={`w-2 h-2 rounded-full ${wallet?.id ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground opacity-30'}`}></div>
+                                        <div className={`w-2 h-2 rounded-full ${wallet?.linked_solana_address ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground opacity-30'}`}></div>
                                         <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Throughput</span>
                                     </div>
-                                    <span className="text-xs font-black font-mono text-emerald-500">{wallet?.id ? '99.98%' : 'OFFLINE'}</span>
+                                    <span className="text-xs font-black font-mono text-emerald-500">{wallet?.linked_solana_address ? 'ACTIVE' : 'OFFLINE'}</span>
                                 </div>
                             </div>
                         </div>

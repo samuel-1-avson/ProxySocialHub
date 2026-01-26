@@ -7,6 +7,18 @@ import (
 	"github.com/proxyhubb/control-api/internal/events"
 )
 
+// StartAll initializes all background workers
+func StartAll(queue events.EventQueue) {
+	// 1. Event Consumers
+	StartConsumers(queue)
+
+	// 2. Session Lifecycle Workers (Phase 17)
+	StartSessionReaper()
+	StartTelemetryWorker()
+
+	log.Printf("[Worker] All background services initialized")
+}
+
 // StartConsumers initializes event consumers
 func StartConsumers(queue events.EventQueue) {
 	// Consumer for User Logged In events
