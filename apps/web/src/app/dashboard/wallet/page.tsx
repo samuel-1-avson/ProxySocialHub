@@ -337,6 +337,28 @@ export default function UnifiedWalletPage() {
                                                         <div className="text-[11px] font-mono font-black break-all bg-black/40 p-4 border border-white/5 rounded-xl shadow-inner text-primary/80">
                                                             {wallet.linked_solana_address}
                                                         </div>
+                                                        <motion.button
+                                                            whileHover={{ scale: 1.02 }}
+                                                            whileTap={{ scale: 0.98 }}
+                                                            onClick={async () => {
+                                                                setProcessing(true);
+                                                                try {
+                                                                    const { unlinkWallet } = await import('@/lib/api');
+                                                                    await unlinkWallet('solana');
+                                                                    setResult({ success: true, message: "Identity De-coupled" });
+                                                                    fetchWallet();
+                                                                } catch (err: any) {
+                                                                    setResult({ success: false, message: "Unlink failed" });
+                                                                } finally {
+                                                                    setProcessing(false);
+                                                                }
+                                                            }}
+                                                            disabled={processing}
+                                                            className="w-full p-2 bg-rose-500/5 border border-rose-500/20 hover:bg-rose-500/10 text-rose-500 text-[9px] uppercase font-black tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                                                        >
+                                                            {processing ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                                                            Unlink Verified Identity
+                                                        </motion.button>
                                                     </div>
                                                 ) : (
                                                     <div className="space-y-6">
