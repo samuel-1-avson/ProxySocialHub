@@ -5,12 +5,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/treasury"
 )
 
 func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/config/public", getPublicSystemConfig)
 	r.GET("/network/gateways", getFederatedGateways)
 	r.POST("/system/config", updateSystemConfig) // Should be admin-only in prod
+	r.GET("/system/watchtower/status", getWatchtowerStatus)
 }
 
 type UpdateConfigPayload struct {
@@ -70,4 +72,14 @@ func getFederatedGateways(c *gin.Context) {
 		"gateways": gateways,
 		"count":    len(gateways),
 	})
+}
+
+func getWatchtowerStatus(c *gin.Context) {
+	wt := treasury.NewWatchtower()
+	paused, err := wt.IsPaused(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check system status"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"emergency_pause": paused})
 }
