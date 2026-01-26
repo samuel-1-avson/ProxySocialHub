@@ -24,8 +24,11 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 		sessions.GET("", listSessions)
 		sessions.GET("/", listSessions)
 		sessions.GET("/:id", getSession)
+		sessions.GET("/:id/", getSession)
 		sessions.POST("/:id/terminate", terminateSession)
+		sessions.POST("/:id/terminate/", terminateSession)
 		sessions.DELETE("/:id", terminateSession)
+		sessions.DELETE("/:id/", terminateSession)
 	}
 }
 
