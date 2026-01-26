@@ -17,7 +17,7 @@ if (-not (Test-Path $cloudflared)) {
 # 2. Check Backend Health
 Write-Host "🏥 Checking Backend (localhost:8080)..." -ForegroundColor Cyan
 try {
-    $resp = Invoke-WebRequest -Uri "http://localhost:8080/health" -Method Get -UseBasicParsing -TimeoutSec 2
+    Invoke-WebRequest -Uri "http://localhost:8080/health" -Method Get -UseBasicParsing -TimeoutSec 2 | Out-Null
     Write-Host "✅ Backend is UP!" -ForegroundColor Green
 }
 catch {
@@ -26,8 +26,14 @@ catch {
 
 # 3. Start Tunnel in Background
 Write-Host "🚇 Starting Tunnel..." -ForegroundColor Yellow
-# Clear old log
-if (Test-Path $tunnelLog) { Remove-Item $tunnelLog }
+
+# Fix: Stop existing cloudflared processes to release file locks
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# Clear old log (with error suppression)
+if (Test-Path $tunnelLog) { 
+    try { Remove-Item $tunnelLog -ErrorAction SilentlyContinue } catch {}
+}
 
 # Start process and redirect output
 $proc = Start-Process -FilePath $cloudflared -ArgumentList "tunnel --url http://localhost:8080" -RedirectStandardError $tunnelLog -NoNewWindow -PassThru
@@ -76,7 +82,6 @@ $varNames = @(
 
 # New: Add Treasury Sync (Keep frontend in sync with backend)
 $solanaTreasury = "AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ"
-$taoTreasury = "5HdphPPCBLqvVma9v3cvFo9dPpBuSs57fUpjuRJjfkGoptak"
 
 Write-Host "`n📝 Updating Environment Files..." -ForegroundColor Yellow
 
@@ -90,8 +95,8 @@ for ($i = 0; $i -lt $envFiles.Count; $i++) {
         $content = $content -replace "^$var=.*", "$var=$fullUrl"
         # Update Treasuries (Specifically for web app)
         if ($file -match "web") {
-            $content = $content -replace "^NEXT_PUBLIC_SOLANA_TREASURY=.*", "NEXT_PUBLIC_SOLANA_TREANA_TREASURY=$solanaTreasury"
-            $content = $content -replace "^NEXT_PUBLIC_TAO_TREASURY=.*", "NEXT_PUBLIC_TAO_TREASURY=$taoTreasury"
+            $content = $content -replace "^NEXT_PUBLIC_SOLANA_TREASURY=.*", "NEXT_PUBLIC_SOLANA_TREASURY=$solanaTreasury"
+            
         }
         $content | Out-File -FilePath $file -Encoding UTF8
         Write-Host "✅ Updated $file" -ForegroundColor Green
