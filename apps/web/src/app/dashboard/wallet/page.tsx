@@ -62,13 +62,39 @@ export default function UnifiedWalletPage() {
 
     // Solana Wallet
     const { connected, publicKey, signMessage, sendTransaction, disconnect } = useSolanaWallet();
+    const [externalSolBalance, setExternalSolBalance] = useState<number | null>(null);
     const [mounted, setMounted] = useState(false);
+
+    // Network Config
+    const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet';
+    const isDevnet = solanaNetwork.toLowerCase().includes('devnet');
 
     useEffect(() => {
         setMounted(true);
         fetchWallet();
         fetchConfig();
     }, []);
+
+    // Real-time external balance fetching
+    useEffect(() => {
+        if (connected && publicKey) {
+            const fetchExternalBalance = async () => {
+                try {
+                    const { getConnection } = await import('@/lib/solana');
+                    const connection = getConnection();
+                    const balance = await connection.getBalance(publicKey);
+                    setExternalSolBalance(balance / 1e9);
+                } catch (e) {
+                    console.error("Failed to fetch external balance:", e);
+                }
+            };
+            fetchExternalBalance();
+            const id = setInterval(fetchExternalBalance, 10000); // 10s refresh
+            return () => clearInterval(id);
+        } else {
+            setExternalSolBalance(null);
+        }
+    }, [connected, publicKey]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -211,9 +237,17 @@ export default function UnifiedWalletPage() {
                                                 {wallet?.balance_sol?.toFixed(4) || '0.0000'}
                                                 <span className="text-xl opacity-40 font-black">SOL</span>
                                             </div>
+
+                                            {connected && externalSolBalance !== null && (
+                                                <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/5 flex justify-between items-center">
+                                                    <span className="text-[9px] font-mono font-black text-muted-foreground uppercase opacity-40">External Wallet Balance</span>
+                                                    <span className="text-xs font-black font-mono text-primary">{externalSolBalance.toFixed(4)} SOL</span>
+                                                </div>
+                                            )}
+
                                             <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                                Solana Mainnet: Synced
+                                                Solana {isDevnet ? 'Devnet' : 'Mainnet'}: Synced
                                             </div>
                                         </motion.div>
 
