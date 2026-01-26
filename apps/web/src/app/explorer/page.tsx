@@ -124,8 +124,8 @@ export default function ExplorerDashboard() {
 
                 <div className="flex flex-wrap items-center gap-6 w-full xl:w-auto">
                     <div className="flex-1 xl:w-96 relative group">
-                        <div className="absolute -inset-1 bg-primary/5 blur-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/20 w-4 h-4" />
+                        <div className="absolute -inset-1 bg-primary/5 blur-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/20 w-4 h-4 pointer-events-none" />
                         <input
                             type="text"
                             placeholder="INTERCEPT ID, HASH, OR WALLET..."
