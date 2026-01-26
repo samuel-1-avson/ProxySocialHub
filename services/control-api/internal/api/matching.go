@@ -31,18 +31,18 @@ func RegisterSmartMatchingRoutes(r *gin.RouterGroup) {
 
 // getUseCases returns the list of supported use cases from DB, falling back to engine profiles if empty
 func getUseCases(c *gin.Context) {
-	var useCases []models.UseCase
+	useCases := make([]models.UseCase, 0)
 	if err := db.DB.Order("name asc").Find(&useCases).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to fetch use cases"})
 		return
 	}
 
-	// If DB is empty (first run or test), seed with engine defaults
+	// If DB is empty (first run), bootstrap with system default profiles
 	if len(useCases) == 0 {
 		profiles := matchEngine.GetProfiles()
 		for _, profile := range profiles {
 			uc := models.UseCase{
-				ID:          uuid.New(), // In reality we might want fixed IDs or slugs
+				ID:          uuid.New(),
 				Name:        profile.Name,
 				Description: profile.Description,
 			}

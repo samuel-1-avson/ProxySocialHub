@@ -72,31 +72,8 @@ func getOperationalMetrics(c *gin.Context) {
 func getWatchtowerAlerts(c *gin.Context) {
 	// In production, this would query JetStream for the latest messages
 	// in the "TELEMETRY" stream under "proxy.telemetry.v1.alerts"
-
-	// For the Phase 10.1 pilot, we return a hybrid of live + mock history
-	alerts := []treasury.AlertEvent{
-		{
-			Type:      "watchtower_trigger",
-			Severity:  "CRITICAL",
-			Message:   "High Outflow Velocity detected",
-			Resource:  "105.42 SOL/hr",
-			Timestamp: time.Now().Add(-15 * time.Minute),
-		},
-		{
-			Type:      "watchtower_trigger",
-			Severity:  "WARNING",
-			Message:   "Node Connectivity Lost",
-			Resource:  "node-78a2",
-			Timestamp: time.Now().Add(-1 * time.Hour),
-		},
-		{
-			Type:      "watchtower_trigger",
-			Severity:  "INFO",
-			Message:   "Registry Sync Successful",
-			Resource:  "12 nodes updated",
-			Timestamp: time.Now().Add(-2 * time.Hour),
-		},
-	}
+	// For now, we return empty list to remain 'well connected' without fake noise.
+	alerts := []treasury.AlertEvent{}
 
 	c.JSON(http.StatusOK, alerts)
 }
