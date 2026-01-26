@@ -74,6 +74,10 @@ $varNames = @(
     "VITE_API_URL"
 )
 
+# New: Add Treasury Sync (Keep frontend in sync with backend)
+$solanaTreasury = "AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ"
+$taoTreasury = "5HdphPPCBLqvVma9v3cvFo9dPpBuSs57fUpjuRJjfkGoptak"
+
 Write-Host "`n📝 Updating Environment Files..." -ForegroundColor Yellow
 
 for ($i = 0; $i -lt $envFiles.Count; $i++) {
@@ -82,8 +86,14 @@ for ($i = 0; $i -lt $envFiles.Count; $i++) {
     
     if (Test-Path $file) {
         $content = Get-Content $file
-        $updated = $content -replace "^$var=.*", "$var=$fullUrl"
-        $updated | Out-File -FilePath $file -Encoding UTF8
+        # Update URL
+        $content = $content -replace "^$var=.*", "$var=$fullUrl"
+        # Update Treasuries (Specifically for web app)
+        if ($file -match "web") {
+            $content = $content -replace "^NEXT_PUBLIC_SOLANA_TREASURY=.*", "NEXT_PUBLIC_SOLANA_TREANA_TREASURY=$solanaTreasury"
+            $content = $content -replace "^NEXT_PUBLIC_TAO_TREASURY=.*", "NEXT_PUBLIC_TAO_TREASURY=$taoTreasury"
+        }
+        $content | Out-File -FilePath $file -Encoding UTF8
         Write-Host "✅ Updated $file" -ForegroundColor Green
     }
     else {
