@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/prices"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/ws"
 
 	sol "github.com/gagliardetto/solana-go"
 )
@@ -305,12 +306,11 @@ func createOrder(c *gin.Context) {
 		// Log but don't fail return - session is still in DB
 		fmt.Printf("WARNING: Redis session sync failed: %v\n", err)
 	}
-
 	// Reload order with relations
 	db.DB.Preload("Buyer").Preload("Seller").Preload("Listing").First(&order, "id = ?", order.ID)
 
 	// Notify seller via WebSocket
-	BroadcastToUser(listing.SellerID.String(), MsgTypeNewOrder, gin.H{
+	BroadcastToUser(listing.SellerID.String(), ws.MsgTypeNewOrder, gin.H{
 		"order":   order,
 		"message": "New sale: " + floatToString(req.BandwidthGB) + " GB purchased",
 	})

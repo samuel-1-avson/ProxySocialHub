@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterReferralRoutes registers referral program routes
@@ -193,7 +194,7 @@ func CreditReferralReward(rewardID uuid.UUID) {
 	tx.Commit()
 
 	// Notify referrer
-	BroadcastToUser(reward.ReferrerID.String(), MsgTypeNotification, gin.H{
+	ws.BroadcastToUser(reward.ReferrerID.String(), ws.MsgTypeNotification, gin.H{
 		"type":    "referral_reward",
 		"amount":  reward.RewardAmount,
 		"message": "You earned GHS " + strings.TrimRight(strings.TrimRight(string(rune(reward.RewardAmount)), "0"), ".") + " from a referral!",

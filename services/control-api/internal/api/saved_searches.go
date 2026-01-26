@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterSavedSearchRoutes registers saved search routes
@@ -120,7 +121,7 @@ func CheckSavedSearchMatches(listing *models.ProxyListing) {
 	for _, search := range searches {
 		if matchesFilters(listing, search.Filters) {
 			// Notify user
-			BroadcastToUser(search.UserID.String(), MsgTypeNotification, gin.H{
+			ws.BroadcastToUser(search.UserID.String(), ws.MsgTypeNotification, gin.H{
 				"type":         "saved_search_match",
 				"search_name":  search.Name,
 				"listing_id":   listing.ID,

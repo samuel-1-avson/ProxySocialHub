@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterBadgeRoutes registers badge-related routes
@@ -154,10 +155,9 @@ func awardBadge(userID uuid.UUID, badgeName string) {
 	log.Printf("Badge awarded: %s to user %s", badgeName, userID)
 
 	// Notify via WebSocket
-	BroadcastToUser(userID.String(), MsgTypeNotification, gin.H{
-		"type":    "badge_earned",
-		"badge":   badge,
-		"message": "You earned the " + badgeName + " badge!",
+	ws.BroadcastToUser(userID.String(), ws.MsgTypeNotification, gin.H{
+		"title":   "Badge Earned!",
+		"message": "You've earned the " + badgeName + " badge!", // Assuming badge.Type is not available and badgeName is intended
 	})
 
 	// Create feed event

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterEscrowRoutes registers escrow-related routes
@@ -118,10 +119,8 @@ func releaseEscrow(c *gin.Context) {
 	tx.Commit()
 
 	// Notify seller via WebSocket
-	BroadcastToUser(order.SellerID.String(), MsgTypeOrderUpdate, gin.H{
-		"order_id": orderID,
-		"message":  "Order completed! Funds are being settled on-chain.",
-	})
+	ws.BroadcastToUser(order.BuyerID.String(), ws.MsgTypeOrderUpdate, order)
+	ws.BroadcastToUser(order.SellerID.String(), ws.MsgTypeOrderUpdate, order)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Escrow release initiated successfully"})
 }
@@ -184,7 +183,7 @@ func createDispute(c *gin.Context) {
 		counterpartyID = escrow.BuyerID
 	}
 
-	BroadcastToUser(counterpartyID.String(), MsgTypeOrderUpdate, gin.H{
+	ws.BroadcastToUser(counterpartyID.String(), ws.MsgTypeOrderUpdate, gin.H{
 		"order_id": orderID,
 		"message":  "Dispute opened on order",
 		"type":     "dispute_opened",
