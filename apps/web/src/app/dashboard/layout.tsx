@@ -5,6 +5,8 @@ import { Navbar } from "@/components/Navbar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useUIStore } from "@/lib/store/ui-store";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { AlertCenter } from "@/components/AlertCenter";
+import { ModeToggle } from "@/components/ModeToggle";
 
 export default function DashboardLayout({
     children,
@@ -14,7 +16,12 @@ export default function DashboardLayout({
     const { isSidebarCollapsed } = useUIStore();
 
     return (
-        <div className="min-h-screen bg-background text-foreground">
+        <div className="min-h-screen bg-background text-foreground relative">
+            {/* Desktop Top-Right Actions */}
+            <div className="hidden md:flex fixed top-6 right-8 z-[100] items-center gap-4 animate-in fade-in slide-in-from-top-2 duration-500">
+                <AlertCenter />
+                <ModeToggle />
+            </div>
             {/* Mobile Navbar (visible only on small screens) */}
             <div className="md:hidden">
                 <Navbar showAuth={true} />
