@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterPublicReviewRoutes registers public review routes
@@ -103,6 +106,19 @@ func createReview(c *gin.Context) {
 	tx.Create(&feedEvent)
 
 	tx.Commit()
+
+	// DECENTRALIZATION (Phase 21): Anchor to Solana
+	var seller models.User
+	if err := db.DB.First(&seller, "id = ?", order.SellerID).Error; err == nil && seller.WalletAddress != nil {
+		hash := sha256.Sum256([]byte(review.Content))
+		hashStr := hex.EncodeToString(hash[:])
+		go func() {
+			client := solana.GetOracleClient()
+			if client != nil {
+				client.AnchorReputation(nil, *seller.WalletAddress, solana.RepTypeReview, hashStr)
+			}
+		}()
+	}
 
 	db.DB.Preload("Reviewer").First(&review, "id = ?", review.ID)
 	c.JSON(http.StatusCreated, review)
