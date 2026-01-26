@@ -33,6 +33,7 @@ export default function SecuritySettingsPage() {
     const [disablePassword, setDisablePassword] = useState('');
     const [disableCode, setDisableCode] = useState('');
     const [showDisableModal, setShowDisableModal] = useState(false);
+    const [systemPaused, setSystemPaused] = useState(false);
 
     // Tab State
     const [activeTab, setActiveTab] = useState<TabType>('2fa');
@@ -65,6 +66,17 @@ export default function SecuritySettingsPage() {
             setIs2FAEnabled(false);
         } finally {
             setLoading(false);
+        }
+
+        // Fetch Watchtower status
+        try {
+            const res = await fetchWithAuth(`${API_BASE_URL}/v1/system/watchtower/status`);
+            if (res.ok) {
+                const data = await res.json();
+                setSystemPaused(data.emergency_pause);
+            }
+        } catch {
+            setSystemPaused(false);
         }
     };
 
@@ -195,6 +207,22 @@ export default function SecuritySettingsPage() {
                     MANAGE AUTHENTICATION PROTOCOLS AND ACCESS CONTROLS.
                 </p>
             </div>
+
+            {/* Watchtower Emergency Banner */}
+            {systemPaused && (
+                <div className="card-retro p-6 bg-red-500/10 border-red-500/40 border-l-4 animate-pulse">
+                    <div className="flex items-center gap-4 text-red-500">
+                        <AlertTriangle className="w-8 h-8" />
+                        <div>
+                            <div className="text-sm font-black font-mono uppercase tracking-tighter">System Lockdown Active</div>
+                            <p className="text-[10px] font-mono leading-tight opacity-70">
+                                WATCHTOWER SENTRY HAS DETECTED A VELOCITY BREACH OR INFRASTRUCTURE ANOMALY.
+                                ALL SETTLEMENTS ARE PAUSED UNTIL PROTOCOL RESOLUTION.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Messages */}
             {error && (
