@@ -112,6 +112,25 @@ export async function apiDelete<T = void>(endpoint: string): Promise<T> {
 }
 
 /**
+ * Type-safe DELETE request with body
+ */
+export async function apiDeleteWithBody<T = void, B = unknown>(endpoint: string, body?: B): Promise<T> {
+    const response = await fetchWithAuth(`${API_BASE_URL}${endpoint}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Request failed' }));
+        throw new ApiError(response.status, error.message || error.error || 'Request failed', error.code);
+    }
+
+    const text = await response.text();
+    return text ? JSON.parse(text) : ({} as T);
+}
+
+/**
  * Type-safe PATCH request
  */
 export async function apiPatch<T, B = unknown>(endpoint: string, body?: B): Promise<T> {

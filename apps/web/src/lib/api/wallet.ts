@@ -3,7 +3,7 @@
  * All wallet-related API calls and types
  */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiDeleteWithBody } from './client';
 
 // ============ Types ============
 
@@ -133,8 +133,16 @@ export function linkWallet(address: string, chain: 'solana', signature?: string,
 }
 
 /**
+ * Unlink a blockchain wallet (Decouple identity)
+ */
+export function unlinkWallet(chain: 'solana' | 'bittensor' = 'solana') {
+    return apiDeleteWithBody<{ status: string; message: string }>('/v1/wallet/link', {
+        chain
+    });
+}
+
+/**
  * Deposit via crypto transaction (Primary deposit method)
- * Verifies on-chain transaction and credits wallet
  */
 export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 'solana') {
     return apiPost<CryptoDepositResponse>('/v1/wallet/deposit/crypto', {
