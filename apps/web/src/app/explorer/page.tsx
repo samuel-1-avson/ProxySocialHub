@@ -9,6 +9,7 @@ import {
     getBlocks,
     getNetworkHealth
 } from '@/lib/services/explorer';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
     Activity,
@@ -36,6 +37,9 @@ import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ExplorerDashboard() {
+    const router = useRouter();
+    const [searchQuery, setSearchQuery] = React.useState('');
+
     // Queries
     const { data: metrics, isLoading: loadingMetrics } = useQuery({
         queryKey: ['explorer-metrics'],
@@ -77,10 +81,23 @@ export default function ExplorerDashboard() {
     const handleSearch = (val: string) => {
         const query = val.trim();
         if (!query) return;
-        if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(query)) window.location.href = `/explorer/transactions/${query}`;
-        else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(query)) window.location.href = `/explorer/wallets/${query}`;
-        else if (/^\d+$/.test(query)) window.location.href = `/explorer/blocks/${query}`;
-        else window.location.href = `/explorer/nodes?q=${query}`;
+
+        // Solana Transaction Hash (64-90 chars, base58)
+        if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(query)) {
+            router.push(`/explorer/transactions/${query}`);
+        }
+        // Solana Wallet Address (32-44 chars, base58)
+        else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(query)) {
+            router.push(`/explorer/wallets/${query}`);
+        }
+        // Block Number (numeric)
+        else if (/^\d+$/.test(query)) {
+            router.push(`/explorer/blocks/${query}`);
+        }
+        // Default to node search
+        else {
+            router.push(`/explorer/nodes?q=${query}`);
+        }
     };
 
     return (
@@ -112,11 +129,19 @@ export default function ExplorerDashboard() {
                         <input
                             type="text"
                             placeholder="INTERCEPT ID, HASH, OR WALLET..."
-                            className="w-full bg-white/[0.02] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-[10px] uppercase font-black tracking-widest text-white placeholder:text-white/10 outline-none focus:border-primary/40 focus:bg-white/[0.05] transition-all"
+                            className="w-full bg-white/[0.02] border border-white/5 rounded-2xl py-4 pl-14 pr-24 text-[10px] uppercase font-black tracking-widest text-white placeholder:text-white/10 outline-none focus:border-primary/40 focus:bg-white/[0.05] transition-all"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSearch(e.currentTarget.value);
+                                if (e.key === 'Enter') handleSearch(searchQuery);
                             }}
                         />
+                        <button
+                            onClick={() => handleSearch(searchQuery)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-primary/20 hover:bg-primary/40 border border-primary/20 text-primary text-[9px] font-black uppercase rounded-lg transition-all"
+                        >
+                            Scan
+                        </button>
                     </div>
                     <div className="flex items-center gap-4 px-6 py-4 rounded-2xl bg-white/[0.02] border border-white/5">
                         <div className="flex flex-col items-end">
