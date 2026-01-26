@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -150,7 +151,7 @@ func WAFMiddleware(config WAFConfig) gin.HandlerFunc {
 		attackType := detectAttack(c, config)
 		if attackType != "" {
 			recordSuspiciousActivity(clientIP, attackType, config)
-			
+
 			logging.Warn().
 				Str("ip", maskIP(clientIP)).
 				Str("attack_type", attackType).
@@ -159,8 +160,8 @@ func WAFMiddleware(config WAFConfig) gin.HandlerFunc {
 				Msg("WAF: Attack detected and blocked")
 
 			c.JSON(http.StatusForbidden, gin.H{
-				"error":   "Request blocked by security policy",
-				"code":    "WAF_BLOCKED",
+				"error": "Request blocked by security policy",
+				"code":  "WAF_BLOCKED",
 			})
 			c.Abort()
 			return
@@ -254,16 +255,16 @@ func recordSuspiciousActivity(ip, attackType string, config WAFConfig) {
 	// Apply ban if threshold exceeded
 	if count >= config.ChallengeThreshold {
 		ipReputation.challengeCount[ip]++
-		
+
 		if ipReputation.challengeCount[ip] >= config.BanThreshold {
 			banUntil := time.Now().Add(config.BanDuration)
 			ipReputation.bannedUntil[ip] = banUntil
-			
+
 			// Store ban in Redis
 			if redis.Client != nil {
 				redis.Client.Set(ctx, "waf:banned:"+ip, banUntil.Unix(), config.BanDuration)
 			}
-			
+
 			logging.Warn().
 				Str("ip", maskIP(ip)).
 				Time("banned_until", banUntil).
@@ -334,10 +335,10 @@ func maskIP(ip string) string {
 
 // WAFStats returns WAF statistics
 type WAFStats struct {
-	BlockedRequests   int64            `json:"blocked_requests"`
-	BannedIPs         int              `json:"banned_ips"`
-	AttacksByType     map[string]int64 `json:"attacks_by_type"`
-	TopOffendingIPs   []string         `json:"top_offending_ips"`
+	BlockedRequests int64            `json:"blocked_requests"`
+	BannedIPs       int              `json:"banned_ips"`
+	AttacksByType   map[string]int64 `json:"attacks_by_type"`
+	TopOffendingIPs []string         `json:"top_offending_ips"`
 }
 
 // WAFStatsHandler returns WAF statistics endpoint
@@ -376,9 +377,9 @@ type DDoSConfig struct {
 func DefaultDDoSConfig() DDoSConfig {
 	return DDoSConfig{
 		Enabled:                  true,
-		MaxRequestsPerSecond:     50,
-		BurstCapacity:            100,
-		ConnectionLimit:          100,
+		MaxRequestsPerSecond:     100, // Increased for heavy dashboard loads
+		BurstCapacity:            500, // Large burst for initial startup calls
+		ConnectionLimit:          200,
 		SlowRequestThreshold:     30 * time.Second,
 		EnableSYNFloodProtection: true,
 	}
@@ -387,7 +388,7 @@ func DefaultDDoSConfig() DDoSConfig {
 // DDoSProtectionMiddleware creates DDoS protection middleware
 func DDoSProtectionMiddleware(config DDoSConfig) gin.HandlerFunc {
 	requestCounters := &sync.Map{}
-	
+
 	// Cleanup goroutine
 	go func() {
 		ticker := time.NewTicker(time.Minute)
@@ -407,7 +408,8 @@ func DDoSProtectionMiddleware(config DDoSConfig) gin.HandlerFunc {
 
 		clientIP := c.ClientIP()
 		now := time.Now().Unix()
-		key := clientIP + ":" + string(rune(now))
+		// Fixed: string(rune(now)) was incorrect. Using numeric timestamp string.
+		key := fmt.Sprintf("%s:%d", clientIP, now)
 
 		// Get or create counter
 		counter, _ := requestCounters.LoadOrStore(key, &struct{ count int }{0})

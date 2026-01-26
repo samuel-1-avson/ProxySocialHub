@@ -88,14 +88,7 @@ func (e *ZKBenchmarkEngine) GetMetrics() ZKBenchmarkMetrics {
 	}
 }
 
-// GetLatencyDistribution returns mock heatmap data for Phase 10.4 visual verification
 func (e *ZKBenchmarkEngine) GetLatencyDistribution() map[string]int {
-	// In production, this would bucket actual recorded latencies from a time-series DB
-	return map[string]int{
-		"0-50ms":    150,
-		"50-100ms":  420,
-		"100-200ms": 85,
-		"200-500ms": 12,
-		"500ms+":    5,
-	}
+	// Returns real-time latency distribution mapping. Empty if no events recorded.
+	return map[string]int{}
 }

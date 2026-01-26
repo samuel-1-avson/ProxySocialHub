@@ -37,9 +37,9 @@ func Init(dsn string) error {
 		return fmt.Errorf("failed to get database instance: %w", err)
 	}
 
-	// Configure connection pool
-	sqlDB.SetMaxOpenConns(100)                 // Maximum number of open connections
-	sqlDB.SetMaxIdleConns(10)                  // Maximum number of idle connections
+	// Configure connection pool (Optimized for remote Supabase Transaction Pool)
+	sqlDB.SetMaxOpenConns(10)                  // Reduced from 100 to prevent connection exhaustion
+	sqlDB.SetMaxIdleConns(2)                   // Minimum idle connections
 	sqlDB.SetConnMaxLifetime(time.Hour)        // Maximum time a connection can be reused
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // Maximum time a connection can be idle
 
