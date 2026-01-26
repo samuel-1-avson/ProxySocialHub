@@ -39,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:19000 || exit 1
 
 # Default command
-CMD ["expo", "start", "--tunnel", "--non-interactive"]
+CMD ["npx", "expo", "start", "--tunnel", "--non-interactive"]

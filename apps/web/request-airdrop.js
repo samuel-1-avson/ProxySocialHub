@@ -1,7 +1,7 @@
 // Request Solana Devnet Airdrop via RPC API
 const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
-const TREASURY_ADDRESS = '8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2';
+const TREASURY_ADDRESS = 'AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ';
 
 async function requestAirdrop() {
     const connection = new Connection('https://api.devnet.solana.com', 'confirmed');

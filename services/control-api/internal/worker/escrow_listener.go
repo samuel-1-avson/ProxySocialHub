@@ -68,14 +68,27 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 }
 
 func handleNativeDeposit(event solana.EscrowEvent) {
-	// 1. Find user by linked wallet address
-	var user models.User
-	if err := db.DB.Where("wallet_address = ?", event.Buyer).First(&user).Error; err != nil {
-		log.Printf("[Worker] Auto-Deposit: No linked user found for wallet %s. Skipping auto-credit.", event.Buyer)
-		return
+	// 1. Find user by linked wallet address (Global Search)
+	var userID uuid.UUID
+
+	// Check LinkedWallets table first (Primary source)
+	var linkedWallet models.LinkedWallet
+	if err := db.DB.Where("address = ?", event.Buyer).First(&linkedWallet).Error; err == nil {
+		userID = linkedWallet.UserID
+		log.Printf("[Worker] Auto-Deposit: Found user %s via linked_wallets for address %s", userID, event.Buyer)
+	} else {
+		// Fallback: Check primary profile field (Legacy/Initial)
+		var user models.User
+		if err := db.DB.Where("wallet_address = ?", event.Buyer).First(&user).Error; err == nil {
+			userID = user.ID
+			log.Printf("[Worker] Auto-Deposit: Found user %s via profile field for address %s", userID, event.Buyer)
+		} else {
+			log.Printf("[Worker] Auto-Deposit: No linked user found for wallet %s. Skipping auto-credit.", event.Buyer)
+			return
+		}
 	}
 
-	log.Printf("[Worker] Auto-Deposit: Identified user %s for wallet %s. Crediting %.6f SOL...", user.ID, event.Buyer, float64(event.Amount)/1e9)
+	log.Printf("[Worker] Auto-Deposit: Identified user %s for wallet %s. Crediting %.6f SOL...", userID, event.Buyer, float64(event.Amount)/1e9)
 
 	// 2. Prevent Double Spending
 	var existingTx models.PendingTransaction
@@ -93,30 +106,32 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}()
 
 	var wallet models.Wallet
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			wallet = models.Wallet{UserID: user.ID, Currency: "MULTI"}
+			wallet = models.Wallet{UserID: userID, Currency: "MULTI"}
 			tx.Create(&wallet)
 		} else {
 			tx.Rollback()
+			log.Printf("[Worker] Auto-Deposit: Failed to retrieve or create wallet for user %s: %v", userID, err)
 			return
 		}
 	}
 
-	amountSOL := float64(event.Amount) / 1e9
-	wallet.BalanceSOL += amountSOL
+	solAmount := float64(event.Amount) / 1e9
+	wallet.BalanceSOL += solAmount
 	if err := tx.Save(&wallet).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Worker] Auto-Deposit: Failed to credit user %s: %v", userID, err)
 		return
 	}
 
 	// Log Transaction
 	pendingTx := models.PendingTransaction{
 		ID:          uuid.New(),
-		UserID:      user.ID.String(),
+		UserID:      userID.String(),
 		Reference:   event.TxSignature,
 		Type:        "crypto_deposit",
-		Amount:      amountSOL,
+		Amount:      solAmount,
 		Currency:    "SOL",
 		Provider:    "blockchain_auto",
 		Status:      "completed",
@@ -127,11 +142,11 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	ledger := models.WalletLedgerEntry{
 		ID:           uuid.New(),
 		WalletID:     wallet.ID,
-		Amount:       amountSOL,
+		Amount:       solAmount,
 		BalanceAfter: wallet.BalanceSOL,
 		Type:         "deposit_auto",
 		ReferenceID:  event.TxSignature,
-		Description:  fmt.Sprintf("Auto-Deposit: %.6f SOL", amountSOL),
+		Description:  fmt.Sprintf("Auto-Deposit: %.6f SOL", solAmount),
 	}
 	tx.Create(&ledger)
 
@@ -140,12 +155,12 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 		return
 	}
 
-	log.Printf("[Worker] Auto-Deposit SUCCESS: Credited %.6f SOL to user %s", amountSOL, user.ID)
+	log.Printf("[Worker] Auto-Deposit SUCCESS: Credited %.6f SOL to user %s (Ref: %s)", solAmount, userID, event.TxSignature)
 
 	// Emit WebSocket notification via NATS for real-time UI balance update
-	ws.BroadcastToUser(user.ID.String(), ws.MsgTypeWalletUpdate, map[string]interface{}{
+	ws.BroadcastToUser(userID.String(), ws.MsgTypeWalletUpdate, map[string]interface{}{
 		"type":        "deposit",
-		"amount":      amountSOL,
+		"amount":      solAmount,
 		"currency":    "SOL",
 		"new_balance": wallet.BalanceSOL,
 		"timestamp":   time.Now().UnixMilli(),

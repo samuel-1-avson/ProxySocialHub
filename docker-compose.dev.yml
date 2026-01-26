@@ -29,7 +29,7 @@ services:
       - ENCRYPTION_KEY=8K5/2Ke6++5afKvq5KxzBu1BHSbGZj6oZrUK8nFg0NA=
       - SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
       - SOLANA_NETWORK=devnet
-      - SOLANA_TREASURY_ADDRESS=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2
+      - SOLANA_TREASURY_ADDRESS=AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ
       - TAO_TREASURY_ADDRESS=5HdphPPCBLqvVma9v3cvFo9dPpBuSs57fUpjuRJjfkGoptak
       - BITTENSOR_NETWORK=testnet
       - GIN_MODE=release
@@ -43,7 +43,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 600s
     restart: unless-stopped
 
   # ==================== Edge Gateway (Rust Proxy) ====================
@@ -67,28 +67,6 @@ services:
       - proxyhubb-dev
     restart: unless-stopped
 
-  # ==================== Mobile App Development ====================
-  mobile-app:
-    build:
-      context: ./apps/mobile
-      dockerfile: Dockerfile
-    ports:
-      - "19000:19000"  # Expo development server
-      - "19001:19001"  # Expo development server (secure)
-      - "19002:19002"  # Expo development server (web)
-      - "8081:8081"    # Metro bundler
-    environment:
-      - EXPO_PUBLIC_API_URL=http://host.docker.internal:8080/v1
-      - EXPO_PUBLIC_SUPABASE_URL=https://jkrypzxbnwdcdvhtjxgx.supabase.co
-      - EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprcnlwenhibndkY2R2aHRqeGd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MDcxNTcsImV4cCI6MjA4NDA4MzE1N30.7HjMFgimIhNNmBlEBSX_1U_EM6MUZJcXKNHQhYJLcvg
-    volumes:
-      - ./apps/mobile:/app
-      - /app/node_modules
-    networks:
-      - proxyhubb-dev
-    depends_on:
-      - control-api
-    restart: unless-stopped
 
   # ==================== Redis ====================
   redis:

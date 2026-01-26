@@ -4,7 +4,7 @@ const { Keypair, Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER
 const fs = require('fs');
 const path = require('path');
 
-const TREASURY_ADDRESS = '8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2';
+const TREASURY_ADDRESS = 'AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ';
 const DEVNET_URL = 'https://api.devnet.solana.com';
 
 async function main() {

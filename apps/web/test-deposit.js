@@ -1,7 +1,7 @@
 // Test Wallet - Generate keypair, fund via airdrop, and send SOL to treasury
 const { Keypair, Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, sendAndConfirmTransaction } = require('@solana/web3.js');
 
-const TREASURY_ADDRESS = '8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2';
+const TREASURY_ADDRESS = 'AYe5qrfZvqoiX19vhcBvCqySXci939tBY7Bx5DkAi9cQ';
 const DEVNET_URL = 'https://api.devnet.solana.com';
 
 async function main() {
