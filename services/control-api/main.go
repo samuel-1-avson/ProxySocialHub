@@ -133,15 +133,15 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS (Must be first to handle preflight requests properly even if WAF blocks later)
+	// CORS (Robust for Hybrid Dev Environments)
 	r.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 		allowOrigin := ""
 
-		// Trim any whitespace from the received origin
+		// Trim any whitespace
 		origin = strings.TrimSpace(origin)
 
-		// Check if origin is allowed
+		// 1. Check Whitelist
 		for _, o := range cfg.Server.CORSOrigins {
 			if strings.TrimSpace(o) == origin {
 				allowOrigin = origin
@@ -149,19 +149,21 @@ func main() {
 			}
 		}
 
+		// 2. Fallback: Allow all in development mode
+		if allowOrigin == "" && os.Getenv("GO_ENV") == "development" {
+			allowOrigin = origin // Reflect back for DevEase
+		}
+
 		if allowOrigin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-		} else if origin != "" {
-			// Diagnostic log for CORS issues in dev
-			if cfg.Server.Environment == "development" {
-				// Log to standard output as well for visibility in Docker logs
-				log.Printf("CORS mismatch: received origin %q, allowed origins: %v", origin, cfg.Server.CORSOrigins)
-			}
+		} else {
+			// Even if blocked, set a debug header for the user
+			c.Writer.Header().Set("X-ProxyHub-CORS", "Blocked-Origin-"+origin)
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE, PATCH")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Session-ID, X-User-ID")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID, X-ProxyHub-CORS")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
