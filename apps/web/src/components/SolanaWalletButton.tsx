@@ -16,6 +16,12 @@ export const SolanaWalletButton: FC = () => {
                     <span className={styles.walletAddress}>
                         {publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)}
                     </span>
+                    <button
+                        onClick={() => disconnect()}
+                        className="ml-2 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-[9px] font-black uppercase rounded border border-red-500/20 transition-all"
+                    >
+                        Disconnect
+                    </button>
                 </div>
             )}
         </div>

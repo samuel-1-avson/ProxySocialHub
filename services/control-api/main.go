@@ -372,6 +372,9 @@ func main() {
 	go aw.Start(context.Background())
 	log.Println("AI Agent Execution Worker started")
 
+	// Start All Background Workers (Phase 17 Reliability)
+	worker.StartAll(nil) // nil queue as placeholder or use internal queue
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

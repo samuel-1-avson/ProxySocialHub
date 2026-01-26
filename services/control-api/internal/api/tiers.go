@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // Seller Tier thresholds (GB sold) - Defaults
@@ -182,7 +183,7 @@ func UpdateUserTier(userID uuid.UUID) {
 	newTier := CalculateSellerTier(user.TotalBandwidthSold)
 
 	// Notify user of tier (optional)
-	BroadcastToUser(userID.String(), MsgTypeNotification, gin.H{
+	ws.BroadcastToUser(userID.String(), ws.MsgTypeNotification, gin.H{
 		"type":    "tier_update",
 		"tier":    newTier,
 		"message": "Your current tier: " + newTier,

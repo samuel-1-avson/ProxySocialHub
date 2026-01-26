@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
@@ -10,8 +9,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
-	internalNats "github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/ws"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -144,12 +143,11 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	log.Printf("[Worker] Auto-Deposit SUCCESS: Credited %.6f SOL to user %s", amountSOL, user.ID)
 
 	// Emit WebSocket notification via NATS for real-time UI balance update
-	subject := fmt.Sprintf("proxy.wallet.v1.update.%s", user.ID.String())
-	internalNats.Publish(context.Background(), subject, map[string]interface{}{
+	ws.BroadcastToUser(user.ID.String(), ws.MsgTypeWalletUpdate, map[string]interface{}{
 		"type":        "deposit",
 		"amount":      amountSOL,
 		"currency":    "SOL",
 		"new_balance": wallet.BalanceSOL,
-		"timestamp":   time.Now(),
+		"timestamp":   time.Now().UnixMilli(),
 	})
 }

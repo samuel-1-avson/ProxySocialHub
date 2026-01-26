@@ -9,6 +9,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/privacy"
+	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterMessagingRoutes registers messaging-related routes
@@ -268,7 +269,7 @@ func sendMessage(c *gin.Context) {
 	if recipientID == userID {
 		recipientID = conv.Participant2
 	}
-	BroadcastToUser(recipientID.String(), MsgTypeNewMessage, gin.H{
+	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
 		"conversation_id": convID,
 		"message":         msg,
 	})
