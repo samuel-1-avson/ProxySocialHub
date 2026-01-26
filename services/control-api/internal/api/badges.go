@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
@@ -153,6 +156,19 @@ func awardBadge(userID uuid.UUID, badgeName string) {
 	db.DB.Create(&userBadge)
 
 	log.Printf("Badge awarded: %s to user %s", badgeName, userID)
+
+	// DECENTRALIZATION (Phase 21): Anchor to Solana
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err == nil && user.WalletAddress != nil {
+		hash := sha256.Sum256([]byte(badgeName))
+		hashStr := hex.EncodeToString(hash[:])
+		go func() {
+			client := solana.GetOracleClient()
+			if client != nil {
+				client.AnchorReputation(nil, *user.WalletAddress, solana.RepTypeBadge, hashStr)
+			}
+		}()
+	}
 
 	// Notify via WebSocket
 	ws.BroadcastToUser(userID.String(), ws.MsgTypeNotification, gin.H{
