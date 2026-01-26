@@ -15,13 +15,13 @@ if (-not (Test-Path $cloudflared)) {
 }
 
 # 2. Check Backend Health
-Write-Host "🏥 Checking Backend (localhost:8081)..." -ForegroundColor Cyan
+Write-Host "🏥 Checking Backend (localhost:8080)..." -ForegroundColor Cyan
 try {
-    $resp = Invoke-WebRequest -Uri "http://localhost:8081/health" -Method Get -UseBasicParsing -TimeoutSec 2
+    $resp = Invoke-WebRequest -Uri "http://localhost:8080/health" -Method Get -UseBasicParsing -TimeoutSec 2
     Write-Host "✅ Backend is UP!" -ForegroundColor Green
 }
 catch {
-    Write-Warning "⚠️ Backend unreachable. Ensure Control API is running on port 8081."
+    Write-Warning "⚠️ Backend unreachable. Ensure Control API is running on port 8080."
 }
 
 # 3. Start Tunnel in Background
@@ -30,7 +30,7 @@ Write-Host "🚇 Starting Tunnel..." -ForegroundColor Yellow
 if (Test-Path $tunnelLog) { Remove-Item $tunnelLog }
 
 # Start process and redirect output
-$proc = Start-Process -FilePath $cloudflared -ArgumentList "tunnel --url http://localhost:8081" -RedirectStandardError $tunnelLog -NoNewWindow -PassThru
+$proc = Start-Process -FilePath $cloudflared -ArgumentList "tunnel --url http://localhost:8080" -RedirectStandardError $tunnelLog -NoNewWindow -PassThru
 
 Write-Host "⏳ Waiting for Tunnel URL..." -ForegroundColor DarkGray
 $tunnelUrl = ""

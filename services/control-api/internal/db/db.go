@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/models"
@@ -11,6 +12,10 @@ import (
 )
 
 var DB *gorm.DB
+
+// CurrentSchemaVersion is used to prevent redundant migrations on every startup.
+// Increment this whenever any model in /internal/models is updated.
+const CurrentSchemaVersion = "20260126-0600"
 
 func Init(dsn string) error {
 	if dsn == "" {
@@ -43,137 +48,173 @@ func Init(dsn string) error {
 		log.Printf("Warning: Failed to enable uuid-ossp extension: %v", err)
 	}
 
-	// Auto-migrate schema
-	// Ensure explorer tables are migrated first to avoid issues
-	err = DB.AutoMigrate(
-		&models.ExplorerBlock{},
-		&models.ExplorerTransaction{},
-		&models.ExplorerNode{},
-		&models.ExplorerContract{},
-		&models.ExplorerMetrics{},
-		&models.User{},
-		// &models.OAuthIdentity{}, // Removed for Supabase
-		&models.Wallet{},
-		&models.WalletLedgerEntry{},
-		&models.StakingPosition{}, // Added missing model
-		&models.Session{},
-		&models.Node{},
-		&models.KycVerification{},
-		&models.TOTPBackupCode{},
-		&models.APIKey{},
-		&models.AuditLog{},
-		// Refresh token families (for rotation)
-		// Refresh token families (for rotation)
-		&models.RefreshTokenFamily{},
+	// --- SMART MIGRATION GUARD (Phase 24) ---
+	// 1. Fast migrate metadata table
+	if err := DB.AutoMigrate(&models.SystemConfiguration{}); err != nil {
+		log.Printf("Warning: Metadata migration failed: %v", err)
+	}
 
-		// Marketplace & Orders
-		&models.ProxyListing{},
-		&models.SavedListing{},
-		&models.Order{},
-		&models.EscrowTransaction{},
-		&models.Dispute{},
+	// 2. Check current version
+	var current models.SystemConfiguration
+	DB.Where("key = ?", "schema_version").First(&current)
 
-		&models.Review{},
-		&models.Follow{},
-		&models.FeedEvent{},
-		&models.FriendRequest{},
-		&models.Friendship{},
-		&models.Badge{},
-		&models.UserBadge{},
+	canSkip := current.Value == CurrentSchemaVersion
+	if os.Getenv("FORCE_MIGRATE") == "true" {
+		canSkip = false
+	}
 
-		// Subscriptions
-		&models.SubscriptionPlan{},
-		&models.UserSubscription{},
-
-		// Subtensor / Incentivization
-		&models.ProofOfService{},
-		&models.MinerWeight{},
-
-		// Governance
-		&models.Proposal{},
-		&models.Vote{},
-
-		// Messaging
-		&models.Conversation{},
-		&models.Message{},
-
-		// Clans & Providers
-		&models.Circle{},
-		&models.CircleMember{},
-		&models.CircleInvite{},
-		&models.CircleSLA{},
-		&models.CircleDailyStats{},
-		&models.CirclePost{},
-		&models.CircleLease{},
-		&models.ProviderNode{},
-		&models.PendingTransaction{},
-
-		// Governance
-		&models.Proposal{},
-		&models.Vote{},
-
-		// Smart Matching
-		&models.UseCase{},
-		&models.UserPreference{},
-
-		// Onboarding
-		&models.ProviderApplication{},
-
-		// Forum
-		&models.ForumCategory{},
-		&models.ForumThread{},
-		&models.ForumPost{},
-		&models.ForumVote{},
-
-		&models.MarketAgent{},
-		&models.AgentInstance{},
-		&models.AgentJob{},
-
-		// Analytics
-		&models.UsageRecord{},
-
-		// Agents (Phase 12)
-		&models.Agent{},
-		&models.AgentOutput{},
-
-		// Blockchain Integration (Phase 15+)
-		&models.LinkedWallet{},
-		&models.BlockchainStateCache{},
-		&models.EncryptedCredentials{},
-
-		// Proxy Engine (Phase 16)
-		&models.ServiceConfiguration{},
-		&models.SessionConfiguration{},
-		&models.SystemConfiguration{}, // Added missing model
-		&models.RoutingProfile{},
-
-		// Trustless Proofs (Phase 17)
-		&models.UsageProof{},
-
-		// Quality Attestation (Phase 18)
-		&models.Validator{},
-		&models.QualityAttestation{},
-		&models.ConsensusRound{},
-
-		// Decentralized Disputes (Phase 19)
-		&models.DisputeJury{},
-
-		// User Security (Phase 21)
-		&models.UserSettings{},
-		&models.UserSession{},
-		&models.LoginAttempt{},
-		&models.AccountLockout{},
-
-		// Advanced Security (Phase 22)
-		&models.AuditLog{},
-		&models.SecurityAnomaly{},
-		&models.WebAuthnCredential{},
-	)
-	if err != nil {
-		log.Printf("Failed to migrate database: %v", err)
-		// Don't fail entire startup, just warn
+	if canSkip {
+		log.Printf("Database schema is up to date (Version: %s), skipping AutoMigrate", CurrentSchemaVersion)
 	} else {
-		log.Println("Database migrations applied")
+		log.Printf("Updating database schema from '%s' to '%s'...", current.Value, CurrentSchemaVersion)
+
+		// Auto-migrate schema (Full model list)
+		err = DB.AutoMigrate(
+			&models.ExplorerBlock{},
+			&models.ExplorerTransaction{},
+			&models.ExplorerNode{},
+			&models.ExplorerContract{},
+			&models.ExplorerMetrics{},
+			&models.User{},
+			&models.Wallet{},
+			&models.WalletLedgerEntry{},
+			&models.StakingPosition{},
+			&models.Session{},
+			&models.Node{},
+			&models.KycVerification{},
+			&models.TOTPBackupCode{},
+			&models.APIKey{},
+			&models.AuditLog{},
+			&models.RefreshTokenFamily{},
+
+			// Marketplace & Orders
+			&models.ProxyListing{},
+			&models.SavedListing{},
+			&models.Order{},
+			&models.EscrowTransaction{},
+			&models.Dispute{},
+
+			&models.Review{},
+			&models.Follow{},
+			&models.FeedEvent{},
+			&models.FriendRequest{},
+			&models.Friendship{},
+			&models.Badge{},
+			&models.UserBadge{},
+
+			// Subscriptions
+			&models.SubscriptionPlan{},
+			&models.UserSubscription{},
+
+			// Subtensor / Incentivization
+			&models.ProofOfService{},
+			&models.MinerWeight{},
+
+			// Governance
+			&models.Proposal{},
+			&models.Vote{},
+
+			// Messaging
+			&models.Conversation{},
+			&models.Message{},
+
+			// Clans & Providers
+			&models.Circle{},
+			&models.CircleMember{},
+			&models.CircleInvite{},
+			&models.CircleSLA{},
+			&models.CircleDailyStats{},
+			&models.CirclePost{},
+			&models.CircleLease{},
+			&models.ProviderNode{},
+			&models.PendingTransaction{},
+
+			// Smart Matching
+			&models.UseCase{},
+			&models.UserPreference{},
+
+			// Onboarding
+			&models.ProviderApplication{},
+
+			// Forum
+			&models.ForumCategory{},
+			&models.ForumThread{},
+			&models.ForumPost{},
+			&models.ForumVote{},
+
+			&models.MarketAgent{},
+			&models.AgentInstance{},
+			&models.AgentJob{},
+
+			// Analytics
+			&models.UsageRecord{},
+
+			// Agents (Phase 12)
+			&models.Agent{},
+			&models.AgentOutput{},
+
+			// Blockchain Integration (Phase 15+)
+			&models.LinkedWallet{},
+			&models.BlockchainStateCache{},
+			&models.EncryptedCredentials{},
+
+			// Proxy Engine (Phase 16)
+			&models.ServiceConfiguration{},
+			&models.SessionConfiguration{},
+			&models.SystemConfiguration{},
+			&models.RoutingProfile{},
+
+			// Trustless Proofs (Phase 17)
+			&models.UsageProof{},
+
+			// Quality Attestation (Phase 18)
+			&models.Validator{},
+			&models.QualityAttestation{},
+			&models.ConsensusRound{},
+
+			// Decentralized Disputes (Phase 19)
+			&models.DisputeJury{},
+
+			// User Security (Phase 21)
+			&models.UserSettings{},
+			&models.UserSession{},
+			&models.LoginAttempt{},
+			&models.AccountLockout{},
+
+			// Advanced Security (Phase 22)
+			&models.AuditLog{},
+			&models.SecurityAnomaly{},
+			&models.WebAuthnCredential{},
+		)
+
+		if err != nil {
+			log.Printf("Failed to migrate database: %v", err)
+			// Don't fail entire startup, just warn
+		} else {
+			// Update version key (Explicit Save)
+			versionEntry := models.SystemConfiguration{
+				Key:       "schema_version",
+				Value:     CurrentSchemaVersion,
+				UpdatedAt: time.Now(),
+			}
+
+			// Use Upsert logic
+			if err := DB.Where("key = ?", "schema_version").First(&current).Error; err == nil {
+				current.Value = CurrentSchemaVersion
+				current.UpdatedAt = time.Now()
+				if err := DB.Save(&current).Error; err != nil {
+					log.Printf("Error updating schema version: %v", err)
+				} else {
+					log.Printf("Successfully updated schema version to %s", CurrentSchemaVersion)
+				}
+			} else {
+				if err := DB.Create(&versionEntry).Error; err != nil {
+					log.Printf("Error creating schema version: %v", err)
+				} else {
+					log.Printf("Successfully created schema version %s", CurrentSchemaVersion)
+				}
+			}
+		}
 	}
 
 	// Force removal of uuid_generate_v4 defaults if they exist, as they cause issues if extension is missing

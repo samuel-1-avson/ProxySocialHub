@@ -21,6 +21,11 @@ func StartAll(queue events.EventQueue) {
 
 // StartConsumers initializes event consumers
 func StartConsumers(queue events.EventQueue) {
+	if queue == nil {
+		log.Printf("[Worker] Skipping event consumers: No event queue provided")
+		return
+	}
+
 	// Consumer for User Logged In events
 	err := queue.Subscribe(context.Background(), events.EventTypeUserLoggedIn, func(event events.Event) error {
 		log.Printf("🔹 [Worker] User logged in: %s (IP: %s)", event.Payload["email"], event.Payload["ip"])
