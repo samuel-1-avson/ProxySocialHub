@@ -186,6 +186,7 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 		userUUID, err := uuid.Parse(user.ID)
 		if err == nil {
 			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
+				// User not found, create new (Atomically)
 				username := strings.Split(user.Email, "@")[0]
 				if len(user.ID) >= 8 {
 					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
@@ -197,7 +198,10 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 					TrustTier: models.TrustTierNew,
 					Role:      user.Role,
 				}
-				db.DB.Create(&newUser)
+				// Use OnConflict to handle race conditions during parallel requests
+				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
+					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to sync guest user record")
+				}
 			}
 		}
 

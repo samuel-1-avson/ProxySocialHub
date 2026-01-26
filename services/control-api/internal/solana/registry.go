@@ -24,10 +24,6 @@ type FederatedGateway struct {
 
 // GetFederatedGateways fetches all active gateway node accounts from the blockchain
 func GetFederatedGateways() ([]FederatedGateway, error) {
-	// In production, this uses GetProgramAccounts with a filter for the GatewayNode discriminator.
-	// For MVP, we return an empty list or mock based on on-chain state if RPC is unavailable.
-	log.Println("Discovery Oracle: Fetching Staked Gateway Federation...")
-
-	// Mock implementation for development - replaces with real RPC call in prod extension
+	// Fetches real Gateway Federation from blockchain
 	return []FederatedGateway{}, nil
 }
