@@ -54,7 +54,9 @@ grafana_data/
 *.tfstate.backup
 
 .agent/
-
+.docker-compose.dev.yml
+.docker-compose.prod.yml
+.docker-compose.yml
 # Crypto keypairs (NEVER COMMIT!)
 treasury-keypair.json
 tao-treasury-keypair.json
