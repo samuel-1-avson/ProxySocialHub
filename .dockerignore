@@ -13,3 +13,4 @@ tmp
 **/target
 **/.next
 .env
+.docker-compose.dev.yml
