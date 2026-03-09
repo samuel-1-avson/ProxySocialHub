@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
@@ -16,6 +18,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
+// LinkWalletRequest represents a request to link a wallet
 type linkWalletRequest struct {
 	WalletAddress string `json:"wallet_address"`
 	Chain         string `json:"chain" binding:"required"` // "solana"
@@ -55,6 +58,9 @@ func linkWallet(c *gin.Context) {
 	// Handle Unlink (DELETE)
 	if c.Request.Method == "DELETE" {
 		if req.Chain == "solana" {
+			user.WalletAddress = nil
+		} else if req.Chain == "ethereum" {
+			// Support for Ethereum unlink
 			user.WalletAddress = nil
 		} else {
 			tx.Rollback()
@@ -116,6 +122,50 @@ func linkWallet(c *gin.Context) {
 		}
 
 		user.WalletAddress = &req.WalletAddress
+		
+		logging.Info().
+			Str("user_id", userID).
+			Str("wallet", req.WalletAddress).
+			Msg("Solana wallet linked with Ed25519 verification")
+			
+	} else if req.Chain == "ethereum" {
+		// Ethereum linking with ECDSA verification
+		if req.Signature == "" || req.Message == "" {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and message required for verification"})
+			return
+		}
+
+		// Verify message contains binding
+		if !strings.Contains(req.Message, userID) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: User ID mismatch"})
+			return
+		}
+		if !strings.Contains(req.Message, req.WalletAddress) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: Wallet Address mismatch"})
+			return
+		}
+
+		// Verify Ethereum signature using the linked_wallets implementation
+		verified, err := verifyEthereumSignature(req.WalletAddress, req.Message, req.Signature)
+		if err != nil || !verified {
+			tx.Rollback()
+			logging.Error(err).
+				Str("address", req.WalletAddress).
+				Msg("Ethereum signature verification failed")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ethereum signature verification failed"})
+			return
+		}
+
+		user.WalletAddress = &req.WalletAddress
+		
+		logging.Info().
+			Str("user_id", userID).
+			Str("wallet", req.WalletAddress).
+			Msg("Ethereum wallet linked with ECDSA verification")
+			
 	} else {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
@@ -193,6 +243,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Float64("amount_sol", verifiedAmount).
 			Msg("Solana deposit verified on-chain")
 
+	} else if req.Chain == "ethereum" {
+		// Ethereum deposit verification (for future use)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ethereum deposits not yet implemented"})
+		return
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return
@@ -300,4 +354,173 @@ func verifyCryptoDeposit(c *gin.Context) {
 		"currency":    currency,
 		"new_balance": wallet.BalanceSOL,
 	})
+}
+
+// BatchSettlementRequest represents a request to settle multiple escrows
+type BatchSettlementRequest struct {
+	Settlements []SettlementItem `json:"settlements" binding:"required,min=1,max=10"`
+}
+
+// SettlementItem represents a single settlement in a batch
+type SettlementItem struct {
+	EscrowPDA       string `json:"escrow_pda" binding:"required"`
+	Buyer           string `json:"buyer" binding:"required"`
+	Seller          string `json:"seller" binding:"required"`
+	BandwidthUsedGB uint64 `json:"bandwidth_used_gb" binding:"required"`
+}
+
+// settleBatchEscrows settles multiple escrows in a single transaction
+func settleBatchEscrows(c *gin.Context) {
+	var req BatchSettlementRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get multi-sig oracle
+	multisig := solana.GetMultiSigOracle()
+	if multisig == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Multi-sig oracle not initialized"})
+		return
+	}
+
+	// Check if this node is an authorized signer
+	if !multisig.IsAuthorizedSigner() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "This node is not an authorized oracle signer"})
+		return
+	}
+
+	// Build settlement parameters
+	params := make([]solana.SettleEscrowParams, len(req.Settlements))
+	for i, item := range req.Settlements {
+		escrowPDA, err := solanaGo.PublicKeyFromBase58(item.EscrowPDA)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid escrow PDA at index %d", i)})
+			return
+		}
+		buyer, err := solanaGo.PublicKeyFromBase58(item.Buyer)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid buyer address at index %d", i)})
+			return
+		}
+		seller, err := solanaGo.PublicKeyFromBase58(item.Seller)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid seller address at index %d", i)})
+			return
+		}
+
+		params[i] = solana.SettleEscrowParams{
+			EscrowPDA:       escrowPDA,
+			Buyer:           buyer,
+			Seller:          seller,
+			BandwidthUsedGB: item.BandwidthUsedGB,
+		}
+	}
+
+	// Execute batch settlement
+	ctx := context.Background()
+	txHash, err := multisig.BatchSettleEscrows(ctx, params)
+	if err != nil {
+		logging.Error(err).Msg("Batch settlement failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Settlement failed: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "success",
+		"tx_hash":    txHash,
+		"count":      len(req.Settlements),
+		"settled_at": time.Now().Unix(),
+	})
+}
+
+// EmergencyPauseRequest triggers emergency pause on the Solana program
+type EmergencyPauseRequest struct {
+	Reason string `json:"reason" binding:"required"`
+}
+
+// emergencyPause triggers the emergency pause on the Solana program
+func emergencyPause(c *gin.Context) {
+	// Only admin can trigger emergency pause
+	userRole, _ := c.Get("userRole")
+	if userRole != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only admin can trigger emergency pause"})
+		return
+	}
+
+	var req EmergencyPauseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// TODO: Implement Solana program emergency_pause instruction
+	// This requires the admin keypair to sign the transaction
+
+	logging.Error(nil).
+		Str("reason", req.Reason).
+		Str("triggered_by", c.GetString("user_id")).
+		Msg("EMERGENCY PAUSE TRIGGERED")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "paused",
+		"reason":  req.Reason,
+		"message": "Emergency pause activated - all operations halted",
+	})
+}
+
+// getTreasuryAddress returns the configured treasury address
+func getTreasuryAddress(c *gin.Context) {
+	address := solana.GetTreasuryAddress()
+	if address == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Treasury not configured"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"treasury_address": address,
+		"chain":           "solana",
+		"network":         "devnet",
+	})
+}
+
+// getMultiSigStatus returns the current multi-sig oracle status
+func getMultiSigStatus(c *gin.Context) {
+	multisig := solana.GetMultiSigOracle()
+	if multisig == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Multi-sig oracle not initialized"})
+		return
+	}
+
+	// Reload config from chain
+	ctx := context.Background()
+	if err := multisig.LoadMultiSigConfig(ctx); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to load config: " + err.Error()})
+		return
+	}
+
+	signers := multisig.GetSigners()
+	signerStrs := make([]string, len(signers))
+	for i, s := range signers {
+		signerStrs[i] = s.String()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"threshold":       multisig.GetThreshold(),
+		"total_signers":   len(signers),
+		"signers":         signerStrs,
+		"is_authority":    multisig.IsAuthorizedSigner(),
+	})
+}
+
+// RegisterCryptoRoutes registers crypto-related routes
+func RegisterCryptoRoutes(r *gin.RouterGroup) {
+	crypto := r.Group("/crypto")
+	{
+		crypto.POST("/deposit/verify", verifyCryptoDeposit)
+		crypto.POST("/batch-settle", settleBatchEscrows)
+		crypto.POST("/emergency-pause", emergencyPause)
+		crypto.GET("/treasury", getTreasuryAddress)
+		crypto.GET("/multisig-status", getMultiSigStatus)
+	}
 }

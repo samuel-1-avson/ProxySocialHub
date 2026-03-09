@@ -1,0 +1,225 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+  schedule:
+    # Run every Monday at 9:00 AM
+    - cron: '0 9 * * 1'
+
+jobs:
+  # ==================== Go Security Scan ====================
+  go-security:
+    name: Go Vulnerability Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/control-api
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+    
+    - name: Install govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+    
+    - name: Run govulncheck
+      run: govulncheck ./...
+      continue-on-error: true
+    
+    - name: Run Gosec Security Scanner
+      uses: securego/gosec@master
+      with:
+        args: '-fmt sarif -out gosec.sarif ./...'
+      continue-on-error: true
+    
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: ./services/control-api/gosec.sarif
+
+  # ==================== Node.js Security Scan ====================
+  node-security:
+    name: Node.js Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Audit Web Frontend
+      working-directory: ./apps/web
+      run: npm audit --audit-level=high
+      continue-on-error: true
+    
+    - name: Audit Contracts Package
+      working-directory: ./packages/contracts
+      run: npm audit --audit-level=high
+      continue-on-error: true
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+      continue-on-error: true
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # ==================== Rust Security Scan ====================
+  rust-security:
+    name: Rust Dependency Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/edge-gateway
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+    
+    - name: Run cargo audit
+      run: cargo audit
+      continue-on-error: true
+
+  # ==================== Secret Scanning ====================
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Run GitLeaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+    
+    - name: Run TruffleHog
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+      continue-on-error: true
+
+  # ==================== Solidity Security ====================
+  solidity-security:
+    name: Solidity Security Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./packages/contracts
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: ./packages/contracts/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Slither
+      run: |
+        pip3 install slither-analyzer
+    
+    - name: Run Slither
+      run: slither . --sarif slither.sarif
+      continue-on-error: true
+    
+    - name: Upload Slither SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: ./packages/contracts/slither.sarif
+
+  # ==================== Container Security ====================
+  container-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build Control API image
+      run: docker build -t control-api:scan ./services/control-api
+    
+    - name: Build Web image
+      run: docker build -t web:scan ./apps/web
+    
+    - name: Run Trivy on Control API
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'control-api:scan'
+        format: 'sarif'
+        output: 'trivy-control-api.sarif'
+      continue-on-error: true
+    
+    - name: Run Trivy on Web
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'web:scan'
+        format: 'sarif'
+        output: 'trivy-web.sarif'
+      continue-on-error: true
+    
+    - name: Upload Trivy results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-control-api.sarif'
+    
+    - name: Upload Trivy results (Web)
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-web.sarif'
+
+  # ==================== CodeQL Analysis ====================
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'go', 'javascript', 'typescript', 'rust' ]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+    
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"

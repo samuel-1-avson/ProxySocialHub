@@ -4,7 +4,6 @@ import { FC, ReactNode, useMemo, useState, useEffect } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import {
-    PhantomWalletAdapter,
     SolflareWalletAdapter,
     TorusWalletAdapter,
     LedgerWalletAdapter,
@@ -23,6 +22,8 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        // Prevent hydration mismatch
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setMounted(true);
     }, []);
 
@@ -38,7 +39,7 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
 
     const wallets = useMemo(
         () => [
-            new PhantomWalletAdapter(),
+            // Phantom is automatically registered as a Standard Wallet as of wallet-adapter 0.9.x+
             new SolflareWalletAdapter(),
             new TorusWalletAdapter(),
             new LedgerWalletAdapter(),

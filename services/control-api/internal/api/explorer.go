@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -228,14 +231,26 @@ func getExplorerMetrics(c *gin.Context) {
 		chain = "solana"
 	}
 
-	// Get from cache first, fallback to live query
-	var metrics models.ExplorerMetrics
+	cacheKey := fmt.Sprintf("explorer:metrics:%s", chain)
 
-	// Try database cache (hourly aggregated)
+	// Try Redis cache first
+	if redisClient.Client != nil {
+		cached, err := redisClient.Client.Get(c, cacheKey).Result()
+		if err == nil && cached != "" {
+			var response ExplorerMetricsResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	// Get from database cache (hourly aggregated)
+	var metrics models.ExplorerMetrics
 	if err := db.DB.Where("chain = ? AND period = ?", chain, "hourly").
 		Order("period_start DESC").First(&metrics).Error; err == nil {
 		// Cache hit, return cached data
-		c.JSON(http.StatusOK, ExplorerMetricsResponse{
+		response := ExplorerMetricsResponse{
 			Chain:             metrics.Chain,
 			TotalTransactions: metrics.TotalTransactions,
 			TotalVolume:       metrics.TotalVolume,
@@ -244,7 +259,12 @@ func getExplorerMetrics(c *gin.Context) {
 			AvgBlockTime:      metrics.AverageBlockTime,
 			TotalBandwidthGB:  float64(metrics.TotalBandwidthBytes) / (1024 * 1024 * 1024),
 			LastUpdated:       metrics.CreatedAt,
-		})
+		}
+
+		// Cache in Redis
+		cacheResponse(c, cacheKey, response, 30*time.Second)
+
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
@@ -282,7 +302,7 @@ func getExplorerMetrics(c *gin.Context) {
 		regionDist[rname] = s.Count
 	}
 
-	c.JSON(http.StatusOK, ExplorerMetricsResponse{
+	response := ExplorerMetricsResponse{
 		Chain:              chain,
 		TotalTransactions:  uint64(txCount),
 		ActiveWallets:      uint64(walletCount),
@@ -290,7 +310,12 @@ func getExplorerMetrics(c *gin.Context) {
 		BlockHeight:        blockHeight,
 		RegionDistribution: regionDist,
 		LastUpdated:        time.Now(),
-	})
+	}
+
+	// Cache in Redis
+	cacheResponse(c, cacheKey, response, 30*time.Second)
+
+	c.JSON(http.StatusOK, response)
 }
 
 func getNetworkStats(c *gin.Context) {
@@ -961,4 +986,32 @@ func getNetworkHealth(c *gin.Context) {
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
 
 	c.JSON(http.StatusOK, health)
+}
+
+// cacheResponse caches a response in Redis
+func cacheResponse(c *gin.Context, key string, data interface{}, ttl time.Duration) {
+	if redisClient.Client == nil {
+		return
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		logging.Error(err).Msg("[Explorer] Failed to marshal cache data")
+		return
+	}
+
+	if err := redisClient.Client.Set(c, key, jsonData, ttl).Err(); err != nil {
+		logging.Error(err).Msg("[Explorer] Failed to cache response")
+	}
+}
+
+// invalidateExplorerCache invalidates explorer-related cache keys
+func invalidateExplorerCache(pattern string) {
+	if redisClient.Client == nil {
+		return
+	}
+
+	// In a production system, you'd use a more sophisticated cache invalidation strategy
+	// For now, we just log the invalidation request
+	logging.Debug().Str("pattern", pattern).Msg("[Explorer] Cache invalidation requested")
 }

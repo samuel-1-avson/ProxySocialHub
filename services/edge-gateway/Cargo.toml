@@ -34,6 +34,8 @@ governor = "0.6"
 nonzero_ext = "0.3"
 hex = "0.4"
 maxminddb = "0.24"
+prometheus = { version = "0.13", features = ["process"] }
+lazy_static = "1.4"
 
 [build-dependencies]
 tonic-build = "0.12"

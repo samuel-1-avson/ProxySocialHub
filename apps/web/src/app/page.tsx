@@ -1,9 +1,13 @@
+"use client";
+
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
 import { NetworkFeed } from "@/components/NetworkFeed";
-import { ArrowRight, Shield, Zap, Globe, Wallet } from "lucide-react";
+import { ArrowRight, Shield, Zap, Globe, Wallet, ExternalLink, Activity } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export default function Home() {
+  const { user } = useAuth();
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20 selection:text-primary overflow-x-hidden">
       {/* Navigation */}
@@ -35,19 +39,28 @@ export default function Home() {
             </p>
 
             {/* CTAs */}
-            <div className="flex flex-col sm:flex-row gap-6 justify-center mb-24">
+            <div className="flex flex-col sm:flex-row gap-6 justify-center mb-24 relative z-20">
               <Link href="/marketplace">
-                <button className="btn-retro btn-retro-primary px-8 py-4 text-lg w-full sm:w-auto">
+                <button className="btn-retro btn-retro-primary px-8 py-4 text-lg w-full sm:w-auto h-full flex items-center justify-center">
                   <Globe className="w-5 h-5 mr-2" />
                   BROWSE MARKETPLACE
                 </button>
               </Link>
-              <Link href="/dashboard">
-                <button className="btn-retro btn-retro-outline px-8 py-4 text-lg w-full sm:w-auto bg-background">
-                  <Zap className="w-5 h-5 mr-2" />
-                  START SELLING
-                </button>
-              </Link>
+              {user ? (
+                <Link href="/dashboard">
+                  <button className="btn-retro btn-retro-outline px-8 py-4 text-lg w-full sm:w-auto bg-background h-full flex items-center justify-center">
+                    <Activity className="w-5 h-5 mr-2" />
+                    SYSTEM DASHBOARD
+                  </button>
+                </Link>
+              ) : (
+                <Link href="/login">
+                  <button className="btn-retro btn-retro-outline px-8 py-4 text-lg w-full sm:w-auto bg-background h-full flex items-center justify-center">
+                    <ExternalLink className="w-5 h-5 mr-2" />
+                    ACCESS TERMINAL
+                  </button>
+                </Link>
+              )}
             </div>
 
             {/* Stats */}

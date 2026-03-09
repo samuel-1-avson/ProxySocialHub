@@ -105,6 +105,28 @@ export interface Message {
     read_at?: string;
     sender?: User;
     created_at: string;
+    // Enhanced messaging fields
+    type?: "text" | "image" | "file" | "system";
+    reply_to_id?: string;
+    edited_at?: string;
+    is_deleted?: boolean;
+    attachments?: Attachment[];
+    reactions?: Reaction[];
+}
+
+export interface Attachment {
+    id: string;
+    type: "image" | "document" | "contract";
+    url: string;
+    file_name?: string;
+    file_size?: number;
+    mime_type?: string;
+}
+
+export interface Reaction {
+    user_id: string;
+    emoji: string;
+    created_at: string;
 }
 
 export interface FeedEvent {
@@ -311,13 +333,68 @@ export async function getMessages(conversationId: string): Promise<{ messages: M
     return res.json();
 }
 
-export async function sendMessage(conversationId: string, content: string): Promise<Message> {
+export async function sendMessage(conversationId: string, content: string, replyToId?: string): Promise<Message> {
     const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, reply_to_id: replyToId }),
     });
     if (!res.ok) throw new Error('Failed to send message');
+    return res.json();
+}
+
+// Enhanced Messaging API
+export async function editMessage(conversationId: string, messageId: string, content: string): Promise<Message> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/messages/${messageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error('Failed to edit message');
+    return res.json();
+}
+
+export async function deleteMessage(conversationId: string, messageId: string): Promise<{ message: string }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/messages/${messageId}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete message');
+    return res.json();
+}
+
+export async function addReaction(messageId: string, emoji: string): Promise<Reaction> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/messages/${messageId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji }),
+    });
+    if (!res.ok) throw new Error('Failed to add reaction');
+    return res.json();
+}
+
+export async function removeReaction(messageId: string, emoji: string): Promise<{ message: string }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/messages/${messageId}/reactions/${emoji}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to remove reaction');
+    return res.json();
+}
+
+export async function uploadAttachment(conversationId: string, file: File): Promise<Attachment> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/attachments`, {
+        method: 'POST',
+        body: formData,
+    });
+    if (!res.ok) throw new Error('Failed to upload attachment');
+    return res.json();
+}
+
+export async function searchMessages(conversationId: string, query: string): Promise<{ messages: Message[] }> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error('Failed to search messages');
     return res.json();
 }
 
