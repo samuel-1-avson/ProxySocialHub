@@ -1,0 +1,76 @@
+# Ignore all backend services (Go, Rust, Python)
+services/
+proto/
+infra/
+
+# Ignore local databases and caching
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+redis_data/
+prometheus_data/
+grafana_data/
+
+# Ignore documentation and reports
+docs/
+SYSTEM_ANALYSIS_REPORT.md
+SYSTEM_ANALYSIS_SUMMARY.md
+CREDENTIAL_ROTATION_CHECKLIST.md
+DEPLOYMENT_CHECKLIST.md
+FIXES_SUMMARY.md
+FULL_STACK_SETUP.md
+IMPLEMENTATION_COMPLETE.md
+IMPLEMENTATION_GUIDE.md
+CODE_REVIEW.md
+test_output.txt
+tunnel_new.log
+logs_dump.txt
+logs.txt
+logs/
+*.log
+
+# Ignore testing and scripts
+scripts/
+test_auth.py
+test_proxy.py
+test_script.ps1
+test_simple.ps1
+scan_results.json
+system-health-report.json
+
+# Ignore SDKs and examples
+sdks/
+examples/
+packages/contracts/
+
+# Ignore Docker related
+docker/
+*.yml
+Dockerfile
+.dockerignore
+
+# Ignore Git
+.git/
+.github/
+
+# Ignore IDEs and environments
+.vscode/
+.idea/
+.claude/
+.agent/
+.gemini/
+__pycache__/
+venv/
+env/
+.venv/
+.env.backup.*
+
+# Exclude node_modules from root (Web app will install its own)
+node_modules/
+
+# Specifically only allow apps/web and vital configs
+!apps/web/
+!vercel.json
+!package.json
+!package-lock.json
