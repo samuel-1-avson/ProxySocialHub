@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "name": "proxyhubb-web",
+  "builds": [
+    {
+      "src": "apps/web/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "apps/web/$1"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@proxyhubb_api_url",
+    "NEXT_PUBLIC_GATEWAY_URL": "@proxyhubb_gateway_url",
+    "NEXT_PUBLIC_SUPABASE_URL": "@proxyhubb_supabase_url",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@proxyhubb_supabase_anon_key"
+  },
+  "build": {
+    "env": {
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  }
+}

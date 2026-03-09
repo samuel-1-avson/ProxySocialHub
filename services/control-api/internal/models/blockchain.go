@@ -11,9 +11,8 @@ import (
 type BlockchainType string
 
 const (
-	ChainSolana    BlockchainType = "solana"
-	ChainEthereum  BlockchainType = "ethereum"
-	ChainBittensor BlockchainType = "bittensor"
+	ChainSolana   BlockchainType = "solana"
+	ChainEthereum BlockchainType = "ethereum"
 )
 
 // LinkedWallet represents a user's linked blockchain wallet

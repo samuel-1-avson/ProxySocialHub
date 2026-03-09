@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { createSession, getSessions, terminateSession, Session } from '@/lib/api';
-import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock, Activity } from 'lucide-react';
+import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock, Activity, Radio } from 'lucide-react';
 import { StreamingSessionCard } from '@/components/StreamingSessionCard';
+import { SessionLiveCard } from '@/components/SessionLiveCard';
 
 export default function SessionsPage() {
     const [sessions, setSessions] = useState<Session[]>([]);
@@ -71,6 +72,18 @@ export default function SessionsPage() {
                 <p className="text-muted-foreground font-mono text-xs max-w-lg">
                     MANAGE PROXY TUNNELS AND CREDENTIALS.
                 </p>
+            </div>
+
+            {/* Real-time Session Monitor */}
+            <div className="space-y-2">
+                <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold uppercase tracking-widest">
+                    <Radio size={14} />
+                    Real-Time Monitor
+                </div>
+                <p className="text-muted-foreground font-mono text-xs max-w-lg">
+                    LIVE PROXY SESSION MONITORING — UPDATES EVERY 3 SECONDS VIA SERVER-SENT EVENTS.
+                </p>
+                <SessionLiveCard />
             </div>
 
             {/* Create Session */}

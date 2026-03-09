@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -9,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/core/ports"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
 )
 
@@ -22,22 +26,46 @@ func NewSessionService(repo ports.SessionRepository) *SessionServiceImpl {
 	}
 }
 
+// generateCredential returns a random hex string of n bytes (resulting in 2n hex chars).
+func generateCredential(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to UUID-derived value on rand failure
+		return uuid.New().String()
+	}
+	return hex.EncodeToString(b)
+}
+
 // InitializeSession handles the logic to start a new proxy connection
 func (s *SessionServiceImpl) InitializeSession(ctx context.Context, buyerID, listingID string, bandwidthLimit int64) (*domain.SessionEntity, error) {
+	// Generate proxy credentials
+	credUser := generateCredential(8)  // 16 hex chars
+	credPass := generateCredential(16) // 32 hex chars
+
 	// 1. Create domain entity
 	session := &domain.SessionEntity{
-		ID:             uuid.New().String(),
-		BuyerID:        buyerID,
-		ListingID:      listingID,
-		Status:         domain.SessionPending,
-		BandwidthLimit: bandwidthLimit,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:              uuid.New().String(),
+		BuyerID:         buyerID,
+		ListingID:       listingID,
+		Status:          domain.SessionPending,
+		BandwidthLimit:  bandwidthLimit,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+		CredentialsUser: credUser,
+		CredentialsPass: credPass,
 	}
 
-	// 2. Fetch Listing/Provider details (Simplified lookup)
-	session.PricePerHour = 0.1 // Default
-	session.ProviderID = "mock-provider-id"
+	// 2. Fetch Listing/Provider details from database
+	listingUUID, err := uuid.Parse(listingID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid listing id: %w", err)
+	}
+	var listing models.ProxyListing
+	if err := db.DB.First(&listing, "id = ?", listingUUID).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch listing: %w", err)
+	}
+	session.PricePerHour = listing.PricePerGB
+	session.ProviderID = listing.SellerID.String()
 
 	// 3. Persist Pending Session
 	if err := s.repo.CreateSession(ctx, session); err != nil {
@@ -46,16 +74,18 @@ func (s *SessionServiceImpl) InitializeSession(ctx context.Context, buyerID, lis
 
 	// 4. Publish Event to NATS
 	event := domain.SessionCreatedEvent{
-		SessionID:      session.ID,
-		BuyerID:        session.BuyerID,
-		ProviderID:     session.ProviderID,
-		ListingID:      session.ListingID,
-		BandwidthLimit: session.BandwidthLimit,
-		Timestamp:      time.Now(),
+		SessionID:       session.ID,
+		BuyerID:         session.BuyerID,
+		ProviderID:      session.ProviderID,
+		ListingID:       session.ListingID,
+		BandwidthLimit:  session.BandwidthLimit,
+		Timestamp:       time.Now(),
+		CredentialsUser: credUser,
+		CredentialsPass: credPass,
 	}
 
 	payload, _ := json.Marshal(event)
-	_, err := nats.JS.Publish(ctx, "proxy.sessions.v1.created", payload)
+	_, err = nats.JS.Publish(ctx, "proxy.sessions.v1.created", payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to queue provisioning: %w", err)
 	}

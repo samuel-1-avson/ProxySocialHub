@@ -3,7 +3,7 @@
  * Intelligent node discovery and recommendations
  */
 
-import { apiGet } from './client';
+import { apiGet, apiPost } from './client';
 import { Listing } from './marketplace';
 
 export interface UseCase {
@@ -34,4 +34,47 @@ export async function getRecommendations(useCaseId: string, minScore = 0) {
         use_case: useCaseId,
         min_score: minScore.toString()
     });
+}
+
+// ── Phase 7: Smart Match ──────────────────────────────────────────────────────
+
+export interface SmartMatchRequest {
+    use_case?: string;
+    preferred_geo?: string;
+    preferred_isp?: string;
+    max_price_per_gb?: number;
+    min_uptime_percent?: number;
+    max_latency_ms?: number;
+    session_type?: string;  // 'rotating' | 'sticky'
+    required_tier?: string; // 'basic' | 'verified' | 'premium' | 'enterprise'
+    bandwidth_gb?: number;
+}
+
+export interface SmartMatchResult {
+    listing_id: string;
+    seller_id: string;
+    title: string;
+    price_per_gb: number;
+    match_score: number;
+    provider_tier: string;
+    uptime_percent: number;
+    avg_latency_ms: number;
+    country: string;
+    isp: string;
+    session_type: string;
+}
+
+export interface SmartMatchResponse {
+    match_request_id: string;
+    recommended: SmartMatchResult[];
+    count: number;
+    explanation: string;
+}
+
+/**
+ * POST /v1/smart-match — AI-powered provider selection
+ * Returns scored, ranked providers matching the caller's requirements.
+ */
+export async function smartMatch(req: SmartMatchRequest): Promise<SmartMatchResponse> {
+    return apiPost<SmartMatchResponse, SmartMatchRequest>('/v1/smart-match', req);
 }

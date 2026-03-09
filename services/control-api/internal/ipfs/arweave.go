@@ -2,8 +2,6 @@ package ipfs
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,9 +54,7 @@ func NewArweaveClient() *ArweaveClient {
 // UploadData uploads data to Arweave via Irys
 func (c *ArweaveClient) UploadData(data []byte, contentType string, tags map[string]string) (string, error) {
 	if c.IrysToken == "" {
-		// Fallback: return hash as mock TX ID for development
-		hash := sha256.Sum256(data)
-		return "ar_mock_" + hex.EncodeToString(hash[:16]), nil
+		return "", fmt.Errorf("Irys token not configured - Arweave upload unavailable")
 	}
 
 	// Prepare the upload request

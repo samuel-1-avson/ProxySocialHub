@@ -27,6 +27,9 @@ func RegisterSmartMatchingRoutes(r *gin.RouterGroup) {
 		group.GET("/preferences", getMyPreferences)
 		group.PUT("/preferences", updatePreferences)
 	}
+
+	// Phase 7: AI-powered smart match — standalone endpoint at /v1/smart-match
+	r.POST("/smart-match", SmartMatch)
 }
 
 // getUseCases returns the list of supported use cases from DB, falling back to engine profiles if empty

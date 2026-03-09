@@ -44,6 +44,13 @@ jobs:
           vercel-project-id: ${{ secrets.PROJECT_ID }}
           working-directory: ./apps/web
           vercel-args: '--prod'
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_GATEWAY_URL: ${{ secrets.NEXT_PUBLIC_GATEWAY_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_ENABLE_SOCIAL_FEATURES: true
+          NEXT_PUBLIC_ENABLE_PAYMENTS: true
 
       - name: SSH to Staging Server
         uses: appleboy/ssh-action@master

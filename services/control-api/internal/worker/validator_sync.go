@@ -1,84 +1,107 @@
 package worker
 
 import (
+	"context"
+	"os"
+	"strconv"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/proxyhubb/control-api/internal/bittensor"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	solana "github.com/proxyhubb/control-api/internal/solana"
 )
 
-// StartValidatorSync starts the background job to sync validator scores
-func StartValidatorSync(client *bittensor.Client, netUID int) {
+// minValidatorStakeSOL is the minimum SOL a validator must stake to remain active.
+// Configurable via VALIDATOR_MIN_STAKE_SOL env var (default 1.0).
+var minValidatorStakeSOL = func() float64 {
+	if v := os.Getenv("VALIDATOR_MIN_STAKE_SOL"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return 1.0
+}()
+
+// StartValidatorSync polls on-chain stake balances for registered validators and
+// keeps the local validators table status up to date.
+func StartValidatorSync(client *solana.OracleClient) {
 	if client == nil {
-		logging.Warn().Msg("ValidatorSync: Bittensor client nil, skipping sync")
+		logging.Warn().Msg("ValidatorSync: Solana client nil, skipping sync")
 		return
 	}
 
+	stakingSvc := solana.NewStakingService(client)
+
 	go func() {
-		logging.Info().Int("netuid", netUID).Msg("ValidatorSync: Started background validator sync loop")
+		logging.Info().
+			Float64("min_stake_sol", minValidatorStakeSOL).
+			Msg("ValidatorSync: started Solana-staked validator sync loop")
+
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			syncScores(client, netUID)
+			syncValidatorStakes(stakingSvc)
 		}
 	}()
 }
 
-func syncScores(client *bittensor.Client, netUID int) {
-
-	resp, err := client.GetValidatorScores(netUID)
-	if err != nil {
-		logging.Error(err).Int("netuid", netUID).Msg("ValidatorSync: Failed to get scores")
+// syncValidatorStakes fetches on-chain stake for each known validator and
+// activates or deactivates them based on the minimum stake threshold.
+func syncValidatorStakes(svc *solana.StakingService) {
+	var validators []models.Validator
+	if err := db.DB.Where("status != ?", models.ValidatorSlashed).Find(&validators).Error; err != nil {
+		logging.Error(err).Msg("ValidatorSync: failed to query validators")
 		return
 	}
 
-	logging.Info().Int("count", len(resp.Scores)).Msg("ValidatorSync: Received scores from bridge")
+	logging.Info().Int("count", len(validators)).Msg("ValidatorSync: syncing stake for validators")
 
-	// Update DB
-	// We iterate over received scores and update corresponding nodes
-	for hotkey, score := range resp.Scores {
-		// Find node by Hotkey
-		var node models.ProviderNode
-		// Use Find with Limit(1) to avoid 'record not found' error in logs if missing
-		if err := db.DB.Where("hotkey = ? AND net_uid = ?", hotkey, netUID).Limit(1).Find(&node).Error; err != nil {
-			logging.Error(err).Str("hotkey", hotkey).Msg("ValidatorSync: DB Error")
-			continue
-		}
-		// If ID is nil/empty, record wasn't found
-		if node.ID == uuid.Nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for i := range validators {
+		v := &validators[i]
+
+		lamports, err := svc.SyncStakeBalance(ctx, v.UserID)
+		if err != nil {
+			logging.Warn().Err(err).Str("hotkey", v.Hotkey).Msg("ValidatorSync: failed to fetch stake")
 			continue
 		}
 
-		// Map score (0.0-1.0) to QualityScore (0-100)
-		qualityScore := score * 100
+		// Convert lamports to SOL (1 SOL = 1e9 lamports)
+		stakeSOL := float64(lamports) / 1e9
 
-		// Update
-		if err := db.DB.Model(&node).Updates(map[string]interface{}{
-			"quality_score": qualityScore,
-		}).Error; err != nil {
-			logging.Error(err).Str("node_id", node.ID.String()).Msg("ValidatorSync: Failed to update node score")
-		} else {
-			logging.Debug().
-				Str("node_id", node.ID.String()).
-				Str("hotkey", hotkey).
-				Float64("score", qualityScore).
-				Msg("ValidatorSync: Updated node score")
-
-			// Update related listings (Phase 4)
-			// Marketplace items for this provider should reflect the network trust score
-			result := db.DB.Model(&models.ProxyListing{}).
-				Where("seller_id = ?", node.UserID).
-				Update("quality_score", qualityScore)
-
-			if result.Error != nil {
-				logging.Error(result.Error).
-					Str("seller_id", node.UserID.String()).
-					Msg("ValidatorSync: Failed to update listings score")
-			}
+		newStatus := models.ValidatorInactive
+		if stakeSOL >= minValidatorStakeSOL {
+			newStatus = models.ValidatorActive
 		}
+
+		now := time.Now()
+		updates := map[string]interface{}{
+			"staked_amount": stakeSOL,
+			"status":        newStatus,
+			"updated_at":    now,
+		}
+		if newStatus == models.ValidatorActive {
+			updates["last_active_at"] = now
+		}
+
+		if err := db.DB.Model(v).Updates(updates).Error; err != nil {
+			logging.Error(err).Str("hotkey", v.Hotkey).Msg("ValidatorSync: failed to update validator")
+			continue
+		}
+
+		logging.Debug().
+			Str("hotkey", v.Hotkey).
+			Float64("stake_sol", stakeSOL).
+			Str("status", string(newStatus)).
+			Msg("ValidatorSync: updated validator stake")
+
+		// Update quality scores on related listings for this provider
+		db.DB.Model(&models.ProxyListing{}).
+			Where("seller_id = ?", v.UserID).
+			Update("quality_score", v.TrustScore)
 	}
 }

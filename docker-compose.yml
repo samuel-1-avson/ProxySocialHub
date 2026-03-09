@@ -34,16 +34,12 @@ services:
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
       - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
-      - BITTENSOR_BRIDGE_URL=http://bittensor-bridge:8000
       - SOLANA_TREASURY_ADDRESS=${NEXT_PUBLIC_SOLANA_TREASURY}
-      - TAO_TREASURY_ADDRESS=${NEXT_PUBLIC_TAO_TREASURY}
     depends_on:
       redis:
         condition: service_healthy
       nats:
         condition: service_healthy
-      bittensor-bridge:
-        condition: service_started
     networks:
       - proxyhubb
     healthcheck:
@@ -107,7 +103,6 @@ services:
       - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - NEXT_PUBLIC_SOLANA_TREASURY=${NEXT_PUBLIC_SOLANA_TREASURY}
-      - NEXT_PUBLIC_TAO_TREASURY=${NEXT_PUBLIC_TAO_TREASURY}
     networks:
       - proxyhubb
     restart: unless-stopped
@@ -156,49 +151,8 @@ services:
       - proxyhubb
     restart: unless-stopped
 
-  # ==================== Subtensor Node ====================
-  subtensor:
-    image: opentensor/subtensor:latest
-    ports:
-      - "9944:9944"
-      - "30333:30333"
-    volumes:
-      - subtensor_local_data:/data
-    command:
-      - /usr/local/bin/node-subtensor
-      - --chain
-      - local
-      - --base-path
-      - /data
-      - --rpc-external
-      - --ws-external
-      - --rpc-cors
-      - all
-      - --alice
-    networks:
-      - proxyhubb
-    restart: unless-stopped
-
-  # ==================== Bittensor Bridge ====================
-  bittensor-bridge:
-    build:
-      context: ./services/bittensor-bridge
-      dockerfile: Dockerfile
-    ports:
-      - "8002:8000"
-    environment:
-      - SUBTENSOR_NETWORK=local
-      - SUBTENSOR_CHAIN_ENDPOINT=ws://subtensor:9944
-    depends_on:
-      - subtensor
-    networks:
-      - proxyhubb
-    restart: unless-stopped
-
 volumes:
   redis_data:
-  subtensor_data: # Kept for mainnet if needed later
-  subtensor_local_data: # New volume for local chain
   grafana_data:
 
 networks:
