@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getFeed, subscribeToFeed, type FeedEvent } from "@/lib/services/feed";
+import { isAuthenticated } from "@/lib/auth.tsx";
 import { Activity, Shield, Users, Server, DollarSign, Vote, AlertTriangle, Radio, Wifi, Hexagon, ChevronRight, Zap, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,10 +13,21 @@ export function NetworkFeed() {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        // Skip if not authenticated
+        if (!isAuthenticated()) {
+            setLoading(false);
+            return;
+        }
+
         // Initial load
         getFeed()
             .then(data => setEvents(data.events))
-            .catch(err => console.error(err))
+            .catch(err => {
+                // Silently ignore auth errors
+                if (err instanceof Error && err.message !== 'Not authenticated') {
+                    console.error(err);
+                }
+            })
             .finally(() => setLoading(false));
 
         // Subscribe to real-time updates

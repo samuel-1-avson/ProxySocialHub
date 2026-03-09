@@ -12,10 +12,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/proxyhubb/control-api/internal/api"
 
-	// "github.com/proxyhubb/control-api/internal/bittensor" // Removed for simplification
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
+	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/middleware"
@@ -187,6 +187,16 @@ func main() {
 
 	// WAF & DDoS Protection (before other middleware)
 	wafConfig := middleware.DefaultWAFConfig()
+	// Allow additional IPs from environment variable (comma-separated)
+	if additionalIPs := os.Getenv("WAF_WHITELIST_IPS"); additionalIPs != "" {
+		ips := strings.Split(additionalIPs, ",")
+		for _, ip := range ips {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				wafConfig.WhitelistedIPs = append(wafConfig.WhitelistedIPs, ip)
+			}
+		}
+	}
 	r.Use(middleware.WAFMiddleware(wafConfig))
 	r.Use(middleware.DDoSProtectionMiddleware(middleware.DefaultDDoSConfig()))
 
@@ -249,7 +259,6 @@ func main() {
 		api.RegisterSmartMatchingRoutes(protected)
 		api.RegisterGovernanceRoutes(protected)
 		api.RegisterOnboardingRoutes(protected)
-		// api.RegisterBittensorRoutes(protected) // Removed
 		api.RegisterCircleRoutes(protected)
 
 		api.RegisterReferralRoutes(protected)
@@ -262,8 +271,6 @@ func main() {
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
 		api.RegisterAgentRegistryRoutes(protected)
-		// api.RegisterSubtensorRoutes(protected) // Removed
-
 		// Analytics & Geo
 		api.RegisterAnalyticsRoutes(protected)
 		api.RegisterGeoRoutes(protected)
@@ -274,9 +281,6 @@ func main() {
 
 		// Trustless Proofs (Phase 17)
 		api.RegisterTrustlessRoutes(protected)
-
-		// Quality Attestation (Phase 18)
-		// api.RegisterValidatorRoutes(protected) // Removed
 
 		// Decentralized Disputes (Phase 19)
 		api.RegisterDisputeJuryRoutes(protected)
@@ -292,16 +296,20 @@ func main() {
 
 		// Blockchain / Solana
 		solanaClient.RegisterRoutes(protected)
+
+		// Phase 4: Real-time session stream (SSE)
+		api.RegisterSessionStreamRoutes(protected)
+
+		// Bulk Proxy API (Phase 5)
+		api.RegisterBulkRoutes(protected)
+
+		// Provider Verification Tiers (Phase 6)
+		api.RegisterTierRoutes(protected)
 	}
 
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()
 	idx.Start()
-
-	// Start Validator Sync
-	// btClient := bittensor.NewClient(cfg.Bittensor)
-	// api.InitBittensorClient(btClient)
-	// worker.StartValidatorSync(btClient, cfg.Bittensor.NetUID)
 
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker()
@@ -359,7 +367,9 @@ func main() {
 	}
 
 	// Start Provisioning Worker (Phase 5.2 Event-Driven)
-	pw := worker.NewProvisioningWorker(nil, nil)
+	sessionRepo := db.NewSessionRepository()
+	redisGateway := gatewayPkg.NewRedisGateway()
+	pw := worker.NewProvisioningWorker(sessionRepo, redisGateway)
 	if err := pw.Start(context.Background()); err != nil {
 		log.Printf("Failed to start Provisioning Worker: %v", err)
 	}
@@ -376,6 +386,10 @@ func main() {
 
 	// Start All Background Workers (Phase 17 Reliability)
 	worker.StartAll(nil) // nil queue as placeholder or use internal queue
+
+	// Start Provider Tier Evaluator (Phase 6)
+	worker.StartTierEvaluator()
+	log.Println("Provider Tier Evaluator started")
 
 	port := os.Getenv("PORT")
 	if port == "" {

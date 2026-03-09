@@ -103,18 +103,12 @@ func fetchAndCachePrice(ctx context.Context, tokenID string) (float64, error) {
 
 // Token IDs for CoinGecko
 const (
-	TokenSolana    = "solana"
-	TokenBittensor = "bittensor"
+	TokenSolana = "solana"
 )
 
 // GetSOLPrice returns the current SOL price in USD
 func GetSOLPrice(ctx context.Context) (float64, error) {
 	return GetPrice(ctx, TokenSolana)
-}
-
-// GetTAOPrice returns the current TAO price in USD
-func GetTAOPrice(ctx context.Context) (float64, error) {
-	return GetPrice(ctx, TokenBittensor)
 }
 
 // GetExchangeRate calculates the exchange rate between two tokens
@@ -137,25 +131,6 @@ func GetExchangeRate(ctx context.Context, sourceToken, targetToken string) (floa
 	return sourcePrice / targetPrice, nil
 }
 
-// GetSOLToTAORate returns how many TAO you get for 1 SOL
-func GetSOLToTAORate(ctx context.Context) (float64, error) {
-	return GetExchangeRate(ctx, TokenSolana, TokenBittensor)
-}
-
-// ConvertSOLToTAO converts a SOL amount to TAO
-func ConvertSOLToTAO(ctx context.Context, solAmount float64) (float64, error) {
-	rate, err := GetSOLToTAORate(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	// Circuit Breaker Check
-	if err := CheckCircuitBreaker("SOL_TAO", rate); err != nil {
-		return 0, err
-	}
-
-	return solAmount * rate, nil
-}
 
 // CheckCircuitBreaker checks if the new rate deviates too much from the last trusted rate
 func CheckCircuitBreaker(pair string, currentRate float64) error {
@@ -202,7 +177,7 @@ func CheckCircuitBreaker(pair string, currentRate float64) error {
 
 // GetAllPrices fetches multiple token prices at once
 func GetAllPrices(ctx context.Context) (map[string]float64, error) {
-	url := fmt.Sprintf("%s/simple/price?ids=solana,bittensor&vs_currencies=usd", coinGeckoAPI)
+	url := fmt.Sprintf("%s/simple/price?ids=solana&vs_currencies=usd", coinGeckoAPI)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)

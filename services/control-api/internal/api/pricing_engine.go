@@ -1,15 +1,19 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 )
 
-// Base Prices (in TAO)
+// Base Prices (in SOL)
 const (
 	BasePriceResidential = 0.50
 	BasePriceMobile      = 0.80
@@ -37,17 +41,17 @@ func AdjustDynamicPricing() {
 	for _, config := range configs {
 		// Calculate current utilization
 		// For MVP, we use Concurrent Connections relative to Max
-		// Real system would query Redis/Prometheus
-
+		// Query actual utilization from Redis
 		limit := float64(config.MaxConcurrentConnections)
 		if limit <= 0 {
 			limit = 100 // Default reference
 		}
 
-		// Mock utilization (Random or based on some state)
-		// We'll assume a random fluctuation for demo, or 50% if unknown
-		// In production: usage := redis.GetActiveConnections(config.NodeID)
-		currentUsage := limit * 0.6 // Mock: 60% load
+		// Get actual active connections from Redis
+		currentUsage := getActiveConnections(config.NodeID)
+		if currentUsage <= 0 {
+			currentUsage = limit * 0.5 // Assume 50% if no data
+		}
 
 		utilization := currentUsage / limit
 		target := config.TargetUtilization
@@ -139,4 +143,21 @@ func CalculateFairPrice(listing models.ProxyListing) float64 {
 	}
 
 	return finalPrice
+}
+
+// getActiveConnections retrieves the current active connection count for a node from Redis
+func getActiveConnections(nodeID uuid.UUID) float64 {
+	if redis.Client == nil {
+		return 0
+	}
+	
+	ctx := context.Background()
+	key := fmt.Sprintf("node:%s:active_connections", nodeID.String())
+	
+	val, err := redis.Client.Get(ctx, key).Float64()
+	if err != nil {
+		return 0
+	}
+	
+	return val
 }

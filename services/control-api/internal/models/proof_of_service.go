@@ -90,10 +90,7 @@ type MinerWeight struct {
 	ID          uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
 	ValidatorID uuid.UUID `gorm:"type:uuid;not null;index" json:"validator_id"`
 	MinerID     uuid.UUID `gorm:"type:uuid;not null;index" json:"miner_id"` // Provider/Node ID
-	NetUID      int       `gorm:"not null" json:"net_uid"`                  // Subnet ID
 	Weight      float64   `gorm:"not null" json:"weight"`                   // 0-1 normalized weight
-
-	EpochNumber int `gorm:"not null;index" json:"epoch_number"` // Bittensor epoch
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -214,25 +214,14 @@ func walletLogin(c *gin.Context) {
 	}
 
 	if !isValid {
-		// Fallback to Bittensor Bridge
-		client := GetBittensorClient()
-		if client != nil {
-			bridgeValid, err := client.VerifySignature(req.Address, req.Nonce, req.Signature)
-			if err == nil && bridgeValid {
-				isValid = true
-			}
-		}
-	}
-
-	if !isValid {
 		RecordAuditLog(c, models.AuditAuthLoginFailed, models.AuditSeverityWarning, nil, "wallet", req.Address, "Invalid signature login attempt", false)
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature (Solana/Bittensor verification failed)"})
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature (Solana verification failed)"})
 		return
 	}
 
 	// 3. Find or Create User
 	var user models.User
-	result := db.DB.Where("bittensor_address = ?", req.Address).First(&user)
+	result := db.DB.Where("wallet_address = ?", req.Address).First(&user)
 	if result.Error != nil {
 		// Start transaction for atomic user + wallet creation
 		tx := db.DB.Begin()
@@ -241,12 +230,12 @@ func walletLogin(c *gin.Context) {
 		username := "user_" + req.Address[:8]
 		email := req.Address + "@wallet.proxyhubb.com"
 		user = models.User{
-			ID:               uuid.New(), // We generate our own UUID here since not using Supabase Auth
-			Role:             "provider", // Default role? or 'buyer'?
-			TrustTier:        models.TrustTierNew,
-			BittensorAddress: &req.Address,
-			Username:         &username,
-			Email:            email,
+			ID:            uuid.New(), // We generate our own UUID here since not using Supabase Auth
+			Role:          "provider", // Default role? or 'buyer'?
+			TrustTier:     models.TrustTierNew,
+			WalletAddress: &req.Address,
+			Username:      &username,
+			Email:         email,
 		}
 
 		if err := tx.Create(&user).Error; err != nil {
@@ -320,15 +309,15 @@ func devLogin(c *gin.Context) {
 
 	// Check user
 	var user models.User
-	result := db.DB.Where("bittensor_address = ?", devAddr).First(&user)
+	result := db.DB.Where("wallet_address = ?", devAddr).First(&user)
 	if result.Error != nil {
 		user = models.User{
-			ID:               uuid.New(),
-			Role:             "provider", // Provider role so we have voting power
-			TrustTier:        models.TrustTierVerified,
-			BittensorAddress: &devAddr,
-			Username:         func(s string) *string { return &s }("dev_tester"),
-			Email:            "dev@test.com",
+			ID:            uuid.New(),
+			Role:          "provider", // Provider role so we have voting power
+			TrustTier:     models.TrustTierVerified,
+			WalletAddress: &devAddr,
+			Username:      func(s string) *string { return &s }("dev_tester"),
+			Email:         "dev@test.com",
 		}
 		if err := db.DB.Create(&user).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create dev user"})
@@ -376,6 +365,35 @@ func maskAddress(addr string) string {
 		return "***"
 	}
 	return addr[:6] + "..." + addr[len(addr)-4:]
+}
+
+// GetMe returns the current authenticated user's profile.
+func GetMe(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":             user.ID,
+		"email":          user.Email,
+		"role":           user.Role,
+		"display_name":   user.DisplayName,
+		"username":       user.Username,
+		"avatar_url":     user.AvatarURL,
+		"wallet_address": user.WalletAddress,
+		"trust_tier":     user.TrustTier,
+		"kyc_status":     user.KYCStatus,
+		"verified":       user.Verified,
+		"created_at":     user.CreatedAt,
+	})
 }
 
 // getMe returns the currently authenticated user

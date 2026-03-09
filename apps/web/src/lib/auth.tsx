@@ -2,12 +2,16 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+// Singleton Supabase client — instantiated once at module scope to avoid
+// multiple GoTrue instances and redundant auth listener registrations.
+const supabase = createClient();
 
 export interface AuthContextType {
   user: User | null;
@@ -15,6 +19,7 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, role: 'buyer' | 'provider') => Promise<void>;
+  loginWithOAuth: (provider: 'google' | 'github') => Promise<void>;
   walletLogin: (address: string, signer: any) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
@@ -25,17 +30,19 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const supabase = createClient();
+  const hasSupabase = isSupabaseConfigured();
   const router = useRouter();
 
   useEffect(() => {
     const checkUser = async () => {
       try {
-        // 1. Check Supabase Session
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setUser(session.user);
-          return;
+        // 1. Check Supabase Session (only if Supabase is configured)
+        if (hasSupabase && supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            setUser(session.user);
+            return;
+          }
         }
 
         // 2. Check Local Token (Wallet Login)
@@ -80,26 +87,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkUser();
 
-    // Listen for Supabase auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-      } else {
-        // Only clear user if no local token exists either (handling "Switch to Supabase logout" vs "Wallet logout")
-        // But simplified: if Supabase sign out happens, we likely want to sign out completely.
-        // However, wallet login users don't trigger Supabase auth state changes.
-        // So this listener is fine for Supabase users.
-        // For Wallet users, logout() function clears everything.
-      }
+    // Listen for Supabase auth changes (only if Supabase is configured)
+    if (hasSupabase && supabase) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          setUser(session.user);
+        }
+      });
 
-      // We don't want to auto-clear user here if they are logged in via wallet
-      // Because onAuthStateChange might fire on initial load with null session.
-    });
-
-    return () => subscription.unsubscribe();
-  }, [supabase, router]);
+      return () => subscription.unsubscribe();
+    }
+  }, [hasSupabase, router]);
 
   const login = async (email: string, password: string) => {
+    if (!hasSupabase || !supabase) {
+      throw new Error('Email/password login requires Supabase configuration');
+    }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -108,21 +111,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (email: string, password: string, role: 'buyer' | 'provider') => {
+    if (!hasSupabase || !supabase) {
+      throw new Error('Email/password registration requires Supabase configuration');
+    }
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      // Pass role as metadata. Trigger will handle profile creation.
       options: {
-        data: {
-          role: role
-        }
+        data: { role }
       }
     });
     if (error) throw error;
   };
 
+  const loginWithOAuth = async (provider: 'google' | 'github') => {
+    if (!hasSupabase || !supabase) {
+      throw new Error('OAuth login requires Supabase configuration');
+    }
+    
+    const redirectUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/auth/callback`
+      : `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4001'}/auth/callback`;
+    
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          // Pass role hint for new users
+          role: 'buyer'
+        }
+      }
+    });
+    
+    if (error) throw error;
+  };
+
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (hasSupabase && supabase) {
+      await supabase.auth.signOut();
+    }
     if (typeof window !== 'undefined') {
       localStorage.removeItem('proxyhubb_token');
     }
@@ -131,8 +159,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const getAccessToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) return session.access_token;
+    if (hasSupabase && supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) return session.access_token;
+    }
     return typeof window !== 'undefined' ? localStorage.getItem('proxyhubb_token') : null;
   };
 
@@ -219,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, register, logout, getAccessToken, walletLogin }}>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, register, loginWithOAuth, logout, getAccessToken, walletLogin }}>
       {children}
     </AuthContext.Provider>
   );
@@ -233,19 +263,28 @@ export function useAuth() {
   return context;
 }
 
-// Helper to make authenticated API calls
-// Compatible with previous signature
-export async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
+// Simple check for authentication status (synchronous)
+export function isAuthenticated(): boolean {
+  if (typeof window === 'undefined') return false;
+  return !!localStorage.getItem('proxyhubb_token');
+}
 
-  let token = session?.access_token;
+// Helper to make authenticated API calls
+export async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  let token: string | undefined;
+
+  // Try Supabase first (if configured)
+  if (supabase) {
+    const { data: { session } } = await supabase.auth.getSession();
+    token = session?.access_token;
+  }
+
+  // Fallback to local token
   if (!token && typeof window !== 'undefined') {
     token = localStorage.getItem('proxyhubb_token') || undefined;
   }
 
   if (!token) {
-    // Could redirect logic here if client-side
     throw new Error('Not authenticated');
   }
 
@@ -255,9 +294,5 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   };
 
   const response = await fetch(url, { ...options, headers });
-
-  // Supabase client handles token refresh automatically so we don't need manual 401 retry logic for token expiry
-  // unless Supabase fails to refresh, in which case session is null.
-
   return response;
 }

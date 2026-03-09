@@ -1,12 +1,16 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -16,10 +20,54 @@ type swapRequest struct {
 	Amount       float64 `json:"amount" binding:"required,gt=0"`
 }
 
-// GetSolToUsdtRate returns the current exchange rate (Mock or Real)
+// GetSolToUsdtRate returns the current SOL/USDT exchange rate
+// Fetches from CoinGecko API or returns cached value
 func GetSolToUsdtRate() float64 {
-	// TODO: Fetch from Oracle/Coingecko
-	return 145.50 // 1 SOL = ~145 USDT (Mock)
+	// Try to fetch from CoinGecko
+	rate, err := fetchSolPriceFromCoinGecko()
+	if err == nil && rate > 0 {
+		return rate
+	}
+	
+	logging.Warn().Err(err).Msg("Failed to fetch SOL price from CoinGecko, using fallback")
+	
+	// Fallback: use environment variable or default
+	fallbackRate := os.Getenv("FALLBACK_SOL_USDT_RATE")
+	if fallbackRate != "" {
+		var rate float64
+		fmt.Sscanf(fallbackRate, "%f", &rate)
+		if rate > 0 {
+			return rate
+		}
+	}
+	
+	return 145.50 // Default fallback
+}
+
+// fetchSolPriceFromCoinGecko fetches SOL price from CoinGecko API
+func fetchSolPriceFromCoinGecko() (float64, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("coingecko returned status %d", resp.StatusCode)
+	}
+	
+	var result struct {
+		Solana struct {
+			USD float64 `json:"usd"`
+		} `json:"solana"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	
+	return result.Solana.USD, nil
 }
 
 func RegisterSwapRoutes(r *gin.RouterGroup) {

@@ -4,12 +4,14 @@ import "time"
 
 // SessionCreatedEvent is published when a new proxy session is initialized
 type SessionCreatedEvent struct {
-	SessionID      string    `json:"session_id"`
-	BuyerID        string    `json:"buyer_id"`
-	ProviderID     string    `json:"provider_id"`
-	ListingID      string    `json:"listing_id"`
-	BandwidthLimit int64     `json:"bandwidth_limit"`
-	Timestamp      time.Time `json:"timestamp"`
+	SessionID       string    `json:"session_id"`
+	BuyerID         string    `json:"buyer_id"`
+	ProviderID      string    `json:"provider_id"`
+	ListingID       string    `json:"listing_id"`
+	BandwidthLimit  int64     `json:"bandwidth_limit"`
+	Timestamp       time.Time `json:"timestamp"`
+	CredentialsUser string    `json:"credentials_user"`
+	CredentialsPass string    `json:"credentials_pass"`
 }
 
 // SessionTerminatedEvent is published when a proxy session is closed

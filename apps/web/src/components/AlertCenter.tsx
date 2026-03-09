@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getWatchtowerAlerts, AlertEvent } from '@/lib/api/monitoring';
+import { isAuthenticated } from '@/lib/auth.tsx';
 import {
     Bell,
     X,
@@ -20,6 +21,10 @@ export function AlertCenter() {
     const [unreadCount, setUnreadCount] = useState(0);
 
     const fetchAlerts = async () => {
+        // Skip if not authenticated
+        if (!isAuthenticated()) {
+            return;
+        }
         try {
             const data = await getWatchtowerAlerts();
             setAlerts(data || []);
@@ -28,11 +33,19 @@ export function AlertCenter() {
                 setUnreadCount(prev => prev + (data.length - alerts.length));
             }
         } catch (err) {
+            // Silently ignore auth errors
+            if (err instanceof Error && err.message === 'Not authenticated') {
+                return;
+            }
             console.error("Failed to fetch alerts", err);
         }
     };
 
     useEffect(() => {
+        // Only fetch if authenticated
+        if (!isAuthenticated()) {
+            return;
+        }
         fetchAlerts();
         const interval = setInterval(fetchAlerts, 30000); // 30s Industrial Polling
         return () => clearInterval(interval);

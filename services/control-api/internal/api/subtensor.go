@@ -195,14 +195,11 @@ func submitWeights(c *gin.Context) {
 		mw := models.MinerWeight{
 			ValidatorID: validatorID,
 			MinerID:     minerID,
-			NetUID:      req.NetUID,
 			Weight:      weight,
-			EpochNumber: req.EpochNumber,
 		}
 
 		// Upsert: update if exists, create if not
-		db.DB.Where("validator_id = ? AND miner_id = ? AND epoch_number = ?",
-			validatorID, minerID, req.EpochNumber).
+		db.DB.Where("validator_id = ? AND miner_id = ?", validatorID, minerID).
 			Assign(mw).
 			FirstOrCreate(&mw)
 	}

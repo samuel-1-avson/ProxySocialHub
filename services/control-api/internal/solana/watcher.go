@@ -60,7 +60,7 @@ type WatcherConfig struct {
 
 // NewWatcher creates a new event watcher
 func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
-	programID, err := sol.PublicKeyFromBase58(ProgramID)
+	programID, err := sol.PublicKeyFromBase58(effectiveProgramID())
 	if err != nil {
 		return nil, fmt.Errorf("invalid program ID: %w", err)
 	}

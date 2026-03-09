@@ -16,18 +16,20 @@ const (
 
 // SessionEntity represents the core business entity for a proxy connection
 type SessionEntity struct {
-	ID             string
-	BuyerID        string
-	ProviderID     string
-	ListingID      string
-	Status         SessionStatus
-	BytesUsed      int64
-	BandwidthLimit int64
-	PricePerHour   float64
-	StartTime      time.Time
-	EndTime        *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              string
+	BuyerID         string
+	ProviderID      string
+	ListingID       string
+	Status          SessionStatus
+	BytesUsed       int64
+	BandwidthLimit  int64
+	PricePerHour    float64
+	StartTime       time.Time
+	EndTime         *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CredentialsUser string
+	CredentialsPass string
 }
 
 // IsExhausted checks if the session has reached its data limit
