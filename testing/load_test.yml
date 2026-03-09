@@ -1,0 +1,127 @@
+# ProxyHubb Load Testing Configuration
+# Usage: artillery run load_test.yml
+
+config:
+  target: "https://api.devnet.solana.com"
+  phases:
+    # Phase 1: Warm up - gradual ramp up
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 50
+      name: "Warm up"
+    
+    # Phase 2: Steady state - sustained load
+    - duration: 180
+      arrivalRate: 100
+      name: "Steady state"
+    
+    # Phase 3: Spike test - sudden increase
+    - duration: 30
+      arrivalRate: 200
+      name: "Spike test"
+    
+    # Phase 4: Recovery - back to normal
+    - duration: 60
+      arrivalRate: 50
+      name: "Recovery"
+  
+  defaults:
+    headers:
+      Content-Type: "application/json"
+  
+  variables:
+    program_id: "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
+    rpc_endpoints:
+      - "https://api.devnet.solana.com"
+      - "https://devnet.genesysgo.net"
+      - "https://rpc.ankr.com/solana_devnet"
+
+scenarios:
+  # Scenario 1: Read-heavy operations (70% of traffic)
+  - name: "Query Operations"
+    weight: 70
+    requests:
+      - get:
+          url: "/"
+          json:
+            jsonrpc: "2.0"
+            id: 1
+            method: "getAccountInfo"
+            params:
+              - "{{ program_id }}"
+              - encoding: "base64"
+      
+      - get:
+          url: "/"
+          json:
+            jsonrpc: "2.0"
+            id: 1
+            method: "getProgramAccounts"
+            params:
+              - "{{ program_id }}"
+              - encoding: "base64"
+              - filters:
+                  - memcmp:
+                      offset: 0
+                      bytes: "escrow"
+
+  # Scenario 2: Write operations - Escrow creation (15% of traffic)
+  - name: "Escrow Creation"
+    weight: 15
+    requests:
+      - post:
+          url: "/"
+          json:
+            jsonrpc: "2.0"
+            id: 1
+            method: "sendTransaction"
+            params:
+              - "BASE64_ENCODED_TX"
+              - encoding: "base64"
+              - skipPreflight: false
+              - preflightCommitment: "confirmed"
+
+  # Scenario 3: Multi-sig operations (10% of traffic)
+  - name: "Multi-sig Settlement"
+    weight: 10
+    requests:
+      - post:
+          url: "/"
+          json:
+            jsonrpc: "2.0"
+            id: 1
+            method: "simulateTransaction"
+            params:
+              - "BASE64_ENCODED_TX"
+              - sigVerify: false
+              - commitment: "confirmed"
+              - replaceRecentBlockhash: true
+
+  # Scenario 4: Complex operations (5% of traffic)
+  - name: "Jury Dispute"
+    weight: 5
+    requests:
+      - post:
+          url: "/"
+          json:
+            jsonrpc: "2.0"
+            id: 1
+            method: "getMultipleAccounts"
+            params:
+              - ["{{ program_id }}")
+              - encoding: "base64"
+
+plugins:
+  expect: {}
+  metrics-by-endpoint: {}
+
+# Performance thresholds
+ensure:
+  # P95 latency should be under 1 second
+  - "p95": 1000
+  
+  # Error rate should be under 1%
+  - "errorRate": 1
+  
+  # At least 95% of requests should succeed
+  - "successRate": 95

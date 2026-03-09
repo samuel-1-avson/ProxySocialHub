@@ -23,10 +23,14 @@ export interface Recommendation {
 }
 
 export async function getUseCases(): Promise<UseCase[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/matching/use-cases`);
-    if (!response.ok) throw new Error('Failed to fetch use cases');
-    const data = await response.json();
-    return Array.isArray(data?.use_cases) ? data.use_cases : [];
+    try {
+        const response = await fetchWithAuth(`${API_BASE_URL}/v1/matching/use-cases`);
+        if (!response.ok) return []; // Gracefully fail if not auth'd or API error
+        const data = await response.json();
+        return Array.isArray(data?.use_cases) ? data.use_cases : [];
+    } catch (e) {
+        return [];
+    }
 }
 
 export async function getPreferences(): Promise<UserPreferences | null> {

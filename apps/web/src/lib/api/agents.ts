@@ -32,7 +32,7 @@ export interface AgentInstance {
  * List available agents in the marketplace
  */
 export async function getMarketAgents() {
-    const data = await apiGet<MarketAgent[]>('/v1/agents/marketplace');
+    const data = await apiGet<MarketAgent[]>('/v1/agents');
     return Array.isArray(data) ? data : (data as any).agents || [];
 }
 
@@ -40,7 +40,7 @@ export async function getMarketAgents() {
  * List user's rented agent instances
  */
 export async function getMyAgents() {
-    const data = await apiGet<AgentInstance[]>('/v1/agents/my');
+    const data = await apiGet<AgentInstance[]>('/v1/agents/instances');
     return Array.isArray(data) ? data : (data as any).instances || [];
 }
 
@@ -48,12 +48,12 @@ export async function getMyAgents() {
  * Rent a new agent instance
  */
 export async function rentAgent(agentId: string) {
-    return apiPost<AgentInstance>('/v1/agents/rent', { agent_id: agentId });
+    return apiPost<AgentInstance>('/v1/agents/rent', { market_agent_id: agentId });
 }
 
 /**
  * Execute a job on an agent instance
  */
 export async function executeAgentJob(instanceId: string, payload: any) {
-    return apiPost<{ job_id: string }>('/v1/agents/execute', { instance_id: instanceId, payload });
+    return apiPost<{ job_id: string }>(`/v1/agents/instances/${instanceId}/execute`, { payload });
 }

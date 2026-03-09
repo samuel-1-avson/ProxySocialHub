@@ -2,11 +2,19 @@
 package api
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
+	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -70,11 +78,22 @@ func LinkWallet(c *gin.Context) {
 
 	// Verify signature based on chain
 	verified := false
+	var verifyErr error
+	
 	switch req.Chain {
 	case models.ChainSolana:
-		verified = verifySolanaSignature(req.Address, req.Message, req.Signature)
+		verified, verifyErr = verifySolanaSignature(req.Address, req.Message, req.Signature)
 	case models.ChainEthereum:
-		verified = verifyEthereumSignature(req.Address, req.Message, req.Signature)
+		verified, verifyErr = verifyEthereumSignature(req.Address, req.Message, req.Signature)
+	}
+
+	if verifyErr != nil {
+		logging.Error(verifyErr).
+			Str("chain", string(req.Chain)).
+			Str("address", req.Address).
+			Msg("Signature verification error")
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Verification error: %v", verifyErr)})
+		return
 	}
 
 	if !verified {
@@ -119,6 +138,12 @@ func LinkWallet(c *gin.Context) {
 	if isPrimary {
 		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", req.Address)
 	}
+
+	logging.Info().
+		Str("user_id", userID.(uuid.UUID).String()).
+		Str("chain", string(req.Chain)).
+		Str("address", req.Address).
+		Msg("Wallet linked successfully")
 
 	c.JSON(http.StatusCreated, wallet)
 }
@@ -191,21 +216,164 @@ func UnlinkWallet(c *gin.Context) {
 		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", nil)
 	}
 
+	logging.Info().
+		Str("user_id", userID.(uuid.UUID).String()).
+		Str("wallet_id", walletID).
+		Msg("Wallet unlinked")
+
 	c.Status(http.StatusNoContent)
 }
 
-// Signature verification helpers (to be implemented with chain-specific libraries)
+// ============================================================================
+// SIGNATURE VERIFICATION IMPLEMENTATIONS
+// ============================================================================
 
-func verifySolanaSignature(address, message, signature string) bool {
-	// TODO: Implement Ed25519 signature verification for Solana
-	// For now, accept all signatures in development
-	return len(signature) > 0
+// verifySolanaSignature verifies an Ed25519 signature for Solana
+// Returns true if the signature is valid for the given address and message
+func verifySolanaSignature(address, message, signature string) (bool, error) {
+	// Decode the Solana address (base58 encoded Ed25519 public key)
+	pubKeyBytes, err := base58.Decode(address)
+	if err != nil {
+		return false, fmt.Errorf("invalid address encoding: %w", err)
+	}
+
+	// Verify public key length (Ed25519 public keys are 32 bytes)
+	if len(pubKeyBytes) != ed25519.PublicKeySize {
+		return false, fmt.Errorf("invalid public key length: expected %d, got %d", 
+			ed25519.PublicKeySize, len(pubKeyBytes))
+	}
+
+	// Decode the signature (base58 encoded)
+	sigBytes, err := base58.Decode(signature)
+	if err != nil {
+		return false, fmt.Errorf("invalid signature encoding: %w", err)
+	}
+
+	// Verify signature length (Ed25519 signatures are 64 bytes)
+	if len(sigBytes) != ed25519.SignatureSize {
+		return false, fmt.Errorf("invalid signature length: expected %d, got %d",
+			ed25519.SignatureSize, len(sigBytes))
+	}
+
+	// Verify the Ed25519 signature
+	valid := ed25519.Verify(pubKeyBytes, []byte(message), sigBytes)
+	if !valid {
+		return false, fmt.Errorf("signature verification failed")
+	}
+
+	return true, nil
 }
 
-func verifyEthereumSignature(address, message, signature string) bool {
-	// TODO: Implement ECDSA signature verification for Ethereum
-	// Use go-ethereum crypto package
-	return len(signature) > 0
+// verifyEthereumSignature verifies an ECDSA signature for Ethereum
+// Supports both raw hex signatures and prefixed Ethereum signatures
+func verifyEthereumSignature(address, message, signature string) (bool, error) {
+	// Normalize address
+	address = strings.ToLower(address)
+	
+	// Ensure address has 0x prefix
+	if !strings.HasPrefix(address, "0x") {
+		address = "0x" + address
+	}
+
+	// Validate Ethereum address format
+	if !common.IsHexAddress(address) {
+		return false, fmt.Errorf("invalid Ethereum address format")
+	}
+
+	// Decode signature from hex
+	sigBytes, err := hex.DecodeString(strings.TrimPrefix(signature, "0x"))
+	if err != nil {
+		return false, fmt.Errorf("invalid signature hex: %w", err)
+	}
+
+	// Ethereum signatures are 65 bytes: r (32) + s (32) + v (1)
+	if len(sigBytes) != 65 {
+		return false, fmt.Errorf("invalid signature length: expected 65, got %d", len(sigBytes))
+	}
+
+	// Adjust V value if needed (Ethereum uses 27/28 or 0/1)
+	v := sigBytes[64]
+	if v == 27 || v == 28 {
+		sigBytes[64] -= 27
+	}
+
+	// Create the Ethereum-signed message hash
+	// Ethereum standard: \x19Ethereum Signed Message:\n{len(message)}{message}
+	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	msgHash := crypto.Keccak256Hash([]byte(prefix))
+
+	// Extract v value (recovery id)
+	vValue := sigBytes[64]
+	if vValue != 0 && vValue != 1 && vValue != 27 && vValue != 28 {
+		return false, fmt.Errorf("invalid recovery id (v): %d", vValue)
+	}
+
+	// Recover public key
+	pubKey, err := crypto.SigToPub(msgHash.Bytes(), sigBytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to recover public key: %w", err)
+	}
+
+	// Derive address from recovered public key
+	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
+	
+	// Compare addresses (case-insensitive)
+	if strings.EqualFold(recoveredAddr.Hex(), address) {
+		return true, nil
+	}
+
+	// Try without Ethereum prefix (raw signing)
+	rawHash := crypto.Keccak256Hash([]byte(message))
+	pubKeyRaw, err := crypto.SigToPub(rawHash.Bytes(), sigBytes)
+	if err != nil {
+		return false, fmt.Errorf("signature does not match address")
+	}
+	
+	recoveredAddrRaw := crypto.PubkeyToAddress(*pubKeyRaw)
+	if strings.EqualFold(recoveredAddrRaw.Hex(), address) {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("signature does not match address")
+}
+
+// verifyEIP712Signature verifies an EIP-712 typed data signature
+// Used for structured data signing (advanced Ethereum feature)
+func verifyEIP712Signature(address string, typedData, signature string) (bool, error) {
+	// This is a placeholder for EIP-712 verification
+	// Full implementation would require parsing the typed data JSON and
+	// computing the domain separator and type hash
+	
+	// For now, fall back to standard signature verification
+	return verifyEthereumSignature(address, typedData, signature)
+}
+
+// ============================================================================
+// MESSAGE GENERATION HELPERS
+// ============================================================================
+
+// GenerateLinkingMessage creates a standard message for wallet linking
+// This ensures consistent message format across the application
+func GenerateLinkingMessage(userID uuid.UUID, address string, chain models.BlockchainType, timestamp int64) string {
+	return fmt.Sprintf(
+		"Link wallet %s to ProxyHubb user %s (Chain: %s) at timestamp %d. "+
+			"This signature proves ownership of the wallet.",
+		address,
+		userID.String(),
+		chain,
+		timestamp,
+	)
+}
+
+// GenerateTransactionMessage creates a message for transaction signing
+func GenerateTransactionMessage(txType string, amount float64, currency string, nonce string) string {
+	return fmt.Sprintf(
+		"ProxyHubb %s: %.8f %s (Nonce: %s)",
+		txType,
+		amount,
+		currency,
+		nonce,
+	)
 }
 
 // RegisterLinkedWalletRoutes registers linked wallet API routes

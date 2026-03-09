@@ -180,7 +180,7 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 	return true, receivedSOL, nil
 }
 
-// GetTreasuryAddress returns the platform treasury address
-func GetTreasuryAddress() string {
+// GetTreasuryAddressFromDB returns the platform treasury address from database
+func GetTreasuryAddressFromDB() string {
 	return db.GetSystemSetting("solana_treasury_address", "SOLANA_TREASURY_ADDRESS", os.Getenv("SOLANA_TREASURY_ADDRESS"))
 }

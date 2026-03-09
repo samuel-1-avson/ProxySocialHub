@@ -15,19 +15,45 @@ import (
 // RegisterForumRoutes registers community forum routes
 func RegisterForumRoutes(rg *gin.RouterGroup) {
 	rg.GET("/forum/categories", getCategories)
-	rg.GET("/forum/categories/:slug", getCategoryThreads)
+	rg.GET("/forum/categories/:slug", getCategory)
+	rg.GET("/forum/categories/:slug/threads", getCategoryThreads)
 	rg.GET("/forum/threads/:id", getThread)
 	rg.POST("/forum/threads", createThread)
 	rg.POST("/forum/threads/:id/posts", createPost)
 	rg.POST("/forum/posts/:id/vote", votePost)
-	rg.GET("/forum/search", searchForum) // New Search
+	rg.POST("/forum/threads/:id/vote", voteThread)
+	rg.POST("/forum/threads/:id/report", reportThread)
+	rg.POST("/forum/posts/:id/report", reportPost)
+	rg.GET("/forum/search", searchForum)
 	rg.GET("/forum/recent", getRecentThreads)
+	rg.GET("/forum/popular", getPopularThreads)
+	rg.GET("/forum/unanswered", getUnansweredThreads)
+	rg.GET("/forum/my-posts", getMyPosts)
+	rg.GET("/forum/my-threads", getMyThreads)
 }
 
 // getCategories returns all forum categories
 func getCategories(c *gin.Context) {
 	var categories []models.ForumCategory
 	db.DB.Order("sort_order ASC").Find(&categories)
+
+	// Auto-seed default categories if none exist
+	if len(categories) == 0 {
+		defaultCategories := []models.ForumCategory{
+			{Name: "General Discussion", Slug: "general", Description: "General topics and discussions about proxy services", SortOrder: 1},
+			{Name: "Technical Support", Slug: "support", Description: "Get help with technical issues and troubleshooting", SortOrder: 2},
+			{Name: "Feature Requests", Slug: "features", Description: "Suggest new features and improvements", SortOrder: 3},
+			{Name: "Provider Showcase", Slug: "showcase", Description: "Share your proxy setups and configurations", SortOrder: 4},
+			{Name: "Buying & Selling", Slug: "marketplace", Description: "Discuss proxy purchases, deals, and recommendations", SortOrder: 5},
+			{Name: "Announcements", Slug: "announcements", Description: "Official announcements and updates from the team", SortOrder: 6},
+		}
+		
+		for i := range defaultCategories {
+			db.DB.Create(&defaultCategories[i])
+		}
+		
+		categories = defaultCategories
+	}
 
 	// Count threads per category
 	type CategoryWithCount struct {
@@ -46,6 +72,26 @@ func getCategories(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"categories": result})
+}
+
+// getCategory returns a single category by slug
+func getCategory(c *gin.Context) {
+	slug := c.Param("slug")
+
+	var category models.ForumCategory
+	if err := db.DB.Where("slug = ?", slug).First(&category).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+		return
+	}
+
+	// Count threads in category
+	var threadCount int64
+	db.DB.Model(&models.ForumThread{}).Where("category_id = ?", category.ID).Count(&threadCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"category":     category,
+		"thread_count": threadCount,
+	})
 }
 
 // getCategoryThreads returns threads in a category
@@ -318,12 +364,117 @@ func votePost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"upvotes": post.Upvotes, "downvotes": post.Downvotes})
 }
 
+// voteThread handles upvoting/downvoting a thread
+func voteThread(c *gin.Context) {
+	currentUserID, _ := c.Get("user_id")
+	userID := currentUserID.(uuid.UUID)
+
+	threadID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid thread ID"})
+		return
+	}
+
+	var req VoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.VoteType != 1 && req.VoteType != -1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Vote must be 1 or -1"})
+		return
+	}
+
+	var thread models.ForumThread
+	if err := db.DB.First(&thread, "id = ?", threadID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+
+	// Check existing vote
+	var existingVote models.ForumVote
+	hasVote := db.DB.Where("user_id = ? AND thread_id = ?", userID, threadID).First(&existingVote).Error == nil
+
+	tx := db.DB.Begin()
+
+	if hasVote {
+		if existingVote.VoteType == req.VoteType {
+			// Remove vote
+			tx.Delete(&existingVote)
+			if req.VoteType == 1 {
+				tx.Model(&thread).Update("upvotes", thread.Upvotes-1)
+			} else {
+				tx.Model(&thread).Update("downvotes", thread.Downvotes-1)
+			}
+		} else {
+			// Change vote
+			tx.Model(&existingVote).Update("vote_type", req.VoteType)
+			if req.VoteType == 1 {
+				tx.Model(&thread).Updates(map[string]interface{}{
+					"upvotes":   thread.Upvotes + 1,
+					"downvotes": thread.Downvotes - 1,
+				})
+			} else {
+				tx.Model(&thread).Updates(map[string]interface{}{
+					"upvotes":   thread.Upvotes - 1,
+					"downvotes": thread.Downvotes + 1,
+				})
+			}
+		}
+	} else {
+		// New vote
+		vote := models.ForumVote{
+			UserID:   userID,
+			ThreadID: threadID,
+			VoteType: req.VoteType,
+		}
+		tx.Create(&vote)
+		if req.VoteType == 1 {
+			tx.Model(&thread).Update("upvotes", thread.Upvotes+1)
+		} else {
+			tx.Model(&thread).Update("downvotes", thread.Downvotes+1)
+		}
+	}
+
+	tx.Commit()
+
+	db.DB.First(&thread, "id = ?", threadID)
+	c.JSON(http.StatusOK, gin.H{"upvotes": thread.Upvotes, "downvotes": thread.Downvotes})
+}
+
 // getRecentThreads returns recent forum activity
 func getRecentThreads(c *gin.Context) {
+	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
 	db.DB.Preload("Author").Preload("Category").
 		Order("created_at DESC").
-		Limit(10).
+		Limit(limit).
+		Find(&threads)
+
+	c.JSON(http.StatusOK, gin.H{"threads": threads})
+}
+
+// getPopularThreads returns most voted threads
+func getPopularThreads(c *gin.Context) {
+	limit := getLimitParam(c, 20)
+	var threads []models.ForumThread
+	db.DB.Preload("Author").Preload("Category").
+		Order("(upvotes - downvotes) DESC, created_at DESC").
+		Limit(limit).
+		Find(&threads)
+
+	c.JSON(http.StatusOK, gin.H{"threads": threads})
+}
+
+// getUnansweredThreads returns threads with no replies
+func getUnansweredThreads(c *gin.Context) {
+	limit := getLimitParam(c, 20)
+	var threads []models.ForumThread
+	db.DB.Preload("Author").Preload("Category").
+		Where("replies_count = ?", 0).
+		Order("created_at DESC").
+		Limit(limit).
 		Find(&threads)
 
 	c.JSON(http.StatusOK, gin.H{"threads": threads})
@@ -376,4 +527,204 @@ func searchForum(c *gin.Context) {
 		"limit":   limit,
 		"query":   queryStr,
 	})
+}
+
+// getMyPosts returns the current user's forum posts
+func getMyPosts(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+	offset := (page - 1) * limit
+
+	var posts []models.ForumPost
+	var total int64
+
+	db.DB.Model(&models.ForumPost{}).Where("author_id = ?", userID).Count(&total)
+
+	if err := db.DB.Preload("Author").
+		Where("author_id = ?", userID).
+		Order("created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&posts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch posts"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"posts": posts,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
+}
+
+// getMyThreads returns the current user's forum threads
+func getMyThreads(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+	offset := (page - 1) * limit
+
+	var threads []models.ForumThread
+	var total int64
+
+	db.DB.Model(&models.ForumThread{}).Where("author_id = ?", userID).Count(&total)
+
+	if err := db.DB.Preload("Author").Preload("Category").
+		Where("author_id = ?", userID).
+		Order("created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&threads).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch threads"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"threads": threads,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	})
+}
+
+// ReportRequest represents a report submission
+type ReportRequest struct {
+	Reason  string `json:"reason" binding:"required"`
+	Details string `json:"details"`
+}
+
+// reportThread handles reporting a thread
+func reportThread(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	threadID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid thread ID"})
+		return
+	}
+
+	var req ReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Validate reason
+	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "other": true}
+	if !validReasons[req.Reason] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reason"})
+		return
+	}
+
+	// Check if thread exists
+	var thread models.ForumThread
+	if err := db.DB.First(&thread, "id = ?", threadID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+
+	// Create report
+	report := models.ForumReport{
+		ReporterID: userID,
+		ThreadID:   &threadID,
+		Reason:     req.Reason,
+		Details:    req.Details,
+		Status:     "pending",
+	}
+
+	if err := db.DB.Create(&report).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Report submitted successfully"})
+}
+
+// reportPost handles reporting a post
+func reportPost(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	postID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid post ID"})
+		return
+	}
+
+	var req ReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Validate reason
+	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "other": true}
+	if !validReasons[req.Reason] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reason"})
+		return
+	}
+
+	// Check if post exists
+	var post models.ForumPost
+	if err := db.DB.First(&post, "id = ?", postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+		return
+	}
+
+	// Create report
+	report := models.ForumReport{
+		ReporterID: userID,
+		PostID:     &postID,
+		Reason:     req.Reason,
+		Details:    req.Details,
+		Status:     "pending",
+	}
+
+	if err := db.DB.Create(&report).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Report submitted successfully"})
 }
