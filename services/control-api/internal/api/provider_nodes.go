@@ -7,8 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/proxyhubb/control-api/internal/bittensor"
-	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -67,46 +65,6 @@ func createNode(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create node"})
 		return
 	}
-
-	// Phase 2: Decentralized Registry Integration
-	// Attempt to register on-chain via Bridge
-	go func(n models.ProviderNode) {
-		client := GetBittensorClient()
-		if client != nil {
-			// Load config to get dynamic NetUID
-			cfg, err := config.Load()
-			netUID := 1 // Default fallback
-			if err == nil {
-				netUID = cfg.Bittensor.NetUID
-			}
-
-			logging.Info().Str("node_id", n.ID.String()).Int("net_uid", netUID).Msg("Attempting on-chain registration...")
-
-			// Defaulting to NetUID from config and default wallet for now.
-			// In production, the user would provide their wallet or we pay for them.
-			resp, err := client.RegisterProxy(bittensor.RegisterProxyRequest{
-				IP:           n.IPAddress,
-				Port:         8080, // Assuming default port or we need to capture it from user
-				NetUID:       netUID,
-				WalletName:   "default",
-				WalletHotkey: "default",
-			})
-
-			if err != nil {
-				logging.Error(err).Str("node_id", n.ID.String()).Msg("Failed to register on-chain")
-			} else if resp.Status == "success" {
-				logging.Info().Str("node_id", n.ID.String()).Msg("Successfully registered on-chain")
-				// Update DB
-				db.DB.Model(&models.ProviderNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{
-					"is_registered_on_chain": true,
-					"net_uid":                netUID,
-					"hotkey":                 "default",
-				})
-			} else {
-				logging.Warn().Str("node_id", n.ID.String()).Msg("On-chain registration failed: " + resp.Message)
-			}
-		}
-	}(node)
 
 	c.JSON(http.StatusCreated, node)
 }

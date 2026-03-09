@@ -1,12 +1,14 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -55,7 +57,8 @@ func DefaultWAFConfig() WAFConfig {
 		EnableIPReputation: true,
 		EnableGeoBlocking:  false,
 		BlockedCountries:   []string{},
-		WhitelistedIPs:     []string{"127.0.0.1", "::1"},
+		// Whitelist localhost and common Docker networks
+		WhitelistedIPs:     []string{"127.0.0.1", "::1", "172.16.0.0/12", "192.168.0.0/16", "10.0.0.0/8"},
 		BlacklistedIPs:     []string{},
 		ChallengeThreshold: 10,
 		BanThreshold:       3,
@@ -239,6 +242,8 @@ func detectAttack(c *gin.Context, config WAFConfig) string {
 
 // recordSuspiciousActivity tracks suspicious activity and applies penalties
 func recordSuspiciousActivity(ip, attackType string, config WAFConfig) {
+	ctx := context.Background()
+
 	ipReputation.mu.Lock()
 	defer ipReputation.mu.Unlock()
 
@@ -275,6 +280,8 @@ func recordSuspiciousActivity(ip, attackType string, config WAFConfig) {
 
 // isBanned checks if an IP is currently banned
 func isBanned(ip string) bool {
+	ctx := context.Background()
+
 	// Check Redis first for distributed state
 	if redis.Client != nil {
 		_, err := redis.Client.Get(ctx, "waf:banned:"+ip).Result()
@@ -411,16 +418,16 @@ func DDoSProtectionMiddleware(config DDoSConfig) gin.HandlerFunc {
 		// Fixed: string(rune(now)) was incorrect. Using numeric timestamp string.
 		key := fmt.Sprintf("%s:%d", clientIP, now)
 
-		// Get or create counter
-		counter, _ := requestCounters.LoadOrStore(key, &struct{ count int }{0})
-		cnt := counter.(*struct{ count int })
-		cnt.count++
+		// Get or create atomic counter — LoadOrStore + atomic.AddInt64 is race-free.
+		counter, _ := requestCounters.LoadOrStore(key, new(int64))
+		cnt := counter.(*int64)
+		current := atomic.AddInt64(cnt, 1)
 
 		// Check rate
-		if cnt.count > config.MaxRequestsPerSecond {
+		if int(current) > config.MaxRequestsPerSecond {
 			logging.Warn().
 				Str("ip", maskIP(clientIP)).
-				Int("rate", cnt.count).
+				Int64("rate", current).
 				Msg("DDoS: Rate limit exceeded")
 
 			c.Header("Retry-After", "1")

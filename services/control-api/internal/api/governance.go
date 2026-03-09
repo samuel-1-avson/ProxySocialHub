@@ -1,17 +1,19 @@
 package api
 
 import (
+	"crypto/ed25519"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/ipfs"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
-	"github.com/proxyhubb/control-api/internal/payments"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -37,12 +39,17 @@ type GovernanceVoteRequest struct {
 	WalletAddress string `json:"wallet_address" binding:"required"` // Address that signed
 }
 
-// verifyVoteSignature checks if the signature is valid for the vote
-// TODO: Implement actual Solana/ETH signature verification
+// verifyVoteSignature checks if the signature is valid for the vote using Ed25519.
 func verifyVoteSignature(address, message, signature string) bool {
-	// MVP: Check if signature is non-empty and address matches.
-	// Real implementation requires tweetnacl or verifying the curve point.
-	return len(signature) > 10 && len(address) > 10
+	pubKeyBytes, err := base58.Decode(address)
+	if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
+		return false
+	}
+	sigBytes, err := base58.Decode(signature)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(pubKeyBytes, []byte(message), sigBytes)
 }
 
 // createProposal creates a new governance proposal
@@ -228,22 +235,28 @@ func castVote(c *gin.Context) {
 	// Note: In a real system, we'd snapshot the balance at proposal start block
 	// For MVP: We check current balance
 
-	_ = payments.NewTaoClient(GetBittensorClient()) // Client used for future balance check implementation
+	// Calculate voting power based on user role and wallet balance
 	votingPower := 0.0
 
-	// Get user's wallet info (mocked/cached in user struct or fetch fresh?)
 	var user models.User
 	if err := db.DB.First(&user, "id = ?", userID).Error; err == nil {
-		if user.Role == "admin" {
-			votingPower = 1000.0 // Admin super-vote for testing
-		} else {
-			// Try to fetch real balance if wallet is connected
-			// This would rely on caching or direct call
-			// simpler: 1 vote per person + 10 if provider
-			votingPower = 1.0
-			if user.Role == "provider" {
-				votingPower = 10.0
+		// Base voting power
+		votingPower = 1.0
+		
+		// Additional power for providers
+		if user.Role == "provider" {
+			votingPower += 9.0 // 10 total for providers
+		}
+		
+		// Additional power based on wallet balance (if staked)
+		var wallet models.Wallet
+		if err := db.DB.First(&wallet, "user_id = ?", userID).Error; err == nil {
+			// 1 additional vote per 10 SOL staked, max 100
+			stakePower := wallet.BalanceSOL / 10.0
+			if stakePower > 100 {
+				stakePower = 100
 			}
+			votingPower += stakePower
 		}
 	}
 
@@ -328,21 +341,30 @@ func executeProposal(c *gin.Context) {
 		switch proposal.Type {
 		case models.ProposalTypeTreasury:
 			// Parse execution data: {"recipient": "0x...", "amount": 100, "currency": "GHS"}
-			// Placeholder for parsing execution data
-			// var data struct {
-			// 	Recipient string  `json:"recipient"`
-			// 	Amount    float64 `json:"amount"`
-			// 	Currency  string  `json:"currency"`
-			// }
-			// Fallback if ExecutionData is empty (MVP: parse description or require it)
-			// For this demo, we mock it or expect ExecutionData to be populated.
+			var data struct {
+				Recipient string  `json:"recipient"`
+				Amount    float64 `json:"amount"`
+				Currency  string  `json:"currency"`
+			}
+			
+			recipient := "DAO_Recipient"
+			amount := 0.0
+			currency := "SOL"
+			
+			if proposal.ExecutionData != "" {
+				if err := json.Unmarshal([]byte(proposal.ExecutionData), &data); err == nil {
+					recipient = data.Recipient
+					amount = data.Amount
+					currency = data.Currency
+				}
+			}
 
 			// Record Treasury Tx
 			trx := models.TreasuryTransaction{
 				ProposalID:  proposal.ID,
-				Recipient:   "DAO_Recipient", // Placeholder
-				Amount:      1000,            // Placeholder
-				Currency:    "TAO",
+				Recipient:   recipient,
+				Amount:      amount,
+				Currency:    currency,
 				Description: "Executed via Proposal " + proposal.Title,
 				Status:      "executed",
 			}
@@ -351,10 +373,24 @@ func executeProposal(c *gin.Context) {
 		case models.ProposalTypeParameter:
 			// Update Parameter
 			// Logic: Parse "key=value" from ExecutionData
-			// Mock:
+			var data struct {
+				Key   string `json:"key"`
+				Value string `json:"value"`
+			}
+			
+			paramName := "sys_commission_rate"
+			paramValue := "0.05"
+			
+			if proposal.ExecutionData != "" {
+				if err := json.Unmarshal([]byte(proposal.ExecutionData), &data); err == nil {
+					paramName = data.Key
+					paramValue = data.Value
+				}
+			}
+			
 			param := models.ProtocolParameter{
-				Name:  "sys_commission_rate",
-				Value: "0.05",
+				Name:  paramName,
+				Value: paramValue,
 			}
 			tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "name"}},

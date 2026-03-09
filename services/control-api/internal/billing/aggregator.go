@@ -87,10 +87,10 @@ func (a *Aggregator) getProviderPublicKey(providerID string) (string, error) {
 		return node.Hotkey, nil
 	}
 
-	// Fallback: Try LinkedWallet (Solana or Bittensor)
+	// Fallback: Try LinkedWallet (Solana)
 	var linkedWallet models.LinkedWallet
-	if err := db.DB.Where("user_id = ? AND (chain = ? OR chain = ?) AND verified = true",
-		providerID, models.ChainSolana, models.ChainBittensor).First(&linkedWallet).Error; err == nil {
+	if err := db.DB.Where("user_id = ? AND chain = ? AND verified = true",
+		providerID, models.ChainSolana).First(&linkedWallet).Error; err == nil {
 		// Cache the key
 		redis.Client.Set(context.Background(), cacheKey, linkedWallet.Address, a.keyCacheTTL)
 		return linkedWallet.Address, nil

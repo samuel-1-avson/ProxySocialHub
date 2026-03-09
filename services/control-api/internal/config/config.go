@@ -16,12 +16,11 @@ type Config struct {
 	Crypto   CryptoConfig
 
 	Blockchain BlockchainConfig
-	Bittensor  BittensorConfig
+	Gateway    GatewayConfig
 }
 
-type BittensorConfig struct {
-	BridgeURL string
-	NetUID    int
+type GatewayConfig struct {
+	ManagementURL string
 }
 
 type ServerConfig struct {
@@ -152,10 +151,8 @@ func Load() (*Config, error) {
 
 	cfg.Blockchain.RegistryAddress = os.Getenv("REGISTRY_CONTRACT_ADDRESS")
 
-	// Bittensor
-	cfg.Bittensor.BridgeURL = getEnv("BITTENSOR_BRIDGE_URL", "http://localhost:8002")
-	netUIDStr := getEnv("BITTENSOR_NETUID", "1")
-	fmt.Sscanf(netUIDStr, "%d", &cfg.Bittensor.NetUID)
+	// Edge Gateway
+	cfg.Gateway.ManagementURL = getEnv("EDGE_GATEWAY_MGMT_URL", "http://edge-gateway:8090")
 
 	return cfg, nil
 }

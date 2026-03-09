@@ -21,7 +21,7 @@ type StakingPosition struct {
 	UserID    uuid.UUID     `gorm:"type:uuid;not null;index" json:"user_id"`
 	WalletID  uuid.UUID     `gorm:"type:uuid;not null;index" json:"wallet_id"`
 	Amount    float64       `gorm:"type:numeric(20,4);not null" json:"amount"`
-	Currency  string        `gorm:"type:varchar(10);default:'TAO'" json:"currency"`
+	Currency  string        `gorm:"type:varchar(10);default:'SOL'" json:"currency"`
 	APY       float64       `gorm:"type:numeric(5,2);default:15.0" json:"apy"` // Annual Percentage Yield (e.g. 15.0%)
 	StartTime time.Time     `json:"start_time"`
 	EndTime   *time.Time    `json:"end_time,omitempty"` // When it was unstaked

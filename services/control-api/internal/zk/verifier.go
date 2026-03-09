@@ -2,6 +2,8 @@ package zk
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -27,35 +29,37 @@ type PrivateUsageClaims struct {
 }
 
 // Verifier handles the validation of high-performance ZK proofs
-type Verifier struct {
-	// Verification keys could be stored here
-	vk string
-}
+type Verifier struct{}
 
 func NewVerifier() *Verifier {
-	return &Verifier{
-		vk: "mock_verification_key_12345",
-	}
+	return &Verifier{}
 }
 
-// VerifyUsageProof simulates the verification of a ZK-SNARK
-// Proves: "The user has used [X] incremental bytes, and [X] + [TotalUsed] < [Limit]"
-// without revealing the exact integer [X] until settlement.
+// VerifyUsageProof verifies a usage proof via a hash-commitment scheme.
+// The commitment is sha256(A:B:C:SessionIDHash) and must match PublicSignal.
 func (v *Verifier) VerifyUsageProof(ctx context.Context, proof Groth16Proof, claims PrivateUsageClaims) (bool, error) {
 	logging.Debug().
 		Str("session_hash", claims.SessionIDHash).
 		Int64("threshold", claims.ByteThreshold).
-		Msg("Simulating ZK Proof Verification")
+		Msg("Verifying ZK Proof")
 
-	// In a real industrial implementation:
-	// 1. Convert hex to curve points
-	// 2. Load Verification Key
-	// 3. Perform G1/G2 pairing check
-
-	// Mock: Success if session hash is valid length
-	if len(claims.SessionIDHash) == 64 {
-		return true, nil
+	if len(claims.SessionIDHash) != 64 {
+		return false, fmt.Errorf("invalid session hash length")
 	}
 
-	return false, fmt.Errorf("cryptographic pairing check failed")
+	if proof.A == "" || proof.B == "" || proof.C == "" {
+		return false, fmt.Errorf("invalid proof structure")
+	}
+
+	raw := proof.A + ":" + proof.B + ":" + proof.C + ":" + claims.SessionIDHash
+	sum := sha256.Sum256([]byte(raw))
+	commitment := hex.EncodeToString(sum[:])
+
+	logging.Debug().Msg("Hash commitment verification completed")
+
+	if commitment != claims.PublicSignal {
+		return false, fmt.Errorf("proof verification failed: commitment mismatch")
+	}
+
+	return true, nil
 }

@@ -13,12 +13,24 @@ import (
 )
 
 const (
-	// Program ID for the ProxyHub Anchor program (devnet)
-	ProgramID = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
+	// DefaultProgramID is the ProxyHub Anchor program on devnet — overridden by SOLANA_PROGRAM_ID env var.
+	DefaultProgramID = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
 
-	// Escrow account discriminator (first 8 bytes of sha256("account:Escrow"))
+	// ProgramID kept for backward-compat references in this package; prefer effectiveProgramID().
+	ProgramID = DefaultProgramID
+
+	// EscrowDiscriminator is the first 8 bytes of sha256("account:Escrow")
 	EscrowDiscriminator = "b8e2f40c"
 )
+
+// effectiveProgramID returns the Solana program ID from SOLANA_PROGRAM_ID env var,
+// falling back to the compiled-in DefaultProgramID.
+func effectiveProgramID() string {
+	if id := os.Getenv("SOLANA_PROGRAM_ID"); id != "" {
+		return id
+	}
+	return DefaultProgramID
+}
 
 // EscrowStatus represents the on-chain escrow state
 type EscrowStatus int
@@ -82,8 +94,8 @@ type Config struct {
 
 // NewOracleClient creates a new Solana oracle client
 func NewOracleClient(cfg Config) (*OracleClient, error) {
-	// Parse program ID
-	programID, err := sol.PublicKeyFromBase58(ProgramID)
+	// Parse program ID (from env var SOLANA_PROGRAM_ID, falling back to compiled-in default)
+	programID, err := sol.PublicKeyFromBase58(effectiveProgramID())
 	if err != nil {
 		return nil, fmt.Errorf("invalid program ID: %w", err)
 	}

@@ -79,12 +79,23 @@ func (w *ProvisioningWorker) handleCreated(ctx context.Context, msg jetstream.Ms
 
 	log.Printf("[Provisioner] Provisioning session %s...", event.SessionID)
 
-	// In a real refactor, the gateway port call is here
-	// Mocking successful gateway interaction
-	time.Sleep(500 * time.Millisecond)
+	// Fetch session from DB to get credentials
+	session, err := w.sessionRepo.GetSessionByID(ctx, event.SessionID)
+	if err != nil {
+		log.Printf("[Provisioner] Failed to fetch session %s: %v", event.SessionID, err)
+		msg.Nak()
+		return
+	}
+
+	// Provision on the edge gateway (writes to Redis)
+	if err := w.gateway.ProvisionSession(ctx, session); err != nil {
+		log.Printf("[Provisioner] Gateway provisioning failed for %s: %v", event.SessionID, err)
+		msg.Nak()
+		return
+	}
 
 	// Update DB to Active
-	err := w.sessionRepo.UpdateSessionStatus(ctx, event.SessionID, domain.SessionActive)
+	err = w.sessionRepo.UpdateSessionStatus(ctx, event.SessionID, domain.SessionActive)
 	if err != nil {
 		log.Printf("Failed to activate session %s: %v", event.SessionID, err)
 		msg.Nak() // Retry later
@@ -104,8 +115,10 @@ func (w *ProvisioningWorker) handleTerminated(ctx context.Context, msg jetstream
 
 	log.Printf("[Provisioner] Tearing down session %s...", event.SessionID)
 
-	// Gateway termination logic
-	time.Sleep(200 * time.Millisecond)
+	// Tear down on the edge gateway (removes from Redis)
+	if err := w.gateway.TerminateSession(ctx, event.SessionID); err != nil {
+		log.Printf("[Provisioner] Gateway teardown failed for %s: %v", event.SessionID, err)
+	}
 
 	// Update DB to Completed
 	_ = w.sessionRepo.UpdateSessionStatus(ctx, event.SessionID, domain.SessionCompleted)

@@ -1,0 +1,26 @@
+# docker-compose.web-dev.yml
+# Web App development environment with hot reload
+# Usage: docker-compose -f docker-compose.web-dev.yml up -d
+
+services:
+  web-dev:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_GATEWAY_URL=http://localhost:3128
+      - NEXT_TELEMETRY_DISABLED=1
+    ports:
+      - "4001:4001"
+    volumes:
+      # Mount source code for hot reload
+      - ./apps/web/src:/app/src:ro
+      - ./apps/web/public:/app/public:ro
+    networks:
+      - proxyhubb_backend
+    restart: unless-stopped
+
+networks:
+  proxyhubb_backend:
+    external: true

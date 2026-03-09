@@ -184,6 +184,16 @@ type ProviderNode struct {
 	StakedAmountSOL     float64 `gorm:"default:0" json:"staked_amount_sol"`
 	StakePDA            string  `gorm:"size:64" json:"stake_pda,omitempty"`
 	StakeStatus         string  `gorm:"size:20;default:'none'" json:"stake_status"` // none, pending, staked
+
+	// Verification Tier (Phase 6)
+	Tier               string     `gorm:"size:20;default:'unverified'" json:"tier"`
+	TierVerifiedAt     *time.Time `json:"tier_verified_at,omitempty"`
+	TierScore          float64    `gorm:"type:numeric(5,2);default:0" json:"tier_score"`
+	UptimePercent      float64    `gorm:"type:numeric(5,2);default:0" json:"uptime_percent"`
+	TotalSessionsServed int       `gorm:"default:0" json:"total_sessions_served"`
+	AvgLatencyMs       int        `gorm:"default:0" json:"avg_latency_ms"`
+	DisputeCount       int        `gorm:"default:0" json:"dispute_count"`
+	KYCVerified        bool       `gorm:"default:false" json:"kyc_verified"`
 }
 
 func (ProviderNode) TableName() string {
