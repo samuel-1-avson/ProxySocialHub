@@ -2,8 +2,6 @@ package ipfs
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -155,9 +153,8 @@ func (c *IPFSClient) uploadToLocalNode(content string) (string, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		logging.Warn().Err(err).Msg("Local IPFS node not available, using hash-based CID")
-		// Fallback: generate deterministic hash (for dev/testing only)
-		return c.generateFallbackCID(content), nil
+		logging.Error(err).Msg("Local IPFS node not available")
+		return "", fmt.Errorf("IPFS node unavailable: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -171,12 +168,9 @@ func (c *IPFSClient) uploadToLocalNode(content string) (string, error) {
 	return result.Hash, nil
 }
 
-// generateFallbackCID creates a deterministic CID for dev/testing
-// WARNING: This should NOT be used in production
-func (c *IPFSClient) generateFallbackCID(content string) string {
-	hash := sha256.Sum256([]byte(content))
-	// Create a fake but deterministic CID
-	return fmt.Sprintf("Qm%s", hex.EncodeToString(hash[:]))[:46]
+// generateFallbackCID is deprecated - returns error to prevent fake CID usage
+func (c *IPFSClient) generateFallbackCID(content string) (string, error) {
+	return "", fmt.Errorf("IPFS node unavailable - cannot generate CID")
 }
 
 // GetGatewayURL returns the public URL for a given CID

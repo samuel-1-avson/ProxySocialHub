@@ -6,186 +6,135 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/proxyhubb/control-api/internal/api"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// Indexer Service monitors the blockchain (via Bridge) and syncs state
+// Indexer monitors the Solana chain (via the watcher) and syncs state to the DB.
 type Indexer struct {
-	isRunning     bool
-	lastSyncBlock int64
-	pollInterval  time.Duration
+	isRunning    bool
+	pollInterval time.Duration
 }
 
-// NewIndexer creates a new indexer instance
+// NewIndexer creates a new indexer instance.
 func NewIndexer() *Indexer {
 	return &Indexer{
-		pollInterval:  10 * time.Second, // Bittensor blocks are ~12s
-		lastSyncBlock: 0,
+		pollInterval: 12 * time.Second, // ~Solana slot time
 	}
 }
 
-// Start begins the indexing loop in a goroutine
+// Start begins the indexing loop in a goroutine.
 func (i *Indexer) Start() {
 	if i.isRunning {
 		return
 	}
 	i.isRunning = true
-
-	logging.Info().Msg("⛓️  Chain Indexer Started")
-
+	logging.Info().Msg("Chain Indexer Started")
 	go i.loop()
 }
 
 func (i *Indexer) loop() {
 	ticker := time.NewTicker(i.pollInterval)
 	defer ticker.Stop()
-
 	for i.isRunning {
 		select {
 		case <-ticker.C:
-			i.sync()
+			// Solana-based indexing is driven by the Solana watcher (internal/solana/watcher.go).
+			// This loop is reserved for supplementary off-chain sync tasks.
+			logging.Debug().Msg("Indexer: heartbeat")
 		}
 	}
 }
 
-func (i *Indexer) sync() {
-	// Fetch latest block/events from Bridge
-	client := api.GetBittensorClient()
-	if client == nil {
-		logging.Warn().Msg("Indexer: Bittensor Client not ready")
-		return
-	}
-
-	logging.Info().Int64("last_block", i.lastSyncBlock).Msg("Indexer: Syncing chain state...")
-
-	// Fetch events from the Bittensor bridge
-	events, latestBlock, err := client.GetEvents(i.lastSyncBlock)
-	if err != nil {
-		logging.Warn().Err(err).Msg("Indexer: Failed to fetch events from bridge")
-		return
-	}
-
-	// Process each event
-	for _, ev := range events {
-		chainEvent := ChainEvent{
-			Type:    ev.Type,
-			Payload: ev.Payload,
-			Block:   ev.Block,
-		}
-		i.processEvent(chainEvent)
-	}
-
-	// Update last sync block
-	if latestBlock > i.lastSyncBlock {
-		i.lastSyncBlock = latestBlock
-		logging.Info().Int64("block", latestBlock).Msg("Indexer: Synced to block")
-	}
-}
-
-// Event types
+// ChainEvent represents an event parsed from the Solana chain.
 type ChainEvent struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 	Block   int64           `json:"block"`
 }
 
-func (i *Indexer) processEvent(ev ChainEvent) {
-	switch ev.Type {
-	case "ProxyRegistered":
-		i.handleProxyRegistered(ev.Payload)
-	case "SessionStarted":
-		i.handleSessionStarted(ev.Payload)
-	}
-}
-
-func (i *Indexer) handleProxyRegistered(payload json.RawMessage) {
+// HandleProxyRegistered processes a ProxyRegistered on-chain event.
+// data.Address is expected to be a Solana base58 pubkey.
+func HandleProxyRegistered(payload json.RawMessage) {
 	var data struct {
-		Address string `json:"address"`
+		Address string `json:"address"` // Solana wallet pubkey
 		IP      string `json:"ip"`
 		Port    int    `json:"port"`
 		Type    string `json:"proxy_type"`
 	}
 	if err := json.Unmarshal(payload, &data); err != nil {
-		logging.Error(err).Msg("Indexer: Failed to parse ProxyRegistered")
+		logging.Error(err).Msg("Indexer: failed to parse ProxyRegistered")
 		return
 	}
 
-	// Update DB
-	// 1. Find User by Address
+	// Find the user by their linked Solana wallet address.
 	var user models.User
-	if err := db.DB.Where("bittensor_address = ?", data.Address).First(&user).Error; err != nil {
-		logging.Warn().Str("address", data.Address).Msg("Indexer: User not found for ProxyRegistered event, creating placeholder")
-		// Create basic user
+	if err := db.DB.Where("wallet_address = ?", data.Address).First(&user).Error; err != nil {
+		logging.Warn().Str("address", data.Address).Msg("Indexer: user not found for ProxyRegistered — creating placeholder")
 		username := fmt.Sprintf("provider_%s", data.Address[:8])
 		user = models.User{
-			ID:               uuid.New(),
-			Role:             "provider",
-			TrustTier:        models.TrustTierNew,
-			BittensorAddress: &data.Address,
-			Username:         &username,
+			ID:            uuid.New(),
+			Role:          "provider",
+			TrustTier:     models.TrustTierNew,
+			WalletAddress: &data.Address,
+			Username:      &username,
 		}
 		if err := db.DB.Create(&user).Error; err != nil {
-			logging.Error(err).Msg("Indexer: Failed to create placeholder user")
+			logging.Error(err).Msg("Indexer: failed to create placeholder user")
 			return
 		}
 	}
 
-	logging.Info().Str("ip", data.IP).Str("user", user.ID.String()).Msg("Indexer: Syncing Proxy Registration")
+	logging.Info().Str("ip", data.IP).Str("user", user.ID.String()).Msg("Indexer: syncing proxy registration")
 
-	// 2. Create/Update Provider Node
 	node := models.Node{
 		ID:                  uuid.New(),
 		ProviderUserID:      user.ID,
 		IPAddress:           data.IP,
 		Port:                data.Port,
-		Protocol:            data.Type, // assuming type maps to protocol
+		Protocol:            data.Type,
 		Region:              "unknown",
 		IsHealthy:           true,
 		QualityScore:        100.0,
 		LastSeenAt:          time.Now(),
 		IsRegisteredOnChain: true,
-		Hotkey:              data.Address, // Using address as hotkey for simple mapping
+		Hotkey:              data.Address,
 	}
 
-	// Check availability
 	var existing models.Node
 	if err := db.DB.Where("ip_address = ? AND port = ?", data.IP, data.Port).First(&existing).Error; err == nil {
-		// Update existing
 		existing.IsHealthy = true
 		existing.LastSeenAt = time.Now()
 		existing.IsRegisteredOnChain = true
 		db.DB.Save(&existing)
 	} else {
-		// Create new
 		db.DB.Create(&node)
 	}
 }
 
-func (i *Indexer) handleSessionStarted(payload json.RawMessage) {
+// HandleSessionStarted processes a SessionStarted on-chain event.
+// data.Buyer is expected to be a Solana base58 wallet pubkey.
+func HandleSessionStarted(payload json.RawMessage) {
 	var data struct {
-		Buyer     string    `json:"buyer_address"` // Bittensor Address
+		Buyer     string    `json:"buyer_address"` // Solana wallet pubkey
 		ListingID uuid.UUID `json:"listing_id"`
 		SessionID uuid.UUID `json:"session_id"`
-		Duration  int       `json:"duration_seconds"` // or hours
+		Duration  int       `json:"duration_seconds"`
 	}
 	if err := json.Unmarshal(payload, &data); err != nil {
-		logging.Error(err).Msg("Indexer: Failed to parse SessionStarted")
+		logging.Error(err).Msg("Indexer: failed to parse SessionStarted")
 		return
 	}
 
-	logging.Info().Str("session_id", data.SessionID.String()).Msg("Indexer: Detected new Session on-chain")
+	logging.Info().Str("session_id", data.SessionID.String()).Msg("Indexer: detected new session on-chain")
 
-	// 1. Find User by Address
 	var buyer models.User
-	if err := db.DB.Where("bittensor_address = ?", data.Buyer).First(&buyer).Error; err != nil {
-		logging.Warn().Msg("Indexer: Buyer not found for SessionStarted event")
+	if err := db.DB.Where("wallet_address = ?", data.Buyer).First(&buyer).Error; err != nil {
+		logging.Warn().Str("buyer", data.Buyer).Msg("Indexer: buyer not found for SessionStarted event")
 		return
 	}
 
-	// 2. Create Session Record
 	endTime := time.Now().Add(time.Duration(data.Duration) * time.Second)
 	session := models.Session{
 		ID:              data.SessionID,
@@ -196,16 +145,13 @@ func (i *Indexer) handleSessionStarted(payload json.RawMessage) {
 		ExpiresAt:       &endTime,
 		BytesUsed:       0,
 		BandwidthLimit:  0,
-		Type:            models.SessionRotating, // Default type or derived from listing
+		Type:            models.SessionRotating,
 		CredentialsUser: "chain_user",
 		CredentialsPass: "chain_pass",
 	}
 
-	// Fetch Listing to get Provider/Node info
 	var listing models.ProxyListing
 	if err := db.DB.First(&listing, "id = ?", data.ListingID).Error; err == nil {
-		// If listing has a specific NodeID linked (not in current model, but let's assume we search nodes by provider)
-		// For now, finding ANY node by this provider
 		var node models.Node
 		if err := db.DB.Where("provider_user_id = ?", listing.SellerID).First(&node).Error; err == nil {
 			id := node.ID
@@ -214,8 +160,8 @@ func (i *Indexer) handleSessionStarted(payload json.RawMessage) {
 	}
 
 	if err := db.DB.Create(&session).Error; err != nil {
-		logging.Error(err).Msg("Indexer: Failed to create session")
+		logging.Error(err).Msg("Indexer: failed to create session")
 	} else {
-		logging.Info().Msg("Indexer: Session synced to DB")
+		logging.Info().Msg("Indexer: session synced to DB")
 	}
 }

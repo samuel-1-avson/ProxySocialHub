@@ -63,7 +63,7 @@ func LinkWallet(c *gin.Context) {
 	}
 
 	// Validate chain type
-	if req.Chain != models.ChainSolana && req.Chain != models.ChainEthereum && req.Chain != models.ChainBittensor {
+	if req.Chain != models.ChainSolana && req.Chain != models.ChainEthereum {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid chain type"})
 		return
 	}
@@ -75,8 +75,6 @@ func LinkWallet(c *gin.Context) {
 		verified = verifySolanaSignature(req.Address, req.Message, req.Signature)
 	case models.ChainEthereum:
 		verified = verifyEthereumSignature(req.Address, req.Message, req.Signature)
-	case models.ChainBittensor:
-		verified = verifyBittensorSignature(req.Address, req.Message, req.Signature)
 	}
 
 	if !verified {
@@ -119,12 +117,7 @@ func LinkWallet(c *gin.Context) {
 
 	// Also update legacy wallet fields in user profile for backwards compatibility
 	if isPrimary {
-		switch req.Chain {
-		case models.ChainSolana, models.ChainEthereum:
-			db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", req.Address)
-		case models.ChainBittensor:
-			db.DB.Model(&models.User{}).Where("id = ?", userID).Update("bittensor_address", req.Address)
-		}
+		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", req.Address)
 	}
 
 	c.JSON(http.StatusCreated, wallet)
@@ -162,12 +155,7 @@ func SetPrimaryWallet(c *gin.Context) {
 	db.DB.Save(&wallet)
 
 	// Update legacy field
-	switch wallet.Chain {
-	case models.ChainSolana, models.ChainEthereum:
-		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", wallet.Address)
-	case models.ChainBittensor:
-		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("bittensor_address", wallet.Address)
-	}
+	db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", wallet.Address)
 
 	c.JSON(http.StatusOK, wallet)
 }
@@ -200,12 +188,7 @@ func UnlinkWallet(c *gin.Context) {
 
 	// If this was primary, clear legacy field
 	if wallet.IsPrimary {
-		switch wallet.Chain {
-		case models.ChainSolana, models.ChainEthereum:
-			db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", nil)
-		case models.ChainBittensor:
-			db.DB.Model(&models.User{}).Where("id = ?", userID).Update("bittensor_address", nil)
-		}
+		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", nil)
 	}
 
 	c.Status(http.StatusNoContent)
@@ -222,11 +205,6 @@ func verifySolanaSignature(address, message, signature string) bool {
 func verifyEthereumSignature(address, message, signature string) bool {
 	// TODO: Implement ECDSA signature verification for Ethereum
 	// Use go-ethereum crypto package
-	return len(signature) > 0
-}
-
-func verifyBittensorSignature(address, message, signature string) bool {
-	// TODO: Implement SR25519/Ed25519 signature verification for Bittensor
 	return len(signature) > 0
 }
 

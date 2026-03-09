@@ -12,7 +12,7 @@ type ExplorerBlock struct {
 	ID               uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
 	BlockHash        string    `gorm:"type:varchar(128);uniqueIndex" json:"block_hash"`
 	BlockNumber      uint64    `gorm:"uniqueIndex" json:"block_number"`
-	Chain            string    `gorm:"type:varchar(20);default:'solana'" json:"chain"` // "solana", "bittensor"
+	Chain            string    `gorm:"type:varchar(20);default:'solana'" json:"chain"` // "solana", "ethereum"
 	ParentHash       string    `gorm:"type:varchar(128)" json:"parent_hash"`
 	Timestamp        time.Time `json:"timestamp"`
 	TransactionCount int       `json:"transaction_count"`
@@ -32,7 +32,7 @@ type ExplorerTransaction struct {
 	FromAddress   string    `gorm:"type:varchar(128);index" json:"from_address"`
 	ToAddress     string    `gorm:"type:varchar(128);index" json:"to_address"`
 	Amount        float64   `gorm:"type:numeric(20,8)" json:"amount"`
-	Currency      string    `gorm:"type:varchar(20)" json:"currency"` // SOL, TAO, etc.
+	Currency      string    `gorm:"type:varchar(20)" json:"currency"` // SOL, USDC, etc.
 	Fee           float64   `gorm:"type:numeric(20,8)" json:"fee"`
 	Status        string    `gorm:"type:varchar(20)" json:"status"`                // "confirmed", "pending", "failed"
 	TxType        string    `gorm:"type:varchar(50)" json:"tx_type"`               // "transfer", "escrow_init", "escrow_settle", "stake", "unstake"
@@ -47,7 +47,7 @@ type ExplorerTransaction struct {
 // ExplorerNode represents a cached node/validator from the network
 type ExplorerNode struct {
 	ID             uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
-	NodeID         string    `gorm:"type:varchar(128);uniqueIndex" json:"node_id"` // Solana/Bittensor address
+	NodeID         string    `gorm:"type:varchar(128);uniqueIndex" json:"node_id"` // Solana/Ethereum address
 	Chain          string    `gorm:"type:varchar(20)" json:"chain"`
 	Name           string    `gorm:"type:varchar(255)" json:"name,omitempty"`
 	IP             string    `gorm:"type:varchar(45)" json:"-"` // Hidden for privacy, only show region

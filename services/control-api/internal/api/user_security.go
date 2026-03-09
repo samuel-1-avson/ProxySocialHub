@@ -419,8 +419,6 @@ func getLoginAttempts(c *gin.Context) {
 	var identifier string
 	if user.WalletAddress != nil {
 		identifier = *user.WalletAddress
-	} else if user.BittensorAddress != nil {
-		identifier = *user.BittensorAddress
 	}
 
 	if identifier != "" {

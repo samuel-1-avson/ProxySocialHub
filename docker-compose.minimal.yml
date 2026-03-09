@@ -1,0 +1,124 @@
+# docker-compose.minimal.yml
+# Minimal setup for testing control-api only
+# Usage: docker-compose -f docker-compose.minimal.yml up -d
+
+services:
+  # ==================== CONTROL API ====================
+  control-api:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile.simple
+    environment:
+      - DATABASE_URL=postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - PORT=8080
+      - APP_ENV=${APP_ENV:-development}
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:8080}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+    
+    ports:
+      - "8080:8080"
+    
+    # Security hardening
+    read_only: true
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m,uid=1000,gid=1000
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    restart: unless-stopped
+    
+    networks:
+      - backend
+    
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ==================== REDIS (SECURED) ====================
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --requirepass cf31a09442a2129a1b61ed789176774a
+      --appendonly yes
+      --protected-mode yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    
+    volumes:
+      - redis_data:/data
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    networks:
+      - backend
+
+  # ==================== POSTGRES ====================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
+      - POSTGRES_PASSWORD=proxyhubb
+      - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proxyhubb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
+    restart: unless-stopped
+    
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:

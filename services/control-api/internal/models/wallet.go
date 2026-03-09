@@ -19,9 +19,9 @@ const (
 type Wallet struct {
 	ID          uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
 	UserID      uuid.UUID `gorm:"type:uuid;unique;not null" json:"user_id"`
-	BalanceGHS  float64   `gorm:"type:numeric(20,4);default:0" json:"balance_ghs"`  // Fiat (Legacy)
-	BalanceSOL  float64   `gorm:"type:numeric(20,4);default:0" json:"balance_sol"`  // Native Token
-	BalanceUSDT float64   `gorm:"type:numeric(20,4);default:0" json:"balance_usdt"` // Stablecoin
+	BalanceGHS  float64   `gorm:"column:balance;type:numeric(20,4);default:0" json:"balance_ghs"`   // Fiat (Legacy)
+	BalanceSOL  float64   `gorm:"column:balance_sol;type:numeric(20,4);default:0" json:"balance_sol"`  // Native Token
+	BalanceUSDT float64   `gorm:"column:balance_usdt;type:numeric(20,4);default:0" json:"balance_usdt"` // Stablecoin
 	// Deprecating single Balance/Currency fields in favor of explicit columns
 	Currency  string    `gorm:"type:varchar(10);default:'MULTI'" json:"currency"`
 	CreatedAt time.Time `json:"created_at"`

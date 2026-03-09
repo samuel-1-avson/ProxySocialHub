@@ -1,0 +1,61 @@
+﻿{
+    "overall":  "UNHEALTHY",
+    "timestamp":  "2026-02-25 13:40:52",
+    "services":  [
+                     {
+                         "status":  "HEALTHY",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-control-api-1"
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-postgres-1"
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-redis-1"
+                     },
+                     {
+                         "status":  "DEGRADED",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-edge-gateway-1",
+                         "health":  "unhealthy"
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "url":  "http://localhost:8080/health",
+                         "name":  "Control API Health",
+                         "response":  {
+                                          "status":  "ok"
+                                      }
+                     },
+                     {
+                         "status":  "UNHEALTHY",
+                         "url":  "http://localhost:8080/v1/system/config/public",
+                         "name":  "Public Config API",
+                         "error":  "The remote server returned an error: (403) Forbidden."
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-postgres-1"
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "container_status":  "running",
+                         "name":  "proxyhubb-redis-1"
+                     },
+                     {
+                         "status":  "HEALTHY",
+                         "processes":  14,
+                         "name":  "Node.js Frontend"
+                     },
+                     {
+                         "status":  "DISABLED",
+                         "name":  "Supabase",
+                         "mode":  "Backend JWT only"
+                     }
+                 ]
+}

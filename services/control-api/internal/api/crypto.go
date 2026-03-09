@@ -5,14 +5,11 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
-	"github.com/proxyhubb/control-api/internal/bittensor"
-	"github.com/proxyhubb/control-api/internal/bridge"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -21,7 +18,7 @@ import (
 
 type linkWalletRequest struct {
 	WalletAddress string `json:"wallet_address"`
-	Chain         string `json:"chain" binding:"required"` // "solana", "bittensor"
+	Chain         string `json:"chain" binding:"required"` // "solana"
 	Signature     string `json:"signature"`
 	Message       string `json:"message"`
 }
@@ -59,8 +56,6 @@ func linkWallet(c *gin.Context) {
 	if c.Request.Method == "DELETE" {
 		if req.Chain == "solana" {
 			user.WalletAddress = nil
-		} else if req.Chain == "bittensor" {
-			user.BittensorAddress = nil
 		} else {
 			tx.Rollback()
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
@@ -121,29 +116,6 @@ func linkWallet(c *gin.Context) {
 		}
 
 		user.WalletAddress = &req.WalletAddress
-	} else if req.Chain == "bittensor" {
-		// Verify signature using the Bittensor bridge
-		client := GetBittensorClient()
-		if client == nil {
-			tx.Rollback()
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Bittensor bridge client not initialized"})
-			return
-		}
-
-		isValid, err := client.VerifySignature(req.WalletAddress, req.Message, req.Signature)
-		if err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Bittensor signature verification failed: " + err.Error()})
-			return
-		}
-
-		if !isValid {
-			tx.Rollback()
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Bittensor signature"})
-			return
-		}
-
-		user.BittensorAddress = &req.WalletAddress
 	} else {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
@@ -166,10 +138,9 @@ func linkWallet(c *gin.Context) {
 }
 
 type cryptoDepositRequest struct {
-	TxHash             string  `json:"tx_hash" binding:"required"`
-	Amount             float64 `json:"amount" binding:"required,gt=0"`
-	Chain              string  `json:"chain" binding:"required"` // "solana", "bittensor"
-	DestinationAddress string  `json:"destination_address"`      // Optional: For direct bridge
+	TxHash string  `json:"tx_hash" binding:"required"`
+	Amount float64 `json:"amount" binding:"required,gt=0"`
+	Chain  string  `json:"chain" binding:"required"` // "solana"
 }
 
 // verifyCryptoDeposit verifies an external crypto transfer and credits the internal wallet
@@ -188,81 +159,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 	userID := userUUID.String()
 	ctx := context.Background()
 
-	// --- DIRECT BRIDGE FLOW (Solana -> Bittensor) ---
-	if req.Chain == "solana" && req.DestinationAddress != "" {
-		logging.Info().Str("tx", req.TxHash).Str("dest", req.DestinationAddress).Msg("Initiating Direct Bridge")
-
-		// Initialize Bridge Service (On-the-fly)
-		endpointsStr := os.Getenv("SOLANA_RPC_ENDPOINTS")
-		var rpcEndpoints []string
-		if endpointsStr != "" {
-			rpcEndpoints = strings.Split(endpointsStr, ",")
-			for i := range rpcEndpoints {
-				rpcEndpoints[i] = strings.TrimSpace(rpcEndpoints[i])
-			}
-		} else {
-			rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-			if rpcEndpoint == "" {
-				rpcEndpoint = "https://api.devnet.solana.com"
-			}
-			rpcEndpoints = []string{rpcEndpoint}
-		}
-
-		cfg := solana.Config{
-			RPCEndpoints:      rpcEndpoints,
-			OracleKeypairPath: os.Getenv("ORACLE_KEYPAIR_PATH"),
-		}
-
-		oracleClient, err := solana.NewOracleClient(cfg)
-		if err != nil {
-			logging.Error(err).Msg("Failed to init oracle client for bridge")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Bridge service unavailable"})
-			return
-		}
-
-		// Import cycle note: 'bridge' package imports 'solana', ensuring no cycle if 'api' imports 'bridge'.
-		// We need to import "github.com/proxyhubb/control-api/internal/bridge"
-		// If 'api' is not importing it yet, we need to add it.
-		// Since I can't add imports easily with replace_file_content mid-file, I will assume I need to fix imports in a separate step or add it now if I can replace the header.
-		// Detailed plan: I'll replace the whole file imports later. For now, I'll write the logic assuming 'bridge' is imported.
-
-		// Actually, I'll use a helper to get the service if possible, or just instantiate here.
-		// Since I can't easily edit imports in this specific tool call if I don't target the top...
-		// I will split this into two calls. First add import, then add logic.
-		// Or I will replace header AND this section.
-		// Wait, replace_file_content can do imports if I include the top.
-
-		// Let's assume I will fix imports after.
-		bridgeService, err := bridge.NewService(oracleClient)
-		if err != nil {
-			logging.Error(err).Msg("Failed to create bridge service")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Bridge service init failed"})
-			return
-		}
-
-		result, err := bridgeService.ProcessSolanaToBittensor(ctx, req.TxHash, req.DestinationAddress)
-		if err != nil {
-			logging.Error(err).Msg("Bridge transfer failed")
-			// Detailed error
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Bridge failed: " + err.Error()})
-			return
-		}
-
-		// Success -> Return immediately (funds bridged, no internal credit)
-		c.JSON(http.StatusOK, gin.H{
-			"status":        "success",
-			"message":       "Funds bridged successfully",
-			"source_amount": result.AmountSource,
-			"dest_amount":   result.AmountDest,
-			"dest_tx":       result.DestTx,
-		})
-		return
-	}
-
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
 	var verifiedAmount float64
 
-	if req.Chain == "solana" && req.DestinationAddress == "" {
+	if req.Chain == "solana" {
 		// Get treasury address
 		treasuryAddress := solana.GetTreasuryAddress()
 		if treasuryAddress == "" {
@@ -293,52 +193,6 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Float64("amount_sol", verifiedAmount).
 			Msg("Solana deposit verified on-chain")
 
-	} else if req.Chain == "bittensor" {
-		logging.Info().
-			Str("tx_hash", req.TxHash).
-			Float64("amount", req.Amount).
-			Str("chain", req.Chain).
-			Msg("Processing Bittensor deposit request")
-
-		// Get treasury address
-		treasuryAddress := bittensor.GetTreasuryAddress()
-		if treasuryAddress == "" {
-			logging.Error(nil).Msg("TAO_TREASURY_ADDRESS not configured")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "TAO Treasury not configured"})
-			return
-		}
-		logging.Info().Str("treasury", treasuryAddress).Msg("TAO treasury configured")
-
-		// Try to verify extrinsic on Subscan
-		transfer, err := bittensor.VerifyTransferToTreasury(ctx, req.TxHash, 0)
-		if err != nil {
-			// In testnet mode, fall back to trusting the amount if Subscan fails
-			// This is because testnet may not have a reliable explorer API
-			network := os.Getenv("BITTENSOR_NETWORK")
-			if network == "testnet" {
-				logging.Warn().
-					Err(err).
-					Str("tx_hash", req.TxHash).
-					Float64("claimed_amount", req.Amount).
-					Msg("Bittensor testnet verification failed - using trusted amount for development")
-				verifiedAmount = req.Amount
-			} else {
-				logging.Error(err).Str("tx_hash", req.TxHash).Msg("Bittensor extrinsic verification failed")
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Extrinsic verification failed: " + err.Error()})
-				return
-			}
-		} else {
-			verifiedAmount = transfer.Amount
-			logging.Info().
-				Str("tx_hash", req.TxHash).
-				Float64("amount_tao", verifiedAmount).
-				Int64("block", transfer.BlockNumber).
-				Msg("Bittensor deposit verified on-chain")
-		}
-	} else if req.DestinationAddress != "" {
-		// Chain is not solana but dest address provided? unsupported for direct bridge now
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Direct bridge only supported for Solana -> Bittensor currently"})
-		return
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return

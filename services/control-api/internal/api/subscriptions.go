@@ -101,14 +101,16 @@ func subscribe(c *gin.Context) {
 	// Convert to SOL
 	solPrice, err := prices.GetSOLPrice(c.Request.Context())
 	if err != nil {
-		// Fallback or error
-		solPrice = 145.0 // Mock fallback
+		// Fallback to exchange rate API
+		solPrice = GetSolToUsdtRate()
 	}
-	// Assuming priceGHS is roughly USD equivalent for this context or using fixed rate
+	if solPrice <= 0 {
+		c.JSON(503, gin.H{"error": "price service unavailable"})
+		return
+	}
 	// Real logic: GHS -> USD -> SOL.
 	// For MVP: priceSOL = priceGHS / solPrice (assuming priceGHS is actually USD value in DB or 1:1)
-	priceTAO := priceGHS / solPrice // Keeping variable name priceTAO to avoid massive diff, but logic is SOL cost
-	// priceSOL := priceGHS / solPrice
+	priceSOL := priceGHS / solPrice
 
 	// Charge from wallet
 	var wallet models.Wallet
@@ -117,7 +119,7 @@ func subscribe(c *gin.Context) {
 		return
 	}
 
-	if wallet.BalanceSOL < priceTAO {
+	if wallet.BalanceSOL < priceSOL {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL balance"})
 		return
 	}
@@ -125,17 +127,17 @@ func subscribe(c *gin.Context) {
 	tx := db.DB.Begin()
 
 	// Deduct from wallet
-	newBalance := wallet.BalanceSOL - priceTAO
+	newBalance := wallet.BalanceSOL - priceSOL
 	tx.Model(&wallet).Update("balance_sol", newBalance)
 
 	// Create ledger entry
 	ledger := models.WalletLedgerEntry{
 		WalletID:     wallet.ID,
-		Amount:       -priceTAO,
+		Amount:       -priceSOL,
 		BalanceAfter: newBalance,
 		Type:         "subscription",
 		ReferenceID:  req.PlanID.String(),
-		Description:  fmt.Sprintf("Subscription to %s (%.4f TAO)", plan.Name, priceTAO),
+		Description:  fmt.Sprintf("Subscription to %s (%.4f SOL)", plan.Name, priceSOL),
 	}
 	tx.Create(&ledger)
 

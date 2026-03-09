@@ -25,18 +25,18 @@ var globalPriceCache = PriceCache{
 
 const (
 	CACHE_DURATION     = 1 * time.Minute // Update every minute
-	COINGECKO_API_URL  = "https://api.coingecko.com/api/v3/simple/price?ids=bittensor&vs_currencies=usd"
+	COINGECKO_API_URL  = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
 	FIXED_GHS_USD_RATE = 15.5 // GHS is relatively stable, can be updated less frequently or fetched
 )
 
 type CoinGeckoResponse struct {
-	Bittensor struct {
+	Solana struct {
 		USD float64 `json:"usd"`
-	} `json:"bittensor"`
+	} `json:"solana"`
 }
 
-// GetTaoToGhsRate returns the current exchange rate: How many GHS for 1 TAO
-func GetTaoToGhsRate() float64 {
+// GetSolToGhsRate returns the current exchange rate: How many GHS for 1 SOL
+func GetSolToGhsRate() float64 {
 	globalPriceCache.Mutex.RLock()
 	// If cache is valid (less than 1 min old), return it
 	if time.Since(globalPriceCache.LastFetch) < CACHE_DURATION && globalPriceCache.Rate > 0 {
@@ -107,15 +107,15 @@ func fetchCoinGecko() (float64, error) {
 		return 0, err
 	}
 
-	taoUsd := data.Bittensor.USD
-	if taoUsd == 0 {
+	solUsd := data.Solana.USD
+	if solUsd == 0 {
 		return 0, fmt.Errorf("Invalid price data returned")
 	}
 
 	ghsRate := getGhsUsdRate()
-	rate := taoUsd * ghsRate
+	rate := solUsd * ghsRate
 
-	logging.Info().Float64("tao_usd", taoUsd).Float64("ghs_rate", rate).Msg("Updated Exchange Rate via CoinGecko")
+	logging.Info().Float64("sol_usd", solUsd).Float64("ghs_rate", rate).Msg("Updated Exchange Rate via CoinGecko")
 	return rate, nil
 }
 

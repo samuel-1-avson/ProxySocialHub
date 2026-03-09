@@ -1,0 +1,51 @@
+# Dockerfile.simple for Edge Gateway
+# Multi-stage build for production
+
+# Stage 1: Build
+FROM rust:1.84-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig perl git make gcc g++
+
+WORKDIR /app
+
+# Copy Cargo files first for caching
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+
+# Copy source code
+COPY src ./src
+# Note: proto files should be copied from root context
+# For now, we'll skip proto compilation and use pre-generated code
+# COPY proto ./proto
+
+# Build release binary
+RUN cargo build --release
+
+# Stage 2: Runtime
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates curl
+
+# Create non-root user
+RUN adduser -D -u 1000 gatewayuser
+
+# Copy binary
+COPY --from=builder /app/target/release/edge-gateway /usr/local/bin/edge-gateway
+
+# Change ownership
+RUN chown gatewayuser:gatewayuser /usr/local/bin/edge-gateway
+
+# Switch to non-root user
+USER gatewayuser
+
+# Expose ports
+EXPOSE 3128 8090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8090/health || exit 1
+
+# Run
+CMD ["edge-gateway"]

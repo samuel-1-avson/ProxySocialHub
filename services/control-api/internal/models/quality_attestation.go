@@ -23,18 +23,17 @@ const (
 	ValidatorInactive ValidatorStatus = "inactive" // Voluntarily inactive
 )
 
-// Validator represents a quality attestation validator on Bittensor subnet
+// Validator represents a Solana-staked quality attestation validator
 type Validator struct {
 	ID     uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
 	UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_validator_user" json:"user_id"`
 
-	// Bittensor Identity
-	Hotkey  string `gorm:"type:varchar(64);not null;uniqueIndex:idx_validator_hotkey" json:"hotkey"`
+	// Solana Identity
+	Hotkey  string `gorm:"type:varchar(64);not null;uniqueIndex:idx_validator_hotkey" json:"hotkey"` // Solana pubkey (base58)
 	Coldkey string `gorm:"type:varchar(64)" json:"coldkey"`
-	NetUID  int    `gorm:"not null;default:1" json:"net_uid"` // Bittensor subnet UID
 
 	// Stake & Trust
-	StakedAmount     float64 `gorm:"default:0" json:"staked_amount"` // TAO staked
+	StakedAmount     float64 `gorm:"default:0" json:"staked_amount"` // SOL staked
 	MinStakeRequired float64 `gorm:"default:10" json:"min_stake_required"`
 	TrustScore       float64 `gorm:"default:100" json:"trust_score"` // 0-100
 

@@ -86,9 +86,10 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 	}
 
 	costGHS := float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
-	// Get Rate (mock)
-	rate := 100.0 // GHS per TAO (example)
-	costTAO := costGHS / rate
+	
+	// Use hardcoded fallback rate (GHS -> SOL) � integrate coingecko prices package when needed
+	rate := 100.0
+	costSOL := costGHS / rate
 
 	// 3. DB Transaction
 	return db.DB.Transaction(func(tx *gorm.DB) error {
@@ -97,14 +98,12 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			return err
 		}
 
-		if wallet.BalanceSOL < costTAO {
-			// Insufficient funds handling (should have been caught by real-time layer)
-			// We force deduct resulting in negative balance? Or terminate?
-			// For settlement, we take what we can or go negative.
-			wallet.BalanceSOL -= costTAO
-		} else {
-			wallet.BalanceSOL -= costTAO
+		sessionUUID, _ := uuid.Parse(sessionID)
+		if wallet.BalanceSOL < costSOL {
+			logging.Warn().Str("session_id", sessionUUID.String()).Float64("need", costSOL).Float64("have", wallet.BalanceSOL).Msg("Billing: insufficient SOL balance, terminating session")
+			return fmt.Errorf("insufficient SOL balance")
 		}
+		wallet.BalanceSOL -= costSOL
 
 		if err := tx.Save(&wallet).Error; err != nil {
 			return err
@@ -113,10 +112,10 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		// Create Ledger Entry
 		ledger := models.WalletLedgerEntry{
 			WalletID:     wallet.ID,
-			Amount:       -costTAO,
+			Amount:       -costSOL,
 			BalanceAfter: wallet.BalanceSOL,
 			Type:         models.TransactionUsage,
-			Description:  fmt.Sprintf("Hourly Settlement: %d bytes (%.6f SOL)", totalBytes, costTAO),
+			Description:  fmt.Sprintf("Hourly Settlement: %d bytes (%.6f SOL)", totalBytes, costSOL),
 			CreatedAt:    time.Now(),
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
@@ -132,8 +131,8 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		if providerID != uuid.Nil {
 			var score models.ProviderScore
 			if err := tx.FirstOrCreate(&score, models.ProviderScore{ProviderID: providerID}).Error; err == nil {
-				// Mock latency for now (would come from session stats)
-				latency := 100.0 // Default/Placeholder
+				// Get actual latency from session stats
+				latency := getSessionLatency(session.ID)
 				score.RecordSessionCompletion(true, totalBytes, latency)
 				tx.Save(&score)
 			}
@@ -147,4 +146,27 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 
 		return nil
 	})
+}
+
+// getSessionLatency retrieves the average latency for a session from Redis or database
+func getSessionLatency(sessionID uuid.UUID) float64 {
+	// Try to get from Redis first
+	ctx := context.Background()
+	latencyKey := fmt.Sprintf("session:%s:latency", sessionID.String())
+	
+	if redis.Client != nil {
+		latency, err := redis.Client.Get(ctx, latencyKey).Float64()
+		if err == nil && latency > 0 {
+			return latency
+		}
+	}
+	
+	// Fallback: query database for session metrics
+	var metrics models.SessionMetrics
+	if err := db.DB.Where("session_id = ?", sessionID).Order("created_at DESC").First(&metrics).Error; err == nil {
+		return metrics.AvgLatencyMs
+	}
+	
+	// Default fallback if no data available
+	return 0
 }
