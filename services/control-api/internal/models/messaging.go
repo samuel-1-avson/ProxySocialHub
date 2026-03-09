@@ -55,10 +55,30 @@ type Message struct {
 	Content        string     `gorm:"not null" json:"content"`
 	ReadAt         *time.Time `json:"read_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
+	
+	// Enhanced messaging fields
+	Type        string     `gorm:"size:20;default:'text'" json:"type"`
+	ReplyToID   *uuid.UUID `gorm:"type:uuid" json:"reply_to_id,omitempty"`
+	EditedAt    *time.Time `json:"edited_at,omitempty"`
+	IsDeleted   bool       `gorm:"default:false" json:"is_deleted"`
 
 	// Preloaded relations
-	Sender       *User         `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
-	Conversation *Conversation `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
+	Sender       *User              `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
+	Conversation *Conversation      `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
+	Reactions    []MessageReaction  `gorm:"foreignKey:MessageID" json:"reactions,omitempty"`
+}
+
+// MessageReaction represents a reaction to a message
+type MessageReaction struct {
+	MessageID uuid.UUID `gorm:"type:uuid;primaryKey" json:"message_id"`
+	UserID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	Emoji     string    `gorm:"size:10;primaryKey" json:"emoji"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TableName sets the table name for MessageReaction
+func (MessageReaction) TableName() string {
+	return "message_reactions"
 }
 
 // TableName sets the table name for Message

@@ -6,7 +6,7 @@ export async function updateSession(request: NextRequest) {
     // Check if Supabase is configured
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    
+
     // If Supabase is not configured, skip session handling
     // The app will rely on client-side JWT/wallet authentication
     if (!supabaseUrl || !supabaseKey || supabaseUrl === 'http://localhost:54321') {
@@ -53,16 +53,12 @@ export async function updateSession(request: NextRequest) {
             return NextResponse.redirect(url)
         }
 
-        // For dashboard routes, let client-side auth handle the check
+        // For protected routes, redirect unauthenticated users to login
         if (
             !user &&
-            request.nextUrl.pathname !== '/' &&
-            !request.nextUrl.pathname.startsWith('/login') &&
-            !request.nextUrl.pathname.startsWith('/register') &&
-            !request.nextUrl.pathname.startsWith('/auth') &&
-            !request.nextUrl.pathname.startsWith('/dashboard') &&
-            !request.nextUrl.pathname.startsWith('/marketplace') &&
-            !request.nextUrl.pathname.startsWith('/feed')
+            (request.nextUrl.pathname.startsWith('/dashboard') ||
+                request.nextUrl.pathname.startsWith('/profile') ||
+                request.nextUrl.pathname.startsWith('/settings'))
         ) {
             const url = request.nextUrl.clone()
             url.pathname = '/login'

@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Navbar } from '@/components/Navbar';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getWalletDetails, getWalletTransactions } from '@/lib/services/explorer';
 import Link from 'next/link';
@@ -13,13 +12,13 @@ import {
     ChevronRight,
     Copy,
     ExternalLink,
-    QrCode,
+    ArrowLeft,
+    Fingerprint,
     Layers,
-    CheckCircle,
-    Clock
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useParams } from 'next/navigation';
+import { motion } from 'framer-motion';
 
 export default function WalletInspectorPage() {
     const params = useParams();
@@ -34,200 +33,220 @@ export default function WalletInspectorPage() {
     const { data: transactions, isLoading: loadingTx } = useQuery({
         queryKey: ['wallet-tx', address, txPage],
         queryFn: () => getWalletTransactions(address, txPage, 10),
-        enabled: !!wallet, // Only load tx if wallet exists
+        enabled: !!wallet,
     });
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+    };
 
     if (error) {
         return (
-            <div className="min-h-screen bg-black text-white flex items-center justify-center">
-                <div className="text-center">
-                    <h1 className="text-2xl font-bold mb-2">Wallet Not Found</h1>
-                    <p className="text-gray-400 mb-4">The address may not be active on this network.</p>
-                    <Link href="/explorer" className="text-cyan-400 hover:underline">Return to Explorer</Link>
+            <div className="min-h-[60vh] flex items-center justify-center font-mono">
+                <div className="text-center space-y-4">
+                    <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Wallet Not Found</h1>
+                    <p className="text-white/30 text-[11px] uppercase tracking-widest">The address may not be active on this network.</p>
+                    <Link href="/explorer" className="text-primary hover:text-primary/80 text-[10px] font-black uppercase tracking-widest">
+                        Return to Explorer
+                    </Link>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-black text-white selection:bg-cyan-500/30">
-            <Navbar />
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8 font-mono"
+        >
+            {/* Header */}
+            <header className="flex flex-col gap-6 border-b border-white/5 pb-8">
+                <div className="flex items-center gap-4">
+                    <Link
+                        href="/explorer"
+                        className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em]"
+                    >
+                        <ArrowLeft size={14} /> Back to Grid
+                    </Link>
+                </div>
 
-            <main className="container mx-auto px-4 py-8 mt-16 max-w-6xl">
-                <div className="flex flex-col gap-8">
+                {/* Wallet Header Card */}
+                <GlassCard className="p-8 relative overflow-hidden border-white/5 bg-white/[0.01]">
+                    <div className="absolute top-0 right-0 p-32 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
-                    <div className="flex items-center gap-2 mb-2">
-                        <Link href="/explorer" className="text-gray-400 hover:text-cyan-400 transition-colors flex items-center gap-1">
-                            <ChevronLeft className="w-4 h-4" /> Explorer
-                        </Link>
-                    </div>
-
-                    {/* Wallet Header */}
-                    <GlassCard className="p-8 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-32 bg-cyan-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
-                        <div className="relative z-10">
-                            <div className="flex flex-col md:flex-row justify-between gap-6">
+                    <div className="relative z-10">
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
+                            <div className="flex items-start gap-4">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
+                                    <Fingerprint size={28} />
+                                </div>
                                 <div>
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20">
-                                            <Wallet className="w-6 h-6" />
-                                        </div>
-                                        <h1 className="text-2xl font-bold">Account Overview</h1>
-                                    </div>
-                                    <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-lg border border-white/5 backdrop-blur-sm">
-                                        <span className="font-mono text-gray-300 break-all">{address}</span>
+                                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Wallet Address</div>
+                                    <div className="flex items-center gap-3">
+                                        <span className="font-mono text-white break-all text-lg font-bold tracking-tight">{address}</span>
                                         <button
-                                            className="text-gray-500 hover:text-white transition-colors"
+                                            onClick={() => copyToClipboard(address)}
+                                            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/30 hover:text-white/60 transition-colors"
                                             title="Copy Address"
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(address);
-                                            }}
                                         >
-                                            <Copy className="w-4 h-4" />
+                                            <Copy size={14} />
                                         </button>
                                         <a
                                             href={`https://solscan.io/account/${address}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-gray-500 hover:text-cyan-400 transition-colors"
+                                            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/30 hover:text-primary transition-colors"
                                             title="View on Solscan"
                                         >
-                                            <ExternalLink className="w-4 h-4" />
+                                            <ExternalLink size={14} />
                                         </a>
                                     </div>
                                 </div>
-
-                                <div className="flex gap-4">
-                                    <div className="text-right">
-                                        <p className="text-sm text-gray-400 mb-1">Total Balance</p>
-                                        {loadingWallet ? (
-                                            <div className="h-8 w-32 bg-white/10 rounded animate-pulse ml-auto" />
-                                        ) : (
-                                            <div className="text-3xl font-bold font-mono text-white">
-                                                {wallet?.balance_sol.toLocaleString()} <span className="text-lg text-gray-500">SOL</span>
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            ≈ ${(wallet?.balance_sol ? wallet.balance_sol * 145 : 0).toFixed(2)} USD
-                                        </p>
-                                    </div>
-                                </div>
                             </div>
 
-                            {/* Asset Strip */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/10">
-
-                                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                                    <p className="text-xs text-gray-400 mb-1">Platform Credit</p>
-                                    <p className="font-mono text-lg">{wallet?.balance_platform.toFixed(2)}</p>
-                                </div>
-                                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                                    <p className="text-xs text-gray-400 mb-1">Transactions</p>
-                                    <p className="font-mono text-lg">{wallet?.transaction_count.toLocaleString()}</p>
-                                </div>
-                                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                                    <p className="text-xs text-gray-400 mb-1">First Seen</p>
-                                    <p className="font-mono text-sm text-gray-300">
-                                        {wallet?.first_activity ? formatDistanceToNow(new Date(wallet.first_activity), { addSuffix: true }) : '-'}
-                                    </p>
-                                </div>
+                            <div className="text-right">
+                                <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] mb-1">Total Balance</p>
+                                {loadingWallet ? (
+                                    <div className="h-10 w-40 bg-white/5 animate-pulse rounded ml-auto" />
+                                ) : (
+                                    <div className="text-4xl font-black text-white tracking-tighter">
+                                        {wallet?.balance_sol?.toLocaleString()} <span className="text-xl text-white/30">SOL</span>
+                                    </div>
+                                )}
+                                <p className="text-[10px] text-white/20 mt-1">
+                                    ≈ ${(wallet?.balance_sol ? wallet.balance_sol * 145 : 0).toFixed(2)} USD
+                                </p>
                             </div>
                         </div>
-                    </GlassCard>
 
-                    {/* Transactions List */}
-                    <div className="space-y-4">
-                        <h2 className="text-xl font-semibold flex items-center gap-2">
-                            <ArrowRightLeft className="w-5 h-5 text-gray-400" /> Transaction History
-                        </h2>
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/5">
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Platform Credit</p>
+                                <p className="font-mono text-lg font-bold">{wallet?.balance_platform?.toFixed(2) || '0.00'}</p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Transactions</p>
+                                <p className="font-mono text-lg font-bold">{wallet?.transaction_count?.toLocaleString() || '0'}</p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">First Seen</p>
+                                <p className="font-mono text-sm text-white/60">
+                                    {wallet?.first_activity ? formatDistanceToNow(new Date(wallet.first_activity), { addSuffix: true }) : '-'}
+                                </p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Last Activity</p>
+                                <p className="font-mono text-sm text-white/60">
+                                    {wallet?.last_activity ? formatDistanceToNow(new Date(wallet.last_activity), { addSuffix: true }) : '-'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </GlassCard>
+            </header>
 
-                        <GlassCard className="overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b border-white/10 text-left text-gray-400 text-sm">
-                                            <th className="p-4 font-medium">Tx Hash</th>
-                                            <th className="p-4 font-medium">Method</th>
-                                            <th className="p-4 font-medium">To</th>
-                                            <th className="p-4 font-medium text-right">Value</th>
-                                            <th className="p-4 font-medium text-right">Age</th>
+            {/* Transactions List */}
+            <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                        <ArrowRightLeft size={20} className="text-primary" /> Transaction History
+                    </h2>
+                </div>
+
+                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-white/5 text-white/40 text-[10px] uppercase tracking-[0.2em] font-black">
+                                    <th className="px-6 py-4">Tx Hash</th>
+                                    <th className="px-6 py-4">Method</th>
+                                    <th className="px-6 py-4">To</th>
+                                    <th className="px-6 py-4 text-right">Value</th>
+                                    <th className="px-6 py-4 text-right">Age</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {loadingTx ? (
+                                    Array.from({ length: 5 }).map((_, i) => (
+                                        <tr key={i} className="animate-pulse">
+                                            <td colSpan={5} className="px-6 py-4 h-12 bg-white/5"></td>
                                         </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/5">
-                                        {loadingTx ? (
-                                            Array.from({ length: 5 }).map((_, i) => (
-                                                <tr key={i} className="animate-pulse">
-                                                    <td className="p-4"><div className="h-4 bg-white/5 rounded w-32" /></td>
-                                                    <td className="p-4"><div className="h-4 bg-white/5 rounded w-16" /></td>
-                                                    <td className="p-4"><div className="h-4 bg-white/5 rounded w-32" /></td>
-                                                    <td className="p-4"><div className="h-4 bg-white/5 rounded w-20 ml-auto" /></td>
-                                                    <td className="p-4"><div className="h-4 bg-white/5 rounded w-16 ml-auto" /></td>
-                                                </tr>
-                                            ))
-                                        ) : transactions?.transactions?.map((tx) => (
-                                            <tr key={tx.tx_hash} className="hover:bg-white/5 transition-colors">
-                                                <td className="p-4">
-                                                    <Link href={`https://solscan.io/tx/${tx.tx_hash}`} className="font-mono text-cyan-400 hover:underline">
-                                                        {tx.tx_hash.slice(0, 12)}...
+                                    ))
+                                ) : transactions?.transactions?.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-16 text-center">
+                                            <div className="flex flex-col items-center gap-3">
+                                                <Layers size={32} className="text-white/10" />
+                                                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+                                                    No transactions found
+                                                </p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    transactions?.transactions?.map((tx: any) => (
+                                        <tr key={tx.tx_hash} className="hover:bg-white/5 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-primary hover:text-primary/80 text-[10px] font-bold">
+                                                    {tx.tx_hash?.slice(0, 12)}...
+                                                </Link>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className="px-3 py-1 rounded-lg text-[9px] font-black bg-white/5 text-white/60 border border-white/10 uppercase tracking-wider">
+                                                    {tx.tx_type}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className={`flex items-center gap-2 font-mono text-[10px] ${tx.to_address === address ? 'text-emerald-500' : 'text-white/40'}`}>
+                                                    {tx.to_address === address ? (
+                                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-500/20 text-emerald-500">IN</span>
+                                                    ) : (
+                                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-yellow-500/20 text-yellow-500">OUT</span>
+                                                    )}
+                                                    <Link href={`/explorer/wallets/${tx.to_address}`} className="hover:text-white/60 truncate max-w-[120px]">
+                                                        {tx.to_address?.slice(0, 8)}...
                                                     </Link>
-                                                </td>
-                                                <td className="p-4">
-                                                    <span className="px-2 py-1 rounded text-xs bg-white/5 text-gray-300 border border-white/10 uppercase">
-                                                        {tx.tx_type}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className={`flex items-center gap-1 font-mono text-sm ${tx.to_address === address ? 'text-white' : 'text-gray-400'}`}>
-                                                        {tx.to_address === address ? (
-                                                            <span className="text-green-400 bg-green-400/10 px-1 rounded text-xs">IN</span>
-                                                        ) : (
-                                                            <span className="text-yellow-400 bg-yellow-400/10 px-1 rounded text-xs">OUT</span>
-                                                        )}
-                                                        <Link href={`/explorer/wallets/${tx.to_address}`} className="hover:text-white truncate max-w-[150px]">
-                                                            {tx.to_address.slice(0, 8)}...
-                                                        </Link>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-right">
-                                                    <div className="font-mono text-white">{tx.amount.toFixed(4)} {tx.currency}</div>
-                                                </td>
-                                                <td className="p-4 text-right text-sm text-gray-400">
-                                                    {formatDistanceToNow(new Date(tx.timestamp), { addSuffix: true })}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-
-                                {transactions?.transactions?.length === 0 && (
-                                    <div className="p-12 text-center text-gray-500">No transactions found</div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="font-mono text-white font-bold">{tx.amount?.toFixed(4)} {tx.currency}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right text-[11px] text-white/40">
+                                                {tx.timestamp ? formatDistanceToNow(new Date(tx.timestamp), { addSuffix: true }) : '-'}
+                                            </td>
+                                        </tr>
+                                    ))
                                 )}
-                            </div>
-
-                            {/* Pagination */}
-                            <div className="p-4 border-t border-white/10 flex justify-between items-center">
-                                <button
-                                    className="p-2 hover:bg-white/10 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    onClick={() => setTxPage(Math.max(1, txPage - 1))}
-                                    disabled={txPage === 1 || loadingTx}
-                                >
-                                    <ChevronLeft className="w-5 h-5" />
-                                </button>
-                                <span className="text-sm text-gray-400">Page {txPage}</span>
-                                <button
-                                    className="p-2 hover:bg-white/10 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    onClick={() => setTxPage(txPage + 1)}
-                                    disabled={transactions && transactions.transactions.length < 10}
-                                >
-                                    <ChevronRight className="w-5 h-5" />
-                                </button>
-                            </div>
-                        </GlassCard>
+                            </tbody>
+                        </table>
                     </div>
 
-                </div>
-            </main>
-        </div>
+                    {/* Pagination */}
+                    <div className="p-6 bg-white/5 flex items-center justify-between border-t border-white/5">
+                        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
+                            Page <span className="text-white">{txPage}</span>
+                        </p>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setTxPage(Math.max(1, txPage - 1))}
+                                disabled={txPage === 1 || loadingTx}
+                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setTxPage(txPage + 1)}
+                                disabled={transactions && transactions.transactions.length < 10}
+                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+                </GlassCard>
+            </div>
+        </motion.div>
     );
 }

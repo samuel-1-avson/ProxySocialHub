@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { ModeToggle } from "@/components/ModeToggle";
 import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User } from "lucide-react";
 import { AlertCenter } from "@/components/AlertCenter";
+import { NotificationCenter } from "@/components/NotificationCenter";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -20,10 +21,12 @@ export function Navbar({ showAuth = true }: NavbarProps) {
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
     const navItems = [
-        { href: "/feed", label: "FEED" },
         { href: "/marketplace", label: "MARKETPLACE" },
-        { href: "/leaderboards", label: "LEADERBOARDS" },
-        { href: "/messages", label: "MESSAGES" },
+        ...(user ? [
+            { href: "/feed", label: "FEED" },
+            { href: "/leaderboards", label: "LEADERBOARDS" },
+            { href: "/messages", label: "MESSAGES" },
+        ] : []),
     ];
 
     return (
@@ -59,22 +62,52 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                 <div className="flex items-center gap-4">
                     <ModeToggle />
 
+                    {/* Notifications */}
+                    {user && (
+                        <div className="hidden md:flex">
+                            <NotificationCenter />
+                        </div>
+                    )}
+
                     {/* Infrastructure Alerts */}
                     <div className="hidden md:flex">
                         <AlertCenter />
                     </div>
 
-                    {/* Profile */}
+                    {/* Auth & Profile */}
                     {showAuth && (
-                        <Link href="/profile" className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
-                            {user?.user_metadata?.avatar_url ? (
-                                <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                        <>
+                            {!user ? (
+                                <div className="hidden sm:flex items-center gap-4 ml-4">
+                                    <Link href="/login" className="text-sm font-mono font-medium text-muted-foreground hover:text-foreground transition-colors uppercase tracking-widest">
+                                        Login
+                                    </Link>
+                                    <Link href="/register">
+                                        <button className="btn-retro btn-retro-primary px-4 py-2 text-xs">
+                                            SIGN UP
+                                        </button>
+                                    </Link>
+                                </div>
                             ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-secondary text-foreground font-bold font-mono text-sm">
-                                    {user?.email?.charAt(0).toUpperCase() || "?"}
+                                <div className="flex items-center gap-4 ml-4">
+                                    <Link href="/dashboard" className="hidden sm:block">
+                                        <button className="btn-retro btn-retro-outline px-4 py-2 text-[10px] flex items-center gap-2 border-primary/50 text-primary">
+                                            <Home size={14} />
+                                            SYSTEM DASHBOARD
+                                        </button>
+                                    </Link>
+                                    <Link href="/profile" className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
+                                        {user?.user_metadata?.avatar_url ? (
+                                            <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center bg-secondary text-foreground font-bold font-mono text-sm leading-none pt-0.5">
+                                                {user?.email?.charAt(0).toUpperCase() || "?"}
+                                            </div>
+                                        )}
+                                    </Link>
                                 </div>
                             )}
-                        </Link>
+                        </>
                     )}
 
                     {/* Mobile Menu Button */}
@@ -104,14 +137,25 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                                 {item.label}
                             </Link>
                         ))}
-                        <div className="border-t border-border my-2"></div>
-                        <Link
-                            href="/notifications"
-                            onClick={() => setMobileMenuOpen(false)}
-                            className="block px-4 py-3 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
-                        >
-                            NOTIFICATIONS
-                        </Link>
+                        {showAuth && !user && (
+                            <div className="px-4 py-2 flex flex-col gap-2 mt-2">
+                                <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                                    <button className="btn-retro btn-retro-outline w-full py-2 text-xs">LOGIN</button>
+                                </Link>
+                                <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
+                                    <button className="btn-retro btn-retro-primary w-full py-2 text-xs">SIGN UP</button>
+                                </Link>
+                            </div>
+                        )}
+                        {user && (
+                            <Link
+                                href="/notifications"
+                                onClick={() => setMobileMenuOpen(false)}
+                                className="block px-4 py-3 mt-2 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
+                            >
+                                NOTIFICATIONS
+                            </Link>
+                        )}
                     </div>
                 </div>
             )}

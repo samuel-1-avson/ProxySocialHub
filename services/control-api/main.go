@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -242,7 +243,8 @@ func main() {
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterReputationRoutes(v1) // Phase 9.2 Trust Layer
-		api.RegisterExplorerRoutes(v1)   // System Explorer (Public blockchain explorer)
+		api.RegisterExplorerRoutes(v1)      // System Explorer (Public blockchain explorer)
+		api.RegisterExplorerWSRoutes(v1)    // Explorer WebSocket for real-time updates
 	}
 
 	// Protected Routes (Require Authentication)
@@ -267,6 +269,9 @@ func main() {
 		api.RegisterForumRoutes(protected) // Mostly private (posting)
 		api.RegisterMessagingRoutes(protected)
 		api.RegisterFriendRoutes(protected)
+		api.RegisterNotificationRoutes(protected)
+		api.RegisterShowcaseRoutes(protected)
+		api.RegisterWebSocketRoutes(protected) // WebSocket for real-time updates
 
 		api.RegisterProtectedReviewRoutes(protected)
 		api.RegisterAgentRoutes(protected)
@@ -310,6 +315,63 @@ func main() {
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()
 	idx.Start()
+
+	// Initialize Explorer WebSocket Hub
+	api.InitExplorerHub()
+
+	// Start Blockchain Explorer Indexer (indexes blocks and transactions)
+	if os.Getenv("EXPLORER_INDEXER_ENABLED") != "false" {
+		programID := os.Getenv("SOLANA_PROGRAM_ID")
+		if programID == "" {
+			programID = "CVHGJx11kuEc4xD4vR6ey6W9wFXRpzUs7kChTK2E4QqD" // Default devnet program
+		}
+
+		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+		if rpcEndpoint == "" {
+			rpcEndpoint = "https://api.devnet.solana.com"
+		}
+
+		pollInterval := 400 * time.Millisecond
+		if interval := os.Getenv("EXPLORER_INDEXER_POLL_INTERVAL_MS"); interval != "" {
+			if ms, err := strconv.Atoi(interval); err == nil {
+				pollInterval = time.Duration(ms) * time.Millisecond
+			}
+		}
+
+		blockchainIndexer, err := indexer.NewBlockchainIndexer(indexer.IndexerConfig{
+			RPCEndpoint:  rpcEndpoint,
+			ProgramID:    programID,
+			PollInterval: pollInterval,
+			BatchSize:    100,
+		})
+		if err != nil {
+			log.Printf("Warning: Failed to init Blockchain Indexer: %v", err)
+		} else {
+			blockchainIndexer.Start()
+			log.Println("Blockchain Explorer Indexer started")
+			
+			// Register contracts
+			registry := indexer.NewContractRegistry()
+			treasuryAddr := os.Getenv("SOLANA_TREASURY_ADDRESS")
+			if err := registry.RegisterProxyHubbContracts(programID, treasuryAddr); err != nil {
+				log.Printf("Warning: Failed to register contracts: %v", err)
+			}
+		}
+
+		// Start Node Sync Service
+		nodeSyncInterval := 5 * time.Minute
+		if interval := os.Getenv("NODE_SYNC_INTERVAL_MINUTES"); interval != "" {
+			if mins, err := strconv.Atoi(interval); err == nil {
+				nodeSyncInterval = time.Duration(mins) * time.Minute
+			}
+		}
+
+		nodeSync := indexer.NewNodeSync(indexer.NodeSyncConfig{
+			Interval: nodeSyncInterval,
+		})
+		nodeSync.Start()
+		log.Println("Node Sync Service started")
+	}
 
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker()
