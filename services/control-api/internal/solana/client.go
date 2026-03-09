@@ -164,6 +164,11 @@ func (c *OracleClient) GetNetwork() string {
 	return c.network
 }
 
+// GetProgramID returns the program ID
+func (c *OracleClient) GetProgramID() sol.PublicKey {
+	return c.programID
+}
+
 // GetEscrowPDA derives the escrow PDA address for a buyer-seller pair
 func (c *OracleClient) GetEscrowPDA(buyer, seller sol.PublicKey) (sol.PublicKey, uint8, error) {
 	pda, bump, err := sol.FindProgramAddress(
@@ -573,4 +578,9 @@ func InitOracleClient(cfg Config) error {
 // GetOracleClient returns the global oracle client instance
 func GetOracleClient() *OracleClient {
 	return globalOracleClient
+}
+
+// GetTreasuryAddress returns the configured treasury address from environment
+func GetTreasuryAddress() string {
+	return os.Getenv("SOLANA_TREASURY_ADDRESS")
 }

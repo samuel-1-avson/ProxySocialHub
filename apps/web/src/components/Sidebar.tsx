@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
     LayoutDashboard,
     Wallet,
@@ -17,31 +18,54 @@ import {
     Trophy,
     ShieldCheck,
     Network,
-    Search
+    Search,
+    ChevronRight,
+    Blocks,
+    ArrowRightLeft,
+    Fingerprint,
+    FileCode,
+    Server,
+    Radio,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useUIStore } from "@/lib/store/ui-store";
 import { AlertCenter } from "@/components/AlertCenter";
 import { motion, AnimatePresence } from "framer-motion";
 
+interface ExplorerSubItem {
+    href: string;
+    label: string;
+    icon: React.ElementType;
+}
+
+const explorerSubItems: ExplorerSubItem[] = [
+    { href: "/explorer", label: "Overview", icon: Globe },
+    { href: "/explorer/transactions", label: "Transactions", icon: ArrowRightLeft },
+    { href: "/explorer/blocks", label: "Blocks", icon: Blocks },
+    { href: "/explorer/nodes", label: "Nodes", icon: Server },
+    { href: "/explorer/wallets", label: "Wallets", icon: Fingerprint },
+    { href: "/explorer/contracts", label: "Contracts", icon: FileCode },
+];
+
 export function Sidebar() {
     const pathname = usePathname();
     const { user, logout } = useAuth();
     const { isSidebarCollapsed, toggleSidebar } = useUIStore();
+    const [explorerExpanded, setExplorerExpanded] = useState(false);
 
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
+    const isExplorerActive = pathname?.startsWith("/explorer");
 
     const menuItems = [
-        { href: "/dashboard", label: "OVERVIEW", icon: LayoutDashboard },
-        { href: "/dashboard/wallet", label: "WALLET", icon: Wallet },
-        { href: "/explorer", label: "EXPLORER", icon: Search },
-        { href: "/dashboard/proxy", label: "PROXY", icon: Network },
-        { href: "/marketplace", label: "MARKET", icon: Globe },
-        { href: "/agents", label: "AGENTS", icon: Bot },
-        { href: "/feed", label: "FEED", icon: Activity },
-        { href: "/messages", label: "COMMS", icon: MessageSquare },
-        { href: "/forum", label: "FORUM", icon: Grid },
-        { href: "/governance", label: "VOTE", icon: Vote },
+        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { href: "/dashboard/wallet", label: "My Wallet", icon: Wallet },
+        { href: "/dashboard/proxy", label: "Start Sharing", icon: Network },
+        { href: "/marketplace", label: "Marketplace Hub", icon: Search },
+        { href: "/agents", label: "AI Marketplace", icon: Bot },
+        { href: "/feed", label: "Network Feed", icon: Activity },
+        { href: "/messages", label: "Comms Center", icon: MessageSquare },
+        { href: "/forum", label: "Community Forum", icon: Grid },
+        { href: "/governance", label: "Gov. Portal", icon: Vote },
     ];
 
     const bottomItems = [
@@ -102,6 +126,72 @@ export function Sidebar() {
                     <p className="px-3 text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground/40 mb-3">Protocol Modules</p>
                 )}
 
+                {/* Explorer Section */}
+                {!isSidebarCollapsed ? (
+                    <div className="space-y-1">
+                        <button
+                            onClick={() => setExplorerExpanded(!explorerExpanded)}
+                            className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${isExplorerActive
+                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
+                                : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <Globe size={18} className={`transition-all ${isExplorerActive ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
+                                <span className="font-mono text-[11px] font-bold tracking-wider uppercase">ProxyExplorer</span>
+                            </div>
+                            <ChevronRight
+                                size={14}
+                                className={`transition-transform duration-300 ${explorerExpanded ? "rotate-90" : ""}`}
+                            />
+                        </button>
+
+                        <AnimatePresence>
+                            {explorerExpanded && (
+                                <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="overflow-hidden pl-4"
+                                >
+                                    <div className="border-l-2 border-white/10 space-y-1 py-1">
+                                        {explorerSubItems.map((item) => {
+                                            const Icon = item.icon;
+                                            const active = isActive(item.href);
+                                            return (
+                                                <Link
+                                                    key={item.href}
+                                                    href={item.href}
+                                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${active
+                                                        ? "text-primary font-bold bg-primary/10 border border-primary/20"
+                                                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                                                        }`}
+                                                >
+                                                    <Icon size={14} className={active ? "stroke-[2.5px]" : "stroke-[1.5px]"} />
+                                                    <span className="font-mono text-[10px] tracking-wider">{item.label}</span>
+                                                    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />}
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                ) : (
+                    <Link
+                        href="/explorer"
+                        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${isExplorerActive
+                            ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
+                            : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
+                            } justify-center`}
+                        title="ProxyExplorer"
+                    >
+                        <Globe size={22} className={`transition-all ${isExplorerActive ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
+                    </Link>
+                )}
+
                 {menuItems.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.href);
@@ -110,14 +200,14 @@ export function Sidebar() {
                             key={item.href}
                             href={item.href}
                             className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${active
-                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
+                                : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
                                 } ${isSidebarCollapsed ? "justify-center" : ""}`}
                             title={isSidebarCollapsed ? item.label : undefined}
                         >
-                            <Icon size={isSidebarCollapsed ? 22 : 18} className={`transition-all ${active ? "stroke-[2.5px]" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
+                            <Icon size={isSidebarCollapsed ? 22 : 18} className={`transition-all ${active ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
                             {!isSidebarCollapsed && (
-                                <span className="font-mono text-[11px] font-bold tracking-wider">{item.label}</span>
+                                <span className="font-mono text-[11px] font-bold tracking-wider uppercase">{item.label}</span>
                             )}
 
                             {active && !isSidebarCollapsed && (

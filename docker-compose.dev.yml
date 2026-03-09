@@ -137,8 +137,8 @@ services:
   # ==================== EDGE GATEWAY ====================
   edge-gateway:
     build:
-      context: ./services/edge-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/edge-gateway/Dockerfile
     container_name: proxyhubb-edge-gateway
     ports:
       - "3128:3128"

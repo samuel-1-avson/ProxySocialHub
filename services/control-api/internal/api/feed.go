@@ -15,20 +15,8 @@ import (
 // RegisterFeedRoutes registers feed-related routes
 func RegisterFeedRoutes(rg *gin.RouterGroup) {
 	rg.GET("/feed", getFeed)
-	rg.GET("/notifications", getNotifications)
 	rg.GET("/discover", discoverProviders)
 	rg.GET("/trending", getTrendingListings)
-}
-
-// getNotifications returns user notifications
-func getNotifications(c *gin.Context) {
-	// Stub implementation for now
-	c.JSON(http.StatusOK, gin.H{
-		"notifications": []interface{}{},
-		"total":         0,
-		"page":          1,
-		"limit":         20,
-	})
 }
 
 // getFeed returns personalized feed based on who user follows

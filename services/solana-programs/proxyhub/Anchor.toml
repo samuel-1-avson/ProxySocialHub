@@ -10,12 +10,23 @@ skip-lint = false
 proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
 session = "Se5sionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
+[programs.devnet]
+proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
+
+[programs.mainnet-beta]
+proxyhub = "PROXYHUBB_MAINNET_PLACEHOLDER"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = '~\.config\solana\id.json'
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+initialize = "yarn ts-node scripts/initialize.ts"
+upgrade = "yarn ts-node scripts/upgrade.ts"
+
+[test.validator]
+url = "https://api.devnet.solana.com"

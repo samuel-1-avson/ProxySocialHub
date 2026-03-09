@@ -1,64 +1,269 @@
-name: Deploy Production
+name: Deploy
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: proxyhubb
 
 jobs:
-  deploy:
-    name: Build & Deploy
+  # ==================== Build & Push Images ====================
+  build:
+    name: Build Images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - name: control-api
+            context: ./services/control-api
+            dockerfile: Dockerfile
+          - name: edge-gateway
+            context: ./services/edge-gateway
+            dockerfile: Dockerfile
+          - name: web
+            context: ./apps/web
+            dockerfile: Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to DockerHub
+      - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push API
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./services/control-api
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.context }}/${{ matrix.service.dockerfile }}
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/control-api:latest,${{ secrets.DOCKERHUB_USERNAME }}/control-api:${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
 
-      - name: Build & Push Web
-        uses: docker/build-push-action@v5
+  # ==================== Deploy to Staging ====================
+  deploy-staging:
+    name: Deploy Staging
+    needs: build
+    if: github.event.inputs.environment == 'staging' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.proxyhubb.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
         with:
-          context: ./apps/web
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/web:latest,${{ secrets.DOCKERHUB_USERNAME }}/web:${{ github.ref_name }}
+          version: 'v1.29.0'
 
-      - name: Deploy to Vercel (Web)
-        uses: amondnet/vercel-action@v20
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name proxyhubb-staging
+
+      - name: Deploy to Staging
+        run: |
+          # Update image tags
+          kustomize build infra/k8s/overlays/staging | \
+            sed "s|IMAGE_TAG|${{ github.sha }}|g" | \
+            kubectl apply -f -
+          
+          # Wait for rollout
+          kubectl rollout status deployment/control-api -n staging
+          kubectl rollout status deployment/edge-gateway -n staging
+          kubectl rollout status deployment/web -n staging
+
+      - name: Run Smoke Tests
+        run: |
+          sleep 30
+          curl -f https://api.staging.proxyhubb.com/health || exit 1
+          curl -f https://staging.proxyhubb.com/api/health || exit 1
+
+  # ==================== Deploy Web to Vercel (Staging) ====================
+  deploy-web-staging:
+    name: Deploy Web (Staging)
+    needs: build
+    if: github.event.inputs.environment == 'staging' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.ORG_ID }}
-          vercel-project-id: ${{ secrets.PROJECT_ID }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./apps/web
+          vercel-args: ''
+        env:
+          NEXT_PUBLIC_API_URL: https://api.staging.proxyhubb.com
+          NEXT_PUBLIC_GATEWAY_URL: https://gateway.staging.proxyhubb.com
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SOLANA_NETWORK: devnet
+          NEXT_PUBLIC_SOLANA_TREASURY: ${{ secrets.STAGING_SOLANA_TREASURY }}
+
+  # ==================== Deploy to Production ====================
+  deploy-production:
+    name: Deploy Production
+    needs: [build, deploy-staging]
+    if: github.event.inputs.environment == 'production' || (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc'))
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://proxyhubb.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name proxyhubb-production
+
+      - name: Deploy to Production
+        run: |
+          # Update image tags
+          kustomize build infra/k8s/overlays/production | \
+            sed "s|IMAGE_TAG|${{ github.ref_name }}|g" | \
+            kubectl apply -f -
+          
+          # Wait for rollout
+          kubectl rollout status deployment/control-api -n production
+          kubectl rollout status deployment/edge-gateway -n production
+          kubectl rollout status deployment/web -n production
+
+      - name: Run Smoke Tests
+        run: |
+          sleep 30
+          curl -f https://api.proxyhubb.com/health || exit 1
+          curl -f https://proxyhubb.com/api/health || exit 1
+
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          text: 'Production deployment ${{ job.status }}: ${{ github.ref_name }}'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: always()
+
+  # ==================== Deploy Web to Vercel (Production) ====================
+  deploy-web-production:
+    name: Deploy Web (Production)
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           working-directory: ./apps/web
           vercel-args: '--prod'
         env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          NEXT_PUBLIC_GATEWAY_URL: ${{ secrets.NEXT_PUBLIC_GATEWAY_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NEXT_PUBLIC_ENABLE_SOCIAL_FEATURES: true
-          NEXT_PUBLIC_ENABLE_PAYMENTS: true
+          NEXT_PUBLIC_API_URL: https://api.proxyhubb.com
+          NEXT_PUBLIC_GATEWAY_URL: https://gateway.proxyhubb.com
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SOLANA_NETWORK: mainnet-beta
+          NEXT_PUBLIC_SOLANA_TREASURY: ${{ secrets.PRODUCTION_SOLANA_TREASURY }}
 
-      - name: SSH to Staging Server
-        uses: appleboy/ssh-action@master
+  # ==================== Database Migrations ====================
+  migrate-database:
+    name: Run Database Migrations
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            cd /opt/proxyhubb
-            docker-compose pull
-            docker-compose up -d --remove-orphans
+          go-version: '1.24'
+
+      - name: Run Migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          cd services/control-api
+          go run main.go migrate up
+
+  # ==================== Create Release ====================
+  release:
+    name: Create Release
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Release Notes
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          files: |
+            docs/openapi.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

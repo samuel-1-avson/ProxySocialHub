@@ -144,19 +144,20 @@ export default function DashboardPage() {
             <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-4xl font-black font-mono uppercase tracking-tighter mb-1 bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">
-                        System Overview
+                        CENTRAL CONTROL HUB
                     </h1>
                     <div className="flex items-center gap-2">
                         <span className="text-muted-foreground font-mono text-[10px] tracking-widest uppercase">Operator ID:</span>
                         <code className="bg-secondary/50 px-2 py-0.5 rounded text-[10px] font-mono text-primary border border-primary/10">
                             {user?.email?.split('@')[0].toUpperCase()}
                         </code>
+                        <span className="ml-4 px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-mono border border-primary/20 rounded">REAL-TIME_FIGURES</span>
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[10px]">
                     <span className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full font-mono font-bold flex items-center gap-2 glow-emerald">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse outline outline-offset-2 outline-emerald-500/30"></span>
-                        NETWORK PROTOCOL: ACTIVE
+                        PROTOCOL_UPLINK: ACTIVE
                     </span>
                 </div>
             </motion.div>
@@ -164,10 +165,10 @@ export default function DashboardPage() {
             {/* Quick Actions Bar */}
             <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { href: "/dashboard/nodes", label: "Manage Nodes", sub: "Configure Endpoints", icon: Server },
-                    { href: "/marketplace", label: "Buy Bandwidth", sub: "Access Network", icon: Zap },
-                    { href: "/governance", label: "Governance", sub: "Network Voting", icon: Vote },
-                    { href: "/settings", label: "Profile", sub: "Account Data", icon: User },
+                    { href: "/dashboard/nodes", label: "Node Service", sub: "Manage Endpoints", icon: Server },
+                    { href: "/marketplace", label: "Marketplace", sub: "Buy Bandwidth", icon: Zap },
+                    { href: "/governance", label: "Council Hub", sub: "Network Voting", icon: Vote },
+                    { href: "/settings", label: "Config Center", sub: "Protocol Settings", icon: User },
                 ].map((action, i) => (
                     <Link key={i} href={action.href}>
                         <motion.div

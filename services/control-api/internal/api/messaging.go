@@ -19,6 +19,13 @@ func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversations/:id/messages", getMessages)
 	rg.POST("/conversations/:id/messages", sendMessage)
 	rg.POST("/conversations/:id/read", markAsRead)
+	
+	// Enhanced messaging routes
+	rg.PUT("/conversations/:id/messages/:messageId", editMessage)
+	rg.DELETE("/conversations/:id/messages/:messageId", deleteMessage)
+	rg.POST("/messages/:messageId/reactions", addReaction)
+	rg.DELETE("/messages/:messageId/reactions/:emoji", removeReaction)
+	rg.GET("/conversations/:id/search", searchMessages)
 }
 
 // getConversations returns the current user's conversations
@@ -200,7 +207,7 @@ func getMessages(c *gin.Context) {
 	query := db.DB.Model(&models.Message{}).Where("conversation_id = ?", convID)
 	query.Count(&total)
 
-	if err := query.Preload("Sender").
+	if err := query.Preload("Sender").Preload("Reactions").
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&messages).Error; err != nil {
@@ -230,7 +237,10 @@ func sendMessage(c *gin.Context) {
 		return
 	}
 
-	var req models.SendMessageRequest
+	var req struct {
+		Content   string     `json:"content" binding:"required"`
+		ReplyToID *uuid.UUID `json:"reply_to_id"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -255,6 +265,7 @@ func sendMessage(c *gin.Context) {
 		ConversationID: convID,
 		SenderID:       userID,
 		Content:        safeContent,
+		ReplyToID:      req.ReplyToID,
 	}
 
 	tx := db.DB.Begin()
@@ -309,4 +320,227 @@ func markAsRead(c *gin.Context) {
 		Update("read_at", now)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Messages marked as read"})
+}
+
+// editMessage allows editing a message within 5 minutes
+func editMessage(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	convID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
+		return
+	}
+
+	msgID, err := uuid.Parse(c.Param("messageId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message ID"})
+		return
+	}
+
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify message exists and belongs to user
+	var msg models.Message
+	if err := db.DB.First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
+		return
+	}
+
+	if msg.SenderID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Can only edit your own messages"})
+		return
+	}
+
+	// Check edit window (5 minutes)
+	if time.Since(msg.CreatedAt) > 5*time.Minute {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Edit window expired"})
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"content":  privacy.MaskPII(req.Content),
+		"edited_at": now,
+	}
+
+	if err := db.DB.Model(&msg).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	db.DB.Preload("Sender").First(&msg, "id = ?", msg.ID)
+	c.JSON(http.StatusOK, msg)
+}
+
+// deleteMessage soft-deletes a message
+func deleteMessage(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	convID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
+		return
+	}
+
+	msgID, err := uuid.Parse(c.Param("messageId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message ID"})
+		return
+	}
+
+	// Verify message exists
+	var msg models.Message
+	if err := db.DB.First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
+		return
+	}
+
+	// Only sender or conversation participant can delete
+	var conv models.Conversation
+	db.DB.First(&conv, "id = ?", convID)
+	
+	if msg.SenderID != userID && conv.Participant1 != userID && conv.Participant2 != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if err := db.DB.Model(&msg).Update("is_deleted", true).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Message deleted"})
+}
+
+// addReaction adds a reaction to a message
+func addReaction(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	msgID, err := uuid.Parse(c.Param("messageId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message ID"})
+		return
+	}
+
+	var req struct {
+		Emoji string `json:"emoji" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify message exists
+	var msg models.Message
+	if err := db.DB.First(&msg, "id = ?", msgID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
+		return
+	}
+
+	reaction := models.MessageReaction{
+		MessageID: msgID,
+		UserID:    userID,
+		Emoji:     req.Emoji,
+		CreatedAt: time.Now(),
+	}
+
+	// Upsert reaction
+	if err := db.DB.Save(&reaction).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, reaction)
+}
+
+// removeReaction removes a reaction from a message
+func removeReaction(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	msgID, err := uuid.Parse(c.Param("messageId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message ID"})
+		return
+	}
+
+	emoji := c.Param("emoji")
+
+	result := db.DB.Where("message_id = ? AND user_id = ? AND emoji = ?", msgID, userID, emoji).
+		Delete(&models.MessageReaction{})
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Reaction removed"})
+}
+
+// searchMessages searches messages in a conversation
+func searchMessages(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	convID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
+		return
+	}
+
+	// Verify access
+	var conv models.Conversation
+	if err := db.DB.First(&conv, "id = ?", convID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		return
+	}
+
+	if conv.Participant1 != userID && conv.Participant2 != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query required"})
+		return
+	}
+
+	var messages []models.Message
+	db.DB.Where("conversation_id = ? AND content ILIKE ? AND is_deleted = ?", 
+		convID, "%"+query+"%", false).
+		Order("created_at DESC").
+		Limit(50).
+		Preload("Sender").
+		Find(&messages)
+
+	c.JSON(http.StatusOK, gin.H{
+		"messages": messages,
+		"query":    query,
+	})
 }
