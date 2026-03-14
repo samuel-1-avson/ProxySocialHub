@@ -1,30 +1,35 @@
 # Dockerfile for Web App (Next.js 15)
 # Multi-stage build for production
 
-# Stage 1: Dependencies
-FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json* ./
-RUN npm ci
-
-# Stage 2: Builder
+# Stage 1: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy deps from previous stage
-COPY --from=deps /app/node_modules ./node_modules
+# Copy pre-installed node_modules from host (run `npm install` on host first)
+COPY node_modules ./node_modules
 
 # Copy source code
 COPY . .
 
-# Build arguments for environment variables
-ARG NEXT_PUBLIC_API_URL
+# Build arguments for environment variables.
+# API_URL is a server-only var used by next.config.ts rewrites (never exposed
+# to the browser bundle). It must be baked in at build time for standalone mode.
+ARG API_URL=http://control-api:8080
 ARG NEXT_PUBLIC_GATEWAY_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_SOLANA_NETWORK=devnet
+ARG NEXT_PUBLIC_SOLANA_PROGRAM_ID=2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_API_URL=http://localhost:8081
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8081
+ENV API_URL=${API_URL}
 ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
+ENV NEXT_PUBLIC_SOLANA_NETWORK=${NEXT_PUBLIC_SOLANA_NETWORK}
+ENV NEXT_PUBLIC_SOLANA_PROGRAM_ID=${NEXT_PUBLIC_SOLANA_PROGRAM_ID}
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
 # Build the application
 RUN npm run build
@@ -55,7 +60,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 -O /dev/null http://127.0.0.1:3000/ || exit 1
 
 # Start the application
 CMD ["node", "server.js"]

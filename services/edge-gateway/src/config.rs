@@ -13,6 +13,14 @@ pub struct Config {
     pub jwt_secret: String,
     pub provider_private_key: String,
     pub geoip_db_path: Option<String>,
+    // Phase 4: Security
+    /// ISO 3166-1 alpha-2 codes to block (comma-separated env var GEO_DENY_LIST).
+    pub geo_deny_list: Vec<String>,
+    /// If non-empty, only these country codes are allowed (GEO_ALLOW_LIST).
+    pub geo_allow_list: Vec<String>,
+    // Phase 4: Multi-region
+    /// Name of the region this instance runs in (REGION env var).
+    pub region: Option<String>,
 }
 
 impl Config {
@@ -45,6 +53,24 @@ impl Config {
 
         let geoip_db_path = env::var("GEOIP_DB_PATH").ok();
 
+        let geo_deny_list = env::var("GEO_DENY_LIST")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_uppercase)
+            .collect();
+
+        let geo_allow_list = env::var("GEO_ALLOW_LIST")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_uppercase)
+            .collect();
+
+        let region = env::var("REGION").ok();
+
         Self {
             host,
             port,
@@ -54,6 +80,9 @@ impl Config {
             jwt_secret,
             provider_private_key,
             geoip_db_path,
+            geo_deny_list,
+            geo_allow_list,
+            region,
         }
     }
 

@@ -13,19 +13,20 @@ RUN adduser -D -g '' appuser
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files first (for layer caching)
+# Copy go mod files
 COPY go.mod go.sum ./
 
-# Download dependencies
-RUN go mod download && go mod verify
+# Copy pre-vendored dependencies (run `go mod vendor` on host first)
+COPY vendor ./vendor
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application using vendored deps (no network required)
 # -ldflags='-w -s' reduces binary size
 # CGO_ENABLED=0 creates static binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -mod=vendor \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -tags '!dev' \
@@ -33,12 +34,10 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     main.go
 
 # Final stage - minimal image
-FROM scratch
+FROM alpine:3.20
 
-# Import from builder
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/passwd /etc/passwd
+RUN apk add --no-cache ca-certificates tzdata wget && \
+    adduser -D -g '' appuser
 
 # Copy binary
 COPY --from=builder /app/server /server
@@ -51,7 +50,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD ["/server", "-health-check"] || exit 1
+    CMD wget --no-verbose --tries=1 -O /dev/null http://localhost:8080/health || exit 1
 
 # Run
 ENTRYPOINT ["/server"]

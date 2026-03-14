@@ -38,13 +38,15 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // Rewrites for API proxying (optional - if you want to proxy API calls through the frontend)
+  // Proxy all /v1/* API calls through the Next.js server so the browser never
+  // needs to reach the backend directly. API_URL is a server-only env var
+  // (not NEXT_PUBLIC_*) so it is never baked into the browser JS bundle.
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+    const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
     return [
       {
-        source: '/api/backend/:path*',
-        destination: `${apiUrl}/:path*`,
+        source: '/v1/:path*',
+        destination: `${apiUrl}/v1/:path*`,
       },
     ];
   },

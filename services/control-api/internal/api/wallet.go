@@ -1,19 +1,21 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
-	"strings"
-
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/payments"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -30,6 +32,9 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.POST("/deposit/crypto", RateLimitWithConfig(5, time.Minute), verifyCryptoDeposit)
 		wallet.POST("/link", linkWallet)
 		wallet.DELETE("/link", linkWallet)
+
+		// SOL WITHDRAWAL — send SOL to user's linked Solana wallet
+		wallet.POST("/withdraw/sol", withdrawSOL)
 
 		// FIAT ROUTES (Provider payouts via Mobile Money - kept for provider withdrawals)
 		// Deposits via Paystack deprecated for users - use crypto instead
@@ -108,11 +113,8 @@ func getWallet(c *gin.Context) {
 				TrustTier: models.TrustTierNew,
 				Role:      c.GetString("userRole"),
 			}
-			fmt.Printf("DEBUG: Attempting fallback user create: ID=%v Email='%s' Role='%s'\n", user.ID, user.Email, user.Role)
-
 			// Attempt to create user, log error if it fails
 			if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
-				fmt.Printf("DEBUG: Fallback create FAILED: %v\n", err)
 				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed.")
 				// We still re-check if user exists now (maybe created by concurrent request)
 			}
@@ -134,16 +136,11 @@ func getWallet(c *gin.Context) {
 			Currency:   "MULTI",
 		}
 
-		// Attempt creation
-		if err := db.DB.Create(&wallet).Error; err != nil {
-			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
-				logging.Warn().Str("user_id", userIDStr).Msg("getWallet: Wallet already exists (race condition), fetching")
-			} else {
-				fmt.Printf("DEBUG: Wallet Create CRITICAL FAIL: %v\n", err)
-				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed (Critical)")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet: " + err.Error()})
-				return
-			}
+		// Attempt creation — OnConflict DoNothing handles concurrent races safely
+		if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&wallet).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet: " + err.Error()})
+			return
 		}
 
 		// Re-fetch to confirm existence and get ID
@@ -758,4 +755,119 @@ func getBalance(w *models.Wallet, currency string) float64 {
 		return w.BalanceSOL
 	}
 	return w.BalanceGHS
+}
+
+type withdrawSOLRequest struct {
+	Amount float64 `json:"amount" binding:"required,gt=0"`
+}
+
+// withdrawSOL sends SOL from the user's internal balance to their linked Solana wallet.
+func withdrawSOL(c *gin.Context) {
+	var req withdrawSOLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Look up linked Solana wallet address
+	var user models.User
+	if err := db.DB.Select("id, wallet_address").Where("id = ?", userUUID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	if user.WalletAddress == nil || *user.WalletAddress == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "No linked Solana wallet",
+			"action": "Link a Solana wallet at /v1/wallet/link before withdrawing",
+		})
+		return
+	}
+
+	// Validate Solana address format before touching the balance
+	if _, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Linked wallet address is invalid. Please re-link your Solana wallet."})
+		return
+	}
+
+	// Check oracle is available
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Blockchain oracle not available"})
+		return
+	}
+
+	// Atomically deduct from internal balance
+	var walletRecord models.Wallet
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
+			return fmt.Errorf("wallet not found")
+		}
+		if walletRecord.BalanceSOL < req.Amount {
+			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
+		}
+		walletRecord.BalanceSOL -= req.Amount
+		if err := tx.Save(&walletRecord).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.WalletLedgerEntry{
+			WalletID:     walletRecord.ID,
+			Amount:       -req.Amount,
+			BalanceAfter: walletRecord.BalanceSOL,
+			Type:         models.TransactionPayout,
+			Description:  fmt.Sprintf("SOL withdrawal to %s", *user.WalletAddress),
+			CreatedAt:    time.Now(),
+		}).Error
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Send on-chain — if this fails, refund the internal balance
+
+	ctx := context.Background()
+	txHash, sendErr := sendSOLOnChain(ctx, oracle, *user.WalletAddress, req.Amount)
+	if sendErr != nil {
+		// Refund
+		db.DB.Model(&models.Wallet{}).Where("user_id = ?", userUUID).
+			Update("balance_sol", gorm.Expr("balance_sol + ?", req.Amount))
+		logging.Error(sendErr).
+			Str("user_id", userUUID.String()).
+			Float64("amount", req.Amount).
+			Msg("SOL withdrawal: on-chain transfer failed, balance restored")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "On-chain transfer failed. Balance has been restored."})
+		return
+	}
+
+	logging.Info().
+		Str("user_id", userUUID.String()).
+		Str("wallet", *user.WalletAddress).
+		Float64("amount_sol", req.Amount).
+		Str("tx_hash", txHash).
+		Msg("SOL withdrawal completed")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "success",
+		"tx_hash":     txHash,
+		"amount_sol":  req.Amount,
+		"destination": *user.WalletAddress,
+		"new_balance": walletRecord.BalanceSOL,
+	})
+}
+
+// sendSOLOnChain builds and submits a SOL transfer instruction from the treasury to recipient.
+func sendSOLOnChain(ctx context.Context, oracle *solana.OracleClient, recipientAddress string, amountSOL float64) (string, error) {
+	recipient, err := solanaGo.PublicKeyFromBase58(recipientAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid recipient address: %w", err)
+	}
+
+	lamports := solana.SOLToLamports(amountSOL)
+	return oracle.SendSOL(ctx, recipient, lamports)
 }

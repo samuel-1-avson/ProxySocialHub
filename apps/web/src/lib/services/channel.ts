@@ -56,10 +56,5 @@ export async function updateChannelState(channelId: string, nonce: number, total
     }
 }
 
-// Cryptographic signature for state channel updates
-// Requires an active protocol identity with loaded Ed25519 keys
-export async function signStateUpdate(channelId: string, nonce: number, amount: number, bytes: number): Promise<string> {
-    // Note: Production implementation requires WASM Ed25519 signer integration
-    // For now, we return the signature provided by the identity provider or throw if missing
-    throw new Error('Cryptographic Identity Not Loaded: signStateUpdate failed');
-}
+// State channel signing is handled in StreamingSessionCard.tsx using the Solana
+// wallet adapter's signMessage function (useWallet hook). No stub needed here.

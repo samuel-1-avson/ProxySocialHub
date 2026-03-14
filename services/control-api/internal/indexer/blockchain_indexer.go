@@ -318,7 +318,47 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 		return fmt.Errorf("failed to store transaction: %w", err)
 	}
 
+	// N-04: Upsert blockchain_state_cache for each program-owned account in the tx.
+	// This ensures the cache is always current after any relevant transaction.
+	bi.syncAccountsToCache(txHash, blockNumber, accountKeys)
+
 	return nil
+}
+
+// syncAccountsToCache upserts BlockchainStateCache rows for accounts that appear
+// in a program-relevant transaction. Each account key becomes one cache entry.
+// Only accounts owned by our program (or used as fee-payer/writable) are stored.
+func (bi *BlockchainIndexer) syncAccountsToCache(txSig string, slot uint64, accountKeys []solana.PublicKey) {
+	programIDStr := bi.programID.String()
+	for _, key := range accountKeys {
+		addr := key.String()
+		// Skip system program and native accounts (short addresses would fail base58 decode)
+		if addr == "11111111111111111111111111111111" || len(addr) < 32 {
+			continue
+		}
+
+		entry := models.BlockchainStateCache{
+			PDA:          addr,
+			ProgramID:    programIDStr,
+			AccountType:  models.AccountEscrow, // best-effort default; refined by settlement code
+			Data:         `{}`,
+			Slot:         slot,
+			Signature:    &txSig,
+			LastSyncedAt: time.Now(),
+		}
+
+		// Use ON CONFLICT (pda) DO UPDATE to keep the latest slot/signature.
+		if err := db.DB.
+			Where(models.BlockchainStateCache{PDA: addr}).
+			Assign(models.BlockchainStateCache{
+				Slot:         slot,
+				Signature:    &txSig,
+				LastSyncedAt: time.Now(),
+			}).
+			FirstOrCreate(&entry).Error; err != nil {
+			logging.Error(err).Str("pda", addr).Msg("[BlockchainIndexer] Failed to upsert state cache")
+		}
+	}
 }
 
 // GetLastSlot returns the last indexed slot

@@ -157,6 +157,13 @@ func createServiceConfig(c *gin.Context) {
 		return
 	}
 
+	// N-01: Push to Redis so the edge-gateway can enforce node-level policy immediately.
+	if redisClient.Client != nil {
+		redisKey := "node:config:" + config.NodeID.String()
+		newConfigJSON, _ := json.Marshal(config)
+		redisClient.Client.Set(c.Request.Context(), redisKey, newConfigJSON, 3600*time.Second)
+	}
+
 	c.JSON(http.StatusCreated, config)
 }
 

@@ -33,7 +33,7 @@ type User struct {
 	ID        uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"` // References auth.users
 	Email     string     `gorm:"unique;not null" json:"email"`
 	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
-	Status    UserStatus `gorm:"-" json:"status"`      // Derived from auth or custom logic? For now ignored/transient
+	Status    UserStatus `gorm:"type:varchar(50);default:'active'" json:"status"`
 	TrustTier TrustTier  `gorm:"default:'new'" json:"trust_tier"`
 	KYCStatus KYCStatus  `gorm:"default:'not_started'" json:"kyc_status"`
 
@@ -116,6 +116,9 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	}
 	if u.KYCStatus == "" {
 		u.KYCStatus = KYCStatusNotStarted
+	}
+	if u.Status == "" {
+		u.Status = UserStatusActive
 	}
 	return
 }

@@ -11,8 +11,9 @@ import (
 	"github.com/gin-contrib/secure"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/api"
-
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -59,6 +60,10 @@ func main() {
 	}
 	api.InitConfigManager(cm)
 	log.Println("Internal Config Manager initialized and synced")
+
+	// Initialize Admin Config (3 hardcoded admin accounts)
+	api.InitAdminConfig(&cfg.Admin)
+	log.Println("Admin config initialized")
 
 	// Initialize Agent Dispatcher (Phase 13 Orchestration)
 	ad := worker.NewAgentTaskDispatcher()
@@ -312,6 +317,33 @@ func main() {
 		api.RegisterTierRoutes(protected)
 	}
 
+	// ======== Admin Panel Routes ========
+	// Completely separate auth — signed with ADMIN_JWT_SECRET, not user JWT_SECRET.
+	// Only the 3 hardcoded admin accounts can authenticate here.
+	adminGroup := r.Group("/v1/admin")
+	{
+		// Public admin auth (no middleware)
+		adminAuth := adminGroup.Group("/auth")
+		api.RegisterAdminAuthRoutes(adminAuth)
+
+		// SSE stream — validates admin token via ?token= query param (EventSource can't set headers)
+		api.RegisterAdminSessionStreamRoute(adminGroup, cfg)
+
+		// Protected admin routes (require valid admin JWT)
+		adminProtected := adminGroup.Group("/")
+		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
+		{
+			api.RegisterAdminMeRoute(adminProtected.Group("/auth"))
+
+			// Core admin operations (user mgmt, nodes, payouts, stats, audit)
+			// AdminAuthMiddleware already sets userRole="admin" so RequirePermission works.
+			admin := adminProtected.Group("/")
+			api.RegisterAdminRoutes(admin)
+			api.RegisterAdminExtendedRoutes(admin)
+		}
+	}
+	log.Println("Admin panel routes registered at /v1/admin")
+
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()
 	idx.Start()
@@ -396,6 +428,20 @@ func main() {
 	if oracleClient, err := solanaClient.NewOracleClient(oracleConfig); err == nil {
 		solanaClient.InitStakingService(oracleClient)
 		solanaClient.InitProofService(oracleClient)
+
+		// Wire live SOL transfer into the billing package for provider payouts
+		billing.SetSOLTransferFunc(func(ctx context.Context, recipient string, amountSOL float64) error {
+			recipientKey, err := solanaGo.PublicKeyFromBase58(recipient)
+			if err != nil {
+				return err
+			}
+			lamports := solanaClient.SOLToLamports(amountSOL)
+			_, err = oracleClient.SendSOL(ctx, recipientKey, lamports)
+			return err
+		})
+		billing.StartSettlementWorker()
+		billing.StartPayoutRetryWorker()
+		log.Println("Payout retry worker started")
 
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
