@@ -6,22 +6,37 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-/// TrafficShaper manages bandwidth quotas per session
+/// Return the bandwidth cap in bytes/sec for a given trust tier (B-05).
+pub fn bandwidth_cap_for_tier(tier: &str) -> u32 {
+    match tier {
+        "basic"      =>  2 * 1024 * 1024,  //  2 MB/s
+        "standard"   => 10 * 1024 * 1024,  // 10 MB/s
+        "premium"    => 50 * 1024 * 1024,  // 50 MB/s
+        "enterprise" => u32::MAX / 2,       // effectively unlimited (governor requires NonZeroU32)
+        _            =>  2 * 1024 * 1024,  // default: basic cap
+    }
+}
+
+/// TrafficShaper manages per-session bandwidth quotas.
+///
+/// Use `wrap_with_cap(stream, key, bytes_per_sec)` to apply a tier-specific cap
+/// (see `bandwidth_cap_for_tier`).  The legacy `wrap` method applies the default
+/// shaper quota for backwards compatibility.
 pub struct TrafficShaper {
-    // Keyed by session_id/username, limiting bytes per second
+    // Default limiter (used by `wrap`)
     limiter:
         Arc<RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock>>,
 }
 
 impl TrafficShaper {
     pub fn new(bytes_per_sec: u32) -> Self {
-        let quota = Quota::per_second(NonZeroU32::new(bytes_per_sec).unwrap());
+        let quota = Quota::per_second(NonZeroU32::new(bytes_per_sec.max(1)).unwrap());
         Self {
             limiter: Arc::new(RateLimiter::keyed(quota)),
         }
     }
 
-    /// Wrap a stream with rate limiting
+    /// Wrap a stream with the default (shared) rate limiter.
     pub fn wrap<S>(&self, stream: S, key: String) -> ShapedStream<S>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -31,6 +46,17 @@ impl TrafficShaper {
             key,
             limiter: self.limiter.clone(),
         }
+    }
+
+    /// Wrap a stream with a per-session bandwidth cap (B-05).
+    /// Use `bandwidth_cap_for_tier(&session.trust_tier)` to compute `bytes_per_sec`.
+    pub fn wrap_with_cap<S>(&self, stream: S, key: String, bytes_per_sec: u32) -> ShapedStream<S>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let quota = Quota::per_second(NonZeroU32::new(bytes_per_sec.max(1)).unwrap());
+        let limiter = Arc::new(RateLimiter::keyed(quota));
+        ShapedStream { inner: stream, key, limiter }
     }
 }
 

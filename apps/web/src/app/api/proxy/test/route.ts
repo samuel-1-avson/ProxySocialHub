@@ -7,7 +7,8 @@ export async function GET() {
         const proxyEndpoint = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'localhost:3128';
 
         // Check if edge-gateway is reachable (via control-api health check)
-        const controlApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+        // Use server-side API_URL (Docker internal) — NEXT_PUBLIC_API_URL is browser-only
+        const controlApiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
         const response = await fetch(`${controlApiUrl}/health`, {
             method: 'GET',

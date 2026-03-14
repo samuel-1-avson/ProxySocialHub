@@ -15,7 +15,7 @@ var DB *gorm.DB
 
 // CurrentSchemaVersion is used to prevent redundant migrations on every startup.
 // Increment this whenever any model in /internal/models is updated.
-const CurrentSchemaVersion = "20260309-0003"
+const CurrentSchemaVersion = "20260314-0001"
 
 func Init(dsn string) error {
 	if dsn == "" {
@@ -201,6 +201,12 @@ func Init(dsn string) error {
 
 			// Session Quality (Phase 23)
 			&models.SessionMetrics{},
+
+			// Admin Panel (Phase Admin)
+			&models.AdminNote{},
+
+			// Billing reliability (Phase billing-retry)
+			&models.PayoutRetryQueue{},
 		)
 
 		if err != nil {

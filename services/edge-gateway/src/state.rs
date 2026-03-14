@@ -1,5 +1,6 @@
 use crate::circuitbreaker::CircuitBreakerManager;
 use crate::config::Config;
+use crate::registry::lockfree::LockFreeNodeRegistry;
 use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
@@ -264,7 +265,8 @@ pub enum SelectionStrategy {
 use std::sync::atomic::AtomicBool;
 
 pub struct AppState {
-    pub registry: Arc<Mutex<NodeRegistry>>,
+    /// Lock-free provider registry (Phase 1 upgrade from Mutex<NodeRegistry>).
+    pub registry: Arc<LockFreeNodeRegistry>,
     pub config: Config,
     pub rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     pub is_leader: Arc<AtomicBool>,
@@ -273,6 +275,41 @@ pub struct AppState {
     pub usage_tracker: Arc<crate::metering::UsageTracker>,
     pub geoip: Option<Arc<maxminddb::Reader<Vec<u8>>>>,
     pub shaper: Arc<crate::qos::TrafficShaper>,
+    pub heartbeat_store: crate::heartbeat::HeartbeatStore,
+    /// In-memory heartbeat monitor — tracks per-node health and evicts stale nodes.
+    pub heartbeat_monitor: Arc<crate::heartbeat::HeartbeatMonitor>,
+    /// Per-node yamux stream pool (Phase 1 connection pooling).
+    pub connection_pool: Arc<crate::pool::ConnectionPool>,
+    // --- Phase 3: ML-based routing ---
+    /// ML router with heuristic + optional ONNX backends (P3-W10).
+    pub routing: Arc<crate::routing::ml_router::MLRouter>,
+    /// Node feature cache for ML scoring (P3-W9).
+    pub feature_cache: Arc<crate::routing::features::FeatureCache>,
+    /// Predictive pre-warm engine (P3-W11).
+    pub prewarm: Arc<crate::routing::prewarm::PrewarmEngine>,
+    /// Rolling-window routing analytics (P3-W11).
+    pub analytics: Arc<crate::routing::analytics::RoutingAnalytics>,
+    /// A/B test coordinator for ML vs heuristic (P3-W10).
+    pub ab_test: Arc<crate::routing::ab_test::AbTestCoordinator>,
+    // --- Phase 4: Security & Production Hardening ---
+    /// Adaptive per-IP DDoS rate limiter (P4-W13).
+    pub ddos: Arc<crate::security::ddos::AdaptiveRateLimiter>,
+    /// IP behavioral scorer (P4-W13).
+    pub behavior: Arc<crate::security::ddos::BehaviorScorer>,
+    /// Challenge token issuer (P4-W13).
+    pub challenge: Arc<crate::security::ddos::ChallengeIssuer>,
+    /// IP reputation store (P4-W13/W14).
+    pub reputation: Arc<crate::security::reputation::IpReputationStore>,
+    /// Geo-blocking list (P4-W13).
+    pub geo_block: Arc<crate::security::reputation::GeoBlockList>,
+    /// TLS/HTTP2 fingerprint database (P4-W14).
+    pub fingerprint_db: Arc<crate::security::fingerprint::FingerprintDb>,
+    /// Multi-region router (P4-W15).
+    pub multiregion: Arc<crate::multiregion::routing::MultiRegionRouter>,
+    /// Staged rollout plan (P4-W16).
+    pub rollout: Arc<crate::rollout::RolloutPlan>,
+    /// IP rotation manager — tracks per-session rotation state (W-01).
+    pub rotation: Arc<Mutex<crate::rotation::RotationManager>>,
 }
 
 impl AppState {
@@ -305,8 +342,53 @@ impl AppState {
             .allow_burst(NonZeroU32::new(20).expect("non-zero burst"));
         let rate_limiter = Arc::new(RateLimiter::keyed(quota));
 
+        // Initialize heartbeat store
+        let heartbeat_store = crate::heartbeat::HeartbeatStore::new(
+            registry_store.client()
+        );
+
+        // Initialize heartbeat monitor and start background check task
+        let heartbeat_monitor = Arc::new(crate::heartbeat::HeartbeatMonitor::new(
+            crate::heartbeat::HeartbeatConfig::default(),
+        ));
+
+        let connection_pool = crate::pool::ConnectionPool::new(crate::pool::PoolConfig::default());
+
+        // Phase 3: ML routing components
+        let feature_cache = Arc::new(crate::routing::features::FeatureCache::new());
+        let routing = Arc::new(crate::routing::ml_router::MLRouter::new(feature_cache.clone()));
+        let prewarm = Arc::new(crate::routing::prewarm::PrewarmEngine::new(
+            std::time::Duration::from_secs(60),
+        ));
+        let analytics = Arc::new(crate::routing::analytics::RoutingAnalytics::new(0.0));
+        let ab_test = Arc::new(crate::routing::ab_test::AbTestCoordinator::new(0.0));
+
+        // Phase 4: Security & Production Hardening
+        let ddos = Arc::new(crate::security::ddos::AdaptiveRateLimiter::new(
+            crate::security::ddos::RateLimitConfig::default(),
+        ));
+        let behavior = Arc::new(crate::security::ddos::BehaviorScorer::new(
+            Duration::from_secs(300),
+        ));
+        let challenge = Arc::new(crate::security::ddos::ChallengeIssuer::new(
+            Duration::from_secs(30),
+        ));
+        let reputation = Arc::new(crate::security::reputation::IpReputationStore::new(
+            Duration::from_secs(86400), // 24-hour TTL
+        ));
+        let geo_block = Arc::new(crate::security::reputation::GeoBlockList::new(
+            config.geo_deny_list.iter().cloned(),
+            config.geo_allow_list.iter().cloned(),
+            geoip.clone(),
+        ));
+        let fingerprint_db = Arc::new(crate::security::fingerprint::FingerprintDb::new());
+        let multiregion = Arc::new(crate::multiregion::routing::MultiRegionRouter::new(
+            config.region.clone().unwrap_or_else(|| "default".to_string()),
+        ));
+        let rollout = Arc::new(crate::rollout::RolloutPlan::new());
+
         Self {
-            registry: Arc::new(Mutex::new(NodeRegistry::new())),
+            registry: Arc::new(LockFreeNodeRegistry::new()),
             config,
             rate_limiter,
             is_leader,
@@ -315,6 +397,23 @@ impl AppState {
             usage_tracker,
             geoip,
             shaper,
+            heartbeat_store,
+            heartbeat_monitor,
+            connection_pool,
+            routing,
+            feature_cache,
+            prewarm,
+            analytics,
+            ab_test,
+            ddos,
+            behavior,
+            challenge,
+            reputation,
+            geo_block,
+            fingerprint_db,
+            multiregion,
+            rollout,
+            rotation: Arc::new(Mutex::new(crate::rotation::RotationManager::new())),
         }
     }
 
@@ -323,27 +422,41 @@ impl AppState {
         self.rate_limiter.check_key(&key.to_string()).is_ok()
     }
 
-    /// Select a provider based on strategy
-    pub fn select_provider(&self, strategy: SelectionStrategy) -> Option<Control> {
-        // Handle Mutex poisoning gracefully by logging and returning None (or resetting)
-        let registry = match self.registry.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("CRITICAL: NodeRegistry Mutex poisoned: {:?}", poisoned);
-                poisoned.into_inner() // Recovery: get the data anyway
-            }
-        };
+    /// Select a provider using the ML router (Phase 3).
+    ///
+    /// Picks a backend via the A/B coordinator, scores all healthy nodes, records
+    /// the decision in the rolling analytics window, and falls back to the
+    /// heuristic `registry.get_best()` if no candidates are found.
+    pub fn select_provider_ml(&self) -> Option<(Control, String)> {
+        let backend = self.ab_test.choose_backend();
+        let timer = crate::routing::analytics::RoutingAnalytics::start_timer();
+        let result = self.routing.select(&self.registry, backend);
+        if let Some((_, ref node_id)) = result {
+            let decision = crate::routing::analytics::RoutingAnalytics::finish(
+                timer,
+                backend,
+                node_id.clone(),
+                true, // optimistic; caller updates to false on connection failure
+            );
+            self.analytics.record(decision);
+        }
+        result.or_else(|| self.registry.get_best())
+    }
 
+    /// Select a provider based on strategy (no lock needed — registry is lock-free)
+    pub fn select_provider(&self, strategy: SelectionStrategy) -> Option<Control> {
         match strategy {
-            SelectionStrategy::Random => registry.get_random(),
-            SelectionStrategy::Best => registry.get_best().map(|(c, _)| c),
-            SelectionStrategy::LeastLoaded => registry.get_least_loaded(),
-            SelectionStrategy::ByCountry(code) => registry
+            SelectionStrategy::Random => self.registry.get_random(),
+            SelectionStrategy::Best => self.registry.get_best().map(|(c, _)| c),
+            SelectionStrategy::LeastLoaded => self.registry.get_least_loaded(),
+            SelectionStrategy::ByCountry(code) => self
+                .registry
                 .get_by_country(&code)
-                .or_else(|| registry.get_random()),
-            SelectionStrategy::ByRegion(region) => registry
+                .or_else(|| self.registry.get_random()),
+            SelectionStrategy::ByRegion(region) => self
+                .registry
                 .get_by_region(&region)
-                .or_else(|| registry.get_random()),
+                .or_else(|| self.registry.get_random()),
         }
     }
 }

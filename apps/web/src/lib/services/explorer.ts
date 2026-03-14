@@ -93,6 +93,20 @@ export interface TransactionDetail extends TransactionSummary {
     raw_data?: any;
 }
 
+export interface ContractDetails {
+    address: string;
+    name: string;
+    chain: string;
+    contract_type: string;
+    is_verified: boolean;
+    total_calls: number;
+    deployed_at: string;
+    deployer_address?: string;
+    description?: string;
+    source_code?: string;
+    abi?: any;
+}
+
 export interface NetworkHealth {
     status: string;
     solana_health: string;
@@ -160,6 +174,12 @@ export async function getNodes(page = 1, pageSize = 20, activeOnly = true): Prom
 export async function getBandwidthStats(period = '24h'): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/v1/explorer/bandwidth?period=${period}`);
     if (!response.ok) throw new Error('Failed to fetch bandwidth stats');
+    return response.json();
+}
+
+export async function getContractDetails(address: string): Promise<ContractDetails> {
+    const response = await fetch(`${API_BASE_URL}/v1/explorer/contracts/${address}`);
+    if (!response.ok) throw new Error('Failed to fetch contract details');
     return response.json();
 }
 

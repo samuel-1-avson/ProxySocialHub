@@ -1,7 +1,8 @@
 import { Session } from '@/lib/api';
-import { openChannel, updateChannelState, signStateUpdate } from '@/lib/services/channel';
-import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive } from 'lucide-react';
-import { useEffect, useState, useRef } from 'react';
+import { openChannel, updateChannelState } from '@/lib/services/channel';
+import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive, AlertCircle } from 'lucide-react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 interface StreamingSessionCardProps {
     session: Session;
@@ -18,31 +19,54 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
     const [channelId, setChannelId] = useState<string | null>(null);
     const nonceRef = useRef(0);
 
+    // Check if user has a connected Solana wallet — required for Turbo (state channel signing)
+    const { connected: walletConnected, publicKey, signMessage } = useWallet();
+
+    const signStateUpdateWithWallet = useCallback(async (
+        chanId: string,
+        nonce: number,
+        amount: number,
+        bytes: number
+    ): Promise<string> => {
+        if (!signMessage || !publicKey) {
+            throw new Error('Wallet not connected');
+        }
+        const msg = `${chanId}:${nonce}:${amount}:${bytes}`;
+        const encoded = new TextEncoder().encode(msg);
+        const sigBytes = await signMessage(encoded);
+        // Convert Uint8Array to hex string
+        return Array.from(sigBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }, [signMessage, publicKey]);
+
     const activateTurbo = async () => {
+        if (!walletConnected || !signMessage) {
+            alert('Connect your Solana wallet first to enable Turbo L2 mode.');
+            return;
+        }
+
         setLoadingTurbo(true);
         try {
             // Dynamically calculate L2 deposit based on listing price
-            // We lock in 2 hours worth of bandwidth by default for smooth streaming
+            // Lock in 2 hours of bandwidth by default for smooth streaming
             const pricePerHour = session.listing?.price_per_hour || 0.1;
             const depositHours = 2;
-            const minDeposit = 0.05; // Industrial safety floor (USDT/Credits)
+            const minDeposit = 0.05; // safety floor (USDT)
             const calculatedDeposit = Math.max(pricePerHour * depositHours, minDeposit);
             const depositAmountLamports = Math.floor(calculatedDeposit * 1e9);
 
-            // Open payment channel with live calculated amount
             const channel = await openChannel(session.id, depositAmountLamports);
             setChannelId(channel.id);
             setIsTurbo(true);
-            console.log("Live State Channel Opened:", channel.id);
+            console.log('Live State Channel Opened:', channel.id);
         } catch (e) {
-            console.error("Failed to open channel", e);
-            alert("Failed to upgrade to L2");
+            console.error('Failed to open channel', e);
+            alert('Failed to upgrade to L2');
         } finally {
             setLoadingTurbo(false);
         }
     };
 
-    // State Channel Loop
+    // State Channel heartbeat loop — only runs when Turbo is active
     useEffect(() => {
         if (!isTurbo || !channelId) return;
 
@@ -51,32 +75,27 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 const currentNonce = nonceRef.current + 1;
                 nonceRef.current = currentNonce;
 
-                // Sign current state
-                // Note: cost is in TAO, converting to atomic units roughly
                 const atomicAmount = Math.floor(cost * 1e9);
                 const atomicBytes = session.bytes_used || 0;
 
-                const sig = await signStateUpdate(channelId, currentNonce, atomicAmount, atomicBytes);
-
-                // Transmit to Backend
+                const sig = await signStateUpdateWithWallet(channelId, currentNonce, atomicAmount, atomicBytes);
                 await updateChannelState(channelId, currentNonce, atomicAmount, atomicBytes, sig);
 
                 console.log(`L2 Update Sent: Nonce ${currentNonce}`);
             } catch (e) {
-                console.error("L2 Update Failed", e);
+                console.error('L2 Update Failed', e);
             }
-        }, 2000); // Send heartbeat every 2s
+        }, 2000);
 
         return () => clearInterval(updateInterval);
-    }, [isTurbo, channelId, cost, session.bytes_used]);
+    }, [isTurbo, channelId, cost, session.bytes_used, signStateUpdateWithWallet]);
 
-
-    // Calculate real-time stats
+    // Real-time cost + elapsed counter
     useEffect(() => {
         if (session.status !== 'active') return;
 
         const startTime = new Date(session.created_at).getTime();
-        const pricePerHour = session.listing?.price_per_hour || 0.1; // Default fallback
+        const pricePerHour = session.listing?.price_per_hour || 0.1;
         const pricePerMs = pricePerHour / 3600000;
 
         const interval = setInterval(() => {
@@ -84,18 +103,24 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             const diff = now - startTime;
             setElapsed(Math.floor(diff / 1000));
             setCost(diff * pricePerMs);
-        }, 100); // Fast updates for "streaming" effect
+        }, 100);
 
         return () => clearInterval(interval);
     }, [session]);
 
-    // Format helpers
     const formatTime = (seconds: number) => {
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
+
+    const turboDisabled = !walletConnected || loadingTurbo;
+    const turboTooltip = !walletConnected
+        ? 'Connect your Solana wallet to enable Turbo L2'
+        : loadingTurbo
+        ? 'Opening channel...'
+        : 'Upgrade to L2 state channel';
 
     return (
         <div className="card-retro p-0 bg-card overflow-hidden group border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.1)]">
@@ -168,23 +193,33 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             {/* Turbo Mode Toggle */}
             <div className="px-4 py-2 bg-black/40 border-t border-dashed border-border flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                    <Zap size={12} className={isTurbo ? "text-yellow-400 animate-pulse" : "text-muted-foreground"} />
-                    <span className={`text-[10px] font-bold font-mono uppercase ${isTurbo ? "text-yellow-400" : "text-muted-foreground"}`}>
-                        {isTurbo ? "TURBO L2 CHANNEL ACTIVE" : "STANDARD SETTLEMENT"}
+                    <Zap size={12} className={isTurbo ? 'text-yellow-400 animate-pulse' : 'text-muted-foreground'} />
+                    <span className={`text-[10px] font-bold font-mono uppercase ${isTurbo ? 'text-yellow-400' : 'text-muted-foreground'}`}>
+                        {isTurbo ? 'TURBO L2 CHANNEL ACTIVE' : 'STANDARD SETTLEMENT'}
                     </span>
                 </div>
+
                 {!isTurbo && (
-                    <button
-                        onClick={activateTurbo}
-                        disabled={loadingTurbo}
-                        className="text-[10px] font-bold font-mono uppercase text-green-500 hover:underline disabled:opacity-50"
-                    >
-                        {loadingTurbo ? "OPENING..." : "UPGRADE TO L2"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {!walletConnected && (
+                            <div className="flex items-center gap-1 text-[9px] font-mono text-yellow-500/70">
+                                <AlertCircle size={10} />
+                                <span>Wallet required</span>
+                            </div>
+                        )}
+                        <button
+                            onClick={activateTurbo}
+                            disabled={turboDisabled}
+                            title={turboTooltip}
+                            className="text-[10px] font-bold font-mono uppercase text-green-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                        >
+                            {loadingTurbo ? 'OPENING...' : 'UPGRADE TO L2'}
+                        </button>
+                    </div>
                 )}
             </div>
 
-            {/* Progress Bar (Time Remaining or Funds Remaining visualization) */}
+            {/* Progress Bar */}
             <div className="h-0.5 w-full bg-secondary/30">
                 <div className="h-full bg-green-500 animate-pulse w-full origin-left"></div>
             </div>

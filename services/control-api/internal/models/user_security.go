@@ -166,6 +166,7 @@ type AccountLockout struct {
 	// Lockout Info
 	FailedAttempts int        `gorm:"default:0" json:"failed_attempts"`
 	LockedAt       *time.Time `json:"locked_at,omitempty"`
+	LockedUntil    *time.Time `json:"locked_until,omitempty"` // When lockout expires (for queries)
 	UnlockedAt     *time.Time `json:"unlocked_at,omitempty"`
 	LockReason     string     `gorm:"type:varchar(100)" json:"lock_reason,omitempty"`
 

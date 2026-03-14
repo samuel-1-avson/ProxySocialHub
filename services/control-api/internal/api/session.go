@@ -1,17 +1,21 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	solanaGo "github.com/gagliardetto/solana-go"
+	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 func RegisterSessionRoutes(r *gin.RouterGroup) {
@@ -38,6 +42,16 @@ type createSessionRequestV4 struct {
 	BandwidthLimit int64  `json:"bandwidth_limit"`
 	TargetGeo      string `json:"target_geo"`
 	TargetISP      string `json:"target_isp"`
+
+	// N-03: Optional routing profile slug (e.g. "web-scraping", "gaming")
+	RoutingProfile string `json:"routing_profile"`
+
+	// N-02: Optional per-session access control overrides
+	AllowedDomains          []string `json:"allowed_domains"`
+	BlockedDomains          []string `json:"blocked_domains"`
+	RotationType            string   `json:"rotation_type"`             // "none" | "per-request" | "time-based"
+	RotationIntervalSeconds int      `json:"rotation_interval_seconds"` // 0 → profile/tier default
+	TimeLimitMinutes        int      `json:"time_limit_minutes"`        // 0 = unlimited
 }
 
 func generateCredentials() (string, string) {
@@ -49,10 +63,8 @@ func generateCredentials() (string, string) {
 }
 
 func createSession(c *gin.Context) {
-	fmt.Println("DEBUG: Entering createSession handler")
 	var req createSessionRequestV4
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Printf("DEBUG: Bind Error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -93,14 +105,35 @@ func createSession(c *gin.Context) {
 		}
 	}
 
+	// N-03: Look up routing profile and apply defaults if slug provided.
+	var routingProfile *models.RoutingProfile
+	if req.RoutingProfile != "" {
+		var rp models.RoutingProfile
+		if err := db.DB.Where("slug = ? AND is_active = true", req.RoutingProfile).First(&rp).Error; err == nil {
+			routingProfile = &rp
+			// Apply profile defaults only when request didn't override them.
+			if req.RotationType == "" {
+				if rp.AutoRotation {
+					req.RotationType = "time-based"
+				} else {
+					req.RotationType = "none"
+				}
+			}
+			if req.RotationIntervalSeconds == 0 {
+				req.RotationIntervalSeconds = rp.RotationInterval
+			}
+		} else {
+			logging.Warn().Str("slug", req.RoutingProfile).Msg("Routing profile not found — ignoring")
+		}
+	}
+	_ = routingProfile // may be used for future provider matching weight hints
+
 	// === Distributed Lock Start ===
 	// Prevent race conditions on concurrent session creation
 	lockKey := "session:alloc:" + userID
 	lockValue := uuid.New().String()
 	acquired, err := redisClient.AcquireLock(lockKey, lockValue, 5*time.Second)
 	if err != nil {
-		// Log error but might proceed? No, safer to error out.
-		fmt.Printf("DEBUG: Lock acquire failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to acquire lock"})
 		return
 	}
@@ -158,24 +191,56 @@ func createSession(c *gin.Context) {
 	}
 
 	if result := db.DB.Create(&session); result.Error != nil {
-		fmt.Printf("DEBUG: DB Create Error: %v\n", result.Error)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
 
-	// Store in Redis for Gateway authentication
+	// N-05: Store encrypted credential backup (non-fatal if it fails).
+	credSvc := crypto.NewCredentialService()
+	if err := credSvc.StoreCredentials(session.ID, credUser, credPass); err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to store encrypted credentials — continuing")
+	}
+
+	// N-02: Persist per-session configuration record.
+	rotationType := req.RotationType
+	if rotationType == "" {
+		rotationType = "none"
+	}
+	rotationInterval := req.RotationIntervalSeconds
+	if rotationInterval == 0 {
+		rotationInterval = 60
+	}
+	sessionCfg := models.SessionConfiguration{
+		SessionID:        session.ID,
+		UserID:           userUUID,
+		AllowedDomains:   req.AllowedDomains,
+		BlockedDomains:   req.BlockedDomains,
+		RotationType:     rotationType,
+		RotationInterval: rotationInterval,
+		TimeLimitMinutes: req.TimeLimitMinutes,
+	}
+	if err := db.DB.Create(&sessionCfg).Error; err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to persist session configuration — continuing")
+	}
+
+	// Store in Redis for Gateway authentication (N-02: include session config fields)
 	sessionData := &redisClient.SessionData{
-		UserID:         userID,
-		SessionID:      session.ID.String(),
-		Type:           req.Type,
-		Status:         "active",
-		BandwidthLimit: bandwidthLimit,
-		BandwidthUsed:  0,
-		TrustTier:      string(user.TrustTier),
-		TargetGeo:      req.TargetGeo,
-		TargetISP:      req.TargetISP,
-		ExpiresAt:      time.Now().Add(24 * time.Hour),
-		CreatedAt:      time.Now(),
+		UserID:                  userID,
+		SessionID:               session.ID.String(),
+		Type:                    req.Type,
+		Status:                  "active",
+		BandwidthLimit:          bandwidthLimit,
+		BandwidthUsed:           0,
+		TrustTier:               string(user.TrustTier),
+		TargetGeo:               req.TargetGeo,
+		TargetISP:               req.TargetISP,
+		ExpiresAt:               time.Now().Add(24 * time.Hour),
+		CreatedAt:               time.Now(),
+		AllowedDomains:          req.AllowedDomains,
+		BlockedDomains:          req.BlockedDomains,
+		RotationType:            rotationType,
+		RotationIntervalSeconds: rotationInterval,
+		TimeLimitMinutes:        req.TimeLimitMinutes,
 	}
 
 	// Store with 24-hour TTL
@@ -255,8 +320,14 @@ func listSessions(c *gin.Context) {
 	}
 	userID := userUUID.String()
 
+	// N-06: Filter by status. Default = active only; pass ?status=all for full history.
+	query := db.DB.Where("user_id = ?", userID).Order("created_at DESC")
+	if c.Query("status") != "all" {
+		query = query.Where("status = ?", models.SessionActive)
+	}
+
 	var sessions []models.Session
-	if result := db.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&sessions); result.Error != nil {
+	if result := query.Find(&sessions); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sessions"})
 		return
 	}
@@ -315,6 +386,9 @@ func terminateSession(c *gin.Context) {
 	}
 
 	redisClient.DeleteSession(session.CredentialsUser)
+
+	// Trigger on-chain escrow settlement asynchronously so the API response is not blocked.
+	go settleSessionOnChain(session)
 
 	c.JSON(http.StatusOK, gin.H{"status": "terminated"})
 }
@@ -413,4 +487,81 @@ func createInstantSession(c *gin.Context) {
 		},
 		"strategy": req.Strategy,
 	})
+}
+
+// settleSessionOnChain calls the on-chain SettleEscrow instruction after a session ends.
+// It runs in a goroutine — errors are logged but never bubble up to the HTTP handler.
+func settleSessionOnChain(session models.Session) {
+	ctx := context.Background()
+
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		logging.Warn().Str("session_id", session.ID.String()).Msg("SettleEscrow skipped: oracle client not initialized")
+		return
+	}
+
+	// Load the session with its listing to get seller info
+	var fullSession models.Session
+	if err := db.DB.Preload("Listing").First(&fullSession, "id = ?", session.ID).Error; err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: failed to load session")
+		return
+	}
+
+	if fullSession.Listing == nil {
+		logging.Warn().Str("session_id", session.ID.String()).Msg("SettleEscrow skipped: no listing attached")
+		return
+	}
+
+	// Look up buyer's linked Solana wallet
+	var buyer models.User
+	if err := db.DB.Select("wallet_address").Where("id = ?", fullSession.UserID).First(&buyer).Error; err != nil || buyer.WalletAddress == nil {
+		logging.Warn().Str("session_id", session.ID.String()).Msg("SettleEscrow skipped: buyer has no linked wallet")
+		return
+	}
+
+	// Look up seller's linked Solana wallet
+	var seller models.User
+	if err := db.DB.Select("wallet_address").Where("id = ?", fullSession.Listing.SellerID).First(&seller).Error; err != nil || seller.WalletAddress == nil {
+		logging.Warn().Str("session_id", session.ID.String()).Msg("SettleEscrow skipped: seller has no linked wallet")
+		return
+	}
+
+	buyerPubkey, err := solanaGo.PublicKeyFromBase58(*buyer.WalletAddress)
+	if err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: invalid buyer pubkey")
+		return
+	}
+	sellerPubkey, err := solanaGo.PublicKeyFromBase58(*seller.WalletAddress)
+	if err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: invalid seller pubkey")
+		return
+	}
+
+	escrowPDA, _, err := oracle.GetEscrowPDA(buyerPubkey, sellerPubkey)
+	if err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: failed to derive PDA")
+		return
+	}
+
+	bandwidthUsedGB := uint64(fullSession.BytesUsed) / (1024 * 1024 * 1024)
+
+	txHash, err := oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+		Buyer:           buyerPubkey,
+		Seller:          sellerPubkey,
+		EscrowPDA:       escrowPDA,
+		BandwidthUsedGB: bandwidthUsedGB,
+	})
+	if err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: on-chain transaction failed")
+		return
+	}
+
+	// Store the settlement tx hash on the session for audit
+	db.DB.Model(&models.Session{}).Where("id = ?", session.ID).Update("tx_hash", txHash)
+
+	logging.Info().
+		Str("session_id", session.ID.String()).
+		Str("tx_hash", txHash).
+		Uint64("bandwidth_gb", bandwidthUsedGB).
+		Msg("SettleEscrow completed on-chain")
 }

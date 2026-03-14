@@ -5,7 +5,10 @@
 
 import { fetchWithAuth } from '../auth';
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+// Empty string = relative URL. All /v1/* requests are proxied server-side
+// by Next.js rewrites (next.config.ts) to the internal backend. This prevents
+// the browser from ever trying to resolve the Docker-internal hostname.
+export const API_BASE_URL = '';
 
 /**
  * Custom API error with status code and message
@@ -38,16 +41,16 @@ export interface ApiResponse<T> {
  * Type-safe GET request
  */
 export async function apiGet<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
-    const url = new URL(`${API_BASE_URL}${endpoint}`);
+    let urlStr = `${API_BASE_URL}${endpoint}`;
     if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                url.searchParams.append(key, value);
-            }
-        });
+        const qs = Object.entries(params)
+            .filter(([, value]) => value !== undefined && value !== null)
+            .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+            .join('&');
+        if (qs) urlStr += (urlStr.includes('?') ? '&' : '?') + qs;
     }
 
-    const response = await fetchWithAuth(url.toString());
+    const response = await fetchWithAuth(urlStr);
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Request failed' }));

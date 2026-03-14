@@ -178,7 +178,9 @@ export function SessionLiveCard() {
     // the Authorization header, a fetch-based SSE reader would be needed.
     // We build the URL with a token query param here as a pragmatic approach
     // that works with most proxy setups.
-    const url = `${API_BASE_URL}/v1/sessions/stream?token=${encodeURIComponent(token)}`;
+    // Use /api/sessions/stream (a streaming Next.js API route) instead of
+    // going through the /v1 rewrite — rewrites buffer SSE and break streaming.
+    const url = `/api/sessions/stream?token=${encodeURIComponent(token)}`;
 
     const es = new EventSource(url);
     esRef.current = es;

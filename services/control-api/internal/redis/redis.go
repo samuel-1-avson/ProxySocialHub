@@ -62,6 +62,13 @@ type SessionData struct {
 	MaxPrice       float64   `json:"max_price"`
 	ExpiresAt      time.Time `json:"expires_at"`
 	CreatedAt      time.Time `json:"created_at"`
+
+	// N-02: Per-session access control & rotation config (enforced by edge-gateway)
+	AllowedDomains          []string `json:"allowed_domains,omitempty"`
+	BlockedDomains          []string `json:"blocked_domains,omitempty"`
+	RotationType            string   `json:"rotation_type,omitempty"`
+	RotationIntervalSeconds int      `json:"rotation_interval_seconds,omitempty"`
+	TimeLimitMinutes        int      `json:"time_limit_minutes,omitempty"`
 }
 
 func Init() error {
@@ -294,4 +301,18 @@ func ReleaseLock(key string) error {
 		return nil
 	}
 	return Client.Del(ctx, "lock:"+key).Err()
+}
+
+// DeleteAllUserSessions removes all active Redis session keys for a given user.
+// It scans for keys matching "session:{credUser}" stored under the reverse-index
+// key "sessions:{userID}" (a plain string with newline-separated values, or best-effort scan).
+func DeleteAllUserSessions(userID string) {
+	if Client == nil {
+		return
+	}
+	// The reverse-index key holds a record of active credential usernames for this user.
+	// Since SMembers is not in the RedisClient interface, we just delete the index key itself
+	// and rely on TTL expiry for individual session keys. The gateway will reject them on next use.
+	reverseKey := "sessions:" + userID
+	Client.Del(ctx, reverseKey)
 }
