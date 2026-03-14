@@ -11,7 +11,7 @@ pub enum CircuitState {
     /// Circuit is open, requests fail fast
     Open { last_failure: Instant },
     /// Circuit is half-open, testing if service recovered
-    HalfOpen,
+    HalfOpen { successes: u32 },
 }
 
 impl CircuitState {
@@ -19,7 +19,7 @@ impl CircuitState {
         match self {
             CircuitState::Closed { .. } => "closed",
             CircuitState::Open { .. } => "open",
-            CircuitState::HalfOpen => "half-open",
+            CircuitState::HalfOpen { .. } => "half-open",
         }
     }
 }
@@ -116,13 +116,13 @@ impl CircuitBreaker {
             CircuitState::Open { last_failure } => {
                 if last_failure.elapsed() > self.config.timeout {
                     info!("Circuit breaker {} transitioning to half-open", self.service_name);
-                    *state = CircuitState::HalfOpen;
+                    *state = CircuitState::HalfOpen { successes: 0 };
                     true
                 } else {
                     false
                 }
             }
-            CircuitState::HalfOpen => true,
+            CircuitState::HalfOpen { .. } => true,
         }
     }
 
@@ -135,11 +135,21 @@ impl CircuitBreaker {
                 // Reset failure count on success
                 *state = CircuitState::Closed { failures: 0 };
             }
-            CircuitState::HalfOpen => {
-                // Check if we have enough successes to close
-                info!("Circuit breaker {} success in half-open state", self.service_name);
-                *state = CircuitState::Closed { failures: 0 };
-                info!("Circuit breaker {} closed after recovery", self.service_name);
+            CircuitState::HalfOpen { successes } => {
+                let new_successes = successes + 1;
+                if new_successes >= self.config.success_threshold {
+                    info!(
+                        "Circuit breaker {} closed after {} consecutive successes",
+                        self.service_name, new_successes
+                    );
+                    *state = CircuitState::Closed { failures: 0 };
+                } else {
+                    info!(
+                        "Circuit breaker {} half-open success {}/{}",
+                        self.service_name, new_successes, self.config.success_threshold
+                    );
+                    *state = CircuitState::HalfOpen { successes: new_successes };
+                }
             }
             CircuitState::Open { .. } => {
                 // This shouldn't happen, but handle gracefully
@@ -164,7 +174,7 @@ impl CircuitBreaker {
                     *state = CircuitState::Closed { failures: new_failures };
                 }
             }
-            CircuitState::HalfOpen => {
+            CircuitState::HalfOpen { .. } => {
                 warn!("Circuit breaker {} reopening after failure in half-open state", self.service_name);
                 *state = CircuitState::Open {
                     last_failure: Instant::now(),
@@ -201,7 +211,7 @@ impl CircuitBreaker {
                 failures: 0,
                 last_failure_secs: Some(last_failure.elapsed().as_secs()),
             },
-            CircuitState::HalfOpen => CircuitStats {
+            CircuitState::HalfOpen { .. } => CircuitStats {
                 service_name: self.service_name.clone(),
                 state: "half-open".to_string(),
                 failures: 0,

@@ -16,14 +16,49 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - PORT=8080
-      - APP_ENV=${APP_ENV:-development}
+      - APP_ENV=${APP_ENV:-production}
       - API_BASE_URL=${API_BASE_URL:-http://localhost:8080}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
-    
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3002}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
+      - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
+      # --- Solana / Blockchain ---
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      # Treasury wallet receiving buyer SOL deposits (server-side only)
+      - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS}
+      # Comma-separated RPC endpoints (failover order)
+      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      # Path inside the container to the oracle keypair JSON (64-byte array)
+      - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
+      # --- Admin ---
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-proxyhubb-admin-secret-change-in-production}
+      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME:-superadmin}
+      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD:-PHub@Super2026!}
+      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-superadmin}
+      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME:-sysops}
+      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD:-PHub@Ops2026!}
+      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-sysops}
+      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME:-support}
+      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD:-PHub@Support2026!}
+      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-support}
+
+    # Mount oracle keypair as a read-only secret file.
+    # Before running: create ./oracle-keypair.json (64-byte Solana keypair array).
+    # If absent, oracle client is skipped gracefully.
+    volumes:
+      - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
+
     ports:
       - "8080:8080"
-    
+
     # Security hardening
     read_only: true
     user: "1000:1000"
@@ -71,18 +106,33 @@ services:
       dockerfile: Dockerfile.simple
     environment:
       - RUST_LOG=info
+      - HOST=0.0.0.0
+      - PORT=8090
+      - TUNNEL_PORT=3128
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - CONTROL_API_URL=http://control-api:8080
       - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-750cb0f0d0b7dce54567b0394513cd19a2ab6d21d4691696179061c20da297d1}
-      - GATEWAY_ADDR=0.0.0.0:3128
-      - GATEWAY_TUNNEL_PORT=0.0.0.0:8090
       - STICKY_TTL_SECS=3600
+      - JWT_SECRET=${JWT_SECRET}
+      - TLS_CERT_PATH=/app/certs/server.crt
+      - TLS_KEY_PATH=/app/certs/server.key
+      # S-07 / Geo filtering — comma-separated ISO-3166-1 alpha-2 country codes
+      - GEO_DENY_LIST=${GEO_DENY_LIST:-}
+      - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
+      - REGION=${REGION:-default}
+      # Optional MaxMind GeoLite2 database path inside the container
+      - GEOIP_DB_PATH=${GEOIP_DB_PATH:-}
     
+    volumes:
+      - ./certs:/app/certs:ro
+      # Optional GeoIP database — mount only when GEOIP_DB_PATH is set
+      # - ./geoip/GeoLite2-Country.mmdb:/app/geoip/GeoLite2-Country.mmdb:ro
+
     ports:
       - "3128:3128"    # SOCKS5/HTTP Proxy port
       - "8090:8090"    # Gateway API/Health port
-    
+
     # Security hardening
     read_only: true
     user: "1000:1000"
@@ -130,12 +180,22 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:8080
-        - NEXT_PUBLIC_GATEWAY_URL=http://localhost:3128
+        # API_URL is server-only — baked into Next.js rewrites/API routes at build time.
+        # Must use the Docker-internal service name, never exposed to the browser.
+        - API_URL=http://control-api:8080
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
+        - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+        - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8080
-      - NEXT_PUBLIC_GATEWAY_URL=http://localhost:3128
+      # Server-side only — used by Next.js API routes, never sent to the browser
       - API_URL=http://control-api:8080
+      # Public vars — must be the public-facing host:port, not Docker-internal
+      - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8080}
+      - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
+      - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      - NEXT_PUBLIC_SOLANA_TREASURY=${SOLANA_TREASURY_ADDRESS}
     
     ports:
       - "3000:3000"
@@ -146,6 +206,36 @@ services:
       - backend
       - frontend
     
+    depends_on:
+      control-api:
+        condition: service_started
+
+  # ==================== ADMIN PANEL ====================
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://control-api:8080
+    environment:
+      - API_URL=http://control-api:8080
+      - NEXT_PUBLIC_API_URL=http://control-api:8080
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-proxyhubb-admin-secret-change-in-production}
+      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME:-superadmin}
+      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD:-PHub@Super2026!}
+      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-superadmin}
+      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME:-sysops}
+      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD:-PHub@Ops2026!}
+      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-sysops}
+      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME:-support}
+      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD:-PHub@Support2026!}
+      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-support}
+    ports:
+      - "3002:3002"
+    restart: unless-stopped
+    networks:
+      - backend
+      - frontend
     depends_on:
       control-api:
         condition: service_started
@@ -202,6 +292,18 @@ services:
     
     networks:
       - backend
+
+  # ==================== REDIS EXPORTER ====================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    environment:
+      - REDIS_ADDR=redis://:${REDIS_PASSWORD}@redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - backend
+    depends_on:
+      - redis
+    restart: unless-stopped
 
   # ==================== PROMETHEUS (Metrics) ====================
   prometheus:

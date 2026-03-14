@@ -1,24 +1,71 @@
-FROM rust:1.84-alpine AS builder
+FROM rust:1.85-alpine AS builder
 
 WORKDIR /app
-RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig perl git make gcc g++
 
-# Copy only what we need
-COPY services/edge-gateway/Cargo.toml services/edge-gateway/Cargo.lock ./
-COPY services/edge-gateway/build.rs ./
-COPY services/edge-gateway/src ./src
-COPY proto ./proto
+# Build dependencies: musl, OpenSSL (static), and C toolchain for any sys crates.
+# lzma-sys (pulled in by ort transitive deps) needs xz-dev at compile time.
+# Separate update from add so a CDN hiccup on index fetch doesn't silently
+# leave an empty package database and fail all installs with "no such package".
+RUN apk update && apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig \
+    git \
+    make \
+    gcc \
+    g++ \
+    xz-dev
 
-# Build
-RUN cargo build --release
+# Copy manifest and source
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+COPY src ./src
+# Bench sources declared in Cargo.toml — must be present for manifest parsing.
+COPY benches ./benches
 
-FROM alpine:latest
+# Copy pre-vendored dependencies.
+# !! Before running `docker build`, regenerate the vendor directory on the host:
+#      cd services/edge-gateway
+#      cargo vendor
+#    This is required whenever Cargo.toml dependencies change (Phase 3 / Phase 4
+#    added: dashmap 5.5, ort 2.0.0-rc.12, maxminddb, uuid, ndarray, lzma-rust2, …).
+COPY vendor ./vendor
+
+# Tell Cargo to use only the vendored sources — no network access during build.
+RUN mkdir -p .cargo && printf \
+    '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."vendored-sources"]\ndirectory = "vendor"\n' \
+    > .cargo/config.toml
+
+# Build in release mode without the optional ONNX feature so the image stays
+# small and does not require a pre-trained model file at runtime.
+# Add `--features ml` here only if you have an ONNX model and the ort runtime
+# libraries available inside the vendor directory.
+RUN cargo build --release --offline --no-default-features
+
+# ---------------------------------------------------------------------------
+# Runtime image — minimal Alpine
+# ---------------------------------------------------------------------------
+FROM alpine:3.20
+
 RUN apk --no-cache add curl ca-certificates netcat-openbsd
-COPY --from=builder /app/target/release/edge-gateway /usr/local/bin/
-EXPOSE 3128 3000 4000
 
-# Health check on the proxy port (3000) - TCP check since proxy doesn't have HTTP health endpoint
+COPY --from=builder /app/target/release/edge-gateway /usr/local/bin/
+
+# Runtime environment defaults (override via docker-compose or -e flags)
+ENV RUST_LOG=info \
+    HOST=0.0.0.0 \
+    PORT=8090 \
+    TUNNEL_PORT=3128 \
+    REGION=default \
+    GEO_DENY_LIST="" \
+    GEO_ALLOW_LIST="" \
+    GEOIP_DB_PATH=""
+
+EXPOSE 3128 8090
+
+# Health check using the HTTP health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD nc -z 127.0.0.1 3000 2>/dev/null || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8090/health || exit 1
 
 CMD ["edge-gateway"]

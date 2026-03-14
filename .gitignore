@@ -132,6 +132,7 @@ tao-treasury-keypair.json
 *.pem
 
 # Never commit these (SECURITY CRITICAL)
+.env.secrets
 !.env.example
 !*.example
 .vercel

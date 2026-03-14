@@ -17,6 +17,20 @@ type Config struct {
 
 	Blockchain BlockchainConfig
 	Gateway    GatewayConfig
+	Admin      AdminConfig
+}
+
+// AdminConfig holds credentials for the 3 hardcoded admin accounts.
+type AdminConfig struct {
+	JWTSecret    string
+	SessionTTLHr int
+	Accounts     []AdminAccount
+}
+
+type AdminAccount struct {
+	Username string
+	Password string // plaintext from env var; compared with constant-time compare
+	Role     string // superadmin | sysops | support
 }
 
 type GatewayConfig struct {
@@ -102,6 +116,8 @@ func Load() (*Config, error) {
 			"http://localhost:3001",
 			"http://127.0.0.1:3000",
 			"http://localhost:4001",
+			"http://localhost:3002",      // Admin web app
+			"http://127.0.0.1:3002",     // Admin web app (alternate)
 			"https://proxy-social-hub.vercel.app", // Allow Vercel Frontend
 		}
 	}
@@ -153,6 +169,27 @@ func Load() (*Config, error) {
 
 	// Edge Gateway
 	cfg.Gateway.ManagementURL = getEnv("EDGE_GATEWAY_MGMT_URL", "http://edge-gateway:8090")
+
+	// Admin Panel
+	cfg.Admin.JWTSecret = getEnv("ADMIN_JWT_SECRET", "proxyhubb-admin-secret-change-in-production")
+	cfg.Admin.SessionTTLHr = 4
+	cfg.Admin.Accounts = []AdminAccount{
+		{
+			Username: getEnv("ADMIN_ACCOUNT_1_USERNAME", "superadmin"),
+			Password: getEnv("ADMIN_ACCOUNT_1_PASSWORD", "PHub@Super2026!"),
+			Role:     getEnv("ADMIN_ACCOUNT_1_ROLE", "superadmin"),
+		},
+		{
+			Username: getEnv("ADMIN_ACCOUNT_2_USERNAME", "sysops"),
+			Password: getEnv("ADMIN_ACCOUNT_2_PASSWORD", "PHub@Ops2026!"),
+			Role:     getEnv("ADMIN_ACCOUNT_2_ROLE", "sysops"),
+		},
+		{
+			Username: getEnv("ADMIN_ACCOUNT_3_USERNAME", "support"),
+			Password: getEnv("ADMIN_ACCOUNT_3_PASSWORD", "PHub@Support2026!"),
+			Role:     getEnv("ADMIN_ACCOUNT_3_ROLE", "support"),
+		},
+	}
 
 	return cfg, nil
 }

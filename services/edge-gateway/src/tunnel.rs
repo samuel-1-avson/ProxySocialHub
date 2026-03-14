@@ -7,7 +7,7 @@ use yamux::{Config, Connection, Mode, WindowUpdateMode};
 use crate::state::{AppState, NodeInfo};
 use crate::tls::{TlsConfig, create_tls_acceptor, is_tls_enabled};
 use futures_util::{StreamExt, AsyncReadExt, AsyncWriteExt};
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, trace};
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use serde::{Deserialize, Serialize};
 
@@ -107,10 +107,7 @@ where
                         let token = msg[5..].trim();
                         
                         // Validate Token
-                        let mut validation = Validation::new(Algorithm::HS256);
-                        validation.insecure_disable_signature_validation(); // Temporarily disable signature check if secret mismatch is worry
-                        // Actually, enable it:
-                        validation = Validation::new(Algorithm::HS256);
+                        let validation = Validation::new(Algorithm::HS256);
                         
                         // Note: If tokens are from Go (StandardClaims), make sure fields match
                         match decode::<Claims>(token, &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()), &validation) {
@@ -202,36 +199,64 @@ where
             }
         }
     } else {
-        // Fallback to minimal hardcoded detection
+        // GeoIP database not loaded — log once and fall back to heuristic detection.
+        // Mount a MaxMind GeoLite2-Country.mmdb via GEOIP_DB_PATH to get accurate geo data.
+        warn!("GeoIP database not loaded — using heuristic country detection for {}", ip_address);
         node_info.country_code = detect_country_from_ip(&ip_address);
         node_info.region = detect_region_from_ip(&ip_address);
     }
     
-    // Register with full node info
-    {
-        if let Ok(mut registry) = state.registry.lock() {
-            registry.insert(node_id.clone(), ctrl, node_info.clone());
-        } else {
-            error!("Failed to acquire registry lock (poisoned) while registering node {}", node_id);
-            return;
-        }
-    }
-    
+    // Register with full node info (no lock needed — lock-free registry)
+    state.registry.insert(node_id.clone(), ctrl, node_info.clone());
+    // Register with heartbeat monitor so the health check loop tracks this node
+    state.heartbeat_monitor.register_provider(&node_id).await;
+
     info!("✅ Provider connected: {} from {}", node_id, peer_addr);
 
     // Drive connection - accept incoming streams
     while let Some(result) = incoming.next().await {
         match result {
-            Ok(_stream) => {
-                // ...
+            Ok(mut stream) => {
+                // Handle control messages (like heartbeats)
+                use tokio::io::AsyncReadExt;
+                let mut buf = [0u8; 1024];
+                match stream.read(&mut buf).await {
+                    Ok(n) if n > 0 => {
+                        // Parse control frame: "HEARTBEAT:<node_id>:<timestamp>:<status_json>"
+                        let data = &buf[..n];
+                        if let Ok(msg) = String::from_utf8(data.to_vec()) {
+                            if msg.starts_with("HEARTBEAT:") {
+                                let parts: Vec<&str> = msg.splitn(4, ':').collect();
+                                if parts.len() >= 3 {
+                                    let hb_node_id = parts[1];
+                                    let timestamp = parts[2].parse::<u64>().unwrap_or(0);
+                                    let status = parts.get(3).map(|s| s.to_string());
+                                    
+                                    // Update heartbeat
+                                    if hb_node_id == node_id {
+                                        state.heartbeat_store.update(&node_id, timestamp, status).await;
+                                        // Notify in-memory monitor (resets miss counter)
+                                        let _ = state.heartbeat_monitor.record_heartbeat(&node_id, 0).await;
+                                        // Mark as healthy (atomic, no lock)
+                                        state.registry.mark_healthy(&node_id);
+                                        trace!("Received heartbeat from {}", node_id);
+                                    }
+                                }
+                            } else if msg.starts_with("STATS:") {
+                                // Handle stats updates
+                                trace!("Received stats from {}: {}", node_id, msg);
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        trace!("Read error on control stream for {}: {}", node_id, e);
+                    }
+                }
             }
             Err(e) => {
                 error!("Stream error for {}: {}", node_id, e);
-                {
-                    if let Ok(mut registry) = state.registry.lock() {
-                        registry.mark_unhealthy(&node_id);
-                    }
-                }
+                state.registry.mark_unhealthy(&node_id);
                 break;
             }
         }
@@ -239,24 +264,23 @@ where
     
     // Cleanup and Persist Stats
     {
-        // 1. Get final stats from in-memory registry
-        let final_info = if let Ok(mut registry) = state.registry.lock() {
-            let info_opt = registry.get_node_info(&node_id).cloned();
-            registry.remove(&node_id);
-            info_opt
-        } else {
-            None
-        };
+        // 1. Grab final stats then remove from lock-free registry
+        let final_info = state.registry.remove(&node_id);
 
-        // 2. Save to Redis
+        // 2. Persist to Redis
         if let Some(info) = final_info {
-            // Or use the local `node_info` if registry access failed, but registry has the updated stats (bytes served)
             if let Err(e) = state.registry_store.save_node(&user_id, &info).await {
                 error!("Failed to persist node metadata: {}", e);
             } else {
                 info!("💾 Persisted node stats for {}", node_id);
             }
         }
+
+        // 3. Unregister from heartbeat monitor
+        state.heartbeat_monitor.unregister_provider(&node_id).await;
+
+        // 4. Evict any pooled streams for this node
+        state.connection_pool.evict_node(&node_id);
     }
     info!("❌ Provider disconnected: {}", node_id);
 }

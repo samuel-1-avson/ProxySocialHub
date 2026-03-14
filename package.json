@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@next/swc-linux-x64-gnu": "^15.3.3"
+  }
+}

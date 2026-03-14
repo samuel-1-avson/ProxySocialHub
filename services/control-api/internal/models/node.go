@@ -36,6 +36,9 @@ type Node struct {
 	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
 	NetUID              int    `json:"net_uid"`
 	Hotkey              string `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
+
+	// N-06: soft-delete — GORM automatically adds WHERE deleted_at IS NULL to all queries.
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
 func (n *Node) BeforeCreate(tx *gorm.DB) (err error) {

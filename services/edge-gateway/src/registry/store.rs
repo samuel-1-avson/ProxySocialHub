@@ -1,21 +1,32 @@
 use redis::AsyncCommands;
+use redis::aio::ConnectionManager;
 use serde_json;
 use crate::state::NodeInfo;
 use std::error::Error;
 
 pub struct RegistryStore {
-    client: redis::Client,
+    // P-07: Persistent multiplexed connection — reused across all node operations.
+    conn: ConnectionManager,
+    // Kept for components (HeartbeatStore, LeaderElector) that need their own redis::Client.
+    raw_client: redis::Client,
 }
 
 impl RegistryStore {
     pub fn new(redis_url: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let client = redis::Client::open(redis_url)?;
-        Ok(Self { client })
+        let conn = tokio::runtime::Handle::current()
+            .block_on(ConnectionManager::new(client.clone()))?;
+        Ok(Self { conn, raw_client: client })
+    }
+
+    /// Return a redis::Client for components that manage their own connections.
+    pub fn client(&self) -> redis::Client {
+        self.raw_client.clone()
     }
 
     /// Load node info for a user ID
     pub async fn load_node(&self, user_id: &str) -> Result<Option<NodeInfo>, Box<dyn Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let mut conn = self.conn.clone();
         let key = format!("node:{}:info", user_id);
         
         let existing: Option<String> = conn.get(&key).await?;
@@ -31,7 +42,7 @@ impl RegistryStore {
 
     /// Save or update node info
     pub async fn save_node(&self, user_id: &str, info: &NodeInfo) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let mut conn = self.conn.clone();
         let key = format!("node:{}:info", user_id);
         
         let json = serde_json::to_string(info)?;

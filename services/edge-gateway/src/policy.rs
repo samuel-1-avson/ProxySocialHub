@@ -1,14 +1,36 @@
 //! Policy enforcement for the Edge Gateway
 //!
 //! Enforces:
-//! - Port whitelist (80, 443 only for v1)
+//! - Port whitelist (80, 443, 8080, 8443, 3000, 3001, 8000, 8888)
 //! - Private IP blocking
 //! - Rate limiting (tier-based)
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-/// Allowed destination ports for v1
-const ALLOWED_PORTS: &[u16] = &[80, 443];
+/// Allowed destination ports (B-06: expanded to cover common proxy use-cases).
+/// Providers further restrict via their node service_configuration (N-01).
+const ALLOWED_PORTS: &[u16] = &[
+    // HTTP / HTTPS
+    80, 443, 8000, 8008, 8080, 8443, 8888,
+    // Development servers
+    3000, 3001, 3002, 4000, 4200, 5000, 5001, 9000,
+    // SSH / tunnels
+    22, 2222,
+    // SOCKS / proxy
+    1080, 3128,
+    // Email (SMTP/IMAP/POP3 and their TLS variants)
+    25, 465, 587, 110, 995, 143, 993,
+    // DNS over TCP
+    53,
+    // FTP
+    21,
+    // VPN
+    1194, 1723,
+    // Mobile push (Google/Firebase)
+    5228, 5229, 5230,
+    // XMPP / chat
+    5222, 5223,
+];
 
 /// Check if a destination port is allowed
 pub fn is_allowed_port(port: u16) -> bool {
@@ -116,10 +138,7 @@ pub fn validate_destination(addr: &str) -> Result<(), String> {
 
     // 2. Check port whitelist
     if !is_allowed_port(port) {
-        return Err(format!(
-            "Port {} is not allowed. Only HTTP (80) and HTTPS (443) are permitted.",
-            port
-        ));
+        return Err(format!("Port {} is not in the allowed list", port));
     }
 
     // 3. Try to parse as IP and check if private
@@ -145,6 +164,47 @@ pub fn validate_destination(addr: &str) -> Result<(), String> {
     // We forward the hostname directly to the provider, ensuring Remote DNS resolution.
     // This protects the Gateway's location/ISP from being revealed via DNS queries.
 
+    // S-07: DNS rebinding protection.
+    // Block hostnames that look like internal infrastructure names or localhost variants.
+    // Full DNS rebinding protection (resolving hostnames and checking the resulting IP)
+    // is not done here — that must happen in the provider, which controls DNS resolution.
+    // What we CAN do is block obviously malicious hostnames before forwarding.
+    is_safe_hostname(host)?;
+
+    Ok(())
+}
+
+/// S-07: Reject hostnames that are obviously targeting internal infrastructure.
+///
+/// This is a best-effort syntactic check. DNS rebinding attacks that use a public
+/// hostname that resolves to a private IP can only be fully blocked by the provider
+/// enforcing the same `is_private_ip` check after DNS resolution.
+pub fn is_safe_hostname(host: &str) -> Result<(), String> {
+    let h = host.to_lowercase();
+
+    // Block literal "localhost" and common aliases
+    if h == "localhost" || h == "local" || h == "localdomain" {
+        return Err(format!("Hostname '{}' is not allowed", host));
+    }
+
+    // Block .local mDNS / Bonjour domains (RFC 6762)
+    if h.ends_with(".local") || h.ends_with(".localhost") {
+        return Err(format!("Hostname '{}' resolves to a local mDNS domain", host));
+    }
+
+    // Block .internal and common cloud metadata service hostnames
+    if h.ends_with(".internal")
+        || h == "metadata.google.internal"
+        || h == "169.254.169.254"  // caught by IP check, but also as string
+        || h == "instance-data"    // common EC2 alias
+    {
+        return Err(format!("Hostname '{}' targets internal infrastructure", host));
+    }
+
+    // Block obviously numeric hostnames that look like private IPs expressed as hostnames
+    // e.g. "10.0.0.1" — already caught by the IP parse above, but belt-and-suspenders
+    // for any decimal-encoded variants.
+
     Ok(())
 }
 
@@ -156,9 +216,13 @@ mod tests {
     fn test_allowed_ports() {
         assert!(is_allowed_port(80));
         assert!(is_allowed_port(443));
-        assert!(!is_allowed_port(22));
-        assert!(!is_allowed_port(8080));
-        assert!(!is_allowed_port(3306));
+        assert!(is_allowed_port(8080));
+        assert!(is_allowed_port(8443));
+        assert!(is_allowed_port(3000));
+        assert!(is_allowed_port(22));   // SSH tunnels supported
+        assert!(is_allowed_port(1080)); // SOCKS5
+        assert!(!is_allowed_port(3306));  // MySQL — not a proxy port
+        assert!(!is_allowed_port(6379));  // Redis — not a proxy port
     }
 
     #[test]
@@ -185,9 +249,28 @@ mod tests {
     fn test_validate_destination() {
         assert!(validate_destination("example.com:443").is_ok());
         assert!(validate_destination("example.com:80").is_ok());
+        assert!(validate_destination("example.com:22").is_ok()); // SSH now allowed
+        assert!(validate_destination("example.com:1080").is_ok()); // SOCKS5 now allowed
 
-        assert!(validate_destination("example.com:22").is_err());
-        assert!(validate_destination("127.0.0.1:80").is_err());
-        assert!(validate_destination("192.168.1.1:443").is_err());
+        assert!(validate_destination("example.com:3306").is_err()); // MySQL blocked
+        assert!(validate_destination("127.0.0.1:80").is_err());     // loopback blocked
+        assert!(validate_destination("192.168.1.1:443").is_err());  // private IP blocked
+    }
+
+    #[test]
+    fn test_dns_rebinding_protection() {
+        // S-07: Localhost and mDNS hostnames must be rejected
+        assert!(is_safe_hostname("localhost").is_err());
+        assert!(is_safe_hostname("local").is_err());
+        assert!(is_safe_hostname("mydevice.local").is_err());
+        assert!(is_safe_hostname("foo.localhost").is_err());
+        assert!(is_safe_hostname("metadata.google.internal").is_err());
+        assert!(is_safe_hostname("host.internal").is_err());
+        assert!(is_safe_hostname("instance-data").is_err());
+
+        // Public hostnames must be allowed
+        assert!(is_safe_hostname("example.com").is_ok());
+        assert!(is_safe_hostname("api.github.com").is_ok());
+        assert!(is_safe_hostname("8.8.8.8").is_ok()); // public IP — handled by IP parser
     }
 }

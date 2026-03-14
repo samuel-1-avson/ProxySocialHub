@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --admin-bg: #0a0a0f;
+  --admin-surface: #111118;
+  --admin-border: #1e1e2e;
+  --admin-accent: #6366f1;
+  --admin-text: #e2e8f0;
+  --admin-text-muted: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--admin-surface); }
+::-webkit-scrollbar-thumb { background: var(--admin-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2e2e4e; }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+
+/* Table hover */
+.admin-table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+/* Status dots */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.ok     { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.status-dot.warn   { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+.status-dot.down   { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+/* Card base */
+.admin-card {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
