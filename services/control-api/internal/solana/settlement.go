@@ -329,6 +329,28 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 	return c.FetchEscrow(ctx, pda)
 }
 
+// SendSOL transfers lamports from the oracle (treasury) wallet to a recipient
+// using a System Program transfer instruction.
+func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lamports uint64) (string, error) {
+	// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
+	data := make([]byte, 12)
+	data[0] = 2 // SystemInstruction::Transfer
+	for i := 0; i < 8; i++ {
+		data[4+i] = byte(lamports >> (8 * i))
+	}
+
+	instruction := &GenericInstruction{
+		programID: sol.SystemProgramID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: recipient, IsSigner: false, IsWritable: true},
+		},
+		data: data,
+	}
+
+	return c.sendInstruction(ctx, instruction)
+}
+
 // GenericInstruction is a generic Solana instruction builder
 type GenericInstruction struct {
 	programID sol.PublicKey

@@ -11,12 +11,12 @@ services:
     environment:
       - PORT=8080
       - APP_ENV=development
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable}
       - REDIS_URL=redis://redis:6379
       - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
-      - CORS_ORIGINS=${CORS_ORIGINS}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
@@ -25,6 +25,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
@@ -32,10 +33,34 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
       - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
+      # --- Solana / Blockchain ---
       - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
-      - SOLANA_TREASURY_ADDRESS=${NEXT_PUBLIC_SOLANA_TREASURY}
+      # Treasury wallet that receives buyer SOL deposits (server-side only)
+      - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS}
+      # Comma-separated RPC endpoints for the oracle client (failover order)
+      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      # Path inside the container to the Solana oracle keypair JSON (64-byte array)
+      - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
+      # --- Admin --- (credentials MUST be set via .env.secrets — no defaults)
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
+      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
+      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
+      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE}
+      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
+      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
+      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE}
+      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
+      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
+      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE}
+    # Mount the oracle keypair as a read-only secret file.
+    # Before running: create ./oracle-keypair.json (64-byte Solana keypair array).
+    # If the file is absent the oracle client is skipped gracefully (dev/test mode).
+    volumes:
+      - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       nats:
@@ -43,7 +68,7 @@ services:
     networks:
       - proxyhubb
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -55,24 +80,45 @@ services:
       context: ./services/edge-gateway
       dockerfile: Dockerfile
     ports:
-      - "3128:3128"
-      - "8090:8090"
+      - "3128:3128"    # SOCKS5/HTTP Proxy port
+      - "8090:8090"    # Gateway API / Metrics / Health
     environment:
       - RUST_LOG=info
+      - HOST=0.0.0.0
+      - PORT=8090        # Main HTTP port (metrics, health, proxy)
+      - TUNNEL_PORT=3128 # Provider tunnel port
       - REDIS_URL=redis://redis:6379
       - NATS_URL=nats://nats:4222
       - CONTROL_API_URL=http://control-api:8080
+      - JWT_SECRET=${JWT_SECRET}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
-      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY}
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      # --- Phase 4: Security & Multi-region ---
+      # Comma-separated ISO-3166-1 alpha-2 country codes to deny (e.g. "CN,RU,KP")
+      - GEO_DENY_LIST=${GEO_DENY_LIST:-}
+      # Comma-separated allow-list — if set, only these countries are accepted
+      - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
+      # Logical region name for this gateway instance (e.g. "af-west-1")
+      - REGION=${REGION:-default}
+      # Optional: absolute path inside container to MaxMind GeoLite2-Country.mmdb
+      - GEOIP_DB_PATH=${GEOIP_DB_PATH:-}
     volumes:
       - ./certs:/app/certs:ro
+      # Optional GeoIP database — mount only when GEOIP_DB_PATH is set
+      # - ./geoip/GeoLite2-Country.mmdb:/app/geoip/GeoLite2-Country.mmdb:ro
     depends_on:
       - control-api
       - redis
       - nats
     networks:
       - proxyhubb
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     restart: unless-stopped
 
   # ==================== NATS (Message Bus) ====================
@@ -96,17 +142,82 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        # API_URL is server-only and baked into the rewrite config at build time.
+        # Must be the Docker-internal hostname so Next.js can proxy to the backend.
+        - API_URL=http://control-api:8080
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
+        - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+        - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8081}
+        - NEXT_PUBLIC_WS_URL=ws://localhost:8081
     ports:
       - "3000:3000"
     environment:
+      # Server-side only — used by Next.js API routes and rewrite proxy, never in browser JS
+      - API_URL=http://control-api:8080
+      # Public vars — must be browser-resolvable (public host/port, not Docker-internal)
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8081}
       - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
-      - NEXT_PUBLIC_SOLANA_TREASURY=${NEXT_PUBLIC_SOLANA_TREASURY}
+      - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      - NEXT_PUBLIC_SOLANA_TREASURY=${SOLANA_TREASURY_ADDRESS}
+    depends_on:
+      control-api:
+        condition: service_healthy
     networks:
       - proxyhubb
     restart: unless-stopped
 
+
+  # ==================== Admin Panel ====================
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://control-api:8080
+    ports:
+      - "3002:3002"
+    environment:
+      - API_URL=http://control-api:8080
+      - NEXT_PUBLIC_API_URL=http://control-api:8080
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
+      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
+      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
+      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE}
+      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
+      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
+      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE}
+      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
+      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
+      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE}
+    depends_on:
+      control-api:
+        condition: service_healthy
+    networks:
+      - proxyhubb
+    restart: unless-stopped
+
+  # ==================== PostgreSQL ====================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-proxyhubb}
+      - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - proxyhubb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proxyhubb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   # ==================== Redis ====================
   redis:
@@ -123,16 +234,36 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # ==================== Redis Exporter ====================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    ports:
+      - "9121:9121"
+    networks:
+      - proxyhubb
+    depends_on:
+      - redis
+    restart: unless-stopped
+
   # ==================== Prometheus ====================
   prometheus:
     image: prom/prometheus:v2.48.0
     volumes:
-      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9091:9090"
     networks:
       - proxyhubb
     restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
 
   # ==================== Grafana ====================
   grafana:
@@ -154,6 +285,7 @@ services:
 volumes:
   redis_data:
   grafana_data:
+  postgres_data:
 
 networks:
   proxyhubb:

@@ -39,6 +39,8 @@ type Session struct {
 	BytesUsed       int64         `json:"bytes_used"`
 	ExpiresAt       *time.Time    `json:"expires_at"`
 	CreatedAt       time.Time     `json:"created_at"`
+	// N-06: soft-delete — GORM automatically adds WHERE deleted_at IS NULL to all queries.
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
 	// Relations
 	Listing *ProxyListing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`

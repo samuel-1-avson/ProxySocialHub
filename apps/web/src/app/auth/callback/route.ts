@@ -18,7 +18,10 @@ export async function GET(request: Request) {
                 // we can be sure that there is no load balancer in between, so no need to watch for X-Forwarded-Host
                 return NextResponse.redirect(`${origin}${next}`)
             } else if (forwardedHost) {
-                return NextResponse.redirect(`https://${forwardedHost}${next}`)
+                // Use the same protocol as the original request to avoid forcing HTTPS
+                // in local/Docker environments that serve plain HTTP.
+                const protocol = request.headers.get('x-forwarded-proto') ?? 'http'
+                return NextResponse.redirect(`${protocol}://${forwardedHost}${next}`)
             } else {
                 return NextResponse.redirect(`${origin}${next}`)
             }

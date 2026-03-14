@@ -48,12 +48,11 @@ func (h *ChannelHandler) OpenChannel(c *gin.Context) {
 	}
 
 	// Get authenticated user ID (Buyer)
-	userIDStr := c.GetString("user_id")
-	if userIDStr == "" {
+	buyerID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	buyerID := uuid.MustParse(userIDStr)
 
 	// Fetch real ProviderID from Session
 	var session models.Session

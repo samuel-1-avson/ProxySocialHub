@@ -3,6 +3,7 @@ package solana
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -25,8 +26,13 @@ func NewSessionActivator() *SessionActivator {
 	}
 }
 
-// HandleEscrowEvent processes escrow events and updates sessions
+// HandleEscrowEvent processes escrow events and updates sessions.
+// N-04: Also writes/refreshes the BlockchainStateCache entry for the escrow PDA.
 func (a *SessionActivator) HandleEscrowEvent(event EscrowEvent) {
+	// N-04: Upsert cache entry so the explorer and billing queries can read
+	// on-chain state without hitting the RPC on every request.
+	a.upsertBlockchainStateCache(event)
+
 	switch event.Type {
 	case "initialized":
 		a.onEscrowInitialized(event)
@@ -35,6 +41,57 @@ func (a *SessionActivator) HandleEscrowEvent(event EscrowEvent) {
 	case "refunded":
 		a.onEscrowRefunded(event)
 	}
+}
+
+// upsertBlockchainStateCache writes or refreshes the cache row for this escrow PDA (N-04).
+func (a *SessionActivator) upsertBlockchainStateCache(event EscrowEvent) {
+	if a.db == nil || event.EscrowPDA == "" {
+		return
+	}
+
+	// Map event type to a human-readable status string.
+	status := event.Type // "initialized" | "settled" | "refunded"
+	sig := event.TxSignature
+
+	// Build a lightweight JSON payload from the event fields.
+	dataJSON := fmt.Sprintf(
+		`{"buyer":%q,"seller":%q,"amount_lamports":%d,"limit_gb":%d,"event_type":%q}`,
+		event.Buyer, event.Seller, event.Amount, event.LimitGB, event.Type,
+	)
+
+	entry := models.BlockchainStateCache{
+		PDA:           event.EscrowPDA,
+		ProgramID:     globalProgramID(),
+		AccountType:   models.AccountEscrow,
+		Data:          dataJSON,
+		Slot:          0, // watcher doesn't expose slot; populated by RPC sync job
+		Signature:     &sig,
+		LastSyncedAt:  time.Now(),
+		BuyerAddress:  &event.Buyer,
+		SellerAddress: &event.Seller,
+		Status:        &status,
+	}
+
+	// UPSERT: update Data, Status, Signature, LastSyncedAt on PDA conflict.
+	if err := a.db.
+		Where(models.BlockchainStateCache{PDA: event.EscrowPDA}).
+		Assign(models.BlockchainStateCache{
+			Data:         entry.Data,
+			Status:       &status,
+			Signature:    &sig,
+			LastSyncedAt: entry.LastSyncedAt,
+		}).
+		FirstOrCreate(&entry).Error; err != nil {
+		log.Printf("[N-04] Failed to upsert blockchain state cache for %s: %v", event.EscrowPDA, err)
+	}
+}
+
+// globalProgramID returns the configured Solana program ID string.
+func globalProgramID() string {
+	if globalOracleClient != nil {
+		return globalOracleClient.programID.String()
+	}
+	return ""
 }
 
 // onEscrowInitialized handles new escrow creation
