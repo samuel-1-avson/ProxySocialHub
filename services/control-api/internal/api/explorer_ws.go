@@ -144,35 +144,44 @@ func (h *ExplorerHub) run() {
 
 		case update := <-h.broadcast:
 			data, _ := json.Marshal(update)
+
+			// P1-02/03: collect dead connections under RLock, then remove
+			// under WLock — avoids lock-upgrade deadlock and map mutation
+			// while iterating.
+			var dead []*websocket.Conn
 			h.mu.RLock()
 			for conn, entry := range entries {
-				// Skip if client subscribed to specific topics and this type is not one of them
 				if entry.topics != nil && !entry.topics[update.Type] {
 					continue
 				}
-				select {
-				case <-time.After(500 * time.Millisecond):
-					// Slow client — drop this message but keep the connection
-				default:
-					if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-						h.mu.RUnlock()
-						h.mu.Lock()
-						delete(h.clients, conn)
-						delete(entries, conn)
-						conn.Close()
-						h.mu.Unlock()
-						h.mu.RLock()
-					}
+				// Use a write deadline so slow clients don't block the loop.
+				_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+				if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+					dead = append(dead, conn)
+				} else {
+					_ = conn.SetWriteDeadline(time.Time{}) // clear deadline on success
 				}
 			}
 			h.mu.RUnlock()
+
+			if len(dead) > 0 {
+				h.mu.Lock()
+				for _, conn := range dead {
+					delete(h.clients, conn)
+					delete(entries, conn)
+					conn.Close()
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }
 
-// sendInitialData sends initial explorer data to a newly connected client
+// sendInitialData sends initial explorer data to a newly connected client.
+// Sends both recent transactions and recent blocks so the frontend dashboard
+// can populate immediately without waiting for the 5-second polling cycle.
 func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
-	// Send recent transactions
+	// Recent transactions
 	var transactions []models.ExplorerTransaction
 	db.DB.Order("timestamp DESC").Limit(10).Find(&transactions)
 
@@ -188,9 +197,30 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 		}
 	}
 
+	// Recent blocks
+	var blocks []models.ExplorerBlock
+	db.DB.Order("block_number DESC").Limit(5).Find(&blocks)
+
+	blockUpdates := make([]NewBlockUpdate, len(blocks))
+	for i, b := range blocks {
+		blockUpdates[i] = NewBlockUpdate{
+			BlockNumber:      b.BlockNumber,
+			BlockHash:        b.BlockHash,
+			TransactionCount: b.TransactionCount,
+		}
+	}
+
+	type InitialPayload struct {
+		Transactions []NewTransactionUpdate `json:"transactions"`
+		Blocks       []NewBlockUpdate       `json:"blocks"`
+	}
+
 	initialData := ExplorerUpdate{
-		Type:      "initial",
-		Data:      txUpdates,
+		Type: "initial",
+		Data: InitialPayload{
+			Transactions: txUpdates,
+			Blocks:       blockUpdates,
+		},
 		Timestamp: time.Now(),
 	}
 
@@ -308,6 +338,24 @@ func handleExplorerWebSocket(c *gin.Context) {
 	go func() {
 		defer func() {
 			hub.unregister <- conn
+		}()
+
+		// Reset read deadline on every pong so idle connections survive up to 70s.
+		conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+		conn.SetPongHandler(func(string) error {
+			conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+			return nil
+		})
+
+		// Ping goroutine — send a WebSocket-level ping every 30s.
+		pingTicker := time.NewTicker(30 * time.Second)
+		defer pingTicker.Stop()
+		go func() {
+			for range pingTicker.C {
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+					return
+				}
+			}
 		}()
 
 		for {

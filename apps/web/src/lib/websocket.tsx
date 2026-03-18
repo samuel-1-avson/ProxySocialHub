@@ -40,11 +40,13 @@ export function useWebSocket(url?: string) {
       const ws = new WebSocket(`${wsUrl}?token=${token}`);
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return; // stale instance
         console.log('WebSocket connected');
         setIsConnected(true);
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return; // stale instance
         try {
           const messages = event.data.split('\n');
           messages.forEach((msgStr: string) => {
@@ -66,11 +68,14 @@ export function useWebSocket(url?: string) {
       };
 
       ws.onclose = () => {
+        if (wsRef.current !== ws) return; // stale instance
         console.log('WebSocket disconnected');
+        wsRef.current = null;
         setIsConnected(false);
       };
 
       ws.onerror = (error) => {
+        if (wsRef.current !== ws) return; // stale instance
         console.error('WebSocket error:', error);
       };
 

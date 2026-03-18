@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +23,19 @@ func (e *MilestoneReleaseEngine) CheckAndReleaseMilestones(orderID uuid.UUID, to
 	var escrow models.EscrowTransaction
 	if err := db.DB.Preload("Milestones").Where("order_id = ?", orderID).First(&escrow).Error; err != nil {
 		return err
+	}
+
+	// P1-12: Validate that milestone amounts sum to the escrow amount.
+	// This guards against over-payment if milestones were misconfigured.
+	if len(escrow.Milestones) > 0 {
+		var totalMilestone float64
+		for _, m := range escrow.Milestones {
+			totalMilestone += m.Amount
+		}
+		if math.Abs(totalMilestone-escrow.Amount) > 1e-6 {
+			return fmt.Errorf("milestone amounts (%.9f SOL) do not match escrow amount (%.9f SOL) for order %s",
+				totalMilestone, escrow.Amount, orderID)
+		}
 	}
 
 	for _, m := range escrow.Milestones {

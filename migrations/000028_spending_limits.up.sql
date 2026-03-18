@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS spending_records (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     -- Indexes for efficient queries
-    CONSTRAINT fk_spending_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_spending_user FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
     CONSTRAINT fk_spending_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
 );
 
@@ -44,5 +44,5 @@ COMMENT ON COLUMN wallets.weekly_limit IS 'Maximum SOL that can be spent per wee
 COMMENT ON COLUMN wallets.monthly_limit IS 'Maximum SOL that can be spent per month (0 = unlimited)';
 
 -- Add migration tracking
-INSERT INTO schema_migrations (version, description) 
-VALUES (28, 'Add spending limits feature');
+-- INSERT INTO schema_migrations (version, description) 
+-- VALUES (28, 'Add spending limits feature');

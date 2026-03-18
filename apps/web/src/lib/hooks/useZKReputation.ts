@@ -59,11 +59,15 @@ export function useZKReputation() {
             setState({ isVerified: true, token, loading: false, error: null });
             console.log("Protocol Reputation Sync Complete.");
         } catch (err) {
-            console.error("ZK-Reputation Proof Failed:", err);
+            const status = (err as any)?.status;
+            // 501 = endpoint not yet implemented — silently ignore, treat as unverified
+            if (status !== 501) {
+                console.error("ZK-Reputation Proof Failed:", err);
+            }
             setState(prev => ({
                 ...prev,
                 loading: false,
-                error: (err as Error).message
+                error: status === 501 ? null : (err as Error).message
             }));
         }
     }, []);

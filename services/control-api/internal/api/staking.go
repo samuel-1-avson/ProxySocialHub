@@ -84,12 +84,17 @@ func stakeNode(c *gin.Context) {
 		return
 	}
 
+	// Persist how much is staked so unstake can return the exact amount (P0-04).
+	newStaked := node.StakedAmountSOL + req.AmountSOL
 	// Boost node quality score to reflect stake (capped at 100)
 	newScore := node.QualityScore + req.AmountSOL*2
 	if newScore > 100 {
 		newScore = 100
 	}
-	if err := tx.Model(&node).Update("quality_score", newScore).Error; err != nil {
+	if err := tx.Model(&node).Updates(map[string]interface{}{
+		"quality_score":    newScore,
+		"staked_amount_sol": newStaked,
+	}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update node stake"})
 		return
@@ -150,18 +155,45 @@ func unstakeNode(c *gin.Context) {
 		return
 	}
 
-	// Cooldown: funds available in 7 days
-	availableAt := time.Now().Add(7 * 24 * time.Hour)
+	if node.StakedAmountSOL <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No staked amount to unstake"})
+		return
+	}
 
-	// Reset quality score boost (approximate reversal)
+	// Load wallet so we can return the staked SOL (P0-04 fix — previously never returned).
+	var wallet models.Wallet
+	if err := db.DB.First(&wallet, "user_id = ?", sellerID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	returnAmount := node.StakedAmountSOL
+
+	tx := db.DB.Begin()
+
+	// Return staked SOL to wallet
+	if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL+returnAmount).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to return staked funds"})
+		return
+	}
+
+	// Reset quality score boost and clear staked amount
 	resetScore := node.QualityScore * 0.8
-	if err := db.DB.Model(&node).Update("quality_score", resetScore).Error; err != nil {
+	if err := tx.Model(&node).Updates(map[string]interface{}{
+		"quality_score":    resetScore,
+		"staked_amount_sol": 0.0,
+	}).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initiate unstake"})
 		return
 	}
 
+	tx.Commit()
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Unstaking initiated. Funds will be returned after the cooldown period.",
-		"available_at": availableAt.Format(time.RFC3339),
+		"message":       "Unstaking complete. Staked SOL has been returned to your wallet.",
+		"returned_sol":  returnAmount,
+		"new_balance":   wallet.BalanceSOL + returnAmount,
 	})
 }

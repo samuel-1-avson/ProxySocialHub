@@ -4,6 +4,9 @@ package solana
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -148,29 +151,145 @@ func (c *OracleClient) rotateRPC() {
 	c.currentIdx = (c.currentIdx + 1) % len(c.rpcClients)
 }
 
-// loadKeypair loads a Solana keypair from a JSON file
+// loadKeypair loads a Solana keypair from a file.
+// P0-14: if ORACLE_KEYPAIR_ENCRYPTION_KEY is set the file is expected to be
+// AES-256-GCM encrypted (written by EncryptKeypairFile); otherwise the legacy
+// plaintext JSON format is accepted so existing dev setups keep working.
 func loadKeypair(path string) (sol.PrivateKey, error) {
+	if encKey := os.Getenv("ORACLE_KEYPAIR_ENCRYPTION_KEY"); encKey != "" {
+		return LoadEncryptedKeypairFromFile(path, encKey)
+	}
 	return LoadKeypairFromFile(path)
 }
 
-// LoadKeypairFromFile loads a Solana keypair from a JSON file
-// This is a public version that can be used by other packages
+// LoadKeypairFromFile loads a Solana keypair from a plaintext JSON file.
+// The file must contain a JSON array of 64 bytes (Solana keypair format).
 func LoadKeypairFromFile(path string) (sol.PrivateKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read keypair file: %w", err)
 	}
+	defer zeroBytes(data)
 
 	var keypairBytes []byte
 	if err := json.Unmarshal(data, &keypairBytes); err != nil {
 		return nil, fmt.Errorf("failed to parse keypair JSON: %w", err)
 	}
+	defer zeroBytes(keypairBytes)
 
 	if len(keypairBytes) != 64 {
 		return nil, fmt.Errorf("invalid keypair length: expected 64, got %d", len(keypairBytes))
 	}
 
-	return sol.PrivateKey(keypairBytes), nil
+	out := make(sol.PrivateKey, 64)
+	copy(out, keypairBytes)
+	return out, nil
+}
+
+// LoadEncryptedKeypairFromFile decrypts an AES-256-GCM-encrypted keypair file.
+//
+// File format (all hex-encoded, newline-separated):
+//
+//	line 1: 32-byte nonce (hex)
+//	line 2: ciphertext (hex)
+//
+// encryptionKey must be a 64-hex-char string (32 raw bytes).
+// Use EncryptKeypairFile to produce a compatible file from a plaintext keypair.
+func LoadEncryptedKeypairFromFile(path, encryptionKeyHex string) (sol.PrivateKey, error) {
+	keyBytes, err := hex.DecodeString(encryptionKeyHex)
+	if err != nil || len(keyBytes) != 32 {
+		return nil, fmt.Errorf("ORACLE_KEYPAIR_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)")
+	}
+	defer zeroBytes(keyBytes)
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read encrypted keypair file: %w", err)
+	}
+
+	// Split into nonce line and ciphertext line
+	lines := splitLines(raw)
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("encrypted keypair file: expected 2 lines (nonce + ciphertext), got %d", len(lines))
+	}
+
+	nonce, err := hex.DecodeString(lines[0])
+	if err != nil {
+		return nil, fmt.Errorf("encrypted keypair file: invalid nonce hex: %w", err)
+	}
+	ciphertext, err := hex.DecodeString(lines[1])
+	if err != nil {
+		return nil, fmt.Errorf("encrypted keypair file: invalid ciphertext hex: %w", err)
+	}
+
+	block, err := aes.NewCipher(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("AES cipher init failed: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("AES-GCM init failed: %w", err)
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return nil, fmt.Errorf("encrypted keypair file: nonce length %d != expected %d", len(nonce), gcm.NonceSize())
+	}
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("AES-GCM decryption failed (wrong key?): %w", err)
+	}
+	defer zeroBytes(plaintext)
+
+	var keypairBytes []byte
+	if err := json.Unmarshal(plaintext, &keypairBytes); err != nil {
+		return nil, fmt.Errorf("failed to parse decrypted keypair JSON: %w", err)
+	}
+	defer zeroBytes(keypairBytes)
+
+	if len(keypairBytes) != 64 {
+		return nil, fmt.Errorf("invalid keypair length: expected 64, got %d", len(keypairBytes))
+	}
+
+	out := make(sol.PrivateKey, 64)
+	copy(out, keypairBytes)
+	return out, nil
+}
+
+// zeroBytes overwrites a byte slice with zeros to clear key material from memory.
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+// splitLines splits a byte slice on newlines, trimming whitespace.
+func splitLines(b []byte) []string {
+	var lines []string
+	start := 0
+	for i, c := range b {
+		if c == '\n' {
+			line := string(b[start:i])
+			if trimmed := trimSpace(line); trimmed != "" {
+				lines = append(lines, trimmed)
+			}
+			start = i + 1
+		}
+	}
+	if rest := trimSpace(string(b[start:])); rest != "" {
+		lines = append(lines, rest)
+	}
+	return lines
+}
+
+func trimSpace(s string) string {
+	start, end := 0, len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
 }
 
 // GetOraclePublicKey returns the oracle's public key
@@ -204,7 +323,11 @@ func (c *OracleClient) GetEscrowPDA(buyer, seller sol.PublicKey) (sol.PublicKey,
 	return pda, bump, nil
 }
 
-// withFailover executes an RPC call with automatic failover
+// withFailover executes an RPC call with automatic failover.
+// P2-03: Always rotate after each attempt so that after a full cycle the
+// index returns to its starting position.  Without this, a complete failure
+// leaves currentIdx pointing at the last-tried (broken) endpoint, meaning the
+// next call skips the primary entirely.
 func (c *OracleClient) withFailover(ctx context.Context, f func(client *rpc.Client) error) error {
 	var lastErr error
 	for i := 0; i < len(c.rpcClients); i++ {
@@ -213,10 +336,7 @@ func (c *OracleClient) withFailover(ctx context.Context, f func(client *rpc.Clie
 			return nil
 		}
 		lastErr = err
-		// Rotate if not the last attempt
-		if i < len(c.rpcClients)-1 {
-			c.rotateRPC()
-		}
+		c.rotateRPC() // rotate unconditionally — full cycle restores starting index
 	}
 	return lastErr
 }
@@ -245,21 +365,36 @@ func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey)
 	// Skip 8-byte discriminator
 	data = data[8:]
 
-	// Decode escrow (manual parsing - matches Anchor layout)
-	if len(data) < 114 { // 32+32+8+8+8+1+8+8+1 = 106 minimum
-		return nil, fmt.Errorf("account data too short for escrow")
+	// P2-05: Escrow account field offsets (post-discriminator).
+	// Named constants replace magic numbers so a future IDL change has one place to update.
+	// Layout: buyer(32) seller(32) amount(u64) bw_limit(u64) bw_used(u64) status(u8) created(i64) expires(i64) bump(u8)
+	const (
+		escrowOffBuyer            = 0
+		escrowOffSeller           = 32
+		escrowOffAmount           = 64
+		escrowOffBandwidthLimitGB = 72
+		escrowOffBandwidthUsedGB  = 80
+		escrowOffStatus           = 88
+		escrowOffCreatedAt        = 89
+		escrowOffExpiresAt        = 97
+		escrowOffBump             = 105
+		escrowMinSize             = 106 // bump byte + 1
+	)
+
+	if len(data) < escrowMinSize {
+		return nil, fmt.Errorf("account data too short for escrow: got %d, need %d", len(data), escrowMinSize)
 	}
 
 	escrow := &Escrow{
-		Buyer:            sol.PublicKeyFromBytes(data[0:32]),
-		Seller:           sol.PublicKeyFromBytes(data[32:64]),
-		Amount:           bytesToUint64(data[64:72]),
-		BandwidthLimitGB: bytesToUint64(data[72:80]),
-		BandwidthUsedGB:  bytesToUint64(data[80:88]),
-		Status:           EscrowStatus(data[88]),
-		CreatedAt:        int64(bytesToUint64(data[89:97])),
-		ExpiresAt:        int64(bytesToUint64(data[97:105])),
-		Bump:             data[105],
+		Buyer:            sol.PublicKeyFromBytes(data[escrowOffBuyer:escrowOffSeller]),
+		Seller:           sol.PublicKeyFromBytes(data[escrowOffSeller:escrowOffAmount]),
+		Amount:           bytesToUint64(data[escrowOffAmount:escrowOffBandwidthLimitGB]),
+		BandwidthLimitGB: bytesToUint64(data[escrowOffBandwidthLimitGB:escrowOffBandwidthUsedGB]),
+		BandwidthUsedGB:  bytesToUint64(data[escrowOffBandwidthUsedGB:escrowOffStatus]),
+		Status:           EscrowStatus(data[escrowOffStatus]),
+		CreatedAt:        int64(bytesToUint64(data[escrowOffCreatedAt:escrowOffExpiresAt])),
+		ExpiresAt:        int64(bytesToUint64(data[escrowOffExpiresAt:escrowOffBump])),
+		Bump:             data[escrowOffBump],
 	}
 
 	return escrow, nil

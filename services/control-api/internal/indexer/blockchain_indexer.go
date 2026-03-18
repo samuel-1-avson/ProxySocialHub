@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type IndexerCallbacks struct {
 type BlockchainIndexer struct {
 	rpcClient    *rpc.Client
 	programID    solana.PublicKey
+	indexAll     bool // when true, skip program-relevance filter
 	isRunning    bool
 	pollInterval time.Duration
 	batchSize    int
@@ -44,11 +46,15 @@ func (bi *BlockchainIndexer) SetCallbacks(cb IndexerCallbacks) {
 
 // IndexerConfig holds configuration for the blockchain indexer
 type IndexerConfig struct {
-	RPCEndpoint  string
-	ProgramID    string
+	RPCEndpoint string
+	ProgramID   string
 	PollInterval time.Duration
-	BatchSize    int
-	StartSlot    uint64 // 0 = auto (start from current slot)
+	BatchSize   int
+	StartSlot   uint64 // 0 = auto (start from current slot)
+	// IndexAll: when true, index every transaction on the chain regardless of
+	// program involvement. Useful for local/devnet environments where the
+	// ProxyHub program has no transactions yet. Set via INDEXER_INDEX_ALL=true.
+	IndexAll bool
 }
 
 // NewBlockchainIndexer creates a new blockchain indexer instance
@@ -77,6 +83,7 @@ func NewBlockchainIndexer(cfg IndexerConfig) (*BlockchainIndexer, error) {
 	return &BlockchainIndexer{
 		rpcClient:    rpcClient,
 		programID:    programID,
+		indexAll:     cfg.IndexAll,
 		pollInterval: cfg.PollInterval,
 		batchSize:    cfg.BatchSize,
 		lastSlot:     cfg.StartSlot,
@@ -198,8 +205,9 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 		return nil // Empty block
 	}
 
-	// Get block hash from the block result
-	blockHash := fmt.Sprintf("block_%d", slot) // Placeholder, would use actual block hash
+	// Use the actual block hash and parent hash from the RPC result (P3-06).
+	blockHash := blockResult.Blockhash.String()
+	parentHash := blockResult.PreviousBlockhash.String()
 
 	// Get block time
 	blockTime := time.Now()
@@ -217,6 +225,7 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 		ID:               uuid.New(),
 		BlockHash:        blockHash,
 		BlockNumber:      slot,
+		ParentHash:       parentHash,
 		Chain:            "solana",
 		Timestamp:        blockTime,
 		TransactionCount: len(blockResult.Transactions),
@@ -230,6 +239,26 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 		logging.Error(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Failed to store block")
 	} else if bi.callbacks.OnNewBlock != nil {
 		bi.callbacks.OnNewBlock(&explorerBlock)
+	}
+
+	// P3-06: Re-org detection.
+	// If the previous slot's stored block hash differs from our parentHash, the
+	// old block was on a fork — mark it and its transactions as orphaned.
+	if slot > 0 {
+		var prevBlock models.ExplorerBlock
+		if err := db.DB.Where("block_number = ?", slot-1).First(&prevBlock).Error; err == nil {
+			if prevBlock.BlockHash != parentHash && !prevBlock.IsOrphaned {
+				logging.Warn().
+					Uint64("slot", slot-1).
+					Str("stored_hash", prevBlock.BlockHash).
+					Str("canonical_parent", parentHash).
+					Msg("[BlockchainIndexer] Re-org detected — marking block and its transactions as orphaned")
+				db.DB.Model(&prevBlock).Update("is_orphaned", true)
+				db.DB.Model(&models.ExplorerTransaction{}).
+					Where("block_hash = ?", prevBlock.BlockHash).
+					Update("is_orphaned", true)
+			}
+		}
 	}
 
 	// Index transactions
@@ -275,12 +304,11 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 		}
 	}
 
-	// Index all transactions for now
-	if !isRelevant {
-		isRelevant = true
-	}
-
-	if !isRelevant {
+	// When indexAll is false (production), only store transactions that
+	// involve the ProxyHub program. When indexAll is true (dev/devnet mode
+	// via INDEXER_INDEX_ALL=true), store all transactions so the explorer
+	// shows real chain activity even before the program has traffic.
+	if !bi.indexAll && !isRelevant {
 		return nil
 	}
 
@@ -288,17 +316,78 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 	fromAddr := ""
 	toAddr := ""
 	amount := 0.0
-	txType := "transfer"
-	programID := ""
+	programID := bi.programID.String()
+
+	// Classify transaction type.
+	// For ProxyHub program transactions (isRelevant=true) we infer the type
+	// from the number of accounts and log messages when available.
+	// For all other Solana transactions we default to "transfer".
+	txType := inferTxType(decodedTx, txWithMeta, isRelevant, bi.programID.String())
 
 	if len(accountKeys) > 0 {
 		fromAddr = accountKeys[0].String()
+	}
+	// P0-11: populate toAddress from the second account key (recipient).
+	if len(accountKeys) > 1 {
+		toAddr = accountKeys[1].String()
 	}
 
 	// Get fee from metadata
 	fee := 0.0
 	if txWithMeta.Meta != nil {
 		fee = float64(txWithMeta.Meta.Fee) / 1e9 // Convert lamports to SOL
+
+		// P0-10: extract transferred amount from balance deltas.
+		// The recipient (index 1) gain is the most reliable signal for a transfer tx.
+		pre := txWithMeta.Meta.PreBalances
+		post := txWithMeta.Meta.PostBalances
+		if len(post) > 1 && len(pre) > 1 {
+			delta := int64(post[1]) - int64(pre[1])
+			if delta > 0 {
+				amount = float64(delta) / 1e9 // lamports → SOL
+			}
+		}
+	}
+
+	// P3-05: SPL token transfer detection.
+	// If the native SOL amount is 0 but token balances changed, treat the largest
+	// positive token delta as the transferred amount and record its mint address.
+	currency := "SOL"
+	tokenMint := ""
+	if amount == 0 && txWithMeta.Meta != nil &&
+		len(txWithMeta.Meta.PostTokenBalances) > 0 &&
+		len(txWithMeta.Meta.PreTokenBalances) > 0 {
+
+		// Build pre-balance map keyed by accountIndex+mint for O(1) lookup.
+		preTok := make(map[string]float64)
+		for _, tb := range txWithMeta.Meta.PreTokenBalances {
+			if tb.UiTokenAmount != nil && tb.UiTokenAmount.UiAmount != nil {
+				key := fmt.Sprintf("%d:%s", tb.AccountIndex, tb.Mint.String())
+				preTok[key] = *tb.UiTokenAmount.UiAmount
+			}
+		}
+
+		for _, tb := range txWithMeta.Meta.PostTokenBalances {
+			if tb.UiTokenAmount == nil || tb.UiTokenAmount.UiAmount == nil {
+				continue
+			}
+			key := fmt.Sprintf("%d:%s", tb.AccountIndex, tb.Mint.String())
+			postAmt := *tb.UiTokenAmount.UiAmount
+			preAmt := preTok[key]
+			delta := postAmt - preAmt
+			if delta > amount { // track the largest positive change
+				amount = delta
+				tokenMint = tb.Mint.String()
+				currency = "SPL" // full mint address stored in token_mint field
+				// Update toAddress to the account that received the tokens.
+				if int(tb.AccountIndex) < len(accountKeys) {
+					toAddr = accountKeys[tb.AccountIndex].String()
+				}
+				if tb.Owner != nil {
+					toAddr = tb.Owner.String()
+				}
+			}
+		}
 	}
 
 	// Determine status
@@ -319,7 +408,8 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 		FromAddress:   fromAddr,
 		ToAddress:     toAddr,
 		Amount:        amount,
-		Currency:      "SOL",
+		Currency:      currency,
+		TokenMint:     tokenMint,
 		Fee:           fee,
 		Status:        status,
 		TxType:        txType,
@@ -341,7 +431,69 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 	// This ensures the cache is always current after any relevant transaction.
 	bi.syncAccountsToCache(txHash, blockNumber, accountKeys)
 
+	// P3-12: Upsert ExplorerContract for the program so the contracts page has data.
+	// We increment TotalCalls and accumulate volume on every relevant transaction.
+	db.DB.Exec(`
+		INSERT INTO explorer_contracts (id, address, chain, name, contract_type,
+		    is_verified, total_calls, total_volume, deployed_at, created_at, updated_at)
+		VALUES (gen_random_uuid(), ?, 'solana', 'ProxyHub Program', 'custom',
+		    true, 1, ?, NOW(), NOW(), NOW())
+		ON CONFLICT (address) DO UPDATE SET
+		    total_calls  = explorer_contracts.total_calls  + 1,
+		    total_volume = explorer_contracts.total_volume + EXCLUDED.total_volume,
+		    updated_at   = NOW()`,
+		programID, amount,
+	)
+
 	return nil
+}
+
+// inferTxType classifies a Solana transaction into a ProxyHub operation type.
+//
+// For ProxyHub program transactions (isRelevant=true), we inspect log messages
+// returned by the RPC to identify the instruction name. Solana programs emit
+// "Program log: Instruction: <Name>" for Anchor-framework programs, which is
+// the most reliable signal available without a full IDL decode.
+//
+// For non-program transactions we fall back to "transfer" (generic SOL move).
+func inferTxType(tx *solana.Transaction, meta *rpc.TransactionWithMeta, isRelevant bool, programID string) string {
+	if !isRelevant {
+		return "transfer"
+	}
+
+	// Try to read Anchor instruction logs: "Program log: Instruction: <Name>"
+	if meta != nil && meta.Meta != nil {
+		for _, logLine := range meta.Meta.LogMessages {
+			lower := strings.ToLower(logLine)
+			switch {
+			case strings.Contains(lower, "instruction: initializeescrow") ||
+				strings.Contains(lower, "instruction: createescrow"):
+				return "escrow_init"
+			case strings.Contains(lower, "instruction: settleescrow") ||
+				strings.Contains(lower, "instruction: releaseescrow"):
+				return "escrow_settle"
+			case strings.Contains(lower, "instruction: stake") &&
+				!strings.Contains(lower, "unstake"):
+				return "stake"
+			case strings.Contains(lower, "instruction: unstake"):
+				return "unstake"
+			case strings.Contains(lower, "instruction: payout") ||
+				strings.Contains(lower, "instruction: disbursepayout"):
+				return "payout"
+			case strings.Contains(lower, "instruction: registerprovider") ||
+				strings.Contains(lower, "instruction: registernode"):
+				return "register"
+			case strings.Contains(lower, "instruction: startsession"):
+				return "session_start"
+			case strings.Contains(lower, "instruction: endsession"):
+				return "session_end"
+			}
+		}
+		// ProxyHub program involved but no recognised instruction — label as contract
+		return "contract_call"
+	}
+
+	return "transfer"
 }
 
 // syncAccountsToCache upserts BlockchainStateCache rows for accounts that appear

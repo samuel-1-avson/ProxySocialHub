@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"math/big"
@@ -57,15 +57,50 @@ func reportUsage(c *gin.Context) {
 		req.Reports = []usageReportRequest{single}
 	}
 
+	aggregator := billing.NewAggregator()
 	processed := 0
 	for _, report := range req.Reports {
 		totalBytes := report.BytesUp + report.BytesDown
+
+		// P2-14: Validate gateway signature BEFORE touching any counters.
+		// If a signature is present and invalid, reject the report entirely —
+		// do not update Redis or billing state.
+		if err := aggregator.VerifySignature(
+			report.SessionUsername,
+			report.BytesUp, report.BytesDown,
+			report.Nonce, report.Signature,
+		); err != nil {
+			logging.Warn().
+				Str("session_username", report.SessionUsername).
+				Err(err).
+				Msg("Usage report rejected: invalid signature")
+			continue
+		}
 
 		// Get session data from Redis (Source of Truth for Edge Gateway)
 		sessionData, err := redisClient.GetSession(report.SessionUsername)
 		if err != nil {
 			logging.Warn().Err(err).Str("session_username", report.SessionUsername).Msg("Session data not found in Redis during reporting, skipping")
 			continue
+		}
+
+		// P2-15: Cross-validate reported bytes against Redis state.
+		// A single report claiming more bytes than the session's entire bandwidth
+		// budget is a clear fraud signal — reject before touching any counters.
+		if sessionData.BandwidthLimit > 0 {
+			currentUsage, _ := redisClient.GetUsage(report.SessionUsername)
+			// Reject if this single report alone exceeds the whole session limit,
+			// or if adding it would push cumulative usage beyond 2× the limit.
+			if totalBytes > sessionData.BandwidthLimit ||
+				currentUsage+totalBytes > sessionData.BandwidthLimit*2 {
+				logging.Warn().
+					Str("session_username", report.SessionUsername).
+					Int64("reported_bytes", totalBytes).
+					Int64("current_usage", currentUsage).
+					Int64("bandwidth_limit", sessionData.BandwidthLimit).
+					Msg("Usage report rejected: claimed bytes exceed fraud threshold")
+				continue
+			}
 		}
 
 		// Update Redis real-time counter (Session based)
@@ -96,9 +131,12 @@ func reportUsage(c *gin.Context) {
 			}()
 
 			var signature []byte
-			var nonceBytes [8]byte
-			rand.Read(nonceBytes[:])
-			var nonce uint64 = binary.BigEndian.Uint64(nonceBytes[:])
+			// FU-01: deterministic nonce — derived from sessionID + 5-minute window
+			// so that retried reports within the same window produce the same nonce
+			// and do not cause double-billing.
+			window := time.Now().Truncate(5 * time.Minute).Unix()
+			h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", data.SessionID, window)))
+			nonce := binary.BigEndian.Uint64(h[:8])
 
 			if signer := GetOracleSigner(); signer != nil {
 				// We need ETH addresses for the Oracle.
@@ -135,18 +173,8 @@ func reportUsage(c *gin.Context) {
 			}
 		}(sessionData, report.BytesUp, report.BytesDown)
 
-		// IaaS Billing (Aggregated)
-		// Instead of locking the DB every time, we push to Redis Aggregator
-		aggregator := billing.NewAggregator()
-
-		// Use Signature from report if we updated the request struct (we didn't yet, assume empty for now or update struct)
-		// For this step, we pass empty signature/nonce as we haven't updated `usageReportRequest` struct in this file yet.
-		// NOTE: We need to update request struct first ideally.
-		// Assuming report struct matches JSON sent by Gateway
-
-		// Wait, usageReportRequest in this file needs updating first?
-		// Yes, Gateway sends signature now.
-
+		// IaaS Billing (Aggregated) — signature already verified above; aggregator
+		// won't re-reject but will still update the billing pending counters.
 		if err := aggregator.AggregateUsage(report.SessionUsername, report.BytesUp, report.BytesDown, report.Signature, report.Nonce); err != nil {
 			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to aggregate usage")
 		}

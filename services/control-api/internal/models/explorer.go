@@ -18,6 +18,8 @@ type ExplorerBlock struct {
 	TransactionCount int       `json:"transaction_count"`
 	ValidatorPubkey  string    `gorm:"type:varchar(128)" json:"validator_pubkey,omitempty"`
 	Slot             uint64    `json:"slot,omitempty"` // Solana-specific
+	// P3-06: true when this block was replaced by a canonical fork.
+	IsOrphaned       bool      `gorm:"default:false" json:"is_orphaned"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -32,7 +34,11 @@ type ExplorerTransaction struct {
 	FromAddress   string    `gorm:"type:varchar(128);index" json:"from_address"`
 	ToAddress     string    `gorm:"type:varchar(128);index" json:"to_address"`
 	Amount        float64   `gorm:"type:numeric(20,8)" json:"amount"`
-	Currency      string    `gorm:"type:varchar(20);default:'SOL'" json:"currency"` // SOL only
+	Currency      string    `gorm:"type:varchar(20);default:'SOL'" json:"currency"` // "SOL" or SPL token symbol
+	// P3-05: SPL token support — mint address when currency is an SPL token.
+	TokenMint     string    `gorm:"type:varchar(128)" json:"token_mint,omitempty"`
+	// P3-06: set true when the block this tx belongs to is orphaned.
+	IsOrphaned    bool      `gorm:"default:false" json:"is_orphaned"`
 	Fee           float64   `gorm:"type:numeric(20,8)" json:"fee"`
 	Status        string    `gorm:"type:varchar(20)" json:"status"`                // "confirmed", "pending", "failed"
 	TxType        string    `gorm:"type:varchar(50)" json:"tx_type"`               // "transfer", "escrow_init", "escrow_settle", "stake", "unstake"

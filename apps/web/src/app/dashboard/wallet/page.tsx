@@ -274,6 +274,35 @@ export default function UnifiedWalletPage() {
                                         </motion.div>
                                     </div>
 
+                                    {/* Connect Wallet CTA — shown when no Solana wallet is linked */}
+                                    {!wallet?.linked_solana_address && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="glass-card p-8 border-primary/30 bg-primary/5 flex flex-col md:flex-row items-center gap-6"
+                                        >
+                                            <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                                <LinkIcon size={24} className="text-primary" />
+                                            </div>
+                                            <div className="flex-1 text-center md:text-left">
+                                                <p className="text-xs font-black font-mono uppercase tracking-widest text-primary mb-1">Connect Your Solana Wallet</p>
+                                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
+                                                    Link a Solana wallet (Phantom, Solflare, etc.) to deposit SOL, withdraw earnings, and verify your on-chain identity.
+                                                </p>
+                                            </div>
+                                            <motion.button
+                                                whileHover={{ scale: 1.04 }}
+                                                whileTap={{ scale: 0.97 }}
+                                                onClick={() => setActiveTab('LINKED_WALLETS')}
+                                                className="btn-retro shrink-0 !px-6 !py-3 glass-card border-primary/40 hover:border-primary text-[10px] uppercase font-black tracking-widest flex items-center gap-2"
+                                            >
+                                                <Zap size={12} className="text-primary" />
+                                                Link Wallet
+                                                <ArrowRight size={12} />
+                                            </motion.button>
+                                        </motion.div>
+                                    )}
+
                                     {/* Transaction Ledger */}
                                     <div className="glass-card p-0 border-white/5 bg-white/2 overflow-hidden">
                                         <div className="p-6 border-b border-white/5 bg-white/5 flex justify-between items-center">

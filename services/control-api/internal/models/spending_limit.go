@@ -48,8 +48,9 @@ type SpendingWindow struct {
 // CheckSpendingLimit checks if a transaction would exceed spending limits
 // Returns nil if allowed, error if limit would be exceeded
 func (w *Wallet) CheckSpendingLimit(db *gorm.DB, amount float64, txType SpendingType) error {
-	// If no limits are set, allow transaction
-	if w.DailyLimit == 0 && w.WeeklyLimit == 0 && w.MonthlyLimit == 0 {
+	// P2-17: Limits only apply when explicitly enabled by the user.
+	// A limit value of 0 means "zero spending allowed", not "unlimited".
+	if !w.LimitsEnabled {
 		return nil
 	}
 
@@ -100,12 +101,13 @@ func (w *Wallet) CheckSpendingLimit(db *gorm.DB, amount float64, txType Spending
 
 // GetSpendingForWindow calculates current spending in daily, weekly, monthly windows
 func (w *Wallet) GetSpendingForWindow(db *gorm.DB) (*SpendingWindow, error) {
-	now := time.Now()
+	// P1-18: use UTC so window boundaries are consistent regardless of server timezone.
+	now := time.Now().UTC()
 
-	// Calculate window start times
+	// Calculate window start times in UTC
 	dayStart := now.Truncate(24 * time.Hour)
-	weekStart := now.AddDate(0, 0, -int(now.Weekday())).Truncate(24 * time.Hour)
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	weekStart := now.AddDate(0, 0, -int(now.Weekday())).Truncate(24 * time.Hour) // Sunday-based ISO week
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
 	var dailySpent, weeklySpent, monthlySpent float64
 
@@ -208,11 +210,14 @@ func GetDefaultLimits(trustTier TrustTier) DefaultSpendingLimits {
 	}
 }
 
-// InitializeWithDefaultLimits sets default spending limits on a wallet
+// InitializeWithDefaultLimits stores the recommended limits for the trust tier
+// but does NOT enable them — the user must opt in via the settings API.
+// This preserves the invariant that LimitsEnabled=false means "no restriction".
 func (w *Wallet) InitializeWithDefaultLimits(trustTier TrustTier) {
 	limits := GetDefaultLimits(trustTier)
 	w.DailyLimit = limits.Daily
 	w.WeeklyLimit = limits.Weekly
 	w.MonthlyLimit = limits.Monthly
 	w.LimitWindowStart = time.Now()
+	// LimitsEnabled intentionally left false — user must opt in.
 }

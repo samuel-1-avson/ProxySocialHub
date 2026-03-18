@@ -6,12 +6,12 @@
 -- provider_tokens.user_id → users.id
 ALTER TABLE provider_tokens
     ADD CONSTRAINT fk_provider_tokens_user_id
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
 
 -- provider_node_registrations.user_id → users.id
 ALTER TABLE provider_node_registrations
     ADD CONSTRAINT fk_provider_node_reg_user_id
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
 
 -- provider_node_registrations.token_id → provider_tokens.id
 ALTER TABLE provider_node_registrations
