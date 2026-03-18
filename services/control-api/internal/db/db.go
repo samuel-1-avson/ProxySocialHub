@@ -4,18 +4,157 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
 
 // CurrentSchemaVersion is used to prevent redundant migrations on every startup.
 // Increment this whenever any model in /internal/models is updated.
-const CurrentSchemaVersion = "20260314-0001"
+const CurrentSchemaVersion = "20260316-0004"
+
+// modelsToMigrate is the single, deduplicated list of all GORM models.
+// Order matters: parent tables must precede child tables that reference them via FK.
+// I7 fix: AuditLog was previously registered twice — now registered exactly once.
+var modelsToMigrate = []interface{}{
+	// Explorer / Blockchain cache (no FKs into app tables)
+	&models.ExplorerBlock{},
+	&models.ExplorerTransaction{},
+	&models.ExplorerNode{},
+	&models.ExplorerContract{},
+	&models.ExplorerMetrics{},
+	// Core Identity
+	&models.User{},
+	&models.Wallet{},
+	&models.WalletLedgerEntry{},
+	&models.StakingPosition{},
+	&models.TOTPBackupCode{},
+	&models.APIKey{},
+	&models.RefreshTokenFamily{},
+	// Audit — single registration (I7: removed duplicate that was under "Advanced Security")
+	&models.AuditLog{},
+	// Nodes & Sessions
+	&models.Node{},
+	&models.Session{},
+	// Marketplace & Orders
+	&models.ProxyListing{},
+	&models.SavedListing{},
+	&models.Order{},
+	&models.EscrowTransaction{},
+	&models.EscrowDispute{},
+	&models.Dispute{},
+	// Social
+	&models.Review{},
+	&models.Follow{},
+	&models.FeedEvent{},
+	&models.FriendRequest{},
+	&models.Friendship{},
+	&models.Badge{},
+	&models.UserBadge{},
+	// Subscriptions
+	&models.SubscriptionPlan{},
+	&models.UserSubscription{},
+	// Incentivization
+	&models.ProofOfService{},
+	&models.MinerWeight{},
+	// Governance
+	&models.Proposal{},
+	&models.Vote{},
+	// Messaging
+	&models.Conversation{},
+	&models.Message{},
+	// Circles & Provider Clans
+	&models.Circle{},
+	&models.CircleMember{},
+	&models.CircleInvite{},
+	&models.CircleSLA{},
+	&models.CircleDailyStats{},
+	&models.CirclePost{},
+	&models.CircleLease{},
+	&models.ProviderNode{},
+	&models.PendingTransaction{},
+	// Smart Matching
+	&models.UseCase{},
+	&models.UserPreference{},
+	&models.MatchRequest{},
+	// Onboarding
+	&models.ProviderApplication{},
+	// Forum
+	&models.ForumCategory{},
+	&models.ForumThread{},
+	&models.ForumPost{},
+	&models.ForumVote{},
+	// Social Features
+	&models.Notification{},
+	&models.NotificationPreference{},
+	&models.ProviderShowcase{},
+	&models.SpeedTest{},
+	&models.Testimonial{},
+	&models.ProviderStats{},
+	&models.MessageReaction{},
+	// Market Agents
+	&models.MarketAgent{},
+	&models.AgentInstance{},
+	&models.AgentJob{},
+	// Analytics
+	&models.UsageRecord{},
+	// AI Agents
+	&models.Agent{},
+	&models.AgentOutput{},
+	// Blockchain Integration
+	&models.LinkedWallet{},
+	&models.BlockchainStateCache{},
+	&models.EncryptedCredentials{},
+	// Proxy Pool
+	&models.ProxyPool{},
+	// Proxy Engine Configuration
+	&models.ServiceConfiguration{},
+	&models.SessionConfiguration{},
+	&models.SystemConfiguration{},
+	&models.RoutingProfile{},
+	// Trustless Proofs
+	&models.UsageProof{},
+	// Quality Attestation — ConsensusRound must precede QualityAttestation (FK)
+	&models.Validator{},
+	&models.ConsensusRound{},
+	&models.QualityAttestation{},
+	// Decentralised Disputes
+	&models.DisputeJury{},
+	// User Security
+	&models.UserSettings{},
+	&models.UserSession{},
+	&models.LoginAttempt{},
+	&models.AccountLockout{},
+	// Advanced Security (AuditLog already registered above — I7 duplicate removed)
+	&models.SecurityAnomaly{},
+	&models.WebAuthnCredential{},
+	// Session Quality
+	&models.SessionMetrics{},
+	// Admin
+	&models.AdminNote{},
+	// Billing Reliability
+	&models.PayoutRetryQueue{},
+	// Provider CLI & Token Auth
+	&models.ProviderToken{},
+	&models.ProviderNodeRegistration{},
+	&models.CLIDownload{},
+	// Spending Limits
+	&models.SpendingRecord{},
+	// Batch Payouts
+	&models.BatchPayout{},
+	&models.BatchPayoutItem{},
+	&models.PendingPayout{},
+	// Provider Earnings
+	&models.ProviderEarning{},
+	// Provider Reputation Score
+	&models.ProviderScore{},
+}
 
 func Init(dsn string) error {
 	if dsn == "" {
@@ -23,8 +162,38 @@ func Init(dsn string) error {
 		return nil
 	}
 
+	// --- E8: Build GORM logger from environment ---
+	// DB_LOG_LEVEL: silent | error | warn | info  (default: warn — logs slow queries + errors)
+	// DB_SLOW_QUERY_MS: slow-query threshold in milliseconds (default: 500)
+	logLevel := gormlogger.Warn
+	switch os.Getenv("DB_LOG_LEVEL") {
+	case "silent":
+		logLevel = gormlogger.Silent
+	case "error":
+		logLevel = gormlogger.Error
+	case "info":
+		logLevel = gormlogger.Info
+	}
+	slowThreshold := 500 * time.Millisecond
+	if v := os.Getenv("DB_SLOW_QUERY_MS"); v != "" {
+		if ms, err2 := strconv.Atoi(v); err2 == nil && ms > 0 {
+			slowThreshold = time.Duration(ms) * time.Millisecond
+		}
+	}
+	gormLogger := gormlogger.New(
+		log.New(os.Stdout, "\r\n[DB] ", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             slowThreshold,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true, // record-not-found is a normal code path, not an error
+			Colorful:                  os.Getenv("GIN_MODE") != "release",
+		},
+	)
+
 	var err error
-	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: gormLogger,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -37,9 +206,24 @@ func Init(dsn string) error {
 		return fmt.Errorf("failed to get database instance: %w", err)
 	}
 
-	// Configure connection pool (Optimized for remote Supabase Transaction Pool)
-	sqlDB.SetMaxOpenConns(10)                  // Reduced from 100 to prevent connection exhaustion
-	sqlDB.SetMaxIdleConns(2)                   // Minimum idle connections
+	// Configure connection pool.
+	// For Supabase / PgBouncer (transaction-pool mode) keep max conns low (≤10)
+	// to avoid exhausting the pooler.  For a direct PostgreSQL instance, increase
+	// via DB_MAX_OPEN_CONNS / DB_MAX_IDLE_CONNS environment variables.
+	maxOpen := 10 // safe default for Supabase transaction-pool
+	if v := os.Getenv("DB_MAX_OPEN_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxOpen = n
+		}
+	}
+	maxIdle := 2
+	if v := os.Getenv("DB_MAX_IDLE_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxIdle = n
+		}
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
 	sqlDB.SetConnMaxLifetime(time.Hour)        // Maximum time a connection can be reused
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // Maximum time a connection can be idle
 
@@ -48,8 +232,23 @@ func Init(dsn string) error {
 		log.Printf("Warning: Failed to enable uuid-ossp extension: %v", err)
 	}
 
-	// --- SMART MIGRATION GUARD (Phase 24) ---
-	// 1. Fast migrate metadata table
+	// Register Prometheus query-duration metrics plugin (E8)
+	RegisterMetricsPlugin(DB)
+
+	// --- I1: AUTO_MIGRATE GUARD ---
+	// AutoMigrate only runs when AUTO_MIGRATE=true is explicitly set.
+	// In production, set this only in the dedicated migration init-container or job.
+	// Normal API replicas leave AUTO_MIGRATE unset so that:
+	//   1. Pod startup is fast (no DDL locking PgBouncer/Supabase connections)
+	//   2. A failed migration cannot silently start an API pod with a broken schema
+	if os.Getenv("AUTO_MIGRATE") != "true" {
+		log.Println("AUTO_MIGRATE is not set — skipping schema migration " +
+			"(set AUTO_MIGRATE=true in migration containers/jobs to apply schema changes)")
+		return nil
+	}
+
+	// --- SMART MIGRATION GUARD ---
+	// 1. Always migrate the metadata table first so we can read schema_version
 	if err := DB.AutoMigrate(&models.SystemConfiguration{}); err != nil {
 		log.Printf("Warning: Metadata migration failed: %v", err)
 	}
@@ -81,7 +280,6 @@ func Init(dsn string) error {
 			&models.StakingPosition{},
 			&models.Session{},
 			&models.Node{},
-			&models.KycVerification{},
 			&models.TOTPBackupCode{},
 			&models.APIKey{},
 			&models.AuditLog{},
@@ -92,6 +290,7 @@ func Init(dsn string) error {
 			&models.SavedListing{},
 			&models.Order{},
 			&models.EscrowTransaction{},
+			&models.EscrowDispute{},
 			&models.Dispute{},
 
 			&models.Review{},
@@ -182,8 +381,8 @@ func Init(dsn string) error {
 
 			// Quality Attestation (Phase 18)
 			&models.Validator{},
+			&models.ConsensusRound{},     // Must precede QualityAttestation (FK dependency)
 			&models.QualityAttestation{},
-			&models.ConsensusRound{},
 
 			// Decentralized Disputes (Phase 19)
 			&models.DisputeJury{},
@@ -207,6 +406,25 @@ func Init(dsn string) error {
 
 			// Billing reliability (Phase billing-retry)
 			&models.PayoutRetryQueue{},
+
+			// Provider CLI & Token Auth
+			&models.ProviderToken{},
+			&models.ProviderNodeRegistration{},
+			&models.CLIDownload{},
+
+			// Spending Limits
+			&models.SpendingRecord{},
+
+			// Batch Payouts
+			&models.BatchPayout{},
+			&models.BatchPayoutItem{},
+			&models.PendingPayout{},
+
+			// Provider Earnings
+			&models.ProviderEarning{},
+
+			// Provider Reputation Score
+			&models.ProviderScore{},
 		)
 
 		if err != nil {

@@ -19,6 +19,8 @@ import (
 // RegisterListingRoutes registers marketplace listing routes
 func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings", getListings)
+	rg.GET("/listings/featured", getFeaturedListings)
+	rg.GET("/listings/search", searchListings)
 	rg.GET("/listings/:id", getListing)
 	rg.POST("/listings", createListing)
 	rg.PATCH("/listings/:id", updateListing)
@@ -527,4 +529,79 @@ func suggestPrice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, suggestion)
+}
+
+// getFeaturedListings returns top-ranked active listings (high quality score, priority)
+func getFeaturedListings(c *gin.Context) {
+	var listings []models.ProxyListing
+	if err := db.DB.
+		Preload("Seller").
+		Where("status = ? AND quality_score > ?", models.ListingStatusActive, 70).
+		Order("is_priority DESC, priority_rank ASC, quality_score DESC").
+		Limit(12).
+		Find(&listings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch featured listings"})
+		return
+	}
+
+	sentry := privacy.NewZKMetadataSentry()
+	for i := range listings {
+		sentry.SanitizeListing(&listings[i])
+	}
+
+	c.JSON(http.StatusOK, gin.H{"listings": listings, "total": len(listings)})
+}
+
+// searchListings searches listings using PostgreSQL full-text search (E4).
+// Falls back to ILIKE if the search_vector column does not yet exist (pre-migration).
+func searchListings(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+		return
+	}
+
+	var listings []models.ProxyListing
+
+	// Try FTS first (requires migration 000036_listing_fulltext_search to have been applied).
+	// Uses plainto_tsquery which safely tokenises user input — no injection risk.
+	// Routes to read replica when available (GetReadDB falls back to primary if not configured).
+	ftsErr := db.GetReadDB().Raw(`
+		SELECT proxy_listings.* FROM proxy_listings
+		WHERE status = ?
+		  AND search_vector @@ plainto_tsquery('english', ?)
+		ORDER BY ts_rank(search_vector, plainto_tsquery('english', ?)) DESC,
+		         quality_score DESC
+		LIMIT 50`,
+		models.ListingStatusActive, q, q).
+		Scan(&listings).Error
+
+	if ftsErr != nil {
+		// Graceful fallback: search_vector column not yet present — use ILIKE.
+		like := "%" + q + "%"
+		if err := db.DB.
+			Preload("Seller").
+			Where("status = ? AND (title ILIKE ? OR description ILIKE ? OR country ILIKE ? OR isp ILIKE ?)",
+				models.ListingStatusActive, like, like, like, like).
+			Order("quality_score DESC").
+			Limit(50).
+			Find(&listings).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search listings"})
+			return
+		}
+	} else if len(listings) > 0 {
+		// Raw scan does not preload associations — re-fetch with Seller preloaded.
+		ids := make([]string, len(listings))
+		for i, l := range listings {
+			ids[i] = l.ID.String()
+		}
+		db.DB.Preload("Seller").Where("id IN ?", ids).Find(&listings)
+	}
+
+	sentry := privacy.NewZKMetadataSentry()
+	for i := range listings {
+		sentry.SanitizeListing(&listings[i])
+	}
+
+	c.JSON(http.StatusOK, gin.H{"listings": listings, "total": len(listings)})
 }

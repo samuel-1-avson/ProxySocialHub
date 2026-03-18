@@ -73,8 +73,8 @@ var (
 
 	walletDepositsAmount = promauto.NewCounter(
 		prometheus.CounterOpts{
-			Name: "proxyhubb_wallet_deposits_ghs_total",
-			Help: "Total amount deposited in GHS",
+			Name: "proxyhubb_wallet_deposits_sol_total",
+			Help: "Total amount deposited in SOL",
 		},
 	)
 
@@ -99,15 +99,6 @@ var (
 			Name: "proxyhubb_connected_providers",
 			Help: "Number of currently connected providers",
 		},
-	)
-
-	// KYC metrics
-	kycSubmissionsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "proxyhubb_kyc_submissions_total",
-			Help: "Total KYC submissions",
-		},
-		[]string{"status"}, // pending, approved, rejected
 	)
 
 	// Rate limiting metrics
@@ -180,9 +171,9 @@ func RecordLogin(success bool) {
 }
 
 // RecordDeposit records a wallet deposit
-func RecordDeposit(amountGHS float64) {
+func RecordDeposit(amountSOL float64) {
 	walletDepositsTotal.Inc()
-	walletDepositsAmount.Add(amountGHS)
+	walletDepositsAmount.Add(amountSOL)
 }
 
 // RecordWithdrawal records a wallet withdrawal
@@ -195,10 +186,7 @@ func RecordBandwidthUsage(bytes int64) {
 	bandwidthUsedBytes.Add(float64(bytes))
 }
 
-// RecordKYCSubmission records a KYC submission
-func RecordKYCSubmission(status string) {
-	kycSubmissionsTotal.WithLabelValues(status).Inc()
-}
+
 
 // RecordRateLimitHit records a rate limit hit
 func RecordRateLimitHit() {

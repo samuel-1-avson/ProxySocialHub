@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_escrow_milestones_escrow_threshold;

@@ -1,30 +1,18 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { getOperationalMetrics, OperationalMetrics } from '@/lib/services/monitoring';
+import { useQuery } from '@tanstack/react-query';
+import { getOperationalMetrics } from '@/lib/services/monitoring';
 import { Activity, Database, ShieldAlert, Zap, Server, ShieldCheck, Radar } from 'lucide-react';
 
 export default function MonitoringPage() {
-    const [metrics, setMetrics] = useState<OperationalMetrics | null>(null);
-    const [loading, setLoading] = useState(true);
+    const { data: metrics, isLoading } = useQuery({
+        queryKey: ['operational-metrics'],
+        queryFn: getOperationalMetrics,
+        refetchInterval: 5000,
+        retry: 2,
+    });
 
-    useEffect(() => {
-        const fetchMetrics = async () => {
-            try {
-                const data = await getOperationalMetrics();
-                setMetrics(data);
-                setLoading(false);
-            } catch (e) {
-                console.error("Failed to load metrics", e);
-            }
-        };
-
-        fetchMetrics();
-        const interval = setInterval(fetchMetrics, 5000); // Pulse every 5s
-        return () => clearInterval(interval);
-    }, []);
-
-    if (loading || !metrics) {
+    if (isLoading || !metrics) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -66,7 +54,7 @@ export default function MonitoringPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="text-[10px] font-mono text-muted-foreground uppercase">Messages</p>
-                                    <p className="text-2xl font-black font-mono">{metrics.nats.message_count.toLocaleString()}</p>
+                                    <p className="text-2xl font-black font-mono">{(metrics.nats?.message_count ?? 0).toLocaleString()}</p>
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-mono text-muted-foreground uppercase">Consumers</p>

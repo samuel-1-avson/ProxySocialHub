@@ -16,6 +16,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/treasury"
 )
 
 // LinkWalletRequest represents a request to link a wallet
@@ -237,11 +238,42 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
+		// SECURITY: Verify transaction sender matches user's linked wallet
+		sender, err := solana.GetTransactionSender(txResult)
+		if err != nil {
+			logging.Error(err).Str("tx_hash", req.TxHash).Msg("Failed to get transaction sender")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify transaction sender"})
+			return
+		}
+
+		// Get user's linked wallet address
+		var user models.User
+		if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User lookup failed"})
+			return
+		}
+
+		if user.WalletAddress == nil || *user.WalletAddress == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No linked wallet found. Please link your wallet first"})
+			return
+		}
+
+		if sender != *user.WalletAddress {
+			logging.Warn().
+				Str("tx_hash", req.TxHash).
+				Str("expected_sender", *user.WalletAddress).
+				Str("actual_sender", sender).
+				Msg("Deposit sender mismatch - possible fraud attempt")
+			c.JSON(http.StatusForbidden, gin.H{"error": "Transaction sender does not match your linked wallet"})
+			return
+		}
+
 		verifiedAmount = receivedSOL
 		logging.Info().
 			Str("tx_hash", req.TxHash).
 			Float64("amount_sol", verifiedAmount).
-			Msg("Solana deposit verified on-chain")
+			Str("sender", sender).
+			Msg("Solana deposit verified on-chain with sender ownership confirmed")
 
 	} else if req.Chain == "ethereum" {
 		// Ethereum deposit verification (for future use)
@@ -271,13 +303,16 @@ func verifyCryptoDeposit(c *gin.Context) {
 	var wallet models.Wallet
 	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if err.Error() == "record not found" {
+			// Get user's trust tier for default limits
+			var userTrustTier models.TrustTier = models.TrustTierNew
+			db.DB.Model(&models.User{}).Select("trust_tier").Where("id = ?", userID).Scan(&userTrustTier)
+
 			wallet = models.Wallet{
-				UserID:      uuid.MustParse(userID),
-				BalanceSOL:  0,
-				BalanceUSDT: 0,
-				BalanceGHS:  0,
-				Currency:    "MULTI",
+				UserID:     uuid.MustParse(userID),
+				BalanceSOL: 0,
 			}
+			wallet.InitializeWithDefaultLimits(userTrustTier)
+
 			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
@@ -295,8 +330,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 	currency := ""
 
 	if req.Chain == "solana" {
-		// Assuming native SOL deposit
-		// TODO: Support SPL Tokens (USDT) check here later
+		// Native SOL deposit only (platform is SOL-only)
 		creditedAmount = verifiedAmount
 		currency = "SOL"
 		wallet.BalanceSOL += verifiedAmount
@@ -454,8 +488,26 @@ func emergencyPause(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement Solana program emergency_pause instruction
-	// This requires the admin keypair to sign the transaction
+	// Attempt to trigger emergency pause via Solana program
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Oracle not initialized"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	// Call the watchtower to trigger emergency pause
+	wt := treasury.NewWatchtower()
+	if err := wt.TriggerEmergencyPause(ctx, req.Reason); err != nil {
+		logging.Error(err).
+			Str("reason", req.Reason).
+			Str("triggered_by", c.GetString("user_id")).
+			Msg("Failed to trigger emergency pause")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to trigger emergency pause: " + err.Error()})
+		return
+	}
 
 	logging.Error(nil).
 		Str("reason", req.Reason).

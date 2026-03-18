@@ -303,21 +303,30 @@ func (e *ProposalExecutor) checkProposalOutcome(proposal models.Proposal) bool {
 	return totalVotes >= requiredQuorum
 }
 
-// ScheduleProposalWorker runs periodic checks for proposal execution
-func ScheduleProposalWorker() {
+// ScheduleProposalWorker runs periodic checks for proposal execution.
+// The worker stops cleanly when ctx is cancelled.
+func ScheduleProposalWorker(ctx context.Context) {
 	executor := NewProposalExecutor()
 
-	ticker := time.NewTicker(5 * time.Minute)
 	go func() {
-		for range ticker.C {
-			// Close expired proposals
-			if err := executor.CheckAndCloseExpiredProposals(); err != nil {
-				logging.Error(err).Msg("Failed to close expired proposals")
-			}
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
 
-			// Execute passed proposals
-			if err := executor.CheckAndExecutePassedProposals(); err != nil {
-				logging.Error(err).Msg("Failed to execute passed proposals")
+		for {
+			select {
+			case <-ctx.Done():
+				logging.Info().Msg("Governance proposal worker shutting down")
+				return
+			case <-ticker.C:
+				// Close expired proposals
+				if err := executor.CheckAndCloseExpiredProposals(); err != nil {
+					logging.Error(err).Msg("Failed to close expired proposals")
+				}
+
+				// Execute passed proposals
+				if err := executor.CheckAndExecutePassedProposals(); err != nil {
+					logging.Error(err).Msg("Failed to execute passed proposals")
+				}
 			}
 		}
 	}()

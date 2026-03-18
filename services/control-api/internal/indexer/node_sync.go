@@ -2,7 +2,9 @@ package indexer
 
 import (
 	"context"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +16,7 @@ import (
 
 // NodeSync periodically synchronizes active nodes to explorer tables
 type NodeSync struct {
-	isRunning    bool
+	isRunning    int32 // accessed atomically
 	interval     time.Duration
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -45,13 +47,9 @@ func NewNodeSync(cfg NodeSyncConfig) *NodeSync {
 
 // Start begins the node synchronization loop
 func (ns *NodeSync) Start() {
-	ns.mu.Lock()
-	if ns.isRunning {
-		ns.mu.Unlock()
+	if !atomic.CompareAndSwapInt32(&ns.isRunning, 0, 1) {
 		return
 	}
-	ns.isRunning = true
-	ns.mu.Unlock()
 
 	logging.Info().Dur("interval", ns.interval).Msg("[NodeSync] Started")
 
@@ -65,14 +63,10 @@ func (ns *NodeSync) Start() {
 
 // Stop stops the node sync
 func (ns *NodeSync) Stop() {
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-
-	if !ns.isRunning {
+	if !atomic.CompareAndSwapInt32(&ns.isRunning, 1, 0) {
 		return
 	}
 
-	ns.isRunning = false
 	ns.cancel()
 
 	logging.Info().Msg("[NodeSync] Stopped")
@@ -229,36 +223,25 @@ func (ns *NodeSync) calculateNodeBandwidth(nodeID string) uint64 {
 	return totalBytes
 }
 
-// calculateNodeUptime calculates uptime percentage for a node
+// calculateNodeUptime calculates uptime percentage from the last heartbeat time.
+// Returns 100% if seen within 5 minutes, then decays linearly to 0% at 24 hours.
 func (ns *NodeSync) calculateNodeUptime(node models.Node) float64 {
-	// If node has been seen recently, calculate uptime based on last seen
 	if node.LastSeenAt.IsZero() {
 		return 0.0
 	}
 
-	// Calculate uptime based on time since last seen
 	timeSinceLastSeen := time.Since(node.LastSeenAt)
-	
-	// If seen within last 5 minutes, consider 100% uptime for this period
+
 	if timeSinceLastSeen < 5*time.Minute {
 		return 100.0
 	}
 
-	// Calculate uptime percentage based on quality score and last seen
-	// This is a simplified calculation - in production you'd want more sophisticated tracking
-	uptime := node.QualityScore
-	
-	// Reduce uptime based on how long ago it was last seen
-	hoursSince := timeSinceLastSeen.Hours()
-	if hoursSince > 1 {
-		uptime = uptime * (1 - (hoursSince / 24))
+	hoursDown := timeSinceLastSeen.Hours()
+	if hoursDown >= 24 {
+		return 0.0
 	}
 
-	if uptime < 0 {
-		uptime = 0
-	}
-
-	return uptime
+	return math.Max(0, 100*(1-hoursDown/24))
 }
 
 // markInactiveNodes marks nodes as inactive if they're not in the active nodes list

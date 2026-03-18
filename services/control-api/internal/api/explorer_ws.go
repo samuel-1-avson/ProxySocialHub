@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,11 +15,24 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
+// allowedOrigin returns true when the request origin is acceptable.
+// In development (APP_URL not set) all origins are allowed.
+func allowedOrigin(r *http.Request) bool {
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		return true // development mode — no restriction
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // non-browser clients
+	}
+	// Normalise: strip trailing slash, lowercase
+	normalise := func(s string) string { return strings.TrimRight(strings.ToLower(s), "/") }
+	return normalise(origin) == normalise(appURL)
+}
+
 var explorerUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		// In production, implement proper origin checking
-		return true
-	},
+	CheckOrigin:     allowedOrigin,
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
@@ -55,12 +70,31 @@ type NewBlockUpdate struct {
 	TransactionCount int    `json:"transaction_count"`
 }
 
-// NodeUpdate represents a node status update
+// NodeUpdate represents a node status update — includes geo so the map can
+// move or recolour a marker without a full re-fetch.
 type NodeUpdate struct {
 	NodeID         string  `json:"node_id"`
 	IsActive       bool    `json:"is_active"`
 	UptimePercent  float64 `json:"uptime_percent"`
 	ActiveSessions int     `json:"active_sessions"`
+	Latitude       float64 `json:"lat"`
+	Longitude      float64 `json:"lon"`
+}
+
+// clientEntry holds a connection alongside the topics it subscribed to.
+// An empty topics map means "all topics" (backwards-compatible default).
+type clientEntry struct {
+	conn   *websocket.Conn
+	topics map[string]bool // nil = subscribe to everything
+}
+
+// subscribeMsg is the optional JSON message a client can send on connect
+// to limit which update types it receives.
+//
+//	{ "type": "subscribe", "topics": ["nodes"] }
+type subscribeMsg struct {
+	Type   string   `json:"type"`
+	Topics []string `json:"topics"`
 }
 
 var hub *ExplorerHub
@@ -80,6 +114,12 @@ func InitExplorerHub() *ExplorerHub {
 	return hub
 }
 
+// entries is the authoritative set of connected clients with their topic
+// subscriptions. It is only accessed from the run() goroutine so no extra
+// lock is needed for the map itself (the outer mu still guards concurrent
+// reads from outside).
+var entries = make(map[*websocket.Conn]*clientEntry)
+
 // run handles client registration/unregistration and broadcasting
 func (h *ExplorerHub) run() {
 	for {
@@ -87,35 +127,39 @@ func (h *ExplorerHub) run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
+			entries[client] = &clientEntry{conn: client, topics: nil} // nil = all topics
 			h.mu.Unlock()
 			logging.Debug().Msg("[ExplorerHub] Client connected")
-
-			// Send initial data
 			h.sendInitialData(client)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
+				delete(entries, client)
 				client.Close()
 			}
 			h.mu.Unlock()
 			logging.Debug().Msg("[ExplorerHub] Client disconnected")
 
 		case update := <-h.broadcast:
+			data, _ := json.Marshal(update)
 			h.mu.RLock()
-			for client := range h.clients {
+			for conn, entry := range entries {
+				// Skip if client subscribed to specific topics and this type is not one of them
+				if entry.topics != nil && !entry.topics[update.Type] {
+					continue
+				}
 				select {
-				case <-time.After(100 * time.Millisecond):
-					// Timeout - skip slow clients
+				case <-time.After(500 * time.Millisecond):
+					// Slow client — drop this message but keep the connection
 				default:
-					data, _ := json.Marshal(update)
-					if err := client.WriteMessage(websocket.TextMessage, data); err != nil {
-						// Client disconnected
+					if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 						h.mu.RUnlock()
 						h.mu.Lock()
-						delete(h.clients, client)
-						client.Close()
+						delete(h.clients, conn)
+						delete(entries, conn)
+						conn.Close()
 						h.mu.Unlock()
 						h.mu.RLock()
 					}
@@ -260,21 +304,52 @@ func handleExplorerWebSocket(c *gin.Context) {
 
 	hub.register <- conn
 
-	// Keep connection alive and handle client messages
+	// Keep connection alive and handle optional subscription messages from client
 	go func() {
 		defer func() {
 			hub.unregister <- conn
 		}()
 
 		for {
-			_, _, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					logging.Error(err).Msg("[ExplorerHub] WebSocket error")
 				}
 				break
 			}
-			// We could handle client messages here (e.g., subscription requests)
+
+			// Handle { "type": "subscribe", "topics": ["nodes", "transactions"] }
+			var sub subscribeMsg
+			if jsonErr := json.Unmarshal(msg, &sub); jsonErr == nil && sub.Type == "subscribe" && len(sub.Topics) > 0 {
+				topicSet := make(map[string]bool, len(sub.Topics))
+				for _, t := range sub.Topics {
+					topicSet[t] = true
+				}
+				// map page topics → WS update types
+				topicMap := map[string][]string{
+					"nodes":        {"node_update"},
+					"transactions": {"new_transaction"},
+					"blocks":       {"new_block"},
+					"all":          {"node_update", "new_transaction", "new_block", "initial"},
+				}
+				resolved := make(map[string]bool)
+				for _, t := range sub.Topics {
+					if types, ok := topicMap[t]; ok {
+						for _, ut := range types {
+							resolved[ut] = true
+						}
+					} else {
+						resolved[t] = true // pass through unknown types verbatim
+					}
+				}
+				hub.mu.Lock()
+				if entry, ok := entries[conn]; ok {
+					entry.topics = resolved
+				}
+				hub.mu.Unlock()
+				logging.Debug().Msgf("[ExplorerHub] Client subscribed to %v", sub.Topics)
+			}
 		}
 	}()
 }
@@ -308,7 +383,9 @@ func NotifyNewBlock(block *models.ExplorerBlock) {
 	})
 }
 
-// NotifyNodeUpdate notifies all clients about a node status change
+// NotifyNodeUpdate notifies all clients about a node status change.
+// Lat/Lon are included so the map can reposition or create a marker
+// without a separate API call.
 func NotifyNodeUpdate(node *models.ExplorerNode) {
 	if hub == nil {
 		return
@@ -319,5 +396,7 @@ func NotifyNodeUpdate(node *models.ExplorerNode) {
 		IsActive:       node.IsActive,
 		UptimePercent:  node.UptimePercent,
 		ActiveSessions: node.ActiveSessions,
+		Latitude:       node.Latitude,
+		Longitude:      node.Longitude,
 	})
 }

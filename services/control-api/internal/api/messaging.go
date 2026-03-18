@@ -43,7 +43,7 @@ func getConversations(c *gin.Context) {
 	var conversations []models.Conversation
 	var total int64
 
-	query := db.DB.Model(&models.Conversation{}).
+	query := db.Social().Model(&models.Conversation{}).
 		Where("participant1 = ? OR participant2 = ?", userID, userID)
 	query.Count(&total)
 
@@ -64,14 +64,14 @@ func getConversations(c *gin.Context) {
 
 		// Get last message
 		var lastMsg models.Message
-		if err := db.DB.Where("conversation_id = ?", conv.ID).
+		if err := db.Social().Where("conversation_id = ?", conv.ID).
 			Order("created_at DESC").First(&lastMsg).Error; err == nil {
 			results[i].LastMessage = &lastMsg
 		}
 
 		// Get unread count
 		var unreadCount int64
-		db.DB.Model(&models.Message{}).
+		db.Social().Model(&models.Message{}).
 			Where("conversation_id = ? AND sender_id != ? AND read_at IS NULL", conv.ID, userID).
 			Count(&unreadCount)
 		results[i].UnreadCount = int(unreadCount)
@@ -120,12 +120,12 @@ func startConversation(c *gin.Context) {
 
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
-	err := db.DB.Where(
+	err := db.Social().Where(
 		"(participant1 = ? AND participant2 = ?) OR (participant1 = ? AND participant2 = ?)",
 		userID, req.RecipientID, req.RecipientID, userID,
 	).First(&existingConv).Error
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 
 	if err == nil {
 		// Conversation exists, just send message
@@ -138,7 +138,7 @@ func startConversation(c *gin.Context) {
 		tx.Model(&existingConv).Update("last_message_at", time.Now())
 		tx.Commit()
 
-		db.DB.Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
+		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
 		c.JSON(http.StatusOK, existingConv)
 		return
 	}
@@ -167,7 +167,7 @@ func startConversation(c *gin.Context) {
 
 	tx.Commit()
 
-	db.DB.Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
+	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
 	c.JSON(http.StatusCreated, conv)
 }
 
@@ -187,7 +187,7 @@ func getMessages(c *gin.Context) {
 
 	// Verify access
 	var conv models.Conversation
-	if err := db.DB.First(&conv, "id = ?", convID).Error; err != nil {
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
@@ -204,7 +204,7 @@ func getMessages(c *gin.Context) {
 	var messages []models.Message
 	var total int64
 
-	query := db.DB.Model(&models.Message{}).Where("conversation_id = ?", convID)
+	query := db.Social().Model(&models.Message{}).Where("conversation_id = ?", convID)
 	query.Count(&total)
 
 	if err := query.Preload("Sender").Preload("Reactions").
@@ -248,7 +248,7 @@ func sendMessage(c *gin.Context) {
 
 	// Verify access
 	var conv models.Conversation
-	if err := db.DB.First(&conv, "id = ?", convID).Error; err != nil {
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
@@ -268,12 +268,12 @@ func sendMessage(c *gin.Context) {
 		ReplyToID:      req.ReplyToID,
 	}
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 	tx.Create(&msg)
 	tx.Model(&conv).Update("last_message_at", time.Now())
 	tx.Commit()
 
-	db.DB.Preload("Sender").First(&msg, "id = ?", msg.ID)
+	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
 
 	// Broadcast to recipient via WebSocket
 	recipientID := conv.Participant1
@@ -304,7 +304,7 @@ func markAsRead(c *gin.Context) {
 
 	// Verify access
 	var conv models.Conversation
-	if err := db.DB.First(&conv, "id = ?", convID).Error; err != nil {
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
@@ -315,7 +315,7 @@ func markAsRead(c *gin.Context) {
 	}
 
 	now := time.Now()
-	db.DB.Model(&models.Message{}).
+	db.Social().Model(&models.Message{}).
 		Where("conversation_id = ? AND sender_id != ? AND read_at IS NULL", convID, userID).
 		Update("read_at", now)
 
@@ -352,7 +352,7 @@ func editMessage(c *gin.Context) {
 
 	// Verify message exists and belongs to user
 	var msg models.Message
-	if err := db.DB.First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
+	if err := db.Social().First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
 		return
 	}
@@ -374,12 +374,12 @@ func editMessage(c *gin.Context) {
 		"edited_at": now,
 	}
 
-	if err := db.DB.Model(&msg).Updates(updates).Error; err != nil {
+	if err := db.Social().Model(&msg).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	db.DB.Preload("Sender").First(&msg, "id = ?", msg.ID)
+	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
 	c.JSON(http.StatusOK, msg)
 }
 
@@ -405,21 +405,21 @@ func deleteMessage(c *gin.Context) {
 
 	// Verify message exists
 	var msg models.Message
-	if err := db.DB.First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
+	if err := db.Social().First(&msg, "id = ? AND conversation_id = ?", msgID, convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
 		return
 	}
 
 	// Only sender or conversation participant can delete
 	var conv models.Conversation
-	db.DB.First(&conv, "id = ?", convID)
-	
+	db.Social().First(&conv, "id = ?", convID)
+
 	if msg.SenderID != userID && conv.Participant1 != userID && conv.Participant2 != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-	if err := db.DB.Model(&msg).Update("is_deleted", true).Error; err != nil {
+	if err := db.Social().Model(&msg).Update("is_deleted", true).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -451,7 +451,7 @@ func addReaction(c *gin.Context) {
 
 	// Verify message exists
 	var msg models.Message
-	if err := db.DB.First(&msg, "id = ?", msgID).Error; err != nil {
+	if err := db.Social().First(&msg, "id = ?", msgID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
 		return
 	}
@@ -464,7 +464,7 @@ func addReaction(c *gin.Context) {
 	}
 
 	// Upsert reaction
-	if err := db.DB.Save(&reaction).Error; err != nil {
+	if err := db.Social().Save(&reaction).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -488,7 +488,7 @@ func removeReaction(c *gin.Context) {
 
 	emoji := c.Param("emoji")
 
-	result := db.DB.Where("message_id = ? AND user_id = ? AND emoji = ?", msgID, userID, emoji).
+	result := db.Social().Where("message_id = ? AND user_id = ? AND emoji = ?", msgID, userID, emoji).
 		Delete(&models.MessageReaction{})
 
 	if result.Error != nil {
@@ -515,7 +515,7 @@ func searchMessages(c *gin.Context) {
 
 	// Verify access
 	var conv models.Conversation
-	if err := db.DB.First(&conv, "id = ?", convID).Error; err != nil {
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
@@ -532,7 +532,7 @@ func searchMessages(c *gin.Context) {
 	}
 
 	var messages []models.Message
-	db.DB.Where("conversation_id = ? AND content ILIKE ? AND is_deleted = ?", 
+	db.Social().Where("conversation_id = ? AND content ILIKE ? AND is_deleted = ?",
 		convID, "%"+query+"%", false).
 		Order("created_at DESC").
 		Limit(50).

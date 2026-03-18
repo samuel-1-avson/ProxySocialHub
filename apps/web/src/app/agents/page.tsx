@@ -1,40 +1,30 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Bot, Plus, Play, Layers, Cpu, Loader2, ArrowRight, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { getMarketAgents, rentAgent, MarketAgent } from '@/lib/api';
-// Assuming api exists, if not we might need to verify. But code was using it.
+import { useToast } from '@/stores';
+import { useQuery } from '@tanstack/react-query';
 
 export default function AgentsPage() {
-    const [agents, setAgents] = useState<MarketAgent[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const toast = useToast();
     const [rentingId, setRentingId] = useState<string | null>(null);
 
-    const fetchAgents = async () => {
-        try {
-            const data = await getMarketAgents();
-            setAgents(data);
-        } catch (error) {
-            console.error('Failed to fetch agents:', error);
-            // alert('Failed to load AI agents from marketplace.'); // Use console or toast instead of alert ideally
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchAgents();
-    }, []);
+    const { data: agents = [], isLoading } = useQuery({
+        queryKey: ['market-agents'],
+        queryFn: getMarketAgents,
+        retry: 2,
+    });
 
     const handleRent = async (agent: MarketAgent) => {
         setRentingId(agent.id);
         try {
             await rentAgent(agent.id);
-            alert(`${agent.name} has been added to your instances.`);
+            toast.success('Agent deployed', `${agent.name} has been added to your instances.`);
         } catch (error) {
             console.error('Failed to rent agent:', error);
-            alert('Rental Failed. Ensure you have enough balance in your SOL/USDT wallet.');
+            toast.error('Rental failed', 'Ensure you have enough SOL balance in your wallet.');
         } finally {
             setRentingId(null);
         }

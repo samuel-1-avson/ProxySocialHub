@@ -1,0 +1,140 @@
+# docker-compose.test.yml
+# Test environment for validating new financial engine features
+
+version: '3.8'
+
+services:
+  # ==================== Control API (Test Build) ====================
+  control-api:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile.simple
+    container_name: proxyhubb-test-api
+    ports:
+      - "8080:8080"
+    environment:
+      # Core settings
+      - PORT=8080
+      - APP_ENV=testing
+      - API_BASE_URL=http://localhost:8080
+      - FRONTEND_URL=http://localhost:3000
+      
+      # Database (local test instance)
+      - DATABASE_URL=postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb_test?sslmode=disable
+      
+      # Redis
+      - REDIS_URL=redis://redis:6379
+      
+      # Secrets (use test values)
+      - JWT_SECRET=test-jwt-secret-min-32-chars-long
+      - SESSION_SECRET=test-session-secret-min-32-chars
+      - ENCRYPTION_KEY=test-encryption-key-32-chars
+      
+      # Solana (DevNet for testing)
+      - SOLANA_NETWORK=devnet
+      - SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
+      - SOLANA_TREASURY_ADDRESS=8g7WUuPosAg82Uu7iGYCx6HBnoTBFb4QuyiJCEGzktU4
+      - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
+      
+      # Price Feeds (use free tiers for testing)
+      - COINGECKO_API_URL=https://api.coingecko.com/api/v3
+      # - COINGECKO_API_KEY=  # Optional: for higher rate limits
+      # - COINMARKETCAP_API_KEY=  # Optional: secondary source
+      
+      # Disable email for tests
+      - SMTP_HOST=
+      
+    volumes:
+      - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+        
+    networks:
+      - test-network
+      
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ==================== Test Database ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: proxyhubb-test-db
+    environment:
+      - POSTGRES_USER=proxyhubb
+      - POSTGRES_PASSWORD=proxyhubb
+      - POSTGRES_DB=proxyhubb_test
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./services/control-api/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxyhubb -d proxyhubb_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ==================== Test Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: proxyhubb-test-redis
+    command: redis-server --appendonly yes --protected-mode no
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    volumes:
+      - redis_test_data:/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # ==================== Test Runner ====================
+  test-runner:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile.simple
+    container_name: proxyhubb-test-runner
+    command: >
+      sh -c "
+        echo 'Waiting for services...' &&
+        sleep 10 &&
+        echo 'Running tests...' &&
+        go test -v ./... -run 'TestPrice|TestBatch|TestSpending' 2>&1 | tee /tmp/test-results.log &&
+        echo 'Tests complete'
+      "
+    environment:
+      - DATABASE_URL=postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb_test?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+      - SOLANA_NETWORK=devnet
+    volumes:
+      - ./services/control-api:/app
+      - ./test-results:/tmp/test-results
+    depends_on:
+      - control-api
+      - postgres
+      - redis
+    networks:
+      - test-network
+    profiles:
+      - test  # Only run when explicitly requested
+
+volumes:
+  postgres_test_data:
+  redis_test_data:
+
+networks:
+  test-network:
+    driver: bridge

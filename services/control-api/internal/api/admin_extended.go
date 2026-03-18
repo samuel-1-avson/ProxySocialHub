@@ -15,43 +15,43 @@ import (
 
 // RegisterAdminExtendedRoutes attaches additional admin-only routes.
 func RegisterAdminExtendedRoutes(r *gin.RouterGroup) {
-	// System health & alerts
-	r.GET("/system/health", adminSystemHealth)
-	r.GET("/system/alerts", adminSystemAlerts)
+	// System health & alerts (system:monitor permission)
+	r.GET("/system/health", RequirePermission("system:monitor"), adminSystemHealth)
+	r.GET("/system/alerts", RequirePermission("system:monitor"), adminSystemAlerts)
 
-	// User force-logout
-	r.POST("/users/:id/force-logout", adminForceLogout)
+	// User force-logout (users:manage permission)
+	r.POST("/users/:id/force-logout", RequirePermission("users:manage"), adminForceLogout)
 
-	// Internal admin notes per user
-	notes := r.Group("/users/:id/notes")
+	// Internal admin notes per user (users:read permission)
+	notes := r.Group("/users/:id/notes", RequirePermission("users:read"))
 	{
 		notes.GET("", adminGetNotes)
-		notes.POST("", adminAddNote)
-		notes.DELETE("/:note_id", adminDeleteNote)
+		notes.POST("", RequirePermission("users:manage"), adminAddNote)
+		notes.DELETE("/:note_id", RequirePermission("users:manage"), adminDeleteNote)
 	}
 
-	// Proxy pool admin view
-	r.GET("/proxies/pools", adminListProxyPools)
-	r.PUT("/proxies/pools/:pool_id/disable", adminDisableProxyPool)
+	// Proxy pool admin view (system:monitor permission)
+	r.GET("/proxies/pools", RequirePermission("system:monitor"), adminListProxyPools)
+	r.PUT("/proxies/pools/:pool_id/disable", RequirePermission("system:manage"), adminDisableProxyPool)
 
-	// Treasury overview
-	r.GET("/treasury/overview", adminTreasuryOverview)
+	// Treasury overview (system:monitor permission)
+	r.GET("/treasury/overview", RequirePermission("system:monitor"), adminTreasuryOverview)
 
-	// Feature flags
-	r.GET("/feature-flags", adminListFeatureFlags)
-	r.PUT("/feature-flags/:key", adminUpdateFeatureFlag)
+	// Feature flags (system:manage permission)
+	r.GET("/feature-flags", RequirePermission("system:monitor"), adminListFeatureFlags)
+	r.PUT("/feature-flags/:key", RequirePermission("system:manage"), adminUpdateFeatureFlag)
 
-	// System config
-	r.GET("/config", adminListSystemConfig)
-	r.PUT("/config/:key", adminUpdateSystemConfig)
+	// System config (system:manage permission)
+	r.GET("/config", RequirePermission("system:monitor"), adminListSystemConfig)
+	r.PUT("/config/:key", RequirePermission("system:manage"), adminUpdateSystemConfig)
 
-	// Disputes (admin view)
-	r.GET("/disputes", adminListDisputes)
-	r.POST("/disputes/:id/force-resolve", adminForceResolveDispute)
+	// Disputes (admin view) (disputes:manage permission)
+	r.GET("/disputes", RequirePermission("disputes:read"), adminListDisputes)
+	r.POST("/disputes/:id/force-resolve", RequirePermission("disputes:manage"), adminForceResolveDispute)
 
-	// Governance (admin view)
-	r.GET("/governance/proposals", adminListProposals)
-	r.POST("/governance/proposals/:id/cancel", adminCancelProposal)
+	// Governance (admin view) (governance:manage permission)
+	r.GET("/governance/proposals", RequirePermission("governance:read"), adminListProposals)
+	r.POST("/governance/proposals/:id/cancel", RequirePermission("governance:manage"), adminCancelProposal)
 }
 
 // ========== System Health ==========

@@ -55,8 +55,6 @@ const (
 
 	// Admin Events
 	AuditAdminAction     AuditEventType = "admin.action"
-	AuditKYCApproved     AuditEventType = "admin.kyc_approved"
-	AuditKYCRejected     AuditEventType = "admin.kyc_rejected"
 	AuditDisputeResolved AuditEventType = "admin.dispute_resolved"
 )
 

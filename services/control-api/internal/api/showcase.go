@@ -42,7 +42,7 @@ func getProviderShowcases(c *gin.Context) {
 	}
 	
 	var showcases []models.ProviderShowcase
-	db.DB.Where("provider_id = ? AND is_public = ?", providerID, true).
+	db.Social().Where("provider_id = ? AND is_public = ?", providerID, true).
 		Order("display_order ASC, created_at DESC").
 		Find(&showcases)
 	
@@ -57,7 +57,7 @@ func getProviderStats(c *gin.Context) {
 	}
 	
 	var stats models.ProviderStats
-	if err := db.DB.First(&stats, "provider_id = ?", providerID).Error; err != nil {
+	if err := db.Social().First(&stats, "provider_id = ?", providerID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"stats": nil})
 		return
 	}
@@ -73,7 +73,7 @@ func getProviderTestimonials(c *gin.Context) {
 	}
 	
 	var testimonials []models.Testimonial
-	db.DB.Where("provider_id = ? AND is_approved = ?", providerID, true).
+	db.Social().Where("provider_id = ? AND is_approved = ?", providerID, true).
 		Order("is_featured DESC, created_at DESC").
 		Preload("Customer").
 		Find(&testimonials)
@@ -89,7 +89,7 @@ func getProviderSpeedTests(c *gin.Context) {
 	}
 	
 	var tests []models.SpeedTest
-	db.DB.Where("provider_id = ? AND is_public = ?", providerID, true).
+	db.Social().Where("provider_id = ? AND is_public = ?", providerID, true).
 		Order("tested_at DESC").
 		Limit(30).
 		Find(&tests)
@@ -105,7 +105,7 @@ func getMyShowcases(c *gin.Context) {
 	}
 	
 	var showcases []models.ProviderShowcase
-	db.DB.Where("provider_id = ?", userID).
+	db.Social().Where("provider_id = ?", userID).
 		Order("display_order ASC, created_at DESC").
 		Find(&showcases)
 	
@@ -145,7 +145,7 @@ func createShowcase(c *gin.Context) {
 		IsFeatured:  req.IsFeatured,
 	}
 	
-	if err := db.DB.Create(showcase).Error; err != nil {
+	if err := db.Social().Create(showcase).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -167,7 +167,7 @@ func updateShowcase(c *gin.Context) {
 	}
 	
 	var showcase models.ProviderShowcase
-	if err := db.DB.Where("id = ? AND provider_id = ?", showcaseID, userID).First(&showcase).Error; err != nil {
+	if err := db.Social().Where("id = ? AND provider_id = ?", showcaseID, userID).First(&showcase).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Showcase not found"})
 		return
 	}
@@ -208,7 +208,7 @@ func updateShowcase(c *gin.Context) {
 	}
 	updates["updated_at"] = time.Now()
 	
-	if err := db.DB.Model(&showcase).Updates(updates).Error; err != nil {
+	if err := db.Social().Model(&showcase).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -229,7 +229,7 @@ func deleteShowcase(c *gin.Context) {
 		return
 	}
 	
-	result := db.DB.Where("id = ? AND provider_id = ?", showcaseID, userID).Delete(&models.ProviderShowcase{})
+	result := db.Social().Where("id = ? AND provider_id = ?", showcaseID, userID).Delete(&models.ProviderShowcase{})
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
@@ -265,7 +265,7 @@ func reorderShowcases(c *gin.Context) {
 		if err != nil {
 			continue
 		}
-		db.DB.Model(&models.ProviderShowcase{}).
+		db.Social().Model(&models.ProviderShowcase{}).
 			Where("id = ? AND provider_id = ?", id, userID).
 			Update("display_order", i)
 	}
@@ -306,7 +306,7 @@ func submitSpeedTest(c *gin.Context) {
 		TestedAt:       time.Now(),
 	}
 	
-	if err := db.DB.Create(test).Error; err != nil {
+	if err := db.Social().Create(test).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -354,7 +354,7 @@ func submitTestimonial(c *gin.Context) {
 		}
 	}
 	
-	if err := db.DB.Create(testimonial).Error; err != nil {
+	if err := db.Social().Create(testimonial).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

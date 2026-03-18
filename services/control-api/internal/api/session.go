@@ -2,29 +2,34 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
+	cryptoRand "crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	solanaGo "github.com/gagliardetto/solana-go"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"gorm.io/gorm"
 )
 
 func RegisterSessionRoutes(r *gin.RouterGroup) {
 	sessions := r.Group("/sessions")
 	{
 		sessions.POST("", createSession)
-		sessions.POST("/instant", createInstantSession) // New Universal endpoint
-
 		sessions.POST("/", createSession)
+		sessions.POST("/instant", createInstantSession)
+		sessions.POST("/from-listing", createSessionFromListing) // P2P: buy from a specific provider listing
+
 		sessions.GET("", listSessions)
 		sessions.GET("/", listSessions)
 		sessions.GET("/:id", getSession)
@@ -57,9 +62,62 @@ type createSessionRequestV4 struct {
 func generateCredentials() (string, string) {
 	user := make([]byte, 8)
 	pass := make([]byte, 16)
-	rand.Read(user)
-	rand.Read(pass)
+	cryptoRand.Read(user)
+	cryptoRand.Read(pass)
 	return hex.EncodeToString(user), hex.EncodeToString(pass)
+}
+
+// selectProviderNode picks the best available healthy provider node,
+// preferring the requested country and using weighted-random selection by quality score.
+func selectProviderNode(targetGeo string, connectionType string) (*models.ProviderNode, error) {
+	query := db.DB.Where("status = ? AND deleted_at IS NULL", models.NodeOnline)
+	if connectionType != "" {
+		query = query.Where("connection_type = ?", connectionType)
+	}
+
+	// Try country-matched nodes first
+	if targetGeo != "" {
+		var geoNodes []models.ProviderNode
+		query.Where("country = ?", targetGeo).
+			Order("quality_score DESC").
+			Limit(10).
+			Find(&geoNodes)
+		if len(geoNodes) > 0 {
+			return weightedRandomNode(geoNodes), nil
+		}
+	}
+
+	// Fallback: best quality globally
+	var nodes []models.ProviderNode
+	query.Order("quality_score DESC").Limit(10).Find(&nodes)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("no healthy provider nodes available")
+	}
+	return weightedRandomNode(nodes), nil
+}
+
+// weightedRandomNode selects a node probabilistically, weighted by quality score.
+// Higher quality nodes are more likely to be chosen, preventing monopoly by a single top node.
+func weightedRandomNode(nodes []models.ProviderNode) *models.ProviderNode {
+	if len(nodes) == 1 {
+		return &nodes[0]
+	}
+	total := 0.0
+	for _, n := range nodes {
+		total += n.QualityScore
+	}
+	if total <= 0 {
+		return &nodes[0]
+	}
+	pick := rand.Float64() * total
+	cumulative := 0.0
+	for i, n := range nodes {
+		cumulative += n.QualityScore
+		if pick <= cumulative {
+			return &nodes[i]
+		}
+	}
+	return &nodes[len(nodes)-1]
 }
 
 func createSession(c *gin.Context) {
@@ -92,18 +150,6 @@ func createSession(c *gin.Context) {
 
 	// Get tier configuration
 	tierConfig := models.GetTierConfig(user.TrustTier)
-
-	// Check KYC status for certain features
-	if !user.IsKYCVerified() && user.TrustTier == models.TrustTierNew {
-		// New users without KYC have limited functionality
-		if req.TargetGeo != "" || req.TargetISP != "" {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":   "KYC verification required for geo-targeting",
-				"message": "Please complete KYC verification to unlock advanced features",
-			})
-			return
-		}
-	}
 
 	// N-03: Look up routing profile and apply defaults if slug provided.
 	var routingProfile *models.RoutingProfile
@@ -387,6 +433,16 @@ func terminateSession(c *gin.Context) {
 
 	redisClient.DeleteSession(session.CredentialsUser)
 
+	// Increment total_sessions_served on the provider node that served this session
+	if session.NodeID != nil {
+		db.DB.Model(&models.ProviderNode{}).
+			Where("id = ?", session.NodeID).
+			UpdateColumn("total_sessions_served", gorm.Expr("total_sessions_served + 1"))
+
+		// Record provider earning asynchronously (10% platform fee, 0.002 SOL/GB fallback price)
+		go recordProviderEarning(session, session.BytesUsed, 0.002, 0.10)
+	}
+
 	// Trigger on-chain escrow settlement asynchronously so the API response is not blocked.
 	go settleSessionOnChain(session)
 
@@ -427,7 +483,14 @@ func createInstantSession(c *gin.Context) {
 		return
 	}
 
-	// 2. Create Session
+	// 2. Select best provider node using geographic routing
+	node, nodeErr := selectProviderNode(req.TargetCountry, "")
+	if nodeErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No provider nodes available for your request"})
+		return
+	}
+
+	// 3. Create Session
 	credUser, credPass := generateCredentials()
 
 	// Default limit if 0 (e.g. 1GB safety cap if not specified)
@@ -435,8 +498,10 @@ func createInstantSession(c *gin.Context) {
 		req.BandwidthLimit = 1 * 1024 * 1024 * 1024
 	}
 
+	nodeID := node.ID
 	session := models.Session{
 		UserID:          userUUID,
+		NodeID:          &nodeID,
 		Type:            "universal", // Special type
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
@@ -452,24 +517,18 @@ func createInstantSession(c *gin.Context) {
 		return
 	}
 
-	// 3. Store in Redis for Gateway
-	// We need to extend SessionData in redis/client.go to support Strategy if not generic config
-	// For now, we reuse existing fields or map them
+	// 4. Store in Redis for Gateway — includes provider routing info
 	sessionData := &redisClient.SessionData{
 		UserID:         userID,
+		ProviderID:     node.UserID.String(),
 		SessionID:      session.ID.String(),
 		Type:           "universal",
 		Status:         "active",
 		BandwidthLimit: req.BandwidthLimit,
-		TrustTier:      "verified",        // Assume instant buyers are verified or default
-		TargetGeo:      req.TargetCountry, // Map strategy param
+		TrustTier:      "verified",
+		TargetGeo:      req.TargetCountry,
 		ExpiresAt:      time.Now().Add(24 * time.Hour),
 		CreatedAt:      time.Now(),
-		// Custom fields for strategy passing?
-		// We can put Strategy in TargetISP if we abuse the field, or update the Redis struct.
-		// Let's assume TargetISP can hold metadata or we update the struct later.
-		// Ideally we update redis/client.go SessionData.
-		// For prototype, we'll encode it in a way the Gateway understands or add the field.
 	}
 
 	// Store
@@ -564,4 +623,253 @@ func settleSessionOnChain(session models.Session) {
 		Str("tx_hash", txHash).
 		Uint64("bandwidth_gb", bandwidthUsedGB).
 		Msg("SettleEscrow completed on-chain")
+}
+
+// =============================================================================
+// P2P SESSION: Buy from a specific provider listing
+// =============================================================================
+
+type createSessionFromListingRequest struct {
+	ListingID      string `json:"listing_id" binding:"required"`
+	Type           string `json:"type"`           // "rotating" | "sticky" — defaults to listing's rotation_type
+	BandwidthLimit int64  `json:"bandwidth_limit"` // bytes; 0 = listing minimum
+}
+
+// createSessionFromListing is the true P2P endpoint.
+// The consumer picks a provider's marketplace listing → a session is created
+// linked to that listing and the provider's best node → billing worker credits
+// the provider on every settlement cycle.
+func createSessionFromListing(c *gin.Context) {
+	var req createSessionFromListingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// --- Auth ---
+	consumerUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// --- Load listing ---
+	listingID, err := uuid.Parse(req.ListingID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing_id"})
+		return
+	}
+
+	var listing models.ProxyListing
+	if err := db.DB.Preload("Seller").First(&listing, "id = ?", listingID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+		return
+	}
+
+	// --- Validate listing is purchasable ---
+	if listing.Status != models.ListingStatusActive {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Listing is not available (status: %s)", listing.Status)})
+		return
+	}
+	if listing.AvailableBandwidthGB <= 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Listing has no available bandwidth"})
+		return
+	}
+
+	// --- Prevent self-purchase ---
+	if listing.SellerID == consumerUUID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot buy from your own listing"})
+		return
+	}
+
+	// --- Concurrency cap ---
+	var activeSessions int64
+	db.DB.Model(&models.Session{}).
+		Where("listing_id = ? AND status = ?", listingID, models.SessionActive).
+		Count(&activeSessions)
+	if int(activeSessions) >= listing.MaxConcurrency {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":       "This listing has reached its maximum concurrent sessions",
+			"limit":       listing.MaxConcurrency,
+			"active":      activeSessions,
+		})
+		return
+	}
+
+	// --- Wallet balance check ---
+	// Consumer must have at least enough SOL for the minimum purchase (1 GB at listing price).
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", consumerUUID).First(&wallet).Error; err != nil {
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "Wallet not found. Please set up your wallet first."})
+		return
+	}
+	minGB := listing.MinPurchaseGB
+	if minGB <= 0 {
+		minGB = 1
+	}
+	minCostSOL := billing.USDToSOL(listing.PricePerGB * minGB)
+	if wallet.BalanceSOL < minCostSOL {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":           "Insufficient SOL balance",
+			"required_sol":    minCostSOL,
+			"your_balance":    wallet.BalanceSOL,
+			"listing_price":   listing.PricePerGB,
+			"min_purchase_gb": minGB,
+		})
+		return
+	}
+
+	// --- Find the best available node for this provider ---
+	var node models.Node
+	nodeErr := db.DB.
+		Where("provider_user_id = ? AND is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL", listing.SellerID).
+		Order("quality_score DESC").
+		First(&node).Error
+	if nodeErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Provider has no available nodes right now. Try again shortly."})
+		return
+	}
+
+	// --- Session type ---
+	sessionType := models.SessionType(req.Type)
+	if sessionType != models.SessionRotating && sessionType != models.SessionSticky {
+		// Default: use listing's rotation type, fall back to rotating
+		if listing.RotationType == "sticky" {
+			sessionType = models.SessionSticky
+		} else {
+			sessionType = models.SessionRotating
+		}
+	}
+
+	// --- Bandwidth limit ---
+	bandwidthLimit := req.BandwidthLimit
+	if bandwidthLimit <= 0 {
+		bandwidthLimit = int64(listing.AvailableBandwidthGB * 1024 * 1024 * 1024)
+	}
+
+	// --- Load consumer trust tier ---
+	var consumer models.User
+	if err := db.DB.First(&consumer, "id = ?", consumerUUID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Consumer user not found"})
+		return
+	}
+
+	// --- Distributed lock to prevent race on concurrent buys of the same listing ---
+	lockKey := "session:listing:" + listingID.String()
+	lockVal := uuid.New().String()
+	acquired, err := redisClient.AcquireLock(lockKey, lockVal, 5*time.Second)
+	if err != nil || !acquired {
+		c.JSON(http.StatusConflict, gin.H{"error": "Listing is being purchased concurrently. Please retry."})
+		return
+	}
+	defer redisClient.ReleaseLock(lockKey)
+
+	// --- Generate credentials ---
+	credUser, credPass := generateCredentials()
+
+	// --- Create session in DB ---
+	nodeID := node.ID
+	session := models.Session{
+		UserID:          consumerUUID,
+		NodeID:          &nodeID,
+		ListingID:       &listingID,
+		Type:            sessionType,
+		Status:          models.SessionActive,
+		CredentialsUser: credUser,
+		CredentialsPass: credPass,
+		BandwidthLimit:  bandwidthLimit,
+		Config:          "{}",
+		StartTime:       time.Now(),
+	}
+	if err := db.DB.Create(&session).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	// --- Mark listing as used (increment orders, decrement available bandwidth) ---
+	db.DB.Model(&listing).Updates(map[string]interface{}{
+		"orders_count":           listing.OrdersCount + 1,
+		"available_bandwidth_gb": listing.AvailableBandwidthGB - minGB,
+	})
+
+	// --- Store encrypted credential backup ---
+	credSvc := crypto.NewCredentialService()
+	if err := credSvc.StoreCredentials(session.ID, credUser, credPass); err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to store encrypted credentials — continuing")
+	}
+
+	// --- Push to Redis for edge-gateway routing ---
+	sessionData := &redisClient.SessionData{
+		UserID:         consumerUUID.String(),
+		SessionID:      session.ID.String(),
+		ProviderID:     listing.SellerID.String(),
+		Type:           string(sessionType),
+		Status:         "active",
+		BandwidthLimit: bandwidthLimit,
+		BandwidthUsed:  0,
+		TrustTier:      string(consumer.TrustTier),
+		TargetGeo:      listing.Country,
+		TargetISP:      listing.ISP,
+		ExpiresAt:      time.Now().Add(24 * time.Hour),
+		CreatedAt:      time.Now(),
+		// P2P routing fields — edge-gateway routes traffic to this exact node
+		ListingID:  listingID.String(),
+		NodeID:     node.ID.String(),
+		NodeHost:   node.IPAddress,
+		NodePort:   node.Port,
+		PricePerGB: listing.PricePerGB,
+	}
+	if err := redisClient.StoreSession(credUser, sessionData, 24*time.Hour); err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Redis sync failed for P2P session")
+		c.JSON(http.StatusCreated, gin.H{
+			"session":       session,
+			"redis_warning": "Session created but Redis sync failed — contact support if proxy doesn't work",
+		})
+		return
+	}
+
+	sellerName := ""
+	if listing.Seller != nil {
+		if listing.Seller.DisplayName != nil && *listing.Seller.DisplayName != "" {
+			sellerName = *listing.Seller.DisplayName
+		} else if listing.Seller.Username != nil && *listing.Seller.Username != "" {
+			sellerName = *listing.Seller.Username
+		}
+	}
+
+	logging.Info().
+		Str("session_id", session.ID.String()).
+		Str("consumer_id", consumerUUID.String()).
+		Str("provider_id", listing.SellerID.String()).
+		Str("listing_id", listingID.String()).
+		Str("node_id", node.ID.String()).
+		Float64("price_per_gb", listing.PricePerGB).
+		Msg("P2P session created")
+
+	c.JSON(http.StatusCreated, gin.H{
+		"session": session,
+		"proxy_credentials": gin.H{
+			"username": credUser,
+			"password": credPass,
+			"host":     node.IPAddress,
+			"port":     node.Port,
+			"protocol": node.Protocol,
+			"endpoint": fmt.Sprintf("proxy.proxyhubb.com:3128"),
+		},
+		"provider": gin.H{
+			"id":            listing.SellerID,
+			"name":          sellerName,
+			"listing_title": listing.Title,
+			"price_per_gb":  listing.PricePerGB,
+			"proxy_type":    listing.ProxyType,
+			"country":       listing.Country,
+			"quality_score": node.QualityScore,
+		},
+		"session_info": gin.H{
+			"type":            sessionType,
+			"bandwidth_limit_gb": float64(bandwidthLimit) / (1024 * 1024 * 1024),
+			"min_cost_sol":    minCostSOL,
+			"node_latency_ms": node.LatencyMs,
+		},
+	})
 }

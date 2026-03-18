@@ -16,9 +16,10 @@ import (
 func RegisterEscrowRoutes(rg *gin.RouterGroup) {
 	rg.GET("/escrow/:orderId", getEscrowStatus)
 	rg.POST("/escrow/:orderId/release", releaseEscrow)
-	rg.POST("/escrow/:orderId/dispute", createDispute)
-	rg.POST("/escrow/:orderId/resolve", resolveDispute)
-	rg.GET("/disputes", getMyDisputes)
+	rg.POST("/escrow/:orderId/dispute", createEscrowDispute)
+	// Admin only: Resolve disputes requires disputes:manage permission
+	rg.POST("/escrow/:orderId/resolve", RequirePermission("disputes:manage"), resolveEscrowDispute)
+	rg.GET("/escrow/disputes", getMyEscrowDisputes)
 }
 
 // CreateEscrowForOrder creates an escrow when order is placed
@@ -125,8 +126,8 @@ func releaseEscrow(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Escrow release initiated successfully"})
 }
 
-// createDispute opens a dispute for an order
-func createDispute(c *gin.Context) {
+// createEscrowDispute opens a dispute for an order
+func createEscrowDispute(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	userID := currentUserID.(uuid.UUID)
 
@@ -160,7 +161,7 @@ func createDispute(c *gin.Context) {
 	}
 
 	// Create dispute
-	dispute := models.Dispute{
+	dispute := models.EscrowDispute{
 		EscrowID:    escrow.ID,
 		OrderID:     orderID,
 		InitiatedBy: userID,
@@ -192,14 +193,14 @@ func createDispute(c *gin.Context) {
 	c.JSON(http.StatusCreated, dispute)
 }
 
-// getMyDisputes returns user's disputes
-func getMyDisputes(c *gin.Context) {
+// getMyEscrowDisputes returns user's escrow disputes
+func getMyEscrowDisputes(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	userID := currentUserID.(uuid.UUID)
 
-	var disputes []models.Dispute
+	var disputes []models.EscrowDispute
 	db.DB.Preload("Escrow").Preload("Order").
-		Joins("JOIN escrow_transactions ON disputes.escrow_id = escrow_transactions.id").
+		Joins("JOIN escrow_transactions ON escrow_disputes.escrow_id = escrow_transactions.id").
 		Where("escrow_transactions.buyer_id = ? OR escrow_transactions.seller_id = ?", userID, userID).
 		Order("created_at DESC").
 		Find(&disputes)
@@ -207,10 +208,9 @@ func getMyDisputes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"disputes": disputes})
 }
 
-// resolveDispute handles admin resolution of a dispute
-func resolveDispute(c *gin.Context) {
-	// TODO: Add Admin Role Check (Middleware or explicit check)
-	// currentUserID, _ := c.Get("user_id")
+// resolveEscrowDispute handles admin resolution of an escrow dispute
+// Requires disputes:manage permission (enforced by route middleware)
+func resolveEscrowDispute(c *gin.Context) {
 
 	orderID, err := uuid.Parse(c.Param("orderId"))
 	if err != nil {
@@ -249,8 +249,8 @@ func resolveDispute(c *gin.Context) {
 
 		var buyerWallet models.Wallet
 		if err := tx.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
-			newBalance := buyerWallet.BalanceGHS + escrow.Amount
-			tx.Model(&buyerWallet).Update("balance_ghs", newBalance)
+			newBalance := buyerWallet.BalanceSOL + escrow.Amount
+			tx.Model(&buyerWallet).Update("balance_sol", newBalance)
 
 			tx.Create(&models.WalletLedgerEntry{
 				WalletID:     buyerWallet.ID,
@@ -280,8 +280,8 @@ func resolveDispute(c *gin.Context) {
 
 		var sellerWallet models.Wallet
 		if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
-			newBalance := sellerWallet.BalanceGHS + sellerAmount
-			tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
+			newBalance := sellerWallet.BalanceSOL + sellerAmount
+			tx.Model(&sellerWallet).Update("balance_sol", newBalance)
 
 			tx.Create(&models.WalletLedgerEntry{
 				WalletID:     sellerWallet.ID,
@@ -299,7 +299,7 @@ func resolveDispute(c *gin.Context) {
 	}
 
 	// Close Dispute
-	var dispute models.Dispute
+	var dispute models.EscrowDispute
 	if err := tx.Where("escrow_id = ? AND status = ?", escrow.ID, models.DisputeOpen).First(&dispute).Error; err == nil {
 		newStatus := models.DisputeResolvedSeller
 		if req.Decision == "refund" {
@@ -336,8 +336,8 @@ func AutoReleaseExpiredEscrows() {
 		if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
 			platformFee := escrow.Amount * 0.10
 			sellerAmount := escrow.Amount - platformFee
-			newBalance := sellerWallet.BalanceGHS + sellerAmount
-			tx.Model(&sellerWallet).Update("balance_ghs", newBalance)
+			newBalance := sellerWallet.BalanceSOL + sellerAmount
+			tx.Model(&sellerWallet).Update("balance_sol", newBalance)
 
 			ledger := models.WalletLedgerEntry{
 				WalletID:     sellerWallet.ID,
