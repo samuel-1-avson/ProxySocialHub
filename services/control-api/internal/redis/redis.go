@@ -40,6 +40,7 @@ type RedisClient interface {
 	HSet(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	Publish(ctx context.Context, channel string, message interface{}) *redis.IntCmd
 	Exists(ctx context.Context, keys ...string) *redis.IntCmd
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 }
 
 const Nil = redis.Nil

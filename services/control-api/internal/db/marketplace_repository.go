@@ -41,10 +41,15 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 			ID:                   l.ID,
 			SellerID:             l.SellerID,
 			Title:                l.Title,
+			Description:          l.Description,
 			PricePerGB:           l.PricePerGB,
 			AvailableBandwidthGB: l.AvailableBandwidthGB,
+			ProxyType:            domain.ProxyType(l.ProxyType),
+			Protocol:             l.Protocol,
 			Status:               domain.ListingStatus(l.Status),
 			QualityScore:         l.QualityScore,
+			Country:              l.Country,
+			ISP:                  l.ISP,
 		}
 	}
 
@@ -70,8 +75,11 @@ func (r *marketplaceRepository) CreateListing(ctx context.Context, entity *domai
 		ID:                   entity.ID,
 		SellerID:             entity.SellerID,
 		Title:                entity.Title,
+		Description:          entity.Description,
 		PricePerGB:           entity.PricePerGB,
 		AvailableBandwidthGB: entity.AvailableBandwidthGB,
+		ProxyType:            models.ProxyType(entity.ProxyType),
+		Protocol:             entity.Protocol,
 		Status:               models.ListingStatus(entity.Status),
 	}
 	return DB.Create(&m).Error

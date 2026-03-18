@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -32,24 +33,33 @@ func InitEncryption() error {
 			return
 		}
 
-		// Decode base64 key
-		key, err := base64.StdEncoding.DecodeString(keyStr)
-		if err != nil {
-			// Try using raw string (32 bytes)
-			if len(keyStr) == 32 {
-				encryptionKey = []byte(keyStr)
+		// Try hex decoding first (64-char hex → 32 bytes, format used in .env)
+		if len(keyStr) == 64 {
+			key, err := hex.DecodeString(keyStr)
+			if err == nil && len(key) == 32 {
+				encryptionKey = key
 				return
 			}
-			keyErr = err
+		}
+
+		// Try base64 decoding
+		key, err := base64.StdEncoding.DecodeString(keyStr)
+		if err == nil {
+			if len(key) != 32 {
+				keyErr = ErrKeyInvalidLen
+				return
+			}
+			encryptionKey = key
 			return
 		}
 
-		if len(key) != 32 {
-			keyErr = ErrKeyInvalidLen
+		// Try raw 32-byte string
+		if len(keyStr) == 32 {
+			encryptionKey = []byte(keyStr)
 			return
 		}
 
-		encryptionKey = key
+		keyErr = ErrKeyInvalidLen
 	})
 
 	return keyErr

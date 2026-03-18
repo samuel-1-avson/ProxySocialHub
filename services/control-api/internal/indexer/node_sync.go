@@ -9,10 +9,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
 )
+
+// NodeSyncCallbacks holds optional hooks called after DB writes.
+// Wire them from main.go via SetCallbacks to avoid circular imports.
+type NodeSyncCallbacks struct {
+	OnNodeUpdate func(*models.ExplorerNode)
+}
 
 // NodeSync periodically synchronizes active nodes to explorer tables
 type NodeSync struct {
@@ -22,6 +29,14 @@ type NodeSync struct {
 	cancel       context.CancelFunc
 	mu           sync.RWMutex
 	db           *gorm.DB
+	callbacks    NodeSyncCallbacks
+}
+
+// SetCallbacks sets notification callbacks called after each DB write.
+func (ns *NodeSync) SetCallbacks(cb NodeSyncCallbacks) {
+	ns.mu.Lock()
+	ns.callbacks = cb
+	ns.mu.Unlock()
 }
 
 // NodeSyncConfig holds configuration for node synchronization
@@ -148,12 +163,38 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 		isValidator = true
 	}
 
+	// P0-13: resolve real coordinates from the node's IP address instead of
+	// leaving them as the default (0, 0) forever.
+	var (
+		lat, lon    float64
+		city, isp   string
+		country     = ns.getCountryFromRegion(region)
+	)
+	if node.IPAddress != "" {
+		if geo, ok := geoip.Resolve(node.IPAddress); ok {
+			lat, lon = geo.Latitude, geo.Longitude
+			city = geo.City
+			isp = geo.ISP
+			if geo.Country != "" {
+				country = geo.Country
+			}
+			if geo.Region != "" && region == "unknown" {
+				region = geo.Region
+			}
+		}
+	}
+
 	explorerNodeData := models.ExplorerNode{
 		NodeID:         node.ID.String(),
 		Chain:          "solana",
 		Name:           ns.getNodeName(node),
+		IP:             node.IPAddress,
 		Region:         region,
-		Country:        ns.getCountryFromRegion(region),
+		Country:        country,
+		City:           city,
+		ISP:            isp,
+		Latitude:       lat,
+		Longitude:      lon,
 		IsActive:       node.IsHealthy,
 		IsValidator:    isValidator,
 		UptimePercent:  uptime,
@@ -173,6 +214,17 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 		// Update existing
 		if err := ns.db.Model(&explorerNode).Updates(explorerNodeData).Error; err != nil {
 			return err
+		}
+	}
+
+	// Broadcast the updated node to all connected WebSocket clients (if wired)
+	ns.mu.RLock()
+	cb := ns.callbacks.OnNodeUpdate
+	ns.mu.RUnlock()
+	if cb != nil {
+		var updated models.ExplorerNode
+		if err := ns.db.Where("node_id = ?", node.ID.String()).First(&updated).Error; err == nil {
+			cb(&updated)
 		}
 	}
 
@@ -210,13 +262,14 @@ func (ns *NodeSync) getSessionStats() map[string]SessionStats {
 	return stats
 }
 
-// calculateNodeBandwidth calculates total bandwidth for a node from session data
+// calculateNodeBandwidth calculates bandwidth for a node from the last 24 hours of session data.
+// Using a 24h window prevents the metric from growing unbounded over the node's lifetime.
 func (ns *NodeSync) calculateNodeBandwidth(nodeID string) uint64 {
 	var totalBytes uint64
+	since := time.Now().Add(-24 * time.Hour)
 
-	// Sum bytes_used from sessions for this node
 	ns.db.Model(&models.Session{}).
-		Where("node_id = ?", nodeID).
+		Where("node_id = ? AND created_at >= ?", nodeID, since).
 		Select("COALESCE(SUM(bytes_used), 0)").
 		Scan(&totalBytes)
 

@@ -26,6 +26,26 @@ func NewAggregator() *Aggregator {
 	}
 }
 
+// VerifySignature validates the Ed25519 signature on a usage report before any
+// counters are updated.  Returns nil if the signature is absent (gateway
+// hasn't been configured with signing yet) or valid.  Returns a non-nil error
+// when a signature is present but fails verification — callers should reject
+// the report entirely.
+func (a *Aggregator) VerifySignature(sessionUsername string, bytesUp, bytesDown int64, nonce uint64, signatureHex string) error {
+	if signatureHex == "" {
+		return nil // no signature supplied; treated as trusted (internal gateway)
+	}
+	sessionData, err := redis.GetSession(sessionUsername)
+	if err != nil {
+		return fmt.Errorf("session not found: %w", err)
+	}
+	providerPubKey, err := a.getProviderPublicKey(sessionData.ProviderID)
+	if err != nil {
+		return fmt.Errorf("provider key not found: %w", err)
+	}
+	return verifyUsageSignature(providerPubKey, sessionUsername, bytesUp, bytesDown, nonce, signatureHex)
+}
+
 // AggregateUsage verifies signature and aggregates usage in Redis pending ledger
 func (a *Aggregator) AggregateUsage(sessionUsername string, bytesUp, bytesDown int64, signatureHex string, nonce uint64) error {
 	// 1. Fetch Session & Provider Info

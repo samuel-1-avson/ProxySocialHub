@@ -40,6 +40,10 @@ type Node struct {
 	NetUID              int    `json:"net_uid"`
 	Hotkey              string `gorm:"size:64" json:"hotkey"` // The hotkey used to register this node
 
+	// P0-04: tracks how much SOL the provider has staked on this node so that
+	// unstaking can return the exact amount rather than losing it.
+	StakedAmountSOL float64 `gorm:"type:decimal(20,9);default:0" json:"staked_amount_sol"`
+
 	// N-06: soft-delete — GORM automatically adds WHERE deleted_at IS NULL to all queries.
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }

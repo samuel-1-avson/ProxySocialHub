@@ -58,6 +58,24 @@ func main() {
 	}
 	db.SeedAll()
 
+	// MIGRATE_ONLY mode: run schema migrations (+ optional credential encryption) then exit.
+	// Used by the db-migrate init container in Docker Compose.
+	if os.Getenv("MIGRATE_ONLY") == "true" {
+		// Wire encryption so MIGRATE_CREDENTIALS works in this mode
+		models.CredentialEncryptFn = cryptoPkg.Encrypt
+		models.CredentialDecryptFn = cryptoPkg.Decrypt
+		if os.Getenv("MIGRATE_CREDENTIALS") == "true" {
+			svc := cryptoPkg.NewCredentialService()
+			migrated, errs := svc.MigrateExistingCredentials()
+			log.Printf("Credential migration complete: %d migrated, %d errors", migrated, len(errs))
+			for _, e := range errs {
+				log.Printf("  credential migration error: %v", e)
+			}
+		}
+		log.Println("MIGRATE_ONLY=true — schema migration complete, exiting.")
+		os.Exit(0)
+	}
+
 	// Initialize read replica (no-op if READ_REPLICA_URL is not set — falls back to primary)
 	if err := db.InitReadReplica(); err != nil {
 		log.Printf("Warning: read replica init failed: %v", err)
@@ -99,8 +117,8 @@ func main() {
 		db.DB.Raw(`
 			SELECT COUNT(*) FROM sessions
 			WHERE deleted_at IS NULL
-			  AND credentials_username IS NOT NULL
-			  AND LENGTH(credentials_username) <= 16
+			  AND credentials_user IS NOT NULL
+			  AND LENGTH(credentials_user) <= 16
 		`).Scan(&unencryptedCount)
 		if unencryptedCount > 0 {
 			log.Fatalf(
@@ -113,10 +131,15 @@ func main() {
 		log.Println("Credential encryption check passed — all active sessions encrypted")
 	}
 
-	// Initialize Supabase social DB (no-op if SUPABASE_DATABASE_URL is not set)
-	if err := db.InitSocial(os.Getenv("SUPABASE_DATABASE_URL")); err != nil {
-		log.Printf("Warning: Supabase social DB init failed: %v", err)
-	}
+	// Initialize Supabase social DB in background — AutoMigrate against a remote
+	// Supabase instance runs 25+ DDL round-trips (~200–400 ms each), which would
+	// block server startup for 10–30 s. Running it asynchronously lets the HTTP
+	// server start immediately; Social() falls back to local DB until SocialDB is set.
+	go func() {
+		if err := db.InitSocial(os.Getenv("SUPABASE_DATABASE_URL")); err != nil {
+			log.Printf("Warning: Supabase social DB init failed: %v", err)
+		}
+	}()
 
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
@@ -391,7 +414,8 @@ func main() {
 		api.RegisterProviderTokenRoutes(protected)
 		api.RegisterProviderEarningsRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
-		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
+		api.RegisterCLIDistributionRoutes(v1)  // Public CLI downloads
+		api.RegisterGatewayTokenRoute(v1)       // Public: exchange provider token → gateway JWT
 		api.RegisterSessionRoutes(protected)
 		api.RegisterWalletRoutes(protected)
 		api.RegisterOrderRoutes(protected)
@@ -512,6 +536,7 @@ func main() {
 			ProgramID:    programID,
 			PollInterval: pollInterval,
 			BatchSize:    100,
+			IndexAll:     os.Getenv("INDEXER_INDEX_ALL") == "true",
 		})
 		if err != nil {
 			log.Printf("Warning: Failed to init Blockchain Indexer: %v", err)
@@ -522,6 +547,13 @@ func main() {
 			})
 			blockchainIndexer.Start()
 			log.Println("Blockchain Explorer Indexer started")
+
+			// P3-07: Validate on-chain IDL discriminators match compiled values.
+			go func() {
+				if err := solanaClient.LoadAndValidateIDL(context.Background(), rpcEndpoint, programID); err != nil {
+					log.Printf("Warning: IDL validation error: %v", err)
+				}
+			}()
 
 			// Register contracts
 			registry := indexer.NewContractRegistry()
@@ -541,6 +573,9 @@ func main() {
 
 		nodeSync := indexer.NewNodeSync(indexer.NodeSyncConfig{
 			Interval: nodeSyncInterval,
+		})
+		nodeSync.SetCallbacks(indexer.NodeSyncCallbacks{
+			OnNodeUpdate: api.NotifyNodeUpdate,
 		})
 		nodeSync.Start()
 		log.Println("Node Sync Service started")
@@ -714,6 +749,7 @@ func main() {
 	log.Println("Provider Tier Evaluator started")
 
 	// Start Heartbeat Monitor — marks nodes offline after 5m without a heartbeat
+	worker.OnNodeOffline = api.NotifyNodeUpdate
 	worker.StartHeartbeatMonitor()
 	log.Println("Heartbeat Monitor started")
 

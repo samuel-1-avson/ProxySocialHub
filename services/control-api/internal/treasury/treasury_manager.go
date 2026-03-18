@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
+	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -17,10 +19,20 @@ import (
 // This addresses the critical issue of insufficient treasury balances
 // and ensures continuous operation without manual intervention
 
+// topupCooldown is the minimum interval between successive auto-topup attempts.
+// P2-10: Prevents multiple concurrent topups when the check ticker fires while
+// a previous transfer is still in flight or completing.
+const topupCooldown = 10 * time.Minute
+
 type TreasuryManager struct {
 	watchtower       *Watchtower
 	liquidityManager *LiquidityManager
 	oracle           *solana.OracleClient
+
+	// P2-10: Guards against concurrent or rapid-fire topup attempts.
+	topupMu         sync.Mutex
+	topupInProgress bool
+	lastTopupAt     time.Time
 }
 
 // TreasuryThresholds contains balance thresholds for different environments
@@ -170,11 +182,35 @@ func (tm *TreasuryManager) checkAndTopup(ctx context.Context) {
 	}
 }
 
-// triggerTopup initiates a standard topup from reserve wallet
+// triggerTopup initiates a standard topup from reserve wallet.
+// P2-10: Skips if another topup is already in progress or if the cooldown
+// period has not elapsed since the last attempt.
 func (tm *TreasuryManager) triggerTopup(ctx context.Context, currentBalance, target uint64) {
 	if currentBalance >= target {
 		return
 	}
+
+	tm.topupMu.Lock()
+	if tm.topupInProgress {
+		tm.topupMu.Unlock()
+		logging.Warn().Msg("Treasury topup skipped: another topup is already in progress")
+		return
+	}
+	if !tm.lastTopupAt.IsZero() && time.Since(tm.lastTopupAt) < topupCooldown {
+		tm.topupMu.Unlock()
+		logging.Warn().
+			Dur("cooldown_remaining", topupCooldown-time.Since(tm.lastTopupAt)).
+			Msg("Treasury topup skipped: cooldown not elapsed")
+		return
+	}
+	tm.topupInProgress = true
+	tm.topupMu.Unlock()
+	defer func() {
+		tm.topupMu.Lock()
+		tm.topupInProgress = false
+		tm.lastTopupAt = time.Now()
+		tm.topupMu.Unlock()
+	}()
 
 	amountNeeded := target - currentBalance
 	amountSOL := solana.LamportsToSOL(amountNeeded)
@@ -214,13 +250,29 @@ func (tm *TreasuryManager) triggerTopup(ctx context.Context, currentBalance, tar
 	}
 }
 
-// triggerEmergencyTopup initiates an emergency topup
+// triggerEmergencyTopup initiates an emergency topup.
+// P2-10: Shares the same in-progress guard; emergency calls bypass the cooldown.
 func (tm *TreasuryManager) triggerEmergencyTopup(ctx context.Context, currentBalance, target uint64) {
 	// Emergency topup: transfer larger amount to get well above minimum
 	emergencyTarget := target * 2 // Double the target for safety
 	if currentBalance >= emergencyTarget {
 		return
 	}
+
+	tm.topupMu.Lock()
+	if tm.topupInProgress {
+		tm.topupMu.Unlock()
+		logging.Warn().Msg("Emergency topup skipped: another topup is already in progress")
+		return
+	}
+	tm.topupInProgress = true
+	tm.topupMu.Unlock()
+	defer func() {
+		tm.topupMu.Lock()
+		tm.topupInProgress = false
+		tm.lastTopupAt = time.Now()
+		tm.topupMu.Unlock()
+	}()
 
 	amountNeeded := emergencyTarget - currentBalance
 	amountSOL := solana.LamportsToSOL(amountNeeded)
@@ -296,17 +348,17 @@ func (tm *TreasuryManager) transferFromReserve(ctx context.Context, reserveKeyPa
 	return nil
 }
 
-// notifyManualTopupNeeded sends notification for manual topup
+// notifyManualTopupNeeded sends notification for manual topup.
+// P1-13: Delivers alert via configured channels (Slack/email) in addition to logging.
 func (tm *TreasuryManager) notifyManualTopupNeeded(amountSOL float64) {
+	addr := tm.getTreasuryAddress().String()
 	logging.Error(fmt.Errorf("manual topup required")).
 		Float64("amount_sol_needed", amountSOL).
-		Str("treasury_address", tm.getTreasuryAddress().String()).
+		Str("treasury_address", addr).
 		Msg("MANUAL TOPUP REQUIRED")
 
-	// In production, this should send:
-	// - Email to treasury admins
-	// - Slack notification
-	// - PagerDuty alert for critical levels
+	alerts.Send(alerts.Critical, "Treasury Manual Topup Required",
+		fmt.Sprintf("Auto-topup failed. Manual transfer of %.4f SOL required to treasury %s", amountSOL, addr))
 }
 
 // getTreasuryAddress returns the configured treasury address

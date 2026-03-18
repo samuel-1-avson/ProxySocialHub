@@ -1,6 +1,6 @@
 "use client";
 import { useAuth } from "@/lib/auth";
-import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, Vote, User, ChevronRight } from "lucide-react";
+import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, Vote, User, ChevronRight, Wallet, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { getAnalyticsOverview, getWallet, getDailyUsage } from "@/lib/api";
 import { SkeletonDashboard } from "@/components/ui/skeleton";
@@ -206,6 +206,31 @@ export default function DashboardPage() {
                     </motion.div>
                 ))}
             </motion.div>
+
+            {/* Wallet Connect Banner — shown when no Solana wallet is linked */}
+            {!wallet?.linked_solana_address && (
+                <motion.div variants={itemVariants}>
+                    <Link href="/dashboard/wallet">
+                        <motion.div
+                            whileHover={{ scale: 1.01 }}
+                            className="glass-card p-5 border-primary/30 bg-primary/5 flex items-center gap-5 group cursor-pointer"
+                        >
+                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
+                                <Wallet size={20} className="text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-black font-mono uppercase tracking-widest text-primary">Connect Your Wallet</p>
+                                <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate">
+                                    Link a Solana wallet to deposit SOL, pay for sessions, and withdraw earnings.
+                                </p>
+                            </div>
+                            <div className="shrink-0 flex items-center gap-1 text-[10px] font-black font-mono text-primary uppercase tracking-widest opacity-70 group-hover:opacity-100 transition-opacity">
+                                Go to Wallet <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" />
+                            </div>
+                        </motion.div>
+                    </Link>
+                </motion.div>
+            )}
 
             {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

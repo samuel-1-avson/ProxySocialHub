@@ -2,9 +2,11 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -18,9 +20,17 @@ func RegisterProviderTokenRoutes(rg *gin.RouterGroup) {
 		tokens.POST("", createProviderToken)
 		tokens.DELETE("/:id", revokeProviderToken)
 	}
-	
+
 	// CLI authentication endpoint - used by CLI to validate tokens
 	rg.POST("/provider/auth", validateProviderToken)
+
+}
+
+// RegisterGatewayTokenRoute registers the public gateway-token endpoint on the
+// given (unauthenticated) router group. It validates its own provider token so
+// it does not need a prior auth session.
+func RegisterGatewayTokenRoute(rg *gin.RouterGroup) {
+	rg.POST("/provider/gateway-token", issueGatewayToken)
 }
 
 // TokenResponse is the response when creating a token
@@ -226,6 +236,59 @@ func validateProviderToken(c *gin.Context) {
 		TokenID: token.ID,
 		NodeID:  nodeID,
 		Message: "Token valid",
+	})
+}
+
+// issueGatewayToken exchanges a provider API token for a short-lived JWT that
+// the edge gateway tunnel server accepts.  The JWT uses the same HS256 secret
+// (JWT_SECRET env var) and claim names that tunnel.rs expects: user_id / role / exp.
+func issueGatewayToken(c *gin.Context) {
+	var req ValidateTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	hashedToken := models.HashToken(req.Token)
+
+	var token models.ProviderToken
+	if err := db.DB.Where("token = ? AND is_active = ? AND deleted_at IS NULL",
+		hashedToken, true).First(&token).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or inactive provider token"})
+		return
+	}
+
+	if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Provider token expired"})
+		return
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "proxyhubb-dev-secret-change-in-production"
+	}
+
+	// Claims must match the struct expected by tunnel.rs:
+	//   user_id string, role string, exp usize
+	claims := jwt.MapClaims{
+		"user_id": token.UserID.String(),
+		"role":    "provider",
+		"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(), // 30 days
+	}
+	gatewayJWT, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to issue gateway token"})
+		return
+	}
+
+	// Update last used
+	token.LastUsed = time.Now()
+	db.DB.Save(&token)
+
+	c.JSON(http.StatusOK, gin.H{
+		"gateway_token": gatewayJWT,
+		"user_id":       token.UserID,
+		"expires_in":    int((30 * 24 * time.Hour).Seconds()),
 	})
 }
 

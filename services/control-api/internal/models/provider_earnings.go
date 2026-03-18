@@ -10,9 +10,9 @@ import (
 // ProviderEarning records a single earning event for a provider node tied to a completed session.
 type ProviderEarning struct {
 	ID                 uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	ProviderUserID     uuid.UUID      `gorm:"type:uuid;not null;index" json:"provider_user_id"`
+	ProviderUserID     uuid.UUID      `gorm:"type:uuid;not null;index;uniqueIndex:idx_provider_earnings_provider_session" json:"provider_user_id"`
 	NodeID             uuid.UUID      `gorm:"type:uuid;not null;index" json:"node_id"`
-	SessionID          uuid.UUID      `gorm:"type:uuid;not null;index;uniqueIndex:idx_earning_session" json:"session_id"`
+	SessionID          uuid.UUID      `gorm:"type:uuid;not null;index;uniqueIndex:idx_provider_earnings_provider_session" json:"session_id"`
 	BandwidthGB        float64        `gorm:"type:numeric(20,8);not null;default:0" json:"bandwidth_gb"`
 	GrossAmountSOL     float64        `gorm:"type:numeric(20,8);not null;default:0" json:"gross_amount_sol"`
 	PlatformFeeSOL     float64        `gorm:"type:numeric(20,8);not null;default:0" json:"platform_fee_sol"`

@@ -3,11 +3,31 @@ package solana
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
-	"log"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+)
+
+// anchorDiscriminator computes the 8-byte Anchor instruction discriminator for a
+// global namespace instruction: sha256("global:<name>")[0:8].
+// P2-04: Single source of truth — replaces hardcoded byte literals throughout
+// this file so the derivation algorithm is visible and auditable.
+func anchorDiscriminator(name string) [8]byte {
+	h := sha256.Sum256([]byte("global:" + name))
+	var disc [8]byte
+	copy(disc[:], h[:8])
+	return disc
+}
+
+// Instruction discriminators — computed at package init, never hardcoded.
+// Names match the Anchor IDL instruction identifiers exactly.
+var (
+	discSettleEscrow     = anchorDiscriminator("settle_escrow")
+	discEmergencyRefund  = anchorDiscriminator("emergency_refund")
+	discSlashStake       = anchorDiscriminator("slash_stake")
+	discSubmitUsageProof = anchorDiscriminator("submit_usage_proof")
 )
 
 // SettleEscrowParams contains the parameters for settling an escrow
@@ -142,12 +162,9 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEsc
 
 // buildSettleInstruction creates the settle_escrow instruction
 func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Instruction {
-	// Instruction discriminator for "settle_escrow" (first 8 bytes of sha256("global:settle_escrow"))
-	discriminator := []byte{181, 46, 143, 119, 192, 200, 127, 167}
-
 	// Encode bandwidth_used_gb as little-endian u64
 	data := make([]byte, 8+8) // discriminator + u64
-	copy(data[0:8], discriminator)
+	copy(data[0:8], discSettleEscrow[:])
 	for i := 0; i < 8; i++ {
 		data[8+i] = byte(params.BandwidthUsedGB >> (8 * i))
 	}
@@ -166,9 +183,6 @@ func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Ins
 
 // EmergencyRefund executes an emergency refund after timeout
 func (c *OracleClient) EmergencyRefund(ctx context.Context, params RefundEscrowParams) (string, error) {
-	// Instruction discriminator for "emergency_refund"
-	discriminator := []byte{119, 215, 203, 76, 12, 10, 205, 59}
-
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
@@ -176,7 +190,7 @@ func (c *OracleClient) EmergencyRefund(ctx context.Context, params RefundEscrowP
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 		},
-		data: discriminator,
+		data: discEmergencyRefund[:],
 	}
 
 	// This would be signed by the buyer, but for testing we use oracle if it has authority
@@ -192,9 +206,6 @@ type SlashStakeParams struct {
 
 // SlashStake executes a slash_stake instruction
 func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) (string, error) {
-	// Instruction discriminator for "slash_stake"
-	discriminator := []byte{216, 57, 137, 237, 208, 127, 26, 172}
-
 	stakePDA, _, _ := sol.FindProgramAddress(
 		[][]byte{[]byte("stake"), params.ProviderWallet.Bytes()},
 		c.programID,
@@ -207,7 +218,7 @@ func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) 
 
 	// Encode amount
 	data := make([]byte, 8+8)
-	copy(data[0:8], discriminator)
+	copy(data[0:8], discSlashStake[:])
 	for i := 0; i < 8; i++ {
 		data[8+i] = byte(params.Amount >> (8 * i))
 	}
@@ -229,9 +240,6 @@ func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) 
 
 // SubmitUsageProof executes a submit_usage_proof instruction
 func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageProofParams) (string, error) {
-	// Instruction discriminator for "submit_usage_proof"
-	discriminator := []byte{142, 105, 140, 164, 42, 63, 114, 219}
-
 	usageProofPDA, _, _ := sol.FindProgramAddress(
 		[][]byte{
 			[]byte("usage_proof"),
@@ -243,7 +251,7 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 
 	// Encode data (Disc + index(u32) + bytes(u64) + start(i64) + end(i64))
 	data := make([]byte, 8+4+8+8+8)
-	copy(data[0:8], discriminator)
+	copy(data[0:8], discSubmitUsageProof[:])
 	for i := 0; i < 4; i++ {
 		data[8+i] = byte(params.ProofIndex >> (8 * i))
 	}
@@ -335,12 +343,13 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lamports uint64) (string, error) {
 	// Velocity guard: enforce per-transfer cap and hourly outflow limit.
 	amountSOL := LamportsToSOL(lamports)
-	if c.velocity != nil {
-		if err := c.velocity.Check(ctx, amountSOL); err != nil {
-			return "", fmt.Errorf("SendSOL blocked by velocity guard: %w", err)
-		}
-	} else {
-		log.Printf("[WARN] SendSOL: no VelocityGuard attached — %.6f SOL transfer proceeding unchecked", amountSOL)
+	// P0-07: VelocityGuard is mandatory. Block the transfer if it was never attached
+	// rather than proceeding unchecked (previous behaviour allowed unlimited outflow).
+	if c.velocity == nil {
+		return "", fmt.Errorf("SendSOL blocked: VelocityGuard not initialised — call SetVelocityGuard before sending SOL")
+	}
+	if err := c.velocity.Check(ctx, amountSOL); err != nil {
+		return "", fmt.Errorf("SendSOL blocked by velocity guard: %w", err)
 	}
 
 	// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
@@ -397,12 +406,12 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 	for _, t := range transfers {
 		totalSOL += LamportsToSOL(t.Lamports)
 	}
-	if c.velocity != nil {
-		if err := c.velocity.Check(ctx, totalSOL); err != nil {
-			return "", fmt.Errorf("BatchTransferSOL blocked by velocity guard: %w", err)
-		}
-	} else {
-		log.Printf("[WARN] BatchTransferSOL: no VelocityGuard attached — %.6f SOL batch proceeding unchecked", totalSOL)
+	// P0-07: same mandatory guard as SendSOL.
+	if c.velocity == nil {
+		return "", fmt.Errorf("BatchTransferSOL blocked: VelocityGuard not initialised — call SetVelocityGuard before sending SOL")
+	}
+	if err := c.velocity.Check(ctx, totalSOL); err != nil {
+		return "", fmt.Errorf("BatchTransferSOL blocked by velocity guard: %w", err)
 	}
 
 	// Build instructions for all transfers

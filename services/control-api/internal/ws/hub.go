@@ -96,24 +96,35 @@ func (h *Hub) Run() {
 			log.Printf("WebSocket client disconnected: %s", client.ID)
 
 		case message := <-h.Broadcast:
+			// P1-02: collect slow clients under the read lock; do NOT upgrade
+			// to a write lock inside the loop — that pattern can deadlock when
+			// two goroutines both try to upgrade concurrently.
+			data := mustMarshal(message)
+			var slowClients []*Client
 			h.mu.RLock()
 			for _, client := range h.clients {
 				if message.Target == "all" || message.Target == client.UserID {
 					select {
-					case client.Send <- mustMarshal(message):
+					case client.Send <- data:
 					default:
-						h.mu.RUnlock()
-						h.mu.Lock()
-						if _, ok := h.clients[client.ID]; ok {
-							close(client.Send)
-							delete(h.clients, client.ID)
-						}
-						h.mu.Unlock()
-						h.mu.RLock()
+						// Channel full — mark for removal; handle outside read lock.
+						slowClients = append(slowClients, client)
 					}
 				}
 			}
 			h.mu.RUnlock()
+			// P1-03: remove slow/disconnected clients under write lock after
+			// releasing the read lock to avoid the lock-upgrade deadlock.
+			if len(slowClients) > 0 {
+				h.mu.Lock()
+				for _, client := range slowClients {
+					if _, ok := h.clients[client.ID]; ok {
+						close(client.Send)
+						delete(h.clients, client.ID)
+					}
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }
