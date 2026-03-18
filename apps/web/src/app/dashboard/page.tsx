@@ -158,9 +158,9 @@ export default function DashboardPage() {
             {/* Quick Actions Bar */}
             <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { href: "/dashboard/nodes", label: "Node Service", sub: "Manage Endpoints", icon: Server },
+                    { href: "/dashboard/wallet", label: "Financial HQ", sub: "Wallet & Transactions", icon: Wallet },
                     { href: "/marketplace", label: "Marketplace", sub: "Buy Bandwidth", icon: Zap },
-                    { href: "/governance", label: "Council Hub", sub: "Network Voting", icon: Vote },
+                    { href: "/dashboard/proxy", label: "Connect Proxy", sub: "Start a Session", icon: Server },
                     { href: "/settings", label: "Config Center", sub: "Protocol Settings", icon: User },
                 ].map((action, i) => (
                     <Link key={i} href={action.href}>
@@ -186,25 +186,36 @@ export default function DashboardPage() {
 
             {/* Stats Grid */}
             <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {stats.map((stat, i) => (
-                    <motion.div
-                        key={i}
-                        whileHover={{ y: -5 }}
-                        className="glass-card p-6 relative overflow-hidden group"
-                    >
-                        <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} -mr-12 -mt-12 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity`} />
-                        <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className={`p-2 rounded-lg ${stat.bg} ${stat.color} border border-current/20`}>
-                                <stat.icon size={20} />
+                {stats.map((stat, i) => {
+                    const isBalance = stat.label === "Balance";
+                    const card = (
+                        <motion.div
+                            key={i}
+                            whileHover={{ y: -5 }}
+                            className={`glass-card p-6 relative overflow-hidden group ${isBalance ? 'cursor-pointer border-amber-500/20 hover:border-amber-500/40' : ''}`}
+                        >
+                            <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} -mr-12 -mt-12 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity`} />
+                            <div className="flex justify-between items-start mb-4 relative z-10">
+                                <div className={`p-2 rounded-lg ${stat.bg} ${stat.color} border border-current/20`}>
+                                    <stat.icon size={20} />
+                                </div>
+                                <div className={`flex items-center text-[10px] font-bold font-mono px-2 py-0.5 rounded-full ${stat.trend === "up" ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>
+                                    {stat.change}
+                                </div>
                             </div>
-                            <div className={`flex items-center text-[10px] font-bold font-mono px-2 py-0.5 rounded-full ${stat.trend === "up" ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>
-                                {stat.change}
-                            </div>
-                        </div>
-                        <div className="text-3xl font-black font-mono mb-1 tracking-tighter relative z-10">{stat.value}</div>
-                        <div className="text-[10px] text-muted-foreground uppercase font-mono tracking-widest opacity-60 relative z-10">{stat.label}</div>
-                    </motion.div>
-                ))}
+                            <div className="text-3xl font-black font-mono mb-1 tracking-tighter relative z-10">{stat.value}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase font-mono tracking-widest opacity-60 relative z-10">{stat.label}</div>
+                            {isBalance && (
+                                <div className="mt-2 text-[9px] font-mono text-amber-500/60 uppercase tracking-widest relative z-10 group-hover:text-amber-500 transition-colors">
+                                    View Wallet →
+                                </div>
+                            )}
+                        </motion.div>
+                    );
+                    return isBalance
+                        ? <Link key={i} href="/dashboard/wallet">{card}</Link>
+                        : card;
+                })}
             </motion.div>
 
             {/* Wallet Connect Banner — shown when no Solana wallet is linked */}
@@ -301,12 +312,13 @@ export default function DashboardPage() {
                 <motion.div variants={itemVariants} className="space-y-6">
                     {/* Transactions */}
                     <div className="glass-card p-0 flex flex-col bg-white/2">
-                        <div className="p-6 border-b border-white/5 bg-white/5">
+                        <Link href="/dashboard/wallet" className="p-6 border-b border-white/5 bg-white/5 hover:bg-white/10 transition-colors group">
                             <h3 className="font-bold font-mono uppercase text-xs tracking-widest flex items-center gap-2">
                                 <DollarSign size={14} className="text-amber-500" />
                                 Ledger Activity
+                                <ArrowRight size={11} className="ml-auto text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
                             </h3>
-                        </div>
+                        </Link>
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[300px] scrollbar-hide">
                             {!Array.isArray(wallet?.transactions) || wallet.transactions.length === 0 ? (
                                 <div className="text-center py-12 text-muted-foreground font-mono text-[10px] uppercase tracking-widest opacity-50">
