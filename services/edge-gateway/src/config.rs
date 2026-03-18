@@ -13,6 +13,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub provider_private_key: String,
     pub geoip_db_path: Option<String>,
+    pub control_api_url: String,
     // Phase 4: Security
     /// ISO 3166-1 alpha-2 codes to block (comma-separated env var GEO_DENY_LIST).
     pub geo_deny_list: Vec<String>,
@@ -21,6 +22,11 @@ pub struct Config {
     // Phase 4: Multi-region
     /// Name of the region this instance runs in (REGION env var).
     pub region: Option<String>,
+    // P0-A2: Session cache configuration
+    /// Maximum number of entries in the session cache (default: 100,000)
+    pub session_cache_size: usize,
+    /// TTL for session cache entries in seconds (default: 300 = 5 minutes)
+    pub session_cache_ttl_secs: u64,
 }
 
 impl Config {
@@ -71,6 +77,21 @@ impl Config {
 
         let region = env::var("REGION").ok();
 
+        // P0-A2: Session cache configuration with defaults
+        let session_cache_size = env::var("SESSION_CACHE_SIZE")
+            .unwrap_or_else(|_| "100000".to_string())
+            .parse()
+            .expect("SESSION_CACHE_SIZE must be a positive integer");
+
+        let session_cache_ttl_secs = env::var("SESSION_CACHE_TTL_SECS")
+            .unwrap_or_else(|_| "300".to_string())
+            .parse()
+            .expect("SESSION_CACHE_TTL_SECS must be a positive integer");
+
+        // Control API URL for node registration
+        let control_api_url = env::var("CONTROL_API_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
         Self {
             host,
             port,
@@ -83,6 +104,9 @@ impl Config {
             geo_deny_list,
             geo_allow_list,
             region,
+            session_cache_size,
+            session_cache_ttl_secs,
+            control_api_url,
         }
     }
 

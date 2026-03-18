@@ -40,61 +40,12 @@ var (
 func RegisterAuthRoutes(r *gin.RouterGroup) {
 	auth := r.Group("/auth")
 	{
-		// Rate limited auth endpoints (10 requests/min per IP)
-		auth.POST("/wallet/challenge", authRateLimit(), getAuthChallenge)
-		auth.POST("/wallet/login", authRateLimit(), walletLogin)
+		// Rate limited auth endpoints — uses Redis-backed StrictRateLimit (10 req/min per IP).
+		// Falls back to in-memory if Redis is unavailable.
+		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
+		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
 		auth.POST("/dev/login", devLogin)
 		auth.GET("/me", getMe)
-	}
-}
-
-// authRateLimit provides rate limiting for auth endpoints
-func authRateLimit() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Simple in-memory rate limiter key
-		key := c.ClientIP()
-
-		// Check rate limit using memStore
-		memStoreMutex.Lock()
-		rateLimitKey := "ratelimit:" + key
-		entry, exists := memStore[rateLimitKey]
-		now := time.Now()
-
-		if !exists || now.After(entry.expiresAt) {
-			// New window: allow and start counting
-			memStore[rateLimitKey] = memStoreEntry{
-				value:     "1",
-				expiresAt: now.Add(1 * time.Minute),
-			}
-			memStoreMutex.Unlock()
-			c.Next()
-			return
-		}
-
-		// Count requests in current window
-		count := 0
-		for _, v := range entry.value {
-			count += int(v - '0')
-		}
-		count++
-
-		if count > 10 { // Max 10 requests per minute
-			memStoreMutex.Unlock()
-			log.Printf("[SECURITY] Rate limit exceeded for IP=%s", maskAddress(key))
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error":       "Too many authentication attempts. Please try again later.",
-				"retry_after": 60,
-			})
-			return
-		}
-
-		// Update count
-		memStore[rateLimitKey] = memStoreEntry{
-			value:     string(rune('0' + count)),
-			expiresAt: entry.expiresAt,
-		}
-		memStoreMutex.Unlock()
-		c.Next()
 	}
 }
 
@@ -226,12 +177,13 @@ func walletLogin(c *gin.Context) {
 		// Start transaction for atomic user + wallet creation
 		tx := db.DB.Begin()
 
-		// Create new user
+		// Create new user — default role is "user" (buyer).
+		// Providers must go through the provider onboarding flow to gain elevated permissions.
 		username := "user_" + req.Address[:8]
 		email := req.Address + "@wallet.proxyhubb.com"
 		user = models.User{
-			ID:            uuid.New(), // We generate our own UUID here since not using Supabase Auth
-			Role:          "provider", // Default role? or 'buyer'?
+			ID:            uuid.New(),
+			Role:          "user",
 			TrustTier:     models.TrustTierNew,
 			WalletAddress: &req.Address,
 			Username:      &username,
@@ -244,14 +196,12 @@ func walletLogin(c *gin.Context) {
 			return
 		}
 
-		// Create Wallet immediately
+		// Create Wallet immediately with default spending limits
 		wallet := models.Wallet{
-			UserID:      user.ID,
-			BalanceSOL:  0,
-			BalanceUSDT: 0,
-			BalanceGHS:  0,
-			Currency:    "MULTI",
+			UserID:     user.ID,
+			BalanceSOL: 0,
 		}
+		wallet.InitializeWithDefaultLimits(models.TrustTierNew)
 
 		if err := tx.Create(&wallet).Error; err != nil {
 			tx.Rollback()
@@ -294,12 +244,29 @@ func walletLogin(c *gin.Context) {
 }
 
 // devLogin is a BACKDOOR for E2E testing.
-// SECURITY: Only available in development environment
+// SECURITY: Only available in development environment with secret token
 func devLogin(c *gin.Context) {
 	// CRITICAL SECURITY: Only allow in development mode
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv != "development" && appEnv != "dev" && appEnv != "local" {
-		log.Printf("[SECURITY] devLogin attempted in production environment")
+		log.Printf("[SECURITY] devLogin attempted in non-development environment")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+
+	// ADDITIONAL SECURITY: Require a secret token
+	devSecret := os.Getenv("DEV_LOGIN_SECRET")
+	if devSecret == "" {
+		// If no secret is configured, disable dev login entirely
+		log.Printf("[SECURITY] devLogin attempted but DEV_LOGIN_SECRET not configured")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+
+	// Validate secret token from header
+	providedSecret := c.GetHeader("X-Dev-Login-Secret")
+	if providedSecret != devSecret {
+		log.Printf("[SECURITY] devLogin attempted with invalid secret")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 		return
 	}
@@ -311,10 +278,12 @@ func devLogin(c *gin.Context) {
 	var user models.User
 	result := db.DB.Where("wallet_address = ?", devAddr).First(&user)
 	if result.Error != nil {
+		// Dev user is a plain "user" with zero balance.
+		// Tests that need SOL or provider permissions should set them up explicitly.
 		user = models.User{
 			ID:            uuid.New(),
-			Role:          "provider", // Provider role so we have voting power
-			TrustTier:     models.TrustTierVerified,
+			Role:          "user",
+			TrustTier:     models.TrustTierNew,
 			WalletAddress: &devAddr,
 			Username:      func(s string) *string { return &s }("dev_tester"),
 			Email:         "dev@test.com",
@@ -324,12 +293,12 @@ func devLogin(c *gin.Context) {
 			return
 		}
 
-		// Fund wallet
+		// Zero balance — fund explicitly in tests via the faucet or admin endpoint.
 		wallet := models.Wallet{
 			UserID:     user.ID,
-			BalanceSOL: 1000.0,
-			Currency:   "SOL",
+			BalanceSOL: 0.0,
 		}
+		wallet.InitializeWithDefaultLimits(models.TrustTierNew)
 		db.DB.Create(&wallet)
 	}
 
@@ -390,7 +359,6 @@ func GetMe(c *gin.Context) {
 		"avatar_url":     user.AvatarURL,
 		"wallet_address": user.WalletAddress,
 		"trust_tier":     user.TrustTier,
-		"kyc_status":     user.KYCStatus,
 		"verified":       user.Verified,
 		"created_at":     user.CreatedAt,
 	})

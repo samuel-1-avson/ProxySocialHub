@@ -24,7 +24,9 @@ interface DailyUsagePoint {
     bytes_used: number;
     gb_used: number;
     requests: number;
-    cost_ghs: number;
+    cost_sol: number;
+    /** @deprecated legacy field — use cost_sol */
+    cost_ghs?: number;
 }
 
 interface GeoStats {
@@ -267,7 +269,7 @@ export default function AnalyticsPage() {
                                                 <span className="font-bold">{dest.domain}</span>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 text-muted-foreground font-bold">{dest.request_count.toLocaleString()}</td>
+                                        <td className="px-6 py-4 text-muted-foreground font-bold">{(dest.request_count ?? 0).toLocaleString()}</td>
                                         <td className="px-6 py-4 text-muted-foreground">{formatBytes(dest.bytes_used)}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-0.5 rounded-sm font-bold ${dest.avg_latency_ms < 50 ? 'bg-green-500/10 text-green-500' : dest.avg_latency_ms < 100 ? 'bg-yellow-500/10 text-yellow-500' : 'bg-red-500/10 text-red-500'}`}>
@@ -310,7 +312,7 @@ export default function AnalyticsPage() {
                     <ul className="space-y-3 font-mono text-xs">
                         <li className="flex justify-between border-b border-dashed border-border pb-2">
                             <span>Total Expenditure</span>
-                            <span className="font-bold text-primary">₵{(dailyUsage?.reduce((sum, d) => sum + d.cost_ghs, 0) || 0).toFixed(2)}</span>
+                            <span className="font-bold text-primary">{(dailyUsage?.reduce((sum, d) => sum + (d.cost_sol ?? d.cost_ghs ?? 0), 0) || 0).toFixed(6)} SOL</span>
                         </li>
                         <li className="flex justify-between border-b border-dashed border-border pb-2">
                             <span>Daily Avg.</span>

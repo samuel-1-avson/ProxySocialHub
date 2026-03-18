@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/base64"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,5 +56,95 @@ func (s *Session) BeforeCreate(tx *gorm.DB) (err error) {
 	if s.ID == uuid.Nil {
 		s.ID = uuid.New()
 	}
-	return
+	return s.encryptCredentials()
+}
+
+func (s *Session) BeforeSave(tx *gorm.DB) error {
+	return s.encryptCredentials()
+}
+
+func (s *Session) AfterFind(tx *gorm.DB) error {
+	return s.decryptCredentials()
+}
+
+// CredentialEncryptFn and CredentialDecryptFn are wired from main.go after the
+// crypto package is initialised. Using function variables avoids an import cycle
+// between models ↔ crypto (crypto imports db which imports models).
+// When nil (e.g. in unit tests without crypto setup) encryption is skipped.
+var CredentialEncryptFn func(plaintext string) (string, error)
+var CredentialDecryptFn func(ciphertext string) (string, error)
+
+// encryptedPrefix marks ciphertext stored in the credentials columns so that
+// AfterFind can safely skip fields that were never encrypted (existing rows or
+// fields that happen to be empty). Base64-encoded AES-GCM output never starts
+// with this prefix naturally because it begins with a base64 character.
+const encryptedPrefix = "ENC:"
+
+// encryptCredentials encrypts CredentialsUser and CredentialsPass in-place
+// before they are written to the database.
+func (s *Session) encryptCredentials() error {
+	if CredentialEncryptFn == nil {
+		return nil // encryption not configured — skip (dev/test mode)
+	}
+	var err error
+	if s.CredentialsUser != "" && !isEncryptedField(s.CredentialsUser) {
+		s.CredentialsUser, err = encryptField(s.CredentialsUser)
+		if err != nil {
+			return fmt.Errorf("session: failed to encrypt credentials_user: %w", err)
+		}
+	}
+	if s.CredentialsPass != "" && !isEncryptedField(s.CredentialsPass) {
+		s.CredentialsPass, err = encryptField(s.CredentialsPass)
+		if err != nil {
+			return fmt.Errorf("session: failed to encrypt credentials_pass: %w", err)
+		}
+	}
+	return nil
+}
+
+// decryptCredentials decrypts CredentialsUser and CredentialsPass in-place
+// after they are loaded from the database.
+func (s *Session) decryptCredentials() error {
+	if CredentialDecryptFn == nil {
+		return nil
+	}
+	var err error
+	if isEncryptedField(s.CredentialsUser) {
+		s.CredentialsUser, err = decryptField(s.CredentialsUser)
+		if err != nil {
+			// Log but do not fail the read — partially migrated rows must still be loadable.
+			s.CredentialsUser = ""
+		}
+	}
+	if isEncryptedField(s.CredentialsPass) {
+		s.CredentialsPass, err = decryptField(s.CredentialsPass)
+		if err != nil {
+			s.CredentialsPass = ""
+		}
+	}
+	return nil
+}
+
+// isEncryptedField returns true when the value carries the ENC: prefix, meaning
+// it was written by encryptField and requires decryption on read.
+func isEncryptedField(v string) bool {
+	return len(v) > len(encryptedPrefix) && v[:len(encryptedPrefix)] == encryptedPrefix
+}
+
+func encryptField(plaintext string) (string, error) {
+	ciphertext, err := CredentialEncryptFn(plaintext)
+	if err != nil {
+		return plaintext, err
+	}
+	return encryptedPrefix + ciphertext, nil
+}
+
+func decryptField(value string) (string, error) {
+	raw := value[len(encryptedPrefix):]
+	// Validate it is valid base64 before passing to decrypt so we can give a
+	// clean error for rows that somehow got a malformed value written.
+	if _, err := base64.StdEncoding.DecodeString(raw); err != nil {
+		return "", fmt.Errorf("session: credentials field is not valid base64: %w", err)
+	}
+	return CredentialDecryptFn(raw)
 }

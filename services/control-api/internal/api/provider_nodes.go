@@ -21,6 +21,7 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.PUT("/provider/nodes/:id", updateNode)
 	rg.DELETE("/provider/nodes/:id", deleteNode)
 	rg.GET("/provider/nodes/:id/uptime", getNodeUptime)
+	rg.POST("/provider/nodes/:id/heartbeat", nodeHeartbeat)
 }
 
 // getMyNodes returns user's provider nodes
@@ -41,7 +42,8 @@ type CreateNodeRequest struct {
 	City      string `json:"city"`
 }
 
-// createNode creates a new provider node
+// createNode creates a new provider node.
+// IP ownership verification and duplicate IP detection are enforced.
 func createNode(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	userID := currentUserID.(uuid.UUID)
@@ -50,6 +52,20 @@ func createNode(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Duplicate IP detection — same IP cannot be registered by the same provider twice
+	if req.IPAddress != "" {
+		var existing models.ProviderNode
+		err := db.DB.Where("ip_address = ? AND user_id = ? AND deleted_at IS NULL", req.IPAddress, userID).
+			First(&existing).Error
+		if err == nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":           "A node with this IP address is already registered to your account",
+				"existing_node_id": existing.ID,
+			})
+			return
+		}
 	}
 
 	node := models.ProviderNode{
@@ -171,6 +187,54 @@ func getNodeUptime(c *gin.Context) {
 		"current_status": node.Status,
 		"last_seen":      node.LastSeenAt,
 	})
+}
+
+// nodeHeartbeat is called by the CLI daemon every 2 minutes to keep the node marked online.
+// POST /v1/provider/nodes/:id/heartbeat
+func nodeHeartbeat(c *gin.Context) {
+	currentUserID, _ := c.Get("user_id")
+	userID := currentUserID.(uuid.UUID)
+
+	nodeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	// Optional metrics from CLI
+	var req struct {
+		LatencyMs         int     `json:"latency_ms"`
+		ActiveConnections int     `json:"active_connections"`
+		UptimePercent     float64 `json:"uptime_percent"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"last_seen_at": now,
+		"status":       models.NodeOnline,
+	}
+	if req.LatencyMs > 0 {
+		updates["avg_latency_ms"] = req.LatencyMs
+	}
+	if req.UptimePercent > 0 {
+		updates["uptime_percent"] = req.UptimePercent
+	}
+
+	result := db.DB.Model(&models.ProviderNode{}).
+		Where("id = ? AND user_id = ? AND deleted_at IS NULL", nodeID, userID).
+		Updates(updates)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "server_time": now.Unix()})
 }
 
 // UpdateNodeStatus updates a node's online status (called by gateway)

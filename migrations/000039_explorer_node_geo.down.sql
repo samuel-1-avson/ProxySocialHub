@@ -1,0 +1,5 @@
+ALTER TABLE explorer_nodes
+    DROP COLUMN IF EXISTS city,
+    DROP COLUMN IF EXISTS isp,
+    DROP COLUMN IF EXISTS latitude,
+    DROP COLUMN IF EXISTS longitude;

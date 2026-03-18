@@ -81,7 +81,6 @@ func SetupTestDB(t *testing.T) {
 			&models.WalletLedgerEntry{},
 			&models.Session{},
 			&models.Node{},
-			&models.KycVerification{},
 			&models.TOTPBackupCode{},
 			&models.APIKey{},
 			&models.AuditLog{},
@@ -148,18 +147,16 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 		Role:      role,
 		Status:    models.UserStatusActive,
 		TrustTier: models.TrustTierNew,
-		KYCStatus: models.KYCStatusNotStarted,
 	}
 
 	if err := db.DB.Create(user).Error; err != nil {
 		t.Fatalf("Failed to create test user: %v", err)
 	}
 
-	// Create associated wallet
+	// Create associated wallet (SOL-only)
 	wallet := &models.Wallet{
 		UserID:     user.ID,
-		BalanceGHS: 100.0, // Start with some GHS balance for testing
-		BalanceSOL: 10.0,  // Start with some SOL balance for testing
+		BalanceSOL: 10.0, // Start with some SOL balance for testing
 	}
 	db.DB.Create(wallet)
 

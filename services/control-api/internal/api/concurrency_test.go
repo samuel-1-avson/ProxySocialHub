@@ -17,7 +17,7 @@ func TestDBLockingConcurrency(t *testing.T) {
 	testutil.CleanupTestData(t, "users", "wallets")
 
 	_, wallet := createWalletTestUser(t)
-	initialBalance := wallet.BalanceGHS
+	initialBalance := wallet.BalanceSOL
 
 	// Number of concurrent updates
 	concurrency := 10
@@ -42,7 +42,7 @@ func TestDBLockingConcurrency(t *testing.T) {
 			}
 
 			// Update
-			w.BalanceGHS += amountPerTx
+			w.BalanceSOL += amountPerTx
 			if err := tx.Save(&w).Error; err != nil {
 				t.Errorf("Failed to save wallet: %v", err)
 				return
@@ -59,9 +59,9 @@ func TestDBLockingConcurrency(t *testing.T) {
 	db.DB.First(&finalWallet, "id = ?", wallet.ID)
 
 	expected := initialBalance + (float64(concurrency) * amountPerTx)
-	if finalWallet.BalanceGHS != expected {
-		t.Errorf("Race condition detected! Expected %.2f, got %.2f", expected, finalWallet.BalanceGHS)
+	if finalWallet.BalanceSOL != expected {
+		t.Errorf("Race condition detected! Expected %.2f, got %.2f", expected, finalWallet.BalanceSOL)
 	} else {
-		t.Logf("Success! Final Balance: %.2f", finalWallet.BalanceGHS)
+		t.Logf("Success! Final Balance: %.2f", finalWallet.BalanceSOL)
 	}
 }

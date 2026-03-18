@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { fetchWithAuth } from '@/lib/auth';
 import { AlertTriangle, MapPin, Clock, Check, Loader2, RefreshCw, Shield, Eye } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -47,8 +48,8 @@ export default function AnomaliesPanel() {
             if (!res.ok) throw new Error('Failed to load anomalies');
             const data: AnomaliesResponse = await res.json();
             setAnomalies(data.anomalies || []);
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }
@@ -76,8 +77,8 @@ export default function AnomaliesPanel() {
             ));
             setShowResolutionModal(null);
             setResolution('');
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setResolving(null);
         }

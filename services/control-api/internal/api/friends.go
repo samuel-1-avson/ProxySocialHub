@@ -59,20 +59,20 @@ func sendFriendRequest(c *gin.Context) {
 
 	// Check if already friends
 	var existingFriendship models.Friendship
-	if err := db.DB.Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
+	if err := db.Social().Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Already friends"})
 		return
 	}
 
 	// Check for pending request
 	var existingReq models.FriendRequest
-	if err := db.DB.Where("sender_id = ? AND receiver_id = ? AND status = ?", senderID, targetID, models.FriendRequestPending).First(&existingReq).Error; err == nil {
+	if err := db.Social().Where("sender_id = ? AND receiver_id = ? AND status = ?", senderID, targetID, models.FriendRequestPending).First(&existingReq).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Friend request already pending"})
 		return
 	}
 
 	// Check if they sent us a request (inverse) - if so, maybe auto-accept? For now, just block.
-	if err := db.DB.Where("sender_id = ? AND receiver_id = ? AND status = ?", targetID, senderID, models.FriendRequestPending).First(&existingReq).Error; err == nil {
+	if err := db.Social().Where("sender_id = ? AND receiver_id = ? AND status = ?", targetID, senderID, models.FriendRequestPending).First(&existingReq).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "They already sent you a request. Accept it instead."})
 		return
 	}
@@ -83,7 +83,7 @@ func sendFriendRequest(c *gin.Context) {
 		Status:     models.FriendRequestPending,
 	}
 
-	if err := db.DB.Create(&req).Error; err != nil {
+	if err := db.Social().Create(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send request"})
 		return
 	}
@@ -111,7 +111,7 @@ func acceptFriendRequest(c *gin.Context) {
 	}
 
 	var req models.FriendRequest
-	if err := db.DB.First(&req, "id = ?", reqID).Error; err != nil {
+	if err := db.Social().First(&req, "id = ?", reqID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
 		return
 	}
@@ -127,7 +127,7 @@ func acceptFriendRequest(c *gin.Context) {
 	}
 
 	// Transaction to update request and create friendship(s)
-	err = db.DB.Transaction(func(tx *gorm.DB) error {
+	err = db.Social().Transaction(func(tx *gorm.DB) error {
 		// Update Status
 		req.Status = models.FriendRequestAccepted
 		if err := tx.Save(&req).Error; err != nil {
@@ -175,7 +175,7 @@ func rejectFriendRequest(c *gin.Context) {
 	}
 
 	var req models.FriendRequest
-	if err := db.DB.First(&req, "id = ?", reqID).Error; err != nil {
+	if err := db.Social().First(&req, "id = ?", reqID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
 		return
 	}
@@ -186,7 +186,7 @@ func rejectFriendRequest(c *gin.Context) {
 	}
 
 	req.Status = models.FriendRequestRejected
-	if err := db.DB.Save(&req).Error; err != nil {
+	if err := db.Social().Save(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject request"})
 		return
 	}
@@ -210,11 +210,11 @@ func listFriendRequests(c *gin.Context) {
 	var err error
 
 	if reqType == "outgoing" {
-		err = db.DB.Where("sender_id = ? AND status = ?", uid, models.FriendRequestPending).
+		err = db.Social().Where("sender_id = ? AND status = ?", uid, models.FriendRequestPending).
 			Preload("Receiver"). // Load user details
 			Find(&requests).Error
 	} else {
-		err = db.DB.Where("receiver_id = ? AND status = ?", uid, models.FriendRequestPending).
+		err = db.Social().Where("receiver_id = ? AND status = ?", uid, models.FriendRequestPending).
 			Preload("Sender").
 			Find(&requests).Error
 	}
@@ -238,7 +238,7 @@ func listFriends(c *gin.Context) {
 	uid, _ := uuid.Parse(userID.(string))
 
 	var friends []models.Friendship
-	if err := db.DB.Where("user_id = ?", uid).Preload("Friend").Find(&friends).Error; err != nil {
+	if err := db.Social().Where("user_id = ?", uid).Preload("Friend").Find(&friends).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch friends"})
 		return
 	}

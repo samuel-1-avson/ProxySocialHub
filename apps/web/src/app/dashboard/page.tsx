@@ -1,51 +1,44 @@
 "use client";
-import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { Activity, Wifi, Server, DollarSign, Clock, AlertTriangle, AlertCircle, RefreshCw, Zap, Vote, User, ChevronRight } from "lucide-react";
+import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, Vote, User, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { getAnalyticsOverview, getWallet, getDailyUsage, AnalyticsOverview, Wallet, DailyUsagePoint } from "@/lib/api";
+import { getAnalyticsOverview, getWallet, getDailyUsage } from "@/lib/api";
 import { SkeletonDashboard } from "@/components/ui/skeleton";
 import { NetworkFeed } from "@/components/NetworkFeed";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 
 export default function DashboardPage() {
     const { user } = useAuth();
-    const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
-    const [wallet, setWallet] = useState<Wallet | null>(null);
-    const [dailyUsage, setDailyUsage] = useState<DailyUsagePoint[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    const fetchData = async () => {
-        try {
-            const [analyticsData, walletData, usageData] = await Promise.all([
-                getAnalyticsOverview().catch(() => null),
-                getWallet().catch(() => null),
-                getDailyUsage(7).catch(() => ({ data: [] }))
-            ]);
+    const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useQuery({
+        queryKey: ['analytics-overview'],
+        queryFn: getAnalyticsOverview,
+        enabled: !!user,
+        refetchInterval: 30000,
+        retry: 2,
+    });
 
-            setAnalytics(analyticsData);
-            setWallet(walletData);
-            setDailyUsage(usageData?.data || []);
-            setError(null);
-        } catch (error) {
-            console.error("Failed to fetch dashboard data", error);
-            if (!analytics) {
-                setError("Failed to load dashboard data. Please check your connection.");
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { data: wallet, isLoading: walletLoading } = useQuery({
+        queryKey: ['wallet'],
+        queryFn: getWallet,
+        enabled: !!user,
+        refetchInterval: 30000,
+        retry: 2,
+    });
 
-    useEffect(() => {
-        if (user) {
-            fetchData();
-            const interval = setInterval(fetchData, 30000);
-            return () => clearInterval(interval);
-        }
-    }, [user]);
+    const { data: dailyUsageData, isLoading: usageLoading } = useQuery({
+        queryKey: ['daily-usage', 7],
+        queryFn: () => getDailyUsage(7),
+        enabled: !!user,
+        refetchInterval: 30000,
+        retry: 2,
+    });
+
+    const dailyUsage = dailyUsageData?.data || [];
+    const loading = analyticsLoading || walletLoading || usageLoading;
+    const error = !user ? null : (!analytics && !analyticsLoading) ? 'Failed to load dashboard data. Please check your connection.' : null;
 
     if (loading) {
         return <SkeletonDashboard />;
@@ -64,7 +57,7 @@ export default function DashboardPage() {
                 <h2 className="text-xl font-bold font-mono uppercase mb-2">System Unavailable</h2>
                 <p className="text-muted-foreground font-mono text-sm mb-6 max-w-md">{error}</p>
                 <button
-                    onClick={() => { setLoading(true); fetchData(); }}
+                    onClick={() => refetchAnalytics()}
                     className="btn-retro btn-retro-primary flex items-center gap-2"
                 >
                     <RefreshCw className="h-4 w-4" />
@@ -95,9 +88,9 @@ export default function DashboardPage() {
         },
         {
             label: "Balance",
-            value: `₵ ${wallet?.balance_ghs?.toFixed(2) || "0.00"}`,
+            value: `${wallet?.balance_sol?.toFixed(4) || "0.0000"} SOL`,
             icon: DollarSign,
-            change: wallet?.currency || "GHS",
+            change: "SOL",
             trend: "up",
             color: "text-amber-500",
             bg: "bg-amber-500/10"

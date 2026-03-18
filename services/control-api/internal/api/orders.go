@@ -23,6 +23,7 @@ func RegisterOrderRoutes(rg *gin.RouterGroup) {
 	rg.POST("/orders", createOrder)
 	rg.GET("/orders", getMyOrders)
 	rg.GET("/orders/:id", getOrder)
+	rg.POST("/orders/:id/cancel", cancelOrder)
 	rg.GET("/sales", getMySales)
 	rg.POST("/orders/:id/pay/solana", initiateSolanaPayment)
 }
@@ -227,11 +228,17 @@ func createOrder(c *gin.Context) {
 	// Generate secure credentials
 	credUser, credPass := generateCredentials()
 
+	// Resolve session type from request, defaulting to rotating
+	sessionType := req.SessionType
+	if sessionType != models.SessionRotating && sessionType != models.SessionSticky {
+		sessionType = models.SessionRotating
+	}
+
 	// Create a session for the buyer (Unlimited/Pay-As-You-Go)
 	session := models.Session{
 		UserID:          buyerID,
 		ListingID:       &listing.ID,
-		Type:            models.SessionRotating,
+		Type:            sessionType,
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
@@ -292,7 +299,7 @@ func createOrder(c *gin.Context) {
 		UserID:         buyerID.String(),
 		SessionID:      session.ID.String(),
 		ProviderID:     listing.SellerID.String(),
-		Type:           string(models.SessionRotating),
+		Type:           string(sessionType),
 		Status:         "active",
 		BandwidthLimit: 0,
 		BandwidthUsed:  0,
@@ -501,3 +508,54 @@ func getDisplayName(user *models.User) string {
 	}
 	return user.Email
 }
+
+// cancelOrder cancels an active or pending order owned by the caller
+func cancelOrder(c *gin.Context) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			if id, ok := uid.(uuid.UUID); ok {
+				userIDStr = id.String()
+			} else if idStr, ok := uid.(string); ok {
+				userIDStr = idStr
+			}
+		}
+	}
+	buyerID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	var order models.Order
+	if err := db.DB.First(&order, "id = ? AND buyer_id = ?", orderID, buyerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or active orders can be cancelled"})
+		return
+	}
+
+	if err := db.DB.Model(&order).Update("status", models.OrderStatusCancelled).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel order"})
+		return
+	}
+
+	// Deactivate linked session if present
+	if order.SessionID != nil {
+		db.DB.Model(&models.Session{}).
+			Where("id = ?", order.SessionID).
+			Update("status", models.SessionTerminated)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order cancelled successfully"})
+}
+

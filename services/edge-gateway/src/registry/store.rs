@@ -12,10 +12,9 @@ pub struct RegistryStore {
 }
 
 impl RegistryStore {
-    pub fn new(redis_url: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub async fn new(redis_url: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let client = redis::Client::open(redis_url)?;
-        let conn = tokio::runtime::Handle::current()
-            .block_on(ConnectionManager::new(client.clone()))?;
+        let conn = ConnectionManager::new(client.clone()).await?;
         Ok(Self { conn, raw_client: client })
     }
 

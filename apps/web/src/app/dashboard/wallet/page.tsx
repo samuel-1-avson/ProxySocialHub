@@ -1,7 +1,8 @@
 "use client";
 
 import { useAuth } from '@/lib/auth';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useWalletWS } from '@/lib/hooks/useWalletWS';
 import {
     getWallet,
     depositWallet,
@@ -12,6 +13,8 @@ import {
     getSystemConfig,
     Wallet as WalletType,
 } from '@/lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getErrorMessage } from '@/lib/utils';
 
 import { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
@@ -50,10 +53,9 @@ type TabType = 'OVERVIEW' | 'LINKED_WALLETS';
 
 export default function UnifiedWalletPage() {
     const { user } = useAuth();
-    const [wallet, setWallet] = useState<WalletType | null>(null);
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<TabType>('OVERVIEW');
-    const [treasuryConfig, setTreasuryConfig] = useState<{ treasury_solana: string } | null>(null);
+    const [solPriceUSD, setSolPriceUSD] = useState<number>(150);
 
     // Common State
     const [processing, setProcessing] = useState(false);
@@ -69,10 +71,42 @@ export default function UnifiedWalletPage() {
     const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet';
     const isDevnet = solanaNetwork.toLowerCase().includes('devnet');
 
+    const { data: wallet, isLoading: loading } = useQuery({
+        queryKey: ['wallet'],
+        queryFn: () => getWallet(),
+        enabled: !!user,
+        refetchInterval: 30000, // fallback polling — WS is the primary path
+        retry: 2,
+    });
+
+    // P3-10: Real-time balance updates via WebSocket.
+    const handleBalanceUpdate = useCallback((update: { balance_sol: number }) => {
+        queryClient.setQueryData(['wallet'], (old: WalletType | undefined) =>
+            old ? { ...old, balance_sol: update.balance_sol } : old
+        );
+    }, [queryClient]);
+
+    useWalletWS({
+        userID: user?.id,
+        onBalanceUpdate: handleBalanceUpdate,
+        enabled: !!user,
+    });
+
+    const { data: treasuryConfig } = useQuery({
+        queryKey: ['system-config'],
+        queryFn: getSystemConfig,
+        enabled: !!user,
+        staleTime: 60000,
+    });
+
+    useEffect(() => {
+        if (treasuryConfig?.sol_price_usd && treasuryConfig.sol_price_usd > 0) {
+            setSolPriceUSD(treasuryConfig.sol_price_usd);
+        }
+    }, [treasuryConfig]);
+
     useEffect(() => {
         setMounted(true);
-        fetchWallet();
-        fetchConfig();
     }, []);
 
     // Real-time external balance fetching
@@ -89,48 +123,12 @@ export default function UnifiedWalletPage() {
                 }
             };
             fetchExternalBalance();
-            const id = setInterval(fetchExternalBalance, 10000); // 10s refresh
+            const id = setInterval(fetchExternalBalance, 10000);
             return () => clearInterval(id);
         } else {
             setExternalSolBalance(null);
         }
     }, [connected, publicKey]);
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            fetchWallet();
-        }, 15000);
-        return () => clearInterval(interval);
-    }, [user]);
-
-    // Data Fetching
-    const fetchWallet = async () => {
-        try {
-            const data = await getWallet();
-            setWallet(data || {
-                id: '',
-                balance_ghs: 0,
-                balance_sol: 0,
-                balance_usdt: 0,
-                currency: 'MULTI',
-                transactions: [],
-                created_at: new Date().toISOString()
-            });
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchConfig = async () => {
-        try {
-            const cfg = await getSystemConfig();
-            setTreasuryConfig(cfg);
-        } catch (e) {
-            console.error(e);
-        }
-    };
 
     // Linking Logic
     const handleLinkSolana = async () => {
@@ -144,9 +142,9 @@ export default function UnifiedWalletPage() {
 
             await linkWallet(publicKey.toBase58(), 'solana', signature, message);
             setResult({ success: true, message: "Solana Wallet Linked" });
-            fetchWallet();
-        } catch (err: any) {
-            setResult({ success: false, message: err.message || "Linking failed" });
+            queryClient.invalidateQueries({ queryKey: ['wallet'] });
+        } catch (err: unknown) {
+            setResult({ success: false, message: getErrorMessage(err) || "Linking failed" });
         } finally {
             setProcessing(false);
         }
@@ -251,26 +249,27 @@ export default function UnifiedWalletPage() {
                                             </div>
                                         </motion.div>
 
+                                        {/* SOL-only: USDT card removed */}
                                         <motion.div
                                             whileHover={{ y: -5 }}
-                                            className="glass-card p-8 border-blue-500/20 bg-blue-500/5 group relative overflow-hidden"
+                                            className="glass-card p-8 border-emerald-500/20 bg-emerald-500/5 group relative overflow-hidden"
                                         >
                                             <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 group-hover:opacity-10 transition-all duration-500">
-                                                <Coins size={120} className="text-blue-500" />
+                                                <Coins size={120} className="text-emerald-500" />
                                             </div>
                                             <div className="flex justify-between items-center mb-6">
-                                                <p className="text-[10px] font-mono font-black text-blue-500 uppercase tracking-[0.2em]">Stable Reserve (USDT)</p>
-                                                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                                                    <ShieldCheck size={14} className="text-blue-500" />
+                                                <p className="text-[10px] font-mono font-black text-emerald-500 uppercase tracking-[0.2em]">USD Equivalent</p>
+                                                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
+                                                    <ShieldCheck size={14} className="text-emerald-500" />
                                                 </div>
                                             </div>
                                             <div className="text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
-                                                <span className="text-xl opacity-40 font-black">$</span>
-                                                {wallet?.balance_usdt?.toFixed(2) || '0.00'}
+                                                <span className="text-xl opacity-40 font-black">~$</span>
+                                                {((wallet?.balance_sol || 0) * solPriceUSD).toFixed(2)}
                                             </div>
-                                            <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-blue-500/80 bg-blue-500/5 px-3 py-1.5 rounded-full border border-blue-500/10 w-fit uppercase tracking-widest">
-                                                <Activity size={12} className="text-blue-500" />
-                                                Liquidity Node: Active
+                                            <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
+                                                <Activity size={12} className="text-emerald-500" />
+                                                SOL Only System
                                             </div>
                                         </motion.div>
                                     </div>
@@ -380,9 +379,9 @@ export default function UnifiedWalletPage() {
                                                                     const { unlinkWallet } = await import('@/lib/api');
                                                                     await unlinkWallet('solana');
                                                                     setResult({ success: true, message: "Identity De-coupled" });
-                                                                    fetchWallet();
-                                                                } catch (err: any) {
-                                                                    setResult({ success: false, message: "Unlink failed" });
+                                                                    queryClient.invalidateQueries({ queryKey: ['wallet'] });
+                                                                } catch (err: unknown) {
+                                                                    setResult({ success: false, message: getErrorMessage(err) || "Unlink failed" });
                                                                 } finally {
                                                                     setProcessing(false);
                                                                 }
@@ -453,12 +452,12 @@ export default function UnifiedWalletPage() {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-[10px] font-black font-mono uppercase tracking-[0.2em] opacity-40">
                                         <span>Treasury Liquidity</span>
-                                        <span className="text-primary">{wallet?.balance_sol || wallet?.balance_usdt ? 'Optimal' : 'Checking...'}</span>
+                                        <span className="text-primary">{wallet?.balance_sol ? 'Optimal' : 'Checking...'}</span>
                                     </div>
                                     <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                                         <motion.div
                                             initial={{ width: 0 }}
-                                            animate={{ width: (wallet?.balance_sol || wallet?.balance_usdt) ? "100%" : "30%" }}
+                                            animate={{ width: wallet?.balance_sol ? "100%" : "30%" }}
                                             transition={{ duration: 1.5 }}
                                             className="h-full bg-gradient-to-r from-primary to-emerald-400"
                                         />
@@ -476,8 +475,8 @@ export default function UnifiedWalletPage() {
                                 </div>
 
                                 <div className="p-6 glass-card bg-white/5 border-white/10 rounded-2xl">
-                                    <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">Active Collateral Index</p>
-                                    <p className="text-2xl font-black font-mono text-foreground tracking-tighter">${wallet?.balance_usdt?.toFixed(2) || '0.00'}</p>
+                                    <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">Active SOL Collateral</p>
+                                    <p className="text-2xl font-black font-mono text-foreground tracking-tighter">{wallet?.balance_sol?.toFixed(4) || '0.0000'} SOL</p>
                                 </div>
                             </div>
                         </div>
@@ -496,8 +495,8 @@ export default function UnifiedWalletPage() {
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-end border-b border-white/5 pb-4">
-                                    <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Cumulative Flow</span>
-                                    <span className="text-2xl font-black font-mono tracking-tighter">${wallet?.balance_sol?.toFixed(2) || '0.00'}</span>
+                                    <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">SOL Balance</span>
+                                    <span className="text-2xl font-black font-mono tracking-tighter">{wallet?.balance_sol?.toFixed(4) || '0.0000'} SOL</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-2">

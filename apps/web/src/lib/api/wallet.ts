@@ -9,11 +9,7 @@ import { apiGet, apiPost, apiDeleteWithBody } from './client';
 
 export interface Wallet {
     id: string;
-    balance_ghs: number;
     balance_sol: number;
-    balance_usdt: number;
-    balance?: number; // Legacy/Unified
-    currency: string;
     transactions?: WalletTransaction[];
     linked_solana_address?: string;
     created_at: string;
@@ -154,10 +150,10 @@ export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 
 }
 
 /**
- * Transfer funds between internal wallets
+ * Transfer funds between internal wallets (SOL only)
  */
-export function transferFunds(recipient: string, amount: number, currency: 'SOL' | 'GHS') {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount, currency });
+export function transferFunds(recipient: string, amount: number) {
+    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount });
 }
 
 // ============ Query Keys ============

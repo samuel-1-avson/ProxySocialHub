@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { fetchWithAuth } from '@/lib/auth';
 import { Clock, Check, X, AlertTriangle, Loader2, RefreshCw, Filter } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -43,8 +44,8 @@ export default function LoginHistoryPanel() {
                 log.event_type.startsWith('auth.')
             );
             setLogs(authLogs);
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }

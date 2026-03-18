@@ -72,12 +72,12 @@ func TestGetWallet(t *testing.T) {
 		t.Fatal("Expected wallet in response")
 	}
 
-	if walletData["balance_ghs"] == nil {
-		t.Fatal("Expected balance_ghs in response")
+	if walletData["balance_sol"] == nil {
+		t.Fatal("Expected balance_sol in response")
 	}
 
-	if walletData["balance_ghs"].(float64) != wallet.BalanceGHS {
-		t.Errorf("Expected balance %.2f, got %.2f", wallet.BalanceGHS, walletData["balance_ghs"].(float64))
+	if walletData["balance_sol"].(float64) != wallet.BalanceSOL {
+		t.Errorf("Expected balance %.2f, got %.2f", wallet.BalanceSOL, walletData["balance_sol"].(float64))
 	}
 }
 
@@ -98,7 +98,7 @@ func TestGetWallet_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeposit_ValidAmount(t *testing.T) {
+func TestDeposit_FiatDisabled(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries")
 
@@ -120,19 +120,13 @@ func TestDeposit_ValidAmount(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
-	}
-
-	var response map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &response)
-
-	if response["reference"] == nil {
-		t.Error("Expected reference in response")
+	// SOL-only: Fiat deposits return 403 Forbidden
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
 	}
 }
 
-func TestDeposit_InvalidAmount(t *testing.T) {
+func TestDeposit_InvalidAmount_ReturnsForbidden(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets")
 
@@ -154,12 +148,13 @@ func TestDeposit_InvalidAmount(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	// SOL-only: All fiat deposits return 403 Forbidden regardless of amount
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d, got %d", http.StatusForbidden, w.Code)
 	}
 }
 
-func TestWithdraw_ValidAmount(t *testing.T) {
+func TestWithdraw_FiatDisabled(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets")
 
@@ -171,7 +166,6 @@ func TestWithdraw_ValidAmount(t *testing.T) {
 
 	body := map[string]interface{}{
 		"amount": 25.0,
-		"phone":  "0241234567",
 	}
 	jsonBody, _ := json.Marshal(body)
 
@@ -181,12 +175,13 @@ func TestWithdraw_ValidAmount(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
+	// SOL-only: Fiat withdrawals return 400 Bad Request with instructions to use SOL
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
 	}
 }
 
-func TestWithdraw_InsufficientBalance(t *testing.T) {
+func TestWithdraw_InsufficientBalance_ReturnsBadRequest(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets")
 
@@ -198,7 +193,6 @@ func TestWithdraw_InsufficientBalance(t *testing.T) {
 
 	body := map[string]interface{}{
 		"amount": 500.0, // More than balance
-		"phone":  "0241234567",
 	}
 	jsonBody, _ := json.Marshal(body)
 
@@ -208,6 +202,7 @@ func TestWithdraw_InsufficientBalance(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
+	// SOL-only: All fiat withdrawals return 400 with instructions to use /withdraw/sol
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
 	}
@@ -240,14 +235,15 @@ func TestWalletLedgerEntry(t *testing.T) {
 	}
 }
 
-func TestWalletCurrency(t *testing.T) {
+func TestWallet_SOLOnly(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets")
 
 	_, wallet := createWalletTestUser(t)
 
-	// Default currency should be set by testutil or model
-	if wallet.Currency == "" {
-		t.Skip("Currency field not set in test setup")
+	// In SOL-only system, only BalanceSOL should be relevant
+	// Currency field is no longer used
+	if wallet.BalanceSOL != 0 {
+		t.Logf("Wallet initialized with SOL balance: %.2f", wallet.BalanceSOL)
 	}
 }

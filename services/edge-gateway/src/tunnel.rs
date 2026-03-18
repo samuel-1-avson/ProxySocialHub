@@ -7,7 +7,7 @@ use yamux::{Config, Connection, Mode, WindowUpdateMode};
 use crate::state::{AppState, NodeInfo};
 use crate::tls::{TlsConfig, create_tls_acceptor, is_tls_enabled};
 use futures_util::{StreamExt, AsyncReadExt, AsyncWriteExt};
-use tracing::{info, warn, error, trace};
+use tracing::{info, warn, error, trace, debug};
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,62 @@ struct Claims {
     user_id: String,
     role: String,
     exp: usize,
+}
+
+/// P1-A6: Provider capability declaration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderCapabilities {
+    pub max_connections: u32,
+    pub max_bandwidth_mbps: u32,
+    pub available_ports: Vec<u16>,
+    pub connection_type: String, // "fiber", "cable", "dsl", "mobile", "satellite"
+    pub uplink_speed_kbps: u32,
+    pub downlink_speed_kbps: u32,
+    pub cpu_cores: u32,
+    pub memory_mb: u32,
+    pub os: String,
+    pub client_version: String,
+    pub features: Vec<String>, // Optional features like "ipv6", "udp_relay", etc.
+}
+
+impl Default for ProviderCapabilities {
+    fn default() -> Self {
+        Self {
+            max_connections: 100,
+            max_bandwidth_mbps: 100,
+            available_ports: vec![80, 443],
+            connection_type: "unknown".to_string(),
+            uplink_speed_kbps: 10_000,  // 10 Mbps default
+            downlink_speed_kbps: 50_000, // 50 Mbps default
+            cpu_cores: 2,
+            memory_mb: 4096,
+            os: "unknown".to_string(),
+            client_version: "1.0.0".to_string(),
+            features: vec![],
+        }
+    }
+}
+
+/// P1-A6: Assigned limits based on capabilities and quality
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssignedLimits {
+    pub max_connections: u32,
+    pub bandwidth_cap_mbps: u32,
+    pub allowed_ports: Vec<u16>,
+    pub qos_tier: String, // "premium", "standard", "basic", "limited"
+    pub priority: u32,    // 0-100 routing priority
+}
+
+impl Default for AssignedLimits {
+    fn default() -> Self {
+        Self {
+            max_connections: 100,
+            bandwidth_cap_mbps: 100,
+            allowed_ports: vec![80, 443],
+            qos_tier: "basic".to_string(),
+            priority: 50,
+        }
+    }
 }
 
 pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -152,6 +208,54 @@ where
 
     let user_id = authenticated_user_id.unwrap();
     
+    // P1-A6: CAPABILITY HANDSHAKE
+    // Expect CAPABILITY declaration from provider after successful AUTH
+    let capabilities = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        incoming.next()
+    ).await {
+        Ok(Some(Ok(mut stream))) => {
+            let mut buf = [0u8; 8192]; // 8KB for capability JSON
+            match stream.read(&mut buf).await {
+                Ok(n) if n > 0 => {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if msg.starts_with("CAPABILITY ") {
+                        let json_str = &msg[11..];
+                        match serde_json::from_str::<ProviderCapabilities>(json_str) {
+                            Ok(caps) => {
+                                info!("📊 Provider {} capabilities: {:?}", user_id, caps);
+                                // Send ACK with assigned limits
+                                let assigned = calculate_assigned_limits(&caps);
+                                let ack = format!("ACK {}\n", serde_json::to_string(&assigned).unwrap_or_default());
+                                let _ = stream.write_all(ack.as_bytes()).await;
+                                caps
+                            }
+                            Err(e) => {
+                                warn!("Invalid capability JSON from {}: {}", user_id, e);
+                                // Send default ACK
+                                let assigned = calculate_assigned_limits(&ProviderCapabilities::default());
+                                let ack = format!("ACK {}\n", serde_json::to_string(&assigned).unwrap_or_default());
+                                let _ = stream.write_all(ack.as_bytes()).await;
+                                ProviderCapabilities::default()
+                            }
+                        }
+                    } else {
+                        warn!("Expected CAPABILITY, got: {}", msg);
+                        ProviderCapabilities::default()
+                    }
+                }
+                _ => {
+                    warn!("No capability declaration from {}, using defaults", user_id);
+                    ProviderCapabilities::default()
+                }
+            }
+        }
+        _ => {
+            info!("Capability handshake timeout for {}, using defaults", user_id);
+            ProviderCapabilities::default()
+        }
+    };
+    
     // START: PERSISTENCE CHANGE
     // Generate a stable Node ID based on User ID (allows reputation to persist)
     let node_id = format!("node_{}", user_id);
@@ -211,7 +315,68 @@ where
     // Register with heartbeat monitor so the health check loop tracks this node
     state.heartbeat_monitor.register_provider(&node_id).await;
 
+    // Register node with Control API for Explorer visibility
+    let control_api = state.control_api.clone();
+    let registration_node_id = node_id.clone();
+    let registration_user_id = user_id.clone();
+    let registration_ip = ip_address.clone();
+    let registration_region = node_info.region.clone();
+    let registration_country = node_info.country_code.clone();
+    let registration_isp = node_info.ip_address.clone(); // Using IP as ISP placeholder
+    
+    // Spawn registration task (non-blocking)
+    tokio::spawn(async move {
+        let req = crate::control_api::RegisterNodeRequest {
+            provider_user_id: registration_user_id,
+            node_id: registration_node_id.clone(),
+            ip_address: registration_ip,
+            port: 0, // Will be updated when known
+            region: registration_region,
+            country_code: registration_country,
+            city: "Unknown".to_string(),
+            isp: registration_isp,
+            connection_type: "residential".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+        
+        match control_api.register_node(&req).await {
+            Ok(resp) => {
+                info!("✅ Node registered with Control API: {} -> DB ID: {}", 
+                    registration_node_id, resp.id);
+            }
+            Err(e) => {
+                warn!("⚠️  Failed to register node with Control API: {}", e);
+                // Don't fail the connection - node will work but won't appear in explorer
+            }
+        }
+    });
+
     info!("✅ Provider connected: {} from {}", node_id, peer_addr);
+
+    // Start background heartbeat task for Control API (sends every 30 seconds)
+    let heartbeat_state = state.clone();
+    let heartbeat_node_id = node_id.clone();
+    let heartbeat_user_id = user_id.clone();
+    let heartbeat_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            
+            // Get node info for stats
+            let node_info = heartbeat_state.registry.get_node_info(&heartbeat_node_id);
+            let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
+                .map(|info| (info.active_connections as i32, 0i64, 0i64, info.is_healthy))
+                .unwrap_or((0, 0, 0, true));
+            
+            // TODO: We need the DB node ID to send heartbeat. 
+            // For now, we'll rely on the node registration creating the entry,
+            // and the Control API's NodeSync will pick up heartbeats from Redis.
+            // In a full implementation, we'd store the DB node ID and call:
+            // heartbeat_state.control_api.send_heartbeat(&db_node_id, &req).await
+            
+            trace!("Control API heartbeat tick for {}", heartbeat_node_id);
+        }
+    });
 
     // Drive connection - accept incoming streams
     while let Some(result) = incoming.next().await {
@@ -262,6 +427,9 @@ where
         }
     }
     
+    // Cancel background heartbeat task
+    heartbeat_handle.abort();
+    
     // Cleanup and Persist Stats
     {
         // 1. Grab final stats then remove from lock-free registry
@@ -281,6 +449,15 @@ where
 
         // 4. Evict any pooled streams for this node
         state.connection_pool.evict_node(&node_id);
+        
+        // 5. Update Control API status to offline (best effort)
+        let control_api = state.control_api.clone();
+        let node_id_clone = node_id.clone();
+        tokio::spawn(async move {
+            // Note: We need the DB node ID to update status properly
+            // The node will naturally age out in Control API based on last_seen_at
+            debug!("Provider {} disconnected, status will age out in Control API", node_id_clone);
+        });
     }
     info!("❌ Provider disconnected: {}", node_id);
 }
@@ -308,4 +485,50 @@ fn detect_region_from_ip(ip: &str) -> String {
         return "Local".to_string();
     }
     "Unknown".to_string()
+}
+
+/// P1-A6: Calculate assigned limits based on provider capabilities
+fn calculate_assigned_limits(caps: &ProviderCapabilities) -> AssignedLimits {
+    // Right-size based on declared capabilities
+    let max_conns = if caps.cpu_cores >= 8 && caps.memory_mb >= 16384 {
+        caps.max_connections.min(500)  // High-end server
+    } else if caps.cpu_cores >= 4 && caps.memory_mb >= 8192 {
+        caps.max_connections.min(200)  // Mid-range
+    } else if caps.cpu_cores >= 2 && caps.memory_mb >= 4096 {
+        caps.max_connections.min(100)  // Low-end
+    } else {
+        caps.max_connections.min(50)   // Minimal (Raspberry Pi, etc.)
+    };
+    
+    // Bandwidth cap based on downlink speed
+    let bw_cap = caps.downlink_speed_kbps.min(1_000_000) / 1000; // Cap at 1 Gbps
+    let effective_bw_cap = bw_cap.min(caps.max_bandwidth_mbps);
+    
+    // Determine QoS tier based on connection quality
+    let (qos_tier, priority) = match caps.connection_type.as_str() {
+        "fiber" if caps.downlink_speed_kbps >= 100_000 => ("premium", 90),
+        "fiber" if caps.downlink_speed_kbps >= 50_000 => ("standard", 70),
+        "cable" if caps.downlink_speed_kbps >= 50_000 => ("standard", 60),
+        "cable" | "fiber" => ("basic", 50),
+        "dsl" => ("basic", 40),
+        "mobile" if caps.downlink_speed_kbps >= 20_000 => ("basic", 35),
+        "mobile" => ("limited", 20),
+        "satellite" => ("limited", 10),
+        _ => ("basic", 40),
+    };
+    
+    // Adjust priority based on hardware capability
+    let adjusted_priority = if caps.cpu_cores >= 4 && caps.memory_mb >= 8192 {
+        priority + 5
+    } else {
+        priority
+    };
+    
+    AssignedLimits {
+        max_connections: max_conns,
+        bandwidth_cap_mbps: effective_bw_cap,
+        allowed_ports: caps.available_ports.clone(),
+        qos_tier: qos_tier.to_string(),
+        priority: adjusted_priority.min(100),
+    }
 }

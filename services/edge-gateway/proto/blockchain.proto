@@ -1,0 +1,277 @@
+// P2-A9: Blockchain Streaming Protocol
+// Defines gRPC services for direct Solana blockchain communication
+
+syntax = "proto3";
+
+package proxyhub.blockchain.v1;
+
+// Service for streaming usage data and settlements to Solana
+service UsageStream {
+  // Stream usage events from Gateway to Blockchain
+  // Bidirectional streaming allows for real-time acknowledgments
+  rpc StreamUsage(stream UsageEvent) returns (stream StreamStatus);
+  
+  // Submit settlement requests and receive confirmations
+  rpc SettleProvider(stream SettlementRequest) returns (stream SettlementResponse);
+  
+  // Health check for connection monitoring
+  rpc Ping(PingRequest) returns (PongResponse);
+  
+  // Get current pricing information
+  rpc GetCurrentPricing(PricingRequest) returns (PricingResponse);
+}
+
+// Usage event represents bandwidth consumption
+message UsageEvent {
+  // Unique session identifier
+  string session_id = 1;
+  
+  // User who consumed the bandwidth
+  string user_id = 2;
+  
+  // Provider who served the bandwidth
+  string provider_id = 3;
+  
+  // Node that handled the connection
+  string node_id = 4;
+  
+  // Bytes uploaded (client to provider)
+  uint64 bytes_up = 5;
+  
+  // Bytes downloaded (provider to client)
+  uint64 bytes_down = 6;
+  
+  // Timestamp in milliseconds (Unix epoch)
+  uint64 timestamp_ms = 7;
+  
+  // Duration of session in seconds
+  uint64 duration_seconds = 8;
+  
+  // Ed25519 signature for fraud prevention
+  // Format: sign(session_id + user_id + provider_id + bytes_up + bytes_down + timestamp + nonce)
+  bytes signature = 9;
+  
+  // Nonce for replay protection
+  uint64 nonce = 10;
+  
+  // Geographic region (ISO country code)
+  string country_code = 11;
+  
+  // Connection quality metrics
+  uint32 latency_ms = 12;
+  uint32 packet_loss_percent = 13;
+}
+
+// Settlement request for provider revenue
+message SettlementRequest {
+  // Provider to pay
+  string provider_id = 1;
+  
+  // Total bytes served in this settlement period
+  uint64 total_bytes = 2;
+  
+  // Amount in lamports (1 SOL = 1,000,000,000 lamports)
+  uint64 amount_lamports = 3;
+  
+  // Oracle signature authorizing this settlement
+  bytes oracle_signature = 4;
+  
+  // Supporting usage events (hashed for verification)
+  repeated bytes event_hashes = 5;
+  
+  // Settlement period start
+  uint64 period_start_ms = 6;
+  
+  // Settlement period end
+  uint64 period_end_ms = 7;
+  
+  // Price at time of settlement (USD per GB)
+  double rate_usd_per_gb = 8;
+}
+
+// Settlement response from blockchain
+message SettlementResponse {
+  // Transaction signature on Solana
+  string transaction_signature = 1;
+  
+  // Slot number where transaction was processed
+  uint64 slot = 2;
+  
+  // Block height for confirmation tracking
+  uint64 block_height = 3;
+  
+  // Number of confirmations received
+  uint32 confirmations = 4;
+  
+  // Settlement status
+  Status status = 5;
+  
+  // Error message if failed
+  string error_message = 6;
+  
+  // Timestamp of confirmation
+  uint64 confirmed_at_ms = 7;
+  
+  // Amount actually paid (may differ due to fees)
+  uint64 actual_amount_lamports = 8;
+  
+  enum Status {
+    PENDING = 0;
+    CONFIRMED = 1;
+    FAILED = 2;
+    EXPIRED = 3;
+  }
+}
+
+// Stream status for monitoring
+message StreamStatus {
+  // Total events received in this stream
+  uint64 events_received = 1;
+  
+  // Events successfully processed
+  uint64 events_accepted = 2;
+  
+  // Events rejected (invalid signature, etc.)
+  uint64 events_rejected = 3;
+  
+  // Last error message
+  string last_error = 4;
+  
+  // Current stream health
+  Health health = 5;
+  
+  // Server timestamp
+  uint64 server_timestamp_ms = 6;
+  
+  enum Health {
+    HEALTHY = 0;
+    DEGRADED = 1;
+    UNHEALTHY = 2;
+  }
+}
+
+// Health check request
+message PingRequest {
+  // Client timestamp for latency calculation
+  uint64 client_timestamp_ms = 1;
+  
+  // Client version for compatibility check
+  string client_version = 2;
+}
+
+// Health check response
+message PongResponse {
+  // Server timestamp
+  uint64 server_timestamp_ms = 1;
+  
+  // Echo of client timestamp
+  uint64 client_timestamp_ms = 2;
+  
+  // Server version
+  string server_version = 3;
+  
+  // Server health status
+  ServerHealth health = 4;
+  
+  enum ServerHealth {
+    OPERATIONAL = 0;
+    MAINTENANCE = 1;
+    DEGRADED = 2;
+  }
+}
+
+// Pricing information request
+message PricingRequest {
+  // Optional: specific provider for custom rates
+  string provider_id = 1;
+  
+  // Optional: region for regional pricing
+  string region = 2;
+}
+
+// Current pricing information
+message PricingResponse {
+  // Base rate in USD per GB
+  double base_rate_usd_per_gb = 1;
+  
+  // Current demand multiplier (1.0 = normal)
+  double demand_multiplier = 2;
+  
+  // SOL price in USD
+  double sol_price_usd = 3;
+  
+  // Effective price in USD per GB
+  double effective_rate_usd_per_gb = 4;
+  
+  // Effective price in SOL per GB
+  double effective_rate_sol_per_gb = 5;
+  
+  // Provider-specific rate (if requested)
+  double provider_rate_usd_per_gb = 6;
+  
+  // Timestamp of this pricing data
+  uint64 timestamp_ms = 7;
+  
+  // Price valid until (for caching)
+  uint64 valid_until_ms = 8;
+  
+  // Oracle signature of pricing data
+  bytes oracle_signature = 9;
+}
+
+// Event batch for efficient transmission
+message UsageEventBatch {
+  // Multiple events in one message
+  repeated UsageEvent events = 1;
+  
+  // Batch timestamp
+  uint64 batch_timestamp_ms = 2;
+  
+  // Batch signature (merkle root)
+  bytes batch_signature = 3;
+}
+
+// Provider registration for on-chain identity
+message ProviderRegistration {
+  // Provider's Solana public key
+  string provider_pubkey = 1;
+  
+  // Node ID in Gateway
+  string node_id = 2;
+  
+  // Geographic location
+  string country_code = 3;
+  string region = 4;
+  
+  // Provider capabilities
+  uint32 max_bandwidth_mbps = 5;
+  uint32 max_connections = 6;
+  
+  // Registration signature
+  bytes registration_signature = 7;
+  
+  // Timestamp
+  uint64 timestamp_ms = 8;
+}
+
+// Acknowledgment for provider registration
+message RegistrationResponse {
+  // On-chain account address
+  string on_chain_account = 1;
+  
+  // Registration status
+  RegistrationStatus status = 2;
+  
+  // Transaction signature
+  string transaction_signature = 3;
+  
+  // Assigned provider tier
+  string tier = 4;
+  
+  enum RegistrationStatus {
+    PENDING = 0;
+    CONFIRMED = 1;
+    REJECTED = 2;
+    ALREADY_REGISTERED = 3;
+  }
+}

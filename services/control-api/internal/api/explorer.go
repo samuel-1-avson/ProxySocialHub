@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/prices"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
@@ -39,6 +43,7 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 
 		// Nodes & Validators
 		explorer.GET("/nodes", listExplorerNodes)
+		explorer.GET("/nodes/geo", getExplorerNodesGeo)
 		explorer.GET("/nodes/:id", getExplorerNodeDetails)
 		explorer.GET("/validators", listExplorerValidators)
 
@@ -49,6 +54,19 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 		// Bandwidth & Network
 		explorer.GET("/bandwidth", getBandwidthStats)
 		explorer.GET("/network/health", getNetworkHealth)
+
+		// Analytics & Leaderboard
+		explorer.GET("/analytics", getExplorerAnalytics)
+		explorer.GET("/leaderboard", getExplorerLeaderboard)
+
+		// Sessions
+		explorer.GET("/sessions", listExplorerSessions)
+
+		// Provider Earnings
+		explorer.GET("/earnings", getExplorerProviderEarnings)
+
+		// Network Health History
+		explorer.GET("/health/history", getHealthHistory)
 	}
 }
 
@@ -113,6 +131,7 @@ type WalletDetailsResponse struct {
 	Chain            string    `json:"chain"`
 	BalanceSOL       float64   `json:"balance_sol"`
 	BalancePlatform  float64   `json:"balance_platform"`
+	SolPriceUSD      float64   `json:"sol_price_usd"` // current SOL/USD rate (0 if unavailable)
 	TransactionCount int64     `json:"transaction_count"`
 	FirstActivity    time.Time `json:"first_activity"`
 	LastActivity     time.Time `json:"last_activity"`
@@ -162,6 +181,10 @@ type NodeSummary struct {
 	Chain          string    `json:"chain"`
 	Region         string    `json:"region"`
 	Country        string    `json:"country"`
+	City           string    `json:"city,omitempty"`
+	ISP            string    `json:"isp,omitempty"`
+	Latitude       float64   `json:"latitude"`
+	Longitude      float64   `json:"longitude"`
 	IsActive       bool      `json:"is_active"`
 	IsValidator    bool      `json:"is_validator"`
 	UptimePercent  float64   `json:"uptime_percent"`
@@ -176,6 +199,28 @@ type NodeDetailResponse struct {
 	CommissionRate float64 `json:"commission_rate,omitempty"`
 	Version        string  `json:"version,omitempty"`
 	TotalBandwidth uint64  `json:"total_bandwidth_bytes"`
+}
+
+// NodeGeoPoint is the lightweight payload returned by GET /nodes/geo.
+// Only the fields the map engine actually needs are included to keep
+// the response small at large node counts.
+type NodeGeoPoint struct {
+	NodeID         string  `json:"node_id"`
+	Latitude       float64 `json:"lat"`
+	Longitude      float64 `json:"lon"`
+	IsActive       bool    `json:"is_active"`
+	IsValidator    bool    `json:"is_validator"`
+	UptimePercent  float64 `json:"uptime_percent"`
+	ActiveSessions int     `json:"active_sessions"`
+	Country        string  `json:"country"`
+	Region         string  `json:"region"`
+	City           string  `json:"city,omitempty"`
+	ISP            string  `json:"isp,omitempty"`
+}
+
+type NodeGeoResponse struct {
+	Nodes []NodeGeoPoint `json:"nodes"`
+	Total int            `json:"total"`
 }
 
 type ContractListResponse struct {
@@ -437,18 +482,26 @@ func getTransactionByHash(c *gin.Context) {
 		return
 	}
 
-	// For cache miss, we would query Solana RPC directly
+	// For cache miss, query Solana RPC directly
 	if oracle := solana.GetOracle(); oracle != nil {
 		rpcTx, err := oracle.GetTransaction(c.Request.Context(), hash)
 		if err == nil && rpcTx != nil && rpcTx.Transaction != nil {
-			// Convert RPC result to our DTO
-			// This is a simplified conversion for now
+			// Use actual block time from RPC response
+			txTime := time.Now()
+			if rpcTx.BlockTime != nil {
+				txTime = rpcTx.BlockTime.Time()
+			}
+			status := "confirmed"
+			if rpcTx.Meta != nil && rpcTx.Meta.Err != nil {
+				status = "failed"
+			}
 			c.JSON(http.StatusOK, TransactionDetailResponse{
 				TxHash:        hash,
 				Chain:         "solana",
+				BlockNumber:   rpcTx.Slot,
 				Confirmations: 1, // Finalized
-				Status:        "confirmed",
-				Timestamp:     time.Now(), // RPC might have block time but need metadata
+				Status:        status,
+				Timestamp:     txTime,
 			})
 			return
 		}
@@ -478,17 +531,29 @@ func getWalletDetails(c *gin.Context) {
 	db.DB.Where("from_address = ? OR to_address = ?", address, address).
 		Order("timestamp DESC").First(&lastTx)
 
-	// Get balance from Solana RPC
-	var balanceSOL float64
+	// Get SOL balance and PHB platform token balance from Solana RPC
+	var balanceSOL, balancePlatform float64
 	if oracle := solana.GetOracle(); oracle != nil {
 		pubkey, err := solanaGo.PublicKeyFromBase58(address)
 		if err == nil {
-			// Get balance returns lamports (uint64)
+			// SOL balance (lamports → SOL)
 			if bal, err := oracle.GetBalance(c.Request.Context(), pubkey); err == nil {
 				balanceSOL = float64(bal) / 1e9
 			}
+			// PHB platform token balance
+			if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
+				if mintKey, err := solanaGo.PublicKeyFromBase58(mintStr); err == nil {
+					if rawBal, err := oracle.GetTokenBalance(c.Request.Context(), pubkey, mintKey); err == nil {
+						// PHB uses 6 decimal places (standard SPL)
+						balancePlatform = float64(rawBal) / 1e6
+					}
+				}
+			}
 		}
 	}
+
+	// Fetch live SOL/USD price (5-min cached via CoinGecko)
+	solPriceUSD, _ := prices.GetSOLPrice(c.Request.Context())
 
 	// Check if this address is linked to a platform user
 	var linkedUserID string
@@ -501,6 +566,8 @@ func getWalletDetails(c *gin.Context) {
 		Address:          address,
 		Chain:            "solana",
 		BalanceSOL:       balanceSOL,
+		BalancePlatform:  balancePlatform,
+		SolPriceUSD:      solPriceUSD,
 		TransactionCount: txCount,
 		FirstActivity:    firstTx.Timestamp,
 		LastActivity:     lastTx.Timestamp,
@@ -672,12 +739,13 @@ func listExplorerNodes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	activeOnly := c.DefaultQuery("active", "true") == "true"
+	validatorOnly := c.DefaultQuery("validator", "false") == "true"
 	region := c.Query("region")
 
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
+	if pageSize < 1 || pageSize > 200 {
 		pageSize = 20
 	}
 
@@ -686,6 +754,9 @@ func listExplorerNodes(c *gin.Context) {
 	query := db.DB.Model(&models.ExplorerNode{}).Where("chain = ?", "solana")
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
+	}
+	if validatorOnly {
+		query = query.Where("is_validator = ?", true)
 	}
 	if region != "" {
 		query = query.Where("region = ?", region)
@@ -713,6 +784,10 @@ func listExplorerNodes(c *gin.Context) {
 			Chain:          n.Chain,
 			Region:         n.Region,
 			Country:        n.Country,
+			City:           n.City,
+			ISP:            n.ISP,
+			Latitude:       n.Latitude,
+			Longitude:      n.Longitude,
 			IsActive:       n.IsActive,
 			IsValidator:    n.IsValidator,
 			UptimePercent:  n.UptimePercent,
@@ -731,6 +806,67 @@ func listExplorerNodes(c *gin.Context) {
 	})
 }
 
+// getExplorerNodesGeo returns a lightweight list of all nodes with their
+// geographic coordinates plus minimal status fields — used exclusively by
+// the map engine to avoid fetching full NodeSummary objects.
+func getExplorerNodesGeo(c *gin.Context) {
+	activeOnly := c.DefaultQuery("active", "false") == "true"
+	validatorOnly := c.DefaultQuery("validator", "false") == "true"
+
+	cacheKey := fmt.Sprintf("explorer:nodes:geo:active=%v:validator=%v", activeOnly, validatorOnly)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var resp NodeGeoResponse
+			if err := json.Unmarshal([]byte(cached), &resp); err == nil {
+				c.JSON(http.StatusOK, resp)
+				return
+			}
+		}
+	}
+
+	query := db.DB.Model(&models.ExplorerNode{})
+	if activeOnly {
+		query = query.Where("is_active = ?", true)
+	}
+	if validatorOnly {
+		query = query.Where("is_validator = ?", true)
+	}
+
+	var nodes []models.ExplorerNode
+	if err := query.
+		Select("node_id, latitude, longitude, is_active, is_validator, uptime_percent, active_sessions, country, region, city, isp").
+		Order("is_active DESC, uptime_percent DESC").
+		Limit(5000).
+		Find(&nodes).Error; err != nil {
+		logging.Error(err).Msg("[ProxyExplorer] getExplorerNodesGeo query failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch node geo data"})
+		return
+	}
+
+	points := make([]NodeGeoPoint, len(nodes))
+	for i, n := range nodes {
+		points[i] = NodeGeoPoint{
+			NodeID:         n.NodeID,
+			Latitude:       n.Latitude,
+			Longitude:      n.Longitude,
+			IsActive:       n.IsActive,
+			IsValidator:    n.IsValidator,
+			UptimePercent:  n.UptimePercent,
+			ActiveSessions: n.ActiveSessions,
+			Country:        n.Country,
+			Region:         n.Region,
+			City:           n.City,
+			ISP:            n.ISP,
+		}
+	}
+
+	resp := NodeGeoResponse{Nodes: points, Total: len(points)}
+
+	// Cache for 15 seconds — short TTL so map stays near-realtime
+	cacheResponse(c, cacheKey, resp, 15*time.Second)
+	c.JSON(http.StatusOK, resp)
+}
+
 func getExplorerNodeDetails(c *gin.Context) {
 	nodeID := c.Param("id")
 
@@ -747,6 +883,10 @@ func getExplorerNodeDetails(c *gin.Context) {
 			Chain:          node.Chain,
 			Region:         node.Region,
 			Country:        node.Country,
+			City:           node.City,
+			ISP:            node.ISP,
+			Latitude:       node.Latitude,
+			Longitude:      node.Longitude,
 			IsActive:       node.IsActive,
 			IsValidator:    node.IsValidator,
 			UptimePercent:  node.UptimePercent,
@@ -791,15 +931,21 @@ func listExplorerValidators(c *gin.Context) {
 	summaries := make([]NodeSummary, len(validators))
 	for i, v := range validators {
 		summaries[i] = NodeSummary{
-			NodeID:        v.NodeID,
-			Name:          v.Name,
-			Chain:         v.Chain,
-			Region:        v.Region,
-			Country:       v.Country,
-			IsActive:      v.IsActive,
-			IsValidator:   v.IsValidator,
-			UptimePercent: v.UptimePercent,
-			LastHeartbeat: v.LastHeartbeat,
+			NodeID:         v.NodeID,
+			Name:           v.Name,
+			Chain:          v.Chain,
+			Region:         v.Region,
+			Country:        v.Country,
+			City:           v.City,
+			ISP:            v.ISP,
+			Latitude:       v.Latitude,
+			Longitude:      v.Longitude,
+			IsActive:       v.IsActive,
+			IsValidator:    v.IsValidator,
+			UptimePercent:  v.UptimePercent,
+			ActiveSessions: v.ActiveSessions,
+			BandwidthGB:    float64(v.TotalBandwidth) / (1024 * 1024 * 1024),
+			LastHeartbeat:  v.LastHeartbeat,
 		}
 	}
 
@@ -869,6 +1015,19 @@ func listContracts(c *gin.Context) {
 	})
 }
 
+// ContractDetailResponse is a safe DTO for contract details — excludes internal GORM fields.
+type ContractDetailResponse struct {
+	Address         string    `json:"address"`
+	Chain           string    `json:"chain"`
+	Name            string    `json:"name"`
+	ContractType    string    `json:"contract_type"`
+	IsVerified      bool      `json:"is_verified"`
+	DeployerAddress string    `json:"deployer_address,omitempty"`
+	TotalCalls      uint64    `json:"total_calls"`
+	TotalVolume     float64   `json:"total_volume"`
+	DeployedAt      time.Time `json:"deployed_at"`
+}
+
 func getContractDetails(c *gin.Context) {
 	address := c.Param("address")
 
@@ -878,7 +1037,17 @@ func getContractDetails(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, contract)
+	c.JSON(http.StatusOK, ContractDetailResponse{
+		Address:         contract.Address,
+		Chain:           contract.Chain,
+		Name:            contract.Name,
+		ContractType:    contract.ContractType,
+		IsVerified:      contract.IsVerified,
+		DeployerAddress: contract.DeployerAddress,
+		TotalCalls:      contract.TotalCalls,
+		TotalVolume:     contract.TotalVolume,
+		DeployedAt:      contract.DeployedAt,
+	})
 }
 
 func getBandwidthStats(c *gin.Context) {
@@ -960,12 +1129,35 @@ func getNetworkHealth(c *gin.Context) {
 		LastChecked: time.Now(),
 	}
 
-	// Check Solana (simplified health check)
-	// In production, this would ping the Solana RPC endpoint
-	if os.Getenv("SOLANA_RPC_ENDPOINT") != "" {
-		health.SolanaHealth = "healthy"
-	} else {
+	// Check Solana by calling the RPC getHealth method
+	rpcURL := os.Getenv("SOLANA_RPC_ENDPOINT")
+	if rpcURL == "" {
 		health.SolanaHealth = "unavailable"
+	} else {
+		rpcBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"getHealth"}`)
+		rpcCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(rpcCtx, "POST", rpcURL, bytes.NewReader(rpcBody))
+		if err != nil {
+			health.SolanaHealth = "degraded"
+			health.Status = "degraded"
+		} else {
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				health.SolanaHealth = "degraded"
+				health.Status = "degraded"
+			} else {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if bytes.Contains(body, []byte(`"ok"`)) {
+					health.SolanaHealth = "healthy"
+				} else {
+					health.SolanaHealth = "degraded"
+					health.Status = "degraded"
+				}
+			}
+		}
 	}
 
 	// Check Database
@@ -1005,13 +1197,545 @@ func cacheResponse(c *gin.Context, key string, data interface{}, ttl time.Durati
 	}
 }
 
-// invalidateExplorerCache invalidates explorer-related cache keys
+// invalidateExplorerCache deletes all Redis keys matching the given glob pattern.
 func invalidateExplorerCache(pattern string) {
 	if redisClient.Client == nil {
 		return
 	}
 
-	// In a production system, you'd use a more sophisticated cache invalidation strategy
-	// For now, we just log the invalidation request
-	logging.Debug().Str("pattern", pattern).Msg("[Explorer] Cache invalidation requested")
+	ctx := context.Background()
+	var cursor uint64
+	var deleted int64
+	for {
+		keys, nextCursor, err := redisClient.Client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			logging.Error(err).Str("pattern", pattern).Msg("[Explorer] Cache scan failed")
+			return
+		}
+		if len(keys) > 0 {
+			n, err := redisClient.Client.Del(ctx, keys...).Result()
+			if err != nil {
+				logging.Error(err).Msg("[Explorer] Cache delete failed")
+			}
+			deleted += n
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	logging.Debug().Str("pattern", pattern).Int64("deleted", deleted).Msg("[Explorer] Cache invalidated")
+}
+
+// ============================================================
+// Analytics & Leaderboard Handlers
+// ============================================================
+
+type AnalyticsPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     float64   `json:"value"`
+}
+
+type AnalyticsResponse struct {
+	Period            string           `json:"period"`
+	TransactionVolume []AnalyticsPoint `json:"transaction_volume"`
+	BandwidthGB       []AnalyticsPoint `json:"bandwidth_gb"`
+	ActiveNodes       []AnalyticsPoint `json:"active_nodes"`
+	ActiveWallets     []AnalyticsPoint `json:"active_wallets"`
+}
+
+type ExplorerLeaderboardEntry struct {
+	Rank           int     `json:"rank"`
+	NodeID         string  `json:"node_id"`
+	Name           string  `json:"name,omitempty"`
+	Region         string  `json:"region"`
+	Country        string  `json:"country"`
+	UptimePercent  float64 `json:"uptime_percent"`
+	BandwidthGB    float64 `json:"bandwidth_gb"`
+	ActiveSessions int     `json:"active_sessions"`
+	QualityScore   float64 `json:"quality_score"`
+	IsValidator    bool    `json:"is_validator"`
+}
+
+type ExplorerLeaderboardResponse struct {
+	Entries  []ExplorerLeaderboardEntry `json:"entries"`
+	Category string                     `json:"category"`
+	Period   string                     `json:"period"`
+}
+
+func getExplorerAnalytics(c *gin.Context) {
+	period := c.DefaultQuery("period", "24h")
+	fromStr := c.Query("from") // ISO date e.g. "2024-01-15"
+	toStr := c.Query("to")     // ISO date e.g. "2024-01-31" (inclusive)
+
+	// Parse custom date range when both params are present
+	var useCustomRange bool
+	var fromTime, toTime time.Time
+	if fromStr != "" && toStr != "" {
+		var err1, err2 error
+		fromTime, err1 = time.Parse("2006-01-02", fromStr)
+		toTime, err2 = time.Parse("2006-01-02", toStr)
+		if err1 == nil && err2 == nil && !fromTime.After(toTime) {
+			toTime = toTime.Add(24 * time.Hour) // make end date inclusive
+			useCustomRange = true
+		}
+	}
+
+	cacheKey := fmt.Sprintf("explorer:analytics:%s", period)
+	if useCustomRange {
+		cacheKey = fmt.Sprintf("explorer:analytics:custom:%s:%s", fromStr, toStr)
+	}
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var response AnalyticsResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	// Determine DB period string and bucket interval
+	var dbPeriod string
+	var bucketCount int
+	if useCustomRange {
+		rangeDays := int(toTime.Sub(fromTime).Hours() / 24)
+		if rangeDays <= 2 {
+			dbPeriod = "hourly"
+		} else {
+			dbPeriod = "daily"
+		}
+		bucketCount = 0 // no LIMIT when using a custom range
+	} else {
+		switch period {
+		case "1h":
+			dbPeriod = "hourly"
+			bucketCount = 12
+		case "7d":
+			dbPeriod = "daily"
+			bucketCount = 7
+		case "30d":
+			dbPeriod = "daily"
+			bucketCount = 30
+		default: // 24h
+			dbPeriod = "hourly"
+			bucketCount = 24
+		}
+	}
+
+	var records []models.ExplorerMetrics
+	query := db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod)
+	if useCustomRange {
+		query = query.Where("period_start >= ? AND period_start < ?", fromTime, toTime)
+	}
+	query = query.Order("period_start DESC")
+	if bucketCount > 0 {
+		query = query.Limit(bucketCount)
+	}
+	query.Find(&records)
+
+	// Reverse so oldest first (chronological order for charts)
+	for i, j := 0, len(records)-1; i < j; i, j = i+1, j-1 {
+		records[i], records[j] = records[j], records[i]
+	}
+
+	response := AnalyticsResponse{
+		Period:            period,
+		TransactionVolume: make([]AnalyticsPoint, 0, len(records)),
+		BandwidthGB:       make([]AnalyticsPoint, 0, len(records)),
+		ActiveNodes:       make([]AnalyticsPoint, 0, len(records)),
+		ActiveWallets:     make([]AnalyticsPoint, 0, len(records)),
+	}
+
+	for _, r := range records {
+		ts := r.PeriodStart
+		response.TransactionVolume = append(response.TransactionVolume, AnalyticsPoint{Timestamp: ts, Value: r.TotalVolume})
+		response.BandwidthGB = append(response.BandwidthGB, AnalyticsPoint{Timestamp: ts, Value: float64(r.TotalBandwidthBytes) / (1024 * 1024 * 1024)})
+		response.ActiveNodes = append(response.ActiveNodes, AnalyticsPoint{Timestamp: ts, Value: float64(r.ActiveNodes)})
+		response.ActiveWallets = append(response.ActiveWallets, AnalyticsPoint{Timestamp: ts, Value: float64(r.ActiveWallets)})
+	}
+
+	cacheResponse(c, cacheKey, response, 2*time.Minute)
+	c.JSON(http.StatusOK, response)
+}
+
+func getExplorerLeaderboard(c *gin.Context) {
+	category := c.DefaultQuery("category", "uptime")
+	period := c.DefaultQuery("period", "24h")
+
+	cacheKey := fmt.Sprintf("explorer:leaderboard:%s:%s", category, period)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var response ExplorerLeaderboardResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	var nodes []models.ExplorerNode
+	query := db.DB.Where("is_active = ?", true)
+
+	switch category {
+	case "bandwidth":
+		query = query.Order("total_bandwidth DESC")
+	case "sessions":
+		query = query.Order("active_sessions DESC")
+	default: // uptime
+		query = query.Order("uptime_percent DESC")
+	}
+
+	query.Limit(20).Find(&nodes)
+
+	entries := make([]ExplorerLeaderboardEntry, 0, len(nodes))
+	for i, n := range nodes {
+		bwGB := float64(n.TotalBandwidth) / (1024 * 1024 * 1024)
+		// Quality score: weighted combination of uptime (50%), sessions (25%), bandwidth (25%)
+		qualityScore := (n.UptimePercent * 0.5) + (float64(n.ActiveSessions) / 10.0 * 0.25) + (bwGB / 100.0 * 0.25)
+		if qualityScore > 100 {
+			qualityScore = 100
+		}
+		entries = append(entries, ExplorerLeaderboardEntry{
+			Rank:           i + 1,
+			NodeID:         n.NodeID,
+			Name:           n.Name,
+			Region:         n.Region,
+			Country:        n.Country,
+			UptimePercent:  n.UptimePercent,
+			BandwidthGB:    bwGB,
+			ActiveSessions: n.ActiveSessions,
+			QualityScore:   qualityScore,
+			IsValidator:    n.IsValidator,
+		})
+	}
+
+	response := ExplorerLeaderboardResponse{
+		Entries:  entries,
+		Category: category,
+		Period:   period,
+	}
+
+	cacheResponse(c, cacheKey, response, 2*time.Minute)
+	c.JSON(http.StatusOK, response)
+}
+
+// ============================================================
+// Sessions Explorer
+// ============================================================
+
+type ExplorerSessionSummary struct {
+	SessionID   string    `json:"session_id"`
+	SessionType string    `json:"session_type"`
+	Status      string    `json:"status"`
+	BytesUsed   int64     `json:"bytes_used"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+}
+
+type ExplorerSessionsResponse struct {
+	Sessions    []ExplorerSessionSummary `json:"sessions"`
+	Total       int64                    `json:"total"`
+	ActiveCount int64                    `json:"active_count"`
+	Page        int                      `json:"page"`
+	PageSize    int                      `json:"page_size"`
+}
+
+func listExplorerSessions(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	status := c.Query("status")
+	sessionType := c.Query("type")
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	query := db.DB.Model(&models.Session{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if sessionType != "" {
+		query = query.Where("type = ?", sessionType)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var sessions []models.Session
+	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&sessions)
+
+	var activeCount int64
+	db.DB.Model(&models.Session{}).Where("status = ?", "active").Count(&activeCount)
+
+	summaries := make([]ExplorerSessionSummary, 0, len(sessions))
+	for _, s := range sessions {
+		summaries = append(summaries, ExplorerSessionSummary{
+			SessionID:   s.ID.String(),
+			SessionType: string(s.Type),
+			Status:      string(s.Status),
+			BytesUsed:   s.BytesUsed,
+			StartTime:   s.StartTime,
+			EndTime:     s.EndTime,
+		})
+	}
+
+	c.JSON(http.StatusOK, ExplorerSessionsResponse{
+		Sessions:    summaries,
+		Total:       total,
+		ActiveCount: activeCount,
+		Page:        page,
+		PageSize:    pageSize,
+	})
+}
+
+// ============================================================
+// Provider Earnings
+// ============================================================
+
+type ProviderEarningSummary struct {
+	NodeID          string    `json:"node_id"`
+	ProviderAddress string    `json:"provider_address"`
+	SessionCount    int64     `json:"session_count"`
+	BandwidthGB     float64   `json:"bandwidth_gb"`
+	TotalEarned     float64   `json:"total_earned"`
+	LastPayout      time.Time `json:"last_payout"`
+}
+
+type EarningsSummary struct {
+	TotalPaid       float64 `json:"total_paid"`
+	ActiveProviders int64   `json:"active_providers"`
+	AvgEarning      float64 `json:"avg_earning"`
+	TxCount         int64   `json:"tx_count"`
+}
+
+type ProviderEarningsResponse struct {
+	Providers   []ProviderEarningSummary `json:"providers"`
+	Total       int64                    `json:"total"`
+	Summary     EarningsSummary          `json:"summary"`
+	VolumeChart []AnalyticsPoint         `json:"volume_chart"`
+	Page        int                      `json:"page"`
+	PageSize    int                      `json:"page_size"`
+}
+
+func getExplorerProviderEarnings(c *gin.Context) {
+	period := c.DefaultQuery("period", "24h")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	cacheKey := fmt.Sprintf("explorer:earnings:%s:%d", period, page)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var response ProviderEarningsResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	var since time.Time
+	switch period {
+	case "7d":
+		since = time.Now().AddDate(0, 0, -7)
+	case "30d":
+		since = time.Now().AddDate(0, 0, -30)
+	default:
+		since = time.Now().Add(-24 * time.Hour)
+	}
+
+	type providerRow struct {
+		ToAddress string
+		Count     int64
+		Total     float64
+		LastTime  time.Time
+	}
+	var rows []providerRow
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("tx_type = ? AND timestamp >= ?", "payout", since).
+		Select("to_address, count(*) as count, sum(amount) as total, max(timestamp) as last_time").
+		Group("to_address").
+		Order("total DESC").
+		Offset(offset).Limit(pageSize).
+		Scan(&rows)
+
+	var totalCount int64
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("tx_type = ? AND timestamp >= ?", "payout", since).
+		Select("count(distinct to_address)").Scan(&totalCount)
+
+	var totalPaid float64
+	var txCount int64
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("tx_type = ? AND timestamp >= ?", "payout", since).
+		Select("coalesce(sum(amount), 0)").Scan(&totalPaid)
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("tx_type = ? AND timestamp >= ?", "payout", since).
+		Count(&txCount)
+
+	avgEarning := 0.0
+	if totalCount > 0 {
+		avgEarning = totalPaid / float64(totalCount)
+	}
+
+	providers := make([]ProviderEarningSummary, 0, len(rows))
+	for _, r := range rows {
+		var node models.ExplorerNode
+		nodeID := r.ToAddress
+		db.DB.Where("node_id = ?", r.ToAddress).First(&node)
+		if node.NodeID != "" {
+			nodeID = node.NodeID
+		}
+		providers = append(providers, ProviderEarningSummary{
+			NodeID:          nodeID,
+			ProviderAddress: r.ToAddress,
+			SessionCount:    r.Count,
+			TotalEarned:     r.Total,
+			LastPayout:      r.LastTime,
+		})
+	}
+
+	var dbPeriod string
+	var bucketCount int
+	switch period {
+	case "7d":
+		dbPeriod = "daily"
+		bucketCount = 7
+	case "30d":
+		dbPeriod = "daily"
+		bucketCount = 30
+	default:
+		dbPeriod = "hourly"
+		bucketCount = 24
+	}
+	var metricsRecords []models.ExplorerMetrics
+	db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod).
+		Order("period_start DESC").Limit(bucketCount).Find(&metricsRecords)
+	for i, j := 0, len(metricsRecords)-1; i < j; i, j = i+1, j-1 {
+		metricsRecords[i], metricsRecords[j] = metricsRecords[j], metricsRecords[i]
+	}
+	volumeChart := make([]AnalyticsPoint, 0, len(metricsRecords))
+	for _, r := range metricsRecords {
+		volumeChart = append(volumeChart, AnalyticsPoint{Timestamp: r.PeriodStart, Value: r.TotalVolume})
+	}
+
+	response := ProviderEarningsResponse{
+		Providers: providers,
+		Total:     totalCount,
+		Summary: EarningsSummary{
+			TotalPaid:       totalPaid,
+			ActiveProviders: totalCount,
+			AvgEarning:      avgEarning,
+			TxCount:         txCount,
+		},
+		VolumeChart: volumeChart,
+		Page:        page,
+		PageSize:    pageSize,
+	}
+
+	cacheResponse(c, cacheKey, response, 2*time.Minute)
+	c.JSON(http.StatusOK, response)
+}
+
+// ============================================================
+// Network Health History
+// ============================================================
+
+type HealthHistoryPoint struct {
+	Timestamp     time.Time `json:"timestamp"`
+	Status        string    `json:"status"`
+	ActiveNodes   int64     `json:"active_nodes"`
+	AvgResponseMs float64   `json:"avg_response_ms"`
+}
+
+type HealthEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Status    string    `json:"status"`
+	Subsystem string    `json:"subsystem"`
+	Message   string    `json:"message"`
+}
+
+type HealthHistoryResponse struct {
+	History       []HealthHistoryPoint `json:"history"`
+	UptimePercent float64              `json:"uptime_percent"`
+	Events        []HealthEvent        `json:"events"`
+}
+
+func getHealthHistory(c *gin.Context) {
+	period := c.DefaultQuery("period", "24h")
+
+	cacheKey := fmt.Sprintf("explorer:health:history:%s", period)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var response HealthHistoryResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	var dbPeriod string
+	var bucketCount int
+	switch period {
+	case "7d":
+		dbPeriod = "daily"
+		bucketCount = 7
+	case "30d":
+		dbPeriod = "daily"
+		bucketCount = 30
+	default:
+		dbPeriod = "hourly"
+		bucketCount = 24
+	}
+
+	var records []models.ExplorerMetrics
+	db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod).
+		Order("period_start DESC").Limit(bucketCount).Find(&records)
+	for i, j := 0, len(records)-1; i < j; i, j = i+1, j-1 {
+		records[i], records[j] = records[j], records[i]
+	}
+
+	history := make([]HealthHistoryPoint, 0, len(records))
+	healthyCount := 0
+	for _, r := range records {
+		status := "healthy"
+		if r.ActiveNodes == 0 {
+			status = "degraded"
+		}
+		if status == "healthy" {
+			healthyCount++
+		}
+		history = append(history, HealthHistoryPoint{
+			Timestamp:   r.PeriodStart,
+			Status:      status,
+			ActiveNodes: int64(r.ActiveNodes),
+		})
+	}
+
+	uptimePct := 0.0
+	if len(records) > 0 {
+		uptimePct = float64(healthyCount) / float64(len(records)) * 100
+	}
+
+	response := HealthHistoryResponse{
+		History:       history,
+		UptimePercent: uptimePct,
+		Events:        []HealthEvent{},
+	}
+
+	cacheResponse(c, cacheKey, response, 2*time.Minute)
+	c.JSON(http.StatusOK, response)
 }

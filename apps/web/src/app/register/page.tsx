@@ -8,6 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react'; // Added import
 import { createClient } from '@/lib/supabase/client';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton'; // Added import
 import { CheckCircle, Globe, ShoppingCart, Coins, Mail, Lock, ArrowRight, Github, Chrome, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -124,8 +125,8 @@ export default function RegisterPage() {
                 try {
                   await walletLogin(publicKey.toBase58(), { signMessage });
                   router.push('/dashboard');
-                } catch (err: any) {
-                  setError(err.message || 'Wallet registration failed');
+                } catch (err: unknown) {
+                  setError(getErrorMessage(err) || 'Wallet registration failed');
                 } finally {
                   setLoading(false);
                 }

@@ -27,8 +27,12 @@ export function QueryProvider({ children }: QueryProviderProps) {
                 refetchOnWindowFocus: true,
                 // Don't refetch on mount if data is fresh
                 refetchOnMount: true,
-                // Retry failed requests 3 times
-                retry: 3,
+                // Retry failed requests, but never on 4xx errors (auth failures, not found, etc.)
+                retry: (failureCount, error: any) => {
+                    const status = error?.status ?? error?.response?.status;
+                    if (status >= 400 && status < 500) return false;
+                    return failureCount < 3;
+                },
                 // Exponential backoff for retries
                 retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
             },

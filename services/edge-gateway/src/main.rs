@@ -13,9 +13,13 @@ use uuid::Uuid;
 use std::time::Instant;
 
 mod auth;
+mod blockchain;  // P2-A9: Direct gRPC to Blockchain
 mod circuitbreaker;
 mod config;
+mod control_api; // Control API client for node registration
+mod error;       // Error types
 mod heartbeat;
+mod pricing;     // P2-A10: Real-time Pricing Awareness
 mod leader;
 mod metering;
 mod metrics;
@@ -23,6 +27,7 @@ mod multiregion;
 mod policy;
 mod pool;
 mod proxy;
+mod redis_pool;  // P1-A4: Redis connection pooling
 mod rollout;
 mod rotation;
 mod routing;
@@ -803,11 +808,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr_tunnel = config.tunnel_port;
     let redis_url = config.redis_url.clone();
 
-    // Initialize Redis authenticator
-    let authenticator = Arc::new(SessionAuthenticator::new(&config.redis_url)?);
+    // P0-A2: Initialize Redis authenticator with configurable cache
+    let authenticator = Arc::new(
+        SessionAuthenticator::new(
+            &config.redis_url,
+            config.session_cache_size,
+            config.session_cache_ttl_secs,
+        ).await?
+    );
+    info!(
+        "Session cache initialized: size={}, ttl={}s",
+        config.session_cache_size, config.session_cache_ttl_secs
+    );
     
     // Initialize Registry Store
-    let registry_store = Arc::new(RegistryStore::new(&config.redis_url)?);
+    let registry_store = Arc::new(RegistryStore::new(&config.redis_url).await?);
 
     // Initialize Leader Election
     let service_id = Uuid::new_v4().to_string();

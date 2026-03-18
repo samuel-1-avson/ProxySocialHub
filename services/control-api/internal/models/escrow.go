@@ -91,8 +91,9 @@ const (
 	DisputeOther       DisputeReason = "other"
 )
 
-// Dispute represents a buyer-seller dispute
-type Dispute struct {
+// EscrowDispute represents a buyer-seller dispute on an escrow/order.
+// For provider session disputes see models.Dispute in dispute.go.
+type EscrowDispute struct {
 	ID           uuid.UUID     `gorm:"type:uuid;primary_key" json:"id"`
 	EscrowID     uuid.UUID     `gorm:"type:uuid;not null" json:"escrow_id"`
 	OrderID      uuid.UUID     `gorm:"type:uuid;not null" json:"order_id"`
@@ -113,11 +114,11 @@ type Dispute struct {
 	Initiator *User              `gorm:"foreignKey:InitiatedBy" json:"initiator,omitempty"`
 }
 
-func (Dispute) TableName() string {
-	return "disputes"
+func (EscrowDispute) TableName() string {
+	return "escrow_disputes"
 }
 
-func (d *Dispute) BeforeCreate(tx *gorm.DB) error {
+func (d *EscrowDispute) BeforeCreate(tx *gorm.DB) error {
 	if d.ID == uuid.Nil {
 		d.ID = uuid.New()
 	}

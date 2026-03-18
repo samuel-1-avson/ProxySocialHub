@@ -2,8 +2,10 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getListing, createOrder, Listing } from '@/lib/social-api';
+import { getListing, createOrder, Listing } from '@/lib/api/marketplace';
 import { useAuth } from '@/lib/auth';
+import { useToast } from '@/stores';
+import { getErrorMessage } from '@/lib/utils';
 import { Loader2, Star, Shield, Signal, Activity, Globe, ShoppingCart, Share2, Heart, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
@@ -11,6 +13,7 @@ function ListingDetailContent() {
     const params = useParams();
     const router = useRouter();
     const { user } = useAuth();
+    const toast = useToast();
     const id = params.id as string;
 
     const [listing, setListing] = useState<Listing | null>(null);
@@ -25,8 +28,8 @@ function ListingDetailContent() {
                 const data = await getListing(id);
                 setListing(data.listing);
                 setIsSaved(data.is_saved);
-            } catch (err: any) {
-                setError(err.message || 'Failed to load listing details');
+            } catch (err: unknown) {
+                setError(getErrorMessage(err) || 'Failed to load listing details');
             } finally {
                 setLoading(false);
             }
@@ -41,11 +44,11 @@ function ListingDetailContent() {
         try {
             // Default to minimum purchase or 1GB for now
             const gbToBuy = listing.min_purchase_gb || 1;
-            await createOrder(listing.id, gbToBuy);
-            // Redirect to orders or show success
-            router.push('/dashboard/proxies'); // Assuming purchased proxies go here
-        } catch (err: any) {
-            alert("Purchase failed: " + err.message);
+            await createOrder({ listing_id: listing.id, bandwidth_gb: gbToBuy, session_type: 'rotating' });
+            toast.success('Purchase successful', `${gbToBuy} GB added to your account.`);
+            router.push('/dashboard/proxy');
+        } catch (err: unknown) {
+            toast.error('Purchase failed', getErrorMessage(err) || 'Please try again.');
         } finally {
             setPurchasing(false);
         }
@@ -116,11 +119,16 @@ function ListingDetailContent() {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => setIsSaved(!isSaved)}
+                                        aria-label={isSaved ? 'Remove from saved' : 'Save listing'}
+                                        aria-pressed={isSaved}
                                         className={`btn-retro p-3 ${isSaved ? 'bg-primary/20 text-primary border-primary' : 'bg-background border-border hover:border-primary'}`}
                                     >
                                         <Heart size={20} className={isSaved ? 'fill-current' : ''} />
                                     </button>
-                                    <button className="btn-retro p-3 bg-background border-border hover:border-primary">
+                                    <button
+                                        aria-label="Share listing"
+                                        className="btn-retro p-3 bg-background border-border hover:border-primary"
+                                    >
                                         <Share2 size={20} />
                                     </button>
                                 </div>
@@ -172,7 +180,7 @@ function ListingDetailContent() {
                         <div className="flex justify-between items-baseline mb-6">
                             <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
                             <div className="text-right">
-                                <span className="text-4xl font-bold font-mono">₵{listing.price_per_gb}</span>
+                                <span className="text-4xl font-bold font-mono">{listing.price_per_gb} SOL</span>
                                 <span className="text-sm text-muted-foreground font-mono">/GB</span>
                             </div>
                         </div>

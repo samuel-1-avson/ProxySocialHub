@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { createSession, getSessions, Session, getAnalyticsOverview, type AnalyticsOverview } from '@/lib/api';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createSession, getSessions, getAnalyticsOverview } from '@/lib/api';
+import type { Session, AnalyticsOverview } from '@/lib/api';
 import {
     Globe,
     Shield,
@@ -33,47 +35,33 @@ import { GlassCard } from '@/components/ui/glass-card';
 const PROXY_ENDPOINT = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhub.io:3128';
 
 export default function ProxyPage() {
-    const [sessions, setSessions] = useState<Session[]>([]);
-    const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [analyticsLoading, setAnalyticsLoading] = useState(true);
+    const queryClient = useQueryClient();
     const [creating, setCreating] = useState(false);
     const [testing, setTesting] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'online' | 'offline'>('idle');
     const [copied, setCopied] = useState<string | null>(null);
 
-    useEffect(() => {
-        fetchSessions();
-        fetchAnalytics();
-    }, []);
+    const { data: allSessions = [], isLoading: loading } = useQuery({
+        queryKey: ['sessions'],
+        queryFn: getSessions,
+        refetchInterval: 15000,
+        retry: 2,
+    });
 
-    async function fetchAnalytics() {
-        try {
-            const data = await getAnalyticsOverview();
-            setAnalytics(data);
-        } catch (error) {
-            console.error('Failed to fetch analytics:', error);
-        } finally {
-            setAnalyticsLoading(false);
-        }
-    }
+    const { data: analytics, isLoading: analyticsLoading } = useQuery({
+        queryKey: ['analytics-overview'],
+        queryFn: getAnalyticsOverview,
+        refetchInterval: 30000,
+        retry: 2,
+    });
 
-    async function fetchSessions() {
-        try {
-            const data = await getSessions();
-            setSessions(data.filter(s => s.status === 'active'));
-        } catch (error) {
-            console.error('Failed to fetch sessions:', error);
-        } finally {
-            setLoading(false);
-        }
-    }
+    const sessions = allSessions.filter((s: Session) => s.status === 'active');
 
     async function handleQuickStart(type: 'rotating' | 'sticky') {
         setCreating(true);
         try {
             const result = await createSession({ type });
-            await fetchSessions();
+            await queryClient.invalidateQueries({ queryKey: ['sessions'] });
             // Auto-copy credentials
             if (result.proxy_credentials) {
                 const curlCmd = `curl -x ${result.proxy_credentials.username}:${result.proxy_credentials.password}@${PROXY_ENDPOINT} https://httpbin.org/ip`;
@@ -248,8 +236,37 @@ export default function ProxyPage() {
             <motion.div variants={itemVariants} className="space-y-6">
                 <div className="flex items-center gap-3 px-4">
                     <Zap size={18} className="text-primary" />
-                    <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em]">Acquisition Protocols</h2>
+                    <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em]">
+                        {sessions.length === 0 ? "Create Your First Session" : "Your Active Sessions"}
+                    </h2>
                 </div>
+
+                {/* Empty State - No Sessions */}
+                {sessions.length === 0 && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="glass-card p-8 border-primary/20 bg-primary/5"
+                    >
+                        <div className="flex items-start gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 flex-shrink-0">
+                                <Globe size={24} className="text-primary" />
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-lg font-bold mb-2">Ready to Connect?</h3>
+                                <p className="text-sm text-muted-foreground mb-4">
+                                    You don't have any active proxy sessions yet. Create one below to start 
+                                    browsing securely through our decentralized proxy network.
+                                </p>
+                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1"><CheckCircle size={12} className="text-emerald-500"/> Residential IPs</span>
+                                    <span className="flex items-center gap-1"><CheckCircle size={12} className="text-emerald-500"/> 150+ Countries</span>
+                                    <span className="flex items-center gap-1"><CheckCircle size={12} className="text-emerald-500"/> Pay Per GB</span>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
 
                 {activeSession ? (
                     <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
@@ -377,23 +394,31 @@ export default function ProxyPage() {
                     </Link>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
-                    {[
-                        { label: "Requests Today", value: analytics?.total_requests?.toLocaleString() || "0", color: "text-foreground" },
-                        { label: "Data Pipeline", value: `${analytics?.total_bandwidth_gb?.toFixed(2) || "0.00"} GB`, color: "text-primary" },
-                        { label: "Avg Latency", value: `${analytics?.avg_latency_ms || "0"}ms`, color: "text-foreground" },
-                        { label: "Success Rate", value: `${analytics?.success_rate || "0"}%`, color: "text-emerald-500" },
-                    ].map((stat, i) => (
-                        <div key={i} className="p-6 glass-card bg-white/5 border-white/5 rounded-2xl group hover:bg-white/10 transition-all">
-                            {analyticsLoading ? (
-                                <div className="h-10 w-20 bg-white/5 animate-pulse rounded mb-2" />
-                            ) : (
-                                <div className={`text-3xl font-mono font-black tracking-tighter mb-2 ${stat.color}`}>{stat.value}</div>
-                            )}
-                            <div className="text-[9px] font-mono font-black uppercase text-muted-foreground/30 tracking-widest">{stat.label}</div>
-                        </div>
-                    ))}
-                </div>
+                {sessions.length === 0 ? (
+                    <div className="text-center py-12">
+                        <div className="text-4xl mb-4 opacity-20">📊</div>
+                        <p className="text-sm text-muted-foreground mb-2">No telemetry data yet</p>
+                        <p className="text-xs text-muted-foreground/60">Create a session above to start tracking your proxy usage</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
+                        {[
+                            { label: "Requests Today", value: analytics?.total_requests?.toLocaleString() || "0", color: "text-foreground" },
+                            { label: "Data Pipeline", value: `${analytics?.total_bandwidth_gb?.toFixed(2) || "0.00"} GB`, color: "text-primary" },
+                            { label: "Avg Latency", value: `${analytics?.avg_latency_ms || "0"}ms`, color: "text-foreground" },
+                            { label: "Success Rate", value: `${analytics?.success_rate || "0"}%`, color: "text-emerald-500" },
+                        ].map((stat, i) => (
+                            <div key={i} className="p-6 glass-card bg-white/5 border-white/5 rounded-2xl group hover:bg-white/10 transition-all">
+                                {analyticsLoading ? (
+                                    <div className="h-10 w-20 bg-white/5 animate-pulse rounded mb-2" />
+                                ) : (
+                                    <div className={`text-3xl font-mono font-black tracking-tighter mb-2 ${stat.color}`}>{stat.value}</div>
+                                )}
+                                <div className="text-[9px] font-mono font-black uppercase text-muted-foreground/30 tracking-widest">{stat.label}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </motion.div>
 
             {/* Integration Matrices */}
