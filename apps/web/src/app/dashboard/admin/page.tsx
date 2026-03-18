@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
 import { LayoutDashboard, Users, FileText, ShieldCheck, CreditCard, Activity, HeartPulse, ExternalLink, Ban, CheckCircle, XCircle, AlertTriangle, Search, Filter } from 'lucide-react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
 interface SystemStats {
     total_users: number;

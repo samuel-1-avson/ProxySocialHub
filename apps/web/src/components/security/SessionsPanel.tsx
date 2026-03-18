@@ -5,7 +5,7 @@ import { fetchWithAuth } from '@/lib/auth';
 import { Monitor, Smartphone, Tablet, Clock, MapPin, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
 interface Session {
     id: string;

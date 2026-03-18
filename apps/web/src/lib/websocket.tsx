@@ -20,7 +20,7 @@ export function useWebSocket(url?: string) {
   const handlersRef = useRef<Map<string, MessageHandler[]>>(new Map());
   const lastMessageRef = useRef<WebSocketMessage | null>(null);
 
-  const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080';
+  const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8081';
   const wsUrl = url || `${baseWsUrl}/v1/ws`;
 
 
