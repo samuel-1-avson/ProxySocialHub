@@ -4,6 +4,7 @@ package solana
 import (
 	"context"
 	"fmt"
+	"log"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -332,6 +333,16 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 // SendSOL transfers lamports from the oracle (treasury) wallet to a recipient
 // using a System Program transfer instruction.
 func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lamports uint64) (string, error) {
+	// Velocity guard: enforce per-transfer cap and hourly outflow limit.
+	amountSOL := LamportsToSOL(lamports)
+	if c.velocity != nil {
+		if err := c.velocity.Check(ctx, amountSOL); err != nil {
+			return "", fmt.Errorf("SendSOL blocked by velocity guard: %w", err)
+		}
+	} else {
+		log.Printf("[WARN] SendSOL: no VelocityGuard attached — %.6f SOL transfer proceeding unchecked", amountSOL)
+	}
+
 	// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
 	data := make([]byte, 12)
 	data[0] = 2 // SystemInstruction::Transfer
@@ -368,4 +379,95 @@ func (i *GenericInstruction) Accounts() []*sol.AccountMeta {
 
 func (i *GenericInstruction) Data() ([]byte, error) {
 	return i.data, nil
+}
+
+// BatchTransferSOL transfers SOL to multiple recipients in a single transaction.
+// This saves significantly on transaction fees compared to individual transfers.
+// Returns the transaction hash and any error that occurred.
+func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []TransferRequest) (string, error) {
+	if len(transfers) == 0 {
+		return "", fmt.Errorf("no transfers provided")
+	}
+	if len(transfers) > 20 {
+		return "", fmt.Errorf("batch size exceeds maximum of 20 transfers")
+	}
+
+	// Velocity guard: sum the batch total and check against limits.
+	var totalSOL float64
+	for _, t := range transfers {
+		totalSOL += LamportsToSOL(t.Lamports)
+	}
+	if c.velocity != nil {
+		if err := c.velocity.Check(ctx, totalSOL); err != nil {
+			return "", fmt.Errorf("BatchTransferSOL blocked by velocity guard: %w", err)
+		}
+	} else {
+		log.Printf("[WARN] BatchTransferSOL: no VelocityGuard attached — %.6f SOL batch proceeding unchecked", totalSOL)
+	}
+
+	// Build instructions for all transfers
+	instructions := make([]sol.Instruction, len(transfers))
+	for i, t := range transfers {
+		// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
+		data := make([]byte, 12)
+		data[0] = 2 // SystemInstruction::Transfer
+		for j := 0; j < 8; j++ {
+			data[4+j] = byte(t.Lamports >> (8 * j))
+		}
+
+		instructions[i] = &GenericInstruction{
+			programID: sol.SystemProgramID,
+			accounts: []*sol.AccountMeta{
+				{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+				{PublicKey: t.Recipient, IsSigner: false, IsWritable: true},
+			},
+			data: data,
+		}
+	}
+
+	// Build and sign transaction with all instructions
+	recentBlockhash, err := c.rpc().GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+
+	tx, err := sol.NewTransaction(
+		instructions,
+		recentBlockhash.Value.Blockhash,
+		sol.TransactionPayer(c.oracleKey.PublicKey()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to build transaction: %w", err)
+	}
+
+	// Sign transaction
+	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
+		if key.Equals(c.oracleKey.PublicKey()) {
+			return &c.oracleKey
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to sign transaction: %w", err)
+	}
+
+	// Send transaction
+	sig, err := c.rpc().SendTransactionWithOpts(ctx, tx,
+		rpc.TransactionOpts{
+			Encoding:            "base64",
+			SkipPreflight:       false,
+			PreflightCommitment: rpc.CommitmentConfirmed,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to send transaction: %w", err)
+	}
+
+	return sig.String(), nil
+}
+
+// TransferRequest represents a single transfer in a batch
+type TransferRequest struct {
+	Recipient sol.PublicKey
+	Lamports  uint64
 }

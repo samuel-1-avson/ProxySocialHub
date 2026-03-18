@@ -60,6 +60,12 @@ func (h *ChannelHandler) OpenChannel(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
 		return
 	}
+	
+	// SECURITY: Nil check before dereferencing NodeID
+	if session.NodeID == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session has no associated node"})
+		return
+	}
 	providerID := *session.NodeID // Simplified: Node owner is the provider
 
 	channel, err := h.service.OpenChannel(sessionID, buyerID, providerID, req.Amount)

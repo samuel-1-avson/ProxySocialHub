@@ -24,7 +24,7 @@ func RegisterSubscriptionRoutes(rg *gin.RouterGroup) {
 // getPlans returns all active subscription plans
 func getPlans(c *gin.Context) {
 	var plans []models.SubscriptionPlan
-	db.DB.Where("is_active = ?", true).Order("price_monthly ASC").Find(&plans)
+	db.Social().Where("is_active = ?", true).Order("price_monthly ASC").Find(&plans)
 
 	c.JSON(http.StatusOK, gin.H{"plans": plans})
 }
@@ -35,14 +35,14 @@ func getMySubscription(c *gin.Context) {
 	userID := currentUserID.(uuid.UUID)
 
 	var subscription models.UserSubscription
-	err := db.DB.Preload("Plan").
+	err := db.Social().Preload("Plan").
 		Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error
 
 	if err != nil {
 		// No active subscription, return free tier info
 		var freePlan models.SubscriptionPlan
-		db.DB.Where("name = ?", "Free").First(&freePlan)
+		db.Social().Where("name = ?", "Free").First(&freePlan)
 		c.JSON(http.StatusOK, gin.H{
 			"subscription": nil,
 			"current_plan": freePlan,
@@ -69,7 +69,7 @@ func subscribe(c *gin.Context) {
 
 	// Check if already subscribed
 	var existing models.UserSubscription
-	if err := db.DB.Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.Social().Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&existing).Error; err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Already have an active subscription. Use change plan instead."})
 		return
@@ -77,7 +77,7 @@ func subscribe(c *gin.Context) {
 
 	// Get plan
 	var plan models.SubscriptionPlan
-	if err := db.DB.First(&plan, "id = ?", req.PlanID).Error; err != nil {
+	if err := db.Social().First(&plan, "id = ?", req.PlanID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
 		return
 	}
@@ -88,29 +88,24 @@ func subscribe(c *gin.Context) {
 	}
 
 	// Calculate price and period
-	var priceGHS float64
+	var priceUSD float64
 	var periodEnd time.Time
 	if req.BillingCycle == models.BillingYearly {
-		priceGHS = plan.PriceYearly
+		priceUSD = plan.PriceYearly
 		periodEnd = time.Now().AddDate(1, 0, 0)
 	} else {
-		priceGHS = plan.PriceMonthly
+		priceUSD = plan.PriceMonthly
 		periodEnd = time.Now().AddDate(0, 1, 0)
 	}
 
-	// Convert to SOL
+	// Convert to SOL using pricing package
 	solPrice, err := prices.GetSOLPrice(c.Request.Context())
 	if err != nil {
-		// Fallback to exchange rate API
-		solPrice = GetSolToUsdtRate()
-	}
-	if solPrice <= 0 {
 		c.JSON(503, gin.H{"error": "price service unavailable"})
 		return
 	}
-	// Real logic: GHS -> USD -> SOL.
-	// For MVP: priceSOL = priceGHS / solPrice (assuming priceGHS is actually USD value in DB or 1:1)
-	priceSOL := priceGHS / solPrice
+	// priceUSD is in USD, convert to SOL
+	priceSOL := priceUSD / solPrice
 
 	// Charge from wallet
 	var wallet models.Wallet
@@ -154,7 +149,7 @@ func subscribe(c *gin.Context) {
 
 	tx.Commit()
 
-	db.DB.Preload("Plan").First(&subscription, "id = ?", subscription.ID)
+	db.Social().Preload("Plan").First(&subscription, "id = ?", subscription.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"subscription": subscription,
@@ -174,20 +169,20 @@ func changePlan(c *gin.Context) {
 	}
 
 	var subscription models.UserSubscription
-	if err := db.DB.Preload("Plan").Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.Social().Preload("Plan").Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No active subscription found"})
 		return
 	}
 
 	var newPlan models.SubscriptionPlan
-	if err := db.DB.First(&newPlan, "id = ?", req.NewPlanID).Error; err != nil {
+	if err := db.Social().First(&newPlan, "id = ?", req.NewPlanID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
 		return
 	}
 
 	// Calculate prorated amount (simplified: just switch at next billing)
-	db.DB.Model(&subscription).Update("plan_id", newPlan.ID)
+	db.Social().Model(&subscription).Update("plan_id", newPlan.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Plan changed to " + newPlan.Name + ". Changes take effect next billing period.",
@@ -204,14 +199,14 @@ func cancelSubscription(c *gin.Context) {
 	c.ShouldBindJSON(&req) // Optional reason
 
 	var subscription models.UserSubscription
-	if err := db.DB.Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.Social().Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No active subscription found"})
 		return
 	}
 
 	now := time.Now()
-	db.DB.Model(&subscription).Updates(map[string]interface{}{
+	db.Social().Model(&subscription).Updates(map[string]interface{}{
 		"status":       models.SubscriptionCancelled,
 		"cancelled_at": now,
 	})
@@ -225,7 +220,7 @@ func cancelSubscription(c *gin.Context) {
 // CheckSubscriptionLimits checks if user is within their subscription limits
 func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
 	var subscription models.UserSubscription
-	err := db.DB.Preload("Plan").
+	err := db.Social().Preload("Plan").
 		Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
 import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy, Monitor, Clock } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 import { SessionsPanel, AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -90,8 +91,8 @@ export default function SecuritySettingsPage() {
             }
             const data = await res.json();
             setSetupData(data);
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         }
     };
 
@@ -121,8 +122,8 @@ export default function SecuritySettingsPage() {
             setSetupData(null);
             setVerificationCode('');
             setSuccess('Two-factor authentication enabled successfully!');
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         }
     };
 
@@ -151,8 +152,8 @@ export default function SecuritySettingsPage() {
             setDisableCode('');
             setBackupCodesCount(0);
             setSuccess('Two-factor authentication has been disabled');
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         }
     };
 
@@ -173,8 +174,8 @@ export default function SecuritySettingsPage() {
             setBackupCodesCount(data.backup_codes?.length || 0);
             setShowBackupCodes(true);
             setSuccess('New backup codes generated. Make sure to save them!');
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         }
     };
 

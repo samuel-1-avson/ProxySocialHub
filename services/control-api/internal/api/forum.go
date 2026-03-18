@@ -35,7 +35,7 @@ func RegisterForumRoutes(rg *gin.RouterGroup) {
 // getCategories returns all forum categories
 func getCategories(c *gin.Context) {
 	var categories []models.ForumCategory
-	db.DB.Order("sort_order ASC").Find(&categories)
+	db.Social().Order("sort_order ASC").Find(&categories)
 
 	// Auto-seed default categories if none exist
 	if len(categories) == 0 {
@@ -49,7 +49,7 @@ func getCategories(c *gin.Context) {
 		}
 		
 		for i := range defaultCategories {
-			db.DB.Create(&defaultCategories[i])
+			db.Social().Create(&defaultCategories[i])
 		}
 		
 		categories = defaultCategories
@@ -64,7 +64,7 @@ func getCategories(c *gin.Context) {
 	result := make([]CategoryWithCount, len(categories))
 	for i, cat := range categories {
 		var count int64
-		db.DB.Model(&models.ForumThread{}).Where("category_id = ?", cat.ID).Count(&count)
+		db.Social().Model(&models.ForumThread{}).Where("category_id = ?", cat.ID).Count(&count)
 		result[i] = CategoryWithCount{
 			ForumCategory: cat,
 			ThreadCount:   int(count),
@@ -79,14 +79,14 @@ func getCategory(c *gin.Context) {
 	slug := c.Param("slug")
 
 	var category models.ForumCategory
-	if err := db.DB.Where("slug = ?", slug).First(&category).Error; err != nil {
+	if err := db.Social().Where("slug = ?", slug).First(&category).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
 	}
 
 	// Count threads in category
 	var threadCount int64
-	db.DB.Model(&models.ForumThread{}).Where("category_id = ?", category.ID).Count(&threadCount)
+	db.Social().Model(&models.ForumThread{}).Where("category_id = ?", category.ID).Count(&threadCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"category":     category,
@@ -99,13 +99,13 @@ func getCategoryThreads(c *gin.Context) {
 	slug := c.Param("slug")
 
 	var category models.ForumCategory
-	if err := db.DB.Where("slug = ?", slug).First(&category).Error; err != nil {
+	if err := db.Social().Where("slug = ?", slug).First(&category).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
 	}
 
 	var threads []models.ForumThread
-	db.DB.Preload("Author").Preload("LastReplier").
+	db.Social().Preload("Author").Preload("LastReplier").
 		Where("category_id = ?", category.ID).
 		Order("is_pinned DESC, last_reply_at DESC NULLS LAST, created_at DESC").
 		Limit(50).
@@ -126,13 +126,13 @@ func getThread(c *gin.Context) {
 	}
 
 	var thread models.ForumThread
-	if err := db.DB.Preload("Author").Preload("Category").First(&thread, "id = ?", threadID).Error; err != nil {
+	if err := db.Social().Preload("Author").Preload("Category").First(&thread, "id = ?", threadID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
 		return
 	}
 
 	// Increment view count
-	db.DB.Model(&thread).Update("views_count", thread.ViewsCount+1)
+	db.Social().Model(&thread).Update("views_count", thread.ViewsCount+1)
 
 	// Pagination
 	page := getPageParam(c, 1)
@@ -140,11 +140,11 @@ func getThread(c *gin.Context) {
 	offset := (page - 1) * limit
 
 	var totalPosts int64
-	db.DB.Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts)
+	db.Social().Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts)
 
 	// Get posts
 	var posts []models.ForumPost
-	db.DB.Preload("Author").
+	db.Social().Preload("Author").
 		Where("thread_id = ?", threadID).
 		Order("created_at ASC").
 		Offset(offset).Limit(limit).
@@ -177,7 +177,7 @@ func createThread(c *gin.Context) {
 	}
 
 	var category models.ForumCategory
-	if err := db.DB.Where("slug = ?", req.CategorySlug).First(&category).Error; err != nil {
+	if err := db.Social().Where("slug = ?", req.CategorySlug).First(&category).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
 	}
@@ -195,12 +195,12 @@ func createThread(c *gin.Context) {
 		Content:    req.Content,
 	}
 
-	if err := db.DB.Create(&thread).Error; err != nil {
+	if err := db.Social().Create(&thread).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create thread"})
 		return
 	}
 
-	db.DB.Preload("Author").Preload("Category").First(&thread, "id = ?", thread.ID)
+	db.Social().Preload("Author").Preload("Category").First(&thread, "id = ?", thread.ID)
 
 	// Publish to Feed
 	go func() {
@@ -216,7 +216,7 @@ func createThread(c *gin.Context) {
 				"category":  category.Name,
 			},
 		)
-		db.DB.Create(feedEvent)      // Persistent
+		db.Social().Create(feedEvent)      // Persistent
 		PublishFeedEvent(*feedEvent) // Real-time + Cache
 	}()
 
@@ -240,7 +240,7 @@ func createPost(c *gin.Context) {
 	}
 
 	var thread models.ForumThread
-	if err := db.DB.First(&thread, "id = ?", threadID).Error; err != nil {
+	if err := db.Social().First(&thread, "id = ?", threadID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
 		return
 	}
@@ -263,7 +263,7 @@ func createPost(c *gin.Context) {
 		ParentID: req.ParentID,
 	}
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 	tx.Create(&post)
 
 	// Update thread
@@ -276,7 +276,7 @@ func createPost(c *gin.Context) {
 
 	tx.Commit()
 
-	db.DB.Preload("Author").First(&post, "id = ?", post.ID)
+	db.Social().Preload("Author").First(&post, "id = ?", post.ID)
 
 	c.JSON(http.StatusCreated, post)
 }
@@ -308,16 +308,16 @@ func votePost(c *gin.Context) {
 	}
 
 	var post models.ForumPost
-	if err := db.DB.First(&post, "id = ?", postID).Error; err != nil {
+	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
 		return
 	}
 
 	// Check existing vote
 	var existingVote models.ForumVote
-	hasVote := db.DB.Where("user_id = ? AND post_id = ?", userID, postID).First(&existingVote).Error == nil
+	hasVote := db.Social().Where("user_id = ? AND post_id = ?", userID, postID).First(&existingVote).Error == nil
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 
 	if hasVote {
 		if existingVote.VoteType == req.VoteType {
@@ -360,7 +360,7 @@ func votePost(c *gin.Context) {
 
 	tx.Commit()
 
-	db.DB.First(&post, "id = ?", postID)
+	db.Social().First(&post, "id = ?", postID)
 	c.JSON(http.StatusOK, gin.H{"upvotes": post.Upvotes, "downvotes": post.Downvotes})
 }
 
@@ -387,16 +387,16 @@ func voteThread(c *gin.Context) {
 	}
 
 	var thread models.ForumThread
-	if err := db.DB.First(&thread, "id = ?", threadID).Error; err != nil {
+	if err := db.Social().First(&thread, "id = ?", threadID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
 		return
 	}
 
 	// Check existing vote
 	var existingVote models.ForumVote
-	hasVote := db.DB.Where("user_id = ? AND thread_id = ?", userID, threadID).First(&existingVote).Error == nil
+	hasVote := db.Social().Where("user_id = ? AND thread_id = ?", userID, threadID).First(&existingVote).Error == nil
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 
 	if hasVote {
 		if existingVote.VoteType == req.VoteType {
@@ -439,7 +439,7 @@ func voteThread(c *gin.Context) {
 
 	tx.Commit()
 
-	db.DB.First(&thread, "id = ?", threadID)
+	db.Social().First(&thread, "id = ?", threadID)
 	c.JSON(http.StatusOK, gin.H{"upvotes": thread.Upvotes, "downvotes": thread.Downvotes})
 }
 
@@ -447,7 +447,7 @@ func voteThread(c *gin.Context) {
 func getRecentThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.DB.Preload("Author").Preload("Category").
+	db.Social().Preload("Author").Preload("Category").
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&threads)
@@ -459,7 +459,7 @@ func getRecentThreads(c *gin.Context) {
 func getPopularThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.DB.Preload("Author").Preload("Category").
+	db.Social().Preload("Author").Preload("Category").
 		Order("(upvotes - downvotes) DESC, created_at DESC").
 		Limit(limit).
 		Find(&threads)
@@ -471,7 +471,7 @@ func getPopularThreads(c *gin.Context) {
 func getUnansweredThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.DB.Preload("Author").Preload("Category").
+	db.Social().Preload("Author").Preload("Category").
 		Where("replies_count = ?", 0).
 		Order("created_at DESC").
 		Limit(limit).
@@ -507,11 +507,11 @@ func searchForum(c *gin.Context) {
 	var total int64
 
 	// ILIKE search (Case-insensitive)
-	db.DB.Model(&models.ForumThread{}).
+	db.Social().Model(&models.ForumThread{}).
 		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
 		Count(&total)
 
-	if err := db.DB.Preload("Author").Preload("Category").
+	if err := db.Social().Preload("Author").Preload("Category").
 		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
@@ -550,9 +550,9 @@ func getMyPosts(c *gin.Context) {
 	var posts []models.ForumPost
 	var total int64
 
-	db.DB.Model(&models.ForumPost{}).Where("author_id = ?", userID).Count(&total)
+	db.Social().Model(&models.ForumPost{}).Where("author_id = ?", userID).Count(&total)
 
-	if err := db.DB.Preload("Author").
+	if err := db.Social().Preload("Author").
 		Where("author_id = ?", userID).
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
@@ -590,9 +590,9 @@ func getMyThreads(c *gin.Context) {
 	var threads []models.ForumThread
 	var total int64
 
-	db.DB.Model(&models.ForumThread{}).Where("author_id = ?", userID).Count(&total)
+	db.Social().Model(&models.ForumThread{}).Where("author_id = ?", userID).Count(&total)
 
-	if err := db.DB.Preload("Author").Preload("Category").
+	if err := db.Social().Preload("Author").Preload("Category").
 		Where("author_id = ?", userID).
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
@@ -650,7 +650,7 @@ func reportThread(c *gin.Context) {
 
 	// Check if thread exists
 	var thread models.ForumThread
-	if err := db.DB.First(&thread, "id = ?", threadID).Error; err != nil {
+	if err := db.Social().First(&thread, "id = ?", threadID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
 		return
 	}
@@ -664,7 +664,7 @@ func reportThread(c *gin.Context) {
 		Status:     "pending",
 	}
 
-	if err := db.DB.Create(&report).Error; err != nil {
+	if err := db.Social().Create(&report).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit report"})
 		return
 	}
@@ -707,7 +707,7 @@ func reportPost(c *gin.Context) {
 
 	// Check if post exists
 	var post models.ForumPost
-	if err := db.DB.First(&post, "id = ?", postID).Error; err != nil {
+	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
 		return
 	}
@@ -721,7 +721,7 @@ func reportPost(c *gin.Context) {
 		Status:     "pending",
 	}
 
-	if err := db.DB.Create(&report).Error; err != nil {
+	if err := db.Social().Create(&report).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit report"})
 		return
 	}

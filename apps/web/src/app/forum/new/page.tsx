@@ -15,6 +15,7 @@ import {
     AlertCircle,
     CheckCircle2,
 } from "lucide-react";
+import { getErrorMessage } from "@/lib/utils";
 
 function NewThreadContent() {
     const router = useRouter();
@@ -99,8 +100,8 @@ function NewThreadContent() {
                 content: formData.content.trim(),
             });
             router.push(`/forum/thread/${thread.id}`);
-        } catch (err: any) {
-            setError(err.message || "Failed to create thread");
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || "Failed to create thread");
             setSubmitting(false);
         }
     };

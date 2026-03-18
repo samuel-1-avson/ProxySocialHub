@@ -57,9 +57,9 @@ func (e *MilestoneReleaseEngine) releaseMilestone(escrow models.EscrowTransactio
 		return err
 	}
 
-	// For Phase 10.3, assume base GHS/SOL balance update
-	newBalance := wallet.BalanceGHS + milestone.Amount
-	if err := tx.Model(&wallet).Update("balance_ghs", newBalance).Error; err != nil {
+	// SOL-only balance update
+	newBalance := wallet.BalanceSOL + milestone.Amount
+	if err := tx.Model(&wallet).Update("balance_sol", newBalance).Error; err != nil {
 		tx.Rollback()
 		return err
 	}

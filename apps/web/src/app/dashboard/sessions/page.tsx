@@ -1,53 +1,57 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { createSession, getSessions, terminateSession, Session } from '@/lib/api';
-import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock, Activity, Radio } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createSession, getSessions, terminateSession } from '@/lib/api';
+import { ExternalLink, Terminal, Globe, Shield, Loader2, Copy, Trash2, Plus, Clock, Activity, Radio, AlertTriangle, X } from 'lucide-react';
 import { StreamingSessionCard } from '@/components/StreamingSessionCard';
 import { SessionLiveCard } from '@/components/SessionLiveCard';
+import { useToast } from '@/stores';
 
 export default function SessionsPage() {
-    const [sessions, setSessions] = useState<Session[]>([]);
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
+    const toast = useToast();
+
     const [creating, setCreating] = useState(false);
     const [newCredentials, setNewCredentials] = useState<{ username: string; password: string; endpoint: string } | null>(null);
+    // ID of the session awaiting termination confirmation (inline confirm row)
+    const [pendingTerminateId, setPendingTerminateId] = useState<string | null>(null);
+    const [terminating, setTerminating] = useState(false);
 
-    useEffect(() => {
-        fetchSessions();
-    }, []);
-
-    async function fetchSessions() {
-        try {
-            const data = await getSessions();
-            setSessions(data);
-        } catch (error) {
-            console.error('Failed to fetch sessions:', error);
-        } finally {
-            setLoading(false);
-        }
-    }
+    const { data: sessions = [], isLoading: loading } = useQuery({
+        queryKey: ['sessions'],
+        queryFn: getSessions,
+        refetchInterval: 10000,
+        retry: 2,
+    });
 
     async function handleCreateSession(type: 'rotating' | 'sticky') {
         setCreating(true);
         try {
             const result = await createSession({ type });
             setNewCredentials(result.proxy_credentials);
-            await fetchSessions();
+            await queryClient.invalidateQueries({ queryKey: ['sessions'] });
         } catch (error) {
             console.error('Failed to create session:', error);
-            alert('Failed to create session. Please try again.');
+            toast.error('Session failed', 'Could not create session. Please try again.');
         } finally {
             setCreating(false);
         }
     }
 
-    async function handleTerminate(sessionId: string) {
-        if (!confirm('TERMINATE SESSION? THIS ACTION CANNOT BE UNDONE.')) return;
+    async function confirmTerminate() {
+        if (!pendingTerminateId) return;
+        setTerminating(true);
         try {
-            await terminateSession(sessionId);
-            await fetchSessions();
+            await terminateSession(pendingTerminateId);
+            await queryClient.invalidateQueries({ queryKey: ['sessions'] });
+            toast.success('Session terminated', 'The proxy tunnel has been closed.');
         } catch (error) {
             console.error('Failed to terminate session:', error);
+            toast.error('Termination failed', 'Could not close the session. Please try again.');
+        } finally {
+            setTerminating(false);
+            setPendingTerminateId(null);
         }
     }
 
@@ -131,7 +135,7 @@ export default function SessionsPage() {
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-card w-full max-w-md border border-primary shadow-[0_0_30px_rgba(34,197,94,0.1)] p-6 card-retro animate-in zoom-in-95">
                         <h3 className="text-lg font-bold font-mono uppercase text-primary mb-2">Tunnel Established</h3>
-                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-6">SECURE CREDENTIALS GENERATED.</p>
+                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-6">SECURE CREDENTIALS GENERATED. STORE THESE SAFELY.</p>
 
                         <div className="space-y-4 bg-black border border-primary/20 rounded-sm p-4 font-mono text-xs">
                             <div>
@@ -154,6 +158,7 @@ export default function SessionsPage() {
                                     navigator.clipboard.writeText(
                                         `${newCredentials.endpoint}\n${newCredentials.username}\n${newCredentials.password}`
                                     );
+                                    toast.success('Copied', 'Credentials copied to clipboard.');
                                 }}
                                 className="flex-1 btn-retro btn-retro-outline flex items-center justify-center gap-2"
                             >
@@ -191,7 +196,7 @@ export default function SessionsPage() {
                             <StreamingSessionCard
                                 key={session.id}
                                 session={session}
-                                onTerminate={handleTerminate}
+                                onTerminate={(id) => setPendingTerminateId(id)}
                             />
                         ))}
                         {sessions.filter(s => s.status === 'active').length === 0 && (
@@ -223,7 +228,10 @@ export default function SessionsPage() {
                             </thead>
                             <tbody className="divide-y divide-border/50">
                                 {sessions.map((session) => (
-                                    <tr key={session.id} className="hover:bg-secondary/10 transition-colors">
+                                    <tr
+                                        key={session.id}
+                                        className={`transition-colors ${pendingTerminateId === session.id ? 'bg-destructive/5 border-destructive/20' : 'hover:bg-secondary/10'}`}
+                                    >
                                         <td className="px-6 py-4 font-bold">
                                             <div className="flex flex-col gap-1">
                                                 <span>{session.id.slice(0, 8)}...</span>
@@ -241,28 +249,50 @@ export default function SessionsPage() {
                                         </td>
                                         <td className="px-6 py-4 uppercase font-bold">{session.type}</td>
                                         <td className="px-6 py-4">
-                                            <span
-                                                className={`px-2 py-0.5 rounded-sm border text-[10px] font-bold uppercase ${session.status === 'active'
-                                                    ? 'bg-green-500/10 text-green-500 border-green-500/20'
-                                                    : 'bg-secondary text-muted-foreground border-border'
-                                                    }`}
-                                            >
+                                            <span className={`px-2 py-0.5 rounded-sm border text-[10px] font-bold uppercase ${session.status === 'active' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-secondary text-muted-foreground border-border'}`}>
                                                 {session.status}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-muted-foreground flex items-center gap-1">
-                                            <Clock size={12} />
-                                            {new Date(session.created_at).toLocaleDateString()}
+                                        <td className="px-6 py-4 text-muted-foreground">
+                                            <span className="flex items-center gap-1">
+                                                <Clock size={12} />
+                                                {new Date(session.created_at).toLocaleDateString()}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {session.status === 'active' && (
-                                                <button
-                                                    onClick={() => handleTerminate(session.id)}
-                                                    className="text-destructive hover:bg-destructive/10 p-2 rounded-sm transition-colors"
-                                                    title="Terminate Session"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
+                                                pendingTerminateId === session.id ? (
+                                                    /* Inline confirm row */
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <span className="flex items-center gap-1 text-[10px] font-bold text-destructive uppercase">
+                                                            <AlertTriangle size={12} /> Terminate?
+                                                        </span>
+                                                        <button
+                                                            onClick={confirmTerminate}
+                                                            disabled={terminating}
+                                                            aria-label="Confirm session termination"
+                                                            className="px-3 py-1 text-[10px] font-bold uppercase bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 rounded-sm transition-all disabled:opacity-50"
+                                                        >
+                                                            {terminating ? <Loader2 size={10} className="animate-spin" /> : 'Confirm'}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setPendingTerminateId(null)}
+                                                            aria-label="Cancel termination"
+                                                            className="px-3 py-1 text-[10px] font-bold uppercase bg-secondary/50 text-muted-foreground border border-border hover:text-foreground rounded-sm transition-all"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => setPendingTerminateId(session.id)}
+                                                        aria-label="Terminate session"
+                                                        className="text-destructive hover:bg-destructive/10 p-2 rounded-sm transition-colors"
+                                                        title="Terminate Session"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )
                                             )}
                                         </td>
                                     </tr>

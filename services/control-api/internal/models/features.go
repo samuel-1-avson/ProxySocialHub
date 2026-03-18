@@ -185,19 +185,38 @@ type ProviderNode struct {
 	StakePDA            string  `gorm:"size:64" json:"stake_pda,omitempty"`
 	StakeStatus         string  `gorm:"size:20;default:'none'" json:"stake_status"` // none, pending, staked
 
+	// Payout
+	WalletAddress string `gorm:"type:varchar(64)" json:"wallet_address,omitempty"` // Solana wallet for earnings
+
 	// Verification Tier (Phase 6)
-	Tier               string     `gorm:"size:20;default:'unverified'" json:"tier"`
-	TierVerifiedAt     *time.Time `json:"tier_verified_at,omitempty"`
-	TierScore          float64    `gorm:"type:numeric(5,2);default:0" json:"tier_score"`
-	UptimePercent      float64    `gorm:"type:numeric(5,2);default:0" json:"uptime_percent"`
-	TotalSessionsServed int       `gorm:"default:0" json:"total_sessions_served"`
-	AvgLatencyMs       int        `gorm:"default:0" json:"avg_latency_ms"`
-	DisputeCount       int        `gorm:"default:0" json:"dispute_count"`
-	KYCVerified        bool       `gorm:"default:false" json:"kyc_verified"`
+	Tier                string     `gorm:"size:20;default:'unverified'" json:"tier"`
+	TierVerifiedAt      *time.Time `json:"tier_verified_at,omitempty"`
+	TierScore           float64    `gorm:"type:numeric(5,2);default:0" json:"tier_score"`
+	UptimePercent       float64    `gorm:"type:numeric(5,2);default:0" json:"uptime_percent"`
+	TotalSessionsServed int        `gorm:"default:0" json:"total_sessions_served"`
+	AvgLatencyMs        int        `gorm:"default:0" json:"avg_latency_ms"`
+	DisputeCount        int        `gorm:"default:0" json:"dispute_count"`
+	DemotionWarnings    int        `gorm:"default:0" json:"demotion_warnings"` // Grace counter before tier demotion
 }
 
 func (ProviderNode) TableName() string {
 	return "provider_nodes"
+}
+
+// GetEarningsMultiplier returns a quality-based SOL earnings multiplier (0.70 – 1.25).
+func (n *ProviderNode) GetEarningsMultiplier() float64 {
+	switch {
+	case n.QualityScore >= 95:
+		return 1.25
+	case n.QualityScore >= 85:
+		return 1.10
+	case n.QualityScore >= 75:
+		return 1.00
+	case n.QualityScore >= 60:
+		return 0.85
+	default:
+		return 0.70
+	}
 }
 
 type UptimeCheck struct {

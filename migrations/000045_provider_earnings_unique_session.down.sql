@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_provider_earnings_provider_session;

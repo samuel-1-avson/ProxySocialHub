@@ -32,6 +32,9 @@ type Node struct {
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 
+	// Gateway identity — stable across IP changes; used for deduplication on re-registration
+	GatewayNodeID string `gorm:"type:varchar(128);index" json:"gateway_node_id,omitempty"`
+
 	// On-Chain Registry
 	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
 	NetUID              int    `json:"net_uid"`

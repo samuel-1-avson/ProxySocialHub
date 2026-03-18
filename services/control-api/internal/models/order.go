@@ -69,6 +69,7 @@ func (o *Order) BeforeCreate(tx *gorm.DB) error {
 
 // CreateOrderRequest represents a request to create an order
 type CreateOrderRequest struct {
-	ListingID   uuid.UUID `json:"listing_id" binding:"required"`
-	BandwidthGB float64   `json:"bandwidth_gb" binding:"required,gt=0"`
+	ListingID   uuid.UUID   `json:"listing_id" binding:"required"`
+	BandwidthGB float64     `json:"bandwidth_gb" binding:"required,gt=0"`
+	SessionType SessionType `json:"session_type"` // "rotating" or "sticky"; defaults to rotating
 }

@@ -97,11 +97,6 @@ func LogUserAction(c *gin.Context, eventType models.AuditEventType, targetUserID
 	Log(c, eventType, "user", targetUserID, description, nil)
 }
 
-// LogKYCAction is a convenience function for KYC-related actions
-func LogKYCAction(c *gin.Context, eventType models.AuditEventType, kycID string, description string) {
-	Log(c, eventType, "kyc", kycID, description, nil)
-}
-
 // LogWalletAction is a convenience function for wallet-related actions
 func LogWalletAction(c *gin.Context, eventType models.AuditEventType, walletID string, description string) {
 	Log(c, eventType, "wallet", walletID, description, nil)

@@ -34,7 +34,7 @@ func TestCreateOrder_Success(t *testing.T) {
 
 	// 3. Fund Buyer Wallet ($100) - Already created by CreateTestUser
 	// Set Seller Wallet to 0 for clear calculations
-	db.DB.Model(&models.Wallet{}).Where("user_id = ?", provider.ID).Update("balance_ghs", 0)
+	db.DB.Model(&models.Wallet{}).Where("user_id = ?", provider.ID).Update("balance_sol", 0)
 
 	// 4. Router
 	r := setupTestRouter()
@@ -63,16 +63,16 @@ func TestCreateOrder_Success(t *testing.T) {
 	// 7a. Buyer Wallet deducted ($100 - $20 = $80)
 	var updatedWallet models.Wallet
 	db.DB.First(&updatedWallet, "user_id = ?", buyer.ID)
-	if updatedWallet.BalanceGHS != 80.0 {
-		t.Errorf("Expected buyer balance 80.0, got %f", updatedWallet.BalanceGHS)
+	if updatedWallet.BalanceSOL != 80.0 {
+		t.Errorf("Expected buyer balance 80.0, got %f", updatedWallet.BalanceSOL)
 	}
 
 	// 7b. Platform Fee (10% = $2.00)
 	// 7c. Seller Wallet Credited ($18.00)
 	var sellerWallet models.Wallet
 	db.DB.First(&sellerWallet, "user_id = ?", provider.ID)
-	if sellerWallet.BalanceGHS != 18.0 {
-		t.Errorf("Expected seller balance 18.0, got %f", sellerWallet.BalanceGHS)
+	if sellerWallet.BalanceSOL != 18.0 {
+		t.Errorf("Expected seller balance 18.0, got %f", sellerWallet.BalanceSOL)
 	}
 
 	// 7d. Order Created
@@ -102,7 +102,7 @@ func TestCreateOrder_InsufficientFunds(t *testing.T) {
 	db.DB.Create(&listing)
 
 	// Wallet with $10
-	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_ghs", 10.0)
+	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 10.0)
 
 	// 2. Router
 	r := setupTestRouter()

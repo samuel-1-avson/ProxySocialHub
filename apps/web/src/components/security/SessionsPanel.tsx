@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { fetchWithAuth } from '@/lib/auth';
 import { Monitor, Smartphone, Tablet, Clock, MapPin, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -43,8 +44,8 @@ export default function SessionsPanel() {
             if (!res.ok) throw new Error('Failed to load sessions');
             const data: SessionsResponse = await res.json();
             setSessions(data.sessions || []);
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }
@@ -58,8 +59,8 @@ export default function SessionsPanel() {
             });
             if (!res.ok) throw new Error('Failed to revoke session');
             setSessions(sessions.filter(s => s.id !== sessionId));
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setRevoking(null);
         }
@@ -75,8 +76,8 @@ export default function SessionsPanel() {
             });
             if (!res.ok) throw new Error('Failed to revoke all sessions');
             setSessions([]);
-        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }

@@ -1,0 +1,252 @@
+package api
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/models"
+)
+
+// RegisterGatewayRoutes registers gateway-specific routes (called by Edge Gateway)
+func RegisterGatewayRoutes(rg *gin.RouterGroup) {
+	gateway := rg.Group("/gateway")
+	{
+		// Node registration and heartbeat
+		gateway.POST("/nodes/register", registerGatewayNode)
+		gateway.POST("/nodes/:id/heartbeat", updateGatewayNodeHeartbeat)
+		gateway.POST("/nodes/:id/status", updateGatewayNodeStatus)
+	}
+}
+
+// RegisterGatewayNodeRequest represents a node registration from the Edge Gateway
+type RegisterGatewayNodeRequest struct {
+	ProviderUserID string `json:"provider_user_id" binding:"required"`
+	NodeID         string `json:"node_id" binding:"required"` // The node ID from Edge Gateway (e.g., "node_<user_id>")
+	IPAddress      string `json:"ip_address" binding:"required"`
+	Port           int    `json:"port"`
+	Region         string `json:"region"`
+	CountryCode    string `json:"country_code"`
+	City           string `json:"city"`
+	ISP            string `json:"isp"`
+	ConnectionType string `json:"connection_type"` // residential, mobile, datacenter
+	Version        string `json:"version"`
+}
+
+// registerGatewayNode creates or updates a node record when a provider connects via Edge Gateway
+func registerGatewayNode(c *gin.Context) {
+	var req RegisterGatewayNodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Parse provider user ID
+	providerID, err := uuid.Parse(req.ProviderUserID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider_user_id"})
+		return
+	}
+
+	// Check if node already exists — prefer GatewayNodeID (stable across IP changes),
+	// fall back to provider+IP+port for legacy registrations without a NodeID.
+	var existingNode models.Node
+	if req.NodeID != "" {
+		err = db.DB.Where("provider_user_id = ? AND gateway_node_id = ?", providerID, req.NodeID).First(&existingNode).Error
+	}
+	if err != nil && req.NodeID == "" {
+		// Legacy path: match on provider + IP + port
+		err = db.DB.Where("provider_user_id = ? AND ip_address = ? AND port = ?", providerID, req.IPAddress, req.Port).First(&existingNode).Error
+	}
+
+	if err != nil {
+		// Create new node
+		node := models.Node{
+			ID:                  uuid.New(),
+			ProviderUserID:      providerID,
+			GatewayNodeID:       req.NodeID,
+			IPAddress:           req.IPAddress,
+			Port:                req.Port,
+			Protocol:            "http",
+			CountryCode:         req.CountryCode,
+			Region:              req.Region,
+			City:                req.City,
+			ISP:                 req.ISP,
+			ConnectionType:      req.ConnectionType,
+			IsHealthy:           true,
+			ActiveConnections:   0,
+			MaxConnections:      100,
+			QualityScore:        100,
+			UptimePercent:       100,
+			LastSeenAt:          time.Now(),
+			IsRegisteredOnChain: false,
+		}
+
+		if err := db.DB.Create(&node).Error; err != nil {
+			logging.Error(err).Str("node_id", req.NodeID).Msg("Failed to create gateway node")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create node"})
+			return
+		}
+
+		logging.Info().
+			Str("node_id", node.ID.String()).
+			Str("provider_id", providerID.String()).
+			Str("gateway_node_id", req.NodeID).
+			Msg("Gateway node registered")
+
+		c.JSON(http.StatusCreated, gin.H{
+			"id":        node.ID.String(),
+			"node_id":   req.NodeID,
+			"status":    "created",
+			"is_healthy": true,
+		})
+	} else {
+		// Update existing node
+		updates := map[string]interface{}{
+			"is_healthy":      true,
+			"last_seen_at":    time.Now(),
+			"region":          req.Region,
+			"country_code":    req.CountryCode,
+			"city":            req.City,
+			"isp":             req.ISP,
+			"connection_type": req.ConnectionType,
+		}
+		if req.Port > 0 {
+			updates["port"] = req.Port
+		}
+		if req.NodeID != "" {
+			updates["gateway_node_id"] = req.NodeID
+		}
+
+		if err := db.DB.Model(&existingNode).Updates(updates).Error; err != nil {
+			logging.Error(err).Str("node_id", existingNode.ID.String()).Msg("Failed to update gateway node")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update node"})
+			return
+		}
+
+		logging.Info().
+			Str("node_id", existingNode.ID.String()).
+			Str("gateway_node_id", req.NodeID).
+			Msg("Gateway node reconnected")
+
+		c.JSON(http.StatusOK, gin.H{
+			"id":        existingNode.ID.String(),
+			"node_id":   req.NodeID,
+			"status":    "updated",
+			"is_healthy": true,
+		})
+	}
+}
+
+// GatewayHeartbeatRequest represents a heartbeat update from Edge Gateway
+type GatewayHeartbeatRequest struct {
+	ActiveConnections int  `json:"active_connections"`
+	TotalBytesUp      int64 `json:"total_bytes_up"`
+	TotalBytesDown    int64 `json:"total_bytes_down"`
+	LatencyMs         int   `json:"latency_ms"`
+	IsHealthy         bool  `json:"is_healthy"`
+}
+
+// updateGatewayNodeHeartbeat updates node stats from Edge Gateway heartbeat
+func updateGatewayNodeHeartbeat(c *gin.Context) {
+	nodeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	var req GatewayHeartbeatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{
+		"last_seen_at":       time.Now(),
+		"is_healthy":         req.IsHealthy,
+		"active_connections": req.ActiveConnections,
+		"latency_ms":         req.LatencyMs,
+	}
+
+	if req.TotalBytesUp > 0 {
+		updates["total_bytes_up"] = req.TotalBytesUp
+	}
+	if req.TotalBytesDown > 0 {
+		updates["total_bytes_down"] = req.TotalBytesDown
+	}
+
+	if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node heartbeat")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
+		return
+	}
+
+	// Recalculate quality score using latest stats
+	var node models.Node
+	if err := db.DB.Where("id = ?", nodeID).First(&node).Error; err == nil {
+		newScore := node.CalculateQualityScore()
+		if err := db.DB.Model(&node).Update("quality_score", newScore).Error; err != nil {
+			logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on heartbeat")
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now()})
+}
+
+// GatewayStatusUpdateRequest represents a status update from Edge Gateway
+type GatewayStatusUpdateRequest struct {
+	IsHealthy bool   `json:"is_healthy"`
+	Status    string `json:"status"` // "online", "offline", "degraded"
+	Reason    string `json:"reason,omitempty"`
+}
+
+// updateGatewayNodeStatus updates node online/offline status
+func updateGatewayNodeStatus(c *gin.Context) {
+	nodeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	var req GatewayStatusUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{
+		"is_healthy":   req.IsHealthy,
+		"last_seen_at": time.Now(),
+	}
+
+	if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
+		return
+	}
+
+	logging.Info().
+		Str("node_id", nodeID.String()).
+		Bool("is_healthy", req.IsHealthy).
+		Str("status", req.Status).
+		Msg("Gateway node status updated")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "ok",
+		"is_healthy": req.IsHealthy,
+		"timestamp":  time.Now(),
+	})
+}
+
+// GetNodeByProviderAndIP looks up a node by provider ID and IP+port (used by gateway)
+func GetNodeByProviderAndIP(providerID uuid.UUID, ipAddress string, port int) (*models.Node, error) {
+	var node models.Node
+	err := db.DB.Where("provider_user_id = ? AND ip_address = ? AND port = ?", providerID, ipAddress, port).First(&node).Error
+	if err != nil {
+		return nil, err
+	}
+	return &node, nil
+}

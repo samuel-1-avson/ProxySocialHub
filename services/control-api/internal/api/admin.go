@@ -117,18 +117,9 @@ func getUser(c *gin.Context) {
 	var sessionCount int64
 	db.DB.Model(&models.Session{}).Where("user_id = ?", userID).Count(&sessionCount)
 
-	var kycStatus string
-	var kyc models.KycVerification
-	if db.DB.Where("user_id = ?", userID).First(&kyc).Error == nil {
-		kycStatus = string(kyc.Status)
-	} else {
-		kycStatus = "not_started"
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"user":          user,
 		"session_count": sessionCount,
-		"kyc_status":    kycStatus,
 	})
 }
 
@@ -272,7 +263,7 @@ type PendingPayout struct {
 	UserID           string  `json:"user_id"`
 	Email            string  `json:"email"`
 	Role             string  `json:"role"`
-	EarningsGHS      float64 `json:"earnings_ghs"`
+	EarningsSOL      float64 `json:"earnings_sol"`
 	TotalBytesServed int64   `json:"total_bytes_served"`
 	Phone            string  `json:"phone,omitempty"`
 }
@@ -294,7 +285,7 @@ func getPendingPayouts(c *gin.Context) {
 					UserID:      provider.ID.String(),
 					Email:       provider.Email,
 					Role:        provider.Role,
-					EarningsGHS: wallet.BalanceSOL, // Naming mismatch in DTO (EarningsGHS vs SOL value)
+					EarningsSOL: wallet.BalanceSOL,
 					// Let's rely on frontend interpreting the value. Ideally rename struct field but avoiding cascade to frontend TS.
 				})
 			}
@@ -394,9 +385,8 @@ type SystemStats struct {
 	ActiveSessions  int64   `json:"active_sessions"`
 	TotalNodes      int64   `json:"total_nodes"`
 	OnlineNodes     int64   `json:"online_nodes"`
-	TotalRevenueGHS float64 `json:"total_revenue_ghs"`
-	TodayRevenueGHS float64 `json:"today_revenue_ghs"`
-	PendingKYC      int64   `json:"pending_kyc"`
+	TotalRevenueSOL float64 `json:"total_revenue_sol"`
+	TodayRevenueSOL float64 `json:"today_revenue_sol"`
 }
 
 func getSystemStats(c *gin.Context) {
@@ -409,10 +399,6 @@ func getSystemStats(c *gin.Context) {
 	db.DB.Model(&models.Session{}).Where("status = ?", models.SessionActive).Count(&stats.ActiveSessions)
 	db.DB.Model(&models.Node{}).Count(&stats.TotalNodes)
 	db.DB.Model(&models.Node{}).Where("is_healthy = ?", true).Count(&stats.OnlineNodes)
-	db.DB.Model(&models.KycVerification{}).Where("status IN ?", []models.KYCStatus{
-		models.KYCStatusPending,
-		models.KYCStatusInReview,
-	}).Count(&stats.PendingKYC)
 
 	// Calculate revenue from usage transactions
 	var totalRevenue float64
@@ -420,7 +406,7 @@ func getSystemStats(c *gin.Context) {
 		Where("type = ?", models.TransactionUsage).
 		Select("COALESCE(SUM(ABS(amount)), 0)").
 		Scan(&totalRevenue)
-	stats.TotalRevenueGHS = totalRevenue
+	stats.TotalRevenueSOL = totalRevenue
 
 	c.JSON(http.StatusOK, stats)
 }
@@ -501,11 +487,6 @@ type DashboardStats struct {
 	TodayRevenue float64 `json:"today_revenue_ghs"`
 	WeekRevenue  float64 `json:"week_revenue_ghs"`
 	MonthRevenue float64 `json:"month_revenue_ghs"`
-
-	// KYC Stats
-	PendingKYC  int64 `json:"pending_kyc"`
-	ApprovedKYC int64 `json:"approved_kyc"`
-	TotalKYC    int64 `json:"total_kyc"`
 }
 
 func getDashboardStats(c *gin.Context) {
@@ -548,13 +529,6 @@ func getDashboardStats(c *gin.Context) {
 		Where("type = ? AND created_at >= ?", models.TransactionUsage, monthAgo).
 		Select("COALESCE(SUM(ABS(amount)), 0)").
 		Scan(&stats.MonthRevenue)
-
-	// KYC stats
-	db.DB.Model(&models.KycVerification{}).Where("status IN ?", []models.KYCStatus{
-		models.KYCStatusPending, models.KYCStatusInReview,
-	}).Count(&stats.PendingKYC)
-	db.DB.Model(&models.KycVerification{}).Where("status = ?", models.KYCStatusApproved).Count(&stats.ApprovedKYC)
-	db.DB.Model(&models.KycVerification{}).Count(&stats.TotalKYC)
 
 	c.JSON(http.StatusOK, stats)
 }

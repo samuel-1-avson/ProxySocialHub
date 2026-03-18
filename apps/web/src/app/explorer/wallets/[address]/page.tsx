@@ -115,7 +115,7 @@ export default function WalletInspectorPage() {
                                     </div>
                                 )}
                                 <p className="text-[10px] text-white/20 mt-1">
-                                    ≈ ${(wallet?.balance_sol ? wallet.balance_sol * 145 : 0).toFixed(2)} USD
+                                    ≈ ${(wallet?.balance_sol && wallet?.sol_price_usd ? wallet.balance_sol * wallet.sol_price_usd : 0).toFixed(2)} USD
                                 </p>
                             </div>
                         </div>

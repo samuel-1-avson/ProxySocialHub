@@ -2,7 +2,7 @@ package api
 
 import (
 	"net/http"
-	"time"
+
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,7 +16,6 @@ type providerTierRequirement struct {
 	MinUptime   float64 `json:"min_uptime_percent"`
 	MinSessions int     `json:"min_sessions"`
 	MaxDisputes int     `json:"max_disputes"`
-	NeedsKYC   bool    `json:"needs_kyc"`
 	Description string  `json:"description"`
 }
 
@@ -26,7 +25,6 @@ var providerTierRequirements = map[string]providerTierRequirement{
 		MinUptime:   0,
 		MinSessions: 0,
 		MaxDisputes: -1,
-		NeedsKYC:   false,
 		Description: "Default tier for all new providers. No requirements met yet.",
 	},
 	"basic": {
@@ -34,7 +32,6 @@ var providerTierRequirements = map[string]providerTierRequirement{
 		MinUptime:   90,
 		MinSessions: 0,
 		MaxDisputes: -1,
-		NeedsKYC:   false,
 		Description: "Score >= 20 and uptime >= 90%. A solid starting point.",
 	},
 	"verified": {
@@ -42,15 +39,13 @@ var providerTierRequirements = map[string]providerTierRequirement{
 		MinUptime:   95,
 		MinSessions: 100,
 		MaxDisputes: -1,
-		NeedsKYC:   true,
-		Description: "Score >= 50, uptime >= 95%, at least 100 sessions, and KYC verified.",
+		Description: "Score >= 50, uptime >= 95%, and at least 100 sessions.",
 	},
 	"premium": {
 		MinScore:    75,
 		MinUptime:   98,
 		MinSessions: 500,
 		MaxDisputes: 0,
-		NeedsKYC:   false,
 		Description: "Score >= 75, uptime >= 98%, 500+ sessions, and zero disputes.",
 	},
 	"enterprise": {
@@ -58,8 +53,7 @@ var providerTierRequirements = map[string]providerTierRequirement{
 		MinUptime:   99,
 		MinSessions: 2000,
 		MaxDisputes: 0,
-		NeedsKYC:   true,
-		Description: "Score >= 90, uptime >= 99%, 2000+ sessions, zero disputes, and KYC verified.",
+		Description: "Score >= 90, uptime >= 99%, 2000+ sessions, and zero disputes.",
 	},
 }
 
@@ -79,7 +73,7 @@ func nextProviderTier(current string) string {
 // RegisterTierRoutes registers provider verification tier routes on the protected group.
 func RegisterTierRoutes(protected *gin.RouterGroup) {
 	protected.GET("/providers/:provider_id/tier", GetProviderTier)
-	protected.PUT("/providers/:provider_id/tier", AdminUpdateProviderTier)
+	protected.PUT("/providers/:provider_id/tier", UpdateProviderTier)
 	protected.GET("/tiers/requirements", GetTierRequirements)
 }
 
@@ -119,7 +113,6 @@ func GetProviderTier(c *gin.Context) {
 		"total_sessions_served": node.TotalSessionsServed,
 		"avg_latency_ms":        node.AvgLatencyMs,
 		"dispute_count":         node.DisputeCount,
-		"kyc_verified":          node.KYCVerified,
 		"tier_verified_at":      node.TierVerifiedAt,
 		"tier_requirements": gin.H{
 			"current":   providerTierRequirements[node.Tier],
@@ -138,9 +131,9 @@ func GetTierRequirements(c *gin.Context) {
 	})
 }
 
-// AdminUpdateProviderTier allows a provider to update their own node's KYC status.
+// UpdateProviderTier allows a provider to update their own node's tier-related settings.
 // PUT /v1/providers/:provider_id/tier
-func AdminUpdateProviderTier(c *gin.Context) {
+func UpdateProviderTier(c *gin.Context) {
 	userIDStr := c.GetString("user_id")
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
@@ -167,36 +160,10 @@ func AdminUpdateProviderTier(c *gin.Context) {
 		return
 	}
 
-	var body struct {
-		KYCVerified bool `json:"kyc_verified"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	updates := map[string]interface{}{
-		"kyc_verified": body.KYCVerified,
-	}
-
-	// If KYC is being set for the first time, record timestamp
-	if body.KYCVerified && node.TierVerifiedAt == nil {
-		now := time.Now()
-		updates["tier_verified_at"] = now
-	}
-
-	if err := db.DB.Model(&models.ProviderNode{}).Where("id = ?", providerID).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update provider"})
-		return
-	}
-
-	// Re-fetch and return the updated node
-	db.DB.Where("id = ?", providerID).First(&node)
 	c.JSON(http.StatusOK, gin.H{
-		"provider_id":  node.ID,
-		"kyc_verified": node.KYCVerified,
-		"tier":         node.Tier,
-		"tier_score":   node.TierScore,
-		"message":      "KYC status updated. Tier will be recalculated on next evaluation cycle.",
+		"provider_id": node.ID,
+		"tier":        node.Tier,
+		"tier_score":  node.TierScore,
+		"message":     "Tier settings retrieved successfully. Tier is automatically recalculated on evaluation cycle.",
 	})
 }

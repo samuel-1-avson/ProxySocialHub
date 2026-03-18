@@ -19,6 +19,7 @@ import {
     Check,
     X,
 } from "lucide-react";
+import { getErrorMessage } from "@/lib/utils";
 
 type FriendshipStatus = "none" | "friends" | "request_sent" | "request_received" | "loading";
 
@@ -70,7 +71,7 @@ export function FriendButton({
             setStatus("request_sent");
             setRequestId(request.id);
             onStatusChange?.("request_sent");
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Failed to send friend request:", err);
         } finally {
             setLoading(false);

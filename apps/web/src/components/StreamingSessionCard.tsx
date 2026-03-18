@@ -1,8 +1,9 @@
 import { Session } from '@/lib/api';
 import { openChannel, updateChannelState } from '@/lib/services/channel';
-import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive, AlertCircle } from 'lucide-react';
+import { Activity, Clock, ShieldCheck, Square, Zap, HardDrive, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useToast } from '@/stores';
 
 interface StreamingSessionCardProps {
     session: Session;
@@ -12,12 +13,15 @@ interface StreamingSessionCardProps {
 export function StreamingSessionCard({ session, onTerminate }: StreamingSessionCardProps) {
     const [elapsed, setElapsed] = useState(0);
     const [cost, setCost] = useState(0);
+    const [confirmStop, setConfirmStop] = useState(false);
 
     // Turbo Mode States
     const [isTurbo, setIsTurbo] = useState(false);
     const [loadingTurbo, setLoadingTurbo] = useState(false);
     const [channelId, setChannelId] = useState<string | null>(null);
     const nonceRef = useRef(0);
+
+    const toast = useToast();
 
     // Check if user has a connected Solana wallet — required for Turbo (state channel signing)
     const { connected: walletConnected, publicKey, signMessage } = useWallet();
@@ -40,7 +44,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
 
     const activateTurbo = async () => {
         if (!walletConnected || !signMessage) {
-            alert('Connect your Solana wallet first to enable Turbo L2 mode.');
+            toast.warning('Wallet required', 'Connect your Solana wallet first to enable Turbo L2 mode.');
             return;
         }
 
@@ -50,17 +54,16 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             // Lock in 2 hours of bandwidth by default for smooth streaming
             const pricePerHour = session.listing?.price_per_hour || 0.1;
             const depositHours = 2;
-            const minDeposit = 0.05; // safety floor (USDT)
+            const minDeposit = 0.05; // safety floor (SOL)
             const calculatedDeposit = Math.max(pricePerHour * depositHours, minDeposit);
             const depositAmountLamports = Math.floor(calculatedDeposit * 1e9);
 
             const channel = await openChannel(session.id, depositAmountLamports);
             setChannelId(channel.id);
             setIsTurbo(true);
-            console.log('Live State Channel Opened:', channel.id);
         } catch (e) {
             console.error('Failed to open channel', e);
-            alert('Failed to upgrade to L2');
+            toast.error('L2 upgrade failed', 'Could not open state channel. Please try again.');
         } finally {
             setLoadingTurbo(false);
         }
@@ -103,7 +106,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             const diff = now - startTime;
             setElapsed(Math.floor(diff / 1000));
             setCost(diff * pricePerMs);
-        }, 100);
+        }, 1000);
 
         return () => clearInterval(interval);
     }, [session]);
@@ -147,11 +150,11 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 <div className="z-10">
                     <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Vested Amount</p>
                     <div className="text-3xl font-black font-mono tracking-tighter text-white flex items-baseline gap-1">
-                        {cost.toFixed(6)} <span className="text-sm text-green-500">USDT</span>
+                        {cost.toFixed(6)} <span className="text-sm text-green-500">SOL</span>
                     </div>
                     <div className="flex items-center gap-1 mt-2 text-[10px] font-mono text-green-400/80">
                         <Zap size={10} />
-                        Rate: {(session.listing?.price_per_hour || 0.1).toFixed(3)} USDT/hr
+                        Rate: {(session.listing?.price_per_hour || 0.1).toFixed(3)} SOL/hr
                     </div>
                 </div>
 
@@ -182,12 +185,35 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                     <span>On-Chain Escrow: {session.tx_hash?.slice(0, 6) || 'Pending'}...</span>
                 </div>
 
-                <button
-                    onClick={() => onTerminate(session.id)}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/50 rounded-sm text-xs font-bold font-mono uppercase transition-all"
-                >
-                    <Square size={12} fill="currentColor" /> Stop Stream
-                </button>
+                {confirmStop ? (
+                    <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-red-500 font-mono uppercase">
+                            <AlertTriangle size={10} /> Stop?
+                        </span>
+                        <button
+                            onClick={() => { onTerminate(session.id); setConfirmStop(false); }}
+                            aria-label="Confirm stop stream"
+                            className="px-3 py-1.5 bg-red-500/20 text-red-500 border border-red-500/40 rounded-sm text-[10px] font-bold font-mono uppercase hover:bg-red-500/30 transition-all"
+                        >
+                            Confirm
+                        </button>
+                        <button
+                            onClick={() => setConfirmStop(false)}
+                            aria-label="Cancel stop stream"
+                            className="px-3 py-1.5 bg-secondary/30 text-muted-foreground border border-border rounded-sm text-[10px] font-bold font-mono uppercase hover:text-foreground transition-all"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setConfirmStop(true)}
+                        aria-label="Stop stream"
+                        className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/50 rounded-sm text-xs font-bold font-mono uppercase transition-all"
+                    >
+                        <Square size={12} fill="currentColor" /> Stop Stream
+                    </button>
+                )}
             </div>
 
             {/* Turbo Mode Toggle */}

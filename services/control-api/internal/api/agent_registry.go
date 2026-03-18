@@ -69,7 +69,7 @@ func registerAgent(c *gin.Context) {
 		Verified:     true, // Self-registered agents are initially verified as identities
 	}
 
-	if err := db.DB.Create(&agent).Error; err != nil {
+	if err := db.Social().Create(&agent).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to register agent"})
 		return
 	}
@@ -87,7 +87,7 @@ func verifyAgentOutput(c *gin.Context) {
 
 	// 1. Fetch Agent
 	var agent models.Agent
-	if err := db.DB.Where("id = ?", req.AgentID).First(&agent).Error; err != nil {
+	if err := db.Social().Where("id = ?", req.AgentID).First(&agent).Error; err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "Agent not found"})
 		return
 	}
@@ -123,7 +123,7 @@ func verifyAgentOutput(c *gin.Context) {
 		Verified:    true,
 	}
 
-	if err := db.DB.Create(&output).Error; err != nil {
+	if err := db.Social().Create(&output).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to log verification"})
 		return
 	}
@@ -139,7 +139,7 @@ func getAgentVerifiedOutputs(c *gin.Context) {
 	agentID := c.Param("id")
 
 	var outputs []models.AgentOutput
-	result := db.DB.Where("agent_id = ? AND verified = ?", agentID, true).Order("created_at desc").Limit(50).Find(&outputs)
+	result := db.Social().Where("agent_id = ? AND verified = ?", agentID, true).Order("created_at desc").Limit(50).Find(&outputs)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to fetch history"})
 		return

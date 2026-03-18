@@ -1,12 +1,20 @@
 # Dockerfile for Web App (Next.js 15)
 # Multi-stage build for production
 
-# Stage 1: Builder
+# Stage 1: Dependencies
+FROM node:20-alpine AS deps
+WORKDIR /app
+# Install build tools needed for native addons (usb, lightningcss, etc.)
+RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Stage 2: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy pre-installed node_modules from host (run `npm install` on host first)
-COPY node_modules ./node_modules
+# Copy dependencies installed for the correct platform
+COPY --from=deps /app/node_modules ./node_modules
 
 # Copy source code
 COPY . .
