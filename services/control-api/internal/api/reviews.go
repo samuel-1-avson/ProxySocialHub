@@ -56,7 +56,7 @@ func createReview(c *gin.Context) {
 
 	// Check if already reviewed
 	var existingReview models.Review
-	if err := db.DB.Where("order_id = ?", req.OrderID).First(&existingReview).Error; err == nil {
+	if err := db.Social().Where("order_id = ?", req.OrderID).First(&existingReview).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Order already reviewed"})
 		return
 	}
@@ -120,7 +120,7 @@ func createReview(c *gin.Context) {
 		}()
 	}
 
-	db.DB.Preload("Reviewer").First(&review, "id = ?", review.ID)
+	db.Social().Preload("Reviewer").First(&review, "id = ?", review.ID)
 	c.JSON(http.StatusCreated, review)
 }
 
@@ -139,7 +139,7 @@ func getUserReviews(c *gin.Context) {
 	var reviews []models.Review
 	var total int64
 
-	query := db.DB.Model(&models.Review{}).Where("seller_id = ?", userID)
+	query := db.Social().Model(&models.Review{}).Where("seller_id = ?", userID)
 	query.Count(&total)
 
 	if err := query.Preload("Reviewer").Preload("Listing").
@@ -155,7 +155,7 @@ func getUserReviews(c *gin.Context) {
 		Avg   float64
 		Count int64
 	}
-	db.DB.Model(&models.Review{}).Where("seller_id = ?", userID).
+	db.Social().Model(&models.Review{}).Where("seller_id = ?", userID).
 		Select("AVG(rating) as avg, COUNT(*) as count").
 		Scan(&ratingBreakdown)
 
@@ -183,7 +183,7 @@ func getListingReviews(c *gin.Context) {
 	var reviews []models.Review
 	var total int64
 
-	query := db.DB.Model(&models.Review{}).Where("listing_id = ?", listingID)
+	query := db.Social().Model(&models.Review{}).Where("listing_id = ?", listingID)
 	query.Count(&total)
 
 	if err := query.Preload("Reviewer").
@@ -220,7 +220,7 @@ func respondToReview(c *gin.Context) {
 	}
 
 	var review models.Review
-	if err := db.DB.First(&review, "id = ?", reviewID).Error; err != nil {
+	if err := db.Social().First(&review, "id = ?", reviewID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Review not found"})
 		return
 	}
@@ -236,12 +236,12 @@ func respondToReview(c *gin.Context) {
 	}
 
 	now := time.Now()
-	db.DB.Model(&review).Updates(map[string]interface{}{
+	db.Social().Model(&review).Updates(map[string]interface{}{
 		"seller_response": req.Response,
 		"response_at":     now,
 	})
 
-	db.DB.Preload("Reviewer").First(&review, "id = ?", reviewID)
+	db.Social().Preload("Reviewer").First(&review, "id = ?", reviewID)
 	c.JSON(http.StatusOK, review)
 }
 
@@ -254,11 +254,11 @@ func markReviewHelpful(c *gin.Context) {
 	}
 
 	var review models.Review
-	if err := db.DB.First(&review, "id = ?", reviewID).Error; err != nil {
+	if err := db.Social().First(&review, "id = ?", reviewID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Review not found"})
 		return
 	}
 
-	db.DB.Model(&review).Update("helpful_count", review.HelpfulCount+1)
+	db.Social().Model(&review).Update("helpful_count", review.HelpfulCount+1)
 	c.JSON(http.StatusOK, gin.H{"helpful_count": review.HelpfulCount + 1})
 }

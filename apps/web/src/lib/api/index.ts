@@ -23,3 +23,4 @@ export * from './subscriptions';
 export * from './monitoring';
 export * from './referral';
 export * from './channels';
+export * from './provider';

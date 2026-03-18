@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import styles from './ProviderServices.module.css';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface ServiceConfig {
     id: string;
@@ -43,46 +44,31 @@ const TIERS = [
 ];
 
 export default function ProviderServicesPage() {
-    const [configs, setConfigs] = useState<ServiceConfig[]>([]);
-    const [templates, setTemplates] = useState<Template[]>([]);
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
     const [selectedConfig, setSelectedConfig] = useState<ServiceConfig | null>(null);
     const [saving, setSaving] = useState(false);
 
-    const fetchConfigs = useCallback(async () => {
-        try {
-            const response = await fetch('/api/v1/provider/services', {
-                credentials: 'include',
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setConfigs(data);
-            }
-        } catch (err) {
-            console.error('Failed to fetch configs:', err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+    const { data: configs = [], isLoading: loading } = useQuery({
+        queryKey: ['provider-service-configs'],
+        queryFn: async () => {
+            const response = await fetch('/api/v1/provider/services', { credentials: 'include' });
+            if (!response.ok) throw new Error('Failed to fetch configs');
+            return response.json() as Promise<ServiceConfig[]>;
+        },
+        retry: 2,
+    });
 
-    const fetchTemplates = useCallback(async () => {
-        try {
-            const response = await fetch('/api/v1/provider/services/templates', {
-                credentials: 'include',
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setTemplates(data.templates || []);
-            }
-        } catch (err) {
-            console.error('Failed to fetch templates:', err);
-        }
-    }, []);
+    const { data: templatesData } = useQuery({
+        queryKey: ['provider-service-templates'],
+        queryFn: async () => {
+            const response = await fetch('/api/v1/provider/services/templates', { credentials: 'include' });
+            if (!response.ok) throw new Error('Failed to fetch templates');
+            return response.json() as Promise<{ templates: Template[] }>;
+        },
+        retry: 2,
+    });
 
-    useEffect(() => {
-        fetchConfigs();
-        fetchTemplates();
-    }, [fetchConfigs, fetchTemplates]);
+    const templates = templatesData?.templates || [];
 
     const updateConfig = async (nodeId: string, updates: Partial<ServiceConfig>) => {
         setSaving(true);
@@ -94,7 +80,7 @@ export default function ProviderServicesPage() {
                 body: JSON.stringify(updates),
             });
             if (response.ok) {
-                fetchConfigs();
+                queryClient.invalidateQueries({ queryKey: ['provider-service-configs'] });
             }
         } catch (err) {
             console.error('Failed to update config:', err);
@@ -143,8 +129,29 @@ export default function ProviderServicesPage() {
                 <h2>Your Nodes ({configs.length})</h2>
 
                 {configs.length === 0 ? (
-                    <div className={styles.emptyState}>
-                        <p>No service configurations yet. Add a node to get started.</p>
+                    <div className={styles.emptyState} style={{ textAlign: 'center', padding: '3rem' }}>
+                        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔌</div>
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem' }}>No Nodes Connected</h3>
+                        <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                            You need to connect a node using the Provider CLI before you can configure services.
+                        </p>
+                        <a 
+                            href="/dashboard/provider/analytics"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                background: 'linear-gradient(135deg, #FF6B35, #FF8F5E)',
+                                color: 'white',
+                                padding: '0.75rem 1.5rem',
+                                borderRadius: '8px',
+                                textDecoration: 'none',
+                                fontWeight: 600,
+                                fontSize: '0.9rem'
+                            }}
+                        >
+                            View Setup Guide →
+                        </a>
                     </div>
                 ) : (
                     <div className={styles.configList}>

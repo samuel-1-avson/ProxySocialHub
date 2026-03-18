@@ -26,26 +26,31 @@ import {
     FileCode,
     Server,
     Radio,
+    Wifi,
+    Cpu,
+    Coins,
+    BarChart3,
+    LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useUIStore } from "@/lib/store/ui-store";
 import { AlertCenter } from "@/components/AlertCenter";
 import { motion, AnimatePresence } from "framer-motion";
 
-interface ExplorerSubItem {
+interface MenuItem {
     href: string;
     label: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
+    description?: string;
+    badge?: string;
 }
 
-const explorerSubItems: ExplorerSubItem[] = [
-    { href: "/explorer", label: "Overview", icon: Globe },
-    { href: "/explorer/transactions", label: "Transactions", icon: ArrowRightLeft },
-    { href: "/explorer/blocks", label: "Blocks", icon: Blocks },
-    { href: "/explorer/nodes", label: "Nodes", icon: Server },
-    { href: "/explorer/wallets", label: "Wallets", icon: Fingerprint },
-    { href: "/explorer/contracts", label: "Contracts", icon: FileCode },
-];
+interface MenuSection {
+    id: string;
+    title?: string;
+    description?: string;
+    items: MenuItem[];
+}
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -56,21 +61,130 @@ export function Sidebar() {
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
     const isExplorerActive = pathname?.startsWith("/explorer");
 
-    const menuItems = [
-        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/dashboard/wallet", label: "My Wallet", icon: Wallet },
-        { href: "/dashboard/proxy", label: "Start Sharing", icon: Network },
-        { href: "/marketplace", label: "Marketplace Hub", icon: Search },
-        { href: "/agents", label: "AI Marketplace", icon: Bot },
-        { href: "/feed", label: "Network Feed", icon: Activity },
-        { href: "/messages", label: "Comms Center", icon: MessageSquare },
-        { href: "/forum", label: "Community Forum", icon: Grid },
-        { href: "/governance", label: "Gov. Portal", icon: Vote },
+    // NEW: Organized menu with clear Consumer/Provider sections
+    const menuSections: MenuSection[] = [
+        {
+            id: "main",
+            items: [
+                { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+            ]
+        },
+        {
+            id: "consumer",
+            title: "Use Proxies",
+            description: "Browse the web securely",
+            items: [
+                { 
+                    href: "/dashboard/proxy", 
+                    label: "Connect", 
+                    icon: Globe,
+                    description: "Create proxy sessions"
+                },
+                { 
+                    href: "/dashboard/sessions", 
+                    label: "My Sessions", 
+                    icon: Wifi,
+                    description: "Active connections"
+                },
+                { 
+                    href: "/dashboard/usage", 
+                    label: "Usage & Billing", 
+                    icon: BarChart3,
+                    description: "Track bandwidth"
+                },
+            ]
+        },
+        {
+            id: "provider",
+            title: "Earn Money",
+            description: "Share your bandwidth",
+            items: [
+                {
+                    href: "/dashboard/provider",
+                    label: "Overview",
+                    icon: Server,
+                    description: "Provider dashboard"
+                },
+                {
+                    href: "/dashboard/provider/setup",
+                    label: "Setup Wizard",
+                    icon: Cpu,
+                    description: "Get started",
+                    badge: "Start"
+                },
+                {
+                    href: "/dashboard/provider/nodes",
+                    label: "My Nodes",
+                    icon: Radio,
+                    description: "Manage infrastructure"
+                },
+                {
+                    href: "/dashboard/provider/health",
+                    label: "Node Health",
+                    icon: ShieldCheck,
+                    description: "Diagnostics"
+                },
+                {
+                    href: "/dashboard/provider/tokens",
+                    label: "API Tokens",
+                    icon: Fingerprint,
+                    description: "CLI authentication"
+                },
+                {
+                    href: "/dashboard/provider/cli",
+                    label: "CLI & Tools",
+                    icon: FileCode,
+                    description: "Download & setup"
+                },
+                {
+                    href: "/dashboard/earnings",
+                    label: "Earnings",
+                    icon: Coins,
+                    description: "Income & payouts"
+                },
+            ]
+        },
+        {
+            id: "marketplace",
+            items: [
+                { href: "/marketplace", label: "Marketplace", icon: Search },
+                { href: "/agents", label: "AI Marketplace", icon: Bot },
+            ]
+        },
+        {
+            id: "explorer",
+            title: "Explorer",
+            description: "Network analytics",
+            items: [
+                { href: "/explorer", label: "Overview", icon: Blocks, description: "Network stats" },
+                { href: "/explorer/nodes", label: "Nodes", icon: Server, description: "Active nodes" },
+                { href: "/explorer/transactions", label: "Transactions", icon: ArrowRightLeft, description: "Tx history" },
+                { href: "/explorer/leaderboard", label: "Leaderboard", icon: Trophy, description: "Top providers" },
+                { href: "/explorer/sessions", label: "Sessions", icon: Radio, description: "Proxy sessions" },
+                { href: "/explorer/earnings", label: "Earnings", icon: Coins, description: "Provider payouts" },
+                { href: "/explorer/analytics", label: "Analytics", icon: BarChart3, description: "Network trends" },
+                { href: "/explorer/health", label: "Health", icon: ShieldCheck, description: "System status" },
+                { href: "/explorer/map", label: "Node Map", icon: Network, description: "Geographic view" },
+                { href: "/explorer/search", label: "Search", icon: Search, description: "Find anything" },
+                { href: "/explorer/wallets", label: "Wallets", icon: Wallet, description: "Address lookup" },
+                { href: "/explorer/contracts", label: "Contracts", icon: FileCode, description: "Smart contracts" },
+            ]
+        },
+        {
+            id: "community",
+            title: "Community",
+            items: [
+                { href: "/feed", label: "Network Feed", icon: Activity },
+                { href: "/messages", label: "Comms Center", icon: MessageSquare },
+                { href: "/forum", label: "Community Forum", icon: Grid },
+                { href: "/governance", label: "Governance", icon: Vote },
+            ]
+        },
     ];
 
     const bottomItems = [
-        { href: "/settings", label: "CONFIG", icon: Settings },
-        { href: "/profile", label: "PROFILE", icon: User },
+        { href: "/settings", label: "Settings", icon: Settings },
+        { href: "/profile", label: "Profile", icon: User },
     ];
 
     return (
@@ -121,148 +235,101 @@ export function Sidebar() {
             </div>
 
             {/* Main Menu */}
-            <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1.5 scrollbar-hide">
-                {!isSidebarCollapsed && (
-                    <p className="px-3 text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground/40 mb-3">Protocol Modules</p>
-                )}
-
-                {/* Explorer Section */}
-                {!isSidebarCollapsed ? (
-                    <div className="space-y-1">
-                        <button
-                            onClick={() => setExplorerExpanded(!explorerExpanded)}
-                            className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${isExplorerActive
-                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
-                                }`}
-                        >
-                            <div className="flex items-center gap-3">
-                                <Globe size={18} className={`transition-all ${isExplorerActive ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
-                                <span className="font-mono text-[11px] font-bold tracking-wider uppercase">ProxyExplorer</span>
+            <div className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-hide">
+                {menuSections.map((section) => (
+                    <div key={section.id} className="space-y-1">
+                        {/* Section Header */}
+                        {!isSidebarCollapsed && section.title && (
+                            <div className="px-3 mb-2">
+                                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground/60">
+                                    {section.title}
+                                </p>
+                                {section.description && (
+                                    <p className="text-[8px] text-muted-foreground/40 mt-0.5">
+                                        {section.description}
+                                    </p>
+                                )}
                             </div>
-                            <ChevronRight
-                                size={14}
-                                className={`transition-transform duration-300 ${explorerExpanded ? "rotate-90" : ""}`}
-                            />
-                        </button>
-
-                        <AnimatePresence>
-                            {explorerExpanded && (
-                                <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-hidden pl-4"
-                                >
-                                    <div className="border-l-2 border-white/10 space-y-1 py-1">
-                                        {explorerSubItems.map((item) => {
-                                            const Icon = item.icon;
-                                            const active = isActive(item.href);
-                                            return (
-                                                <Link
-                                                    key={item.href}
-                                                    href={item.href}
-                                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${active
-                                                        ? "text-primary font-bold bg-primary/10 border border-primary/20"
-                                                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                                                        }`}
-                                                >
-                                                    <Icon size={14} className={active ? "stroke-[2.5px]" : "stroke-[1.5px]"} />
-                                                    <span className="font-mono text-[10px] tracking-wider">{item.label}</span>
-                                                    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />}
-                                                </Link>
-                                            );
-                                        })}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                ) : (
-                    <Link
-                        href="/explorer"
-                        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${isExplorerActive
-                            ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
-                            : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
-                            } justify-center`}
-                        title="ProxyExplorer"
-                    >
-                        <Globe size={22} className={`transition-all ${isExplorerActive ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
-                    </Link>
-                )}
-
-                {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    const active = isActive(item.href);
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${active
-                                ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
-                                } ${isSidebarCollapsed ? "justify-center" : ""}`}
-                            title={isSidebarCollapsed ? item.label : undefined}
-                        >
-                            <Icon size={isSidebarCollapsed ? 22 : 18} className={`transition-all ${active ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
-                            {!isSidebarCollapsed && (
-                                <span className="font-mono text-[11px] font-bold tracking-wider uppercase">{item.label}</span>
-                            )}
-
-                            {active && !isSidebarCollapsed && (
-                                <motion.div
-                                    layoutId="sidebar-active"
-                                    className="absolute right-0 w-1 h-6 bg-primary-foreground/50 rounded-l-full"
-                                />
-                            )}
-                        </Link>
-                    );
-                })}
-            </div>
-
-            {/* Bottom Actions */}
-            <div className={`border-t border-white/5 bg-white/2 transition-all duration-300 ${isSidebarCollapsed ? "p-3" : "p-4"}`}>
-                <div className="space-y-1 mb-4">
-                    {bottomItems.map((item) => {
-                        const Icon = item.icon;
-                        const active = isActive(item.href);
-                        return (
+                        )}
+                        
+                        {/* Section Items */}
+                        {section.items.map((item) => (
                             <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${active ? "text-primary font-black bg-primary/5 border border-primary/20" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                                    } ${isSidebarCollapsed ? "justify-center" : ""}`}
-                                title={isSidebarCollapsed ? item.label : undefined}
+                                title={item.label}
+                                aria-label={item.label}
+                                aria-current={isActive(item.href) ? 'page' : undefined}
+                                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${
+                                    isActive(item.href)
+                                        ? "bg-primary text-primary-foreground font-black shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-white/20"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent hover:border-white/10"
+                                }`}
                             >
-                                <Icon size={16} />
-                                {!isSidebarCollapsed && <span className="font-mono text-[10px] font-bold tracking-widest">{item.label}</span>}
+                                <div className="relative">
+                                    <item.icon size={18} className={`transition-all ${isActive(item.href) ? "stroke-[2.5px] scale-110" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
+                                    {/* Badge */}
+                                    {item.badge && !isSidebarCollapsed && (
+                                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                                    )}
+                                </div>
+                                
+                                {!isSidebarCollapsed && (
+                                    <div className="flex-1 min-w-0">
+                                        <span className="font-mono text-[11px] font-bold tracking-wider uppercase block">
+                                            {item.label}
+                                        </span>
+                                        {item.description && (
+                                            <span className="text-[9px] text-muted-foreground/50 block truncate">
+                                                {item.description}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                
+                                {/* Badge text */}
+                                {!isSidebarCollapsed && item.badge && (
+                                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-wider rounded-full">
+                                        {item.badge}
+                                    </span>
+                                )}
                             </Link>
-                        );
-                    })}
-                </div>
-
-                <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => logout()}
-                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-rose-500/20 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-[0_0_15px_rgba(244,63,94,0.1)] ${isSidebarCollapsed ? "aspect-square p-0" : ""}`}
-                    title="Terminate Session"
-                >
-                    <LogOut size={16} />
-                    {!isSidebarCollapsed && <span className="font-mono text-[10px] font-black uppercase tracking-widest">Logout</span>}
-                </motion.button>
+                        ))}
+                    </div>
+                ))}
             </div>
 
-            {/* Toggle Button */}
-            <motion.button
-                whileHover={{ scale: 1.1 }}
-                onClick={toggleSidebar}
-                className="absolute -right-3 top-24 w-7 h-7 bg-[#18181b] border border-white/10 rounded-full flex items-center justify-center text-primary hover:text-emerald-400 transition-all shadow-xl z-50 overflow-hidden"
-            >
-                <div className="absolute inset-0 bg-primary/5 animate-pulse" />
-                <LayoutDashboard size={14} className={`relative transition-transform duration-500 ${isSidebarCollapsed ? "rotate-180" : "rotate-0"}`} />
-            </motion.button>
+            {/* Bottom Actions */}
+            <div className="p-4 border-t border-white/5 space-y-1">
+                {bottomItems.map((item) => (
+                    <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
+                            isActive(item.href)
+                                ? "bg-white/10 text-foreground font-bold"
+                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        }`}
+                    >
+                        <item.icon size={16} />
+                        {!isSidebarCollapsed && (
+                            <span className="font-mono text-[10px] font-bold tracking-wider uppercase">{item.label}</span>
+                        )}
+                    </Link>
+                ))}
+                
+                <button
+                    onClick={logout}
+                    aria-label="Log out"
+                    title="Log out"
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                    <LogOut size={16} />
+                    {!isSidebarCollapsed && (
+                        <span className="font-mono text-[10px] font-bold tracking-wider uppercase">Logout</span>
+                    )}
+                </button>
+            </div>
         </aside>
     );
 }

@@ -45,6 +45,7 @@ export interface Listing {
         display_name?: string;
         avatar_url?: string;
         avg_rating?: number;
+        location?: string;
         verified: boolean;
     };
 }
@@ -83,8 +84,36 @@ export interface ListingFilters {
 }
 
 export interface CreateOrderRequest {
+    listing_id: string;
     bandwidth_gb: number;
-    session_type: 'rotating' | 'sticky';
+    session_type?: 'rotating' | 'sticky';
+}
+
+export interface SessionFromListingRequest {
+    listing_id: string;
+    type?: 'rotating' | 'sticky';
+    bandwidth_limit?: number; // bytes; 0 = use listing minimum
+}
+
+export interface ProxyCredentials {
+    username: string;
+    password: string;
+    endpoint: string;
+    seller_name?: string;
+    listing_title?: string;
+}
+
+export interface SessionFromListingResponse {
+    session: {
+        id: string;
+        status: string;
+        type: string;
+        listing_id: string;
+        node_id?: string;
+        expires_at?: string;
+        created_at: string;
+    };
+    proxy_credentials: ProxyCredentials;
 }
 
 export interface StakeNodeRequest {
@@ -149,7 +178,7 @@ export function getProviderNodes() {
  * Get a specific listing
  */
 export function getListing(id: string) {
-    return apiGet<Listing>(`/v1/listings/${id}`);
+    return apiGet<{ listing: Listing; is_saved: boolean }>(`/v1/listings/${id}`);
 }
 
 /**
@@ -229,6 +258,14 @@ export async function verifyReputationProof(proof: any) {
  */
 export function cancelOrder(id: string) {
     return apiPost<{ message: string }>(`/v1/orders/${id}/cancel`);
+}
+
+/**
+ * Create a P2P proxy session from a specific marketplace listing.
+ * Returns the session and ready-to-use proxy credentials.
+ */
+export function createSessionFromListing(data: SessionFromListingRequest) {
+    return apiPost<SessionFromListingResponse>('/v1/sessions/from-listing', data);
 }
 
 // ============ Query Keys ============

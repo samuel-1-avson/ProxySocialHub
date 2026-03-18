@@ -38,12 +38,12 @@ func getFeed(c *gin.Context) {
 
 	// Get users that current user follows
 	var followingIDs []uuid.UUID
-	db.DB.Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
+	db.Social().Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
 
 	var events []models.FeedEvent
 	var total int64
 
-	query := db.DB.Model(&models.FeedEvent{})
+	query := db.Social().Model(&models.FeedEvent{})
 
 	if len(followingIDs) > 0 {
 		// Get events from followed users
@@ -119,7 +119,7 @@ func discoverProviders(c *gin.Context) {
 		userID, err := uuid.Parse(userIDStr)
 		if err == nil {
 			var followingIDs []uuid.UUID
-			db.DB.Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
+			db.Social().Model(&models.Follow{}).Where("follower_id = ?", userID).Pluck("following_id", &followingIDs)
 
 			if len(followingIDs) > 0 {
 				query = query.Where("id NOT IN ?", followingIDs)

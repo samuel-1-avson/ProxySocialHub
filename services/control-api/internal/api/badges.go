@@ -23,7 +23,7 @@ func RegisterBadgeRoutes(rg *gin.RouterGroup) {
 // getAllBadges returns all available badges
 func getAllBadges(c *gin.Context) {
 	var badges []models.Badge
-	db.DB.Find(&badges)
+	db.Social().Find(&badges)
 	c.JSON(http.StatusOK, gin.H{"badges": badges})
 }
 
@@ -33,7 +33,7 @@ func getMyBadges(c *gin.Context) {
 	userID := currentUserID.(uuid.UUID)
 
 	var userBadges []models.UserBadge
-	db.DB.Preload("Badge").Where("user_id = ?", userID).Find(&userBadges)
+	db.Social().Preload("Badge").Where("user_id = ?", userID).Find(&userBadges)
 
 	c.JSON(http.StatusOK, gin.H{"badges": userBadges})
 }
@@ -123,7 +123,7 @@ func checkReviewBadges(userID uuid.UUID, user models.User) {
 
 	// Five star streak - count consecutive 5-star reviews
 	var fiveStarCount int64
-	db.DB.Model(&models.Review{}).Where("seller_id = ? AND rating = 5", userID).Count(&fiveStarCount)
+	db.Social().Model(&models.Review{}).Where("seller_id = ? AND rating = 5", userID).Count(&fiveStarCount)
 	if fiveStarCount >= 5 {
 		awardBadge(userID, "Five Star Streak")
 	}
@@ -132,19 +132,19 @@ func checkReviewBadges(userID uuid.UUID, user models.User) {
 func awardBadge(userID uuid.UUID, badgeName string) {
 	// Get badge
 	var badge models.Badge
-	if err := db.DB.Where("name = ?", badgeName).First(&badge).Error; err != nil {
+	if err := db.Social().Where("name = ?", badgeName).First(&badge).Error; err != nil {
 		// Create badge if doesn't exist
 		badge = models.Badge{
 			Name:        badgeName,
 			Description: getBadgeDescription(badgeName),
 			Icon:        getBadgeIcon(badgeName),
 		}
-		db.DB.Create(&badge)
+		db.Social().Create(&badge)
 	}
 
 	// Check if already awarded
 	var existing models.UserBadge
-	if err := db.DB.Where("user_id = ? AND badge_id = ?", userID, badge.ID).First(&existing).Error; err == nil {
+	if err := db.Social().Where("user_id = ? AND badge_id = ?", userID, badge.ID).First(&existing).Error; err == nil {
 		return // Already has badge
 	}
 
@@ -153,7 +153,7 @@ func awardBadge(userID uuid.UUID, badgeName string) {
 		UserID:  userID,
 		BadgeID: badge.ID,
 	}
-	db.DB.Create(&userBadge)
+	db.Social().Create(&userBadge)
 
 	log.Printf("Badge awarded: %s to user %s", badgeName, userID)
 
@@ -184,7 +184,7 @@ func awardBadge(userID uuid.UUID, badgeName string) {
 		TargetID:   &badge.ID,
 		Content:    "earned the " + badgeName + " badge",
 	}
-	db.DB.Create(&feedEvent)
+	db.Social().Create(&feedEvent)
 }
 
 func getBadgeDescription(name string) string {

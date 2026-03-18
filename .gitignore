@@ -2,6 +2,12 @@
 node_modules/
 vendor/
 
+# CLI prebuilt binaries — distribute via GitHub Releases, not git
+cli-dist/
+
+# GeoIP database — licensed (MaxMind GeoLite2), not for redistribution
+geoip/*.mmdb
+
 # Env backups (may contain real credentials)
 .env.backup.*
 

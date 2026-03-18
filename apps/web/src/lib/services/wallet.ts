@@ -2,10 +2,7 @@ import { API_BASE_URL, fetchWithAuth } from './client';
 
 export interface Wallet {
     id: string;
-    balance_ghs: number;
     balance_sol: number;
-    balance_usdt: number;
-    currency: string;
     transactions: WalletTransaction[];
     linked_solana_address?: string;
 }
@@ -77,11 +74,11 @@ export async function withdrawWallet(amount: number, phone: string, network: str
     return response.json();
 }
 
-export async function transferFunds(recipient: string, amount: number, currency: 'SOL' | 'GHS'): Promise<{ status: string; message: string }> {
+export async function transferFunds(recipient: string, amount: number): Promise<{ status: string; message: string }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient, amount, currency }),
+        body: JSON.stringify({ recipient, amount }),
     });
     if (!response.ok) {
         const err = await response.json();

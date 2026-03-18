@@ -1,6 +1,7 @@
+use crate::metrics;
+use crate::redis_pool::PooledConnectionManager;
 use lru::LruCache;
 use redis::AsyncCommands;
-use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::num::NonZeroUsize;
@@ -45,41 +46,85 @@ struct CachedSession {
 }
 
 pub struct SessionAuthenticator {
-    // P-07: Persistent multiplexed connection manager — reuses a single TCP connection
-    // and reconnects automatically on failure. Cheaply cloneable across tasks.
-    conn: ConnectionManager,
-    // Bounded LRU cache for validated sessions (5 min TTL, max 100 000 entries)
+    // P1-A4: Redis connection pool for better concurrency and performance
+    // Replaces single ConnectionManager with a pool of reusable connections
+    conn_pool: PooledConnectionManager,
+    // P0-A2: Bounded LRU cache for validated sessions (configurable TTL and max entries)
     cache: Arc<Mutex<LruCache<String, CachedSession>>>,
     cache_ttl: Duration,
+    cache_max_size: usize,
 }
 
 impl SessionAuthenticator {
-    pub fn new(redis_url: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        // ConnectionManager::new is async; we block here during startup only.
-        let client = redis::Client::open(redis_url)?;
-        let conn = tokio::runtime::Handle::current()
-            .block_on(ConnectionManager::new(client))?;
-        Ok(Self {
-            conn,
-            cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(100_000).unwrap()))),
-            cache_ttl: Duration::from_secs(300), // 5 minutes
-        })
+    /// P0-A2 + P1-A4: Create new authenticator with configurable cache and connection pool
+    pub async fn new(
+        redis_url: &str,
+        cache_size: usize,
+        cache_ttl_secs: u64,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // P1-A4: Use connection pool instead of single ConnectionManager
+        let conn_pool = PooledConnectionManager::new(redis_url, 32).await?;
+        
+        // Ensure cache_size is at least 1
+        let effective_size = cache_size.max(1);
+        
+        let authenticator = Self {
+            conn_pool,
+            cache: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(effective_size).unwrap()
+            ))),
+            cache_ttl: Duration::from_secs(cache_ttl_secs),
+            cache_max_size: effective_size,
+        };
+
+        // Start background task to report cache metrics
+        authenticator.start_metrics_task();
+        
+        Ok(authenticator)
+    }
+
+    /// P0-A2: Start background task to periodically report cache metrics
+    fn start_metrics_task(&self) {
+        let cache = self.cache.clone();
+        tokio::spawn(async move {
+            // Wait 10 seconds before first report
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            
+            loop {
+                interval.tick().await;
+                let cache_guard = cache.lock().await;
+                let size = cache_guard.len() as i64;
+                drop(cache_guard);
+                
+                metrics::set_session_cache_size(size);
+            }
+        });
     }
 
     /// Validate session and return session data if valid
+    /// P0-A2: Tracks cache hit/miss metrics for observability
     pub async fn validate_session(&self, username: &str, force_refresh: bool) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
         // Check cache first
         if !force_refresh {
             let mut cache = self.cache.lock().await;
             if let Some(cached) = cache.get(username) {
                 if cached.cached_at.elapsed() < self.cache_ttl {
+                    // P0-A2: Track cache hit
+                    metrics::record_session_cache_hit();
                     return Ok(Some(cached.data.clone()));
                 }
             }
+            // P0-A2: Track cache miss (entry not found or expired)
+            metrics::record_session_cache_miss();
+        } else {
+            // Forced refresh counts as cache miss
+            metrics::record_session_cache_miss();
         }
 
         // Fetch from Redis
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("session:{}", username);
         let data: Option<String> = con.get(&key).await?;
 
@@ -114,7 +159,7 @@ impl SessionAuthenticator {
 
     /// Report usage for a session
     pub async fn report_usage(&self, username: &str, bytes: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("session:{}:usage", username);
         let _: () = con.incr(&key, bytes).await?;
         Ok(())
@@ -123,7 +168,20 @@ impl SessionAuthenticator {
     /// Invalidate cached session
     pub async fn invalidate_cache(&self, username: &str) {
         let mut cache = self.cache.lock().await;
-        cache.pop(username);
+        if cache.pop(username).is_some() {
+            // P0-A2: Track manual eviction
+            metrics::record_session_cache_eviction();
+        }
+    }
+
+    /// P0-A2: Get cache statistics for monitoring
+    pub async fn get_cache_stats(&self) -> CacheStats {
+        let cache = self.cache.lock().await;
+        CacheStats {
+            size: cache.len(),
+            max_size: self.cache_max_size,
+            ttl_secs: self.cache_ttl.as_secs(),
+        }
     }
 
     // ========== Sticky Session Methods ==========
@@ -131,7 +189,7 @@ impl SessionAuthenticator {
     /// Get the sticky node binding for a session
     /// Returns Some(node_id) if session is bound, None otherwise
     pub async fn get_sticky_node(&self, session_id: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let node_id: Option<String> = con.get(&key).await?;
         Ok(node_id)
@@ -139,7 +197,7 @@ impl SessionAuthenticator {
 
     /// Bind a session to a specific node (for sticky sessions)
     pub async fn set_sticky_node(&self, session_id: &str, node_id: &str, ttl_secs: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let _: () = con.set_ex(&key, node_id, ttl_secs).await?;
         Ok(())
@@ -147,7 +205,7 @@ impl SessionAuthenticator {
 
     /// Remove sticky binding (e.g., when session terminates)
     pub async fn remove_sticky_node(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let _: () = con.del(&key).await?;
         Ok(())
@@ -158,7 +216,7 @@ impl SessionAuthenticator {
     /// Check and increment rate limit counter
     /// Returns Ok(true) if allowed, Ok(false) if rate limited
     pub async fn check_rate_limit(&self, session_id: &str, limit_per_minute: u32) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("ratelimit:{}", session_id);
         
         // INCR the counter
@@ -174,7 +232,7 @@ impl SessionAuthenticator {
 
     /// Get current request count for a session
     pub async fn get_request_count(&self, session_id: &str) -> Result<u32, Box<dyn Error + Send + Sync>> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await?;
         let key = format!("ratelimit:{}", session_id);
         let count: Option<u32> = con.get(&key).await?;
         Ok(count.unwrap_or(0))
@@ -182,7 +240,7 @@ impl SessionAuthenticator {
 
     /// Fetch cached node service configuration (N-01)
     pub async fn get_node_config(&self, node_id: &str) -> Option<NodeConfig> {
-        let mut con = self.conn.clone();
+        let mut con = self.conn_pool.get().await.ok()?;
         let key = format!("node:config:{}", node_id);
         let json_str: Option<String> = redis::AsyncCommands::get(&mut con, &key).await.ok()?;
         let cfg: NodeConfig = serde_json::from_str(&json_str?).ok()?;
@@ -210,6 +268,14 @@ pub struct NodeConfig {
 
 impl NodeConfig {
     fn default_active() -> bool { true }
+}
+
+/// P0-A2: Cache statistics for monitoring
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    pub size: usize,
+    pub max_size: usize,
+    pub ttl_secs: u64,
 }
 
 #[cfg(test)]

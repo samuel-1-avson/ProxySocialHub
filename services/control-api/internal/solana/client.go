@@ -80,6 +80,19 @@ type OracleClient struct {
 	programID  sol.PublicKey
 	oracleKey  sol.PrivateKey
 	network    string
+	velocity   *VelocityGuard // nil until SetVelocityGuard is called
+}
+
+// SetVelocityGuard attaches a VelocityGuard to the client.
+// Call this in main.go after creating the OracleClient and initialising Redis.
+// Until this is called, velocity limits are not enforced (logs a warning per transfer).
+func (c *OracleClient) SetVelocityGuard(vg *VelocityGuard) {
+	c.velocity = vg
+}
+
+// VelocityGuardInstance returns the attached guard, or nil.
+func (c *OracleClient) VelocityGuardInstance() *VelocityGuard {
+	return c.velocity
 }
 
 // Config holds the Solana client configuration
@@ -137,6 +150,12 @@ func (c *OracleClient) rotateRPC() {
 
 // loadKeypair loads a Solana keypair from a JSON file
 func loadKeypair(path string) (sol.PrivateKey, error) {
+	return LoadKeypairFromFile(path)
+}
+
+// LoadKeypairFromFile loads a Solana keypair from a JSON file
+// This is a public version that can be used by other packages
+func LoadKeypairFromFile(path string) (sol.PrivateKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read keypair file: %w", err)

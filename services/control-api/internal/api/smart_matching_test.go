@@ -114,7 +114,6 @@ func TestGetRecommendations(t *testing.T) {
 	email2 := testutil.UniqueEmail("seller")
 	seller := testutil.CreateTestUser(t, email2, "provider")
 	seller.AvgRating = 5.0
-	seller.KYCStatus = "approved"
 	seller.Verified = true
 	if err := db.DB.Save(&seller).Error; err != nil {
 		t.Fatalf("Failed to save seller: %v", err)

@@ -16,17 +16,17 @@ WORKDIR /app
 # Copy go mod files
 COPY go.mod go.sum ./
 
-# Copy pre-vendored dependencies (run `go mod vendor` on host first)
-COPY vendor ./vendor
-
 # Copy source code
 COPY . .
 
-# Build the application using vendored deps (no network required)
+# Remove vendor directory if present (use module mode)
+RUN rm -rf vendor
+
+# Download dependencies and build
 # -ldflags='-w -s' reduces binary size
 # CGO_ENABLED=0 creates static binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -mod=vendor \
+RUN go mod download && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -tags '!dev' \

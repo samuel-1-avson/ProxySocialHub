@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -21,10 +22,10 @@ func RegisterReferralRoutes(rg *gin.RouterGroup) {
 	rg.GET("/referral/stats", getReferralStats)
 }
 
-// Referral reward amounts
+// Referral reward amounts (SOL)
 const (
-	SignupReward        = 5.0  // GHS 5 when someone signs up
-	FirstPurchaseReward = 10.0 // GHS 10 when referred user makes first purchase
+	SignupReward        = 0.05  // 0.05 SOL when someone signs up
+	FirstPurchaseReward = 0.10  // 0.10 SOL when referred user makes first purchase
 )
 
 // getMyReferralCode returns user's referral code
@@ -197,7 +198,7 @@ func CreditReferralReward(rewardID uuid.UUID) {
 	ws.BroadcastToUser(reward.ReferrerID.String(), ws.MsgTypeNotification, gin.H{
 		"type":    "referral_reward",
 		"amount":  reward.RewardAmount,
-		"message": "You earned GHS " + strings.TrimRight(strings.TrimRight(string(rune(reward.RewardAmount)), "0"), ".") + " from a referral!",
+		"message": "You earned " + fmt.Sprintf("%.4f", reward.RewardAmount) + " SOL from a referral!",
 	})
 }
 

@@ -20,7 +20,6 @@ const (
 	MsgTypeUsageUpdate    = "usage_update"
 	MsgTypeProviderStatus = "provider_status"
 	MsgTypeNotification   = "notification"
-	MsgTypeKYCUpdate      = "kyc_update"
 	MsgTypeSystemAlert    = "system_alert"
 	// Social feature message types
 	MsgTypeNewMessage  = "new_message"

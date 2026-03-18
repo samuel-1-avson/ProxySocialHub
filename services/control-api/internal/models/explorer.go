@@ -32,7 +32,7 @@ type ExplorerTransaction struct {
 	FromAddress   string    `gorm:"type:varchar(128);index" json:"from_address"`
 	ToAddress     string    `gorm:"type:varchar(128);index" json:"to_address"`
 	Amount        float64   `gorm:"type:numeric(20,8)" json:"amount"`
-	Currency      string    `gorm:"type:varchar(20)" json:"currency"` // SOL, USDC, etc.
+	Currency      string    `gorm:"type:varchar(20);default:'SOL'" json:"currency"` // SOL only
 	Fee           float64   `gorm:"type:numeric(20,8)" json:"fee"`
 	Status        string    `gorm:"type:varchar(20)" json:"status"`                // "confirmed", "pending", "failed"
 	TxType        string    `gorm:"type:varchar(50)" json:"tx_type"`               // "transfer", "escrow_init", "escrow_settle", "stake", "unstake"
@@ -53,6 +53,10 @@ type ExplorerNode struct {
 	IP             string    `gorm:"type:varchar(45)" json:"-"` // Hidden for privacy, only show region
 	Region         string    `gorm:"type:varchar(50)" json:"region"`
 	Country        string    `gorm:"type:varchar(50)" json:"country"`
+	City           string    `gorm:"type:varchar(100)" json:"city,omitempty"`
+	ISP            string    `gorm:"type:varchar(200)" json:"isp,omitempty"`
+	Latitude       float64   `gorm:"type:numeric(10,6);default:0" json:"latitude"`
+	Longitude      float64   `gorm:"type:numeric(10,6);default:0" json:"longitude"`
 	IsActive       bool      `gorm:"default:true" json:"is_active"`
 	IsValidator    bool      `gorm:"default:false" json:"is_validator"`
 	StakeAmount    float64   `gorm:"type:numeric(20,8)" json:"stake_amount"`

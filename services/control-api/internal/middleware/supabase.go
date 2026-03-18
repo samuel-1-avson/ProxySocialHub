@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -52,7 +53,28 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2. Fallback to Supabase Auth API with circuit breaker protection
+		// 2. Try Provider Token (CLI authentication)
+		if providerToken, _ := validateProviderToken(tokenString); providerToken != nil {
+			// Valid provider token - set user context
+			c.Set("userID", providerToken.UserID.String())
+			c.Set("user_id", providerToken.UserID)
+			c.Set("token_id", providerToken.ID)
+			c.Set("userEmail", "") // Provider tokens don't have email
+			c.Set("userRole", "provider")
+			c.Set("auth_type", "provider_token")
+			
+			// Update last used asynchronously
+			go func() {
+				db.DB.Model(&models.ProviderToken{}).
+					Where("id = ?", providerToken.ID).
+					Update("last_used", time.Now())
+			}()
+			
+			c.Next()
+			return
+		}
+
+		// 3. Fallback to Supabase Auth API with circuit breaker protection
 		var user SupabaseUser
 		err := ProtectedServiceCall(c, "supabase", func() error {
 			req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
@@ -227,3 +249,5 @@ func RequireAuth() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+

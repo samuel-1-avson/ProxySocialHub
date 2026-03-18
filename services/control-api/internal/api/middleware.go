@@ -23,9 +23,6 @@ var RolePermissions = map[string][]string{
 	},
 	"moderator": {
 		"admin:access", // Moderators can access admin panel
-		"kyc:read",
-		"kyc:approve",
-		"kyc:reject",
 		"users:read",
 		"reports:read",
 		"reports:resolve",

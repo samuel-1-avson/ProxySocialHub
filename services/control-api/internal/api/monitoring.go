@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
@@ -31,6 +32,14 @@ type OperationalMetrics struct {
 func RegisterMonitoringRoutes(r *gin.RouterGroup) {
 	r.GET("/monitoring/operational", getOperationalMetrics)
 	r.GET("/monitoring/alerts", getWatchtowerAlerts)
+	r.GET("/monitoring/treasury", getTreasuryStats)
+	
+	// Admin-only treasury operations
+	admin := r.Group("/admin/treasury")
+	{
+		admin.POST("/topup", triggerManualTopup)
+		admin.GET("/thresholds", getTreasuryThresholds)
+	}
 }
 
 func getOperationalMetrics(c *gin.Context) {
@@ -76,4 +85,76 @@ func getWatchtowerAlerts(c *gin.Context) {
 	alerts := []treasury.AlertEvent{}
 
 	c.JSON(http.StatusOK, alerts)
+}
+
+// getTreasuryStats returns current treasury status and balance information
+func getTreasuryStats(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tm := treasury.NewTreasuryManager()
+	stats, err := tm.GetTreasuryStats(ctx)
+	if err != nil {
+		logging.Error(err).Msg("Failed to get treasury stats")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "Failed to retrieve treasury statistics",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// getTreasuryThresholds returns the current threshold configuration
+func getTreasuryThresholds(c *gin.Context) {
+	tm := treasury.NewTreasuryManager()
+	thresholds := tm.GetThresholds()
+
+	c.JSON(http.StatusOK, gin.H{
+		"thresholds": thresholds,
+		"network":    getNetworkFromThresholds(thresholds),
+	})
+}
+
+// triggerManualTopup allows admin to manually trigger a treasury topup
+func triggerManualTopup(c *gin.Context) {
+	userRole, _ := c.Get("userRole")
+	if userRole != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only admin can trigger topup"})
+		return
+	}
+
+	var req struct {
+		AmountSOL float64 `json:"amount_sol" binding:"required,gt=0"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	logging.Info().
+		Float64("amount_sol", req.AmountSOL).
+		Str("triggered_by", c.GetString("user_id")).
+		Msg("Manual treasury topup triggered")
+
+	// In production, this would initiate a transfer from reserve wallet
+	// For now, we just log and return success
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "initiated",
+		"amount_sol": req.AmountSOL,
+		"message":    "Topup request logged. Manual transfer required.",
+	})
+}
+
+// getNetworkFromThresholds determines network based on threshold values
+func getNetworkFromThresholds(thresholds treasury.TreasuryThresholds) string {
+	if thresholds.MinSOLLamports >= 100*1_000_000_000 {
+		return "mainnet-beta"
+	}
+	if thresholds.MinSOLLamports >= 50*1_000_000_000 {
+		return "staging"
+	}
+	return "devnet"
 }

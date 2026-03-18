@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -16,7 +18,9 @@ import (
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
-const PricePerGB = 0.50 // GHS per GB
+// PricePerGBSOL is a fallback display rate used only when no listing price is available.
+// Actual billing uses per-listing prices from the marketplace (see billing/worker.go).
+const PricePerGBSOL = 0.002 // SOL per GB (~$0.30 at ~$150/SOL fallback)
 
 func RegisterUsageRoutes(r *gin.RouterGroup) {
 	usage := r.Group("/usage")
@@ -69,6 +73,14 @@ func reportUsage(c *gin.Context) {
 			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to increment session usage in Redis")
 		}
 
+		// Auto-terminate session if bandwidth limit is exhausted
+		if sessionData.BandwidthLimit > 0 {
+			currentUsage, err := redisClient.GetUsage(report.SessionUsername)
+			if err == nil && currentUsage >= sessionData.BandwidthLimit {
+				go autoTerminateSessionBandwidth(sessionData.SessionID, report.SessionUsername)
+			}
+		}
+
 		// Update Provider-Link counter (For Oracle claiming)
 		if sessionData.ProviderID != "" && sessionData.UserID != "" {
 			_ = redisClient.IncrementProviderUsage(sessionData.ProviderID, sessionData.UserID, totalBytes)
@@ -84,7 +96,9 @@ func reportUsage(c *gin.Context) {
 			}()
 
 			var signature []byte
-			var nonce uint64 = uint64(time.Now().UnixNano())
+			var nonceBytes [8]byte
+			rand.Read(nonceBytes[:])
+			var nonce uint64 = binary.BigEndian.Uint64(nonceBytes[:])
 
 			if signer := GetOracleSigner(); signer != nil {
 				// We need ETH addresses for the Oracle.
@@ -146,6 +160,23 @@ func reportUsage(c *gin.Context) {
 	})
 }
 
+// autoTerminateSessionBandwidth terminates a session that has exhausted its bandwidth limit.
+func autoTerminateSessionBandwidth(sessionID, credentialsUser string) {
+	if sessionID == "" {
+		return
+	}
+	if err := db.DB.Model(&models.Session{}).
+		Where("id = ?", sessionID).
+		Updates(map[string]interface{}{
+			"status":   models.SessionTerminated,
+			"end_time": time.Now(),
+		}).Error; err != nil {
+		logging.Error(err).Str("session_id", sessionID).Msg("Failed to auto-terminate bandwidth-exhausted session")
+		return
+	}
+	logging.Info().Str("session_id", sessionID).Str("credentials_user", credentialsUser).Msg("Session auto-terminated: bandwidth limit exhausted")
+}
+
 // getSessionUsage returns usage stats for a specific session
 func getSessionUsage(c *gin.Context) {
 	sessionID := c.Param("session_id")
@@ -160,17 +191,28 @@ func getSessionUsage(c *gin.Context) {
 	sessionData, _ := redisClient.GetSession(sessionID)
 
 	var limit int64 = 0
+	var costPerGBSOL float64 = PricePerGBSOL
 	if sessionData != nil {
 		limit = sessionData.BandwidthLimit
+		// Use per-listing price if available (P2P sessions), converting USD/GB → SOL/GB
+		if sessionData.PricePerGB > 0 {
+			costPerGBSOL = billing.USDToSOL(sessionData.PricePerGB)
+		}
+	}
+
+	gbUsed := float64(usage) / (1024 * 1024 * 1024)
+	var percentUsed float64
+	if limit > 0 {
+		percentUsed = float64(usage) / float64(limit) * 100
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"session_id":      sessionID,
 		"bytes_used":      usage,
 		"bytes_limit":     limit,
-		"percent_used":    float64(usage) / float64(limit) * 100,
-		"gb_used":         float64(usage) / (1024 * 1024 * 1024),
-		"cost_ghs":        float64(usage) / (1024 * 1024 * 1024) * PricePerGB,
+		"percent_used":    percentUsed,
+		"gb_used":         gbUsed,
+		"cost_sol":        gbUsed * costPerGBSOL,
 		"last_updated_at": time.Now(),
 	})
 }
@@ -237,13 +279,12 @@ func getUserUsage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":        userID,
-		"total_bytes":    totalUsage,
-		"total_gb":       float64(totalUsage) / (1024 * 1024 * 1024),
-		"total_cost_ghs": float64(totalUsage) / (1024 * 1024 * 1024) * PricePerGB,
-		"sessions":       sessionStats,
-		"count":          len(sessions),
-		"filter":         status,
+		"user_id":     userID,
+		"total_bytes": totalUsage,
+		"total_gb":    float64(totalUsage) / (1024 * 1024 * 1024),
+		"sessions":    sessionStats,
+		"count":       len(sessions),
+		"filter":      status,
 	})
 }
 
