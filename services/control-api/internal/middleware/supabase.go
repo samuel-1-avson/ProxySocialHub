@@ -116,12 +116,17 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 				if len(user.ID) >= 8 {
 					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
 				}
+				// Map Supabase system roles to application roles; default new signups to buyer.
+				appRole := user.Role
+				if appRole == "authenticated" || appRole == "anon" || appRole == "" {
+					appRole = "buyer"
+				}
 				newUser := models.User{
 					ID:        userUUID,
 					Email:     user.Email,
 					Username:  &username,
 					TrustTier: models.TrustTierNew,
-					Role:      user.Role,
+					Role:      appRole,
 				}
 				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
 					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to create user record")
