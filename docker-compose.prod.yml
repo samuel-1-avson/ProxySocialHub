@@ -1,6 +1,38 @@
 version: "3.8"
 
 services:
+  # ==================== DB Migrate (one-shot init container) ====================
+  db-migrate:
+    image: proxyhubb/control-api:latest
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile
+    container_name: proxyhubb-db-migrate
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
+      - AUTO_MIGRATE=true
+      - FORCE_MIGRATE=${FORCE_MIGRATE:-false}
+      - MIGRATE_ONLY=true
+      - MIGRATIONS_DIR=/app/migrations
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - NATS_URL=nats://nats:4222
+      - PORT=8080
+      - APP_ENV=migration
+      - GIN_MODE=release
+      - DB_LOG_LEVEL=${DB_LOG_LEVEL:-warn}
+    volumes:
+      - ./migrations:/app/migrations:ro
+    restart: "no"
+    networks:
+      - proxyhubb
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ==================== Control API ====================
   control-api:
     image: proxyhubb/control-api:latest
@@ -77,7 +109,14 @@ services:
       # Set to "false" in air-gapped environments or when coordinates are pre-populated.
       - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
       # DB Migrations
+      - AUTO_MIGRATE=false
       - FORCE_MIGRATE=${FORCE_MIGRATE:-false}
+      - MIGRATIONS_DIR=/app/migrations
+      # DB Observability (E8)
+      - DB_LOG_LEVEL=${DB_LOG_LEVEL:-warn}
+      - DB_SLOW_QUERY_MS=${DB_SLOW_QUERY_MS:-500}
+      - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-30}
+      - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-5}
       # Admin
       - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET must be set}
       - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
@@ -93,6 +132,8 @@ services:
       - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
       - ./cli-dist:/app/cli-dist:ro
     depends_on:
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:
@@ -133,13 +174,16 @@ services:
       - GEO_DENY_LIST=${GEO_DENY_LIST:-}
       - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
       - REGION=${REGION:-default}
-      - GEOIP_DB_PATH=${GEOIP_DB_PATH:-/app/geoip/GeoLite2-Country.mmdb}
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
       - SESSION_CACHE_SIZE=${SESSION_CACHE_SIZE:-100000}
       - SESSION_CACHE_TTL_SECS=${SESSION_CACHE_TTL_SECS:-300}
+      # P2-12: Per-operation timeouts
+      - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
+      - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
+      - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
     volumes:
       - ./certs:/app/certs:ro
-      # Uncomment to enable GeoIP filtering:
-      # - ./geoip/GeoLite2-Country.mmdb:/app/geoip/GeoLite2-Country.mmdb:ro
+      - ./geoip:/app/geoip:ro
     depends_on:
       control-api:
         condition: service_healthy

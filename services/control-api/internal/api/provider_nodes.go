@@ -36,10 +36,11 @@ func getMyNodes(c *gin.Context) {
 }
 
 type CreateNodeRequest struct {
-	Name      string `json:"name" binding:"required"`
-	IPAddress string `json:"ip_address"`
-	Country   string `json:"country"`
-	City      string `json:"city"`
+	Name           string `json:"name" binding:"required"`
+	IPAddress      string `json:"ip_address"`
+	Country        string `json:"country"`
+	City           string `json:"city"`
+	ConnectionType string `json:"connection_type"` // residential|mobile|datacenter|fiber
 }
 
 // createNode creates a new provider node.
@@ -57,7 +58,7 @@ func createNode(c *gin.Context) {
 	// Duplicate IP detection — same IP cannot be registered by the same provider twice
 	if req.IPAddress != "" {
 		var existing models.ProviderNode
-		err := db.DB.Where("ip_address = ? AND user_id = ? AND deleted_at IS NULL", req.IPAddress, userID).
+		err := db.DB.Where("ip_address = ? AND user_id = ?", req.IPAddress, userID).
 			First(&existing).Error
 		if err == nil {
 			c.JSON(http.StatusConflict, gin.H{
@@ -77,12 +78,68 @@ func createNode(c *gin.Context) {
 		Status:    models.NodeOffline,
 	}
 
-	if err := db.DB.Create(&node).Error; err != nil {
+	// PostgreSQL inet column rejects empty string — omit the column so it defaults to NULL
+	q := db.DB
+	if req.IPAddress == "" {
+		q = q.Omit("ip_address")
+	}
+	if err := q.Create(&node).Error; err != nil {
+		logging.Error(err).Msg("createNode: DB error")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create node"})
 		return
 	}
 
+	// Auto-publish a marketplace listing so the node is immediately discoverable.
+	// The provider can update pricing/description later from their dashboard.
+	go autoPublishListing(userID, node, req.ConnectionType)
+
 	c.JSON(http.StatusCreated, node)
+}
+
+// autoPublishListing creates a default marketplace listing for a newly registered node.
+func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType string) {
+	svc := GetMarketplaceService()
+	if svc == nil {
+		return
+	}
+
+	// Map CLI connection type → marketplace proxy type
+	proxyType := domain.Residential
+	switch connType {
+	case "mobile":
+		proxyType = domain.Mobile
+	case "datacenter":
+		proxyType = domain.Datacenter
+	case "fiber":
+		proxyType = domain.Residential // fiber is residential-quality
+	}
+
+	title := node.Name + " Proxy"
+	if node.City != "" || node.Country != "" {
+		loc := node.City
+		if node.Country != "" {
+			if loc != "" {
+				loc += ", "
+			}
+			loc += node.Country
+		}
+		title = node.Name + " — " + loc
+	}
+
+	listing := domain.ListingEntity{
+		Title:                title,
+		Description:          "High-quality " + string(proxyType) + " proxy node. Auto-listed on registration.",
+		PricePerGB:           0.50, // default $0.50/GB — provider can adjust
+		AvailableBandwidthGB: 100,  // default 100 GB — provider can adjust
+		ProxyType:            proxyType,
+		Protocol:             "http",
+	}
+
+	if _, err := svc.PublishListing(context.Background(), userID, listing); err != nil {
+		logging.Error(err).Str("node_id", node.ID.String()).Msg("autoPublishListing: failed")
+	} else {
+		logging.Info().Str("node_id", node.ID.String()).Msg("autoPublishListing: listing created")
+	}
 }
 
 // updateNode updates a provider node
@@ -108,12 +165,17 @@ func updateNode(c *gin.Context) {
 		return
 	}
 
-	db.DB.Model(&node).Updates(map[string]interface{}{
-		"name":       req.Name,
-		"ip_address": req.IPAddress,
-		"country":    req.Country,
-		"city":       req.City,
-	})
+	updates := map[string]interface{}{
+		"name":    req.Name,
+		"country": req.Country,
+		"city":    req.City,
+	}
+	if req.IPAddress != "" {
+		updates["ip_address"] = req.IPAddress
+	} else {
+		updates["ip_address"] = nil // explicitly NULL-out if cleared
+	}
+	db.DB.Model(&node).Updates(updates)
 
 	c.JSON(http.StatusOK, node)
 }
@@ -222,7 +284,7 @@ func nodeHeartbeat(c *gin.Context) {
 	}
 
 	result := db.DB.Model(&models.ProviderNode{}).
-		Where("id = ? AND user_id = ? AND deleted_at IS NULL", nodeID, userID).
+		Where("id = ? AND user_id = ?", nodeID, userID).
 		Updates(updates)
 
 	if result.Error != nil {

@@ -13,14 +13,14 @@ SELECT
     ROUND(AVG(n.success_rate)::NUMERIC, 4)          AS avg_success_rate,
     COUNT(DISTINCT n.id)
         FILTER (WHERE n.is_healthy AND n.deleted_at IS NULL) AS healthy_node_count,
-    COALESCE(SUM(pe.net_sol), 0)                    AS total_earnings_sol,
-    COALESCE(SUM(CASE WHEN pe.status = 'paid' THEN pe.net_sol END), 0) AS paid_earnings_sol,
+    COALESCE(SUM(pe.net_amount_sol), 0)                    AS total_earnings_sol,
+    COALESCE(SUM(CASE WHEN pe.status = 'paid' THEN pe.net_amount_sol END), 0) AS paid_earnings_sol,
     COUNT(DISTINCT s.id)                            AS total_sessions,
     COALESCE(SUM(s.bytes_used), 0)                  AS total_bytes_served,
     NOW()                                           AS refreshed_at
 FROM nodes n
 LEFT JOIN sessions  s  ON s.node_id   = n.id  AND s.deleted_at IS NULL
-LEFT JOIN provider_earnings pe ON pe.provider_id = n.provider_user_id
+LEFT JOIN provider_earnings pe ON pe.provider_user_id = n.provider_user_id
 WHERE n.deleted_at IS NULL
 GROUP BY n.provider_user_id
 WITH DATA;

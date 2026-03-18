@@ -27,6 +27,16 @@ pub struct Config {
     pub session_cache_size: usize,
     /// TTL for session cache entries in seconds (default: 300 = 5 minutes)
     pub session_cache_ttl_secs: u64,
+
+    // P2-12: Per-operation timeouts so a single slow/hung upstream cannot hold
+    // a worker thread indefinitely.
+    /// TCP connect timeout when dialling upstream proxy nodes (default: 10s).
+    pub proxy_connect_timeout_secs: u64,
+    /// Idle timeout for proxy tunnels — closed when no bytes flow for this long
+    /// in either direction (default: 60s).
+    pub proxy_idle_timeout_secs: u64,
+    /// HTTP request timeout for Control-API and RPC calls (default: 15s).
+    pub rpc_request_timeout_secs: u64,
 }
 
 impl Config {
@@ -57,7 +67,7 @@ impl Config {
             "0000000000000000000000000000000000000000000000000000000000000000".to_string()
         });
 
-        let geoip_db_path = env::var("GEOIP_DB_PATH").ok();
+        let geoip_db_path = env::var("GEOIP_DB_PATH").ok().filter(|p| !p.is_empty());
 
         let geo_deny_list = env::var("GEO_DENY_LIST")
             .unwrap_or_default()
@@ -92,6 +102,22 @@ impl Config {
         let control_api_url = env::var("CONTROL_API_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        // P2-12: Per-operation timeouts (all configurable via env vars).
+        let proxy_connect_timeout_secs = env::var("PROXY_CONNECT_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse()
+            .expect("PROXY_CONNECT_TIMEOUT_SECS must be a positive integer");
+
+        let proxy_idle_timeout_secs = env::var("PROXY_IDLE_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "60".to_string())
+            .parse()
+            .expect("PROXY_IDLE_TIMEOUT_SECS must be a positive integer");
+
+        let rpc_request_timeout_secs = env::var("RPC_REQUEST_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "15".to_string())
+            .parse()
+            .expect("RPC_REQUEST_TIMEOUT_SECS must be a positive integer");
+
         Self {
             host,
             port,
@@ -107,6 +133,9 @@ impl Config {
             session_cache_size,
             session_cache_ttl_secs,
             control_api_url,
+            proxy_connect_timeout_secs,
+            proxy_idle_timeout_secs,
+            rpc_request_timeout_secs,
         }
     }
 

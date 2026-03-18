@@ -16,9 +16,6 @@ func SeedAll() {
 		return
 	}
 
-	log.Println("Cleaning up historical artifacts...")
-	cleanMockData()
-
 	log.Println("Seeding System Config...")
 	seedSystemConfig()
 	log.Println("Database seeding completed")
@@ -26,14 +23,6 @@ func SeedAll() {
 
 func stringPtr(s string) *string {
 	return &s
-}
-
-func cleanMockData() {
-	// Purge any historical test emails if they exist
-	mockEmails := []string{"admin@proxyhub.com", "provider@proxyhub.com", "user@proxyhub.com"}
-	DB.Unscoped().Where("email IN ?", mockEmails).Delete(&models.User{})
-
-	log.Println("Purged historical test data")
 }
 
 func seedSystemConfig() {

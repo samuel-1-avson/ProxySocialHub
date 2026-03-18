@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -36,13 +37,36 @@ func RegisterEscrowEventListener() {
 	})
 }
 
+// handleEscrowInitialized activates the order linked to the on-chain escrow PDA.
+// P1-22: If the order row is not found (race: event arrived before the API
+// committed the order), retry up to 12 times with 5-second intervals (60s
+// total) before giving up and logging a critical alert.
 func handleEscrowInitialized(event solana.EscrowEvent) {
-	// Find order by PDA matches
+	const (
+		maxAttempts  = 12
+		retryDelay   = 5 * time.Second
+	)
+
 	var order models.Order
-	if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err != nil {
-		log.Printf("[Worker] Waiting for Order creation for PDA %s (might be race condition)", event.EscrowPDA)
-		// Retry/Wait logic could go here, or assume Order was created via API *before* user sent TX.
-		// API `initiateSolanaPayment` sets `escrow_pda`.
+	var found bool
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err == nil {
+			found = true
+			break
+		}
+		if attempt < maxAttempts {
+			log.Printf("[Worker] EscrowInit PDA %s: order not found (attempt %d/%d), retrying in %s…",
+				event.EscrowPDA, attempt, maxAttempts, retryDelay)
+			time.Sleep(retryDelay)
+		}
+	}
+
+	if !found {
+		logging.Error(fmt.Errorf("escrow init event lost after %d attempts", maxAttempts)).
+			Str("escrow_pda", event.EscrowPDA).
+			Str("tx_signature", event.TxSignature).
+			Msg("CRITICAL: escrow initialized on-chain but no matching order found — manual reconciliation required")
 		return
 	}
 
@@ -128,7 +152,7 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	// Log Transaction
 	pendingTx := models.PendingTransaction{
 		ID:          uuid.New(),
-		UserID:      userID.String(),
+		UserID:      userID,
 		Reference:   event.TxSignature,
 		Type:        "crypto_deposit",
 		Amount:      solAmount,
@@ -156,6 +180,15 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}
 
 	log.Printf("[Worker] Auto-Deposit SUCCESS: Credited %.6f SOL to user %s (Ref: %s)", solAmount, userID, event.TxSignature)
+
+	// P2-13: Financial audit trail.
+	audit.LogDirect(&userID, "", models.AuditFinancialAutoDeposit, "wallet", wallet.ID.String(),
+		fmt.Sprintf("Auto-deposit %.6f SOL credited (tx: %s)", solAmount, event.TxSignature),
+		map[string]interface{}{
+			"amount_sol":   solAmount,
+			"tx_signature": event.TxSignature,
+			"from_address": event.Buyer,
+		})
 
 	// Emit WebSocket notification via NATS for real-time UI balance update
 	ws.BroadcastToUser(userID.String(), ws.MsgTypeWalletUpdate, map[string]interface{}{

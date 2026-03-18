@@ -56,6 +56,14 @@ const (
 	// Admin Events
 	AuditAdminAction     AuditEventType = "admin.action"
 	AuditDisputeResolved AuditEventType = "admin.dispute_resolved"
+
+	// Financial Events — P2-13: Comprehensive financial audit trail.
+	AuditFinancialEscrowSettled  AuditEventType = "financial.escrow_settled"
+	AuditFinancialEscrowRefunded AuditEventType = "financial.escrow_refunded"
+	AuditFinancialBatchPayout    AuditEventType = "financial.batch_payout"
+	AuditFinancialAutoDeposit    AuditEventType = "financial.auto_deposit"
+	AuditFinancialWithdrawal     AuditEventType = "financial.withdrawal"
+	AuditFinancialTransfer       AuditEventType = "financial.transfer"
 )
 
 // AuditSeverity indicates importance of the event

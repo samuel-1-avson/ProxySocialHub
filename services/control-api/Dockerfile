@@ -45,6 +45,10 @@ COPY --from=builder /app/server /server
 # Use non-root user
 USER appuser
 
+# Default migrations path — override with MIGRATIONS_DIR env var.
+# In docker-compose the ./migrations directory is mounted at this path.
+ENV MIGRATIONS_DIR=/app/migrations
+
 # Expose port
 EXPOSE 8080
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -217,4 +218,29 @@ func isAdmin(c *gin.Context) bool {
 	role, _ := c.Get("role")
 	authType, _ := c.Get("auth_type")
 	return role == "admin" || authType == "admin"
+}
+
+// AutoCloseExpiredDisputes closes open disputes whose ExpiresAt has passed.
+// P2-11: Run as a daily cron job. Disputes are resolved in favour of the
+// provider (seller) when the consumer has not responded within the window.
+func AutoCloseExpiredDisputes() {
+	var expired []models.Dispute
+	if err := db.DB.
+		Where("status = 'open' AND expires_at <= ?", time.Now().UTC()).
+		Find(&expired).Error; err != nil {
+		return
+	}
+
+	if len(expired) == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	for _, d := range expired {
+		db.DB.Model(&d).Updates(map[string]interface{}{
+			"status":      "expired",
+			"resolution":  "Auto-closed: no consumer response within " + fmt.Sprintf("%d", models.DisputeExpiryDays) + " days",
+			"resolved_at": now,
+		})
+	}
 }

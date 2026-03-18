@@ -17,9 +17,35 @@ const (
 	defaultMaxSingleTransferSOL = 50.0   // No single tx > 50 SOL
 	defaultMaxHourlyOutflowSOL  = 500.0  // Total outflow per rolling 1-hour window
 
-	velocityRedisKey = "oracle:outflow:hourly" // Rolling hourly outflow counter (SOL)
-	velocityWindow   = time.Hour
+	velocityRedisKey  = "oracle:outflow:hourly" // Rolling hourly outflow counter (SOL)
+	velocityFreezeKey = "oracle:freeze"         // P0-18: persisted freeze flag in Redis
+	velocityWindow    = time.Hour
 )
+
+// velocityLuaScript atomically: increments the outflow counter, sets the TTL
+// on first write (when TTL==-1), then checks the limit. If the limit would be
+// exceeded it rolls back the increment and returns the over-limit value so the
+// caller can detect the breach without a separate round-trip (P0-16 fix).
+//
+// KEYS[1] = counter key, ARGV[1] = amount (float string),
+// ARGV[2] = hourly limit (float string), ARGV[3] = window seconds (int string)
+// Returns: {new_total (bulk string), exceeded (0|1)}
+const velocityLuaScript = `
+local key    = KEYS[1]
+local amount = tonumber(ARGV[1])
+local limit  = tonumber(ARGV[2])
+local window = tonumber(ARGV[3])
+local total  = tonumber(redis.call('INCRBYFLOAT', key, amount))
+local ttl    = redis.call('TTL', key)
+if ttl == -1 then
+    redis.call('EXPIRE', key, window)
+end
+if total > limit then
+    redis.call('INCRBYFLOAT', key, -amount)
+    return {tostring(total), 1}
+end
+return {tostring(total), 0}
+`
 
 // VelocityGuard enforces per-transfer and hourly outflow limits on the oracle.
 // It is embedded in OracleClient and checked before every SendSOL / BatchTransferSOL call.
@@ -27,7 +53,7 @@ type VelocityGuard struct {
 	redis              internalRedis.RedisClient
 	maxSingleSOL       float64
 	maxHourlySOL       float64
-	frozen             atomic.Bool // true → all transfers blocked until manually cleared
+	frozen             atomic.Bool // in-process cache; authoritative state is in Redis (P0-18)
 	alertFn            func(title, message string) // injected alert callback
 }
 
@@ -55,31 +81,45 @@ func NewVelocityGuard(rc internalRedis.RedisClient, alertFn func(string, string)
 }
 
 // Freeze blocks all oracle transfers immediately.
-// Use this when a compromise is suspected. Cleared only by Unfreeze() or restart.
+// P0-18: the freeze flag is persisted in Redis so it survives process restarts.
 func (v *VelocityGuard) Freeze() {
 	v.frozen.Store(true)
+	if v.redis != nil {
+		v.redis.Set(context.Background(), velocityFreezeKey, "1", 0) // no TTL — must be explicitly cleared
+	}
 	log.Println("[ORACLE FREEZE] All oracle transfers are now FROZEN. Manual intervention required.")
 	if v.alertFn != nil {
-		v.alertFn("Oracle Transfers FROZEN", "All SOL transfers blocked. Set ORACLE_TRANSFER_FREEZE=false and restart to unfreeze.")
+		v.alertFn("Oracle Transfers FROZEN", "All SOL transfers blocked. Call Unfreeze() or delete the Redis key to resume.")
 	}
 }
 
-// Unfreeze re-enables oracle transfers.
+// Unfreeze re-enables oracle transfers and removes the Redis freeze flag.
 func (v *VelocityGuard) Unfreeze() {
 	v.frozen.Store(false)
+	if v.redis != nil {
+		v.redis.Del(context.Background(), velocityFreezeKey)
+	}
 	log.Println("[ORACLE UNFREEZE] Oracle transfers resumed.")
 }
 
-// IsFrozen returns the current freeze state.
+// IsFrozen returns true if the guard is frozen.
+// P0-18: checks Redis first so a freeze set by another replica is honoured on startup.
 func (v *VelocityGuard) IsFrozen() bool {
+	if v.redis != nil {
+		val, err := v.redis.Get(context.Background(), velocityFreezeKey).Result()
+		if err == nil && val == "1" {
+			v.frozen.Store(true) // sync in-process cache
+			return true
+		}
+	}
 	return v.frozen.Load()
 }
 
 // Check validates a proposed transfer against all velocity limits.
 // Returns an error if the transfer must be blocked.
 func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
-	// 1. Freeze check
-	if v.frozen.Load() {
+	// 1. Freeze check (P0-18: also polls Redis so inter-process freeze is honoured)
+	if v.IsFrozen() {
 		return fmt.Errorf("oracle transfers are frozen — manual review required before resuming")
 	}
 
@@ -92,27 +132,33 @@ func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
 		return fmt.Errorf("transfer blocked: %s", msg)
 	}
 
-	// 3. Hourly outflow window (Redis-backed for multi-instance accuracy)
-	if v.redis != nil {
-		newTotal, err := v.redis.IncrByFloat(ctx, velocityRedisKey, amountSOL).Result()
-		if err == nil {
-			// Set TTL only if key is new (TTL = -1 means no expiry set yet)
-			v.redis.Expire(ctx, velocityRedisKey, velocityWindow)
+	// 3. Hourly outflow window — P0-16: use a Lua script so increment, TTL-set, and
+	//    limit-check are one atomic round-trip with no double-increment race.
+	if v.redis == nil {
+		// P0-17: Redis is required for accurate multi-instance tracking.
+		// Block the transfer rather than silently skipping the check.
+		return fmt.Errorf("transfer blocked: Redis is unavailable and hourly outflow cannot be verified")
+	}
 
-			if newTotal > v.maxHourlySOL {
-				// Roll back the increment so the key doesn't accumulate stale excess
-				v.redis.IncrByFloat(ctx, velocityRedisKey, -amountSOL)
+	windowSecs := int(velocityWindow.Seconds())
+	results, err := v.redis.Eval(ctx, velocityLuaScript,
+		[]string{velocityRedisKey},
+		fmt.Sprintf("%f", amountSOL),
+		fmt.Sprintf("%f", v.maxHourlySOL),
+		fmt.Sprintf("%d", windowSecs),
+	).StringSlice()
+	if err != nil {
+		// P0-17: Redis error → block the transfer, do not proceed unchecked.
+		return fmt.Errorf("transfer blocked: Redis velocity check failed: %w", err)
+	}
 
-				msg := fmt.Sprintf("hourly outflow would reach %.4f SOL (limit: %.2f SOL)", newTotal, v.maxHourlySOL)
-				if v.alertFn != nil {
-					v.alertFn("Oracle: Hourly Velocity Limit Hit", msg)
-				}
-				return fmt.Errorf("transfer blocked: %s", msg)
-			}
-		} else {
-			// Redis unavailable — log but allow (avoid blocking payouts on Redis hiccup)
-			log.Printf("[VelocityGuard] Redis error tracking outflow: %v — proceeding without hourly check", err)
+	if len(results) >= 2 && results[1] == "1" {
+		// Lua script already rolled back the increment.
+		msg := fmt.Sprintf("hourly outflow would reach %s SOL (limit: %.2f SOL)", results[0], v.maxHourlySOL)
+		if v.alertFn != nil {
+			v.alertFn("Oracle: Hourly Velocity Limit Hit", msg)
 		}
+		return fmt.Errorf("transfer blocked: %s", msg)
 	}
 
 	return nil

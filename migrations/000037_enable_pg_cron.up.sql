@@ -36,7 +36,7 @@ BEGIN
         PERFORM cron.schedule(
             'create_audit_partition',
             '0 0 25 * *',
-            $$SELECT create_audit_partition_if_not_exists()$$
+            'SELECT create_audit_partition_if_not_exists()'
         );
         RAISE NOTICE 'pg_cron job ''create_audit_partition'' scheduled (runs 25th of each month at 00:00 UTC).';
     ELSE
