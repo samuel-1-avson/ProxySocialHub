@@ -15,33 +15,22 @@ RUN apk update && apk add --no-cache \
     make \
     gcc \
     g++ \
-    xz-dev
+    xz-dev \
+    protobuf-dev
 
 # Copy manifest and source
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
+COPY proto ./proto
 COPY src ./src
 # Bench sources declared in Cargo.toml — must be present for manifest parsing.
 COPY benches ./benches
 
-# Copy pre-vendored dependencies.
-# !! Before running `docker build`, regenerate the vendor directory on the host:
-#      cd services/edge-gateway
-#      cargo vendor
-#    This is required whenever Cargo.toml dependencies change (Phase 3 / Phase 4
-#    added: dashmap 5.5, ort 2.0.0-rc.12, maxminddb, uuid, ndarray, lzma-rust2, …).
-COPY vendor ./vendor
-
-# Tell Cargo to use only the vendored sources — no network access during build.
-RUN mkdir -p .cargo && printf \
-    '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."vendored-sources"]\ndirectory = "vendor"\n' \
-    > .cargo/config.toml
-
 # Build in release mode without the optional ONNX feature so the image stays
 # small and does not require a pre-trained model file at runtime.
 # Add `--features ml` here only if you have an ONNX model and the ort runtime
-# libraries available inside the vendor directory.
-RUN cargo build --release --offline --no-default-features
+# libraries available.
+RUN cargo build --release --no-default-features
 
 # ---------------------------------------------------------------------------
 # Runtime image — minimal Alpine

@@ -16,11 +16,28 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// providerPayoutThresholdSOL is the minimum accrued balance before an on-chain payout fires.
+// providerPayoutThresholdSOL is the minimum accrued balance before a payout is queued.
+// Note: Actual on-chain transfer happens via batch processing for efficiency.
 const providerPayoutThresholdSOL = 0.05
 
-// StartSettlementWorker starts the background job
+// globalBatchProcessor is the singleton batch payout processor
+var globalBatchProcessor *BatchPayoutProcessor
+
+// InitBatchProcessor initializes the batch payout processor
+func InitBatchProcessor(sendFunc func(ctx context.Context, recipient string, amountSOL float64) error,
+	batchFunc func(ctx context.Context, items []models.BatchPayoutItem) (string, error)) {
+	config := models.DefaultBatchConfig()
+	globalBatchProcessor = NewBatchPayoutProcessor(config, sendFunc, batchFunc)
+}
+
+// GetBatchProcessor returns the global batch processor instance
+func GetBatchProcessor() *BatchPayoutProcessor {
+	return globalBatchProcessor
+}
+
+// StartSettlementWorker starts the background jobs
 func StartSettlementWorker() {
+	// Start settlement worker
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour) // Run every hour
 		for {
@@ -30,6 +47,12 @@ func StartSettlementWorker() {
 			}
 		}
 	}()
+
+	// Start batch payout processor if initialized
+	if globalBatchProcessor != nil {
+		globalBatchProcessor.Start(context.Background())
+		logging.Info().Msg("Batch payout processor started")
+	}
 }
 
 // SettleUsage moves pending usage from Redis to SQL Ledger
@@ -81,13 +104,14 @@ func settleSession(credentialsUser string, totalBytes int64, redisKey string) er
 	}
 
 	// 2. Calculate Cost using live prices
-	pricePerGB := 0.50 // USDT/GB default
+	// pricePerGB is set in USD by providers when creating listings; converted to SOL at settlement time.
+	pricePerGB := 0.50 // USD/GB default
 	if session.Listing != nil && session.Listing.PricePerGB > 0 {
 		pricePerGB = session.Listing.PricePerGB
 	}
 
-	costUSDT := float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
-	costSOL := USDToSOL(costUSDT)
+	costUSD := float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
+	costSOL := USDToSOL(costUSD)
 
 	// 3. DB Transaction
 	return db.DB.Transaction(func(tx *gorm.DB) error {
@@ -97,12 +121,32 @@ func settleSession(credentialsUser string, totalBytes int64, redisKey string) er
 			return err
 		}
 
+		// Check spending limits before charging
+		if err := wallet.CheckSpendingLimit(tx, costSOL, models.SpendingUsage); err != nil {
+			if spendingErr, ok := err.(*models.SpendingLimitError); ok {
+				logging.Warn().
+					Str("session_id", session.ID.String()).
+					Str("limit_type", spendingErr.LimitType).
+					Float64("limit", spendingErr.Limit).
+					Float64("attempted", costSOL).
+					Msg("Billing: spending limit would be exceeded")
+				return fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
+			}
+			return err
+		}
+
 		// H-5: use session.ID (actual UUID) instead of uuid.Parse(credentialsUser) which always gave uuid.Nil
 		if wallet.BalanceSOL < costSOL {
 			logging.Warn().Str("session_id", session.ID.String()).Float64("need", costSOL).Float64("have", wallet.BalanceSOL).Msg("Billing: insufficient SOL balance, terminating session")
 			return fmt.Errorf("insufficient SOL balance")
 		}
 		wallet.BalanceSOL -= costSOL
+
+		// Record spending for limit tracking
+		if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
+			logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
+			// Don't fail the transaction, just log the error
+		}
 
 		if err := tx.Save(&wallet).Error; err != nil {
 			return err
@@ -115,7 +159,7 @@ func settleSession(credentialsUser string, totalBytes int64, redisKey string) er
 			Amount:       -costSOL,
 			BalanceAfter: wallet.BalanceSOL,
 			Type:         models.TransactionUsage,
-			Description:  fmt.Sprintf("Usage: %d bytes / %.4f USDT / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSDT, costSOL, solPriceUSD),
+			Description:  fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD),
 			CreatedAt:    time.Now(),
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
@@ -144,9 +188,9 @@ func settleSession(credentialsUser string, totalBytes int64, redisKey string) er
 						CreatedAt:    time.Now(),
 					})
 
-					// Trigger on-chain payout if threshold reached
+					// Queue payout for batch processing if threshold reached
 					if providerWallet.BalanceSOL >= providerPayoutThresholdSOL {
-						go triggerProviderPayout(providerID)
+						go queueProviderPayout(providerID)
 					}
 				}
 			}
@@ -160,8 +204,14 @@ func settleSession(credentialsUser string, totalBytes int64, redisKey string) er
 			}
 		}
 
-		// 4. Clear Redis Pending
-		redis.Client.DecrBy(context.Background(), redisKey, totalBytes)
+		// 4. Clear Redis pending counter — delete the key entirely after a successful
+		// settlement so it does not linger until the 48 h TTL (I6 improvement).
+		// credentialsUser is used as the key segment for billing:session:* keys;
+		// the session:*:usage keys (incremented by IncrementUsage) are expired via
+		// their own TTL set in the pipeline inside redis.IncrementUsage.
+		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
+			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete settled Redis key")
+		}
 
 		return nil
 	})
@@ -244,6 +294,65 @@ func triggerProviderPayout(providerID uuid.UUID) {
 		Str("wallet", walletAddress).
 		Float64("amount_sol", payoutAmount). // C-3: log the actual sent amount
 		Msg("Provider payout completed on-chain (devnet)")
+}
+
+// queueProviderPayout queues a provider payout for batch processing.
+// This is the preferred method as it saves gas by batching multiple payouts.
+func queueProviderPayout(providerID uuid.UUID) {
+	// Resolve provider wallet
+	walletAddress, err := resolveProviderWallet(providerID)
+	if err != nil {
+		logging.Warn().Str("provider_id", providerID.String()).Err(err).Msg("Provider payout: no payable wallet found")
+		return
+	}
+
+	// Lock balance and queue for batch processing
+	var payoutAmount float64
+	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		var wallet models.Wallet
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
+			return err
+		}
+		if wallet.BalanceSOL < providerPayoutThresholdSOL {
+			return fmt.Errorf("balance dropped below threshold before payout")
+		}
+		payoutAmount = wallet.BalanceSOL
+		wallet.BalanceSOL = 0
+		if err := tx.Save(&wallet).Error; err != nil {
+			return err
+		}
+		tx.Create(&models.WalletLedgerEntry{
+			WalletID:     wallet.ID,
+			Amount:       -payoutAmount,
+			BalanceAfter: 0,
+			Type:         models.TransactionPayout,
+			Description:  fmt.Sprintf("Queued for batch payout to %s (%.6f SOL)", walletAddress, payoutAmount),
+			CreatedAt:    time.Now(),
+		})
+		return nil
+	})
+	if txErr != nil {
+		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: failed to queue for batch")
+		return
+	}
+
+	// Queue for batch processing
+	if globalBatchProcessor != nil {
+		if err := globalBatchProcessor.QueuePayout(providerID, walletAddress, payoutAmount, nil); err != nil {
+			logging.Error(err).Str("provider_id", providerID.String()).Msg("Failed to queue payout for batch processing")
+			// Fall back to immediate processing
+			go triggerProviderPayout(providerID)
+			return
+		}
+		logging.Info().
+			Str("provider_id", providerID.String()).
+			Float64("amount", payoutAmount).
+			Msg("Provider payout queued for batch processing")
+	} else {
+		// Batch processor not initialized, use immediate processing
+		logging.Warn().Str("provider_id", providerID.String()).Msg("Batch processor not initialized, using immediate payout")
+		go triggerProviderPayout(providerID)
+	}
 }
 
 // resolveProviderWallet returns the best payout address for a provider.

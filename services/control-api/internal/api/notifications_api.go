@@ -37,7 +37,7 @@ func getNotifications(c *gin.Context) {
 	}
 	c.ShouldBindQuery(&query)
 	
-	dbQuery := db.DB.Where("user_id = ?", userID).Order("created_at DESC")
+	dbQuery := db.Social().Where("user_id = ?", userID).Order("created_at DESC")
 	
 	if query.Unread {
 		dbQuery = dbQuery.Where("is_read = ?", false)
@@ -65,7 +65,7 @@ func getUnreadCount(c *gin.Context) {
 	}
 	
 	var count int64
-	db.DB.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&count)
+	db.Social().Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&count)
 	
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
@@ -83,7 +83,7 @@ func markNotificationRead(c *gin.Context) {
 		return
 	}
 	
-	result := db.DB.Model(&models.Notification{}).
+	result := db.Social().Model(&models.Notification{}).
 		Where("id = ? AND user_id = ?", notificationID, userID).
 		Update("is_read", true)
 	
@@ -102,7 +102,7 @@ func markAllNotificationsRead(c *gin.Context) {
 		return
 	}
 	
-	result := db.DB.Model(&models.Notification{}).
+	result := db.Social().Model(&models.Notification{}).
 		Where("user_id = ? AND is_read = ?", userID, false).
 		Update("is_read", true)
 	
@@ -127,7 +127,7 @@ func deleteNotification(c *gin.Context) {
 		return
 	}
 	
-	result := db.DB.Where("id = ? AND user_id = ?", notificationID, userID).Delete(&models.Notification{})
+	result := db.Social().Where("id = ? AND user_id = ?", notificationID, userID).Delete(&models.Notification{})
 	
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
@@ -137,18 +137,38 @@ func deleteNotification(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "notification deleted"})
 }
 
-func getNotificationPreferences(c *gin.Context) {
-	userID, exists := c.Get("userID")
+// parseNotifUserID safely extracts and parses the userID from context,
+// handling both uuid.UUID and string types set by different middleware paths.
+func parseNotifUserID(c *gin.Context) (uuid.UUID, bool) {
+	raw, exists := c.Get("userID")
 	if !exists {
+		return uuid.Nil, false
+	}
+	switch v := raw.(type) {
+	case uuid.UUID:
+		return v, true
+	case string:
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			return uuid.Nil, false
+		}
+		return parsed, true
+	}
+	return uuid.Nil, false
+}
+
+func getNotificationPreferences(c *gin.Context) {
+	uid, ok := parseNotifUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	
+
 	var prefs models.NotificationPreference
-	if err := db.DB.First(&prefs, "user_id = ?", userID).Error; err != nil {
+	if err := db.Social().First(&prefs, "user_id = ?", uid).Error; err != nil {
 		// Return defaults if not found
 		prefs = models.NotificationPreference{
-			UserID:               userID.(uuid.UUID),
+			UserID:               uid,
 			SocialInApp:          true,
 			SocialEmail:          true,
 			SocialPush:           false,
@@ -166,29 +186,29 @@ func getNotificationPreferences(c *gin.Context) {
 			DigestHour:           9,
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, prefs)
 }
 
 func updateNotificationPreferences(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	uid, ok := parseNotifUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	
+
 	var req models.NotificationPreference
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
-	req.UserID = userID.(uuid.UUID)
-	
-	if err := db.DB.Save(&req).Error; err != nil {
+
+	req.UserID = uid
+
+	if err := db.Social().Save(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, req)
 }

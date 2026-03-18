@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_pending_transactions_idempotency_key;

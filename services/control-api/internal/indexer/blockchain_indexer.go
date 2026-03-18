@@ -14,6 +14,13 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
+// IndexerCallbacks holds optional notification hooks called after DB writes.
+// Use SetCallbacks to wire them from main.go without creating a circular import.
+type IndexerCallbacks struct {
+	OnNewBlock       func(*models.ExplorerBlock)
+	OnNewTransaction func(*models.ExplorerTransaction)
+}
+
 // BlockchainIndexer polls Solana blockchain and indexes data into explorer tables
 type BlockchainIndexer struct {
 	rpcClient    *rpc.Client
@@ -25,6 +32,14 @@ type BlockchainIndexer struct {
 	mu           sync.RWMutex
 	ctx          context.Context
 	cancel       context.CancelFunc
+	callbacks    IndexerCallbacks
+}
+
+// SetCallbacks sets notification callbacks called after each DB write.
+func (bi *BlockchainIndexer) SetCallbacks(cb IndexerCallbacks) {
+	bi.mu.Lock()
+	bi.callbacks = cb
+	bi.mu.Unlock()
 }
 
 // IndexerConfig holds configuration for the blockchain indexer
@@ -213,6 +228,8 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 		Assign(explorerBlock).
 		FirstOrCreate(&explorerBlock).Error; err != nil {
 		logging.Error(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Failed to store block")
+	} else if bi.callbacks.OnNewBlock != nil {
+		bi.callbacks.OnNewBlock(&explorerBlock)
 	}
 
 	// Index transactions
@@ -316,6 +333,8 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 		Assign(explorerTx).
 		FirstOrCreate(&explorerTx).Error; err != nil {
 		return fmt.Errorf("failed to store transaction: %w", err)
+	} else if bi.callbacks.OnNewTransaction != nil {
+		bi.callbacks.OnNewTransaction(&explorerTx)
 	}
 
 	// N-04: Upsert blockchain_state_cache for each program-owned account in the tx.

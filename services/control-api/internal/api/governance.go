@@ -90,14 +90,14 @@ func createProposal(c *gin.Context) {
 
 	// 1. Ensure Governance Forum Category exists
 	var govCat models.ForumCategory
-	if err := db.DB.Where("name = ?", "Governance").First(&govCat).Error; err != nil {
+	if err := db.Social().Where("name = ?", "Governance").First(&govCat).Error; err != nil {
 		govCat = models.ForumCategory{
 			Name:        "Governance",
 			Slug:        "governance",
 			Description: "Official DAO Proposal Discussions",
 			SortOrder:   0,
 		}
-		db.DB.Create(&govCat)
+		db.Social().Create(&govCat)
 	}
 
 	// 2. Create Forum Thread
@@ -109,7 +109,7 @@ func createProposal(c *gin.Context) {
 		Content:    req.Description + "\n\n[System] Proposal created automatically.",
 	}
 
-	if err := db.DB.Create(&thread).Error; err != nil {
+	if err := db.Social().Create(&thread).Error; err != nil {
 		logging.Warn().Err(err).Msg("Failed to auto-create governance thread")
 		// Non-blocking, continue
 	}
@@ -125,7 +125,7 @@ func createProposal(c *gin.Context) {
 		ThreadID:    &thread.ID, // Link
 	}
 
-	if err := db.DB.Create(&proposal).Error; err != nil {
+	if err := db.Social().Create(&proposal).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proposal"})
 		return
 	}
@@ -137,7 +137,7 @@ func createProposal(c *gin.Context) {
 func getProposals(c *gin.Context) {
 	var proposals []models.Proposal
 
-	query := db.DB.Preload("Proposer").Order("created_at DESC")
+	query := db.Social().Preload("Proposer").Order("created_at DESC")
 
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
@@ -160,7 +160,7 @@ func getProposal(c *gin.Context) {
 	}
 
 	var proposal models.Proposal
-	if err := db.DB.Preload("Proposer").First(&proposal, "id = ?", id).Error; err != nil {
+	if err := db.Social().Preload("Proposer").First(&proposal, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
 		return
 	}
@@ -206,7 +206,7 @@ func castVote(c *gin.Context) {
 
 	// 2. Check Proposal Status
 	var proposal models.Proposal
-	if err := db.DB.First(&proposal, "id = ?", proposalID).Error; err != nil {
+	if err := db.Social().First(&proposal, "id = ?", proposalID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
 		return
 	}
@@ -218,14 +218,14 @@ func castVote(c *gin.Context) {
 
 	if time.Now().After(proposal.EndTime) {
 		// Auto-close if expired
-		db.DB.Model(&proposal).Update("status", models.ProposalPassed) // Simplification
+		db.Social().Model(&proposal).Update("status", models.ProposalPassed) // Simplification
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Voting period has ended"})
 		return
 	}
 
 	// 2. Check if already voted
 	var existingVote models.Vote
-	if err := db.DB.Where("proposal_id = ? AND voter_id = ?", proposalID, userID).First(&existingVote).Error; err == nil {
+	if err := db.Social().Where("proposal_id = ? AND voter_id = ?", proposalID, userID).First(&existingVote).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
 		return
 	}
@@ -268,7 +268,7 @@ func castVote(c *gin.Context) {
 		Power:      votingPower,
 	}
 
-	tx := db.DB.Begin()
+	tx := db.Social().Begin()
 	if err := tx.Create(&vote).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cast vote"})
@@ -306,8 +306,26 @@ func executeProposal(c *gin.Context) {
 	}
 
 	var proposal models.Proposal
-	if err := db.DB.First(&proposal, "id = ?", proposalID).Error; err != nil {
+	if err := db.Social().First(&proposal, "id = ?", proposalID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
+		return
+	}
+
+	// Authorization: only the proposer or an admin may trigger execution
+	callerRole, _ := c.Get("userRole")
+	callerIDRaw, _ := c.Get("userID")
+	isAdmin := callerRole == "admin"
+	isProposer := false
+	switch v := callerIDRaw.(type) {
+	case uuid.UUID:
+		isProposer = v == proposal.ProposerID
+	case string:
+		if parsed, err := uuid.Parse(v); err == nil {
+			isProposer = parsed == proposal.ProposerID
+		}
+	}
+	if !isAdmin && !isProposer {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only the proposer or an admin can execute a proposal"})
 		return
 	}
 
@@ -340,7 +358,7 @@ func executeProposal(c *gin.Context) {
 
 		switch proposal.Type {
 		case models.ProposalTypeTreasury:
-			// Parse execution data: {"recipient": "0x...", "amount": 100, "currency": "GHS"}
+			// Parse execution data: {"recipient": "0x...", "amount": 100, "currency": "SOL"}
 			var data struct {
 				Recipient string  `json:"recipient"`
 				Amount    float64 `json:"amount"`
@@ -417,7 +435,7 @@ func executeProposal(c *gin.Context) {
 				AuthorID: proposal.ProposerID, // Or system bot ID
 				Content:  msg,
 			}
-			db.DB.Create(&post)
+			db.Social().Create(&post)
 		}()
 	}
 

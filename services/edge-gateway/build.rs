@@ -1,20 +1,19 @@
-use std::path::Path;
+// Build script for Edge Gateway
+// Compiles protobuf definitions for gRPC blockchain streaming
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Check multiple possible proto locations
-    let proto_paths = [
-        "proto/gateway.proto",       // Docker context (project root)
-        "../../proto/gateway.proto", // Local development (from services/edge-gateway)
-    ];
-
-    for proto_path in proto_paths {
-        if Path::new(proto_path).exists() {
-            tonic_build::compile_protos(proto_path)?;
-            return Ok(());
-        }
-    }
-
-    // If no proto found, skip compilation (proto functionality optional for now)
-    println!("cargo:warning=Proto file not found, skipping gRPC generation");
+    // Create output directory if it doesn't exist
+    std::fs::create_dir_all("src/blockchain/proto")?;
+    
+    // Compile protobuf definitions
+    tonic_build::configure()
+        .build_server(false)
+        .build_client(true)
+        .out_dir("src/blockchain/proto")
+        .compile_protos(&["proto/blockchain.proto"], &["proto"])?;
+    
+    // Rerun if proto file changes
+    println!("cargo:rerun-if-changed=proto/blockchain.proto");
+    
     Ok(())
 }

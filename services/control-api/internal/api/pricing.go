@@ -1,131 +1,170 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"strconv"
-	"sync"
 	"time"
 
-	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/pricing"
 )
 
-// PriceCache to avoid hitting rate limits
-type PriceCache struct {
-	Rate      float64
-	LastFetch time.Time
-	Mutex     sync.RWMutex
-}
-
-var globalPriceCache = PriceCache{
-	Rate: 6750.0, // Fallback default
-}
-
-const (
-	CACHE_DURATION     = 1 * time.Minute // Update every minute
-	COINGECKO_API_URL  = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
-	FIXED_GHS_USD_RATE = 15.5 // GHS is relatively stable, can be updated less frequently or fetched
-)
-
-type CoinGeckoResponse struct {
-	Solana struct {
-		USD float64 `json:"usd"`
-	} `json:"solana"`
-}
-
-// GetSolToGhsRate returns the current exchange rate: How many GHS for 1 SOL
-func GetSolToGhsRate() float64 {
-	globalPriceCache.Mutex.RLock()
-	// If cache is valid (less than 1 min old), return it
-	if time.Since(globalPriceCache.LastFetch) < CACHE_DURATION && globalPriceCache.Rate > 0 {
-		defer globalPriceCache.Mutex.RUnlock()
-		return globalPriceCache.Rate
+// RegisterPricingRoutes registers pricing-related routes
+func RegisterPricingRoutes(r *gin.RouterGroup) {
+	pricing := r.Group("/pricing")
+	{
+		pricing.GET("/sol", getSOLPrice)
+		pricing.GET("/convert", convertPrice)
 	}
-	globalPriceCache.Mutex.RUnlock()
 
-	// Cache expired or empty, fetch new price
-	newRate, err := fetchPriceFromAPI()
+	// Admin routes for monitoring
+	admin := r.Group("/admin/pricing")
+	{
+		admin.GET("/sources", getPriceSources)
+		admin.GET("/health", getPriceFeedHealth)
+	}
+}
+
+// getSOLPrice returns the current SOL price in USD
+func getSOLPrice(c *gin.Context) {
+	pf := pricing.GetPriceFeed()
+	price, err := pf.GetSOLPriceUSD()
 	if err != nil {
-		logging.Error(err).Msg("Failed to fetch real-time price, using fallback")
-		return globalPriceCache.Rate // Return last known good rate
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "Failed to get price",
+			"message": err.Error(),
+		})
+		return
 	}
 
-	// Update Cache
-	globalPriceCache.Mutex.Lock()
-	globalPriceCache.Rate = newRate
-	globalPriceCache.LastFetch = time.Now()
-	globalPriceCache.Mutex.Unlock()
-
-	return newRate
+	c.JSON(http.StatusOK, gin.H{
+		"currency_pair": "SOL/USD",
+		"price":         price,
+		"timestamp":     time.Now().UTC(),
+	})
 }
 
-var oracleClient = &http.Client{
-	Timeout: 10 * time.Second,
-}
+// convertPrice handles price conversions
+func convertPrice(c *gin.Context) {
+	from := c.Query("from")
+	to := c.Query("to")
+	amountStr := c.Query("amount")
 
-func fetchPriceFromAPI() (float64, error) {
-	// 1. Try CoinGecko
-	rate, err := fetchCoinGecko()
-	if err == nil {
-		return rate, nil
+	if from == "" || to == "" || amountStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing required parameters: from, to, amount",
+		})
+		return
 	}
-	logging.Warn().Err(err).Msg("CoinGecko failed, trying fallback...")
 
-	// 2. Try Fallback (Binance or others - placeholder for now)
-	// return fetchBinance()
+	var amount float64
+	if _, err := parseFloat(amountStr, &amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid amount",
+		})
+		return
+	}
 
-	return 0, err
-}
+	pf := pricing.GetPriceFeed()
+	var result float64
+	var err error
 
-func fetchCoinGecko() (float64, error) {
-	apiKey := os.Getenv("COINGECKO_API_KEY")
-	url := COINGECKO_API_URL
+	// Handle SOL <-> USD conversions
+	if from == "SOL" && to == "USD" {
+		result, err = pf.ConvertSOLTUSD(amount)
+	} else if from == "USD" && to == "SOL" {
+		result, err = pf.ConvertUSDTOSOL(amount)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Unsupported conversion pair. Only SOL<->USD supported.",
+		})
+		return
+	}
 
-	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return 0, err
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "Conversion failed",
+			"message": err.Error(),
+		})
+		return
 	}
 
-	if apiKey != "" {
-		req.Header.Set("x-cg-demo-api-key", apiKey)
-	}
-
-	resp, err := oracleClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("API returned non-200 status: %d", resp.StatusCode)
-	}
-
-	var data CoinGeckoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return 0, err
-	}
-
-	solUsd := data.Solana.USD
-	if solUsd == 0 {
-		return 0, fmt.Errorf("Invalid price data returned")
-	}
-
-	ghsRate := getGhsUsdRate()
-	rate := solUsd * ghsRate
-
-	logging.Info().Float64("sol_usd", solUsd).Float64("ghs_rate", rate).Msg("Updated Exchange Rate via CoinGecko")
-	return rate, nil
+	c.JSON(http.StatusOK, gin.H{
+		"from":      from,
+		"to":        to,
+		"amount":    amount,
+		"result":    result,
+		"timestamp": time.Now().UTC(),
+	})
 }
 
-func getGhsUsdRate() float64 {
-	val := os.Getenv("EXCHANGE_RATE_GHS_USD")
-	if val != "" {
-		if rate, err := strconv.ParseFloat(val, 64); err == nil && rate > 0 {
-			return rate
+// getPriceSources returns the status of all price sources
+func getPriceSources(c *gin.Context) {
+	pf := pricing.GetPriceFeed()
+	metrics := pf.GetSourceMetrics()
+
+	sources := make([]gin.H, 0, len(metrics))
+	for name, stat := range metrics {
+		sources = append(sources, gin.H{
+			"name":            name,
+			"healthy":         stat.IsHealthy,
+			"success_count":   stat.SuccessCount,
+			"failure_count":   stat.FailureCount,
+			"last_success":    stat.LastSuccess,
+			"last_failure":    stat.LastFailure,
+			"avg_latency_ms":  stat.AvgLatencyMs,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sources":   sources,
+		"count":     len(sources),
+		"timestamp": time.Now().UTC(),
+	})
+}
+
+// getPriceFeedHealth returns overall health status
+func getPriceFeedHealth(c *gin.Context) {
+	pf := pricing.GetPriceFeed()
+	metrics := pf.GetSourceMetrics()
+
+	healthyCount := 0
+	totalCount := len(metrics)
+
+	for _, stat := range metrics {
+		if stat.IsHealthy {
+			healthyCount++
 		}
-		logging.Warn().Str("val", val).Msg("Invalid EXCHANGE_RATE_GHS_USD env var, using default")
 	}
-	return FIXED_GHS_USD_RATE
+
+	status := "healthy"
+	if healthyCount == 0 {
+		status = "critical"
+	} else if healthyCount < totalCount {
+		status = "degraded"
+	}
+
+	// Test current price fetch
+	start := time.Now()
+	price, err := pf.GetSOLPriceUSD()
+	latency := time.Since(start)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":         status,
+		"healthy_sources": healthyCount,
+		"total_sources":  totalCount,
+		"current_price":  price,
+		"price_error":    err != nil,
+		"fetch_latency_ms": latency.Milliseconds(),
+		"timestamp":      time.Now().UTC(),
+	})
+}
+
+func parseFloat(s string, v *float64) (int, error) {
+	var n int
+	_, err := fmt.Sscanf(s, "%f", v)
+	if err == nil {
+		n = len(s)
+	}
+	return n, err
 }

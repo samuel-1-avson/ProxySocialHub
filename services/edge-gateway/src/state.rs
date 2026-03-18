@@ -1,6 +1,7 @@
 use crate::circuitbreaker::CircuitBreakerManager;
 use crate::config::Config;
 use crate::registry::lockfree::LockFreeNodeRegistry;
+use crate::tunnel::{ProviderCapabilities, AssignedLimits};
 use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
@@ -28,6 +29,13 @@ pub struct NodeInfo {
     #[serde(default)]
     pub bandwidth_rate_kbps: u32, // Estimated bandwidth usage (KB/s)
     pub is_healthy: bool,
+    // P1-A6: Provider capabilities and assigned limits
+    #[serde(default)]
+    pub capabilities: ProviderCapabilities,
+    #[serde(default)]
+    pub assigned_limits: AssignedLimits,
+    #[serde(default)]
+    pub qos_tier: String,
 }
 
 impl NodeInfo {
@@ -48,16 +56,59 @@ impl NodeInfo {
             latency_ms: 0,
             bandwidth_rate_kbps: 0,
             is_healthy: true,
+            // P1-A6: Initialize with defaults
+            capabilities: ProviderCapabilities::default(),
+            assigned_limits: AssignedLimits {
+                max_connections: 100,
+                bandwidth_cap_mbps: 100,
+                allowed_ports: vec![80, 443],
+                qos_tier: "basic".to_string(),
+                priority: 50,
+            },
+            qos_tier: "basic".to_string(),
         }
     }
 
+    /// P1-A6: Create NodeInfo with capabilities
+    pub fn with_capabilities(
+        node_id: String,
+        ip_address: String,
+        user_id: Option<String>,
+        capabilities: ProviderCapabilities,
+        assigned_limits: AssignedLimits,
+    ) -> Self {
+        let mut node = Self::new(node_id, ip_address, user_id);
+        node.capabilities = capabilities;
+        node.assigned_limits = assigned_limits.clone();
+        node.max_connections = assigned_limits.max_connections;
+        node.qos_tier = assigned_limits.qos_tier.clone();
+        node
+    }
+
     /// Calculate node score for selection (higher is better)
+    /// P1-A6: Incorporates QoS tier, capabilities, and priority
     pub fn score(&self) -> u32 {
         if !self.is_healthy {
             return 0;
         }
 
         let mut score = 1000u32;
+
+        // P1-A6: QoS tier bonus
+        score += match self.qos_tier.as_str() {
+            "premium" => 200,
+            "standard" => 100,
+            "basic" => 0,
+            "limited" => -50i32 as u32, // Penalty for limited tier
+            _ => 0,
+        };
+
+        // P1-A6: Priority bonus from assigned limits
+        score += self.assigned_limits.priority as u32;
+
+        // P1-A6: Bandwidth capacity bonus
+        let bw_score = (self.capabilities.downlink_speed_kbps / 1000).min(100);
+        score += bw_score;
 
         // Penalize high latency
         score = score.saturating_sub(self.latency_ms);
@@ -67,7 +118,6 @@ impl NodeInfo {
         score = score.saturating_sub(load_percent * 5); // 100% load = -500 score
 
         // Penalize high bandwidth usage
-        // Example: 1000 KB/s (1MB/s) = -10 score. 10MB/s = -100 score.
         let bw_penalty = self.bandwidth_rate_kbps / 100;
         score = score.saturating_sub(bw_penalty);
 
@@ -310,6 +360,8 @@ pub struct AppState {
     pub rollout: Arc<crate::rollout::RolloutPlan>,
     /// IP rotation manager — tracks per-session rotation state (W-01).
     pub rotation: Arc<Mutex<crate::rotation::RotationManager>>,
+    /// Control API client for node registration and heartbeats
+    pub control_api: Arc<crate::control_api::ControlApiClient>,
 }
 
 impl AppState {
@@ -387,6 +439,12 @@ impl AppState {
         ));
         let rollout = Arc::new(crate::rollout::RolloutPlan::new());
 
+        // Initialize Control API client for node registration
+        let control_api = Arc::new(crate::control_api::ControlApiClient::new(
+            &config.control_api_url,
+            &config.jwt_secret,
+        ));
+
         Self {
             registry: Arc::new(LockFreeNodeRegistry::new()),
             config,
@@ -414,6 +472,7 @@ impl AppState {
             multiregion,
             rollout,
             rotation: Arc::new(Mutex::new(crate::rotation::RotationManager::new())),
+            control_api,
         }
     }
 
@@ -482,6 +541,16 @@ mod tests {
             latency_ms: latency,
             bandwidth_rate_kbps: 0,
             is_healthy: healthy,
+            // P1-A6: Initialize test nodes with default capabilities
+            capabilities: ProviderCapabilities::default(),
+            assigned_limits: AssignedLimits {
+                max_connections: max,
+                bandwidth_cap_mbps: 100,
+                allowed_ports: vec![80, 443],
+                qos_tier: "basic".to_string(),
+                priority: 50,
+            },
+            qos_tier: "basic".to_string(),
         }
     }
 

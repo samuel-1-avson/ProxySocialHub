@@ -8,6 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { createClient } from '@/lib/supabase/client';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
 import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -116,8 +117,8 @@ export default function LoginPage() {
                   await walletLogin(publicKey.toBase58(), { signMessage });
                   router.push('/dashboard');
                   router.refresh();
-                } catch (err: any) {
-                  setError(err.message || 'Wallet login failed');
+                } catch (err: unknown) {
+                  setError(getErrorMessage(err) || 'Wallet login failed');
                 } finally {
                   setLoading(false);
                 }

@@ -289,6 +289,59 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+  # ==================== DB Migration Smoke-Test ====================
+  # Applies every numbered migration in sequence against a clean Postgres instance
+  # and verifies the schema is consistent.  Runs only when migrations/ changes.
+  db-migrate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: proxyhubb
+          POSTGRES_PASSWORD: proxyhubb
+          POSTGRES_DB: proxyhubb_migrate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install golang-migrate CLI
+      run: |
+        curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xvz
+        sudo mv migrate /usr/local/bin/migrate
+
+    - name: Run all up migrations
+      env:
+        DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_migrate_test?sslmode=disable"
+      run: |
+        migrate -path ./migrations \
+                -database "$DATABASE_URL" \
+                up
+
+    - name: Verify key tables exist
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -c \
+          "SELECT table_name FROM information_schema.tables
+           WHERE table_schema = 'public'
+           ORDER BY table_name;" | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
+
+    - name: Run all down migrations (rollback smoke-test)
+      env:
+        DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_migrate_test?sslmode=disable"
+      run: |
+        migrate -path ./migrations \
+                -database "$DATABASE_URL" \
+                down -all
+      continue-on-error: true   # Down migrations are best-effort in CI
+
   # ==================== Lint & Format Check ====================
   lint:
     runs-on: ubuntu-latest

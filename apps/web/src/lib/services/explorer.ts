@@ -41,6 +41,10 @@ export interface NodeSummary {
     chain: string;
     region: string;
     country: string;
+    city?: string;
+    isp?: string;
+    latitude: number;
+    longitude: number;
     is_active: boolean;
     is_validator: boolean;
     uptime_percent: number;
@@ -78,6 +82,7 @@ export interface WalletDetails {
     chain: string;
     balance_sol: number;
     balance_platform: number;
+    sol_price_usd: number;
     transaction_count: number;
     first_activity: string;
     last_activity: string;
@@ -118,73 +123,295 @@ export interface NetworkHealth {
 
 // Service Functions
 
-export async function getExplorerMetrics(chain = 'all'): Promise<ExplorerMetrics> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/metrics?chain=${chain}`);
+// P1-16: thin wrapper so every service function can propagate an AbortSignal.
+// Components should create an AbortController in useEffect and pass its signal:
+//   const ctrl = new AbortController();
+//   getSomething(..., ctrl.signal);
+//   return () => ctrl.abort();
+async function xfetch(url: string, signal?: AbortSignal): Promise<Response> {
+    return fetch(url, signal ? { signal } : undefined);
+}
+
+export async function getExplorerMetrics(chain = 'all', signal?: AbortSignal): Promise<ExplorerMetrics> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/metrics?chain=${chain}`, signal);
     if (!response.ok) throw new Error('Failed to fetch explorer metrics');
     return response.json();
 }
 
-export async function getNetworkStats(): Promise<{ total_transactions: number; total_volume: number; active_nodes: number }> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/stats`);
+export async function getNetworkStats(signal?: AbortSignal): Promise<{ total_transactions: number; total_volume: number; active_nodes: number }> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/stats`, signal);
     if (!response.ok) throw new Error('Failed to fetch network stats');
     return response.json();
 }
 
-export async function getRecentTransactions(page = 1, pageSize = 10, chain?: string): Promise<TransactionListResponse> {
+export async function getRecentTransactions(page = 1, pageSize = 10, chain?: string, txType?: string, status?: string, signal?: AbortSignal): Promise<TransactionListResponse> {
     let url = `${API_BASE_URL}/v1/explorer/transactions?page=${page}&page_size=${pageSize}`;
-    if (chain) url += `&chain=${chain}`;
+    if (chain) url += `&chain=${encodeURIComponent(chain)}`;
+    if (txType) url += `&type=${encodeURIComponent(txType)}`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
 
-    const response = await fetch(url);
+    const response = await xfetch(url, signal);
     if (!response.ok) throw new Error('Failed to fetch transactions');
     return response.json();
 }
 
-export async function getTransactionDetails(hash: string): Promise<TransactionDetail> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/transactions/${hash}`);
+export async function getTransactionDetails(hash: string, signal?: AbortSignal): Promise<TransactionDetail> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/transactions/${hash}`, signal);
     if (!response.ok) throw new Error('Failed to fetch transaction details');
     return response.json();
 }
 
-export async function getWalletDetails(address: string): Promise<WalletDetails> {
-    // Use fetchWithAuth if we want to potentially see private details, but public is fine too
-    // Using regular fetch for public explorer view
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/wallets/${address}`);
+export async function getWalletDetails(address: string, signal?: AbortSignal): Promise<WalletDetails> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/wallets/${address}`, signal);
     if (!response.ok) throw new Error('Failed to fetch wallet details');
     return response.json();
 }
 
-export async function getWalletTransactions(address: string, page = 1, pageSize = 20): Promise<TransactionListResponse> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/wallets/${address}/transactions?page=${page}&page_size=${pageSize}`);
+export async function getWalletTransactions(address: string, page = 1, pageSize = 20, signal?: AbortSignal): Promise<TransactionListResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/wallets/${address}/transactions?page=${page}&page_size=${pageSize}`, signal);
     if (!response.ok) throw new Error('Failed to fetch wallet transactions');
     return response.json();
 }
 
-export async function getBlocks(page = 1, pageSize = 10, chain = 'solana'): Promise<BlockListResponse> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/blocks?page=${page}&page_size=${pageSize}&chain=${chain}`);
+export async function getBlocks(page = 1, pageSize = 10, chain = 'solana', signal?: AbortSignal): Promise<BlockListResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/blocks?page=${page}&page_size=${pageSize}&chain=${chain}`, signal);
     if (!response.ok) throw new Error('Failed to fetch blocks');
     return response.json();
 }
 
-export async function getNodes(page = 1, pageSize = 20, activeOnly = true): Promise<NodeListResponse> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/nodes?page=${page}&page_size=${pageSize}&active=${activeOnly}`);
+export async function getNodes(page = 1, pageSize = 20, activeOnly = true, validatorOnly?: boolean, signal?: AbortSignal): Promise<NodeListResponse> {
+    let url = `${API_BASE_URL}/v1/explorer/nodes?page=${page}&page_size=${pageSize}&active=${activeOnly}`;
+    if (validatorOnly) url += `&validator=true`;
+    const response = await xfetch(url, signal);
     if (!response.ok) throw new Error('Failed to fetch nodes');
     return response.json();
 }
 
-export async function getBandwidthStats(period = '24h'): Promise<any> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/bandwidth?period=${period}`);
+// Lightweight type returned by GET /nodes/geo — only what the map engine needs
+export interface NodeGeoPoint {
+    node_id: string;
+    lat: number;
+    lon: number;
+    is_active: boolean;
+    is_validator: boolean;
+    uptime_percent: number;
+    active_sessions: number;
+    country: string;
+    region: string;
+    city?: string;
+    isp?: string;
+}
+
+export interface NodeGeoResponse {
+    nodes: NodeGeoPoint[];
+    total: number;
+}
+
+/** Fetches the minimal geo dataset used exclusively by the map engine. */
+export async function getNodeGeo(activeOnly = false, validatorOnly = false, signal?: AbortSignal): Promise<NodeGeoResponse> {
+    let url = `${API_BASE_URL}/v1/explorer/nodes/geo?active=${activeOnly}`;
+    if (validatorOnly) url += `&validator=true`;
+    const response = await xfetch(url, signal);
+    if (!response.ok) throw new Error('Failed to fetch node geo data');
+    return response.json();
+}
+
+export async function getBandwidthStats(period = '24h', signal?: AbortSignal): Promise<any> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/bandwidth?period=${period}`, signal);
     if (!response.ok) throw new Error('Failed to fetch bandwidth stats');
     return response.json();
 }
 
-export async function getContractDetails(address: string): Promise<ContractDetails> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/contracts/${address}`);
+export async function getContractDetails(address: string, signal?: AbortSignal): Promise<ContractDetails> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/contracts/${address}`, signal);
     if (!response.ok) throw new Error('Failed to fetch contract details');
     return response.json();
 }
 
-export async function getNetworkHealth(): Promise<NetworkHealth> {
-    const response = await fetch(`${API_BASE_URL}/v1/explorer/network/health`);
+export async function getNetworkHealth(signal?: AbortSignal): Promise<NetworkHealth> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/network/health`, signal);
     if (!response.ok) throw new Error('Failed to fetch network health');
+    return response.json();
+}
+
+// --- Analytics & Leaderboard ---
+
+export interface AnalyticsPoint {
+    timestamp: string;
+    value: number;
+}
+
+export interface AnalyticsResponse {
+    period: string;
+    transaction_volume: AnalyticsPoint[];
+    bandwidth_gb: AnalyticsPoint[];
+    active_nodes: AnalyticsPoint[];
+    active_wallets: AnalyticsPoint[];
+}
+
+export interface LeaderboardEntry {
+    rank: number;
+    node_id: string;
+    name?: string;
+    region: string;
+    country: string;
+    uptime_percent: number;
+    bandwidth_gb: number;
+    active_sessions: number;
+    quality_score: number;
+    is_validator: boolean;
+}
+
+export interface LeaderboardResponse {
+    entries: LeaderboardEntry[];
+    category: string;
+    period: string;
+}
+
+export interface NodeDetail {
+    node_id: string;
+    name?: string;
+    chain: string;
+    region: string;
+    country: string;
+    city?: string;
+    isp?: string;
+    is_active: boolean;
+    is_validator: boolean;
+    stake_amount: number;
+    commission_rate: number;
+    uptime_percent: number;
+    latency_ms: number;
+    quality_score: number;
+    success_rate: number;
+    active_sessions: number;
+    total_sessions: number;
+    bandwidth_gb: number;
+    bytes_up: number;
+    bytes_down: number;
+    last_heartbeat: string;
+    version?: string;
+    hotkey?: string;
+}
+
+export async function getBlockDetail(blockId: string | number, signal?: AbortSignal): Promise<BlockSummary & { transactions?: TransactionSummary[] }> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/blocks/${blockId}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch block detail');
+    return response.json();
+}
+
+export async function getAnalytics(period = '24h', from?: string, to?: string, signal?: AbortSignal): Promise<AnalyticsResponse> {
+    let url = `${API_BASE_URL}/v1/explorer/analytics?period=${period}`;
+    if (from) url += `&from=${encodeURIComponent(from)}`;
+    if (to) url += `&to=${encodeURIComponent(to)}`;
+    const response = await xfetch(url, signal);
+    if (!response.ok) throw new Error('Failed to fetch analytics');
+    return response.json();
+}
+
+export async function getLeaderboard(category = 'uptime', period = '24h', signal?: AbortSignal): Promise<LeaderboardResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/leaderboard?category=${category}&period=${period}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch leaderboard');
+    return response.json();
+}
+
+export async function getNodeDetail(nodeId: string, signal?: AbortSignal): Promise<NodeDetail> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/nodes/${nodeId}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch node detail');
+    return response.json();
+}
+
+export async function getValidators(page = 1, pageSize = 20, signal?: AbortSignal): Promise<NodeListResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/validators?page=${page}&page_size=${pageSize}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch validators');
+    return response.json();
+}
+
+// --- Sessions ---
+
+export interface ExplorerSession {
+    session_id: string;
+    session_type: string;
+    status: string;
+    bytes_used: number;
+    start_time: string;
+    end_time: string;
+}
+
+export interface ExplorerSessionsResponse {
+    sessions: ExplorerSession[];
+    total: number;
+    active_count: number;
+    page: number;
+    page_size: number;
+}
+
+export async function getExplorerSessions(
+    page = 1, pageSize = 20, status?: string, type?: string, signal?: AbortSignal
+): Promise<ExplorerSessionsResponse> {
+    let url = `${API_BASE_URL}/v1/explorer/sessions?page=${page}&page_size=${pageSize}`;
+    if (status) url += `&status=${status}`;
+    if (type) url += `&type=${type}`;
+    const response = await xfetch(url, signal);
+    if (!response.ok) throw new Error('Failed to fetch sessions');
+    return response.json();
+}
+
+// --- Provider Earnings ---
+
+export interface ProviderEarning {
+    node_id: string;
+    provider_address: string;
+    session_count: number;
+    bandwidth_gb: number;
+    total_earned: number;
+    last_payout: string;
+}
+
+export interface EarningsSummary {
+    total_paid: number;
+    active_providers: number;
+    avg_earning: number;
+    tx_count: number;
+}
+
+export interface ProviderEarningsResponse {
+    providers: ProviderEarning[];
+    total: number;
+    summary: EarningsSummary;
+    volume_chart: AnalyticsPoint[];
+    page: number;
+    page_size: number;
+}
+
+export async function getProviderEarnings(
+    period = '24h', page = 1, pageSize = 20, signal?: AbortSignal
+): Promise<ProviderEarningsResponse> {
+    const response = await xfetch(
+        `${API_BASE_URL}/v1/explorer/earnings?period=${period}&page=${page}&page_size=${pageSize}`,
+        signal,
+    );
+    if (!response.ok) throw new Error('Failed to fetch provider earnings');
+    return response.json();
+}
+
+// --- Health History ---
+
+export interface HealthHistoryPoint {
+    timestamp: string;
+    status: string;
+    active_nodes: number;
+    avg_response_ms: number;
+}
+
+export interface HealthHistoryResponse {
+    history: HealthHistoryPoint[];
+    uptime_percent: number;
+    events: { timestamp: string; status: string; subsystem: string; message: string }[];
+}
+
+export async function getHealthHistory(period = '24h', signal?: AbortSignal): Promise<HealthHistoryResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/health/history?period=${period}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch health history');
     return response.json();
 }

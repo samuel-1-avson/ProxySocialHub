@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -371,13 +373,41 @@ func verifySignature(c *gin.Context) {
 		return
 	}
 
-	// This is a utility endpoint for testing signature verification
-	// Implementation would decode and verify Ed25519 signature
+	// Decode base58 public key
+	pubKeyBytes, err := base58.Decode(req.PublicKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid public key format: " + err.Error()})
+		return
+	}
+
+	if len(pubKeyBytes) != ed25519.PublicKeySize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid public key length"})
+		return
+	}
+
+	// Decode base58 signature
+	sigBytes, err := base58.Decode(req.Signature)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature format: " + err.Error()})
+		return
+	}
+
+	if len(sigBytes) != ed25519.SignatureSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature length"})
+		return
+	}
+
+	// Verify the signature
+	pubKey := ed25519.PublicKey(pubKeyBytes)
+	message := []byte(req.Message)
+	
+	valid := ed25519.Verify(pubKey, message, sigBytes)
 
 	c.JSON(http.StatusOK, gin.H{
-		"valid":      true,
-		"public_key": req.PublicKey,
-		"message":    req.Message,
+		"valid":       valid,
+		"public_key":  req.PublicKey,
+		"message":     req.Message,
+		"verified_at": time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

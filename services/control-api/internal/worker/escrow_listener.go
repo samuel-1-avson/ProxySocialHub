@@ -108,7 +108,7 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			wallet = models.Wallet{UserID: userID, Currency: "MULTI"}
+			wallet = models.Wallet{UserID: userID}
 			tx.Create(&wallet)
 		} else {
 			tx.Rollback()

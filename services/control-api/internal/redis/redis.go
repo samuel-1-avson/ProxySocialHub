@@ -69,6 +69,14 @@ type SessionData struct {
 	RotationType            string   `json:"rotation_type,omitempty"`
 	RotationIntervalSeconds int      `json:"rotation_interval_seconds,omitempty"`
 	TimeLimitMinutes        int      `json:"time_limit_minutes,omitempty"`
+
+	// P2P listing fields — set when session is bought from a specific provider listing.
+	// The edge-gateway uses NodeHost:NodePort to route traffic to the exact provider node.
+	ListingID  string  `json:"listing_id,omitempty"`
+	NodeID     string  `json:"node_id,omitempty"`
+	NodeHost   string  `json:"node_host,omitempty"`
+	NodePort   int     `json:"node_port,omitempty"`
+	PricePerGB float64 `json:"price_per_gb,omitempty"`
 }
 
 func Init() error {
@@ -159,14 +167,35 @@ func Exists(key string) (bool, error) {
 	return count > 0, err
 }
 
+// usageTTL is the maximum lifetime of a per-session usage counter in Redis.
+// Sessions cannot legitimately run longer than 48 h; this TTL prevents orphaned
+// keys accumulating memory if a session is never explicitly terminated (I6).
+const usageTTL = 48 * time.Hour
+
 func IncrementUsage(sessionID string, bytes int64) error {
 	key := "session:" + sessionID + ":usage"
-	return Client.IncrBy(ctx, key, bytes).Err()
+	// Pipeline: increment + refresh TTL atomically so the counter never expires
+	// mid-session but is always cleaned up within 48 h of the last write (I6).
+	pipe := Client.Pipeline()
+	pipe.IncrBy(ctx, key, bytes)
+	pipe.Expire(ctx, key, usageTTL)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func GetUsage(sessionID string) (int64, error) {
 	key := "session:" + sessionID + ":usage"
 	return Client.Get(ctx, key).Int64()
+}
+
+// DeleteUsage removes the per-session usage counter from Redis immediately after
+// billing settlement so that settled keys do not linger until the 48 h TTL (I6).
+func DeleteUsage(sessionID string) error {
+	if Client == nil {
+		return nil
+	}
+	key := "session:" + sessionID + ":usage"
+	return Client.Del(ctx, key).Err()
 }
 
 func GetBatchUsage(sessionIDs []string) (map[string]int64, error) {

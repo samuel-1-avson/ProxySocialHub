@@ -4,7 +4,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install dependencies
-RUN apk add --no-cache git
+RUN apk add --no-cache git python3 make g++ linux-headers eudev-dev
 
 # Copy package files
 COPY package.json package-lock.json* ./

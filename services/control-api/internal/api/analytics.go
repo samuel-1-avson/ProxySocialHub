@@ -139,7 +139,7 @@ type DailyUsagePoint struct {
 	BytesUsed int64   `json:"bytes_used"`
 	GBUsed    float64 `json:"gb_used"`
 	Requests  int     `json:"requests"`
-	CostGHS   float64 `json:"cost_ghs"`
+	CostSOL   float64 `json:"cost_sol"`
 }
 
 func getDailyUsage(c *gin.Context) {
@@ -214,7 +214,7 @@ func getDailyUsage(c *gin.Context) {
 			BytesUsed: bytes,
 			GBUsed:    gbUsed,
 			Requests:  reqs,
-			CostGHS:   gbUsed * 0.50,
+			CostSOL:   gbUsed * PricePerGBSOL,
 		}
 	}
 

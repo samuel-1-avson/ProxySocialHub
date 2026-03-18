@@ -29,7 +29,7 @@ func parseUUID(s string) uuid.UUID {
 // ListMarketAgents returns all available agents in the marketplace
 func ListMarketAgents(c *gin.Context) {
 	var agents []models.MarketAgent
-	if err := db.DB.Find(&agents).Error; err != nil {
+	if err := db.Social().Find(&agents).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch agents"})
 		return
 	}
@@ -57,7 +57,7 @@ func RentAgentInstance(c *gin.Context) {
 
 	// Verify agent exists
 	var agent models.MarketAgent
-	if err := db.DB.Where("id = ?", req.MarketAgentID).First(&agent).Error; err != nil {
+	if err := db.Social().Where("id = ?", req.MarketAgentID).First(&agent).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
 		return
 	}
@@ -71,7 +71,7 @@ func RentAgentInstance(c *gin.Context) {
 		Status:        "active",
 	}
 
-	if err := db.DB.Create(&instance).Error; err != nil {
+	if err := db.Social().Create(&instance).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rent agent"})
 		return
 	}
@@ -84,7 +84,7 @@ func ListUserInstances(c *gin.Context) {
 	userID := c.GetString("userID")
 	var instances []models.AgentInstance
 
-	if err := db.DB.Preload("MarketAgent").Where("user_id = ?", userID).Find(&instances).Error; err != nil {
+	if err := db.Social().Preload("MarketAgent").Where("user_id = ?", userID).Find(&instances).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch instances"})
 		return
 	}
@@ -99,7 +99,7 @@ func ExecuteAgentJob(c *gin.Context) {
 
 	// Verify ownership
 	var instance models.AgentInstance
-	if err := db.DB.Where("id = ? AND user_id = ?", instanceID, userID).First(&instance).Error; err != nil {
+	if err := db.Social().Where("id = ? AND user_id = ?", instanceID, userID).First(&instance).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Instance not found or access denied"})
 		return
 	}
@@ -110,7 +110,7 @@ func ExecuteAgentJob(c *gin.Context) {
 		Status:          "pending",
 	}
 
-	if err := db.DB.Create(&job).Error; err != nil {
+	if err := db.Social().Create(&job).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue job"})
 		return
 	}

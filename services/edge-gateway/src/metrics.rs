@@ -143,6 +143,31 @@ lazy_static! {
         &["reason"]
     )
     .unwrap();
+
+    // P0-A2: Session cache metrics
+    pub static ref SESSION_CACHE_HITS: IntCounter = register_int_counter!(
+        "edge_gateway_session_cache_hits_total",
+        "Total session cache hits"
+    )
+    .unwrap();
+
+    pub static ref SESSION_CACHE_MISSES: IntCounter = register_int_counter!(
+        "edge_gateway_session_cache_misses_total",
+        "Total session cache misses"
+    )
+    .unwrap();
+
+    pub static ref SESSION_CACHE_SIZE: IntGauge = register_int_gauge!(
+        "edge_gateway_session_cache_size",
+        "Current number of entries in session cache"
+    )
+    .unwrap();
+
+    pub static ref SESSION_CACHE_EVICTIONS: IntCounter = register_int_counter!(
+        "edge_gateway_session_cache_evictions_total",
+        "Total session cache evictions"
+    )
+    .unwrap();
 }
 
 /// Start time for uptime calculation
@@ -286,6 +311,26 @@ pub fn uptime_seconds() -> u64 {
         .get()
         .map(|t| t.elapsed().as_secs())
         .unwrap_or(0)
+}
+
+/// P0-A2: Record session cache hit
+pub fn record_session_cache_hit() {
+    SESSION_CACHE_HITS.inc();
+}
+
+/// P0-A2: Record session cache miss
+pub fn record_session_cache_miss() {
+    SESSION_CACHE_MISSES.inc();
+}
+
+/// P0-A2: Update session cache size gauge
+pub fn set_session_cache_size(size: i64) {
+    SESSION_CACHE_SIZE.set(size);
+}
+
+/// P0-A2: Record session cache eviction
+pub fn record_session_cache_eviction() {
+    SESSION_CACHE_EVICTIONS.inc();
 }
 
 #[cfg(test)]

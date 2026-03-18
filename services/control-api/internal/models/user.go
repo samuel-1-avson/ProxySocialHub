@@ -34,8 +34,7 @@ type User struct {
 	Email     string     `gorm:"unique;not null" json:"email"`
 	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
 	Status    UserStatus `gorm:"type:varchar(50);default:'active'" json:"status"`
-	TrustTier TrustTier  `gorm:"default:'new'" json:"trust_tier"`
-	KYCStatus KYCStatus  `gorm:"default:'not_started'" json:"kyc_status"`
+	TrustTier TrustTier `gorm:"default:'new'" json:"trust_tier"`
 
 	// Social Profile fields
 	DisplayName   *string        `gorm:"size:100" json:"display_name,omitempty"`
@@ -114,9 +113,6 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	if u.TrustTier == "" {
 		u.TrustTier = TrustTierNew
 	}
-	if u.KYCStatus == "" {
-		u.KYCStatus = KYCStatusNotStarted
-	}
 	if u.Status == "" {
 		u.Status = UserStatusActive
 	}
@@ -126,11 +122,6 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 // IsActive returns true (Legacy check, assume always active or check ban list)
 func (u *User) IsActive() bool {
 	return true // TODO: Check Supabase ban status if possible
-}
-
-// IsKYCVerified returns true if user has passed KYC
-func (u *User) IsKYCVerified() bool {
-	return u.KYCStatus == KYCStatusApproved
 }
 
 // TierConfig holds the rate limits for each trust tier

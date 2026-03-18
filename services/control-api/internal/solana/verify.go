@@ -184,3 +184,13 @@ func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLampo
 func GetTreasuryAddressFromDB() string {
 	return db.GetSystemSetting("solana_treasury_address", "SOLANA_TREASURY_ADDRESS", os.Getenv("SOLANA_TREASURY_ADDRESS"))
 }
+
+// GetTransactionSender returns the sender (fee payer) of the transaction
+// In Solana, the first account key in the transaction message is the fee payer (sender)
+func GetTransactionSender(tx *TransactionResult) (string, error) {
+	if tx.Transaction.Message.AccountKeys == nil || len(tx.Transaction.Message.AccountKeys) == 0 {
+		return "", errors.New("transaction has no account keys")
+	}
+	// The first account key is always the fee payer (sender)
+	return tx.Transaction.Message.AccountKeys[0], nil
+}

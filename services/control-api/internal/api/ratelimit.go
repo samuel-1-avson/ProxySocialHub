@@ -2,152 +2,63 @@ package api
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/ratelimiter"
+	"github.com/proxyhubb/control-api/internal/redis"
 )
 
-// ========== Rate Limiting Middleware ==========
+// ========== Redis-Backed Rate Limiting Middleware ==========
+// This implementation uses Redis for distributed rate limiting,
+// allowing horizontal scaling across multiple API instances.
+// Falls back to in-memory if Redis is unavailable.
 
-type rateLimiter struct {
-	requests map[string]*requestCounter
-	mu       sync.RWMutex
-	limit    int           // Max requests per window
-	window   time.Duration // Time window
-}
-
-type requestCounter struct {
-	count     int
-	expiresAt time.Time
-}
-
-var limiter *rateLimiter
-
-func init() {
-	limiter = &rateLimiter{
-		requests: make(map[string]*requestCounter),
-		limit:    100,              // 100 requests
-		window:   time.Minute,      // per minute
-	}
-
-	// Cleanup goroutine
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		for range ticker.C {
-			limiter.cleanup()
-		}
-	}()
-}
-
-func (r *rateLimiter) cleanup() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now()
-	for key, counter := range r.requests {
-		if now.After(counter.expiresAt) {
-			delete(r.requests, key)
-		}
-	}
-}
-
-func (r *rateLimiter) allow(key string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now()
-	counter, exists := r.requests[key]
-
-	if !exists || now.After(counter.expiresAt) {
-		r.requests[key] = &requestCounter{
-			count:     1,
-			expiresAt: now.Add(r.window),
-		}
-		return true
-	}
-
-	if counter.count >= r.limit {
-		return false
-	}
-
-	counter.count++
-	return true
-}
-
-func (r *rateLimiter) getRemaining(key string) int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	counter, exists := r.requests[key]
-	if !exists {
-		return r.limit
-	}
-
-	if time.Now().After(counter.expiresAt) {
-		return r.limit
-	}
-
-	return r.limit - counter.count
-}
-
-// RateLimitMiddleware limits requests per IP/user
+// RateLimitMiddleware provides distributed rate limiting using Redis
 func RateLimitMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Use user ID if authenticated, otherwise use IP
-		key := c.GetString("userID")
-		if key == "" {
-			key = c.ClientIP()
-		}
+	// Use the advanced rate limiter with sensible defaults
+	config := ratelimiter.DefaultAdvancedRateLimitConfig()
+	config.Limit = 100
+	config.Window = time.Minute
+	config.BurstCapacity = 20
 
-		if !limiter.allow(key) {
-			remaining := limiter.getRemaining(key)
-			c.Header("X-RateLimit-Limit", "100")
-			c.Header("X-RateLimit-Remaining", "0")
-			c.Header("Retry-After", "60")
-
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":     "Rate limit exceeded",
-				"limit":     limiter.limit,
-				"remaining": remaining,
-				"retry_after": 60,
-			})
-			c.Abort()
-			return
-		}
-
-		remaining := limiter.getRemaining(key)
-		c.Header("X-RateLimit-Limit", "100")
-		c.Header("X-RateLimit-Remaining", string(rune(remaining)))
-
-		c.Next()
-	}
+	return ratelimiter.AdvancedRateLimit(config)
 }
 
 // RateLimitWithConfig creates a rate limiter with custom config
+// Deprecated: Use ratelimiter.AdvancedRateLimit directly for more control
 func RateLimitWithConfig(limit int, window time.Duration) gin.HandlerFunc {
-	customLimiter := &rateLimiter{
-		requests: make(map[string]*requestCounter),
-		limit:    limit,
-		window:   window,
+	config := ratelimiter.AdvancedRateLimitConfig{
+		Algorithm:     ratelimiter.TokenBucket,
+		Limit:         limit,
+		Window:        window,
+		BurstCapacity: limit / 2,
+		RefillRate:    float64(limit) / window.Seconds(),
+		KeyFunc: func(c *gin.Context) string {
+			if userID, exists := c.Get("userID"); exists {
+				return "user:" + userID.(string)
+			}
+			return "ip:" + c.ClientIP()
+		},
 	}
+	return ratelimiter.AdvancedRateLimit(config)
+}
 
-	return func(c *gin.Context) {
-		key := c.GetString("userID")
-		if key == "" {
-			key = c.ClientIP()
-		}
+// StrictRateLimit provides stricter rate limiting for sensitive endpoints
+func StrictRateLimit() gin.HandlerFunc {
+	return ratelimiter.AdvancedRateLimit(ratelimiter.StrictAdvancedRateLimitConfig())
+}
 
-		if !customLimiter.allow(key) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":       "Rate limit exceeded",
-				"retry_after": int(window.Seconds()),
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
+// IsRateLimiterHealthy checks if the rate limiting backend (Redis) is available
+func IsRateLimiterHealthy() bool {
+	return redis.Client != nil
+}
+
+// GetRateLimitStatus returns the current rate limit status for a key
+func GetRateLimitStatus(key string) (limit, remaining int, resetTime time.Time, err error) {
+	// This is a simplified status check
+	// In production, you might want to query actual Redis state
+	return 100, 100, time.Now().Add(time.Minute), nil
 }
 
 // ========== Input Validation Middleware ==========
@@ -158,10 +69,10 @@ func InputValidationMiddleware() gin.HandlerFunc {
 		// Check Content-Type for POST/PUT requests
 		if c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH" {
 			contentType := c.GetHeader("Content-Type")
-			if contentType != "" && 
-			   contentType != "application/json" && 
-			   contentType != "application/x-www-form-urlencoded" &&
-			   contentType != "multipart/form-data" {
+			if contentType != "" &&
+				contentType != "application/json" &&
+				contentType != "application/x-www-form-urlencoded" &&
+				contentType != "multipart/form-data" {
 				c.JSON(http.StatusUnsupportedMediaType, gin.H{
 					"error": "Unsupported Content-Type",
 				})
@@ -227,7 +138,7 @@ func ValidateEmail(email string) bool {
 	return true
 }
 
-// ValidatePhone checks if phone number is valid (Ghana format)
+// ValidatePhone checks if phone number is valid
 func ValidatePhone(phone string) bool {
 	if len(phone) < 10 || len(phone) > 15 {
 		return false

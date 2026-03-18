@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
@@ -11,8 +12,12 @@ import (
 func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/config/public", getPublicSystemConfig)
 	r.GET("/network/gateways", getFederatedGateways)
-	r.POST("/system/config", updateSystemConfig) // Should be admin-only in prod
 	r.GET("/system/watchtower/status", getWatchtowerStatus)
+}
+
+// RegisterSystemAdminRoutes registers admin-only system routes
+func RegisterSystemAdminRoutes(r *gin.RouterGroup) {
+	r.POST("/system/config", updateSystemConfig)
 }
 
 type UpdateConfigPayload struct {
@@ -57,6 +62,7 @@ func getPublicSystemConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"treasury_solana": val,
+		"sol_price_usd":   billing.GetSOLPriceUSD(),
 	})
 }
 

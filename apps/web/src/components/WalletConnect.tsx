@@ -10,6 +10,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Loader2, Wallet } from 'lucide-react';
+import { getErrorMessage } from '@/lib/utils';
 // import { web3Enable, web3Accounts } from '@polkadot/extension-dapp'; // Removed static import causing SSR issues
 
 interface WalletAccount {
@@ -50,8 +51,8 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
             if (allAccounts.length === 0) {
                 throw new Error('No accounts found. Please add an account to your wallet.');
             }
-        } catch (err: any) {
-            setError(err.message || 'Failed to connect wallet');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || 'Failed to connect wallet');
         } finally {
             setLoading(false);
         }
@@ -64,8 +65,8 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
             const injector = await web3FromSource(account.meta.source);
             await onLogin(account.address, injector.signer);
             setIsOpen(false);
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }
