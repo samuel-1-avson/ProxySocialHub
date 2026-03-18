@@ -104,6 +104,12 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Map Supabase system roles to application roles; default new signups to buyer.
+		appRole := user.Role
+		if appRole == "authenticated" || appRole == "anon" || appRole == "" {
+			appRole = "buyer"
+		}
+
 		// Sync user to local DB if not exists
 		var dbUser models.User
 		userUUID, err := uuid.Parse(user.ID)
@@ -111,15 +117,19 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			logging.Error(err).Str("user_id", user.ID).Msg("Failed to parse UUID for sync")
 		} else {
 			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
+				// Ensure the auth.users parent row exists (satisfies profiles_id_fkey FK).
+				// The on_auth_user_created trigger will auto-create the profiles row.
+				if authErr := db.DB.Exec(
+					`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
+					userUUID, user.Email,
+				).Error; authErr != nil {
+					logging.Error(authErr).Str("user_id", user.ID).Msg("Failed to sync auth.users row")
+				}
+
 				// User not found, create new
 				username := strings.Split(user.Email, "@")[0]
 				if len(user.ID) >= 8 {
 					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
-				}
-				// Map Supabase system roles to application roles; default new signups to buyer.
-				appRole := user.Role
-				if appRole == "authenticated" || appRole == "anon" || appRole == "" {
-					appRole = "buyer"
 				}
 				newUser := models.User{
 					ID:        userUUID,
@@ -142,7 +152,7 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			c.Set("user_id", uid)
 		}
 		c.Set("userEmail", user.Email)
-		c.Set("userRole", user.Role)
+		c.Set("userRole", appRole)
 
 		c.Next()
 	}
@@ -208,11 +218,25 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Map Supabase system roles to application roles; default new signups to buyer.
+		optAppRole := user.Role
+		if optAppRole == "authenticated" || optAppRole == "anon" || optAppRole == "" {
+			optAppRole = "buyer"
+		}
+
 		// Sync user to local DB
 		var dbUser models.User
 		userUUID, err := uuid.Parse(user.ID)
 		if err == nil {
 			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
+				// Ensure the auth.users parent row exists (satisfies profiles_id_fkey FK).
+				if authErr := db.DB.Exec(
+					`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
+					userUUID, user.Email,
+				).Error; authErr != nil {
+					logging.Error(authErr).Str("user_id", user.ID).Msg("Failed to sync auth.users row (optional)")
+				}
+
 				// User not found, create new (Atomically)
 				username := strings.Split(user.Email, "@")[0]
 				if len(user.ID) >= 8 {
@@ -223,7 +247,7 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 					Email:     user.Email,
 					Username:  &username,
 					TrustTier: models.TrustTierNew,
-					Role:      user.Role,
+					Role:      optAppRole,
 				}
 				// Use OnConflict to handle race conditions during parallel requests
 				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
@@ -238,7 +262,7 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			c.Set("user_id", uid)
 		}
 		c.Set("userEmail", user.Email)
-		c.Set("userRole", user.Role)
+		c.Set("userRole", optAppRole)
 
 		c.Next()
 	}

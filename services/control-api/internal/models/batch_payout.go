@@ -12,6 +12,10 @@ type BatchPayoutStatus string
 const (
 	BatchStatusPending    BatchPayoutStatus = "pending"
 	BatchStatusProcessing BatchPayoutStatus = "processing"
+	// BatchStatusSubmitted means the on-chain tx was sent but the DB record
+	// has not yet been confirmed written. This status prevents double-payment
+	// if the process dies between batchFunc() returning and db.Save() succeeding.
+	BatchStatusSubmitted  BatchPayoutStatus = "submitted"
 	BatchStatusCompleted  BatchPayoutStatus = "completed"
 	BatchStatusPartial    BatchPayoutStatus = "partial" // Some succeeded, some failed
 	BatchStatusFailed     BatchPayoutStatus = "failed"

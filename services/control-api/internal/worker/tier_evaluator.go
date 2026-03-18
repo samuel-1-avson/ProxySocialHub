@@ -37,15 +37,19 @@ func StartTierEvaluator() {
 
 // computeTierScore calculates a tier score (0–100) for a provider node using the formula:
 //
-//	(uptime_percent * 0.4)
-//	+ (min(total_sessions_served, 2000) / 2000.0 * 30)
-//	+ (dispute_penalty: -10 per dispute, max -30)
-//	+ (latency_score: 10 if avg_latency_ms < 100, 5 if < 250, 0 otherwise)
+//	uptime component:   uptime_percent * 0.4                    → max 40
+//	session component:  min(sessions, 2000) / 2000.0 * 40      → max 40  (P1-21: was *30, max was 80 total)
+//	latency component:  20 if avg_latency_ms < 100,
+//	                    10 if < 250, 0 otherwise                → max 20  (P1-21: was 10/5)
+//	dispute penalty:   -10 per dispute, capped at -30
+//
+// Maximum achievable score with perfect metrics: 40 + 40 + 20 = 100.
+// Enterprise tier (score >= 90) now requires near-perfect uptime, session count, and latency.
 func computeTierScore(node models.ProviderNode) float64 {
 	uptimeComponent := node.UptimePercent * 0.4
 
 	sessionCap := math.Min(float64(node.TotalSessionsServed), 2000.0)
-	sessionComponent := (sessionCap / 2000.0) * 30.0
+	sessionComponent := (sessionCap / 2000.0) * 40.0 // P1-21: increased from 30 so max total reaches 100
 
 	disputePenalty := float64(node.DisputeCount) * 10.0
 	if disputePenalty > 30.0 {
@@ -55,9 +59,9 @@ func computeTierScore(node models.ProviderNode) float64 {
 	latencyScore := 0.0
 	if node.AvgLatencyMs > 0 {
 		if node.AvgLatencyMs < 100 {
-			latencyScore = 10.0
+			latencyScore = 20.0 // P1-21: increased from 10 so max total reaches 100
 		} else if node.AvgLatencyMs < 250 {
-			latencyScore = 5.0
+			latencyScore = 10.0 // P1-21: increased from 5
 		}
 	}
 

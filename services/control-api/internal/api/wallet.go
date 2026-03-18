@@ -123,6 +123,14 @@ func getWallet(c *gin.Context) {
 				username = fmt.Sprintf("%s_%s", username, userIDStr[:8])
 			}
 
+			// Ensure auth.users parent row exists first (satisfies profiles_id_fkey FK)
+			if authErr := db.DB.Exec(
+				`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
+				userID, userEmail,
+			).Error; authErr != nil {
+				logging.Error(authErr).Str("user_id", userIDStr).Msg("getWallet: Failed to sync auth.users row")
+			}
+
 			user = models.User{
 				ID:        userID,
 				Email:     userEmail,
@@ -352,30 +360,28 @@ func transferP2P(c *gin.Context) {
 		}
 	}
 
-	// 2. Lock Wallets (Sort by ID to prevent Deadlock)
-	// We need both wallet IDs. Fetch them first without lock, then key-lock?
-	// Or just fetch them.
-	ids := []string{senderID, recipient.ID.String()}
-	// Simple string sort
-	if ids[0] > ids[1] {
-		ids[0], ids[1] = ids[1], ids[0]
-	}
-
+	// 2. Lock Wallets in a consistent order (lower UUID first) to prevent
+	// deadlocks when two concurrent transfers involve the same pair of users.
+	// P1-06: Use explicit pointer assignment instead of a fragile map lookup.
 	var senderWallet, recipientWallet models.Wallet
 
-	// Lock First
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", ids[0]).First(
-		map[string]*models.Wallet{senderID: &senderWallet, recipient.ID.String(): &recipientWallet}[ids[0]],
-	).Error; err != nil {
+	var firstUserID, secondUserID string
+	var firstWallet, secondWallet *models.Wallet
+	if senderID < recipient.ID.String() {
+		firstUserID, secondUserID = senderID, recipient.ID.String()
+		firstWallet, secondWallet = &senderWallet, &recipientWallet
+	} else {
+		firstUserID, secondUserID = recipient.ID.String(), senderID
+		firstWallet, secondWallet = &recipientWallet, &senderWallet
+	}
+
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", firstUserID).First(firstWallet).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lock wallet 1"})
 		return
 	}
 
-	// Lock Second
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", ids[1]).First(
-		map[string]*models.Wallet{senderID: &senderWallet, recipient.ID.String(): &recipientWallet}[ids[1]],
-	).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", secondUserID).First(secondWallet).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lock wallet 2"})
 		return

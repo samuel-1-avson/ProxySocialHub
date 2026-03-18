@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { ModeToggle } from "@/components/ModeToggle";
-import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User } from "lucide-react";
+import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User, Wallet } from "lucide-react";
 import { AlertCenter } from "@/components/AlertCenter";
 import { NotificationCenter } from "@/components/NotificationCenter";
 
@@ -148,13 +148,22 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                             </div>
                         )}
                         {user && (
-                            <Link
-                                href="/notifications"
-                                onClick={() => setMobileMenuOpen(false)}
-                                className="block px-4 py-3 mt-2 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
-                            >
-                                NOTIFICATIONS
-                            </Link>
+                            <>
+                                <Link
+                                    href="/dashboard/wallet"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className={`flex items-center gap-3 px-4 py-3 mt-2 rounded-sm font-mono text-sm font-medium transition-colors border border-transparent ${isActive('/dashboard/wallet') ? 'bg-primary/10 text-primary border-primary/20' : 'text-foreground hover:bg-accent hover:border-border'}`}
+                                >
+                                    <Wallet size={16} /> WALLET
+                                </Link>
+                                <Link
+                                    href="/notifications"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className="block px-4 py-3 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
+                                >
+                                    NOTIFICATIONS
+                                </Link>
+                            </>
                         )}
                     </div>
                 </div>

@@ -24,7 +24,7 @@ func RegisterSubscriptionRoutes(rg *gin.RouterGroup) {
 // getPlans returns all active subscription plans
 func getPlans(c *gin.Context) {
 	var plans []models.SubscriptionPlan
-	db.Social().Where("is_active = ?", true).Order("price_monthly ASC").Find(&plans)
+	db.DB.Where("is_active = ?", true).Order("price_monthly ASC").Find(&plans)
 
 	c.JSON(http.StatusOK, gin.H{"plans": plans})
 }
@@ -35,14 +35,14 @@ func getMySubscription(c *gin.Context) {
 	userID := currentUserID.(uuid.UUID)
 
 	var subscription models.UserSubscription
-	err := db.Social().Preload("Plan").
+	err := db.DB.Preload("Plan").
 		Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error
 
 	if err != nil {
 		// No active subscription, return free tier info
 		var freePlan models.SubscriptionPlan
-		db.Social().Where("name = ?", "Free").First(&freePlan)
+		db.DB.Where("name = ?", "Free").First(&freePlan)
 		c.JSON(http.StatusOK, gin.H{
 			"subscription": nil,
 			"current_plan": freePlan,
@@ -69,7 +69,7 @@ func subscribe(c *gin.Context) {
 
 	// Check if already subscribed
 	var existing models.UserSubscription
-	if err := db.Social().Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.DB.Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&existing).Error; err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Already have an active subscription. Use change plan instead."})
 		return
@@ -77,7 +77,7 @@ func subscribe(c *gin.Context) {
 
 	// Get plan
 	var plan models.SubscriptionPlan
-	if err := db.Social().First(&plan, "id = ?", req.PlanID).Error; err != nil {
+	if err := db.DB.First(&plan, "id = ?", req.PlanID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
 		return
 	}
@@ -102,6 +102,11 @@ func subscribe(c *gin.Context) {
 	solPrice, err := prices.GetSOLPrice(c.Request.Context())
 	if err != nil {
 		c.JSON(503, gin.H{"error": "price service unavailable"})
+		return
+	}
+	// FSU-01: guard against zero/negative price to prevent division by zero panic.
+	if solPrice <= 0 {
+		c.JSON(503, gin.H{"error": "SOL price unavailable, cannot calculate subscription cost"})
 		return
 	}
 	// priceUSD is in USD, convert to SOL
@@ -149,7 +154,7 @@ func subscribe(c *gin.Context) {
 
 	tx.Commit()
 
-	db.Social().Preload("Plan").First(&subscription, "id = ?", subscription.ID)
+	db.DB.Preload("Plan").First(&subscription, "id = ?", subscription.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"subscription": subscription,
@@ -169,24 +174,112 @@ func changePlan(c *gin.Context) {
 	}
 
 	var subscription models.UserSubscription
-	if err := db.Social().Preload("Plan").Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.DB.Preload("Plan").Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No active subscription found"})
 		return
 	}
 
 	var newPlan models.SubscriptionPlan
-	if err := db.Social().First(&newPlan, "id = ?", req.NewPlanID).Error; err != nil {
+	if err := db.DB.First(&newPlan, "id = ?", req.NewPlanID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
 		return
 	}
 
-	// Calculate prorated amount (simplified: just switch at next billing)
-	db.Social().Model(&subscription).Update("plan_id", newPlan.ID)
+	if newPlan.ID == subscription.PlanID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Already on this plan"})
+		return
+	}
+
+	// P3-04: Prorated billing on plan change.
+	// 1. Calculate remaining fraction of the current billing period.
+	// 2. Credit the user for the unused portion of the old plan.
+	// 3. Charge the user the proportional cost of the new plan for the remainder.
+	now := time.Now()
+	solPrice, err := prices.GetSOLPrice(c.Request.Context())
+	if err != nil || solPrice <= 0 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "price service unavailable"})
+		return
+	}
+
+	// Determine period length and remaining days.
+	var periodDays float64 = 30 // default monthly
+	var oldPriceUSD, newPriceUSD float64
+	if subscription.BillingCycle == "yearly" {
+		periodDays = 365
+		oldPriceUSD = subscription.Plan.PriceYearly
+		newPriceUSD = newPlan.PriceYearly
+	} else {
+		oldPriceUSD = subscription.Plan.PriceMonthly
+		newPriceUSD = newPlan.PriceMonthly
+	}
+
+	var remainingFraction float64 = 1.0
+	if subscription.CurrentPeriodEnd != nil && subscription.CurrentPeriodEnd.After(now) {
+		totalSecs := subscription.CurrentPeriodEnd.Sub(subscription.CurrentPeriodStart).Seconds()
+		remainingSecs := subscription.CurrentPeriodEnd.Sub(now).Seconds()
+		if totalSecs > 0 {
+			remainingFraction = remainingSecs / totalSecs
+		}
+	}
+
+	creditSOL := (oldPriceUSD * remainingFraction) / solPrice
+	chargeSOL := (newPriceUSD * remainingFraction) / solPrice
+	netSOL := chargeSOL - creditSOL // positive = user pays more; negative = user gets credit
+
+	if netSOL > 0 {
+		// Upgrading: debit the difference
+		var wallet models.Wallet
+		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "wallet not found"})
+			return
+		}
+		if wallet.BalanceSOL < netSOL {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":      "Insufficient balance for plan upgrade",
+				"required":   netSOL,
+				"available":  wallet.BalanceSOL,
+			})
+			return
+		}
+		newBal := wallet.BalanceSOL - netSOL
+		if err := db.DB.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to apply upgrade charge"})
+			return
+		}
+		db.DB.Create(&models.WalletLedgerEntry{
+			WalletID:     wallet.ID,
+			Amount:       -netSOL,
+			BalanceAfter: newBal,
+			Type:         "subscription_upgrade",
+			Description:  fmt.Sprintf("Prorated upgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, netSOL),
+		})
+	} else if netSOL < 0 {
+		// Downgrading: credit the difference
+		creditAmount := -netSOL
+		var wallet models.Wallet
+		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
+			newBal := wallet.BalanceSOL + creditAmount
+			db.DB.Model(&wallet).Update("balance_sol", newBal)
+			db.DB.Create(&models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       creditAmount,
+				BalanceAfter: newBal,
+				Type:         "subscription_downgrade_credit",
+				Description:  fmt.Sprintf("Prorated credit for downgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, creditAmount),
+			})
+		}
+	}
+
+	db.DB.Model(&subscription).Updates(map[string]interface{}{
+		"plan_id": newPlan.ID,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "Plan changed to " + newPlan.Name + ". Changes take effect next billing period.",
-		"new_plan": newPlan,
+		"message":           fmt.Sprintf("Plan changed to %s with immediate effect", newPlan.Name),
+		"new_plan":          newPlan,
+		"prorated_charge":   netSOL,
+		"remaining_days":    remainingFraction * periodDays,
 	})
 }
 
@@ -199,14 +292,14 @@ func cancelSubscription(c *gin.Context) {
 	c.ShouldBindJSON(&req) // Optional reason
 
 	var subscription models.UserSubscription
-	if err := db.Social().Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
+	if err := db.DB.Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No active subscription found"})
 		return
 	}
 
 	now := time.Now()
-	db.Social().Model(&subscription).Updates(map[string]interface{}{
+	db.DB.Model(&subscription).Updates(map[string]interface{}{
 		"status":       models.SubscriptionCancelled,
 		"cancelled_at": now,
 	})
@@ -220,19 +313,31 @@ func cancelSubscription(c *gin.Context) {
 // CheckSubscriptionLimits checks if user is within their subscription limits
 func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
 	var subscription models.UserSubscription
-	err := db.Social().Preload("Plan").
+	err := db.DB.Preload("Plan").
 		Where("user_id = ? AND status = ?", userID, models.SubscriptionActive).
 		First(&subscription).Error
 
 	if err != nil {
-		// No subscription, use free tier limits
+		// P3-11: No subscription — look up free-tier limits from the DB.
+		// The "free" plan row is the single source of truth so ops can change
+		// limits without a code deploy.
+		var freePlan models.SubscriptionPlan
+		freeLimitErr := db.DB.Where("LOWER(name) = ?", "free").First(&freePlan).Error
+
 		switch limitType {
 		case "listings":
 			var count int64
 			db.DB.Model(&models.ProxyListing{}).Where("seller_id = ?", userID).Count(&count)
-			return count < 2, nil // Free tier: 2 listings
+			freeListingLimit := int64(2) // hard fallback if no free plan row exists
+			if freeLimitErr == nil && freePlan.ListingLimit > 0 {
+				freeListingLimit = int64(freePlan.ListingLimit)
+			}
+			return count < freeListingLimit, nil
 		case "api_access":
-			return false, nil // Free tier: no API access
+			if freeLimitErr == nil {
+				return freePlan.Features.APIAccess, nil
+			}
+			return false, nil // default: no API access on free tier
 		}
 		return true, nil
 	}

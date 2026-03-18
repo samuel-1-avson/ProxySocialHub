@@ -71,7 +71,7 @@ func convertPrice(c *gin.Context) {
 
 	// Handle SOL <-> USD conversions
 	if from == "SOL" && to == "USD" {
-		result, err = pf.ConvertSOLTUSD(amount)
+		result, err = pf.ConvertSOLToUSD(amount)
 	} else if from == "USD" && to == "SOL" {
 		result, err = pf.ConvertUSDTOSOL(amount)
 	} else {

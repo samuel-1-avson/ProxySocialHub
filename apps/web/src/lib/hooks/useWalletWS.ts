@@ -40,7 +40,7 @@ export function useWalletWS({ userID, onBalanceUpdate, enabled = true }: UseWall
         if (unmountedRef.current || !userID) return;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/ws/explorer`;
+        const wsUrl = `${protocol}//${window.location.host}/v1/explorer/ws`;
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 

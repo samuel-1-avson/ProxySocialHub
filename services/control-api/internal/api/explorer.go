@@ -23,7 +23,10 @@ import (
 
 // RegisterExplorerRoutes registers all public explorer endpoints
 func RegisterExplorerRoutes(r *gin.RouterGroup) {
-	explorer := r.Group("/explorer")
+	// P2-07: IP-based rate limiting — 120 req/min for general endpoints.
+	// The /nodes/geo endpoint has a tighter limit (20/min) because it returns
+	// a large payload and is the most expensive query.
+	explorer := r.Group("/explorer", RateLimitWithConfig(120, time.Minute))
 	{
 		// Dashboard metrics
 		explorer.GET("/metrics", getExplorerMetrics)
@@ -43,7 +46,8 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 
 		// Nodes & Validators
 		explorer.GET("/nodes", listExplorerNodes)
-		explorer.GET("/nodes/geo", getExplorerNodesGeo)
+		// /nodes/geo returns a large payload — tighter per-IP limit.
+		explorer.GET("/nodes/geo", RateLimitWithConfig(20, time.Minute), getExplorerNodesGeo)
 		explorer.GET("/nodes/:id", getExplorerNodeDetails)
 		explorer.GET("/validators", listExplorerValidators)
 
@@ -199,6 +203,14 @@ type NodeDetailResponse struct {
 	CommissionRate float64 `json:"commission_rate,omitempty"`
 	Version        string  `json:"version,omitempty"`
 	TotalBandwidth uint64  `json:"total_bandwidth_bytes"`
+	// Extended fields sourced from the nodes table (real telemetry)
+	LatencyMs    int     `json:"latency_ms"`
+	QualityScore float64 `json:"quality_score"`
+	SuccessRate  float64 `json:"success_rate"`
+	TotalSessions int64  `json:"total_sessions"`
+	BytesUp      int64   `json:"bytes_up"`
+	BytesDown    int64   `json:"bytes_down"`
+	Hotkey       string  `json:"hotkey,omitempty"`
 }
 
 // NodeGeoPoint is the lightweight payload returned by GET /nodes/geo.
@@ -313,30 +325,56 @@ func getExplorerMetrics(c *gin.Context) {
 		return
 	}
 
-	// Cache miss - compute live metrics
+	// Cache miss - compute live metrics from real data only
 	var txCount int64
 	var nodeCount int64
 	var walletCount int64
+	var totalVolume float64
+	var totalBandwidthBytes int64
 
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Count(&txCount)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&txCount)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND status = ? AND is_orphaned = ?", "solana", "confirmed", false).Select("COALESCE(SUM(amount), 0)").Scan(&totalVolume)
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
+	// Bandwidth is real telemetry from active provider nodes
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
 	db.DB.Model(&models.Wallet{}).Count(&walletCount)
 
-	// Get latest block height from Solana (via RPC if available)
+	// Compute avg block time from the last 1000 indexed blocks (real chain data)
+	var avgBlockTimeMs float64
+	var blockTimes []struct {
+		BlockNumber uint64
+		Timestamp   time.Time
+	}
+	if err := db.DB.Model(&models.ExplorerBlock{}).
+		Order("block_number DESC").Limit(1000).
+		Select("block_number, timestamp").Scan(&blockTimes).Error; err == nil && len(blockTimes) >= 2 {
+		totalMs := blockTimes[0].Timestamp.Sub(blockTimes[len(blockTimes)-1].Timestamp).Milliseconds()
+		if totalMs > 0 {
+			avgBlockTimeMs = float64(totalMs) / float64(len(blockTimes)-1)
+		}
+	}
+
+	// TPS: confirmed non-orphaned transactions in the last 24h
+	var tpsWindow int64
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("chain = ? AND is_orphaned = ? AND timestamp > ?", "solana", false, time.Now().Add(-24*time.Hour)).
+		Count(&tpsWindow)
+	tps := float64(tpsWindow) / (24 * 3600)
+
+	// Block height from latest indexed block (real Solana chain height)
 	blockHeight := uint64(0)
-	// Note: Block height would be fetched via Solana RPC websocket subscription
-	// For now, using cached value from database
 	var latestBlock models.ExplorerBlock
 	if err := db.DB.Order("block_number DESC").First(&latestBlock).Error; err == nil {
 		blockHeight = latestBlock.BlockNumber
 	}
 
-	// Get regional distribution
+	// Regional distribution of active provider nodes
 	var regionStats []struct {
 		Region string
 		Count  int
 	}
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Select("region, count(*) as count").Group("region").Scan(&regionStats)
+	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").
+		Select("region, count(*) as count").Group("region").Scan(&regionStats)
 
 	regionDist := make(map[string]int)
 	for _, s := range regionStats {
@@ -350,9 +388,13 @@ func getExplorerMetrics(c *gin.Context) {
 	response := ExplorerMetricsResponse{
 		Chain:              chain,
 		TotalTransactions:  uint64(txCount),
+		TotalVolume:        totalVolume,
 		ActiveWallets:      uint64(walletCount),
 		ActiveNodes:        uint64(nodeCount),
 		BlockHeight:        blockHeight,
+		AvgBlockTime:       avgBlockTimeMs,
+		TotalBandwidthGB:   float64(totalBandwidthBytes) / (1024 * 1024 * 1024),
+		TPS:                tps,
 		RegionDistribution: regionDist,
 		LastUpdated:        time.Now(),
 	}
@@ -876,6 +918,26 @@ func getExplorerNodeDetails(c *gin.Context) {
 		return
 	}
 
+	// Enrich with real telemetry from the source nodes table.
+	// ExplorerNode.NodeID == Node.ID (UUID string) — set by NodeSync.
+	var latencyMs int
+	var qualityScore, successRate float64
+	var totalSessions int64
+	var bytesUp, bytesDown int64
+	var hotkey string
+
+	var srcNode models.Node
+	if err := db.DB.Where("id = ?", node.NodeID).First(&srcNode).Error; err == nil {
+		latencyMs = srcNode.LatencyMs
+		qualityScore = srcNode.QualityScore
+		successRate = srcNode.SuccessRate * 100 // stored as 0-1 fraction, frontend expects 0-100
+		hotkey = srcNode.Hotkey
+		bytesUp = srcNode.TotalBytesUp
+		bytesDown = srcNode.TotalBytesDown
+	}
+	// Count total sessions for this node
+	db.DB.Model(&models.Session{}).Where("node_id = ?", nodeID).Count(&totalSessions)
+
 	c.JSON(http.StatusOK, NodeDetailResponse{
 		NodeSummary: NodeSummary{
 			NodeID:         node.NodeID,
@@ -898,6 +960,13 @@ func getExplorerNodeDetails(c *gin.Context) {
 		CommissionRate: node.CommissionRate,
 		Version:        node.Version,
 		TotalBandwidth: node.TotalBandwidth,
+		LatencyMs:      latencyMs,
+		QualityScore:   qualityScore,
+		SuccessRate:    successRate,
+		TotalSessions:  totalSessions,
+		BytesUp:        bytesUp,
+		BytesDown:      bytesDown,
+		Hotkey:         hotkey,
 	})
 }
 
@@ -1556,33 +1625,38 @@ func getExplorerProviderEarnings(c *gin.Context) {
 		since = time.Now().Add(-24 * time.Hour)
 	}
 
+	// Query provider_earnings table (source of truth for actual earnings).
+	// The explorer_transactions table only stores on-chain txs and never has
+	// tx_type="payout" since the indexer marks all txs as "transfer".
 	type providerRow struct {
-		ToAddress string
-		Count     int64
-		Total     float64
-		LastTime  time.Time
+		NodeID         string
+		ProviderUserID string
+		Count          int64
+		BandwidthGB    float64
+		Total          float64
+		LastTime       time.Time
 	}
 	var rows []providerRow
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("tx_type = ? AND timestamp >= ?", "payout", since).
-		Select("to_address, count(*) as count, sum(amount) as total, max(timestamp) as last_time").
-		Group("to_address").
+	db.DB.Model(&models.ProviderEarning{}).
+		Where("created_at >= ?", since).
+		Select("node_id, provider_user_id, count(*) as count, coalesce(sum(bandwidth_gb), 0) as bandwidth_gb, coalesce(sum(net_amount_sol), 0) as total, max(coalesce(paid_at, created_at)) as last_time").
+		Group("node_id, provider_user_id").
 		Order("total DESC").
 		Offset(offset).Limit(pageSize).
 		Scan(&rows)
 
 	var totalCount int64
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("tx_type = ? AND timestamp >= ?", "payout", since).
-		Select("count(distinct to_address)").Scan(&totalCount)
+	db.DB.Model(&models.ProviderEarning{}).
+		Where("created_at >= ?", since).
+		Select("count(distinct node_id)").Scan(&totalCount)
 
 	var totalPaid float64
 	var txCount int64
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("tx_type = ? AND timestamp >= ?", "payout", since).
-		Select("coalesce(sum(amount), 0)").Scan(&totalPaid)
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("tx_type = ? AND timestamp >= ?", "payout", since).
+	db.DB.Model(&models.ProviderEarning{}).
+		Where("created_at >= ?", since).
+		Select("coalesce(sum(net_amount_sol), 0)").Scan(&totalPaid)
+	db.DB.Model(&models.ProviderEarning{}).
+		Where("created_at >= ?", since).
 		Count(&txCount)
 
 	avgEarning := 0.0
@@ -1592,16 +1666,20 @@ func getExplorerProviderEarnings(c *gin.Context) {
 
 	providers := make([]ProviderEarningSummary, 0, len(rows))
 	for _, r := range rows {
-		var node models.ExplorerNode
-		nodeID := r.ToAddress
-		db.DB.Where("node_id = ?", r.ToAddress).First(&node)
-		if node.NodeID != "" {
-			nodeID = node.NodeID
+		// Resolve wallet address: provider_user_id → users.wallet_address
+		var walletAddr string
+		var user models.User
+		if err := db.DB.Select("wallet_address").Where("id = ?", r.ProviderUserID).First(&user).Error; err == nil && user.WalletAddress != nil {
+			walletAddr = *user.WalletAddress
+		}
+		if walletAddr == "" {
+			walletAddr = r.ProviderUserID // fallback to user ID when no wallet linked
 		}
 		providers = append(providers, ProviderEarningSummary{
-			NodeID:          nodeID,
-			ProviderAddress: r.ToAddress,
+			NodeID:          r.NodeID,
+			ProviderAddress: walletAddr,
 			SessionCount:    r.Count,
+			BandwidthGB:     r.BandwidthGB,
 			TotalEarned:     r.Total,
 			LastPayout:      r.LastTime,
 		})

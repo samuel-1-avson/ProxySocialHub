@@ -86,11 +86,17 @@ export function Sidebar() {
                     icon: Wifi,
                     description: "Active connections"
                 },
-                { 
-                    href: "/dashboard/usage", 
-                    label: "Usage & Billing", 
+                {
+                    href: "/dashboard/usage",
+                    label: "Usage & Billing",
                     icon: BarChart3,
                     description: "Track bandwidth"
+                },
+                {
+                    href: "/dashboard/wallet",
+                    label: "Wallet",
+                    icon: Wallet,
+                    description: "Balance & transactions"
                 },
             ]
         },

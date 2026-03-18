@@ -10,10 +10,37 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+const maxPayoutRetryAttempts = 5
+
+// saveBatchWithRetry attempts to persist a batch record up to maxAttempts times.
+// Used after an on-chain transfer succeeds so the txHash is durable even when
+// the first DB write fails (P0-03 double-spend guard).
+func saveBatchWithRetry(batch *models.BatchPayout, maxAttempts int) error {
+	var lastErr error
+	for i := 0; i < maxAttempts; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(i) * time.Second)
+		}
+		if err := db.DB.Save(batch).Error; err != nil {
+			lastErr = err
+			logging.Error(err).
+				Str("batch_id", batch.ID.String()).
+				Int("attempt", i+1).
+				Msg("batch_payout: DB save retry after on-chain success")
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("batch_payout: DB save failed after %d attempts: %w", maxAttempts, lastErr)
+}
 
 // BatchPayoutProcessor manages batching of provider payouts
 type BatchPayoutProcessor struct {
@@ -178,10 +205,12 @@ func (bp *BatchPayoutProcessor) processImmediate(ctx context.Context, providerID
 	return nil
 }
 
-// ProcessPendingBatches processes all pending payouts in batches
+// ProcessPendingBatches processes all pending payouts in batches.
+// P0-02: rows are claimed with SELECT FOR UPDATE SKIP LOCKED inside a transaction,
+// preventing concurrent workers from processing the same payouts twice.
 func (bp *BatchPayoutProcessor) ProcessPendingBatches(ctx context.Context) error {
 	for {
-		// Check if there are enough pending payouts
+		// Check readiness outside the lock (cheap, non-blocking)
 		var pendingCount int64
 		var oldestQueued time.Time
 
@@ -198,26 +227,42 @@ func (bp *BatchPayoutProcessor) ProcessPendingBatches(ctx context.Context) error
 			Where("scheduled_for IS NULL OR scheduled_for <= ?", time.Now()).
 			Scan(&oldestQueued)
 
-		// Check if we should process
 		if !models.ShouldProcessBatch(int(pendingCount), oldestQueued, bp.config) {
 			return nil
 		}
 
-		// Get batch of payouts
-		var pending []models.PendingPayout
-		db.DB.Where("scheduled_for IS NULL OR scheduled_for <= ?", time.Now()).
-			Order("priority DESC, queued_at ASC").
-			Limit(bp.config.MaxBatchSize).
-			Find(&pending)
+		// Atomically claim a batch: FOR UPDATE SKIP LOCKED ensures that if two
+		// worker processes run concurrently, each picks a distinct set of rows.
+		var claimed []models.PendingPayout
+		err := db.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+				Where("scheduled_for IS NULL OR scheduled_for <= ?", time.Now()).
+				Order("priority DESC, queued_at ASC").
+				Limit(bp.config.MaxBatchSize).
+				Find(&claimed).Error; err != nil {
+				return err
+			}
+			if len(claimed) == 0 {
+				return nil
+			}
+			ids := make([]uuid.UUID, len(claimed))
+			for i, p := range claimed {
+				ids[i] = p.ID
+			}
+			// Delete inside the same transaction — rows are gone before any other
+			// worker can see them, preventing the double-payment race (P0-02).
+			return tx.Delete(&models.PendingPayout{}, "id IN ?", ids).Error
+		})
+		if err != nil {
+			return fmt.Errorf("batch_payout: failed to claim pending rows: %w", err)
+		}
 
-		if len(pending) == 0 {
+		if len(claimed) == 0 {
 			return nil
 		}
 
-		// Process this batch
-		if err := bp.processBatch(ctx, pending); err != nil {
-			logging.Error(err).Int("batch_size", len(pending)).Msg("Batch processing failed")
-			// Continue to next batch even if this one failed
+		if err := bp.processBatch(ctx, claimed); err != nil {
+			logging.Error(err).Int("batch_size", len(claimed)).Msg("Batch processing failed")
 		}
 	}
 }
@@ -245,7 +290,6 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 
 	// Create batch items
 	items := make([]models.BatchPayoutItem, len(pending))
-	pendingIDs := make([]uuid.UUID, len(pending))
 	for i, p := range pending {
 		items[i] = models.BatchPayoutItem{
 			BatchID:       batch.ID,
@@ -254,17 +298,14 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 			AmountSOL:     p.AmountSOL,
 			Status:        "pending",
 		}
-		pendingIDs[i] = p.ID
 	}
 
 	if err := db.DB.Create(&items).Error; err != nil {
 		return fmt.Errorf("failed to create batch items: %w", err)
 	}
 
-	// Delete pending records (they're now in the batch)
-	if err := db.DB.Delete(&models.PendingPayout{}, "id IN ?", pendingIDs).Error; err != nil {
-		logging.Error(err).Msg("Failed to clean up pending payouts after batching")
-	}
+	// Note: pending rows were already deleted atomically by ProcessPendingBatches
+	// (SELECT FOR UPDATE SKIP LOCKED + DELETE in one transaction) — no delete here.
 
 	// Execute batch transfer
 	logging.Info().
@@ -277,14 +318,13 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 	now := time.Now()
 
 	if err != nil {
-		// Batch failed entirely
+		// On-chain call failed — safe to re-queue (no SOL was sent).
 		errMsg := err.Error()
 		batch.Status = models.BatchStatusFailed
 		batch.ErrorMessage = &errMsg
 		batch.ProcessedAt = &now
 		db.DB.Save(&batch)
 
-		// Mark all items as failed
 		db.DB.Model(&models.BatchPayoutItem{}).
 			Where("batch_id = ?", batch.ID).
 			Updates(map[string]interface{}{
@@ -292,17 +332,31 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 				"error_message": errMsg,
 			})
 
-		// Re-queue for individual retry
 		bp.requeueIndividual(items)
-
 		return err
 	}
 
-	// Batch succeeded - update all items as completed
-	batch.Status = models.BatchStatusCompleted
+	// P0-03: On-chain transfer succeeded. Persist txHash + 'submitted' status
+	// BEFORE marking complete. If the process dies here, the status 'submitted'
+	// with a non-empty txHash tells the next run that money is already in-flight —
+	// do NOT re-queue.
+	batch.Status = models.BatchStatusSubmitted
 	batch.TxHash = &txHash
-	batch.SuccessCount = len(items)
 	batch.ProcessedAt = &now
+	if dbErr := saveBatchWithRetry(&batch, 3); dbErr != nil {
+		// DB is persistently unavailable. Log CRITICAL with txHash so ops can
+		// reconcile manually — do NOT re-queue (SOL is already sent).
+		logging.Error(dbErr).
+			Str("batch_id", batch.ID.String()).
+			Str("tx_hash", txHash).
+			Float64("total_sol", totalAmount).
+			Msg("CRITICAL: on-chain payout sent but DB record could not be persisted — manual reconciliation required")
+		return dbErr
+	}
+
+	// DB write confirmed — now finalize to 'completed'.
+	batch.Status = models.BatchStatusCompleted
+	batch.SuccessCount = len(items)
 	db.DB.Save(&batch)
 
 	db.DB.Model(&models.BatchPayoutItem{}).
@@ -318,13 +372,39 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 		Float64("savings_sol", savings).
 		Msg("Batch payout completed")
 
+	// P2-13: Financial audit trail.
+	audit.LogDirect(nil, "system", models.AuditFinancialBatchPayout, "batch_payout", batch.ID.String(),
+		fmt.Sprintf("Batch payout completed: %d recipients (tx: %s)", len(items), txHash),
+		map[string]interface{}{
+			"tx_hash":     txHash,
+			"item_count":  len(items),
+			"savings_sol": savings,
+		})
+
 	return nil
 }
 
-// requeueIndividual re-queues failed batch items for individual processing
+// requeueIndividual re-queues failed batch items for individual processing.
+// P1-05: items that have already reached maxPayoutRetryAttempts are permanently
+// abandoned (logged as a critical alert) instead of looping forever.
 func (bp *BatchPayoutProcessor) requeueIndividual(items []models.BatchPayoutItem) {
 	for _, item := range items {
-		// Add to retry queue
+		// Check existing retry count before re-queuing
+		var existing models.PayoutRetryQueue
+		if err := db.DB.Where("provider_id = ? AND wallet_address = ? AND status = 'pending'",
+			item.ProviderID, item.WalletAddress).First(&existing).Error; err == nil {
+			if existing.AttemptCount >= maxPayoutRetryAttempts {
+				logging.Error(fmt.Errorf("payout permanently failed after %d attempts", maxPayoutRetryAttempts)).
+					Str("provider_id", item.ProviderID.String()).
+					Str("wallet_address", item.WalletAddress).
+					Float64("amount_sol", item.AmountSOL).
+					Msg("CRITICAL: payout abandoned — manual intervention required")
+				// Mark the existing entry as permanently failed so it stops cycling.
+				db.DB.Model(&existing).Updates(map[string]interface{}{"status": "abandoned"})
+				continue
+			}
+		}
+
 		retry := models.PayoutRetryQueue{
 			ProviderID:    item.ProviderID,
 			WalletAddress: item.WalletAddress,

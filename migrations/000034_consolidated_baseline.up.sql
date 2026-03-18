@@ -88,26 +88,19 @@ CREATE TABLE IF NOT EXISTS provider_earnings (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_provider_earnings_provider_id ON provider_earnings (provider_id);
+CREATE INDEX IF NOT EXISTS idx_provider_earnings_provider_id ON provider_earnings (provider_user_id);
 CREATE INDEX IF NOT EXISTS idx_provider_earnings_status       ON provider_earnings (status);
 CREATE INDEX IF NOT EXISTS idx_provider_earnings_created_at   ON provider_earnings (created_at);
 
 -- ===========================================================================
 -- 000017: Disputes (idempotent — table may already exist from 000031)
 -- ===========================================================================
-CREATE TABLE IF NOT EXISTS disputes (
-    id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id     UUID        NOT NULL,
-    claimant_id  UUID        NOT NULL,
-    respondent_id UUID       NOT NULL,
-    reason       TEXT        NOT NULL,
-    status       VARCHAR(20) NOT NULL DEFAULT 'open',
-    resolution   TEXT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_disputes_order_id     ON disputes (order_id);
-CREATE INDEX IF NOT EXISTS idx_disputes_claimant_id  ON disputes (claimant_id);
+-- disputes table already created by migration 000031 with different schema (session_id, consumer_id, provider_id).
+-- Skipping CREATE here to avoid conflict.
+-- Disputes table was created by 000031 with session_id/consumer_id/provider_id schema.
+-- Indexes already created there; skip duplicates here.
+-- CREATE INDEX IF NOT EXISTS idx_disputes_order_id     ON disputes (order_id);
+-- CREATE INDEX IF NOT EXISTS idx_disputes_claimant_id  ON disputes (claimant_id);
 CREATE INDEX IF NOT EXISTS idx_disputes_status       ON disputes (status);
 
 -- ===========================================================================
@@ -150,6 +143,6 @@ CREATE INDEX IF NOT EXISTS idx_pending_payouts_provider_id ON pending_payouts (p
 -- ===========================================================================
 -- Track that this baseline has been applied
 -- ===========================================================================
-INSERT INTO schema_migrations (version, description)
-    VALUES (34, 'Consolidated baseline filling gap 000014-000026')
-    ON CONFLICT (version) DO NOTHING;
+-- INSERT INTO schema_migrations (version, description)
+    -- VALUES (34, 'Consolidated baseline filling gap 000014-000026')
+    

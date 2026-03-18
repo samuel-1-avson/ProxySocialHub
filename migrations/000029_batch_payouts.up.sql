@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS batch_payout_items (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_batch_item_batch FOREIGN KEY (batch_id) REFERENCES batch_payouts(id) ON DELETE CASCADE,
-    CONSTRAINT fk_batch_item_provider FOREIGN KEY (provider_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_batch_item_provider FOREIGN KEY (provider_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
 -- 3. Create pending_payouts table (queue)
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS pending_payouts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT fk_pending_provider FOREIGN KEY (provider_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_pending_provider FOREIGN KEY (provider_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
 -- 4. Create indexes for efficient queries
@@ -69,5 +69,5 @@ COMMENT ON COLUMN batch_payouts.status IS 'pending, processing, completed, parti
 COMMENT ON COLUMN pending_payouts.priority IS 'Higher values are processed first (based on amount)';
 
 -- Add migration tracking
-INSERT INTO schema_migrations (version, description) 
-VALUES (29, 'Add batch payout processing tables');
+-- INSERT INTO schema_migrations (version, description) 
+-- VALUES (29, 'Add batch payout processing tables');

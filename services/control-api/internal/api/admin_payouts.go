@@ -12,9 +12,10 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterAdminPayoutRoutes registers admin payout management routes
+// RegisterAdminPayoutRoutes registers admin payout management routes.
+// P0-19: all routes are protected by JWT auth + admin-permission check.
 func RegisterAdminPayoutRoutes(r *gin.RouterGroup) {
-	payouts := r.Group("/admin/payouts")
+	payouts := r.Group("/admin/payouts", AuthMiddleware(), RequirePermission("admin"))
 	{
 		// Batch payout management
 		payouts.GET("/queue", getPayoutQueue)
