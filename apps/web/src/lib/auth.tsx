@@ -7,7 +7,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
 
 // Singleton Supabase client — instantiated once at module scope to avoid
 // multiple GoTrue instances and redundant auth listener registrations.
