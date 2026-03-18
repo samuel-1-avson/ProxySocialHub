@@ -691,24 +691,37 @@ async fn bridge_to_provider(
         .map(|p| p.take_stream());
 
     let addr_for_log = addr.clone(); // preserve for post-call logging
+    // P2-12: connect timeout for yamux stream-open + CONNECT handshake.
+    let connect_timeout = std::time::Duration::from_secs(state.config.proxy_connect_timeout_secs);
     match circuit_breaker.call(move || {
         let addr = addr.clone();
         let mut control = control.clone();
         async move {
+            // P2-12: Bound stream-open so a slow provider doesn't hang indefinitely.
             let mut stream = match pooled_opt {
                 Some(s) => s,
-                None => control.open_stream().await.map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::ConnectionRefused, format!("Stream open failed: {}", e))
-                })?,
+                None => tokio::time::timeout(connect_timeout, control.open_stream())
+                    .await
+                    .map_err(|_| std::io::Error::new(
+                        std::io::ErrorKind::TimedOut, "yamux stream open timed out",
+                    ))?
+                    .map_err(|e| std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        format!("Stream open failed: {}", e),
+                    ))?,
             };
 
             // Send CONNECT command
             let command = format!("CONNECT {}\n", addr);
             stream.write_all(command.as_bytes()).await?;
 
-            // Wait for OK
+            // P2-12: Bound CONNECT handshake response read.
             let mut response_buf = [0u8; 64];
-            let n = stream.read(&mut response_buf).await?;
+            let n = tokio::time::timeout(connect_timeout, stream.read(&mut response_buf))
+                .await
+                .map_err(|_| std::io::Error::new(
+                    std::io::ErrorKind::TimedOut, "provider CONNECT handshake timed out",
+                ))??;
 
             let response = String::from_utf8_lossy(&response_buf[..n]);
             if !response.starts_with("OK") {
@@ -739,10 +752,14 @@ async fn bridge_to_provider(
 
             let auth_for_reval = auth_clone.clone();
             let username_for_reval = username.clone();
+            let idle_timeout = Some(std::time::Duration::from_secs(
+                state.config.proxy_idle_timeout_secs,
+            ));
             let stats = proxy::zerocopy::bridge_tracked(
                 &mut upgraded,
                 &mut stream,
                 100 * 1024 * 1024, // revalidate every 100 MB
+                idle_timeout,
                 move |_total| {
                     let auth = auth_for_reval.clone();
                     let u = username_for_reval.clone();

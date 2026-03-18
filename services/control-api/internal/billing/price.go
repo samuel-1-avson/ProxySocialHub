@@ -17,7 +17,7 @@ const (
 	lastKnownGoodRedisKey = "pricing:sol:last_known_good"
 	lastKnownGoodTTL      = 25 * time.Hour // Slightly over 24h so the key survives overnight
 	sanityDeviationMax    = 0.30           // Reject prices deviating >30% from last known good
-	hardcodedLastResort   = 150.0          // Only used if EMERGENCY_SOL_PRICE_USD is also unset
+	hardcodedLastResort   = 0.0            // P0-20: removed stale $150 hardcoded price — callers must set EMERGENCY_SOL_PRICE_USD
 )
 
 var (

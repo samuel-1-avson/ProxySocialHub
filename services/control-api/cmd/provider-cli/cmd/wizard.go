@@ -220,6 +220,28 @@ func runWizard(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Exchange provider token for a gateway JWT so `node start` can authenticate
+	fmt.Print("Fetching gateway token... ")
+	gtURL := strings.TrimRight(apiURL, "/") + "/v1/provider/gateway-token"
+	gtPayload, _ := json.Marshal(map[string]string{"token": cfg.APIKey})
+	gtReq, _ := http.NewRequest("POST", gtURL, bytes.NewBuffer(gtPayload))
+	gtReq.Header.Set("Content-Type", "application/json")
+	if gtResp, gtErr := httpClient.Do(gtReq); gtErr == nil {
+		defer gtResp.Body.Close()
+		var gtResult map[string]interface{}
+		if json.NewDecoder(gtResp.Body).Decode(&gtResult) == nil {
+			if jwtVal, ok := gtResult["gateway_token"].(string); ok && jwtVal != "" {
+				cfg.JWTToken = jwtVal
+				cfg.Save()
+				fmt.Println("✓ Done")
+			} else {
+				fmt.Println("⚠ Could not obtain gateway token (set jwt_token manually later)")
+			}
+		}
+	} else {
+		fmt.Printf("⚠ %v\n", gtErr)
+	}
+
 	// Step 9: Service Installation
 	fmt.Println()
 	fmt.Println("⚙️  Step 8: Auto-Start Configuration (Optional)")

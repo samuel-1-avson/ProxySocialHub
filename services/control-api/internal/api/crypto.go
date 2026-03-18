@@ -344,7 +344,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	// 4. Log Transaction
 	pendingTx := models.PendingTransaction{
-		UserID:      userID,
+		UserID:      userUUID, // P2-16: uuid.UUID (was string)
 		Reference:   req.TxHash,
 		Type:        "crypto_deposit",
 		Amount:      req.Amount,

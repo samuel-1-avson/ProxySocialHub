@@ -12,8 +12,8 @@ type PendingTransaction struct {
 	ID             uuid.UUID `gorm:"type:uuid;primary_key"`
 	Reference      string    `gorm:"type:varchar(128);unique;not null"`              // Our internal reference (Solana sigs are 88 chars)
 	ExternalRef    string    `gorm:"type:varchar(128)"`                              // Provider's transaction ID
-	IdempotencyKey string    `gorm:"type:varchar(128);index" json:"idempotency_key"` // Client provided key for retries
-	UserID         string    `gorm:"type:varchar(100);not null"`
+	IdempotencyKey string    `gorm:"type:varchar(128);uniqueIndex" json:"idempotency_key"` // Client provided key for retries; unique enforced by DB
+	UserID         uuid.UUID `gorm:"type:uuid;not null;index"` // P2-16: changed from string to uuid.UUID for FK consistency
 	Type           string    `gorm:"type:varchar(20);not null"` // "deposit" or "withdrawal"
 	Amount         float64   `gorm:"type:numeric(20,9);not null"` // Amount in SOL
 	Currency       string    `gorm:"type:varchar(20);default:'SOL'"` // SOL only

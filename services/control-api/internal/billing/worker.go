@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,60 @@ import (
 // providerPayoutThresholdSOL is the minimum accrued balance before a payout is queued.
 // Note: Actual on-chain transfer happens via batch processing for efficiency.
 const providerPayoutThresholdSOL = 0.05
+
+// P3-13: Circuit breaker — prevents thread saturation when Solana RPC is degraded.
+// After cbMaxFailures consecutive failures inside a cbWindow window the worker
+// pauses for cbPauseDuration before resuming.
+const (
+	cbMaxFailures    = 3
+	cbWindow         = 60 * time.Second
+	cbPauseDuration  = 5 * time.Minute
+)
+
+type circuitBreaker struct {
+	mu           sync.Mutex
+	failures     []time.Time // timestamps of recent failures
+	pausedUntil  time.Time
+}
+
+var settlementCB = &circuitBreaker{}
+
+// recordFailure adds a failure timestamp and returns true if the breaker just tripped.
+func (cb *circuitBreaker) recordFailure() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-cbWindow)
+	// Drop stale failures
+	fresh := cb.failures[:0]
+	for _, t := range cb.failures {
+		if t.After(cutoff) {
+			fresh = append(fresh, t)
+		}
+	}
+	fresh = append(fresh, now)
+	cb.failures = fresh
+	if len(cb.failures) >= cbMaxFailures {
+		cb.pausedUntil = now.Add(cbPauseDuration)
+		cb.failures = cb.failures[:0]
+		return true
+	}
+	return false
+}
+
+// isOpen returns true when the breaker is tripped and settlement must be skipped.
+func (cb *circuitBreaker) isOpen() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	return time.Now().Before(cb.pausedUntil)
+}
+
+// recordSuccess resets the failure window on a successful settlement.
+func (cb *circuitBreaker) recordSuccess() {
+	cb.mu.Lock()
+	cb.failures = cb.failures[:0]
+	cb.mu.Unlock()
+}
 
 // globalBatchProcessor is the singleton batch payout processor
 var globalBatchProcessor *BatchPayoutProcessor
@@ -57,6 +112,12 @@ func StartSettlementWorker() {
 
 // SettleUsage moves pending usage from Redis to SQL Ledger
 func SettleUsage() {
+	// P3-13: Respect circuit breaker — skip the entire run if the breaker is open.
+	if settlementCB.isOpen() {
+		logging.Warn().Msg("Billing settlement skipped: circuit breaker is open (Solana RPC degraded)")
+		return
+	}
+
 	logging.Info().Msg("Starting billing settlement...")
 
 	// 1. Scan all pending sessions
@@ -66,9 +127,10 @@ func SettleUsage() {
 	count := 0
 	for iter.Next(context.Background()) {
 		key := iter.Val()
-		// H-5: The Redis key embeds credentials_user (not a session UUID).
-		credentialsUser := strings.TrimPrefix(key, "billing:session:")
-		credentialsUser = strings.TrimSuffix(credentialsUser, ":pending")
+		// P1-19: The Redis key format is billing:session:{sessionID}:pending
+		// where sessionID is the session UUID primary key.
+		sessionID := strings.TrimPrefix(key, "billing:session:")
+		sessionID = strings.TrimSuffix(sessionID, ":pending")
 
 		// Get Bytes
 		bytesStr, err := redis.Client.Get(context.Background(), key).Result()
@@ -85,8 +147,8 @@ func SettleUsage() {
 		}
 
 		// 2. Process Settlement for this Session
-		if err := settleSession(credentialsUser, totalBytes, key); err != nil {
-			logging.Error(err).Str("credentials_user", credentialsUser).Msg("Failed to settle session")
+		if err := settleSession(sessionID, totalBytes, key); err != nil {
+			logging.Error(err).Str("session_id", sessionID).Msg("Failed to settle session")
 		} else {
 			count++
 		}
@@ -95,126 +157,172 @@ func SettleUsage() {
 	logging.Info().Int("settled_sessions", count).Msg("Billing settlement complete")
 }
 
-// H-5: parameter renamed from sessionID — the Redis key holds credentials_user, not a session UUID.
-func settleSession(credentialsUser string, totalBytes int64, redisKey string) error {
-	// 1. Get Session Info from DB
+// P1-19: sessionID is the UUID primary key extracted from the Redis key.
+// P2-06: Orchestrates three focused helpers — computeSessionCost,
+// debitBuyerWallet, creditProviderWallet — each independently testable.
+func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 	var session models.Session
-	if err := db.DB.Preload("Listing").Where("credentials_user = ?", credentialsUser).First(&session).Error; err != nil {
+	if err := db.DB.Preload("Listing").Where("id = ?", sessionID).First(&session).Error; err != nil {
 		return err
 	}
 
-	// 2. Calculate Cost using live prices
-	// pricePerGB is set in USD by providers when creating listings; converted to SOL at settlement time.
+	costSOL, costUSD := computeSessionCost(&session, totalBytes)
+
+	// queuePayoutAfterCommit is set inside the tx and consumed after commit (FW-02).
+	var queuePayoutAfterCommit uuid.UUID
+
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := debitBuyerWallet(tx, &session, totalBytes, costSOL, costUSD); err != nil {
+			return err
+		}
+
+		shouldQueue, err := creditProviderWallet(tx, &session, totalBytes, costSOL)
+		if err != nil {
+			return err
+		}
+		if shouldQueue && session.Listing != nil {
+			queuePayoutAfterCommit = session.Listing.SellerID
+		}
+
+		// Clear Redis key after successful settlement (I6).
+		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
+			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete settled Redis key")
+		}
+		return nil
+	}); err != nil {
+		// P3-13: Record failure; alert if the breaker just tripped.
+		if tripped := settlementCB.recordFailure(); tripped {
+			logging.Error(fmt.Errorf("circuit breaker tripped")).
+				Str("session_id", sessionID).
+				Dur("pause", cbPauseDuration).
+				Msg("ALERT: billing settlement circuit breaker open — too many consecutive failures; settlement paused")
+		}
+		return err
+	}
+
+	// P3-13: Successful settlement resets the failure window.
+	settlementCB.recordSuccess()
+
+	if queuePayoutAfterCommit != uuid.Nil {
+		go queueProviderPayout(queuePayoutAfterCommit)
+	}
+	return nil
+}
+
+// computeSessionCost returns (costSOL, costUSD) for totalBytes of consumption.
+func computeSessionCost(session *models.Session, totalBytes int64) (costSOL, costUSD float64) {
 	pricePerGB := 0.50 // USD/GB default
 	if session.Listing != nil && session.Listing.PricePerGB > 0 {
 		pricePerGB = session.Listing.PricePerGB
 	}
+	costUSD = float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
+	costSOL = USDToSOL(costUSD)
+	return
+}
 
-	costUSD := float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
-	costSOL := USDToSOL(costUSD)
+// debitBuyerWallet checks spending limits, deducts costSOL from the buyer's locked
+// wallet, records spending, and writes the debit ledger entry — all within tx.
+func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL, costUSD float64) error {
+	var wallet models.Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ?", session.UserID).First(&wallet).Error; err != nil {
+		return err
+	}
 
-	// 3. DB Transaction
-	return db.DB.Transaction(func(tx *gorm.DB) error {
-		// Lock buyer wallet
-		var wallet models.Wallet
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", session.UserID).First(&wallet).Error; err != nil {
-			return err
+	if err := wallet.CheckSpendingLimit(tx, costSOL, models.SpendingUsage); err != nil {
+		if spendingErr, ok := err.(*models.SpendingLimitError); ok {
+			logging.Warn().
+				Str("session_id", session.ID.String()).
+				Str("limit_type", spendingErr.LimitType).
+				Float64("limit", spendingErr.Limit).
+				Float64("attempted", costSOL).
+				Msg("Billing: spending limit would be exceeded")
+			return fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
 		}
+		return err
+	}
 
-		// Check spending limits before charging
-		if err := wallet.CheckSpendingLimit(tx, costSOL, models.SpendingUsage); err != nil {
-			if spendingErr, ok := err.(*models.SpendingLimitError); ok {
-				logging.Warn().
-					Str("session_id", session.ID.String()).
-					Str("limit_type", spendingErr.LimitType).
-					Float64("limit", spendingErr.Limit).
-					Float64("attempted", costSOL).
-					Msg("Billing: spending limit would be exceeded")
-				return fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
-			}
-			return err
+	if wallet.BalanceSOL < costSOL {
+		logging.Warn().Str("session_id", session.ID.String()).
+			Float64("need", costSOL).Float64("have", wallet.BalanceSOL).
+			Msg("Billing: insufficient SOL balance")
+		return fmt.Errorf("insufficient SOL balance")
+	}
+	wallet.BalanceSOL -= costSOL
+
+	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
+	}
+	if err := tx.Save(&wallet).Error; err != nil {
+		return err
+	}
+
+	solPriceUSD := GetSOLPriceUSD()
+	return tx.Create(&models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       -costSOL,
+		BalanceAfter: wallet.BalanceSOL,
+		Type:         models.TransactionUsage,
+		Description:  fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD),
+		CreatedAt:    time.Now(),
+	}).Error
+}
+
+// creditProviderWallet credits the provider's wallet with costSOL inside tx and
+// updates their quality score. Returns (true, nil) when the balance crosses the
+// payout threshold — caller must queue a batch payout after the tx commits (FW-02).
+//
+// Provider resolution order:
+//  1. session.Listing.SellerID  — marketplace sessions (from-listing path)
+//  2. node.ProviderUserID       — quick-start / instant sessions (node assigned, no listing)
+func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL float64) (bool, error) {
+	var providerID uuid.UUID
+
+	if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
+		providerID = session.Listing.SellerID
+	} else if session.NodeID != nil {
+		// No listing — resolve the node owner so the provider is still paid.
+		var node models.Node
+		if err := tx.Select("provider_user_id").First(&node, "id = ?", *session.NodeID).Error; err == nil {
+			providerID = node.ProviderUserID
 		}
+	}
 
-		// H-5: use session.ID (actual UUID) instead of uuid.Parse(credentialsUser) which always gave uuid.Nil
-		if wallet.BalanceSOL < costSOL {
-			logging.Warn().Str("session_id", session.ID.String()).Float64("need", costSOL).Float64("have", wallet.BalanceSOL).Msg("Billing: insufficient SOL balance, terminating session")
-			return fmt.Errorf("insufficient SOL balance")
-		}
-		wallet.BalanceSOL -= costSOL
+	if providerID == uuid.Nil {
+		return false, nil
+	}
 
-		// Record spending for limit tracking
-		if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
-			logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
-			// Don't fail the transaction, just log the error
-		}
+	// P0-01: FirstOrCreate inside the locked tx — never silently lose funds.
+	var providerWallet models.Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ?", providerID).
+		FirstOrCreate(&providerWallet, models.Wallet{UserID: providerID}).Error; err != nil {
+		return false, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
+	}
 
-		if err := tx.Save(&wallet).Error; err != nil {
-			return err
-		}
+	providerWallet.BalanceSOL += costSOL
+	if err := tx.Save(&providerWallet).Error; err != nil {
+		return false, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
+	}
 
-		// Create Ledger Entry (buyer debit)
-		solPriceUSD := GetSOLPriceUSD()
-		ledger := models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       -costSOL,
-			BalanceAfter: wallet.BalanceSOL,
-			Type:         models.TransactionUsage,
-			Description:  fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD),
-			CreatedAt:    time.Now(),
-		}
-		if err := tx.Create(&ledger).Error; err != nil {
-			return err
-		}
+	if err := tx.Create(&models.WalletLedgerEntry{
+		WalletID:     providerWallet.ID,
+		Amount:       costSOL,
+		BalanceAfter: providerWallet.BalanceSOL,
+		Type:         "provider_earning",
+		Description:  fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL),
+		CreatedAt:    time.Now(),
+	}).Error; err != nil {
+		return false, fmt.Errorf("billing: failed to create provider ledger entry for %s: %w", providerID, err)
+	}
 
-		// Credit provider's internal wallet and update score
-		var providerID uuid.UUID
-		if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
-			providerID = session.Listing.SellerID
-		}
+	var score models.ProviderScore
+	if err := tx.FirstOrCreate(&score, models.ProviderScore{ProviderID: providerID}).Error; err == nil {
+		score.RecordSessionCompletion(true, totalBytes, getSessionLatency(session.ID))
+		tx.Save(&score)
+	}
 
-		if providerID != uuid.Nil {
-			// C-4: Lock provider wallet (FOR UPDATE) to prevent lost-update race
-			// when multiple sessions for the same provider settle concurrently.
-			var providerWallet models.Wallet
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&providerWallet).Error; err == nil {
-				providerWallet.BalanceSOL += costSOL
-				if err := tx.Save(&providerWallet).Error; err == nil {
-					tx.Create(&models.WalletLedgerEntry{
-						WalletID:     providerWallet.ID,
-						Amount:       costSOL,
-						BalanceAfter: providerWallet.BalanceSOL,
-						Type:         "provider_earning",
-						Description:  fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL (devnet)", totalBytes, costSOL),
-						CreatedAt:    time.Now(),
-					})
-
-					// Queue payout for batch processing if threshold reached
-					if providerWallet.BalanceSOL >= providerPayoutThresholdSOL {
-						go queueProviderPayout(providerID)
-					}
-				}
-			}
-
-			// Update provider score
-			var score models.ProviderScore
-			if err := tx.FirstOrCreate(&score, models.ProviderScore{ProviderID: providerID}).Error; err == nil {
-				latency := getSessionLatency(session.ID)
-				score.RecordSessionCompletion(true, totalBytes, latency)
-				tx.Save(&score)
-			}
-		}
-
-		// 4. Clear Redis pending counter — delete the key entirely after a successful
-		// settlement so it does not linger until the 48 h TTL (I6 improvement).
-		// credentialsUser is used as the key segment for billing:session:* keys;
-		// the session:*:usage keys (incremented by IncrementUsage) are expired via
-		// their own TTL set in the pipeline inside redis.IncrementUsage.
-		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
-			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete settled Redis key")
-		}
-
-		return nil
-	})
+	return providerWallet.BalanceSOL >= providerPayoutThresholdSOL, nil
 }
 
 // triggerProviderPayout sends accumulated SOL from treasury to provider's linked Solana wallet.

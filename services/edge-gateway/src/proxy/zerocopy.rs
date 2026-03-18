@@ -12,6 +12,7 @@
 //! when splice is unavailable (non-Linux, or streams without raw FDs).
 
 use std::future::Future;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::warn;
 
@@ -34,25 +35,14 @@ impl BridgeStats {
 /// - Calls `should_continue(total_bytes)` every `revalidate_every` bytes.
 ///   Return `false` from the callback to terminate the bridge early
 ///   (e.g., bandwidth limit reached).
+/// - `idle_timeout`: if `Some(d)`, the bridge is closed when neither direction
+///   transfers any bytes within `d` (P2-12 — prevents zombie tunnels).
 /// - Returns `BridgeStats` regardless of how the bridge terminated.
-///
-/// # Example
-/// ```ignore
-/// let stats = bridge_tracked(
-///     &mut client_io,
-///     &mut provider_stream,
-///     100 * 1024 * 1024,        // revalidate every 100 MB
-///     |_total| async move {
-///         auth.validate_session(&username, true).await
-///             .map(|s| s.is_some())
-///             .unwrap_or(false)
-///     },
-/// ).await;
-/// ```
 pub async fn bridge_tracked<A, B, F, Fut>(
     client: &mut A,
     provider: &mut B,
     revalidate_every: u64,
+    idle_timeout: Option<Duration>,
     mut should_continue: F,
 ) -> BridgeStats
 where
@@ -70,6 +60,15 @@ where
     let mut last_reval_total = 0u64;
 
     loop {
+        // P2-12: Build the idle deadline future if a timeout is configured.
+        // We reset it each iteration so activity in either direction resets the clock.
+        let idle_fut = async {
+            match idle_timeout {
+                Some(d) => tokio::time::sleep(d).await,
+                None => std::future::pending().await,
+            }
+        };
+
         tokio::select! {
             // Data arriving from client → forward to provider
             read_res = client.read(&mut buf_cp) => {
@@ -97,6 +96,11 @@ where
                     Err(_) => break,
                 }
             }
+            // P2-12: Neither direction sent data within idle_timeout → close tunnel.
+            _ = idle_fut => {
+                warn!("Bridge idle timeout reached after {} total bytes", stats.total());
+                break;
+            }
         }
 
         // Periodic revalidation (bandwidth-limit enforcement)
@@ -119,7 +123,7 @@ where
     A: AsyncRead + AsyncWrite + Unpin,
     B: AsyncRead + AsyncWrite + Unpin,
 {
-    bridge_tracked(client, provider, u64::MAX, |_| async { true }).await
+    bridge_tracked(client, provider, u64::MAX, None, |_| async { true }).await
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +270,7 @@ mod tests {
             &mut c2,
             &mut p1,
             128,
+            None,
             |_total| async { false },
         )
         .await;

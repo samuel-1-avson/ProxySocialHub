@@ -121,7 +121,11 @@ jobs:
         REDIS_URL: "redis://localhost:6379"
         NATS_URL: "nats://localhost:4222"
         JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
-        SESSION_SECRET: "test-session-secret-for-ci-min-32"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+        SOLANA_RPC_ENDPOINT: "https://api.devnet.solana.com"
+        EMERGENCY_SOL_PRICE_USD: "200"
       run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
     - name: Upload coverage to Codecov
@@ -290,13 +294,14 @@ jobs:
         cache-to: type=gha,mode=max
 
   # ==================== DB Migration Smoke-Test ====================
-  # Applies every numbered migration in sequence against a clean Postgres instance
-  # and verifies the schema is consistent.  Runs only when migrations/ changes.
+  # Applies every *.up.sql file in sequence via psql — matching exactly what
+  # the custom RunMigrations() runner does at runtime (P3-14).
+  # Runs on every push so a broken migration is caught before deploy.
   db-migrate:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: proxyhubb
           POSTGRES_PASSWORD: proxyhubb
@@ -311,18 +316,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install golang-migrate CLI
-      run: |
-        curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xvz
-        sudo mv migrate /usr/local/bin/migrate
-
-    - name: Run all up migrations
+    - name: Run all up migrations (psql)
       env:
-        DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_migrate_test?sslmode=disable"
+        PGPASSWORD: proxyhubb
       run: |
-        migrate -path ./migrations \
-                -database "$DATABASE_URL" \
-                up
+        for f in $(ls migrations/*.up.sql | sort); do
+          echo "Applying $f ..."
+          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -f "$f" \
+            || { echo "FAILED: $f"; exit 1; }
+        done
 
     - name: Verify key tables exist
       env:
@@ -331,15 +333,17 @@ jobs:
         psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -c \
           "SELECT table_name FROM information_schema.tables
            WHERE table_schema = 'public'
-           ORDER BY table_name;" | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
+           ORDER BY table_name;" \
+          | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
 
     - name: Run all down migrations (rollback smoke-test)
       env:
-        DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_migrate_test?sslmode=disable"
+        PGPASSWORD: proxyhubb
       run: |
-        migrate -path ./migrations \
-                -database "$DATABASE_URL" \
-                down -all
+        for f in $(ls migrations/*.down.sql | sort -r); do
+          echo "Rolling back $f ..."
+          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -f "$f"
+        done
       continue-on-error: true   # Down migrations are best-effort in CI
 
   # ==================== Lint & Format Check ====================

@@ -8,6 +8,11 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
+// OnNodeOffline is an optional hook called for each ExplorerNode that is
+// marked offline by the heartbeat monitor. Set from main.go to avoid
+// a circular import between the worker and api packages.
+var OnNodeOffline func(*models.ExplorerNode)
+
 const heartbeatTimeout = 5 * time.Minute
 
 // StartHeartbeatMonitor runs every minute and marks nodes offline
@@ -41,5 +46,16 @@ func runHeartbeatCheck() {
 
 	if result.RowsAffected > 0 {
 		log.Printf("Heartbeat Monitor: marked %d node(s) offline (no heartbeat in >%v)", result.RowsAffected, heartbeatTimeout)
+
+		// Broadcast each newly-offline node to WebSocket clients (if wired)
+		if OnNodeOffline != nil {
+			var offlineNodes []models.ExplorerNode
+			if err := db.DB.Where("is_active = ? AND last_heartbeat < ?", false, cutoff).
+				Find(&offlineNodes).Error; err == nil {
+				for i := range offlineNodes {
+					OnNodeOffline(&offlineNodes[i])
+				}
+			}
+		}
 	}
 }

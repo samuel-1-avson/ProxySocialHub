@@ -4,6 +4,7 @@ package treasury
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -113,6 +114,9 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 			Float64("discrepancy", report.Discrepancy).
 			Msg("Reconciliation completed")
 
+		// P2-09: Persist report to DB for historical queries.
+		rs.saveReport(report, duration)
+
 		// Publish report to NATS
 		rs.publishReport(ctx, report)
 	}()
@@ -218,7 +222,13 @@ func (rs *ReconciliationService) getTreasuryBalance(ctx context.Context) (float6
 	return solana.LamportsToSOL(balance), nil
 }
 
-// calculateInternalLiabilities sums all user wallet balances
+// calculateInternalLiabilities sums all user wallet balances plus any amounts
+// committed in pending outgoing transactions (withdrawals that have been
+// deducted from wallet balances but not yet settled on-chain).
+//
+// P2-08: Including pending_outgoing prevents a false DEFICIT signal when a
+// withdrawal is in-flight: the wallet balance was already debited, but the
+// on-chain treasury balance has not yet decreased.
 func (rs *ReconciliationService) calculateInternalLiabilities() (float64, []UserBalanceSummary, error) {
 	var wallets []models.Wallet
 	if err := db.DB.Find(&wallets).Error; err != nil {
@@ -229,13 +239,25 @@ func (rs *ReconciliationService) calculateInternalLiabilities() (float64, []User
 	summaries := make([]UserBalanceSummary, 0, len(wallets))
 
 	for _, wallet := range wallets {
-		// SOL-only balance calculation
 		total += wallet.BalanceSOL
-
 		summaries = append(summaries, UserBalanceSummary{
 			UserID:     wallet.UserID.String(),
 			BalanceSOL: wallet.BalanceSOL,
 		})
+	}
+
+	// Add pending outgoing SOL amounts (withdrawals in-flight to the chain).
+	// These reduce the treasury balance without yet reducing wallet balances.
+	var pendingResult struct{ Total float64 }
+	err := db.DB.Model(&models.PendingTransaction{}).
+		Select("COALESCE(SUM(amount), 0) AS total").
+		Where("status = ? AND currency = ? AND type IN ?",
+			"pending", "SOL", []string{"withdrawal", "payout", "batch_payout"}).
+		Scan(&pendingResult).Error
+	if err != nil {
+		logging.Warn().Err(err).Msg("[Reconciliation] Could not sum pending outgoing — omitting from liabilities")
+	} else {
+		total += pendingResult.Total
 	}
 
 	return total, summaries, nil
@@ -312,12 +334,54 @@ func (rs *ReconciliationService) publishReport(ctx context.Context, report *Reco
 	}
 }
 
-// GetLastReconciliationReport returns the most recent reconciliation report
-// In production, this would query a database table that stores historical reports
+// saveReport persists a reconciliation run result to the DB.
+// P2-09: Called in the deferred cleanup of RunReconciliation.
+func (rs *ReconciliationService) saveReport(report *ReconciliationReport, duration time.Duration) {
+	issuesJSON := "[]"
+	if len(report.Issues) > 0 {
+		if data, err := json.Marshal(report.Issues); err == nil {
+			issuesJSON = string(data)
+		}
+	}
+
+	row := models.ReconciliationHistory{
+		TreasuryBalanceSOL:     report.TreasuryBalance,
+		InternalLiabilitiesSOL: report.InternalLiabilities,
+		DiscrepancySOL:         report.Discrepancy,
+		Status:                 report.Status,
+		IssuesJSON:             issuesJSON,
+		DurationMs:             duration.Milliseconds(),
+	}
+	if err := db.DB.Create(&row).Error; err != nil {
+		logging.Error(err).Msg("[Reconciliation] Failed to persist report to DB")
+	}
+}
+
+// GetLastReconciliationReport returns the most recent reconciliation report from DB.
+// P2-09: Replaces the stub that always returned an error.
 func (rs *ReconciliationService) GetLastReconciliationReport() (*ReconciliationReport, error) {
-	// For now, return an error indicating this needs to be implemented
-	// In production, store reports in database and query the latest
-	return nil, fmt.Errorf("historical reports not yet implemented - run reconciliation to generate new report")
+	var row models.ReconciliationHistory
+	if err := db.DB.Order("created_at DESC").First(&row).Error; err != nil {
+		return nil, fmt.Errorf("no reconciliation reports found: %w", err)
+	}
+
+	var issues []ReconciliationIssue
+	if row.IssuesJSON != "" && row.IssuesJSON != "[]" {
+		_ = json.Unmarshal([]byte(row.IssuesJSON), &issues)
+	}
+	if issues == nil {
+		issues = []ReconciliationIssue{}
+	}
+
+	report := &ReconciliationReport{
+		Timestamp:           row.CreatedAt,
+		TreasuryBalance:     row.TreasuryBalanceSOL,
+		InternalLiabilities: row.InternalLiabilitiesSOL,
+		Discrepancy:         row.DiscrepancySOL,
+		Status:              row.Status,
+		Issues:              issues,
+	}
+	return report, nil
 }
 
 // abs returns the absolute value of a float64

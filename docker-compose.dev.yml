@@ -5,6 +5,40 @@
 version: '3.8'
 
 services:
+  # ==================== DB MIGRATE (one-shot) ====================
+  db-migrate:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: proxyhubb-db-migrate
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:-proxyhubb}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - AUTO_MIGRATE=true
+      - FORCE_MIGRATE=true
+      - MIGRATE_ONLY=true
+      - MIGRATIONS_DIR=/app/migrations
+      - MIGRATE_CREDENTIALS=true
+      - SKIP_CREDENTIAL_CHECK=true
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      - PORT=8080
+      - APP_ENV=migration
+      - GIN_MODE=release
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379
+      - NATS_URL=nats://nats:4222
+    volumes:
+      - ./migrations:/app/migrations:ro
+    restart: "no"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ==================== CONTROL API ====================
   control-api:
     build:
@@ -28,6 +62,8 @@ services:
       - AUTO_MIGRATE=${AUTO_MIGRATE:-false}
       - DB_LOG_LEVEL=${DB_LOG_LEVEL:-warn}
       - DB_SLOW_QUERY_MS=${DB_SLOW_QUERY_MS:-500}
+      - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-30}
+      - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-5}
       - MIGRATE_CREDENTIALS=${MIGRATE_CREDENTIALS:-false}
       - READ_REPLICA_URL=${READ_REPLICA_URL:-}
       - MV_LEADERBOARD_REFRESH_MINS=${MV_LEADERBOARD_REFRESH_MINS:-15}
@@ -51,6 +87,8 @@ services:
 
       # Dev backdoor (disabled if blank)
       - DEV_LOGIN_SECRET=${DEV_LOGIN_SECRET:-}
+      # Skip plaintext-credential block in dev (encrypt with MIGRATE_CREDENTIALS=true first)
+      - SKIP_CREDENTIAL_CHECK=${SKIP_CREDENTIAL_CHECK:-true}
 
       # Optional external services
       - SUPABASE_URL=${SUPABASE_URL}
@@ -129,6 +167,8 @@ services:
       - backend
 
     depends_on:
+      db-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -219,7 +259,6 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./services/control-api/migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -297,9 +336,16 @@ services:
       - GEO_DENY_LIST=${GEO_DENY_LIST:-}
       - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
       - REGION=${REGION:-default}
-      - GEOIP_DB_PATH=${GEOIP_DB_PATH:-}
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
       - SESSION_CACHE_SIZE=${SESSION_CACHE_SIZE:-100000}
       - SESSION_CACHE_TTL_SECS=${SESSION_CACHE_TTL_SECS:-300}
+      # P2-12: Per-operation timeouts
+      - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
+      - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
+      - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+
+    volumes:
+      - ./geoip:/app/geoip:ro
 
     security_opt:
       - no-new-privileges:true

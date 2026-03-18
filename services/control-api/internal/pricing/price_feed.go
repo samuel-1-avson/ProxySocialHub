@@ -203,8 +203,8 @@ func (pf *PriceFeed) ConvertUSDTOSOL(usdAmount float64) (float64, error) {
 	return usdAmount / solPrice, nil
 }
 
-// ConvertSOLTUSD converts SOL amount to USD
-func (pf *PriceFeed) ConvertSOLTUSD(solAmount float64) (float64, error) {
+// ConvertSOLToUSD converts SOL amount to USD
+func (pf *PriceFeed) ConvertSOLToUSD(solAmount float64) (float64, error) {
 	solPrice, err := pf.GetSOLPriceUSD()
 	if err != nil {
 		return 0, err

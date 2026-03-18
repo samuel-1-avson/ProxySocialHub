@@ -227,12 +227,35 @@ func createSession(c *gin.Context) {
 		}
 	}
 
+	// Pick the best available infrastructure node (nodes table) so the edge-gateway has a
+	// real IP/port to route traffic through. Use models.Node — not ProviderNode — because
+	// only Node carries Port, Protocol, and ProviderUserID needed for routing and billing.
+	var node models.Node
+	nodeQuery := db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL")
+	if req.TargetGeo != "" {
+		nodeQuery = nodeQuery.Where("country_code = ?", req.TargetGeo)
+	}
+	if err := nodeQuery.Order("quality_score DESC").First(&node).Error; err != nil {
+		// Retry without geo filter if a country was requested but none match.
+		if req.TargetGeo != "" {
+			err = db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL").
+				Order("quality_score DESC").First(&node).Error
+		}
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No provider nodes available right now. Please try again shortly."})
+			return
+		}
+	}
+	nodeID := node.ID
+
 	session := models.Session{
 		UserID:          userUUID,
+		NodeID:          &nodeID,
 		Type:            models.SessionType(req.Type),
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
+		BandwidthLimit:  bandwidthLimit,
 		Config:          "{}",
 	}
 
@@ -269,9 +292,11 @@ func createSession(c *gin.Context) {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to persist session configuration — continuing")
 	}
 
-	// Store in Redis for Gateway authentication (N-02: include session config fields)
+	// Store in Redis for Gateway authentication — includes provider routing so the
+	// edge-gateway knows which node IP/port to forward traffic through.
 	sessionData := &redisClient.SessionData{
 		UserID:                  userID,
+		ProviderID:              node.ProviderUserID.String(),
 		SessionID:               session.ID.String(),
 		Type:                    req.Type,
 		Status:                  "active",
@@ -287,6 +312,10 @@ func createSession(c *gin.Context) {
 		RotationType:            rotationType,
 		RotationIntervalSeconds: rotationInterval,
 		TimeLimitMinutes:        req.TimeLimitMinutes,
+		// Routing fields — edge-gateway uses these to forward traffic
+		NodeID:   node.ID.String(),
+		NodeHost: node.IPAddress,
+		NodePort: node.Port,
 	}
 
 	// Store with 24-hour TTL
@@ -304,7 +333,10 @@ func createSession(c *gin.Context) {
 		"proxy_credentials": gin.H{
 			"username": credUser,
 			"password": credPass,
-			"endpoint": "proxy.proxyhubb.com:3000",
+			"host":     node.IPAddress,
+			"port":     node.Port,
+			"protocol": node.Protocol,
+			"endpoint": "proxy.proxyhubb.com:3128",
 		},
 		"limits": gin.H{
 			"bandwidth_limit_bytes": bandwidthLimit,
