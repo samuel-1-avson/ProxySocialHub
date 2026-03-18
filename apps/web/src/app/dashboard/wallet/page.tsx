@@ -65,6 +65,7 @@ export default function UnifiedWalletPage() {
     // Solana Wallet
     const { connected, publicKey, signMessage, sendTransaction, disconnect } = useSolanaWallet();
     const [externalSolBalance, setExternalSolBalance] = useState<number | null>(null);
+    const [linkedWalletBalance, setLinkedWalletBalance] = useState<number | null>(null);
     const [mounted, setMounted] = useState(false);
 
     // Network Config
@@ -109,7 +110,7 @@ export default function UnifiedWalletPage() {
         setMounted(true);
     }, []);
 
-    // Real-time external balance fetching
+    // Real-time external balance — wallet adapter actively connected
     useEffect(() => {
         if (connected && publicKey) {
             const fetchExternalBalance = async () => {
@@ -117,7 +118,9 @@ export default function UnifiedWalletPage() {
                     const { getConnection } = await import('@/lib/solana');
                     const connection = getConnection();
                     const balance = await connection.getBalance(publicKey);
-                    setExternalSolBalance(balance / 1e9);
+                    const sol = balance / 1e9;
+                    setExternalSolBalance(sol);
+                    setLinkedWalletBalance(sol); // keep linked balance in sync when adapter is live
                 } catch (e) {
                     console.error("Failed to fetch external balance:", e);
                 }
@@ -129,6 +132,28 @@ export default function UnifiedWalletPage() {
             setExternalSolBalance(null);
         }
     }, [connected, publicKey]);
+
+    // Fetch on-chain balance from the saved linked address (works even when adapter is disconnected)
+    useEffect(() => {
+        const linkedAddress = wallet?.linked_solana_address;
+        if (!linkedAddress || connected) return; // skip if adapter is live (handled above)
+        let cancelled = false;
+        const fetchLinkedBalance = async () => {
+            try {
+                const { getConnection } = await import('@/lib/solana');
+                const { PublicKey } = await import('@solana/web3.js');
+                const connection = getConnection();
+                const pubkey = new PublicKey(linkedAddress);
+                const balance = await connection.getBalance(pubkey);
+                if (!cancelled) setLinkedWalletBalance(balance / 1e9);
+            } catch (e) {
+                console.error("Failed to fetch linked wallet balance:", e);
+            }
+        };
+        fetchLinkedBalance();
+        const id = setInterval(fetchLinkedBalance, 30000);
+        return () => { cancelled = true; clearInterval(id); };
+    }, [wallet?.linked_solana_address, connected]);
 
     // Linking Logic
     const handleLinkSolana = async () => {
@@ -236,10 +261,12 @@ export default function UnifiedWalletPage() {
                                                 <span className="text-xl opacity-40 font-black">SOL</span>
                                             </div>
 
-                                            {connected && externalSolBalance !== null && (
+                                            {linkedWalletBalance !== null && (
                                                 <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/5 flex justify-between items-center">
-                                                    <span className="text-[9px] font-mono font-black text-muted-foreground uppercase opacity-40">External Wallet Balance</span>
-                                                    <span className="text-xs font-black font-mono text-primary">{externalSolBalance.toFixed(4)} SOL</span>
+                                                    <span className="text-[9px] font-mono font-black text-muted-foreground uppercase opacity-40">
+                                                        {connected ? 'Connected Wallet' : 'Linked Wallet'} Balance
+                                                    </span>
+                                                    <span className="text-xs font-black font-mono text-primary">{linkedWalletBalance.toFixed(4)} SOL</span>
                                                 </div>
                                             )}
 
