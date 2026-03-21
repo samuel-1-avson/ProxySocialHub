@@ -23,8 +23,7 @@ func main() {
 
 	privateKey := os.Getenv("RELAYER_PRIVATE_KEY")
 	if privateKey == "" {
-		// Test key (Hardhat Account #1)
-		privateKey = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+		log.Fatal("RELAYER_PRIVATE_KEY env var is required")
 	}
 
 	contractAddress := os.Getenv("MARKETPLACE_CONTRACT_ADDRESS")

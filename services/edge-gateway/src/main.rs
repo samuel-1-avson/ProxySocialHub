@@ -107,19 +107,19 @@ async fn proxy(
     info!("Request path: {}", path);
     
     // Handle metrics endpoint
-    if path == "/metrics" && req.method() == Method::GET {
+    if path == "/metrics" && method == "GET" {
         info!("Serving metrics endpoint");
         return metrics_handler().await;
     }
     
     // Handle health endpoint
-    if path == "/health" && req.method() == Method::GET {
+    if path == "/health" && method == "GET" {
         info!("Serving health endpoint");
         return health_handler().await;
     }
 
     // Handle ML stats export endpoint (Debug only)
-    if path == "/debug/ml/stats" && req.method() == Method::GET {
+    if path == "/debug/ml/stats" && method == "GET" {
         info!("Serving ML stats export endpoint");
         let csv = state.feature_cache.to_csv(&state.registry);
         let mut resp = Response::new(Full::new(Bytes::from(csv)));
@@ -131,7 +131,7 @@ async fn proxy(
     }
 
     // Handle node list export endpoint (Debug only)
-    if path == "/debug/nodes" && req.method() == Method::GET {
+    if path == "/debug/nodes" && method == "GET" {
         info!("Serving node list debug endpoint");
         let nodes = state.registry.list_nodes();
         let json = serde_json::to_string(&nodes).unwrap_or_default();

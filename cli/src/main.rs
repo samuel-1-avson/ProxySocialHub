@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use std::fs;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "proxyhubb-cli")]
@@ -16,21 +18,36 @@ struct Cli {
 enum Commands {
     /// Join the ProxyHubb network as a provider
     Join {
-        /// Provider ID or Name
+        /// Control API URL
+        #[arg(short, long, default_value = "http://localhost:8080")]
+        api_url: String,
+
+        /// Provider API key
         #[arg(short, long)]
-        name: String,
-        /// Solana RPC URL
-        #[arg(short, long, default_value = "https://api.devnet.solana.com")]
-        rpc: String,
+        key: String,
+        
+        /// Gateway address
+        #[arg(short, long, default_value = "localhost:8090")]
+        gateway: String,
+    },
+    /// Start the provider node daemon
+    Start {
+        /// Path to configuration file
+        #[arg(short, long, default_value = "provider.toml")]
+        config: String,
     },
     /// Check your provider status and earnings
     Status,
-    /// Run a performance benchmark for your node
-    Bench {
-        /// Target URL to test against
-        #[arg(short, long, default_value = "https://www.google.com")]
-        target: String,
-    },
+}
+
+// Config that mirrors the internal provider-node Config
+#[derive(Debug, Serialize, Deserialize)]
+struct ProviderConfig {
+    gateway_addr: String,
+    jwt_token: String,
+    api_key: String,
+    node_id: String,
+    connection_type: String,
 }
 
 #[tokio::main]
@@ -38,68 +55,136 @@ async fn main() {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Join { name, rpc } => {
-            handle_join(&name, &rpc).await;
+        Commands::Join { api_url, key, gateway } => {
+            if let Err(e) = handle_join(&api_url, &key, &gateway).await {
+                eprintln!("{} {}", "Registration failed:".red().bold(), e);
+            }
+        }
+        Commands::Start { config } => {
+            handle_start(&config);
         }
         Commands::Status => {
-            handle_status().await;
-        }
-        Commands::Bench { target } => {
-            handle_bench(&target).await;
+            if let Err(e) = handle_status().await {
+                eprintln!("{} {}", "Failed to retrieve status:".red().bold(), e);
+            }
         }
     }
 }
 
-async fn handle_join(name: &str, rpc: &str) {
+#[derive(Deserialize)]
+struct AuthResponse {
+    user_id: Option<String>,
+    jwt_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RegisterResponse {
+    node_id: String,
+}
+
+async fn handle_join(api_url: &str, api_key: &str, gateway: &str) -> anyhow::Result<()> {
     println!("{}", "🚀 Initializing ProxyHubb Provider...".bold().cyan());
     let pb = ProgressBar::new_spinner();
-    pb.set_message("Generating ZK-keys and Solana Wallet...");
+    pb.set_style(ProgressStyle::default_spinner().tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "));
     pb.enable_steady_tick(Duration::from_millis(100));
     
-    // Simulating node enrollment...
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    pb.set_message("Authenticating with Control API...");
+    let client = reqwest::Client::new();
     
-    pb.finish_with_message("✅ Provider Enrolled!");
+    let auth_url = format!("{}/v1/provider/auth", api_url);
+    let auth_resp: AuthResponse = client.post(&auth_url)
+        .json(&serde_json::json!({ "token": api_key }))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let jwt = auth_resp.jwt_token.expect("JWT token missing in auth response");
+    
+    pb.set_message("Detecting Public IP...");
+    // Mock public IP for demo since we're local
+    let public_ip = "127.0.0.1".to_string(); 
+    let node_name = "cli-node-01".to_string();
+
+    pb.set_message("Registering node...");
+    let reg_url = format!("{}/v1/nodes/register", api_url);
+    let reg_resp: RegisterResponse = client.post(&reg_url)
+        .header("Authorization", format!("Bearer {}", jwt))
+        .json(&serde_json::json!({
+            "name": node_name,
+            "public_ip": public_ip
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+        
+    let config = ProviderConfig {
+        gateway_addr: gateway.to_string(),
+        jwt_token: jwt,
+        api_key: api_key.to_string(),
+        node_id: reg_resp.node_id.clone(),
+        connection_type: "fiber".to_string(),
+    };
+    
+    let toml_str = toml::to_string(&config)?;
+    fs::write("provider.toml", toml_str)?;
+
+    pb.finish_with_message(format!("✅ Provider Enrolled (Node ID: {})", reg_resp.node_id));
     println!("\n{}", "Registration Details:".bold().white());
-    println!("  - Name: {}", name);
-    println!("  - Solana RPC: {}", rpc);
-    println!("  - Reputation Address: {}", "PHub...1111".yellow());
-    println!("  - Status: {}", "ACTIVE".green());
+    println!("  - Node ID: {}", reg_resp.node_id);
+    println!("  - IP Address: {}", public_ip);
+    println!("  - Config: {}", "provider.toml saved.".green());
+    println!("\nRun {} to begin sharing bandwidth.", "proxyhubb-cli start".cyan().bold());
+    Ok(())
 }
 
-async fn handle_status() {
+fn handle_start(config_file: &str) {
+    println!("{}", "🚀 Starting ProxyHubb Node Daemon...".bold().cyan());
+    
+    // Attempt to run via cargo for local dev if provider-node isn't mapped
+    let mut child = Command::new("cargo")
+        .args(&["run", "--manifest-path", "../services/provider-node/Cargo.toml", "--", "start", "--config", config_file])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("Failed to start provider node via cargo");
+
+    let status = child.wait().expect("Failed to wait on child");
+    println!("Node exited with: {status}");
+}
+
+#[derive(Deserialize)]
+struct NodeStats {
+    active_connections: u32,
+    total_connections: u64,
+    bytes_up: u64,
+    bytes_down: u64,
+    uptime_seconds: u64,
+    latency_ms: u32,
+    connection_type: String,
+}
+
+async fn handle_status() -> anyhow::Result<()> {
     println!("{}", "📊 Provider Status Overview".bold().cyan());
     println!("----------------------------------");
-    println!("  - On-Chain Score:  {}", "105".green().bold());
-    println!("  - Total Earnings:  {}", "1.24 SOL".yellow());
-    println!("  - Active Sessions: {}", "12".white());
-    println!("  - ML-Router Rank:  {}", "Top 5%".cyan());
-    println!("----------------------------------");
-}
-
-async fn handle_bench(target: &str) {
-    println!("{} {}", "⚡ Running Performance Benchmark against:".bold(), target.cyan());
     
-    let pb = ProgressBar::new(5);
-    pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-        .unwrap()
-        .progress_chars("#>-"));
-
-    let mut results = Vec::new();
-    for i in 0..5 {
-        pb.set_message(format!("Probe {}/5", i + 1));
-        let start = Instant::now();
-        // Simulate a network probe
-        tokio::time::sleep(Duration::from_millis(150 + (i * 20))).await;
-        results.push(start.elapsed().as_millis());
-        pb.inc(1);
+    let client = reqwest::Client::new();
+    match client.get("http://localhost:9091/stats").send().await {
+        Ok(resp) => {
+            let stats: NodeStats = resp.json().await?;
+            println!("  - Active Connections: {}", stats.active_connections.to_string().white());
+            println!("  - Total Processed:    {}", stats.total_connections.to_string().white());
+            println!("  - Bandwidth (Up):     {} MB", (stats.bytes_up / 1_000_000).to_string().yellow());
+            println!("  - Bandwidth (Down):   {} MB", (stats.bytes_down / 1_000_000).to_string().yellow());
+            println!("  - Gateway Latency:    {} ms", stats.latency_ms.to_string().green());
+            println!("  - Network Type:       {}", stats.connection_type.cyan());
+            println!("  - Uptime:             {} seconds", stats.uptime_seconds);
+        }
+        Err(_) => {
+            println!("  {}", "Node is currently offline (could not reach local stats server).".red());
+        }
     }
-    
-    pb.finish_with_message("Benchmark Complete!");
-    
-    let avg = results.iter().sum::<u128>() / results.len() as u128;
-    println!("\n{}", "Performance Metrics:".bold().white());
-    println!("  - Average Latency:  {} ms", avg.to_string().green());
-    println!("  - Predicted Score:  {}", "9.2/10".cyan().bold());
-    println!("  - Recommendation:   {}", "Ready for Production Flow".green());
+    println!("----------------------------------");
+    Ok(())
 }

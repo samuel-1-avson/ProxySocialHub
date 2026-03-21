@@ -137,6 +137,22 @@ treasury-keypair.json
 tao-treasury-keypair.json
 *.pem
 
+# Temporary and Sensitive Data (NEVER COMMIT!)
+jwt.txt
+reg_output.txt
+backups/
+session_res.json
+login_res.json
+payload.json
+system-health-report.json
+scan_results.json
+test_output.txt
+logs_dump.txt
+logs.txt
+*.txt.bak
+check_errors*.txt
+build_errors.txt
+
 # Never commit these (SECURITY CRITICAL)
 .env.secrets
 !.env.example
