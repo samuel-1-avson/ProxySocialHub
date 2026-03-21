@@ -36,7 +36,8 @@ type ScoredNode struct {
 // RecommendationRequest is the input for the matching engine
 type RecommendationRequest struct {
 	UseCase  UseCaseType `json:"use_case" binding:"required"`
-	Region   string      `json:"region"`    // Optional limit by region
-	MaxPrice float64     `json:"max_price"` // Optional price limit
-	Count    int         `json:"count"`     // Number of recommendations (default 5)
+	Region       string      `json:"region"`        // Optional limit by region
+	MaxPrice     float64     `json:"max_price"`     // Optional price limit
+	RequiredTier string      `json:"required_tier"` // "Gold", "Silver", "Bronze"
+	Count        int         `json:"count"`         // Number of recommendations (default 5)
 }

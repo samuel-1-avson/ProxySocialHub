@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ==================== Consul Server ====================
+  consul:
+    image: hashicorp/consul:1.14
+    container_name: consul
+    command: ["agent", "-config-file=/consul/config/consul.hcl"]
+    volumes:
+      - ./infra/consul.hcl:/consul/config/consul.hcl
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    healthcheck:
+      test: ["CMD", "consul", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - proxyhubb
+
+  # ==================== Control API with Mesh Proxy ====================
+  control-api:
+    extends:
+      file: docker-compose.yml
+      service: control-api
+    depends_on:
+      consul:
+        condition: service_healthy
+    labels:
+      com.hashicorp.consul.connect: "true"
+    networks:
+      - proxyhubb
+
+  # ==================== Edge Gateway with Mesh Proxy ====================
+  edge-gateway:
+    extends:
+      file: docker-compose.yml
+      service: edge-gateway
+    depends_on:
+      consul:
+        condition: service_healthy
+    labels:
+      com.hashicorp.consul.connect: "true"
+    networks:
+      - proxyhubb
+
+  # ==================== Mesh Sidecars (Simulated) ====================
+  control-api-proxy:
+    image: hashicorp/consul:1.14
+    container_name: control-api-proxy
+    command: ["connect", "proxy", "-service", "control-api", "-upstream", "postgres:5432"]
+    environment:
+      - CONSUL_HTTP_ADDR=consul:8500
+      - CONSUL_GRPC_ADDR=consul:8502
+    depends_on:
+      consul:
+        condition: service_healthy
+      control-api:
+        condition: service_started
+    networks:
+      - proxyhubb
+
+  edge-gateway-proxy:
+    image: hashicorp/consul:1.14
+    container_name: edge-gateway-proxy
+    command: ["connect", "proxy", "-service", "edge-gateway", "-upstream", "control-api:8080"]
+    environment:
+      - CONSUL_HTTP_ADDR=consul:8500
+      - CONSUL_GRPC_ADDR=consul:8502
+    depends_on:
+      consul:
+        condition: service_healthy
+      edge-gateway:
+        condition: service_started
+    networks:
+      - proxyhubb
+
+networks:
+  proxyhubb: {}

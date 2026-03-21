@@ -74,6 +74,10 @@ type User struct {
 	VerificationToken *string `gorm:"size:255" json:"verification_token,omitempty"`
 	EmailVerified     bool    `gorm:"default:false" json:"email_verified"`
 
+	// Online presence
+	IsOnline     bool       `gorm:"default:false;index:idx_user_online" json:"is_online"`
+	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

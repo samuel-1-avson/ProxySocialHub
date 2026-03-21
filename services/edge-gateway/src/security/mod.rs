@@ -7,3 +7,5 @@
 pub mod ddos;
 pub mod fingerprint;
 pub mod reputation;
+pub mod honeytoken;
+pub mod anomaly;

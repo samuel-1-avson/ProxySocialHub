@@ -32,7 +32,7 @@ interface DashboardStats {
 
 interface User {
     id: string;
-    email: string;
+    email?: string;
     role: string;
     status: string;
     trust_tier: string;
@@ -41,7 +41,7 @@ interface User {
 
 interface PendingPayout {
     user_id: string;
-    email: string;
+    email?: string;
     earnings_ghs: number;
 }
 
@@ -346,7 +346,7 @@ export default function AdminPage() {
                             <tbody className="divide-y divide-border/50">
                                 {users.map(user => (
                                     <tr key={user.id} className="hover:bg-secondary/10 transition-colors">
-                                        <td className="px-6 py-4 font-bold">{user.email}</td>
+                                        <td className="px-6 py-4 font-bold">{user.email || 'Wallet-Only'}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-0.5 rounded-sm border text-[10px] font-bold uppercase ${user.role === 'admin' ? 'bg-destructive/10 text-destructive border-destructive/20' :
                                                     user.role === 'provider' ? 'bg-primary/10 text-primary border-primary/20' :
@@ -494,7 +494,7 @@ export default function AdminPage() {
                             {payouts.map(payout => (
                                 <div key={payout.user_id} className="px-6 py-4 flex items-center justify-between">
                                     <div>
-                                        <div className="font-bold">{payout.email}</div>
+                                        <div className="font-bold">{payout.email || 'Wallet-Only'}</div>
                                         <div className="text-[10px] text-muted-foreground">ID: {payout.user_id}</div>
                                     </div>
                                     <div className="text-right flex items-center gap-4">

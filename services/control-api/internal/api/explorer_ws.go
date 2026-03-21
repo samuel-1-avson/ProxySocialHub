@@ -178,7 +178,7 @@ func (h *ExplorerHub) run() {
 }
 
 // sendInitialData sends initial explorer data to a newly connected client.
-// Sends both recent transactions and recent blocks so the frontend dashboard
+// Sends recent transactions, blocks, and active nodes so the frontend dashboard
 // can populate immediately without waiting for the 5-second polling cycle.
 func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 	// Recent transactions
@@ -210,9 +210,30 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 		}
 	}
 
+	// Active nodes (for map initialization)
+	var nodes []models.ExplorerNode
+	db.DB.Where("is_active = ?", true).
+		Select("node_id, latitude, longitude, is_active, is_validator, uptime_percent, active_sessions, country, region, city, isp").
+		Order("uptime_percent DESC").
+		Limit(100).
+		Find(&nodes)
+
+	nodeUpdates := make([]NodeUpdate, len(nodes))
+	for i, n := range nodes {
+		nodeUpdates[i] = NodeUpdate{
+			NodeID:         n.NodeID,
+			IsActive:       n.IsActive,
+			UptimePercent:  n.UptimePercent,
+			ActiveSessions: n.ActiveSessions,
+			Latitude:       n.Latitude,
+			Longitude:      n.Longitude,
+		}
+	}
+
 	type InitialPayload struct {
 		Transactions []NewTransactionUpdate `json:"transactions"`
 		Blocks       []NewBlockUpdate       `json:"blocks"`
+		Nodes        []NodeUpdate           `json:"nodes"`
 	}
 
 	initialData := ExplorerUpdate{
@@ -220,6 +241,7 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 		Data: InitialPayload{
 			Transactions: txUpdates,
 			Blocks:       blockUpdates,
+			Nodes:        nodeUpdates,
 		},
 		Timestamp: time.Now(),
 	}

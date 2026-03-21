@@ -43,6 +43,7 @@ export interface CreateSessionRequest {
     node_id?: string;
     duration_hours?: number;
     bandwidth_gb?: number;
+    preferred_tier?: string;
 }
 
 export interface CreateSessionResponse {

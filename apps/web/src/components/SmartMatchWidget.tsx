@@ -360,10 +360,9 @@ export function SmartMatchWidget() {
                                         className="w-full bg-black/40 border border-white/5 text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground/60 appearance-none cursor-pointer"
                                     >
                                         <option value="any">Any Tier</option>
-                                        <option value="basic">Basic</option>
-                                        <option value="verified">Verified</option>
-                                        <option value="premium">Premium</option>
-                                        <option value="enterprise">Enterprise</option>
+                                        <option value="Bronze">Bronze</option>
+                                        <option value="Silver">Silver</option>
+                                        <option value="Gold">Gold</option>
                                     </select>
                                 </div>
 
@@ -567,13 +566,13 @@ export function SmartMatchWidget() {
                                                                 <div className="text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center justify-center gap-1">
                                                                     <Activity size={8} /> Uptime
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">{r.uptime_percent.toFixed(1)}%</div>
+                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">{Number(r.uptime_percent || 0).toFixed(1)}%</div>
                                                             </div>
                                                             <div className="p-2 rounded-xl bg-white/[0.02] border border-white/5">
                                                                 <div className="text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center justify-center gap-1">
                                                                     <Wifi size={8} /> $/GB
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">${r.price_per_gb.toFixed(2)}</div>
+                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">${Number(r.price_per_gb || 0).toFixed(2)}</div>
                                                             </div>
                                                         </div>
 
@@ -641,7 +640,7 @@ export function SmartMatchWidget() {
                                                             </div>
                                                             <div className="text-right">
                                                                 <div className="text-2xl font-black tracking-tighter text-white">
-                                                                    {(rec.score * 100).toFixed(0)}<span className="text-[10px] text-white/20 ml-0.5">%</span>
+                                                                    {Number(rec.score * 100).toFixed(0)}<span className="text-[10px] text-white/20 ml-0.5">%</span>
                                                                 </div>
                                                                 <div className="text-[7px] font-black text-white/10 uppercase tracking-widest">Match</div>
                                                             </div>

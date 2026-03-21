@@ -1,16 +1,22 @@
 "use client";
+
 import { useAuth } from "@/lib/auth";
-import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, Vote, User, ChevronRight, Wallet, ArrowRight } from "lucide-react";
+import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, User, ExternalLink, Globe, ShieldCheck, Terminal } from "lucide-react";
 import Link from "next/link";
 import { getAnalyticsOverview, getWallet, getDailyUsage } from "@/lib/api";
 import { SkeletonDashboard } from "@/components/ui/skeleton";
-import { NetworkFeed } from "@/components/NetworkFeed";
+import { StatCard } from "@/components/ui/StatCard";
+import { ActionCard } from "@/components/ui/ActionCard";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { motion } from "framer-motion";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useQuery } from "@tanstack/react-query";
+import { useRole } from "@/hooks/useRole";
+import { NewUserDashboard } from "@/components/NewUserDashboard";
 
 export default function DashboardPage() {
     const { user } = useAuth();
+    const { isNewUser, isProvider, role, isConsumer } = useRole();
 
     const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useQuery({
         queryKey: ['analytics-overview'],
@@ -40,327 +46,357 @@ export default function DashboardPage() {
     const loading = analyticsLoading || walletLoading || usageLoading;
     const error = !user ? null : (!analytics && !analyticsLoading) ? 'Failed to load dashboard data. Please check your connection.' : null;
 
+    if (isNewUser) {
+        return <NewUserDashboard />;
+    }
+
     if (loading) {
         return <SkeletonDashboard />;
     }
 
     if (error) {
         return (
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center justify-center min-h-[400px] text-center p-4"
-            >
-                <div className="p-4 rounded-full bg-destructive/10 mb-4">
-                    <AlertCircle className="h-12 w-12 text-destructive" />
+            <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-4">
+                <div className="p-4 rounded-full bg-red-500/10 mb-4">
+                    <AlertCircle className="h-12 w-12 text-red-500" />
                 </div>
-                <h2 className="text-xl font-bold font-mono uppercase mb-2">System Unavailable</h2>
-                <p className="text-muted-foreground font-mono text-sm mb-6 max-w-md">{error}</p>
-                <button
-                    onClick={() => refetchAnalytics()}
-                    className="btn-retro btn-retro-primary flex items-center gap-2"
-                >
+                <h2 className="text-xl font-bold font-sans mb-2">System Unavailable</h2>
+                <p className="text-muted-foreground font-sans text-sm mb-6 max-w-md">{error}</p>
+                <button onClick={() => refetchAnalytics()} className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-xl flex items-center gap-2">
                     <RefreshCw className="h-4 w-4" />
                     Retry Connection
                 </button>
-            </motion.div>
+            </div>
         );
     }
 
-    const stats = [
-        {
-            label: "Active Sessions",
-            value: analytics?.active_sessions?.toString() || "0",
-            icon: Server,
-            change: "Live",
-            trend: "up",
-            color: "text-blue-500",
-            bg: "bg-blue-500/10"
-        },
-        {
-            label: "Bandwidth Shared",
-            value: `${analytics?.total_bandwidth_gb?.toFixed(2) || "0.00"} GB`,
-            icon: Wifi,
-            change: "Total",
-            trend: "up",
-            color: "text-emerald-500",
-            bg: "bg-emerald-500/10"
-        },
-        {
-            label: "Balance",
-            value: `${wallet?.balance_sol?.toFixed(4) || "0.0000"} SOL`,
-            icon: DollarSign,
-            change: "SOL",
-            trend: "up",
-            color: "text-amber-500",
-            bg: "bg-amber-500/10"
-        },
-        {
-            label: "Success Rate",
-            value: `${((analytics?.success_rate || 0) * 100).toFixed(1)}%`,
-            icon: Activity,
-            change: `${analytics?.avg_latency_ms || 0}ms`,
-            trend: analytics?.avg_latency_ms && analytics.avg_latency_ms > 100 ? "down" : "up",
-            color: "text-violet-500",
-            bg: "bg-violet-500/10"
-        },
-    ];
-
     const chartData = dailyUsage.map(d => ({
-        name: new Date(d.date).toLocaleDateString(undefined, { weekday: 'short' }),
-        value: Number((d.bytes_used / (1024 * 1024)).toFixed(2))
+        name: d.date ? new Date(d.date).toLocaleDateString(undefined, { weekday: 'short' }) : '?',
+        value: d.bytes_used ? Number((d.bytes_used / (1024 * 1024)).toFixed(2)) : 0
     }));
 
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: {
-            opacity: 1,
-            transition: {
-                staggerChildren: 0.1
-            }
-        }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0 }
-    };
-
     return (
-        <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
-            className="space-y-8 pb-20"
-        >
-            {/* Header */}
-            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="space-y-8 pb-20 md:pb-8">
+            {/* Header & Hero */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
                 <div>
-                    <h1 className="text-4xl font-black font-mono uppercase tracking-tighter mb-1 bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">
-                        CENTRAL CONTROL HUB
+                    <h1 className="text-3xl font-bold tracking-tight mb-2">
+                        Welcome back, {user?.display_name || user?.email?.split('@')[0] || "User"}
                     </h1>
-                    <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground font-mono text-[10px] tracking-widest uppercase">Operator ID:</span>
-                        <code className="bg-secondary/50 px-2 py-0.5 rounded text-[10px] font-mono text-primary border border-primary/10">
-                            {user?.email?.split('@')[0].toUpperCase()}
-                        </code>
-                        <span className="ml-4 px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-mono border border-primary/20 rounded">REAL-TIME_FIGURES</span>
-                    </div>
+                    <p className="text-muted-foreground">
+                        Here's your network overview and proxy connection status.
+                    </p>
                 </div>
-                <div className="flex flex-wrap gap-2 text-[10px]">
-                    <span className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full font-mono font-bold flex items-center gap-2 glow-emerald">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse outline outline-offset-2 outline-emerald-500/30"></span>
-                        PROTOCOL_UPLINK: ACTIVE
-                    </span>
+                <div className="flex items-center gap-3">
+                    <StatusBadge status="online" label="Network Online" pulse />
                 </div>
-            </motion.div>
+            </div>
 
-            {/* Quick Actions Bar */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                    { href: "/dashboard/wallet", label: "Financial HQ", sub: "Wallet & Transactions", icon: Wallet },
-                    { href: "/marketplace", label: "Marketplace", sub: "Buy Bandwidth", icon: Zap },
-                    { href: "/dashboard/proxy", label: "Connect Proxy", sub: "Start a Session", icon: Server },
-                    { href: "/settings", label: "Config Center", sub: "Protocol Settings", icon: User },
-                ].map((action, i) => (
-                    <Link key={i} href={action.href}>
-                        <motion.div
-                            whileHover={{ scale: 1.02, y: -2 }}
-                            whileTap={{ scale: 0.98 }}
-                            className="glass-card p-4 hover:border-primary/50 transition-all flex items-center gap-3 group relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-opacity">
-                                <ChevronRight size={14} className="text-primary" />
-                            </div>
-                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
-                                <action.icon size={18} />
-                            </div>
-                            <div>
-                                <div className="font-bold font-mono uppercase text-[10px] tracking-tight">{action.label}</div>
-                                <div className="text-[9px] text-muted-foreground uppercase font-mono opacity-60 leading-none">{action.sub}</div>
-                            </div>
-                        </motion.div>
-                    </Link>
-                ))}
-            </motion.div>
+            {/* Role-Based Action Cards */}
+            <div className="space-y-4">
+                {(isConsumer || role === "both") && (
+                    <>
+                        <div className="flex items-center gap-2 mb-2">
+                            <Globe size={16} className="text-primary" />
+                            <h2 className="text-[10px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground/60">Buyer Console</h2>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <ActionCard
+                                title="Quick Connect"
+                                description="Launch a new proxy session instantly"
+                                icon={Globe}
+                                href="/dashboard/proxy"
+                                ctaLabel="Connect"
+                                variant="brand"
+                            />
+                            <ActionCard
+                                title="Marketplace"
+                                description="Discover and purchase premium bandwidth"
+                                icon={Zap}
+                                href="/marketplace"
+                                ctaLabel="Explore"
+                            />
+                            <ActionCard
+                                title="Settings"
+                                description="Account & protocol preferences"
+                                icon={User}
+                                href="/settings"
+                                ctaLabel="Manage"
+                            />
+                            <ActionCard
+                                title="Integrity"
+                                description="Verify trustless usage proofs"
+                                icon={ShieldCheck}
+                                href="/dashboard/trustless"
+                                ctaLabel="Verify"
+                            />
+                        </div>
+                    </>
+                )}
+
+                {(isProvider || role === "both") && (
+                    <>
+                        <div className="flex items-center gap-2 mb-2 mt-8">
+                            <Server size={16} className="text-purple-400" />
+                            <h2 className="text-[10px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground/60">Provider Hub</h2>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <ActionCard
+                                title="Registered Nodes"
+                                description="Manage infrastructure & quality scores"
+                                icon={Server}
+                                href="/dashboard/provider"
+                                ctaLabel="Monitor"
+                                variant="provider"
+                            />
+                            <ActionCard
+                                title="Earnings & Payouts"
+                                description="Track income and withdrawal status"
+                                icon={DollarSign}
+                                href="/dashboard/provider/earnings"
+                                ctaLabel="Finance"
+                            />
+                            <ActionCard
+                                title="Seller Tools"
+                                description="CLI documentation & API authentication"
+                                icon={Terminal}
+                                href="/dashboard/provider/cli"
+                                ctaLabel="Setup"
+                            />
+                            <ActionCard
+                                title="Listing Manager"
+                                description="Set your price & marketplace visibility"
+                                icon={ExternalLink}
+                                href="/marketplace/manage"
+                                ctaLabel="Edit"
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
 
             {/* Stats Grid */}
-            <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {stats.map((stat, i) => {
-                    const isBalance = stat.label === "Balance";
-                    const card = (
-                        <motion.div
-                            key={i}
-                            whileHover={{ y: -5 }}
-                            className={`glass-card p-6 relative overflow-hidden group ${isBalance ? 'cursor-pointer border-amber-500/20 hover:border-amber-500/40' : ''}`}
-                        >
-                            <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} -mr-12 -mt-12 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity`} />
-                            <div className="flex justify-between items-start mb-4 relative z-10">
-                                <div className={`p-2 rounded-lg ${stat.bg} ${stat.color} border border-current/20`}>
-                                    <stat.icon size={20} />
-                                </div>
-                                <div className={`flex items-center text-[10px] font-bold font-mono px-2 py-0.5 rounded-full ${stat.trend === "up" ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>
-                                    {stat.change}
-                                </div>
-                            </div>
-                            <div className="text-3xl font-black font-mono mb-1 tracking-tighter relative z-10">{stat.value}</div>
-                            <div className="text-[10px] text-muted-foreground uppercase font-mono tracking-widest opacity-60 relative z-10">{stat.label}</div>
-                            {isBalance && (
-                                <div className="mt-2 text-[9px] font-mono text-amber-500/60 uppercase tracking-widest relative z-10 group-hover:text-amber-500 transition-colors">
-                                    View Wallet →
-                                </div>
-                            )}
-                        </motion.div>
-                    );
-                    return isBalance
-                        ? <Link key={i} href="/dashboard/wallet">{card}</Link>
-                        : card;
-                })}
-            </motion.div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {isProvider ? (
+                    <>
+                        <StatCard
+                            title="Total Nodes"
+                            value={analytics?.total_nodes?.toString() || "0"}
+                            icon={Server}
+                            variant="brand"
+                            trendComponent={<span className="text-purple-400 font-bold text-xs uppercase tracking-wide">Active</span>}
+                        />
+                        <StatCard
+                            title="Provider Earnings"
+                            value={`${analytics?.total_earnings_sol?.toFixed(3) ?? "0.000"} SOL`}
+                            icon={DollarSign}
+                            variant="default"
+                            subtitle="Total Life-time"
+                        />
+                        <StatCard
+                            title="Quality Average"
+                            value={`${analytics?.avg_quality_score || 0}%`}
+                            icon={Zap}
+                            variant="success"
+                            subtitle="Network Rating"
+                        />
+                        <StatCard
+                            title="Active Payouts"
+                            value={`${analytics?.active_payouts || 0}`}
+                            icon={Activity}
+                            variant="default"
+                            subtitle="Pending processing"
+                        />
+                    </>
+                ) : (
+                    <>
+                        <StatCard
+                            title="Active Sessions"
+                            value={analytics?.active_sessions?.toString() || "0"}
+                            icon={Server}
+                            variant="brand"
+                            trendComponent={<span className="text-primary font-bold text-xs uppercase tracking-wide">Live</span>}
+                        />
+                        <StatCard
+                            title="Bandwidth Used"
+                            value={`${analytics?.total_bandwidth_gb?.toFixed(2) ?? "0.00"} GB`}
+                            icon={Wifi}
+                            variant="default"
+                            subtitle="Last 30 days"
+                        />
+                        <StatCard
+                            title="Current Balance"
+                            value={`${wallet?.balance_sol?.toFixed(4) ?? "0.0000"} SOL`}
+                            icon={DollarSign}
+                            variant="default"
+                            subtitle="Available"
+                        />
+                        <StatCard
+                            title="Network Latency"
+                            value={`${analytics?.avg_latency_ms || 0}ms`}
+                            icon={Activity}
+                            variant="success"
+                            subtitle="Average Ping"
+                        />
+                    </>
+                )}
+            </div>
+
+            {/* Role Upgrade Banner — shown if only a consumer */}
+            {!isProvider && (
+                <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-6 rounded-2xl bg-primary/5 border border-primary/20 flex flex-col md:flex-row items-center justify-between gap-6"
+                >
+                    <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                            <Server size={28} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black font-mono uppercase tracking-tight">Earn SOL as a Provider</h3>
+                            <p className="text-xs text-muted-foreground font-medium max-w-md mt-1">
+                                Share your unused bandwidth and earn passive income. Join the decentralized network today and start earning rewards for every GB shared.
+                            </p>
+                        </div>
+                    </div>
+                    <Link 
+                        href="/dashboard/provider/cli" 
+                        className="px-8 py-4 bg-primary text-primary-foreground font-black font-mono text-[11px] uppercase tracking-widest rounded-2xl shadow-[0_10px_20px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 transition-all"
+                    >
+                        Become a Provider
+                    </Link>
+                </motion.div>
+            )}
 
             {/* Wallet Connect Banner — shown when no Solana wallet is linked */}
             {!wallet?.linked_solana_address && (
-                <motion.div variants={itemVariants}>
-                    <Link href="/dashboard/wallet">
-                        <motion.div
-                            whileHover={{ scale: 1.01 }}
-                            className="glass-card p-5 border-primary/30 bg-primary/5 flex items-center gap-5 group cursor-pointer"
-                        >
-                            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
-                                <Wallet size={20} className="text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-black font-mono uppercase tracking-widest text-primary">Connect Your Wallet</p>
-                                <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate">
-                                    Link a Solana wallet to deposit SOL, pay for sessions, and withdraw earnings.
-                                </p>
-                            </div>
-                            <div className="shrink-0 flex items-center gap-1 text-[10px] font-black font-mono text-primary uppercase tracking-widest opacity-70 group-hover:opacity-100 transition-opacity">
-                                Go to Wallet <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" />
-                            </div>
-                        </motion.div>
+                <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col md:flex-row items-start md:items-center gap-4 justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-500">
+                            <AlertCircle size={24} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-amber-500">Connect a Wallet</h3>
+                            <p className="text-sm text-amber-500/80 mt-1">
+                                You need to link a Solana wallet to deposit funds and pay for sessions.
+                            </p>
+                        </div>
+                    </div>
+                    <Link href="/dashboard/wallet" className="px-5 py-2.5 bg-amber-500 text-amber-950 font-bold rounded-xl text-sm whitespace-nowrap hover:bg-amber-400 transition-colors">
+                        Link Wallet
                     </Link>
-                </motion.div>
+                </div>
             )}
 
             {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
                 {/* Traffic Activity */}
-                <motion.div variants={itemVariants} className="lg:col-span-2 space-y-6">
-                    <div className="glass-card p-0 flex flex-col min-h-[400px] overflow-hidden">
+                <div className="lg:col-span-2 space-y-6">
+                    <div className="glass-card p-0 flex flex-col h-[400px] overflow-hidden">
                         <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                            <h3 className="font-bold font-mono uppercase text-xs tracking-widest flex items-center gap-2">
-                                <Activity size={14} className="text-primary" />
-                                Traffic Activity <span className="text-muted-foreground font-normal">(Last 7 Days)</span>
+                            <h3 className="font-bold flex items-center gap-2">
+                                <Activity size={18} className="text-primary" />
+                                Bandwidth Usage
                             </h3>
+                            <span className="text-xs text-muted-foreground px-3 py-1 bg-white/5 rounded-full">Last 7 Days</span>
                         </div>
-                        <div className="flex-1 p-6 flex flex-col relative">
+                        <div className="flex-1 p-6 relative">
                             {chartData.length === 0 ? (
-                                <div className="flex-1 flex items-center justify-center text-muted-foreground font-mono text-[10px] uppercase tracking-widest">
-                                    No data packets transmitted
+                                <div className="absolute inset-0 flex flex-col items-center justify-center mt-10">
+                                    <Activity size={48} className="text-white/10 mb-4" />
+                                    <p className="text-sm text-muted-foreground font-medium">No usage data recorded</p>
                                 </div>
                             ) : (
-                                <div className="flex-1 h-full w-full min-h-[300px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                            <defs>
-                                                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
-                                                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                                            <XAxis
-                                                dataKey="name"
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
-                                            />
-                                            <YAxis
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
-                                            />
-                                            <Tooltip
-                                                contentStyle={{ backgroundColor: '#18181b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}
-                                                itemStyle={{ color: 'var(--primary)' }}
-                                            />
-                                            <Area
-                                                type="monotone"
-                                                dataKey="value"
-                                                stroke="var(--primary)"
-                                                strokeWidth={2}
-                                                fillOpacity={1}
-                                                fill="url(#colorValue)"
-                                                animationDuration={2000}
-                                            />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                                                <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                                        <XAxis
+                                            dataKey="name"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 12 }}
+                                        />
+                                        <YAxis
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 12 }}
+                                        />
+                                        <Tooltip
+                                            contentStyle={{ backgroundColor: '#18181b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                                            itemStyle={{ color: 'var(--primary)', fontWeight: 'bold' }}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="value"
+                                            stroke="var(--primary)"
+                                            strokeWidth={3}
+                                            fillOpacity={1}
+                                            fill="url(#colorValue)"
+                                            animationDuration={1500}
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
                             )}
                         </div>
                     </div>
+                </div>
 
-                    {/* Network Feed */}
-                    <motion.div variants={itemVariants} className="lg:hidden">
-                        <NetworkFeed />
-                    </motion.div>
-                </motion.div>
-
-                {/* Sidebar */}
-                <motion.div variants={itemVariants} className="space-y-6">
-                    {/* Transactions */}
-                    <div className="glass-card p-0 flex flex-col bg-white/2">
-                        <Link href="/dashboard/wallet" className="p-6 border-b border-white/5 bg-white/5 hover:bg-white/10 transition-colors group">
-                            <h3 className="font-bold font-mono uppercase text-xs tracking-widest flex items-center gap-2">
-                                <DollarSign size={14} className="text-amber-500" />
-                                Ledger Activity
-                                <ArrowRight size={11} className="ml-auto text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                {/* Sidebar / Recent Sessions or Ledger */}
+                <div className="space-y-6">
+                    <div className="glass-card flex flex-col h-[400px]">
+                        <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                            <h3 className="font-bold flex items-center gap-2">
+                                <DollarSign size={18} className="text-emerald-500" />
+                                Recent Transactions
                             </h3>
-                        </Link>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[300px] scrollbar-hide">
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide">
                             {!Array.isArray(wallet?.transactions) || wallet.transactions.length === 0 ? (
-                                <div className="text-center py-12 text-muted-foreground font-mono text-[10px] uppercase tracking-widest opacity-50">
-                                    Empty vault history
+                                <div className="h-full flex items-center justify-center">
+                                    <span className="text-sm text-muted-foreground">No recent transactions</span>
                                 </div>
                             ) : (
                                 (wallet?.transactions || []).slice(0, 5).map((tx) => (
-                                    <motion.div
+                                    <div
                                         key={tx.id}
-                                        whileHover={{ x: 5 }}
-                                        className="flex gap-4 items-center p-3 hover:bg-white/5 rounded-xl transition-all border border-transparent hover:border-white/5"
+                                        className="flex gap-4 items-center p-3 hover:bg-white/5 rounded-xl transition-all"
                                     >
-                                        <div className={`w-2 h-2 rounded-full shrink-0 shadow-[0_0_8px_currentColor] ${tx.status === 'success' || tx.status === 'completed' ? 'text-emerald-500 bg-emerald-500' :
-                                            tx.status === 'failed' ? 'text-rose-500 bg-rose-500' : 'text-amber-500 bg-amber-500'
-                                            }`} />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-bold leading-none mb-1 truncate">{tx.description}</p>
-                                            <div className="flex justify-between items-center w-full">
-                                                <span className="text-[10px] font-mono text-muted-foreground opacity-60">{new Date(tx.created_at).toLocaleDateString()}</span>
-                                                <span className={`text-xs font-black font-mono ${tx.amount >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                    {tx.amount >= 0 ? '+' : ''}{tx.amount.toFixed(2)}
-                                                </span>
-                                            </div>
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                            tx.status === 'success' || tx.status === 'completed' 
+                                                ? 'bg-emerald-500/10 text-emerald-500' 
+                                                : tx.status === 'failed' 
+                                                    ? 'bg-red-500/10 text-red-500' 
+                                                    : 'bg-amber-500/10 text-amber-500'
+                                        }`}>
+                                            <DollarSign size={16} />
                                         </div>
-                                    </motion.div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold truncate text-foreground">{tx.description}</p>
+                                            <p className="text-xs text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : 'Unknown'}</p>
+                                        </div>
+                                        <div className={`text-sm font-bold ${ (Number(tx.amount) || 0) >= 0 ? 'text-emerald-500' : 'text-foreground'}`}>
+                                            { (Number(tx.amount) || 0) >= 0 ? '+' : ''}{ (Number(tx.amount) || 0).toFixed(2)}
+                                        </div>
+                                    </div>
                                 ))
                             )}
                         </div>
-                        <div className="p-4 border-t border-white/5">
-                            <Link href="/dashboard/wallet" className="group flex items-center justify-center gap-2 text-[10px] font-mono font-black text-primary hover:text-emerald-400 transition-colors uppercase tracking-widest">
-                                Expand Ledger
-                                <ChevronRight size={12} className="group-hover:translate-x-1 transition-transform" />
+                        <div className="p-4 border-t border-white/5 text-center">
+                            <Link href="/dashboard/wallet" className="text-sm font-medium text-emerald-500 hover:text-emerald-400 flex items-center justify-center gap-1 transition-colors">
+                                View Full History <ExternalLink size={14} />
                             </Link>
                         </div>
                     </div>
-
-                    {/* Desktop Network Feed */}
-                    <div className="hidden lg:block h-[400px]">
-                        <NetworkFeed />
-                    </div>
-                </motion.div>
+                </div>
             </div>
-        </motion.div>
+        </div>
     );
 }

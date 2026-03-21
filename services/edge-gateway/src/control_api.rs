@@ -38,6 +38,9 @@ pub struct RegisterNodeResponse {
     pub node_id: String,
     pub status: String,
     pub is_healthy: bool,
+    pub quality_score: f64,
+    pub current_tier: String,
+    pub base_price_per_gb: f64,
 }
 
 /// Heartbeat request
@@ -55,6 +58,9 @@ pub struct HeartbeatRequest {
 pub struct HeartbeatResponse {
     pub status: String,
     pub timestamp: String,
+    pub quality_score: f64,
+    pub current_tier: String,
+    pub base_price_per_gb: f64,
 }
 
 /// Status update request

@@ -1,0 +1,42 @@
+[package]
+name = "provider-node"
+version = "1.0.0"
+edition = "2021"
+description = "ProxyHubb Provider Node — high-performance Rust daemon for sharing bandwidth"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Stream multiplexing (reverse tunnel)
+yamux = "0.10"
+
+# TLS (using ring backend to avoid aws-lc-sys C compilation)
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+
+# HTTP client (for registration & IP detection)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# System metrics (cross-platform CPU/RAM)
+sysinfo = "0.31"
+
+# Utilities
+anyhow = "1"
+futures = "0.3"
+futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["compat"] }
+toml = "0.8"

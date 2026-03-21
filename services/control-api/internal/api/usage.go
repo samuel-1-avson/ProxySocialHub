@@ -166,6 +166,7 @@ func reportUsage(c *gin.Context) {
 						"bytes_down":       down,
 						"total_bytes":      up + down,
 						"plan_type":        "pay_per_gb",
+						"price_per_gb":     data.PricePerGB,
 						"nonce":            nonce,
 						"signature":        fmt.Sprintf("0x%x", signature),
 					},
