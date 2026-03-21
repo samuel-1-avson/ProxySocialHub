@@ -23,12 +23,23 @@ type Circle struct {
 	BandwidthPoolGB     float64 `gorm:"default:0" json:"bandwidth_pool_gb"` // Shared bandwidth pool
 	BandwidthUsedGB     float64 `gorm:"default:0" json:"bandwidth_used_gb"`
 	RevenueSharePercent float64 `gorm:"default:0.0" json:"revenue_share_percent"` // 0.0 to 1.0 (e.g. 0.10 = 10%)
+	Type                string  `gorm:"-" json:"type"`                            // Computed for frontend: public, private, enterprise
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// Preloaded relations
 	Owner *User `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+}
+
+// AfterFind hook to populate Type field
+func (c *Circle) AfterFind(tx *gorm.DB) error {
+	if c.IsEnterprise {
+		c.Type = "enterprise"
+	} else {
+		c.Type = c.Visibility
+	}
+	return nil
 }
 
 // TableName sets the table name for Circle
@@ -64,13 +75,17 @@ func (CircleSLA) TableName() string {
 
 // CircleMember represents membership in a circle
 type CircleMember struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	CircleID  uuid.UUID `gorm:"type:uuid;not null;index" json:"circle_id"`
-	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
-	Role      string    `gorm:"size:20;default:'member'" json:"role"`   // "owner", "admin", "member"
-	Status    string    `gorm:"size:20;default:'active'" json:"status"` // "active", "pending", "banned"
-	JoinedAt  time.Time `json:"joined_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                     uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	CircleID               uuid.UUID  `gorm:"type:uuid;not null;index" json:"circle_id"`
+	UserID                 uuid.UUID  `gorm:"type:uuid;not null;index" json:"user_id"`
+	Role                   string     `gorm:"size:20;default:'member'" json:"role"`   // "owner", "admin", "member"
+	Status                 string     `gorm:"size:20;default:'active'" json:"status"` // "active", "pending", "banned"
+	JoinedAt               time.Time  `json:"joined_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+	
+	// Pool contribution tracking
+	ContributedBandwidthGB float64    `gorm:"default:0" json:"contributed_bandwidth_gb"`
+	LastAssignedAt         *time.Time `json:"last_assigned_at,omitempty"` // For round-robin assignment
 
 	// Relations
 	User *User `gorm:"foreignKey:UserID" json:"user,omitempty"`

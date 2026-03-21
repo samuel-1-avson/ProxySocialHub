@@ -63,7 +63,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const isOwnProfile =
         targetUsername === "me" ||
-        (currentUser && (targetUsername === currentUser.id || targetUsername === currentUser.user_metadata?.username));
+        (currentUser && (targetUsername === currentUser.id || targetUsername === currentUser.username));
 
     useEffect(() => {
         async function fetchData() {

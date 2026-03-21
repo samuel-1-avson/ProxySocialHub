@@ -137,6 +137,20 @@ services:
       # Requires outbound HTTP to http://ip-api.com from the container.
       # Set to "false" in air-gapped environments or when coordinates are pre-populated.
       - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
+      # --- PAYG Social System (Phases 1-4) ---
+      # Milestone Worker Configuration
+      - MILESTONE_CHECK_INTERVAL_MINUTES=${MILESTONE_CHECK_INTERVAL_MINUTES:-5}
+      - MILESTONE_REWARDS_ENABLED=${MILESTONE_REWARDS_ENABLED:-true}
+      # Review System Configuration
+      - REVIEW_MIN_USAGE_GB=${REVIEW_MIN_USAGE_GB:-1}
+      - REVIEW_MIN_DURATION_DAYS=${REVIEW_MIN_DURATION_DAYS:-7}
+      # Circle Pool Configuration
+      - CIRCLE_POOL_ENABLED=${CIRCLE_POOL_ENABLED:-true}
+      - CIRCLE_MINIMUM_POOL_GB=${CIRCLE_MINIMUM_POOL_GB:-100}
+      - CIRCLE_ENTERPRISE_THRESHOLD_GB=${CIRCLE_ENTERPRISE_THRESHOLD_GB:-1000}
+      # Presence Tracking
+      - PRESENCE_HEARTBEAT_SECONDS=${PRESENCE_HEARTBEAT_SECONDS:-60}
+      - PRESENCE_TIMEOUT_MINUTES=${PRESENCE_TIMEOUT_MINUTES:-5}
     volumes:
       - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
       - ./cli-dist:/app/cli-dist:ro
@@ -188,7 +202,13 @@ services:
       # P2-12: Per-operation timeouts
       - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
       - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
+      - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
       - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+      # --- Phase 8: DAO & Staking ---
+      - SOLANA_RPC_URL=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - REPUTATION_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      - PHUBB_TOKEN_MINT=${PHB_TOKEN_MINT}
+      - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
     volumes:
       - ./certs:/app/certs:ro
       - ./geoip:/app/geoip:ro
@@ -239,6 +259,11 @@ services:
         - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8081}
         - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:8081}
+        # PAYG Social System Feature Flags
+        - NEXT_PUBLIC_MILESTONES_ENABLED=${NEXT_PUBLIC_MILESTONES_ENABLED:-true}
+        - NEXT_PUBLIC_CIRCLE_POOLING_ENABLED=${NEXT_PUBLIC_CIRCLE_POOLING_ENABLED:-true}
+        - NEXT_PUBLIC_USAGE_REVIEWS_ENABLED=${NEXT_PUBLIC_USAGE_REVIEWS_ENABLED:-true}
+        - NEXT_PUBLIC_SOCIAL_PRESENCE_ENABLED=${NEXT_PUBLIC_SOCIAL_PRESENCE_ENABLED:-true}
     ports:
       - "3000:3000"
     environment:

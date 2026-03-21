@@ -72,15 +72,16 @@ func nextProviderTier(current string) string {
 
 // RegisterTierRoutes registers provider verification tier routes on the protected group.
 func RegisterTierRoutes(protected *gin.RouterGroup) {
-	protected.GET("/providers/:provider_id/tier", GetProviderTier)
-	protected.PUT("/providers/:provider_id/tier", UpdateProviderTier)
+	// Note: Using :id to match existing /v1/providers/:id pattern and avoid route conflicts
+	protected.GET("/providers/:id/tier", GetProviderTier)
+	protected.PUT("/providers/:id/tier", UpdateProviderTier)
 	protected.GET("/tiers/requirements", GetTierRequirements)
 }
 
 // GetProviderTier returns the tier info for a specific provider node.
-// GET /v1/providers/:provider_id/tier
+// GET /v1/providers/:id/tier
 func GetProviderTier(c *gin.Context) {
-	providerIDStr := c.Param("provider_id")
+	providerIDStr := c.Param("id")
 	providerID, err := uuid.Parse(providerIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
@@ -132,7 +133,7 @@ func GetTierRequirements(c *gin.Context) {
 }
 
 // UpdateProviderTier allows a provider to update their own node's tier-related settings.
-// PUT /v1/providers/:provider_id/tier
+// PUT /v1/providers/:id/tier
 func UpdateProviderTier(c *gin.Context) {
 	userIDStr := c.GetString("user_id")
 	userID, err := uuid.Parse(userIDStr)
@@ -141,7 +142,7 @@ func UpdateProviderTier(c *gin.Context) {
 		return
 	}
 
-	providerIDStr := c.Param("provider_id")
+	providerIDStr := c.Param("id")
 	providerID, err := uuid.Parse(providerIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
 base64 = "0.22"
 bytes = "1.6"
 futures-util = "0.3"
@@ -23,6 +24,10 @@ serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "1.37", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+# ORT: ONNX Runtime for ML-Routing. 
+# P9-W22: Enabled CUDA and TensorRT for high-performance GPU scoring.
+ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "cuda", "tensorrt", "ndarray"], optional = true }
+ndarray = "0.15"
 tokio-util = { version = "0.7", features = ["compat"] }
 tonic = { version = "0.12", features = ["transport"] }
 tower-service = "0.3"
@@ -45,7 +50,12 @@ sha1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.10"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 tokio-stream = "0.1"
-ort = { version = "2.0.0-rc.12", optional = true }
+# --- ZK and Solana Integrations (Phase 5/8/9) ---
+ark-ff = "0.4"
+ark-bn254 = "0.4"
+ark-groth16 = "0.4"
+ark-serialize = "0.4"
+solana-sdk = "2.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

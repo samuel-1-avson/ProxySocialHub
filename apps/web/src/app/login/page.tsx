@@ -2,51 +2,32 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { createClient } from '@/lib/supabase/client';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
-import { Mail, Lock, Globe, ArrowRight, Github, Chrome, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowRight, AlertCircle, Loader2, Wallet, Shield, Zap } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, walletLogin } = useAuth();
+  const { walletLogin } = useAuth();
   const { connected, publicKey, signMessage } = useWallet();
   const router = useRouter();
-  const supabase = createClient();
 
-  const handleCredentialsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const handleWalletLogin = async () => {
+    if (!publicKey || !signMessage) return;
+
     setLoading(true);
-
+    setError('');
     try {
-      await login(email, password);
+      await walletLogin(publicKey.toBase58(), { signMessage });
       router.push('/dashboard');
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || 'Wallet login failed');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleOAuthLogin = async (provider: 'google' | 'github') => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: provider,
-        options: {
-          redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
-        },
-      });
-      if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'OAuth login failed');
     }
   };
 
@@ -63,13 +44,13 @@ export default function LoginPage() {
             PROXY<span className="text-primary italic">HUB</span>
           </h1>
           <p className="text-muted-foreground text-xs font-mono uppercase tracking-[0.2em]">
-            SYSTEM_ACCESS_TERMINAL
+            DECENTRALIZED_ACCESS_PROTOCOL
           </p>
         </div>
 
         {/* Login Card */}
         <div className="card-retro p-8 md:p-10 bg-card">
-          <h2 className="text-xl font-bold font-mono text-center mb-8 uppercase border-b-2 border-border pb-4 w-full">Identity Verification</h2>
+          <h2 className="text-xl font-bold font-mono text-center mb-8 uppercase border-b-2 border-border pb-4 w-full">Connect Wallet</h2>
 
           {error && (
             <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-sm mb-6 text-sm font-mono">
@@ -78,51 +59,16 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* Wallet Connect Button */}
           <div className="mb-6 flex justify-center">
             <SolanaWalletButton />
           </div>
 
-          {/* OAuth Buttons */}
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <button
-              onClick={() => handleOAuthLogin('google')}
-              className="btn-retro btn-retro-outline py-3 text-xs"
-            >
-              <Chrome className="w-4 h-4 mr-2" />
-              GOOGLE
-            </button>
-            <button
-              onClick={() => handleOAuthLogin('github')}
-              className="btn-retro btn-retro-outline py-3 text-xs"
-            >
-              <Github className="w-4 h-4 mr-2" />
-              GITHUB
-            </button>
-          </div>
-
-          <div className="relative mb-8 text-center">
-            <span className="bg-card px-2 text-xs font-mono text-muted-foreground relative z-10">OR SECURE OVERRIDE</span>
-            <div className="absolute inset-0 flex items-center top-[1px] -z-0">
-              <div className="w-full border-t border-border"></div>
-            </div>
-          </div>
-
+          {/* Verify Identity (appears after wallet is connected) */}
           {connected && publicKey && (
             <button
               type="button"
-              onClick={async () => {
-                setLoading(true);
-                try {
-                  // Pass the wallet adapter as 'signer' which has signMessage
-                  await walletLogin(publicKey.toBase58(), { signMessage });
-                  router.push('/dashboard');
-                  router.refresh();
-                } catch (err: unknown) {
-                  setError(getErrorMessage(err) || 'Wallet login failed');
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              onClick={handleWalletLogin}
               disabled={loading}
               className="w-full btn-retro btn-retro-primary py-3 text-sm mb-6"
             >
@@ -137,72 +83,26 @@ export default function LoginPage() {
             </button>
           )}
 
-          <form onSubmit={handleCredentialsSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <label htmlFor="email" className="block text-xs font-mono font-bold uppercase text-muted-foreground">
-                Node Identifier
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required={!connected} // Only required if not wallet login
-                  className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
-                  placeholder="USER@PROTOCOL.IO"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="block text-xs font-mono font-bold uppercase text-muted-foreground">
-                  Encryption Key
-                </label>
-                <Link href="/forgot-password" className="text-[10px] font-mono font-bold text-primary hover:underline uppercase">
-                  Reset
-                </Link>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required={!connected}
-                  minLength={8}
-                  className="w-full bg-background border border-input rounded-sm py-2 pl-10 pr-3 text-sm font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-muted-foreground/50"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !!connected} // Disable if wallet connected (encourage wallet login)
-              className="w-full btn-retro btn-retro-outline py-3 text-sm opacity-80 hover:opacity-100"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  LOGIN WITH CREDENTIALS
-                  <ArrowRight size={16} className="ml-2" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="mt-8 text-center">
-            <p className="text-muted-foreground text-xs font-mono">
-              OFF GRID?{' '}
-              <Link href="/register" className="text-primary hover:underline font-bold">
-                REQUEST ACCESS
-              </Link>
+          {!connected && (
+            <p className="text-center text-muted-foreground text-xs font-mono uppercase tracking-wider mt-4">
+              Connect your Solana wallet to get started
             </p>
+          )}
+
+          {/* Features */}
+          <div className="mt-8 pt-6 border-t border-border space-y-3">
+            <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
+              <Wallet size={14} className="text-primary shrink-0" />
+              <span>PHANTOM &bull; SOLFLARE &bull; BACKPACK &bull; ANY SOL WALLET</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
+              <Shield size={14} className="text-primary shrink-0" />
+              <span>NO PASSWORDS &bull; NO EMAILS &bull; SELF-CUSTODIAL</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
+              <Zap size={14} className="text-primary shrink-0" />
+              <span>INSTANT ACCESS &bull; AUTO-REGISTRATION ON FIRST LOGIN</span>
+            </div>
           </div>
         </div>
 
@@ -221,4 +121,3 @@ export default function LoginPage() {
     </div >
   );
 }
-

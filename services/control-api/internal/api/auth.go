@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"gorm.io/gorm"
 )
 
 // memStoreEntry holds nonce with expiration time
@@ -174,24 +176,56 @@ func walletLogin(c *gin.Context) {
 	var user models.User
 	result := db.DB.Where("wallet_address = ?", req.Address).First(&user)
 	if result.Error != nil {
-		// Start transaction for atomic user + wallet creation
-		tx := db.DB.Begin()
-
-		// Create new user — default role is "user" (buyer).
-		// Providers must go through the provider onboarding flow to gain elevated permissions.
-		username := "user_" + req.Address[:8]
-		email := req.Address + "@wallet.proxyhubb.com"
-		user = models.User{
-			ID:            uuid.New(),
-			Role:          "user",
-			TrustTier:     models.TrustTierNew,
-			WalletAddress: &req.Address,
-			Username:      &username,
-			Email:         email,
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			log.Printf("[AUTH] DB error looking up wallet %s: %v", req.Address, result.Error)
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Database error"})
+			return
 		}
 
-		if err := tx.Create(&user).Error; err != nil {
+
+		// User not found → Create new user
+		tx := db.DB.Begin()
+
+		// Create new user — default role is "buyer".
+		username := "user_" + req.Address[:8]
+		email := req.Address + "@wallet.proxyhubb.com"
+
+		// Insert into auth.users first (profiles.id has FK to auth.users.id)
+		// Use ON CONFLICT to handle retries (orphan rows from previous failed attempts)
+		var newID uuid.UUID
+		authUserSQL := `INSERT INTO auth.users (id, email, raw_user_meta_data, created_at, updated_at)
+			VALUES ($1, $2, '{}', NOW(), NOW())
+			ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
+			RETURNING id`
+		row := tx.Raw(authUserSQL, uuid.New(), email).Row()
+		if row == nil {
 			tx.Rollback()
+			log.Printf("[AUTH] Failed to create auth.users entry for %s: nil row", req.Address)
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
+			return
+		}
+		if err := row.Scan(&newID); err != nil {
+			tx.Rollback()
+			log.Printf("[AUTH] Failed to scan auth.users ID for %s: %v", req.Address, err)
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
+			return
+		}
+
+		// Insert profile (raw SQL to ensure our UUID is used, GORM Create may override)
+		profileSQL := `INSERT INTO profiles (id, email, role, status, trust_tier, wallet_address, username, created_at, updated_at)
+			VALUES ($1, $2, 'buyer', 'active', 'new', $3, $4, NOW(), NOW())
+			ON CONFLICT (id) DO UPDATE SET wallet_address = EXCLUDED.wallet_address, updated_at = NOW()`
+		if err := tx.Exec(profileSQL, newID, email, req.Address, username).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[AUTH] Failed to create profile for %s (id=%s): %v", req.Address, newID, err)
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
+			return
+		}
+
+		// Load the created/updated profile
+		if err := tx.Where("id = ?", newID).First(&user).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[AUTH] Failed to load profile after create for %s: %v", req.Address, err)
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
 			return
 		}
@@ -205,16 +239,21 @@ func walletLogin(c *gin.Context) {
 
 		if err := tx.Create(&wallet).Error; err != nil {
 			tx.Rollback()
+			log.Printf("[AUTH] Failed to create wallet for %s: %v", req.Address, err)
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
 			return
 		}
 
 		if err := tx.Commit().Error; err != nil {
 			tx.Rollback()
+			log.Printf("[AUTH] Transaction commit failed for %s: %v", req.Address, err)
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Transaction commit failed"})
 			return
 		}
+
+		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
 	}
+
 
 	// 4. Issue JWT
 	cfg, err := config.Load()

@@ -150,11 +150,11 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 <div className="z-10">
                     <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Vested Amount</p>
                     <div className="text-3xl font-black font-mono tracking-tighter text-white flex items-baseline gap-1">
-                        {cost.toFixed(6)} <span className="text-sm text-green-500">SOL</span>
+                        {Number(cost || 0).toFixed(6)} <span className="text-sm text-green-500">SOL</span>
                     </div>
                     <div className="flex items-center gap-1 mt-2 text-[10px] font-mono text-green-400/80">
                         <Zap size={10} />
-                        Rate: {(session.listing?.price_per_hour || 0.1).toFixed(3)} SOL/hr
+                        Rate: {Number(session.listing?.price_per_hour || 0.1).toFixed(3)} SOL/hr
                     </div>
                 </div>
 
@@ -171,7 +171,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                     <div className="mt-4">
                         <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Data Usage</p>
                         <div className="text-md font-bold font-mono text-white flex items-center justify-end gap-2">
-                            {((session.bytes_used || 0) / (1024 * 1024)).toFixed(2)} MB
+                            {Number((session.bytes_used || 0) / (1024 * 1024)).toFixed(2)} MB
                             <HardDrive size={12} className="text-blue-400" />
                         </div>
                     </div>

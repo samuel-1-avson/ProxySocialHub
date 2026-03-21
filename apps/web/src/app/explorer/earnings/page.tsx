@@ -141,7 +141,7 @@ export default function EarningsPage() {
                             <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">No payout data yet</p>
                         </div>
                     ) : (
-                        <ResponsiveContainer width="100%" height={180}>
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                 <defs>
                                     <linearGradient id="earningsGrad" x1="0" y1="0" x2="0" y2="1">

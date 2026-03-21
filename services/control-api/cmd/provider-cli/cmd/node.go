@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"text/tabwriter"
@@ -145,63 +147,284 @@ var statusCmd = &cobra.Command{
 }
 
 // ============================================
+// AUTHENTICATION HELPER
+// ============================================
+
+// validateAPIKey validates the provider API key and returns the user ID and JWT token
+func validateAPIKey(apiURL, apiKey string) (string, string, error) {
+	payload := map[string]string{
+		"token": apiKey,
+	}
+	jsonPayload, _ := json.Marshal(payload)
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	url := fmt.Sprintf("%s/v1/provider/auth", apiURL)
+	
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("invalid token (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var result struct {
+		Valid    bool   `json:"valid"`
+		UserID   string `json:"user_id"`
+		JWTToken string `json:"jwt_token"`
+		Message  string `json:"message"`
+	}
+	
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", "", fmt.Errorf("failed to parse response: %w", err)
+	}
+	
+	if !result.Valid {
+		return "", "", fmt.Errorf("invalid token: %s", result.Message)
+	}
+	
+	return result.UserID, result.JWTToken, nil
+}
+
+// ============================================
+// IP DETECTION HELPER
+// ============================================
+
+// getPublicIP attempts to detect the public IP address from multiple services
+func getPublicIP() string {
+	services := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+		"https://icanhazip.com",
+		"https://checkip.amazonaws.com",
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	
+	for _, service := range services {
+		resp, err := client.Get(service)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode == http.StatusOK {
+			ip, err := io.ReadAll(resp.Body)
+			if err != nil {
+				continue
+			}
+			return string(bytes.TrimSpace(ip))
+		}
+	}
+	
+	return ""
+}
+
+// readLine reads a line from stdin with optional default value
+func readLine(prompt, defaultValue string) string {
+	fmt.Printf("%s", prompt)
+	
+	if defaultValue != "" {
+		fmt.Printf(" [%s]", defaultValue)
+	}
+	fmt.Print(": ")
+	
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	
+	if input == "" && defaultValue != "" {
+		return defaultValue
+	}
+	return input
+}
+
+// ============================================
 // REGISTER COMMAND
 // ============================================
 var registerCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Interactive helper to register a new node",
+	Long: `Register a new provider node on the ProxyHub network.
+
+This command will:
+1. Auto-detect your public IP address (with option to override)
+2. Ask for node configuration (port, type, wallet)
+3. Register the node with the Control API
+4. The node will appear immediately on the explorer map (real-time sync)
+
+Examples:
+  # Interactive registration with auto-detected IP
+  provider-cli node register
+
+  # All values will have sensible defaults you can accept by pressing Enter`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("--- ProxyHub Node Registration ---")
-		var ip, typeName string
-		var port int
-
-		fmt.Print("Enter Public IP Address: ")
-		fmt.Scanln(&ip)
-		fmt.Print("Enter Port: ")
-		fmt.Scanln(&port)
-		fmt.Print("Enter Node Type (residential/mobile/datacenter): ")
-		fmt.Scanln(&typeName)
-
+		fmt.Println("╔══════════════════════════════════════════════════════════╗")
+		fmt.Println("║     ProxyHub Node Registration (Auto IP Detection)       ║")
+		fmt.Println("╚══════════════════════════════════════════════════════════╝")
+		fmt.Println()
+		
+		// Detect public IP
+		fmt.Println("Detecting your public IP address...")
+		detectedIP := getPublicIP()
+		if detectedIP != "" {
+			fmt.Printf("✓ Detected: %s\n\n", detectedIP)
+		} else {
+			fmt.Println("⚠ Could not auto-detect IP. You'll need to enter it manually.\n")
+		}
+		
+		// Collect inputs with defaults
+		ip := readLine("Public IP Address", detectedIP)
+		if ip == "" {
+			fmt.Println("Error: IP address is required")
+			os.Exit(1)
+		}
+		
+		portStr := readLine("Port", "8080")
+		port, _ := strconv.Atoi(portStr)
+		if port == 0 {
+			port = 8080
+		}
+		
+		typeName := readLine("Node Type (residential/mobile/datacenter)", "residential")
+		if typeName == "" {
+			typeName = "residential"
+		}
+		
+		fmt.Println()
+		fmt.Println("Payout Configuration:")
+		walletAddr := readLine("Solana Wallet Address", "")
+		
+		// Show summary
+		fmt.Println()
+		fmt.Println("Registration Summary:")
+		fmt.Println("─────────────────────")
+		fmt.Printf("IP Address:   %s\n", ip)
+		fmt.Printf("Port:         %d\n", port)
+		fmt.Printf("Type:         %s\n", typeName)
+		fmt.Printf("Wallet:       %s\n", func() string {
+			if walletAddr == "" {
+				return "(none - no payouts)"
+			}
+			if len(walletAddr) > 20 {
+				return walletAddr[:10] + "..." + walletAddr[len(walletAddr)-10:]
+			}
+			return walletAddr
+		}())
+		fmt.Println()
+		
+		confirm := readLine("Proceed with registration? (yes/no)", "yes")
+		if strings.ToLower(confirm) != "yes" && strings.ToLower(confirm) != "y" {
+			fmt.Println("Registration cancelled.")
+			return
+		}
+		
+		// Get API credentials
 		apiKey := viper.GetString("api_key")
 		apiUrl := viper.GetString("api_url")
+		
+		if apiKey == "" {
+			fmt.Println("\nError: No API key found.")
+			fmt.Println("Run: provider-cli config set api_key <your-key>")
+			os.Exit(1)
+		}
+		
+		// Authenticate with the API to get a JWT token
+		fmt.Println("Authenticating...")
+		userID, jwtToken, err := validateAPIKey(apiUrl, apiKey)
+		if err != nil {
+			fmt.Printf("\n✗ Authentication failed: %v\n", err)
+			fmt.Println("\nMake sure:")
+			fmt.Println("  - Your API key is correct")
+			fmt.Printf("  - The Control API is running at: %s\n", apiUrl)
+			fmt.Println("  - Your token hasn't expired")
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Authenticated as user: %s\n", userID)
+		
+		// Use the JWT token for subsequent requests
+		authToken := jwtToken
+		
 		url := fmt.Sprintf("%s/v1/provider/nodes", apiUrl)
-
-		var walletAddr string
-		fmt.Print("Enter Solana Wallet Address (for payouts): ")
-		fmt.Scanln(&walletAddr)
-
+		
+		// Build payload
+		// Generate a node name based on type and IP
+		nodeName := fmt.Sprintf("%s-node-%s", typeName, strings.ReplaceAll(ip, ".", "-"))
+		
 		payload := map[string]interface{}{
+			"name":            nodeName,
 			"ip_address":      ip,
 			"port":            port,
 			"connection_type": typeName,
-			"wallet_address":  walletAddr,
 		}
+		if walletAddr != "" {
+			payload["wallet_address"] = walletAddr
+		}
+		
 		jsonPayload, _ := json.Marshal(payload)
-
-		client := &http.Client{Timeout: 10 * time.Second}
+		
+		fmt.Println()
+		fmt.Println("Registering node...")
+		
+		// Make request with authentication
+		client := &http.Client{Timeout: 15 * time.Second}
 		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 		req.Header.Set("Content-Type", "application/json")
-
+		
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Printf("\n✗ Error connecting to API: %v\n", err)
+			fmt.Println("Make sure the Control API is running at:", apiUrl)
 			return
 		}
 		defer resp.Body.Close()
-
+		
+		body, _ := io.ReadAll(resp.Body)
+		
 		if resp.StatusCode == http.StatusCreated {
-			fmt.Println("SUCCESS: Node registered in ProxyHub Registry.")
-			fmt.Println("Node is now undergoing L1 On-Chain Verification.")
-			fmt.Println("")
+			var result struct {
+				ID     string `json:"id"`
+				NodeID string `json:"node_id"`
+				Status string `json:"status"`
+			}
+			json.Unmarshal(body, &result)
+			
+			fmt.Println()
+			fmt.Println("╔══════════════════════════════════════════════════════════╗")
+			fmt.Println("║              ✓ NODE REGISTERED SUCCESSFULLY              ║")
+			fmt.Println("╚══════════════════════════════════════════════════════════╝")
+			fmt.Println()
+			fmt.Printf("Node ID:      %s\n", result.ID)
+			if result.NodeID != "" {
+				fmt.Printf("Gateway ID:   %s\n", result.NodeID)
+			}
+			fmt.Println()
+			fmt.Println("📍 Your node will appear on the explorer map immediately!")
+			fmt.Println("   Visit: http://localhost:3000/explorer/map")
+			fmt.Println()
 			fmt.Println("Next steps:")
-			fmt.Println("1. Save your node configuration:")
-			fmt.Printf("   provider-cli config set node_id <node_id_from_response>\n")
-			fmt.Println("2. Start your node:")
-			fmt.Println("   provider-cli node start")
+			fmt.Printf("  1. Save config:  provider-cli config set node_id %s\n", result.ID)
+			fmt.Println("  2. Start node:   provider-cli node start")
+			fmt.Println()
 		} else {
-			body, _ := io.ReadAll(resp.Body)
-			fmt.Printf("FAILED: Status %d - %s\n", resp.StatusCode, string(body))
+			fmt.Printf("\n✗ Registration failed (HTTP %d)\n", resp.StatusCode)
+			fmt.Printf("Error: %s\n", string(body))
+			fmt.Println()
+			fmt.Println("Common issues:")
+			fmt.Println("  - Invalid API key: Run 'provider-cli config set api_key <key>'")
+			fmt.Println("  - Duplicate node: A node with this IP/port may already exist")
+			fmt.Println("  - API unavailable: Check that Control API is running")
 		}
 	},
 }

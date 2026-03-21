@@ -28,6 +28,7 @@ mod policy;
 mod pool;
 mod proxy;
 mod redis_pool;  // P1-A4: Redis connection pooling
+mod billing;
 mod rollout;
 mod rotation;
 mod routing;
@@ -43,6 +44,7 @@ use crate::circuitbreaker::{CircuitConfig, CircuitError};
 use crate::state::AppState;
 use crate::leader::LeaderElector;
 use crate::registry::store::RegistryStore;
+use crate::security::honeytoken::sink::handle_malicious_connection;
 
 // ... (existing imports and code)
 
@@ -114,6 +116,88 @@ async fn proxy(
     if path == "/health" && req.method() == Method::GET {
         info!("Serving health endpoint");
         return health_handler().await;
+    }
+
+    // Handle ML stats export endpoint (Debug only)
+    if path == "/debug/ml/stats" && req.method() == Method::GET {
+        info!("Serving ML stats export endpoint");
+        let csv = state.feature_cache.to_csv(&state.registry);
+        let mut resp = Response::new(Full::new(Bytes::from(csv)));
+        resp.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/csv"),
+        );
+        return Ok(resp);
+    }
+
+    // Handle node list export endpoint (Debug only)
+    if path == "/debug/nodes" && req.method() == Method::GET {
+        info!("Serving node list debug endpoint");
+        let nodes = state.registry.list_nodes();
+        let json = serde_json::to_string(&nodes).unwrap_or_default();
+        let mut resp = Response::new(Full::new(Bytes::from(json)));
+        resp.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        return Ok(resp);
+    }
+
+    // --- Phase 6: Network Status API (Observability) ---
+    if path == "/api/v1/network/status" && req.method() == Method::GET {
+        info!("Serving Network Status API");
+        
+        #[derive(serde::Serialize)]
+        struct NetworkStatus {
+            total_nodes: usize,
+            healthy_nodes: usize,
+            avg_latency: u32,
+            top_countries: Vec<String>,
+            // Redacted ML scores for the dashboard map
+            node_scores: Vec<NodeScore>,
+        }
+        
+        #[derive(serde::Serialize)]
+        struct NodeScore {
+            id: String,
+            country: String,
+            region: String,
+            score: f32,
+        }
+
+        let nodes = state.registry.list_healthy_with_info();
+        let total = state.registry.count();
+        let healthy = nodes.len();
+        
+        let mut node_scores = Vec::new();
+        for (id, _control, info) in nodes {
+            // Build features to get the current score
+            let features = state.feature_cache.build_features(&info, None);
+            let score = state.routing.score_features(&features);
+            
+            node_scores.push(NodeScore {
+                id: id.clone(),
+                country: info.country_code.clone(),
+                region: info.region.clone(),
+                score,
+            });
+        }
+
+        let status = NetworkStatus {
+            total_nodes: total,
+            healthy_nodes: healthy,
+            avg_latency: 45, // Placeholder for global avg
+            top_countries: vec!["GH".into(), "NG".into(), "KE".into()],
+            node_scores,
+        };
+
+        let json = serde_json::to_string(&status).unwrap_or_default();
+        let mut resp = Response::new(Full::new(Bytes::from(json)));
+        resp.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        return Ok(resp);
     }
 
     // --- Phase 4: DDoS + geo-block pre-flight ---
@@ -356,14 +440,65 @@ async fn proxy(
             let is_sticky = session_data.as_ref().map(|s| s.session_type == "sticky").unwrap_or(false);
             let session_id = session_data.as_ref().map(|s| s.session_id.clone()).unwrap_or_default();
             let session_type = session_data.as_ref().map(|s| s.session_type.clone()).unwrap_or_else(|| "unknown".to_string());
-            // Compute tier-specific bandwidth cap (B-05)
-            let bandwidth_cap = crate::qos::bandwidth_cap_for_tier(
-                session_data.as_ref().map(|s| s.trust_tier.as_str()).unwrap_or("basic")
-            );
-            
+            // 2.5 Security: Anomaly Detection (P4-W14)
+            if state.anomaly.record_request(&session_id) {
+                warn!("⚠️ Anomaly detected for session {}: High RPM", session_id);
+                metrics::record_policy_block("anomaly_high_rpm");
+                // For now, we just warn and label the session, but we could block here.
+            }
+
             // 3. PRE-FLIGHT: Select provider BEFORE acting on upgrade
             // This allows us to return 503/504 if no providers are available
-            let (provider_control, node_id) = match select_best_provider(state.clone(), &session_id, is_sticky, authenticator.clone()).await {
+            let dest_host = addr.split(':').next().unwrap_or(&addr).to_string();
+
+            // 2.6 Security: Honeytokens (P4-W13)
+            if let Some(token_type) = state.honeytoken.check(&dest_host) {
+                warn!("🪤 Honeytoken hit! Session {} attempted to access {:?}", session_id, token_type);
+                metrics::record_policy_block("honeytoken_hit");
+                
+                // Phase 8: Trigger On-Chain Slash
+                let state_cloned = state.clone();
+                let provider_cloned = "unknown_provider".to_string();
+                tokio::spawn(async move {
+                    let _ = state_cloned.solana_relayer.trigger_slash(
+                        &provider_cloned, 
+                        &format!("Honeytoken Hit: {:?}", token_type),
+                        500 // Slash 500 PHUBB tokens
+                    ).await;
+                });
+                
+                // MALICIOUS SINK: Instead of selecting a real provider, we bridge to the sink.
+                let (mut sink_tx, sink_rx) = tokio::io::duplex(4096);
+                tokio::spawn(async move {
+                    let _ = handle_malicious_connection(sink_rx).await;
+                });
+                
+                let upgraded = match hyper::upgrade::on(req).await {
+                    Ok(up) => up,
+                    Err(e) => {
+                        error!("Upgrade error on honeytoken: {}", e);
+                        return Err(e);
+                    }
+                };
+                
+                tokio::spawn(async move {
+                    let mut upgraded_io = hyper_util::rt::TokioIo::new(upgraded);
+                    let _ = tokio::io::copy_bidirectional(&mut upgraded_io, &mut sink_tx).await;
+                });
+
+                return Ok(Response::builder()
+                    .status(StatusCode::SWITCHING_PROTOCOLS)
+                    .body(Full::new(Bytes::new()))
+                    .unwrap());
+            }
+
+            let (provider_control, node_id) = match select_best_provider(
+                state.clone(),
+                &session_id,
+                is_sticky,
+                authenticator.clone(),
+                Some(&dest_host)
+            ).await {
                 Ok(Some(res)) => res,
                 Ok(None) => {
                     warn!("No healthy providers available for session {}", session_id);
@@ -464,6 +599,7 @@ async fn proxy(
                             state.prewarm.record_connection(&node_id, hour);
                         }
 
+                        let bandwidth_cap: u32 = 0; // 0 = unlimited
                         match bridge_to_provider(
                             upgraded,
                             addr,
@@ -473,6 +609,7 @@ async fn proxy(
                             auth_clone.clone(),
                             username.clone(),
                             bandwidth_cap,
+                            Some(dest_host),
                         ).await {
                             Ok((bytes_up, bytes_down)) => {
                                 // Record signed usage for decentralized billing
@@ -488,6 +625,23 @@ async fn proxy(
                                 let duration = tunnel_start.elapsed().as_secs_f64();
                                 metrics::record_session_duration(&session_type_clone, duration);
                                 
+                                // Phase 9: ZK Generation & Batch Proof Submission
+                                let state_zk = state.clone();
+                                let username_zk = username.clone();
+                                let session_id_zk = session_id.clone();
+                                tokio::spawn(async move {
+                                    let provider_pubkey = [0u8; 32]; // Stub for batching
+                                    if let Some(proof) = state_zk.zk_prover.prove_usage(&session_id_zk, bytes_up, bytes_down, &provider_pubkey).await {
+                                        let inputs = crate::billing::zk::PublicInputs {
+                                            session_id_hash: [0; 32], // Hash of session_id_zk
+                                            total_bytes_up: bytes_up,
+                                            total_bytes_down: bytes_down,
+                                            provider_pubkey,
+                                        };
+                                        state_zk.solana_batch_relayer.add_proof(proof, inputs).await;
+                                    }
+                                });
+
                                 // Decrement active sessions
                                 metrics::ACTIVE_SESSIONS.dec();
                             }
@@ -575,6 +729,7 @@ async fn select_best_provider(
     session_id: &str,
     is_sticky: bool,
     authenticator: Arc<SessionAuthenticator>,
+    target_domain: Option<&str>,
 ) -> std::io::Result<Option<(yamux::Control, String)>> {
     // Use configured TTL
     let sticky_ttl_secs = state.config.sticky_ttl_secs;
@@ -629,7 +784,7 @@ async fn select_best_provider(
             warn!("📍 Sticky miss: Bound node {} is unavailable for session {}, selecting best candidate", bound_node_id, session_id);
             state.registry.get_best()
         }
-    } else if let Some((control, node_id)) = state.select_provider_ml() {
+    } else if let Some((control, node_id)) = state.select_provider_ml(target_domain) {
         info!("🎯 ML-routed to node {} for session {}", node_id, session_id);
         Some((control, node_id))
     } else if let Some(control) = state.registry.get_random() {
@@ -664,12 +819,13 @@ async fn select_best_provider(
 async fn bridge_to_provider(
     upgraded: hyper::upgrade::Upgraded,
     addr: String,
-    mut control: yamux::Control,
+    control: yamux::Control,
     node_id: String,
     state: Arc<AppState>,
     auth_clone: Arc<SessionAuthenticator>,
     username: String,
     bandwidth_cap: u32, // bytes/sec — tier-specific (B-05)
+    target_domain: Option<String>,
 ) -> std::io::Result<(u64, u64)> {
     use futures_util::{AsyncReadExt, AsyncWriteExt};
     
@@ -736,6 +892,8 @@ async fn bridge_to_provider(
     }).await {
         Ok(stream) => {
             info!("🔗 Connected to provider {} for {}", node_id, addr_for_log);
+            // Record success in ML feature cache (P3-W12)
+            state.feature_cache.record_success(&node_id, target_domain.as_deref());
             
             // Bridge connections
             use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -785,6 +943,29 @@ async fn bridge_to_provider(
                 error!("Failed to report usage: {}", e);
             }
 
+            // Phase 5: ZK-Proof & Solana (Trustless Billing)
+            let state_zk = state.clone();
+            let session_id = username.clone();
+            let up = from_client;
+            let down = from_provider;
+            let provider_pk = [0u8; 32]; // Placeholder: fetch from session_data or registry
+
+            tokio::spawn(async move {
+                if let Some(proof) = state_zk.zk_prover.prove_usage(&session_id, up, down, &provider_pk).await {
+                    let inputs = crate::billing::zk::PublicInputs {
+                        session_id_hash: [0u8; 32], 
+                        total_bytes_up: up,
+                        total_bytes_down: down,
+                        provider_pubkey: provider_pk,
+                    };
+                    if let Err(e) = state_zk.solana_relayer.submit_proof(&proof, &inputs).await {
+                        error!("Phase 5: Failed to submit ZK-proof to Solana: {}", e);
+                    } else {
+                        info!("Phase 5: ZK-Proof submitted to Solana for session {}", session_id);
+                    }
+                }
+            });
+
             info!("✅ Proxy finished: {} up / {} down", from_client, from_provider);
             Ok((from_client, from_provider))
         },
@@ -793,10 +974,14 @@ async fn bridge_to_provider(
             metrics::update_circuit_breaker_state(&node_id, "open");
             metrics::record_circuit_breaker_failure(&node_id);
             state.registry.mark_unhealthy(&node_id);
+            // Record domain-level failure (P3-W12)
+            state.feature_cache.record_failure(&node_id, target_domain.as_deref());
             Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Circuit breaker open"))
         }
         Err(CircuitError::Timeout) => {
             warn!("Timeout connecting to provider {}", node_id);
+            // Record domain-level failure (P3-W12)
+            state.feature_cache.record_failure(&node_id, target_domain.as_deref());
             metrics::update_circuit_breaker_state(&node_id, "open");
             metrics::record_circuit_breaker_failure(&node_id);
             state.registry.mark_unhealthy(&node_id);

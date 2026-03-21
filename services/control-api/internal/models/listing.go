@@ -58,11 +58,14 @@ type ProxyListing struct {
 	UptimePercent float64 `gorm:"default:100" json:"uptime_percent"`
 	SuccessRate   float64 `gorm:"default:100" json:"success_rate"`
 	QualityScore  float64 `gorm:"default:100" json:"quality_score"`
+	CurrentTier   string  `gorm:"size:20;default:'Bronze'" json:"current_tier"`
 
 	// Social metrics
-	ViewsCount  int `gorm:"default:0" json:"views_count"`
-	SavesCount  int `gorm:"default:0" json:"saves_count"`
-	OrdersCount int `gorm:"default:0" json:"orders_count"`
+	ViewsCount          int  `gorm:"default:0" json:"views_count"`
+	SavesCount          int  `gorm:"default:0" json:"saves_count"`
+	OrdersCount         int  `gorm:"default:0" json:"orders_count"`
+	ActiveSessionsCount int  `gorm:"default:0" json:"active_sessions_count"`
+	AllowDirectMessage  bool `gorm:"default:true" json:"allow_direct_message"`
 
 	Status    ListingStatus `gorm:"size:50;default:'active';index:idx_listing_status" json:"status"`
 	CreatedAt time.Time     `json:"created_at"`

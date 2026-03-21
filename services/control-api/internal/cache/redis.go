@@ -10,6 +10,21 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	SessionKeyPrefix = "session:"
+	SessionTTL       = 5 * time.Minute
+
+	UserKeyPrefix = "user:"
+	UserTTL       = 10 * time.Minute
+
+	// Discovery Caching
+	DiscoveryKeyPrefix = "discovery:"
+	DiscoveryFiltersTTL = 1 * time.Hour
+	DiscoveryGeoTTL     = 1 * time.Hour
+	DiscoverySearchTTL  = 2 * time.Minute
+	DiscoveryMatchTTL   = 1 * time.Minute
+)
+
 var (
 	Client *redis.Client
 	ctx    = context.Background()
@@ -46,11 +61,6 @@ func Close() error {
 }
 
 // ============ Session Cache ============
-
-const (
-	SessionKeyPrefix = "session:"
-	SessionTTL       = 5 * time.Minute
-)
 
 // CacheSession stores a session in Redis
 func CacheSession(sessionID string, data interface{}) error {
@@ -98,11 +108,6 @@ func InvalidateSession(sessionID string) error {
 }
 
 // ============ User Cache ============
-
-const (
-	UserKeyPrefix = "user:"
-	UserTTL       = 10 * time.Minute
-)
 
 // CacheUser stores user data in Redis
 func CacheUser(userID string, data interface{}) error {

@@ -86,7 +86,7 @@ export default function MonitoringPage() {
                             <div>
                                 <p className="text-[10px] font-mono text-muted-foreground uppercase">SOL Balance</p>
                                 <p className="text-3xl font-black font-mono flex items-baseline gap-2">
-                                    {metrics.treasury.sol_balance.toFixed(2)}
+                                    {Number(metrics.treasury.sol_balance ?? 0).toFixed(2)}
                                     <span className="text-sm text-yellow-500">SOL</span>
                                 </p>
                             </div>

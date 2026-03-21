@@ -12,6 +12,7 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use yamux::Control;
+use std::env;
 
 /// Provider node metadata for intelligent routing
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -36,6 +37,14 @@ pub struct NodeInfo {
     pub assigned_limits: AssignedLimits,
     #[serde(default)]
     pub qos_tier: String,
+    #[serde(default = "default_bronze")]
+    pub current_tier: String,
+    pub quality_score: f64,
+    pub base_price_per_gb: f64,
+}
+
+fn default_bronze() -> String {
+    "Bronze".to_string()
 }
 
 impl NodeInfo {
@@ -66,6 +75,9 @@ impl NodeInfo {
                 priority: 50,
             },
             qos_tier: "basic".to_string(),
+            current_tier: "Bronze".to_string(),
+            quality_score: 100.0,
+            base_price_per_gb: 0.20,
         }
     }
 
@@ -362,6 +374,16 @@ pub struct AppState {
     pub rotation: Arc<Mutex<crate::rotation::RotationManager>>,
     /// Control API client for node registration and heartbeats
     pub control_api: Arc<crate::control_api::ControlApiClient>,
+    /// Honeytoken registry for decoy detection (Phase 4).
+    pub honeytoken: Arc<crate::security::honeytoken::HoneytokenRegistry>,
+    /// Anomaly tracker for session monitoring (Phase 4).
+    pub anomaly: Arc<crate::security::anomaly::AnomalyTracker>,
+    /// ZK-SNARK usage prover (Phase 5).
+    pub zk_prover: Arc<crate::billing::zk::ZkProver>,
+    /// Solana transaction relayer for decentralized payouts (Phase 5).
+    pub solana_relayer: Arc<crate::billing::solana::SolanaRelayer>,
+    /// Batch relayer for optimized settlement (Phase 9).
+    pub solana_batch_relayer: Arc<crate::billing::solana::BatchRelayer>,
 }
 
 impl AppState {
@@ -444,6 +466,16 @@ impl AppState {
             &config.control_api_url,
             &config.jwt_secret,
         ));
+        let honeytoken = Arc::new(crate::security::honeytoken::HoneytokenRegistry::new());
+        let anomaly = Arc::new(crate::security::anomaly::AnomalyTracker::new(
+            config.max_rpm_per_session.unwrap_or(300),
+        ));
+        let zk_prover = Arc::new(crate::billing::zk::ZkProver::new());
+        let solana_relayer = Arc::new(crate::billing::solana::SolanaRelayer::new(
+             &env::var("SOLANA_PROGRAM_ID").unwrap_or_default(),
+             &env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
+        ));
+        let solana_batch_relayer = Arc::new(crate::billing::solana::BatchRelayer::new(solana_relayer.clone(), 10));
 
         Self {
             registry: Arc::new(LockFreeNodeRegistry::new()),
@@ -473,6 +505,11 @@ impl AppState {
             rollout,
             rotation: Arc::new(Mutex::new(crate::rotation::RotationManager::new())),
             control_api,
+            honeytoken,
+            anomaly,
+            zk_prover,
+            solana_relayer,
+            solana_batch_relayer,
         }
     }
 
@@ -486,10 +523,10 @@ impl AppState {
     /// Picks a backend via the A/B coordinator, scores all healthy nodes, records
     /// the decision in the rolling analytics window, and falls back to the
     /// heuristic `registry.get_best()` if no candidates are found.
-    pub fn select_provider_ml(&self) -> Option<(Control, String)> {
+    pub fn select_provider_ml(&self, target_domain: Option<&str>) -> Option<(Control, String)> {
         let backend = self.ab_test.choose_backend();
         let timer = crate::routing::analytics::RoutingAnalytics::start_timer();
-        let result = self.routing.select(&self.registry, backend);
+        let result = self.routing.select(&self.registry, backend, target_domain);
         if let Some((_, ref node_id)) = result {
             let decision = crate::routing::analytics::RoutingAnalytics::finish(
                 timer,

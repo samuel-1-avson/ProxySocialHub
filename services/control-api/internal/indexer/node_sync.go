@@ -21,6 +21,14 @@ type NodeSyncCallbacks struct {
 	OnNodeUpdate func(*models.ExplorerNode)
 }
 
+// globalNodeSync holds the singleton instance for access by other packages
+var globalNodeSync *NodeSync
+
+// GetNodeSync returns the global NodeSync instance (may be nil if not started)
+func GetNodeSync() *NodeSync {
+	return globalNodeSync
+}
+
 // NodeSync periodically synchronizes active nodes to explorer tables
 type NodeSync struct {
 	isRunning    int32 // accessed atomically
@@ -52,12 +60,16 @@ func NewNodeSync(cfg NodeSyncConfig) *NodeSync {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &NodeSync{
+	ns := &NodeSync{
 		interval: cfg.Interval,
 		ctx:      ctx,
 		cancel:   cancel,
 		db:       db.DB,
 	}
+	
+	// Store as global instance for access by other packages
+	globalNodeSync = ns
+	return ns
 }
 
 // Start begins the node synchronization loop
@@ -85,6 +97,15 @@ func (ns *NodeSync) Stop() {
 	ns.cancel()
 
 	logging.Info().Msg("[NodeSync] Stopped")
+}
+
+// TriggerSync manually triggers an immediate sync (non-blocking)
+func (ns *NodeSync) TriggerSync() {
+	go func() {
+		if err := ns.syncNodes(); err != nil {
+			logging.Error(err).Msg("[NodeSync] Manual sync error")
+		}
+	}()
 }
 
 func (ns *NodeSync) loop() {

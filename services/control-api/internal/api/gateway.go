@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -63,9 +64,9 @@ func registerGatewayNode(c *gin.Context) {
 	}
 
 	if err != nil {
-		// Create new node
 		node := models.Node{
 			ID:                  uuid.New(),
+			UserID:              providerID,
 			ProviderUserID:      providerID,
 			GatewayNodeID:       req.NodeID,
 			IPAddress:           req.IPAddress,
@@ -91,6 +92,17 @@ func registerGatewayNode(c *gin.Context) {
 			return
 		}
 
+		// Trigger immediate sync to explorer_nodes for real-time visibility
+		go func(nodeID string) {
+			if ns := indexer.GetNodeSync(); ns != nil {
+				if err := ns.SyncNodeNow(nodeID); err != nil {
+					logging.Warn().Err(err).Str("node_id", nodeID).Msg("Immediate node sync failed")
+				} else {
+					logging.Debug().Str("node_id", nodeID).Msg("Node synced to explorer immediately")
+				}
+			}
+		}(node.ID.String())
+
 		logging.Info().
 			Str("node_id", node.ID.String()).
 			Str("provider_id", providerID.String()).
@@ -98,10 +110,13 @@ func registerGatewayNode(c *gin.Context) {
 			Msg("Gateway node registered")
 
 		c.JSON(http.StatusCreated, gin.H{
-			"id":        node.ID.String(),
-			"node_id":   req.NodeID,
-			"status":    "created",
-			"is_healthy": true,
+			"id":                node.ID.String(),
+			"node_id":           req.NodeID,
+			"status":            "created",
+			"is_healthy":        true,
+			"quality_score":     node.QualityScore,
+			"current_tier":      node.CurrentTier,
+			"base_price_per_gb": node.BasePricePerGB,
 		})
 	} else {
 		// Update existing node
@@ -127,16 +142,28 @@ func registerGatewayNode(c *gin.Context) {
 			return
 		}
 
+		// Trigger immediate sync to update explorer with reconnected node status
+		go func(nodeID string) {
+			if ns := indexer.GetNodeSync(); ns != nil {
+				if err := ns.SyncNodeNow(nodeID); err != nil {
+					logging.Warn().Err(err).Str("node_id", nodeID).Msg("Immediate node sync failed")
+				}
+			}
+		}(existingNode.ID.String())
+
 		logging.Info().
 			Str("node_id", existingNode.ID.String()).
 			Str("gateway_node_id", req.NodeID).
 			Msg("Gateway node reconnected")
 
 		c.JSON(http.StatusOK, gin.H{
-			"id":        existingNode.ID.String(),
-			"node_id":   req.NodeID,
-			"status":    "updated",
-			"is_healthy": true,
+			"id":                existingNode.ID.String(),
+			"node_id":           req.NodeID,
+			"status":            "updated",
+			"is_healthy":        true,
+			"quality_score":     existingNode.QualityScore,
+			"current_tier":      existingNode.CurrentTier,
+			"base_price_per_gb": existingNode.BasePricePerGB,
 		})
 	}
 }
@@ -193,7 +220,22 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now()})
+	// Trigger immediate sync to update explorer with latest heartbeat data
+	go func(nodeID string) {
+		if ns := indexer.GetNodeSync(); ns != nil {
+			if err := ns.SyncNodeNow(nodeID); err != nil {
+				logging.Debug().Err(err).Str("node_id", nodeID).Msg("Heartbeat node sync skipped")
+			}
+		}
+	}(nodeID.String())
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":            "ok",
+		"timestamp":         time.Now(),
+		"quality_score":     node.QualityScore,
+		"current_tier":      node.CurrentTier,
+		"base_price_per_gb": node.BasePricePerGB,
+	})
 }
 
 // GatewayStatusUpdateRequest represents a status update from Edge Gateway
@@ -227,6 +269,15 @@ func updateGatewayNodeStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
 		return
 	}
+
+	// Trigger immediate sync to update explorer with status change
+	go func(nodeID string) {
+		if ns := indexer.GetNodeSync(); ns != nil {
+			if err := ns.SyncNodeNow(nodeID); err != nil {
+				logging.Debug().Err(err).Str("node_id", nodeID).Msg("Status update node sync skipped")
+			}
+		}
+	}(nodeID.String())
 
 	logging.Info().
 		Str("node_id", nodeID.String()).

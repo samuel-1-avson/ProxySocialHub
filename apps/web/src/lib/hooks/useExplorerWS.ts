@@ -10,7 +10,7 @@ export interface UseExplorerWSOptions {
     onNewTransaction?: (data: any) => void;
     onNewBlock?: (data: any) => void;
     onNodeUpdate?: (data: any) => void;
-    onInitial?: (data: any[]) => void;
+    onInitial?: (data: any) => void;
     enabled?: boolean;
     /** If provided, send a subscribe message on connect so the server only
      *  sends updates for these topics. Omit to receive all topics. */

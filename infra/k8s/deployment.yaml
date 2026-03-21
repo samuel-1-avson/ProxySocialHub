@@ -16,6 +16,8 @@ spec:
       app: control-api
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
       labels:
         app: control-api
     spec:
@@ -85,6 +87,8 @@ spec:
       app: edge-gateway
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
       labels:
         app: edge-gateway
     spec:
@@ -145,6 +149,8 @@ spec:
       app: redis
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
       labels:
         app: redis
     spec:

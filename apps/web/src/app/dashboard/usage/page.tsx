@@ -1,8 +1,24 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { getSessions, getSessionUsage, Session, UsageStats } from '@/lib/api';
-import { ExternalLink, Database, Coins, Server, Loader2, RefreshCw } from 'lucide-react';
+import { 
+    ExternalLink, 
+    Database, 
+    Coins, 
+    Server, 
+    Loader2, 
+    RefreshCw, 
+    Activity, 
+    Zap, 
+    ArrowUpRight,
+    TrendingUp,
+    ShieldCheck,
+    Cpu,
+    Network
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { GlassCard } from '@/components/ui/glass-card';
 
 interface SessionWithUsage extends Session {
     usage?: UsageStats;
@@ -54,142 +70,203 @@ export default function UsagePage() {
         }
     }
 
+    const activeSessionsCount = useMemo(() => 
+        sessions.filter((s) => s.status === 'active').length
+    , [sessions]);
+
+    const containerVariants = {
+        hidden: { opacity: 0 },
+        show: {
+            opacity: 1,
+            transition: { staggerChildren: 0.1 }
+        }
+    };
+
+    const itemVariants = {
+        hidden: { opacity: 0, y: 20 },
+        show: { opacity: 1, y: 0 }
+    };
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-40 gap-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Calculating Consumption...</p>
+                <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                <p className="font-mono text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">
+                    Calculating consumption ledger...
+                </p>
             </div>
         );
     }
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-            <div className="flex justify-between items-end border-b border-border pb-6">
+        <motion.div 
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="space-y-12 pb-20"
+        >
+            {/* Header Section */}
+            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
                 <div>
-                    <h1 className="text-3xl font-bold font-mono uppercase tracking-tight mb-1">Resource Consumption</h1>
-                    <p className="text-muted-foreground font-mono text-xs">TRACK BANDWIDTH USAGE AND SESSION COSTS.</p>
+                    <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
+                        <Activity size={12} className="animate-pulse" /> Telemetry Stream Alpha
+                    </div>
+                    <h1 className="text-4xl font-black font-mono uppercase tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">
+                        Resource Consumption
+                    </h1>
                 </div>
-                <button onClick={fetchData} className="btn-retro btn-retro-outline flex items-center gap-2">
-                    <RefreshCw size={14} /> Refresh
-                </button>
-            </div>
+                <motion.button 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={fetchData} 
+                    className="flex items-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:bg-white/10 hover:border-primary/50 transition-all text-muted-foreground hover:text-foreground group"
+                >
+                    <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" /> 
+                    Synchronize Data
+                </motion.button>
+            </motion.div>
 
-            {/* Summary Cards */}
+            {/* Top Summaries */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
-                    { label: "Total Usage", value: `${totalUsage.gb.toFixed(3)} GB`, icon: Database },
-                    { label: "Accrued Cost", value: `₵${totalUsage.cost.toFixed(2)}`, icon: Coins },
-                    { label: "Active Nodes", value: sessions.filter((s) => s.status === 'active').length, icon: Server },
+                    { label: "Total Data Flow", value: `${Number(totalUsage.gb || 0).toFixed(3)}`, unit: "GB", icon: Database, color: "text-primary", bg: "bg-primary/5" },
+                    { label: "Accrued Settlement", value: `₵${Number(totalUsage.cost || 0).toFixed(2)}`, icon: Coins, color: "text-emerald-400", bg: "bg-emerald-400/5" },
+                    { label: "Active Connections", value: activeSessionsCount, icon: Server, color: "text-amber-400", bg: "bg-amber-400/5" },
                 ].map((stat, i) => (
-                    <div key={i} className="card-retro p-6 bg-card flex items-center justify-between group hover:border-primary transition-colors">
-                        <div>
-                            <p className="text-[10px] font-mono font-bold text-muted-foreground uppercase mb-1">{stat.label}</p>
-                            <p className="text-3xl font-bold font-mono group-hover:text-primary transition-colors">{stat.value}</p>
-                        </div>
-                        <div className="p-3 bg-secondary rounded-sm border border-border group-hover:scale-110 transition-transform">
-                            <stat.icon size={20} className="text-muted-foreground" />
-                        </div>
-                    </div>
+                    <motion.div key={i} variants={itemVariants} whileHover={{ y: -5 }}>
+                        <GlassCard className={`p-8 border-white/5 hover:border-white/10 transition-all group overflow-hidden relative ${stat.bg}`}>
+                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                                <stat.icon size={80} />
+                            </div>
+                            <div className="flex justify-between items-center mb-6">
+                                <p className="text-[10px] font-mono font-black text-muted-foreground uppercase tracking-widest">{stat.label}</p>
+                                <div className={`w-8 h-8 rounded-lg ${stat.bg} flex items-center justify-center border border-white/5`}>
+                                    <TrendingUp size={14} className={stat.color} />
+                                </div>
+                            </div>
+                            <div className="text-4xl font-black font-mono tracking-tighter flex items-baseline gap-2">
+                                {stat.value}
+                                {stat.unit && <span className="text-sm opacity-40 uppercase">{stat.unit}</span>}
+                            </div>
+                        </GlassCard>
+                    </motion.div>
                 ))}
             </div>
 
-            {/* Sessions Usage Table */}
-            <div className="card-retro p-0 bg-card overflow-hidden">
-                <div className="px-6 py-4 border-b border-border bg-secondary/10">
-                    <h2 className="text-sm font-bold font-mono uppercase">Session Breakdown</h2>
-                </div>
-                {sessions.length === 0 ? (
-                    <div className="p-12 text-center text-muted-foreground font-mono text-xs border-2 border-dashed border-border m-4 rounded-sm">
-                        NO SESSION DATA DETECTED.
+            {/* Session Breakdown Section */}
+            <motion.div variants={itemVariants} className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xs font-black font-mono uppercase tracking-[0.2em] flex items-center gap-2">
+                        <Network size={16} className="text-primary" /> Session Segment Analysis
+                    </h2>
+                    <div className="text-[10px] font-mono font-black text-muted-foreground uppercase opacity-40">
+                        Total Segments: {sessions.length}
                     </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs font-mono">
-                            <thead className="bg-secondary/20">
-                                <tr>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Session ID</th>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Type</th>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Status</th>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Usage</th>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Quota</th>
-                                    <th className="px-6 py-3 font-bold text-muted-foreground uppercase">Cost</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/50">
-                                {sessions.map((session) => {
-                                    const usage = session.usage;
-                                    const percentUsed = usage?.percent_used || 0;
+                </div>
 
-                                    return (
-                                        <tr key={session.id} className="hover:bg-secondary/10 transition-colors">
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="font-bold">{session.id.slice(0, 8)}...</span>
+                {sessions.length === 0 ? (
+                    <GlassCard className="p-20 text-center border-dashed border-white/10 opacity-50">
+                        <p className="text-[10px] font-mono font-black uppercase tracking-[0.5em] text-muted-foreground">
+                            No telemetry data detected in current sector.
+                        </p>
+                    </GlassCard>
+                ) : (
+                    <div className="grid grid-cols-1 gap-4">
+                        <AnimatePresence>
+                            {sessions.map((session, idx) => {
+                                const usage = session.usage;
+                                const percentUsed = usage?.percent_used || 0;
+                                return (
+                                    <motion.div
+                                        key={session.id}
+                                        initial={{ opacity: 0, x: -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: idx * 0.05 }}
+                                    >
+                                        <GlassCard className="group hover:bg-white/5 border-white/5 p-6 flex flex-col md:flex-row items-center gap-8 group">
+                                            {/* ID & Type */}
+                                            <div className="w-full md:w-1/4 space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-2 h-2 rounded-full ${session.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
+                                                    <span className="text-[11px] font-black font-mono uppercase text-foreground">
+                                                        {session.id.slice(0, 12)}
+                                                    </span>
+                                                </div>
+                                                <div className="text-[9px] font-mono font-black text-muted-foreground uppercase tracking-widest ml-4 flex items-center gap-2">
+                                                    {session.type} Tunnel 
                                                     {session.tx_hash && (
-                                                        <a
+                                                        <a 
                                                             href={`https://solscan.io/tx/${session.tx_hash}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="flex items-center gap-1 text-[10px] text-primary hover:underline font-bold uppercase"
+                                                            className="text-primary hover:underline flex items-center gap-0.5"
                                                         >
-                                                            <ExternalLink size={10} /> On-chain
+                                                            <ExternalLink size={8} /> On-chain
                                                         </a>
                                                     )}
                                                 </div>
-                                            </td>
-                                            <td className="px-6 py-4 capitalize font-bold">{session.type}</td>
-                                            <td className="px-6 py-4">
-                                                <span
-                                                    className={`px-2 py-0.5 rounded-sm font-bold uppercase ${session.status === 'active'
-                                                        ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-                                                        : 'bg-secondary text-muted-foreground border border-border'
-                                                        }`}
-                                                >
-                                                    {session.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 font-bold">
-                                                {usage?.gb_used?.toFixed(3) || '0.000'} GB
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-col gap-1 w-24">
-                                                    <span className="text-muted-foreground">{((usage?.bytes_limit || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB</span>
-                                                    <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
-                                                        <div className={`h-full ${percentUsed > 90 ? 'bg-red-500' : 'bg-primary'}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} />
-                                                    </div>
+                                            </div>
+
+                                            {/* Consumption Progress */}
+                                            <div className="w-full md:w-2/4 space-y-2">
+                                                <div className="flex justify-between text-[9px] font-mono font-black uppercase tracking-widest text-muted-foreground">
+                                                    <span>Consumption Gauge</span>
+                                                    <span className={percentUsed > 90 ? 'text-rose-500' : 'text-primary'}>
+                                                        {Number(usage?.gb_used || 0).toFixed(3)} GB / {((Number(usage?.bytes_limit || 0)) / (1024 * 1024 * 1024)).toFixed(1)} GB
+                                                    </span>
                                                 </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-primary font-bold">
-                                                ₵{usage?.cost_ghs?.toFixed(2) || '0.00'}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                                                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
+                                                    <motion.div 
+                                                        initial={{ width: 0 }}
+                                                        animate={{ width: `${Math.min(percentUsed, 100)}%` }}
+                                                        transition={{ duration: 1, delay: 0.2 }}
+                                                        className={`h-full rounded-full ${percentUsed > 90 ? 'bg-rose-500' : 'bg-gradient-to-r from-primary to-emerald-400'}`} 
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Settlement / Cost */}
+                                            <div className="w-full md:w-1/4 text-right">
+                                                <div className="text-[9px] font-mono font-black text-muted-foreground uppercase mb-1 opacity-40">Accrued Flow</div>
+                                                <div className="text-xl font-black font-mono text-primary tracking-tighter">
+                                                    ₵{Number(usage?.cost_ghs || 0).toFixed(2)}
+                                                </div>
+                                            </div>
+                                        </GlassCard>
+                                    </motion.div>
+                                );
+                            })}
+                        </AnimatePresence>
                     </div>
                 )}
-            </div>
+            </motion.div>
 
-            {/* Usage Tips */}
-            <div className="card-retro p-6 bg-card">
-                <h2 className="text-sm font-bold font-mono uppercase mb-4 text-muted-foreground">Optimization Protocols</h2>
-                <ul className="space-y-3 font-mono text-xs">
-                    <li className="flex items-start gap-3">
-                        <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">✓</div>
-                        <span>Use <span className="text-primary">rotating sessions</span> for high-volume scraping to distribute load effectively.</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                        <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">✓</div>
-                        <span>Enable payload compression (gzip/brotli) to strictly reduce metered data transfer.</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                        <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">✓</div>
-                        <span>Periodically purge inactive sessions to prevent ghost bandwidth leakage.</span>
-                    </li>
-                </ul>
-            </div>
-        </div>
+            {/* Optimization Protocols Section */}
+            <motion.div variants={itemVariants}>
+                <GlassCard className="p-8 border-primary/20 bg-primary/2 overflow-hidden relative">
+                    <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-primary/10 rounded-full blur-3xl opacity-50" />
+                    <h2 className="text-xs font-black font-mono uppercase mb-6 flex items-center gap-3 tracking-widest relative z-10">
+                        <ShieldCheck size={16} className="text-primary" /> Optimization Protocols
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 relative z-10">
+                        {[
+                            { title: "Load Balancing", desc: "Use rotating sessions for high-volume scraping to distribute load effectively.", icon: Cpu },
+                            { title: "Compression Alpha", desc: "Enable payload compression (GZip) to strictly reduce metered data transfer.", icon: Zap },
+                            { title: "GC Protocol", desc: "Periodically purge inactive sessions to prevent ghost bandwidth leakage.", icon: Activity },
+                        ].map((tip, i) => (
+                            <div key={i} className="space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <tip.icon size={14} className="text-primary" />
+                                    <h3 className="text-[10px] font-black font-mono uppercase text-foreground">{tip.title}</h3>
+                                </div>
+                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed uppercase font-bold">
+                                    {tip.desc}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </GlassCard>
+            </motion.div>
+        </motion.div>
     );
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
@@ -92,6 +93,32 @@ func createNode(c *gin.Context) {
 	// Auto-publish a marketplace listing so the node is immediately discoverable.
 	// The provider can update pricing/description later from their dashboard.
 	go autoPublishListing(userID, node, req.ConnectionType)
+
+	// Update the nodes table with IP and geo data for explorer map visibility
+	// Find the most recent node entry for this user (created during auth)
+	if req.IPAddress != "" {
+		var existingNode models.Node
+		if err := db.DB.Where("provider_user_id = ? AND ip_address = ?", userID, "").
+			Order("created_at DESC").
+			First(&existingNode).Error; err == nil {
+			// Update the node with IP
+			updates := map[string]interface{}{
+				"ip_address": req.IPAddress,
+			}
+			if req.Country != "" {
+				updates["country_code"] = req.Country
+			}
+			if req.City != "" {
+				updates["city"] = req.City
+			}
+			db.DB.Model(&existingNode).Updates(updates)
+			
+			// Trigger geo lookup via NodeSync
+			if ns := indexer.GetNodeSync(); ns != nil {
+				go ns.TriggerSync()
+			}
+		}
+	}
 
 	c.JSON(http.StatusCreated, node)
 }

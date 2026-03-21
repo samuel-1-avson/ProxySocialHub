@@ -141,6 +141,8 @@ export interface NodeRegistration {
     city?: string;
     status: 'online' | 'offline' | 'pending';
     quality_score: number;
+    current_tier: string;
+    base_price_per_gb: number;
     uptime_percent: number;
     latency_ms?: number;
     active_connections: number;
