@@ -62,12 +62,10 @@ impl Config {
             .parse()
             .expect("STICKY_TTL_SECS must be a number");
 
-        let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
+        let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
-        // In prod, this should fail if missing. For dev, we use a placeholder "00"*32
-        let provider_private_key = env::var("PROVIDER_PRIVATE_KEY").unwrap_or_else(|_| {
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
-        });
+        let provider_private_key = env::var("PROVIDER_PRIVATE_KEY")
+            .expect("PROVIDER_PRIVATE_KEY must be set");
 
         let geoip_db_path = env::var("GEOIP_DB_PATH").ok().filter(|p| !p.is_empty());
 

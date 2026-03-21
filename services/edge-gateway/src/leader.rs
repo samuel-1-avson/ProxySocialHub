@@ -51,9 +51,9 @@ impl LeaderElector {
         loop {
             // Get or recreate connection
             if con_opt.is_none() {
-                match self.client.get_multiplexed_async_connection().await {
+                match redis::aio::ConnectionManager::new(self.client.clone()).await {
                     Ok(c) => {
-                        info!("Leader election: Connected to Redis.");
+                        info!("Leader election: Connected to Redis via ConnectionManager.");
                         con_opt = Some(c);
                     }
                     Err(e) => {
