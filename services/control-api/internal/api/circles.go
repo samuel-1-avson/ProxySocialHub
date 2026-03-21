@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -14,8 +15,9 @@ import (
 func RegisterCircleRoutes(rg *gin.RouterGroup) {
 	circles := rg.Group("/circles")
 	{
-		circles.POST("/", createCircle)
-		circles.GET("/", listCircles)
+		circles.POST("", createCircle)
+		circles.GET("", listCircles)
+		circles.GET("/my", getMyCircles)
 		circles.GET("/:id", getCircle)
 		circles.POST("/:id/join", joinCircle)
 		circles.POST("/:id/invite", inviteToCircle)
@@ -57,9 +59,19 @@ func createCircle(c *gin.Context) {
 		visibility = "private"
 	}
 
-	// Get user ID from JWT token
+	// Get user ID from middleware
 	currentUserID, _ := c.Get("user_id")
-	userID, _ := uuid.Parse(currentUserID.(string))
+	var userID uuid.UUID
+	
+	switch v := currentUserID.(type) {
+	case string:
+		userID, _ = uuid.Parse(v)
+	case uuid.UUID:
+		userID = v
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity type"})
+		return
+	}
 
 	circle := models.NewCircle(req.Name, req.Description, userID, visibility)
 
@@ -73,15 +85,69 @@ func createCircle(c *gin.Context) {
 		// Add owner as member
 		member := models.NewCircleMember(circle.ID, userID, "owner")
 		if err := db.Social().Create(member).Error; err != nil {
-			// Log but don't fail
-			println("Warning: Failed to add owner as member:", err.Error())
+			logging.Warn().
+				Err(err).
+				Str("circle_id", circle.ID.String()).
+				Str("user_id", userID.String()).
+				Msg("Failed to add owner as member")
 		}
 	}
+
+	logging.Info().
+		Str("circle_id", circle.ID.String()).
+		Str("owner_id", userID.String()).
+		Str("name", circle.Name).
+		Str("visibility", circle.Visibility).
+		Msg("Circle created successfully")
 
 	c.JSON(http.StatusCreated, gin.H{
 		"circle":  circle,
 		"message": "Circle created successfully",
 	})
+}
+
+// getMyCircles returns circles where the authenticated user is a member
+func getMyCircles(c *gin.Context) {
+	currentUserID, _ := c.Get("user_id")
+	userID, ok := currentUserID.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user session"})
+		return
+	}
+
+	// Find circle IDs where user is an active member
+	var members []models.CircleMember
+	if err := db.Social().Where("user_id = ? AND status = ?", userID, "active").Find(&members).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch memberships"})
+		return
+	}
+
+	logging.Debug().
+		Int("membership_count", len(members)).
+		Str("user_id", userID.String()).
+		Msg("Fetched memberships for user")
+
+	circleIDs := make([]uuid.UUID, 0, len(members))
+	for _, m := range members {
+		circleIDs = append(circleIDs, m.CircleID)
+	}
+
+	var circles []models.Circle
+	if len(circleIDs) > 0 {
+		if err := db.Social().Where("id IN ?", circleIDs).Find(&circles).Error; err != nil {
+			logging.Error(err).
+				Interface("circle_ids", circleIDs).
+				Msg("Failed to fetch circles for memberships")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch circles"})
+			return
+		}
+	}
+
+	logging.Debug().
+		Int("circle_count", len(circles)).
+		Msg("Returning user circles")
+
+	c.JSON(http.StatusOK, gin.H{"circles": circles})
 }
 
 // listCircles returns all circles the user can access
@@ -168,6 +234,12 @@ func joinCircle(c *gin.Context) {
 
 	// Update member count
 	db.Social().Model(&circle).Update("member_count", circle.MemberCount+1)
+
+	logging.Info().
+		Str("circle_id", circleID.String()).
+		Str("user_id", userID.String()).
+		Str("status", status).
+		Msg("User joined circle")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Successfully joined circle",
@@ -474,6 +546,12 @@ func upgradeToEnterprise(c *gin.Context) {
 	// Create default SLA
 	sla := models.NewCircleSLA(circleID)
 	db.Social().Create(sla)
+
+	logging.Info().
+		Str("circle_id", circleID.String()).
+		Str("owner_id", userID.String()).
+		Float64("bandwidth_pool_gb", req.BandwidthPoolGB).
+		Msg("Circle upgraded to enterprise")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Circle upgraded to enterprise",

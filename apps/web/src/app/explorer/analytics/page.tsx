@@ -31,6 +31,7 @@ import {
     Zap,
     Server,
     Trophy,
+    Medal,
     Shield,
     Cloud,
     Star,
@@ -77,6 +78,29 @@ function EmptyChart({ height, label }: { height: number; label?: string }) {
         <div className={`flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-white/5 rounded-xl`} style={{ height }}>
             <BarChart2 size={24} className="text-white/10 mb-2" />
             <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">{label || 'No data yet'}</p>
+        </div>
+    );
+}
+
+function getRankIcon(rank: number) {
+    if (rank === 1) return (
+        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-yellow-400/10 border border-yellow-400/20">
+            <Trophy size={14} className="text-yellow-400" />
+        </div>
+    );
+    if (rank === 2) return (
+        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-slate-300/10 border border-slate-300/20">
+            <Medal size={14} className="text-slate-300" />
+        </div>
+    );
+    if (rank === 3) return (
+        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-amber-700/10 border border-amber-700/20">
+            <Medal size={14} className="text-amber-600" />
+        </div>
+    );
+    return (
+        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-white/[0.02] border border-white/5">
+            <span className="text-[9px] font-black text-white/30">#{rank}</span>
         </div>
     );
 }
@@ -188,16 +212,9 @@ export default function AnalyticsPage() {
         show: { opacity: 1, y: 0 },
     };
 
-    const getRankIcon = (rank: number) => {
-        if (rank === 1) return <Trophy size={14} className="text-yellow-400" />;
-        if (rank === 2) return <Star size={14} className="text-slate-300" />;
-        if (rank === 3) return <Star size={14} className="text-amber-600" />;
-        return <span className="text-[10px] font-black text-white/20">#{rank}</span>;
-    };
-
     const getLeaderboardValue = (node: any) => {
-        if (leaderboardCategory === 'uptime') return `${(node.uptime_percent || 0).toFixed(2)}%`;
-        if (leaderboardCategory === 'bandwidth') return `${(node.bandwidth_gb || 0).toFixed(2)} GB`;
+        if (leaderboardCategory === 'uptime') return `${(Number(node.uptime_percent || 0)).toFixed(2)}%`;
+        if (leaderboardCategory === 'bandwidth') return `${(Number(node.bandwidth_gb || 0)).toFixed(2)} GB`;
         return `${node.active_sessions || 0} sessions`;
     };
 
@@ -292,10 +309,10 @@ export default function AnalyticsPage() {
             {/* Summary Stats */}
             <motion.section variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { label: 'Avg TPS', value: metrics ? `${metrics.transactions_per_second.toFixed(2)}` : '—', icon: Activity, color: 'text-primary' },
-                    { label: 'Total Volume', value: metrics ? `${metrics.total_volume.toFixed(1)} SOL` : '—', icon: TrendingUp, color: 'text-emerald-500' },
-                    { label: 'Bandwidth Served', value: metrics ? `${metrics.total_bandwidth_gb.toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
-                    { label: 'Active Wallets', value: metrics ? metrics.active_wallets.toLocaleString() : '—', icon: Globe, color: 'text-blue-500' },
+                    { label: 'Avg TPS', value: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)}` : '—', icon: Activity, color: 'text-primary' },
+                    { label: 'Total Volume', value: metrics ? `${Number(metrics.total_volume || 0).toFixed(1)} SOL` : '—', icon: TrendingUp, color: 'text-emerald-500' },
+                    { label: 'Bandwidth Served', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
+                    { label: 'Active Wallets', value: metrics ? (metrics.active_wallets || 0).toLocaleString() : '—', icon: Globe, color: 'text-blue-500' },
                 ].map((stat, i) => (
                     <GlassCard key={i} className="!p-5 border-white/5 bg-white/[0.01] rounded-[1.5rem]">
                         <stat.icon size={16} className={`${stat.color} mb-3 opacity-60`} />
@@ -320,7 +337,7 @@ export default function AnalyticsPage() {
                         ) : !mounted || volumeData.length === 0 ? (
                             <EmptyChart height={180} label="Awaiting indexed data" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={180}>
+                            <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
                                 <AreaChart data={volumeData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                     <defs>
                                         <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
@@ -352,7 +369,7 @@ export default function AnalyticsPage() {
                         ) : !mounted || bandwidthData.length === 0 ? (
                             <EmptyChart height={180} label="Awaiting indexed data" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={180}>
+                            <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
                                 <AreaChart data={bandwidthData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                     <defs>
                                         <linearGradient id="bwGrad" x1="0" y1="0" x2="0" y2="1">
@@ -418,7 +435,7 @@ export default function AnalyticsPage() {
                         ) : (
                             <>
                                 <div className="flex-1 flex items-center justify-center">
-                                    <ResponsiveContainer width="100%" height={140}>
+                                    <ResponsiveContainer width="100%" height={140} minWidth={0} minHeight={0}>
                                         <PieChart>
                                             <Pie data={regionData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" stroke="none">
                                                 {regionData.map((_, i) => (

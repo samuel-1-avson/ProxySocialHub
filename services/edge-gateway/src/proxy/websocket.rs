@@ -38,7 +38,7 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 /// Returns `true` if `req` is a WebSocket upgrade request (RFC 6455 §4.2.1).
-pub fn is_websocket(req: &Request<Incoming>) -> bool {
+pub fn is_websocket<B>(req: &Request<B>) -> bool {
     let h = req.headers();
     let upgrade_ok = h
         .get(hyper::header::UPGRADE)
@@ -339,14 +339,9 @@ mod tests {
         let req = hyper::Request::builder()
             .method("GET")
             .uri("/")
-            .body(hyper::body::Incoming::default())
-            .unwrap_or_else(|_| {
-                // Incoming can't be constructed directly in tests; test the helper
-                // indirectly via the header logic instead.
-                panic!("use header tests below")
-            });
-        // Headers checked separately
-        let _ = req;
+            .body(())
+            .unwrap();
+        assert!(!is_websocket(&req));
     }
 
     #[test]

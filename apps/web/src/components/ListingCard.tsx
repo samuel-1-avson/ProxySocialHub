@@ -63,7 +63,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1 text-[9px] font-black text-white/20 uppercase tracking-widest">
                                 <Star size={10} className="text-yellow-500 fill-yellow-500/20" />
-                                {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
+                                {Number(listing.seller?.avg_rating || 5.0).toFixed(1)}
                             </div>
                             <div className={`px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest border ${listing.proxy_type === 'residential' ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-white/5 border-white/10 text-white/40'
                                 }`}>
@@ -82,6 +82,18 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Active</span>
                     </div>
                     <div className="text-[8px] font-black text-white/10 tracking-[0.2em]">{listing.id.split('-')[0]}</div>
+                </div>
+
+                {/* Tier Badge */}
+                <div className={`absolute top-24 right-6 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] shadow-xl border backdrop-blur-md z-20 ${
+                    (listing.current_tier === 'Gold' || (!listing.current_tier && (listing.quality_score || 0) >= 90)) ? 'bg-amber-500/20 text-amber-500 border-amber-500/30 shadow-amber-500/10' :
+                    (listing.current_tier === 'Silver' || (!listing.current_tier && (listing.quality_score || 0) >= 70)) ? 'bg-slate-300/20 text-slate-300 border-slate-300/30' :
+                    'bg-orange-700/20 text-orange-400 border-orange-700/30'
+                }`}>
+                    <div className="flex items-center gap-1.5">
+                        <Hexagon size={10} className="fill-current/20" />
+                        {listing.current_tier || ((listing.quality_score || 0) >= 90 ? 'Gold' : (listing.quality_score || 0) >= 70 ? 'Silver' : 'Bronze')}
+                    </div>
                 </div>
             </div>
 
@@ -107,7 +119,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <Activity size={10} className="text-primary/40" /> Capacity
                     </div>
                     <div className="text-sm font-black text-white flex items-baseline gap-1">
-                        {(listing.quality_score || 95).toFixed(0)}<span className="text-[10px] text-white/20">%</span>
+                        {Number(listing.quality_score || 95).toFixed(0)}<span className="text-[10px] text-white/20">%</span>
                     </div>
                     <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                         <motion.div
@@ -141,7 +153,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 <div className="space-y-1">
                     <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
                     <div className="flex items-baseline gap-1.5">
-                        <span className="text-2xl font-black text-white tracking-tighter">₵{listing.price_per_gb.toFixed(2)}</span>
+                        <span className="text-2xl font-black text-white tracking-tighter">₵{Number(listing.price_per_gb || 0).toFixed(2)}</span>
                         <span className="text-[10px] font-black text-white/20 uppercase">/ Gb</span>
                     </div>
                 </div>

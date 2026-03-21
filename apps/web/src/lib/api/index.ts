@@ -24,3 +24,9 @@ export * from './monitoring';
 export * from './referral';
 export * from './channels';
 export * from './provider';
+
+// PAYG Social System modules
+export * from './milestones';
+export * from './relationships';
+export * from './circlePooling';
+export * from './presence';

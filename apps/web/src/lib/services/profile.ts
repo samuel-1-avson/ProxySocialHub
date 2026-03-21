@@ -2,13 +2,13 @@ import { API_BASE_URL, fetchWithAuth } from './client';
 
 export interface UserPublicProfile {
     id: string;
-    username?: string;
+    username: string;
     display_name?: string;
-    bio?: string;
     avatar_url?: string;
     cover_image_url?: string;
     location?: string;
     website?: string;
+    bio?: string;
     role: string;
     verified: boolean;
     followers_count: number;
@@ -21,13 +21,12 @@ export interface UserPublicProfile {
     created_at: string;
     is_following?: boolean;
     is_blocked?: boolean;
+    professional_title?: string;
+    experience_years: number;
+    languages?: string[];
+    primary_specialization?: string;
+    social_links?: Record<string, any>;
     skills?: string[];
-    social_links?: {
-        twitter?: string;
-        github?: string;
-        linkedin?: string;
-        [key: string]: string | undefined;
-    };
     business_name?: string;
 }
 

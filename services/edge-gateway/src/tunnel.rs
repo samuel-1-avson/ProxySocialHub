@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use anyhow::Context;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
+    #[serde(rename = "sub")]
     user_id: String,
     role: String,
     exp: usize,
@@ -78,29 +80,21 @@ pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Bo
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
     
-    // Check if TLS is enabled
     let tls_acceptor = if is_tls_enabled() {
         match TlsConfig::from_env() {
             Some(config) => {
                 match create_tls_acceptor(&config) {
                     Ok(acceptor) => {
                         info!("🔐 Tunnel Server listening on {} (TLS enabled)", addr);
-                        if config.require_client_cert {
-                            info!("   mTLS: Client certificate required");
-                        }
                         Some(acceptor)
                     }
                     Err(e) => {
-                        error!("⚠️  Failed to create TLS acceptor: {}", e);
-                        warn!("Tunnel Server listening on {} (TLS disabled - fallback)", addr);
+                        error!("⚠️ Failed to create TLS acceptor: {}", e);
                         None
                     }
                 }
             }
-            None => {
-                info!("Tunnel Server listening on {} (TLS not configured)", addr);
-                None
-            }
+            None => None,
         }
     } else {
         info!("Tunnel Server listening on {} (plaintext)", addr);
@@ -113,11 +107,9 @@ pub async fn run_tunnel_server(port: u16, state: Arc<AppState>) -> Result<(), Bo
         let tls_acceptor = tls_acceptor.clone();
 
         tokio::spawn(async move {
-            // Handle TLS or plaintext connection
             if let Some(acceptor) = tls_acceptor {
                 match acceptor.accept(stream).await {
                     Ok(tls_stream) => {
-                        info!("🔐 TLS handshake successful with {}", peer_addr);
                         handle_provider_connection(tls_stream, peer_addr, state).await;
                     }
                     Err(e) => {
@@ -140,155 +132,98 @@ where
     
     let stream = stream.compat();
     let conn = Connection::new(stream, cfg, Mode::Server);
-    
-    // Get the incoming streams + control
     let ctrl = conn.control();
-    // Use Box::pin for yamux stream since into_stream returns !Unpin
-    let mut incoming = Box::pin(yamux::into_stream(conn));
-
-    // AUTHENTICATION HANDSHAKE
-    // Expect the FIRST stream to be an Auth channel
-    let mut authenticated_user_id = None;
-    let mut auth_stream_handle: Option<yamux::Stream> = None;
-
-    // Timeout for auth (10 seconds)
-    match tokio::time::timeout(std::time::Duration::from_secs(10), incoming.next()).await {
-        Ok(Some(Ok(mut stream))) => {
-            // Read AUTH <token>
-            let mut buf = [0u8; 4096]; // 4kb should be enough for JWT
-            match stream.read(&mut buf).await {
-                Ok(n) if n > 0 => {
-                    let msg = String::from_utf8_lossy(&buf[..n]);
-                    if msg.starts_with("AUTH ") {
-                        let token = msg[5..].trim();
-                        
-                        // Validate Token
-                        let validation = Validation::new(Algorithm::HS256);
-                        
-                        // Note: If tokens are from Go (StandardClaims), make sure fields match
-                        match decode::<Claims>(token, &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()), &validation) {
-                            Ok(token_data) => {
-                                info!("🔑 Authenticated user: {}", token_data.claims.user_id);
-                                authenticated_user_id = Some(token_data.claims.user_id);
-                                if let Err(e) = stream.write_all(b"OK\n").await {
-                                    error!("Failed to send OK: {}", e);
-                                    return;
-                                }
-                                auth_stream_handle = Some(stream); // Keep stream open or close? Usually keep open or close gracefully.
-                            }
-                            Err(e) => {
-                                warn!("Auth failed: {}", e);
-                                let _ = stream.write_all(format!("ERROR {}\n", e).as_bytes()).await;
-                                return;
-                            }
-                        }
-                    } else {
-                        warn!("Invalid handshake: expected AUTH");
-                    }
-                }
-                Ok(_) => warn!("Auth stream empty"),
-                Err(e) => error!("Auth read error: {}", e),
-            }
-        }
-        Ok(Some(Err(e))) => {
-             error!("Connection error waiting for auth: {}", e);
-             return;
-        }
-        Ok(None) => return, // Closed
-        Err(_) => {
-            error!("Auth timeout");
-            return;
-        }
-    }
-
-    if authenticated_user_id.is_none() {
-        warn!("Authentication required. Closing connection.");
-        return;
-    }
-
-    let user_id = authenticated_user_id.unwrap();
     
-    // P1-A6: CAPABILITY HANDSHAKE
-    // Expect CAPABILITY declaration from provider after successful AUTH
-    let capabilities = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        incoming.next()
-    ).await {
-        Ok(Some(Ok(mut stream))) => {
-            let mut buf = [0u8; 8192]; // 8KB for capability JSON
-            match stream.read(&mut buf).await {
-                Ok(n) if n > 0 => {
-                    let msg = String::from_utf8_lossy(&buf[..n]);
-                    if msg.starts_with("CAPABILITY ") {
-                        let json_str = &msg[11..];
-                        match serde_json::from_str::<ProviderCapabilities>(json_str) {
-                            Ok(caps) => {
-                                info!("📊 Provider {} capabilities: {:?}", user_id, caps);
-                                // Send ACK with assigned limits
-                                let assigned = calculate_assigned_limits(&caps);
-                                let ack = format!("ACK {}\n", serde_json::to_string(&assigned).unwrap_or_default());
-                                let _ = stream.write_all(ack.as_bytes()).await;
-                                caps
-                            }
-                            Err(e) => {
-                                warn!("Invalid capability JSON from {}: {}", user_id, e);
-                                // Send default ACK
-                                let assigned = calculate_assigned_limits(&ProviderCapabilities::default());
-                                let ack = format!("ACK {}\n", serde_json::to_string(&assigned).unwrap_or_default());
-                                let _ = stream.write_all(ack.as_bytes()).await;
-                                ProviderCapabilities::default()
-                            }
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<yamux::Stream>(256);
+    let peer_addr_clone = peer_addr.clone();
+
+    // Spawn the background driver - It ONLY drives the connection and dispatches new streams
+    tokio::spawn(async move {
+        let mut incoming = Box::pin(yamux::into_stream(conn));
+        loop {
+            tokio::select! {
+                result = incoming.next() => {
+                    match result {
+                        Some(Ok(s)) => {
+                            if tx.send(s).await.is_err() { break; }
                         }
-                    } else {
-                        warn!("Expected CAPABILITY, got: {}", msg);
-                        ProviderCapabilities::default()
+                        _ => break,
                     }
                 }
-                _ => {
-                    warn!("No capability declaration from {}, using defaults", user_id);
-                    ProviderCapabilities::default()
+                _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
+                    // Protocol driving pulse
                 }
             }
         }
-        _ => {
-            info!("Capability handshake timeout for {}, using defaults", user_id);
-            ProviderCapabilities::default()
-        }
+        debug!("Yamux driver task finished for {}", peer_addr_clone);
+    });
+
+    // 1. AUTH Handshake
+    let mut auth_stream = match tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv()).await {
+        Ok(Some(s)) => s,
+        _ => { error!("Handshake: Auth stream timeout from {}", peer_addr); return; }
     };
-    
-    // START: PERSISTENCE CHANGE
-    // Generate a stable Node ID based on User ID (allows reputation to persist)
+
+    let mut buf = [0u8; 4096];
+    let user_id = match auth_stream.read(&mut buf).await {
+        Ok(n) if n > 0 => {
+            let msg = String::from_utf8_lossy(&buf[..n]);
+            if msg.starts_with("AUTH ") {
+                let token = msg[5..].trim();
+                let validation = Validation::new(Algorithm::HS256);
+                match decode::<Claims>(token, &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()), &validation) {
+                    Ok(token_data) => {
+                        let _ = auth_stream.write_all(b"OK\n").await;
+                        let _ = auth_stream.flush().await;
+                        token_data.claims.user_id
+                    }
+                    Err(e) => { error!("Handshake: AUTH failed for {}: {}", peer_addr, e); return; }
+                }
+            } else { error!("Handshake: Expected AUTH from {}", peer_addr); return; }
+        }
+        _ => { error!("Handshake: Auth read error from {}", peer_addr); return; }
+    };
+
+    // 2. CAPABILITY Handshake
+    let mut cap_stream = match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
+        Ok(Some(s)) => s,
+        _ => { error!("Handshake: Capability stream timeout for {}", user_id); return; }
+    };
+
+    let caps = match cap_stream.read(&mut buf).await {
+        Ok(n) if n > 0 => {
+            let msg = String::from_utf8_lossy(&buf[..n]);
+            if msg.starts_with("CAPABILITY ") {
+                match serde_json::from_str::<ProviderCapabilities>(&msg[11..]) {
+                    Ok(caps) => {
+                        let assigned = calculate_assigned_limits(&caps);
+                        let ack = format!("ACK {}\n", serde_json::to_string(&assigned).unwrap_or_default());
+                        let _ = cap_stream.write_all(ack.as_bytes()).await;
+                        let _ = cap_stream.flush().await;
+                        let _ = cap_stream.close().await;
+                        caps
+                    }
+                    Err(e) => { error!("Handshake: CAPABILITY parse error for {}: {}", user_id, e); return; }
+                }
+            } else { error!("Handshake: Expected CAPABILITY from {}", user_id); return; }
+        }
+        _ => { error!("Handshake: Capability read error for {}", user_id); return; }
+    };
+
     let node_id = format!("node_{}", user_id);
-    
-    // Create node info with peer address
     let ip_address = peer_addr.ip().to_string();
     
-    // Load existing metadata from Redis
     let mut node_info = match state.registry_store.load_node(&user_id).await {
         Ok(Some(mut info)) => {
-            info!("README: Loaded persistent node info for {}", node_id);
-            // Update IP and other transient fields
             info.ip_address = ip_address.clone();
             info.node_id = node_id.clone();
-            info.connected_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                .as_secs();
-            info.is_healthy = true; // Reset health on new connection
+            info.connected_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            info.is_healthy = true;
             info
         },
-        Ok(None) => {
-            info!("README: New node detected for user {}", user_id);
-            NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id.clone()))
-        },
-        Err(e) => {
-            error!("Failed to load node info from Redis: {}", e);
-            // Fallback to new node info
-            NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id.clone()))
-        }
+        _ => NodeInfo::new(node_id.clone(), ip_address.clone(), Some(user_id.clone())),
     };
     
-    // Detect location using professional GeoIP if available
     if let Some(ref reader) = state.geoip {
         if let Ok(addr) = ip_address.parse() {
             if let Ok(country) = reader.lookup::<maxminddb::geoip2::Country>(addr) {
@@ -296,239 +231,123 @@ where
                     node_info.country_code = iso_code.to_string();
                 }
             }
-            if let Ok(city) = reader.lookup::<maxminddb::geoip2::City>(addr) {
-                if let Some(city_name) = city.city.and_then(|c| c.names).and_then(|n| n.get("en").map(|s| s.to_string())) {
-                    node_info.region = city_name;
-                }
-            }
         }
-    } else {
-        // GeoIP database not loaded — log once and fall back to heuristic detection.
-        // Mount a MaxMind GeoLite2-Country.mmdb via GEOIP_DB_PATH to get accurate geo data.
-        warn!("GeoIP database not loaded — using heuristic country detection for {}", ip_address);
-        node_info.country_code = detect_country_from_ip(&ip_address);
-        node_info.region = detect_region_from_ip(&ip_address);
     }
     
-    // Register with full node info (no lock needed — lock-free registry)
     state.registry.insert(node_id.clone(), ctrl, node_info.clone());
-    // Register with heartbeat monitor so the health check loop tracks this node
     state.heartbeat_monitor.register_provider(&node_id).await;
 
-    // Register node with Control API for Explorer visibility
+    // Async registration with Control API
     let control_api = state.control_api.clone();
-    let registration_node_id = node_id.clone();
-    let registration_user_id = user_id.clone();
-    let registration_ip = ip_address.clone();
-    let registration_region = node_info.region.clone();
-    let registration_country = node_info.country_code.clone();
-    let registration_isp = node_info.ip_address.clone(); // Using IP as ISP placeholder
-    
-    // Spawn registration task (non-blocking)
+    let reg_state = state.clone();
+    let reg_node_id = node_id.clone();
+    let reg_user_id = user_id.clone();
+    let reg_ip = ip_address.clone();
+    let reg_country = node_info.country_code.clone();
+
     tokio::spawn(async move {
         let req = crate::control_api::RegisterNodeRequest {
-            provider_user_id: registration_user_id,
-            node_id: registration_node_id.clone(),
-            ip_address: registration_ip,
-            port: 0, // Will be updated when known
-            region: registration_region,
-            country_code: registration_country,
-            city: "Unknown".to_string(),
-            isp: registration_isp,
-            connection_type: "residential".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            provider_user_id: reg_user_id,
+            node_id: reg_node_id.clone(),
+            ip_address: reg_ip.clone(),
+            port: 0,
+            region: "Unknown".into(),
+            country_code: reg_country,
+            city: "Unknown".into(),
+            isp: reg_ip,
+            connection_type: "residential".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
         };
-        
-        match control_api.register_node(&req).await {
-            Ok(resp) => {
-                info!("✅ Node registered with Control API: {} -> DB ID: {}", 
-                    registration_node_id, resp.id);
-            }
-            Err(e) => {
-                warn!("⚠️  Failed to register node with Control API: {}", e);
-                // Don't fail the connection - node will work but won't appear in explorer
-            }
+        if let Ok(resp) = control_api.register_node(&req).await {
+            info!("✅ Node registered with Control API: {}", reg_node_id);
+            reg_state.registry.update_node_info(&reg_node_id, |info| {
+                info.quality_score = resp.quality_score;
+                info.current_tier = resp.current_tier;
+                info.base_price_per_gb = resp.base_price_per_gb;
+            });
         }
     });
 
     info!("✅ Provider connected: {} from {}", node_id, peer_addr);
 
-    // Start background heartbeat task for Control API (sends every 30 seconds)
-    let heartbeat_state = state.clone();
-    let heartbeat_node_id = node_id.clone();
-    let heartbeat_user_id = user_id.clone();
-    let heartbeat_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            
-            // Get node info for stats
-            let node_info = heartbeat_state.registry.get_node_info(&heartbeat_node_id);
-            let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
-                .map(|info| (info.active_connections as i32, 0i64, 0i64, info.is_healthy))
-                .unwrap_or((0, 0, 0, true));
-            
-            // TODO: We need the DB node ID to send heartbeat. 
-            // For now, we'll rely on the node registration creating the entry,
-            // and the Control API's NodeSync will pick up heartbeats from Redis.
-            // In a full implementation, we'd store the DB node ID and call:
-            // heartbeat_state.control_api.send_heartbeat(&db_node_id, &req).await
-            
-            trace!("Control API heartbeat tick for {}", heartbeat_node_id);
-        }
-    });
-
-    // Drive connection - accept incoming streams
-    while let Some(result) = incoming.next().await {
-        match result {
-            Ok(mut stream) => {
-                // Handle control messages (like heartbeats)
-                use tokio::io::AsyncReadExt;
-                let mut buf = [0u8; 1024];
-                match stream.read(&mut buf).await {
-                    Ok(n) if n > 0 => {
-                        // Parse control frame: "HEARTBEAT:<node_id>:<timestamp>:<status_json>"
-                        let data = &buf[..n];
-                        if let Ok(msg) = String::from_utf8(data.to_vec()) {
-                            if msg.starts_with("HEARTBEAT:") {
-                                let parts: Vec<&str> = msg.splitn(4, ':').collect();
-                                if parts.len() >= 3 {
-                                    let hb_node_id = parts[1];
-                                    let timestamp = parts[2].parse::<u64>().unwrap_or(0);
-                                    let status = parts.get(3).map(|s| s.to_string());
+    // Main stream acceptance loop (Heartbeats + Data)
+    while let Some(mut stream) = rx.recv().await {
+        let state = state.clone();
+        let node_id = node_id.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+            match stream.read(&mut buf).await {
+                Ok(n) if n > 0 => {
+                    let msg = String::from_utf8_lossy(&buf[..n]);
+                    if msg.starts_with("HEARTBEAT:") {
+                        debug!("Incoming raw heartbeat: {:?}", msg);
+                        let parts: Vec<&str> = msg.splitn(4, ':').collect();
+                        if parts.len() >= 4 {
+                            let timestamp: u64 = parts[2].parse().unwrap_or_else(|e| {
+                                error!("Failed to parse heartbeat timestamp '{}': {}", parts[2], e);
+                                0
+                            });
+                            let json_data = parts[3].trim();
+                            
+                            match serde_json::from_str::<crate::heartbeat::HeartbeatMessage>(json_data) {
+                                Ok(heartbeat_msg) => {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_secs())
+                                        .unwrap_or(0);
                                     
-                                    // Update heartbeat
-                                    if hb_node_id == node_id {
-                                        state.heartbeat_store.update(&node_id, timestamp, status).await;
-                                        // Notify in-memory monitor (resets miss counter)
-                                        let _ = state.heartbeat_monitor.record_heartbeat(&node_id, 0).await;
-                                        // Mark as healthy (atomic, no lock)
-                                        state.registry.mark_healthy(&node_id);
-                                        trace!("Received heartbeat from {}", node_id);
+                                    let latency = if now >= timestamp { (now - timestamp) as u32 * 1000 } else { 0 };
+                                    if let Err(e) = state.heartbeat_monitor.record_heartbeat_details(&heartbeat_msg, latency).await {
+                                        error!("Failed to record heartbeat details for {}: {}", heartbeat_msg.node_id, e);
                                     }
+                                    let response = format!("PONG {{\"latency_ms\":{}}}\n", latency);
+                                    let _ = stream.write_all(response.as_bytes()).await;
                                 }
-                            } else if msg.starts_with("STATS:") {
-                                // Handle stats updates
-                                trace!("Received stats from {}: {}", node_id, msg);
+                                Err(e) => {
+                                    error!("Failed to parse heartbeat JSON from {}: {} (data: '{}')", parts[1], e, json_data);
+                                }
                             }
+                        } else {
+                            warn!("Received legacy or malformed heartbeat: '{}' (parts={})", msg, parts.len());
+                            // Backwards compatibility for simple HEARTBEAT:node_id
+                            let _ = state.heartbeat_monitor.record_heartbeat_details(&crate::heartbeat::HeartbeatMessage {
+                                node_id: node_id.clone(),
+                                timestamp: 0,
+                                active_connections: 0,
+                                bandwidth_usage: crate::heartbeat::BandwidthUsage { 
+                                    bytes_up: 0, 
+                                    bytes_down: 0, 
+                                    rate_up_kbps: 0, 
+                                    rate_down_kbps: 0 
+                                },
+                                system_stats: crate::heartbeat::SystemStats { 
+                                    cpu_percent: 0.0, 
+                                    memory_percent: 0.0, 
+                                    uptime_seconds: 0,
+                                    goroutines: 0
+                                },
+                            }, 0).await;
+                            let _ = stream.write_all(b"PONG {\"latency_ms\":0}\n").await;
                         }
                     }
-                    Ok(_) => {}
-                    Err(e) => {
-                        trace!("Read error on control stream for {}: {}", node_id, e);
-                    }
                 }
+                _ => {}
             }
-            Err(e) => {
-                error!("Stream error for {}: {}", node_id, e);
-                state.registry.mark_unhealthy(&node_id);
-                break;
-            }
-        }
-    }
-    
-    // Cancel background heartbeat task
-    heartbeat_handle.abort();
-    
-    // Cleanup and Persist Stats
-    {
-        // 1. Grab final stats then remove from lock-free registry
-        let final_info = state.registry.remove(&node_id);
-
-        // 2. Persist to Redis
-        if let Some(info) = final_info {
-            if let Err(e) = state.registry_store.save_node(&user_id, &info).await {
-                error!("Failed to persist node metadata: {}", e);
-            } else {
-                info!("💾 Persisted node stats for {}", node_id);
-            }
-        }
-
-        // 3. Unregister from heartbeat monitor
-        state.heartbeat_monitor.unregister_provider(&node_id).await;
-
-        // 4. Evict any pooled streams for this node
-        state.connection_pool.evict_node(&node_id);
-        
-        // 5. Update Control API status to offline (best effort)
-        let control_api = state.control_api.clone();
-        let node_id_clone = node_id.clone();
-        tokio::spawn(async move {
-            // Note: We need the DB node ID to update status properly
-            // The node will naturally age out in Control API based on last_seen_at
-            debug!("Provider {} disconnected, status will age out in Control API", node_id_clone);
         });
     }
-    info!("❌ Provider disconnected: {}", node_id);
+    
+    warn!("Provider disconnected: {}", node_id);
+    let _ = state.heartbeat_monitor.unregister_provider(&node_id).await;
+    state.registry.remove(&node_id);
 }
 
-/// Placeholder for GeoIP country detection
-fn detect_country_from_ip(ip: &str) -> String {
-    if ip.starts_with("41.") || ip.starts_with("197.") || ip.starts_with("154.") {
-        return "GH".to_string();
-    }
-    if ip.starts_with("102.") || ip.starts_with("105.") {
-        return "NG".to_string();
-    }
-    if ip.starts_with("41.89.") || ip.starts_with("41.90.") {
-        return "KE".to_string();
-    }
-    if ip.starts_with("127.") || ip.starts_with("192.168.") || ip.starts_with("10.") {
-        return "LOCAL".to_string();
-    }
-    "UNKNOWN".to_string()
-}
-
-/// Placeholder for GeoIP region detection
-fn detect_region_from_ip(ip: &str) -> String {
-    if ip.starts_with("127.") || ip.starts_with("192.168.") || ip.starts_with("10.") {
-        return "Local".to_string();
-    }
-    "Unknown".to_string()
-}
-
-/// P1-A6: Calculate assigned limits based on provider capabilities
 fn calculate_assigned_limits(caps: &ProviderCapabilities) -> AssignedLimits {
-    // Right-size based on declared capabilities
-    let max_conns = if caps.cpu_cores >= 8 && caps.memory_mb >= 16384 {
-        caps.max_connections.min(500)  // High-end server
-    } else if caps.cpu_cores >= 4 && caps.memory_mb >= 8192 {
-        caps.max_connections.min(200)  // Mid-range
-    } else if caps.cpu_cores >= 2 && caps.memory_mb >= 4096 {
-        caps.max_connections.min(100)  // Low-end
-    } else {
-        caps.max_connections.min(50)   // Minimal (Raspberry Pi, etc.)
-    };
-    
-    // Bandwidth cap based on downlink speed
-    let bw_cap = caps.downlink_speed_kbps.min(1_000_000) / 1000; // Cap at 1 Gbps
-    let effective_bw_cap = bw_cap.min(caps.max_bandwidth_mbps);
-    
-    // Determine QoS tier based on connection quality
-    let (qos_tier, priority) = match caps.connection_type.as_str() {
-        "fiber" if caps.downlink_speed_kbps >= 100_000 => ("premium", 90),
-        "fiber" if caps.downlink_speed_kbps >= 50_000 => ("standard", 70),
-        "cable" if caps.downlink_speed_kbps >= 50_000 => ("standard", 60),
-        "cable" | "fiber" => ("basic", 50),
-        "dsl" => ("basic", 40),
-        "mobile" if caps.downlink_speed_kbps >= 20_000 => ("basic", 35),
-        "mobile" => ("limited", 20),
-        "satellite" => ("limited", 10),
-        _ => ("basic", 40),
-    };
-    
-    // Adjust priority based on hardware capability
-    let adjusted_priority = if caps.cpu_cores >= 4 && caps.memory_mb >= 8192 {
-        priority + 5
-    } else {
-        priority
-    };
-    
+    let max_conns = if caps.cpu_cores >= 4 { 200 } else { 50 };
     AssignedLimits {
         max_connections: max_conns,
-        bandwidth_cap_mbps: effective_bw_cap,
+        bandwidth_cap_mbps: caps.max_bandwidth_mbps,
         allowed_ports: caps.available_ports.clone(),
-        qos_tier: qos_tier.to_string(),
-        priority: adjusted_priority.min(100),
+        qos_tier: "standard".into(),
+        priority: 50,
     }
 }

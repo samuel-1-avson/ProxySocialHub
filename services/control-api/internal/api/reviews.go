@@ -115,7 +115,7 @@ func createReview(c *gin.Context) {
 		go func() {
 			client := solana.GetOracleClient()
 			if client != nil {
-				client.AnchorReputation(nil, *seller.WalletAddress, solana.RepTypeReview, hashStr)
+				client.AnchorReputation(c.Request.Context(), *seller.WalletAddress, solana.RepTypeReview, hashStr)
 			}
 		}()
 	}

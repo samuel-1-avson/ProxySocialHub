@@ -116,14 +116,14 @@ function StatsOverview({ stats }: { stats: ProviderStats }) {
     const statCards = [
         {
             label: "Avg Download",
-            value: `${stats.avg_download_speed?.toFixed(1) || 0} Mbps`,
+            value: `${Number(stats.avg_download_speed || 0).toFixed(1)} Mbps`,
             icon: Zap,
             color: "text-emerald-500",
             bgColor: "bg-emerald-500/10",
         },
         {
             label: "Avg Upload",
-            value: `${stats.avg_upload_speed?.toFixed(1) || 0} Mbps`,
+            value: `${Number(stats.avg_upload_speed || 0).toFixed(1)} Mbps`,
             icon: TrendingUp,
             color: "text-blue-500",
             bgColor: "bg-blue-500/10",
@@ -137,7 +137,7 @@ function StatsOverview({ stats }: { stats: ProviderStats }) {
         },
         {
             label: "Uptime",
-            value: `${stats.uptime_percent?.toFixed(2) || 99.9}%`,
+            value: `${Number(stats.uptime_percent || 99.9).toFixed(2)}%`,
             icon: Activity,
             color: "text-purple-500",
             bgColor: "bg-purple-500/10",
@@ -209,14 +209,14 @@ function SpeedTestSection({ speedTests }: { speedTests: SpeedTest[] }) {
                 <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                     <p className="text-sm text-muted-foreground mb-1">Download</p>
                     <p className="text-3xl font-bold font-mono text-emerald-500">
-                        {currentTest.download_speed.toFixed(1)}
+                        {Number(currentTest.download_speed || 0).toFixed(1)}
                         <span className="text-lg ml-1">Mbps</span>
                     </p>
                 </div>
                 <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
                     <p className="text-sm text-muted-foreground mb-1">Upload</p>
                     <p className="text-3xl font-bold font-mono text-blue-500">
-                        {currentTest.upload_speed.toFixed(1)}
+                        {Number(currentTest.upload_speed || 0).toFixed(1)}
                         <span className="text-lg ml-1">Mbps</span>
                     </p>
                 </div>
@@ -232,7 +232,7 @@ function SpeedTestSection({ speedTests }: { speedTests: SpeedTest[] }) {
             {/* Chart */}
             {speedTests.length > 1 && (
                 <div className="h-48 mb-4">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                             <XAxis dataKey="name" stroke="#666" fontSize={12} />

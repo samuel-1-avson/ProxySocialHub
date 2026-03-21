@@ -82,6 +82,9 @@ func (m *Matcher) Recommend(req RecommendationRequest) ([]ScoredNode, error) {
 	if req.MaxPrice > 0 {
 		query = query.Where("price_per_gb <= ?", req.MaxPrice)
 	}
+	if req.RequiredTier != "" {
+		query = query.Where("current_tier = ?", req.RequiredTier)
+	}
 
 	// Determine Sort Heuristic
 	// If Latency weight is high (> 0.4), sort by latency

@@ -177,7 +177,7 @@ export default function HealthPage() {
                                 <Server size={14} className="text-primary" /> Active Nodes — 24h
                             </h3>
                             {mounted && history.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={160}>
+                                <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
                                     <AreaChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                         <defs>
                                             <linearGradient id="nodesGrad" x1="0" y1="0" x2="0" y2="1">
@@ -208,7 +208,7 @@ export default function HealthPage() {
                                 <Clock size={14} className="text-yellow-400" /> Response Time — 24h
                             </h3>
                             {mounted && history.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={160}>
+                                <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
                                     <LineChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                                         <XAxis dataKey="t" tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
