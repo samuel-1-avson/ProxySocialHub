@@ -87,6 +87,7 @@ impl Default for Config {
             metrics_port: default_metrics_port(),
             reconnect_interval: default_reconnect_interval(),
             connect_timeout: default_connect_timeout(),
+            connection_type: default_connection_type(),
         }
     }
 }

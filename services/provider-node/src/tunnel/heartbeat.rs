@@ -1,7 +1,7 @@
 //! Heartbeat manager: sends periodic telemetry to the Edge Gateway.
 
 use crate::stats::Collector;
-use futures_util::AsyncWriteExt;
+use futures_util::{AsyncReadExt, AsyncWriteExt};
 use serde::Serialize;
 use std::time::Duration;
 use tracing::{debug, error};
