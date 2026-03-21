@@ -2,13 +2,16 @@
 
 import { Sidebar } from "@/components/Sidebar";
 import { Navbar } from "@/components/Navbar";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useUIStore } from "@/lib/store/ui-store";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { AlertCenter } from "@/components/AlertCenter";
 import { ModeToggle } from "@/components/ModeToggle";
 
-export default function DashboardLayout({
+import { withAuth } from "@/components/ProtectedRoute";
+
+function DashboardLayout({
     children,
 }: {
     children: React.ReactNode;
@@ -31,7 +34,7 @@ export default function DashboardLayout({
             <Sidebar />
 
             {/* Main Content Area */}
-            <main className={`min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "md:pl-20" : "md:pl-64"}`}>
+            <main className={`min-h-screen transition-all duration-300 ease-in-out pb-20 md:pb-0 ${isSidebarCollapsed ? "md:pl-20" : "md:pl-64"}`}>
                 <div className="container mx-auto p-4 md:p-8 max-w-7xl">
                     <Breadcrumbs />
                     <ErrorBoundary level="section">
@@ -39,7 +42,12 @@ export default function DashboardLayout({
                     </ErrorBoundary>
                 </div>
             </main>
+
+            {/* Mobile Bottom Tab Bar */}
+            <MobileTabBar />
         </div>
     );
 }
+
+export default withAuth(DashboardLayout);
 

@@ -25,6 +25,10 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
 
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -65,6 +69,10 @@
 
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
 
   --border: #E4E4E7;
   /* Zinc 200 */
@@ -115,6 +123,10 @@
 
   --destructive: #7F1D1D;
   --destructive-foreground: #FAFAFA;
+
+  --success: #059669;
+  --warning: #D97706;
+  --error: #B91C1C;
 
   --border: #27272A;
   --input: #27272A;

@@ -97,8 +97,8 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                                         </button>
                                     </Link>
                                     <Link href="/profile" className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
-                                        {user?.user_metadata?.avatar_url ? (
-                                            <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                                        {user?.avatar_url ? (
+                                            <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center bg-secondary text-foreground font-bold font-mono text-sm leading-none pt-0.5">
                                                 {user?.email?.charAt(0).toUpperCase() || "?"}

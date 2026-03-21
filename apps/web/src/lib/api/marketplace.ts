@@ -27,6 +27,7 @@ export interface Listing {
     avg_latency_ms: number;
     success_rate: number;
     quality_score: number;
+    current_tier?: string;
     views_count: number;
     saves_count: number;
     orders_count: number;
@@ -77,6 +78,7 @@ export interface ListingFilters {
     max_price?: number;
     proxy_type?: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | string;
     min_rating?: number;
+    seller_id?: string;
     sort_by?: 'price' | 'rating' | 'sales' | 'uptime' | string;
     sort_order?: 'asc' | 'desc';
     page?: number;
@@ -95,7 +97,7 @@ export interface SessionFromListingRequest {
     bandwidth_limit?: number; // bytes; 0 = use listing minimum
 }
 
-export interface ProxyCredentials {
+export interface MarketplaceProxyCredentials {
     username: string;
     password: string;
     endpoint: string;
@@ -113,7 +115,7 @@ export interface SessionFromListingResponse {
         expires_at?: string;
         created_at: string;
     };
-    proxy_credentials: ProxyCredentials;
+    proxy_credentials: MarketplaceProxyCredentials;
 }
 
 export interface StakeNodeRequest {

@@ -57,6 +57,7 @@ type createSessionRequestV4 struct {
 	RotationType            string   `json:"rotation_type"`             // "none" | "per-request" | "time-based"
 	RotationIntervalSeconds int      `json:"rotation_interval_seconds"` // 0 → profile/tier default
 	TimeLimitMinutes        int      `json:"time_limit_minutes"`        // 0 = unlimited
+	PreferredTier           string   `json:"preferred_tier"`            // "Gold", "Silver", "Bronze"
 }
 
 func generateCredentials() (string, string) {
@@ -235,11 +236,22 @@ func createSession(c *gin.Context) {
 	if req.TargetGeo != "" {
 		nodeQuery = nodeQuery.Where("country_code = ?", req.TargetGeo)
 	}
+	if req.PreferredTier != "" {
+		nodeQuery = nodeQuery.Where("current_tier = ?", req.PreferredTier)
+	}
 	if err := nodeQuery.Order("quality_score DESC").First(&node).Error; err != nil {
-		// Retry without geo filter if a country was requested but none match.
-		if req.TargetGeo != "" {
-			err = db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL").
-				Order("quality_score DESC").First(&node).Error
+		// Retry without geo/tier filter if requested but none match.
+		if req.TargetGeo != "" || req.PreferredTier != "" {
+			retryQuery := db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL")
+			// Try without geo first if tier was also set, or vice versa
+			if req.PreferredTier != "" {
+				retryQuery = retryQuery.Where("current_tier = ?", req.PreferredTier)
+			}
+			if err = retryQuery.Order("quality_score DESC").First(&node).Error; err != nil {
+				// Final fallback: best global node
+				err = db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL").
+					Order("quality_score DESC").First(&node).Error
+			}
 		}
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No provider nodes available right now. Please try again shortly."})
@@ -313,9 +325,10 @@ func createSession(c *gin.Context) {
 		RotationIntervalSeconds: rotationInterval,
 		TimeLimitMinutes:        req.TimeLimitMinutes,
 		// Routing fields — edge-gateway uses these to forward traffic
-		NodeID:   node.ID.String(),
-		NodeHost: node.IPAddress,
-		NodePort: node.Port,
+		NodeID:     node.ID.String(),
+		NodeHost:   node.IPAddress,
+		NodePort:   node.Port,
+		PricePerGB: node.BasePricePerGB,
 	}
 
 	// Store with 24-hour TTL
@@ -561,6 +574,7 @@ func createInstantSession(c *gin.Context) {
 		TargetGeo:      req.TargetCountry,
 		ExpiresAt:      time.Now().Add(24 * time.Hour),
 		CreatedAt:      time.Now(),
+		PricePerGB:     node.BasePricePerGB,
 	}
 
 	// Store
@@ -886,7 +900,7 @@ func createSessionFromListing(c *gin.Context) {
 			"host":     node.IPAddress,
 			"port":     node.Port,
 			"protocol": node.Protocol,
-			"endpoint": fmt.Sprintf("proxy.proxyhubb.com:3128"),
+			"endpoint": "proxy.proxyhubb.com:3128",
 		},
 		"provider": gin.H{
 			"id":            listing.SellerID,

@@ -15,6 +15,7 @@ func StartAll(queue events.EventQueue) {
 	// 2. Session Lifecycle Workers (Phase 17)
 	StartSessionReaper()
 	StartTelemetryWorker()
+	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine
 
 	log.Printf("[Worker] All background services initialized")
 }
@@ -39,8 +40,12 @@ func StartConsumers(queue events.EventQueue) {
 	// Consumer for Bandwidth Consumed (Billing) events
 	err = queue.Subscribe(context.Background(), events.EventTypeBandwidthConsumed, func(event events.Event) error {
 		payload := event.Payload
-		totalBytes := payload["total_bytes"].(float64) // JSON unmarshals numbers as float64
-		cost := (totalBytes / (1024 * 1024 * 1024)) * 0.50
+		totalBytes := payload["total_bytes"].(float64)
+		pricePerGB, ok := payload["price_per_gb"].(float64)
+		if !ok || pricePerGB <= 0 {
+			pricePerGB = 0.50 // Fallback
+		}
+		cost := (totalBytes / (1024 * 1024 * 1024)) * pricePerGB
 
 		log.Printf("💰 [Billing] Charing user %s for %v bytes (Provider: %s) -> Cost: $%.4f",
 			payload["user_id"], totalBytes, payload["provider_id"], cost)

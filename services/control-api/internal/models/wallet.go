@@ -39,15 +39,15 @@ type Wallet struct {
 
 // WalletLedgerEntry tracks all wallet transactions
 type WalletLedgerEntry struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key"`
-	WalletID     uuid.UUID `gorm:"type:uuid;not null"`
-	Amount       float64   `gorm:"type:numeric(20,9);not null"` // Positive = credit, Negative = debit
-	BalanceAfter float64   `gorm:"type:numeric(20,9);not null"`
-	Type         string    `gorm:"type:varchar(50);not null"` // topup, usage, payout, refund, earning
-	ReferenceID  string    `gorm:"type:varchar(128)"`         // Solana tx signature (88 chars)
+	ID           uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	WalletID     uuid.UUID `gorm:"type:uuid;not null" json:"wallet_id"`
+	Amount       float64   `gorm:"type:numeric(20,9);not null" json:"amount"` // Positive = credit, Negative = debit
+	BalanceAfter float64   `gorm:"type:numeric(20,9);not null" json:"balance_after"`
+	Type         string    `gorm:"type:varchar(50);not null" json:"type"` // topup, usage, payout, refund, earning
+	ReferenceID  string    `gorm:"type:varchar(128)" json:"reference_id,omitempty"`         // Solana tx signature (88 chars)
 	TxHash       string    `gorm:"size:255" json:"tx_hash,omitempty"`
-	Description  string
-	CreatedAt    time.Time
+	Description  string    `json:"description"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // BeforeCreate generates UUID if not set

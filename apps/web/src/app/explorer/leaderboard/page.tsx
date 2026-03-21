@@ -208,7 +208,7 @@ export default function LeaderboardPage() {
                         <TrendingUp size={14} style={{ color: cat.color }} /> Top 10 — {cat.label}
                     </h3>
                     {mounted && chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={180}>
+                        <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
                             <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                                 <XAxis dataKey="name" tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} />

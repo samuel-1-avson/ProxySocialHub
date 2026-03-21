@@ -43,7 +43,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                         <Shield size={12} /> Trust Score
                     </div>
                     <div className={`text-5xl font-black font-mono tracking-tighter ${tierColor}`}>
-                        {score.toFixed(1)}
+                        {Number(score || 0).toFixed(1)}
                     </div>
                     <div className={`mt-2 px-3 py-1 text-[10px] font-bold uppercase rounded-full border ${borderColor} ${tierColor} bg-background`}>
                         {tier} Tier
@@ -58,7 +58,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                             <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Uptime</span>
                         </div>
                         <div className="text-2xl font-bold font-mono">
-                            {node.uptime_percent ? node.uptime_percent.toFixed(1) + '%' : 'N/A'}
+                            {node.uptime_percent ? Number(node.uptime_percent).toFixed(1) + '%' : 'N/A'}
                         </div>
                         <div className="h-1 w-full bg-secondary mt-2 rounded-full overflow-hidden">
                             <div

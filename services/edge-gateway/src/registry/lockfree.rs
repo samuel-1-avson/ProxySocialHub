@@ -58,7 +58,8 @@ impl NodeEntry {
             return 0;
         };
 
-        let mut score = 1000u32;
+        // Use the AI-driven quality score as the base
+        let mut score = (info.quality_score * 10.0) as u32; // Scaling 0-100 to 0-1000
 
         // Penalise high latency
         score = score.saturating_sub(info.latency_ms);
@@ -232,6 +233,18 @@ impl LockFreeNodeRegistry {
         }
     }
 
+    /// Update node info using a closure (allows atomic updates to multiple fields).
+    pub fn update_node_info<F>(&self, node_id: &str, f: F)
+    where
+        F: FnOnce(&mut NodeInfo),
+    {
+        if let Some(entry) = self.nodes.get(node_id) {
+            if let Ok(mut info) = entry.info.write() {
+                f(&mut info);
+            }
+        }
+    }
+
     /// Get a random healthy node (fallback when best-node selection unavailable).
     pub fn get_random(&self) -> Option<Control> {
         let mut rng = rand::thread_rng();
@@ -349,6 +362,7 @@ impl Default for LockFreeNodeRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tunnel::{AssignedLimits, ProviderCapabilities};
 
     fn make_test_info(id: &str, latency: u32, active: u32, healthy: bool) -> NodeInfo {
         NodeInfo {
@@ -367,6 +381,9 @@ mod tests {
             latency_ms: latency,
             bandwidth_rate_kbps: 0,
             is_healthy: healthy,
+            capabilities: ProviderCapabilities::default(),
+            assigned_limits: AssignedLimits::default(),
+            qos_tier: "basic".to_string(),
         }
     }
 

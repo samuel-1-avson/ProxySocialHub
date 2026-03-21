@@ -20,3 +20,4 @@ export * from './api/subscriptions';
 export * from './api/referral';
 export * from './api/channels';
 export * from './api/circles';
+export * from './api/trustless';

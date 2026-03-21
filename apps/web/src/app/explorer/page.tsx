@@ -181,7 +181,7 @@ export default function ExplorerDashboard() {
             sparkColor: '#6366f1',
             sparkData: null, // no time series for block height
             trend: blockHeight > 0 ? 'up' as const : 'flat' as const,
-            sub: metrics?.avg_block_time_ms != null ? `~${metrics.avg_block_time_ms.toFixed(0)}ms per block` : null,
+            sub: metrics?.avg_block_time_ms != null ? `~${Number(metrics.avg_block_time_ms).toFixed(0)}ms per block` : null,
         },
         {
             label: 'Active Relays',
@@ -191,21 +191,21 @@ export default function ExplorerDashboard() {
             sparkColor: '#3b82f6',
             sparkData: nodeSparkData.length > 0 ? nodeSparkData : null,
             trend: nodes > 0 ? 'up' as const : 'flat' as const,
-            sub: metrics ? `${metrics.active_wallets} wallets active` : null,
+            sub: metrics ? `${metrics.active_wallets || 0} wallets active` : null,
         },
         {
             label: '24H Volume',
-            value: volume ? `${volume.toFixed(2)} SOL` : '—',
+            value: volume ? `${Number(volume).toFixed(2)} SOL` : '—',
             icon: ArrowRightLeft,
             color: 'text-emerald-500',
             sparkColor: '#10b981',
             sparkData: volSparkData.length > 0 ? volSparkData : null,
             trend: volume > 0 ? 'up' as const : 'flat' as const,
-            sub: metrics ? `${metrics.transactions_per_second.toFixed(2)} TPS` : null,
+            sub: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)} TPS` : null,
         },
         {
             label: 'Throughput',
-            value: bandwidth ? `${bandwidth.toFixed(2)} GB` : '—',
+            value: bandwidth ? `${Number(bandwidth).toFixed(2)} GB` : '—',
             icon: Zap,
             color: 'text-yellow-500',
             sparkColor: '#eab308',
@@ -317,7 +317,7 @@ export default function ExplorerDashboard() {
                         {/* Sparkline — only rendered when real 24h data is available */}
                         {mounted && stat.sparkData && stat.sparkData.length > 1 && (
                             <div className="h-10 -mx-2 opacity-30 group-hover:opacity-60 transition-opacity">
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                     <AreaChart data={stat.sparkData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                                         <defs>
                                             <linearGradient id={`spark${i}`} x1="0" y1="0" x2="0" y2="1">

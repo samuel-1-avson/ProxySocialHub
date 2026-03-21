@@ -240,6 +240,10 @@ func main() {
 	go treasuryManager.StartAutoTopupMonitor(context.Background())
 	log.Println("Treasury auto-topup monitor started")
 
+	// Initialize Usage Milestone Worker (PAYG Social Feature)
+	worker.InitUsageMilestoneWorker()
+	log.Println("Usage milestone worker started")
+
 	// --- E2: Provider leaderboard materialised view — periodic background refresh ---
 	// Interval is configurable via MV_LEADERBOARD_REFRESH_MINS (default: 15 minutes).
 	// Uses CONCURRENTLY so reads are never blocked during refresh.
@@ -283,6 +287,8 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.RedirectTrailingSlash = false
+	r.RemoveExtraSlash = false
 
 	// CORS (Robust for Hybrid Dev Environments)
 	r.Use(func(c *gin.Context) {
@@ -394,8 +400,12 @@ func main() {
 		api.RegisterHealthRoutes(v1)
 		api.RegisterMonitoringRoutes(v1)
 		api.RegisterAuthRoutes(v1)
-		api.RegisterListingRoutes(v1) // Mix of public/private
-		api.RegisterFeedRoutes(v1)    // Mix of public/private (Discover)
+		api.RegisterListingRoutes(v1)       // Mix of public/private
+		api.RegisterListingSocialRoutes(v1) // Social integration for listings
+		api.RegisterMilestoneRoutes(v1)     // Usage milestones
+		api.RegisterUsageReviewRoutes(v1)   // Usage-based reviews
+		api.RegisterCirclePoolRoutes(v1)    // Circle bandwidth pooling
+		api.RegisterFeedRoutes(v1)          // Mix of public/private (Discover)
 		api.RegisterProfileRoutes(v1) // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
@@ -405,6 +415,9 @@ func main() {
 		api.RegisterSDKRoutes(v1)           // P1-A5: SDK Examples API
 		api.RegisterGatewayRoutes(v1)       // Gateway node registration and heartbeat
 	}
+
+	// Public Routes (No Authentication Required)
+	api.RegisterProviderAuthRoute(v1) // CLI auth endpoint must be public
 
 	// Protected Routes (Require Authentication)
 	protected := v1.Group("/")

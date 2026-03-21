@@ -7,6 +7,19 @@ import { useAuth, fetchWithAuth } from '@/lib/auth';
 import { Loader2, Activity, Zap, Server, Globe, ArrowRight, BarChart3, TrendingUp } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+ 
+interface NetworkStatus {
+    total_nodes: number;
+    healthy_nodes: number;
+    avg_latency: number;
+    top_countries: string[];
+    node_scores: Array<{
+        id: string;
+        country: string;
+        region: string;
+        score: number;
+    }>;
+}
 
 interface AnalyticsOverview {
     total_requests: number;
@@ -49,7 +62,7 @@ function formatBytes(bytes: number): string {
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((Number(bytes || 0) / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
@@ -72,7 +85,7 @@ function BarChart({ data, label }: { data: DailyUsagePoint[]; label: string }) {
                                 style={{ height: `${Math.max(height, 5)}%` }}
                             />
                             <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 bg-foreground text-background text-[10px] font-mono p-1 rounded-sm whitespace-nowrap z-10">
-                                {point.date}: {point.gb_used.toFixed(3)} GB
+                                {point.date}: {(point.gb_used ?? 0).toFixed(3)} GB
                             </div>
                             <div className="text-[10px] text-muted-foreground mt-2 font-mono truncate w-full text-center">
                                 {point.date.slice(5)}
@@ -97,7 +110,7 @@ function GeoChart({ data }: { data: GeoStats[] }) {
                     <div key={geo.country_code} className="space-y-1">
                         <div className="flex justify-between text-xs font-mono">
                             <span className="font-bold">{geo.country_name}</span>
-                            <span className="text-muted-foreground">{percent.toFixed(1)}%</span>
+                            <span className="text-muted-foreground">{Number(percent || 0).toFixed(1)}%</span>
                         </div>
                         <div className="h-2 bg-secondary rounded-sm overflow-hidden border border-border">
                             <div
@@ -122,21 +135,24 @@ export default function AnalyticsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [days, setDays] = useState(7);
+    const [networkStatus, setNetworkStatus] = useState<NetworkStatus | null>(null);
 
     const loadAnalytics = useCallback(async () => {
         try {
             setLoading(true);
-            const [overviewRes, dailyRes, geoRes, destRes] = await Promise.all([
+            const [overviewRes, dailyRes, geoRes, destRes, networkRes] = await Promise.all([
                 fetchWithAuth(`${API_BASE_URL}/v1/analytics/overview`).then(r => r.ok ? r.json() : null).catch(() => null),
                 fetchWithAuth(`${API_BASE_URL}/v1/analytics/usage/daily?days=${days}`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
                 fetchWithAuth(`${API_BASE_URL}/v1/analytics/geo`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
                 fetchWithAuth(`${API_BASE_URL}/v1/analytics/top-destinations`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+                fetchWithAuth(`${API_BASE_URL}/v1/network/status`).then(r => r.ok ? r.json() : null).catch(() => null),
             ]);
 
             setOverview(overviewRes);
             setDailyUsage(Array.isArray(dailyRes?.data) ? dailyRes.data : []);
             setGeoData(Array.isArray(geoRes?.data) ? geoRes.data : []);
             setDestinations(Array.isArray(destRes?.data) ? destRes.data : []);
+            setNetworkStatus(networkRes);
         } catch {
             setError('Failed to load analytics');
         } finally {
@@ -241,6 +257,38 @@ export default function AnalyticsPage() {
                     )}
                 </div>
             </div>
+            {/* Phase 6: ML-Router Performance Map (Heatmap Table) */}
+            <div className="card-retro p-6 bg-card">
+                <h3 className="text-sm font-bold font-mono uppercase border-b border-border pb-2 mb-4 flex gap-2 items-center">
+                    <Activity size={16} /> ML-Router Performance Map (Real-Time)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {networkStatus?.node_scores.map((node) => (
+                        <div key={node.id} className="p-3 bg-secondary/10 border border-border rounded-sm flex justify-between items-center group hover:border-primary transition-all relative overflow-hidden">
+                            <div className="relative z-10">
+                                <div className="text-[10px] font-mono font-bold text-muted-foreground uppercase">{node.country} • {node.region}</div>
+                                <div className="text-xs font-mono font-bold truncate max-w-[120px]">{node.id.split('-')[0]}...</div>
+                            </div>
+                            <div className="text-right relative z-10">
+                                <div className={`text-lg font-black font-mono ${(node.score * 10).toFixed(0) === '10' ? 'text-emerald-400' : 'text-primary'}`}>
+                                    {(node.score * 100).toFixed(0)}
+                                </div>
+                                <div className="text-[8px] font-mono font-bold uppercase opacity-30">ML SCORE</div>
+                            </div>
+                            {/* Score Heat Indicator */}
+                            <div 
+                                className="absolute bottom-0 left-0 h-1 bg-primary opacity-20 group-hover:opacity-100 transition-opacity" 
+                                style={{ width: `${node.score * 100}%` }}
+                            />
+                        </div>
+                    ))}
+                    {!networkStatus && (
+                        <div className="col-span-full py-10 text-center font-mono text-xs text-muted-foreground border-2 border-dashed border-border rounded-sm">
+                            CONNECTING TO GATEWAY STATUS API...
+                        </div>
+                    )}
+                </div>
+            </div>
 
             {/* Top Destinations */}
             <div className="card-retro p-0 bg-card overflow-hidden">
@@ -270,7 +318,7 @@ export default function AnalyticsPage() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-muted-foreground font-bold">{(dest.request_count ?? 0).toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-muted-foreground">{formatBytes(dest.bytes_used)}</td>
+                                        <td className="px-6 py-4 text-muted-foreground">{formatBytes(Number(dest.bytes_used))}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-0.5 rounded-sm font-bold ${dest.avg_latency_ms < 50 ? 'bg-green-500/10 text-green-500' : dest.avg_latency_ms < 100 ? 'bg-yellow-500/10 text-yellow-500' : 'bg-red-500/10 text-red-500'}`}>
                                                 {dest.avg_latency_ms} ms

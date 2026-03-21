@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionData {
     pub user_id: String,
     pub session_id: String,
@@ -312,6 +312,7 @@ mod tests {
             status: "active".to_string(),
             bandwidth_limit: 10737418240,
             bandwidth_used: 0,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&session).expect("Failed to serialize");
@@ -328,6 +329,7 @@ mod tests {
             status: "active".to_string(),
             bandwidth_limit: 1000,
             bandwidth_used: 500,
+            ..Default::default()
         };
         
         assert_eq!(active_session.status, "active");
@@ -350,6 +352,7 @@ mod tests {
             status: "active".to_string(),
             bandwidth_limit: 1000,
             bandwidth_used: 1500, // Exceeded
+            ..Default::default()
         };
 
         assert!(session.bandwidth_used >= session.bandwidth_limit);

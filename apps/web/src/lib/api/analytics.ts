@@ -14,6 +14,12 @@ export interface AnalyticsOverview {
     unique_destinations: number;
     top_country: string;
     top_isp: string;
+
+    // Provider Metrics
+    total_nodes?: number;
+    total_earnings_sol?: number;
+    avg_quality_score?: number;
+    active_payouts?: number;
 }
 
 export interface DailyUsagePoint {

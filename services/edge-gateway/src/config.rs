@@ -37,6 +37,8 @@ pub struct Config {
     pub proxy_idle_timeout_secs: u64,
     /// HTTP request timeout for Control-API and RPC calls (default: 15s).
     pub rpc_request_timeout_secs: u64,
+    /// Maximum requests per minute per session (default: 300).
+    pub max_rpm_per_session: Option<u32>,
 }
 
 impl Config {
@@ -118,6 +120,10 @@ impl Config {
             .parse()
             .expect("RPC_REQUEST_TIMEOUT_SECS must be a positive integer");
 
+        let max_rpm_per_session = env::var("MAX_RPM_PER_SESSION")
+            .ok()
+            .and_then(|v| v.parse().ok());
+
         Self {
             host,
             port,
@@ -136,6 +142,7 @@ impl Config {
             proxy_connect_timeout_secs,
             proxy_idle_timeout_secs,
             rpc_request_timeout_secs,
+            max_rpm_per_session,
         }
     }
 

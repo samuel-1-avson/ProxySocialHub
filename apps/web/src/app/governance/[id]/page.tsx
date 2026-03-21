@@ -174,7 +174,7 @@ export default function ProposalDetailsPage() {
                                                 <div className="text-[8px] font-black text-primary/40 uppercase tracking-widest">VP Total</div>
                                             </div>
                                         </div>
-                                        <ResponsiveContainer width="100%" height="100%">
+                                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                             <PieChart>
                                                 <Pie
                                                     data={chartData}

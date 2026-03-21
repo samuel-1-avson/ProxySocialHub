@@ -24,6 +24,11 @@ const (
 	NotificationPaymentReceived NotificationType = "payment_received"
 	NotificationPaymentSent     NotificationType = "payment_sent"
 	NotificationListingSold     NotificationType = "listing_sold"
+	
+	// PAYG notifications
+	NotificationMilestone   NotificationType = "milestone"
+	NotificationLowBalance  NotificationType = "low_balance"
+	NotificationRefillOffer NotificationType = "refill_offer"
 
 	// Community notifications
 	NotificationReply           NotificationType = "reply"
