@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -299,7 +300,9 @@ func issueGatewayToken(c *gin.Context) {
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "proxyhubb-dev-secret-change-in-production"
+		log.Printf("ERROR: JWT_SECRET env var is not set")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error: security misconfiguration"})
+		return
 	}
 
 	// Claims must match the struct expected by tunnel.rs:
