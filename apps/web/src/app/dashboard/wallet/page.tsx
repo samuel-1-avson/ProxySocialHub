@@ -257,7 +257,7 @@ export default function UnifiedWalletPage() {
                                                 </div>
                                             </div>
                                             <div className="text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
-                                                {wallet?.balance_sol?.toFixed(4) || '0.0000'}
+                                                {Number(wallet?.balance_sol ?? 0).toFixed(4)}
                                                 <span className="text-xl opacity-40 font-black">SOL</span>
                                             </div>
 
@@ -266,7 +266,7 @@ export default function UnifiedWalletPage() {
                                                     <span className="text-[9px] font-mono font-black text-muted-foreground uppercase opacity-40">
                                                         {connected ? 'Connected Wallet' : 'Linked Wallet'} Balance
                                                     </span>
-                                                    <span className="text-xs font-black font-mono text-primary">{linkedWalletBalance.toFixed(4)} SOL</span>
+                                                    <span className="text-xs font-black font-mono text-primary">{Number(linkedWalletBalance || 0).toFixed(4)} SOL</span>
                                                 </div>
                                             )}
 
@@ -292,7 +292,7 @@ export default function UnifiedWalletPage() {
                                             </div>
                                             <div className="text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
                                                 <span className="text-xl opacity-40 font-black">~$</span>
-                                                {((wallet?.balance_sol || 0) * solPriceUSD).toFixed(2)}
+                                                {(Number(wallet?.balance_sol || 0) * Number(solPriceUSD || 0)).toFixed(2)}
                                             </div>
                                             <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
                                                 <Activity size={12} className="text-emerald-500" />
@@ -363,8 +363,8 @@ export default function UnifiedWalletPage() {
                                                                 <div className="font-black uppercase text-[11px] group-hover:text-primary transition-colors">{tx.description}</div>
                                                                 <div className="text-[9px] opacity-30 uppercase font-bold tracking-tighter mt-1">{tx.id}</div>
                                                             </td>
-                                                            <td className={`px-8 py-5 font-black text-base tracking-tighter ${tx.amount > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                {tx.amount > 0 ? '+' : ''}{tx.amount.toFixed(2)}
+                                                            <td className={`px-8 py-5 font-black text-base tracking-tighter ${(tx.amount ?? 0) > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                                {(Number(tx.amount || 0) > 0 ? '+' : '')}{Number(tx.amount || 0).toFixed(2)}
                                                             </td>
                                                             <td className="px-8 py-5 text-center">
                                                                 <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${tx.status === 'success' || tx.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
@@ -532,7 +532,7 @@ export default function UnifiedWalletPage() {
 
                                 <div className="p-6 glass-card bg-white/5 border-white/10 rounded-2xl">
                                     <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">Active SOL Collateral</p>
-                                    <p className="text-2xl font-black font-mono text-foreground tracking-tighter">{wallet?.balance_sol?.toFixed(4) || '0.0000'} SOL</p>
+                                    <p className="text-2xl font-black font-mono text-foreground tracking-tighter">{Number(wallet?.balance_sol ?? 0).toFixed(4)} SOL</p>
                                 </div>
                             </div>
                         </div>
@@ -552,7 +552,7 @@ export default function UnifiedWalletPage() {
                                 </div>
                                 <div className="flex justify-between items-end border-b border-white/5 pb-4">
                                     <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">SOL Balance</span>
-                                    <span className="text-2xl font-black font-mono tracking-tighter">{wallet?.balance_sol?.toFixed(4) || '0.0000'} SOL</span>
+                                    <span className="text-2xl font-black font-mono tracking-tighter">{Number(wallet?.balance_sol ?? 0).toFixed(4)} SOL</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-2">

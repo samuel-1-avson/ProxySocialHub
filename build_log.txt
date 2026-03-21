@@ -1,0 +1,1393 @@
+time="2026-03-20T20:12:17Z" level=warning msg="The \"GOOGLE_CLIENT_ID\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"GOOGLE_CLIENT_SECRET\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"GITHUB_CLIENT_ID\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"GITHUB_CLIENT_SECRET\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"SMTP_HOST\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"SMTP_USER\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"SMTP_PASS\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"PAYSTACK_SECRET_KEY\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="The \"PAYSTACK_PUBLIC_KEY\" variable is not set. Defaulting to a blank string."
+time="2026-03-20T20:12:17Z" level=warning msg="F:\\project\\proxyhubb\\docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+ Image proxyhubb-db-migrate Building 
+ Image proxyhubb-control-api Building 
+ Image proxyhubb-edge-gateway Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.48kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.84kB 0.0s done
+#2 DONE 0.1s
+
+#3 [internal] load metadata for docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+#3 ...
+
+#4 [auth] nvidia/cuda:pull token for registry-1.docker.io
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/nvidia/cuda:12.4.1-devel-ubuntu22.04
+#5 DONE 3.1s
+
+#3 [internal] load metadata for docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+#3 DONE 3.1s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 2B done
+#6 DONE 0.1s
+
+#7 [stage-1 1/3] FROM docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04@sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95
+#7 resolve docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04@sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95 0.0s done
+#7 DONE 0.0s
+
+#8 [builder  1/10] FROM docker.io/nvidia/cuda:12.4.1-devel-ubuntu22.04@sha256:da6791294b0b04d7e65d87b7451d6f2390b4d36225ab0701ee7dfec5769829f5
+#8 resolve docker.io/nvidia/cuda:12.4.1-devel-ubuntu22.04@sha256:da6791294b0b04d7e65d87b7451d6f2390b4d36225ab0701ee7dfec5769829f5 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-1 2/3] RUN apt-get update && apt-get install -y     curl     ca-certificates     libssl3     && rm -rf /var/lib/apt/lists/*
+#9 CACHED
+
+#10 [internal] load build context
+#10 transferring context: 2.67kB 0.0s done
+#10 DONE 0.0s
+
+#11 [builder  3/10] RUN apt-get update && apt-get install -y     curl     git     pkg-config     libssl-dev     protobuf-compiler     build-essential     && rm -rf /var/lib/apt/lists/*
+#11 CACHED
+
+#12 [builder  5/10] COPY Cargo.toml Cargo.lock ./
+#12 CACHED
+
+#13 [builder  6/10] COPY build.rs ./
+#13 CACHED
+
+#14 [builder  2/10] WORKDIR /app
+#14 CACHED
+
+#15 [builder  4/10] RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+#15 CACHED
+
+#16 [builder  7/10] COPY proto ./proto
+#16 CACHED
+
+#17 [builder  8/10] COPY src ./src
+#17 CACHED
+
+#18 [builder  9/10] COPY benches ./benches
+#18 CACHED
+
+#19 [builder 10/10] RUN cargo build --release --features ml
+#19 1.064     Updating crates.io index
+#19 13.70      Locking 1 package to latest compatible version
+#19 13.70       Adding ndarray v0.15.6 (available: v0.17.2)
+#19 13.73  Downloading crates ...
+#19 18.52   Downloaded ark-bn254 v0.4.0
+#19 18.59   Downloaded arrayref v0.3.9
+#19 18.61   Downloaded foreign-types v0.3.2
+#19 18.61   Downloaded fnv v1.0.7
+#19 18.62   Downloaded async-stream v0.3.6
+#19 18.64   Downloaded futures-task v0.3.31
+#19 18.68   Downloaded ark-snark v0.4.0
+#19 18.68   Downloaded darling_macro v0.23.0
+#19 18.69   Downloaded borsh-schema-derive-internal v0.10.4
+#19 18.69   Downloaded borsh-derive v0.10.4
+#19 18.89   Downloaded futures-core v0.3.31
+#19 18.89   Downloaded five8_const v0.1.4
+#19 18.90   Downloaded atty v0.2.14
+#19 18.90   Downloaded atomic-waker v1.1.2
+#19 18.91   Downloaded async-stream-impl v0.3.6
+#19 18.91   Downloaded cpufeatures v0.2.17
+#19 18.92   Downloaded borsh-derive-internal v0.10.4
+#19 18.97   Downloaded futures-io v0.3.31
+#19 18.97   Downloaded futures-macro v0.3.31
+#19 18.98   Downloaded form_urlencoded v1.2.2
+#19 18.98   Downloaded futures-sink v0.3.31
+#19 19.13   Downloaded crypto-mac v0.8.0
+#19 19.13   Downloaded hmac-drbg v0.3.0
+#19 19.14   Downloaded httpdate v1.0.3
+#19 19.14   Downloaded equivalent v1.0.2
+#19 19.15   Downloaded foreign-types-shared v0.1.1
+#19 19.15   Downloaded fastrand v2.3.0
+#19 19.16   Downloaded ark-ff-asm v0.4.2
+#19 19.16   Downloaded memoffset v0.9.1
+#19 19.17   Downloaded block-buffer v0.9.0
+#19 19.18   Downloaded heck v0.5.0
+#19 19.20   Downloaded matchers v0.2.0
+#19 19.26   Downloaded nonzero_ext v0.3.0
+#19 19.28   Downloaded mime v0.3.17
+#19 19.28   Downloaded no-std-compat v0.4.1
+#19 19.29   Downloaded ed25519-dalek-bip32 v0.2.0
+#19 19.31   Downloaded feature-probe v0.1.1
+#19 19.32   Downloaded digest v0.9.0
+#19 19.32   Downloaded ark-ff-macros v0.4.2
+#19 19.33   Downloaded ark-serialize-derive v0.4.2
+#19 19.33   Downloaded hmac v0.8.1
+#19 19.35   Downloaded hex v0.4.3
+#19 19.38   Downloaded curve25519-dalek-derive v0.1.1
+#19 19.38   Downloaded ark-serialize v0.4.2
+#19 19.39   Downloaded num-derive v0.4.2
+#19 19.40   Downloaded cfg-if v1.0.4
+#19 19.41   Downloaded block-buffer v0.10.4
+#19 19.41   Downloaded lazy_static v1.5.0
+#19 19.42   Downloaded crunchy v0.2.4
+#19 19.43   Downloaded libsecp256k1-gen-ecmult v0.2.1
+#19 19.44   Downloaded five8_core v0.1.2
+#19 19.56   Downloaded libsecp256k1-gen-genmult v0.2.1
+#19 19.56   Downloaded crypto-common v0.1.7
+#19 19.57   Downloaded ident_case v1.0.1
+#19 19.57   Downloaded num-conv v0.1.0
+#19 19.58   Downloaded deadpool-redis v0.15.1
+#19 19.58   Downloaded cfg_eval v0.1.2
+#19 19.59   Downloaded cfg_aliases v0.2.1
+#19 19.67   Downloaded derivation-path v0.2.0
+#19 19.67   Downloaded crc16 v0.4.0
+#19 19.68   Downloaded nohash-hasher v0.2.0
+#19 19.69   Downloaded http-body v1.0.1
+#19 19.70   Downloaded multimap v0.10.1
+#19 19.77   Downloaded hyper-tls v0.6.0
+#19 19.80   Downloaded axum-core v0.4.5
+#19 19.82   Downloaded generic-array v0.14.7
+#19 19.83   Downloaded errno v0.3.14
+#19 19.84   Downloaded lru v0.12.5
+#19 19.85   Downloaded five8 v0.2.1
+#19 19.86   Downloaded borsh v0.10.4
+#19 19.87   Downloaded find-msvc-tools v0.1.7
+#19 19.87   Downloaded autocfg v1.5.0
+#19 19.89   Downloaded openssl-probe v0.1.6
+#19 19.89   Downloaded openssl-macros v0.1.1
+#19 19.90   Downloaded num_cpus v1.17.0
+#19 19.91   Downloaded idna_adapter v1.2.1
+#19 19.92   Downloaded arrayvec v0.7.6
+#19 19.94   Downloaded itoa v1.0.17
+#19 19.96   Downloaded pbkdf2 v0.11.0
+#19 20.05   Downloaded potential_utf v0.1.4
+#19 20.06   Downloaded pin-utils v0.1.0
+#19 20.08   Downloaded opaque-debug v0.3.1
+#19 20.09   Downloaded ark-groth16 v0.4.0
+#19 20.10   Downloaded crossbeam-deque v0.8.6
+#19 20.13   Downloaded percent-encoding v2.3.2
+#19 20.14   Downloaded ark-std v0.4.0
+#19 20.16   Downloaded deadpool-runtime v0.1.4
+#19 20.16   Downloaded bs58 v0.5.1
+#19 20.17   Downloaded ed25519 v2.2.3
+#19 20.18   Downloaded powerfmt v0.2.0
+#19 20.18   Downloaded ed25519 v1.5.3
+#19 20.22   Downloaded displaydoc v0.2.5
+#19 20.23   Downloaded proc-macro-crate v3.5.0
+#19 20.24   Downloaded proc-macro-crate v0.1.5
+#19 20.24   Downloaded digest v0.10.7
+#19 20.25   Downloaded deranged v0.5.5
+#19 20.26   Downloaded qstring v0.7.2
+#19 20.26   Downloaded fixedbitset v0.5.7
+#19 20.27   Downloaded dashmap v5.5.3
+#19 20.36   Downloaded rand_chacha v0.2.2
+#19 20.36   Downloaded data-encoding v2.10.0
+#19 20.37   Downloaded byteorder v1.5.0
+#19 20.38   Downloaded rawpointer v0.2.1
+#19 20.39   Downloaded ed25519-dalek v1.0.1
+#19 20.40   Downloaded either v1.15.0
+#19 20.42   Downloaded rustc_version v0.4.1
+#19 20.43   Downloaded rand_chacha v0.3.1
+#19 20.43   Downloaded hmac-sha256 v1.1.14
+#19 20.44   Downloaded futures-timer v3.0.3
+#19 20.46   Downloaded base64ct v1.8.3
+#19 20.47   Downloaded futures-channel v0.3.31
+#19 20.48   Downloaded futures-executor v0.3.31
+#19 20.48   Downloaded borsh-derive v1.6.1
+#19 20.50   Downloaded constant_time_eq v0.4.2
+#19 20.51   Downloaded const-oid v0.9.6
+#19 20.52   Downloaded ark-relations v0.4.0
+#19 20.52   Downloaded blake2 v0.10.6
+#19 20.55   Downloaded num_enum v0.7.6
+#19 20.56   Downloaded paste v1.0.15
+#19 20.58   Downloaded pin-project-lite v0.2.16
+#19 20.65   Downloaded pem v3.0.6
+#19 20.66   Downloaded pem-rfc7468 v0.7.0
+#19 20.67   Downloaded prost v0.13.5
+#19 20.67   Downloaded libsecp256k1 v0.6.0
+#19 20.68   Downloaded num-complex v0.4.6
+#19 20.69   Downloaded ipnet v2.11.0
+#19 20.70   Downloaded serde-big-array v0.5.1
+#19 20.70   Downloaded serde_bytes v0.11.19
+#19 20.71   Downloaded scopeguard v1.2.0
+#19 20.72   Downloaded http-body-util v0.1.3
+#19 20.72   Downloaded serde_urlencoded v0.7.1
+#19 20.73   Downloaded keccak v0.1.6
+#19 20.73   Downloaded native-tls v0.2.14
+#19 20.74   Downloaded ppv-lite86 v0.2.21
+#19 20.77   Downloaded async-trait v0.1.89
+#19 20.78   Downloaded prost-derive v0.13.5
+#19 20.78   Downloaded matchit v0.7.3
+#19 20.83   Downloaded bincode v1.3.3
+#19 20.84   Downloaded crossbeam-epoch v0.9.18
+#19 20.85   Downloaded bytemuck_derive v1.10.2
+#19 20.86   Downloaded derivative v2.2.0
+#19 20.88   Downloaded num-integer v0.1.46
+#19 20.89   Downloaded darling v0.23.0
+#19 20.91   Downloaded getrandom v0.1.16
+#19 20.93   Downloaded memmap2 v0.5.10
+#19 20.94   Downloaded humantime v2.3.0
+#19 20.95   Downloaded env_logger v0.9.3
+#19 20.99   Downloaded libsecp256k1-core v0.2.2
+#19 20.99   Downloaded rand_core v0.5.1
+#19 21.00   Downloaded rand_core v0.9.5
+#19 21.01   Downloaded sha1 v0.10.6
+#19 21.01   Downloaded bytemuck v1.25.0
+#19 21.03   Downloaded anyhow v1.0.100
+#19 21.04   Downloaded ahash v0.8.12
+#19 21.11   Downloaded signature v2.2.0
+#19 21.12   Downloaded signature v1.6.4
+#19 21.13   Downloaded socks v0.3.4
+#19 21.13   Downloaded solana-atomic-u64 v2.2.1
+#19 21.14   Downloaded solana-bincode v2.2.1
+#19 21.14   Downloaded pkcs8 v0.10.2
+#19 21.15   Downloaded prost-build v0.13.5
+#19 21.17   Downloaded rustversion v1.0.22
+#19 21.18   Downloaded semver v1.0.27
+#19 21.20   Downloaded solana-cpi v2.2.1
+#19 21.20   Downloaded solana-epoch-info v2.2.1
+#19 21.21   Downloaded solana-epoch-schedule v2.2.1
+#19 21.21   Downloaded quanta v0.12.6
+#19 21.23   Downloaded foldhash v0.1.5
+#19 21.23   Downloaded base64 v0.12.3
+#19 21.25   Downloaded sha2 v0.9.9
+#19 21.26   Downloaded deadpool v0.12.3
+#19 21.28   Downloaded rand_core v0.6.4
+#19 21.29   Downloaded crossbeam-utils v0.8.21
+#19 21.31   Downloaded sha1_smol v1.0.1
+#19 21.32   Downloaded ark-poly v0.4.2
+#19 21.33   Downloaded siphasher v0.3.11
+#19 21.34   Downloaded solana-hard-forks v2.2.1
+#19 21.35   Downloaded solana-hash v2.3.0
+#19 21.35   Downloaded solana-instructions-sysvar v2.2.2
+#19 21.36   Downloaded solana-big-mod-exp v2.2.1
+#19 21.36   Downloaded solana-account v2.2.1
+#19 21.36   Downloaded solana-genesis-config v2.3.0
+#19 21.37   Downloaded sha2 v0.10.9
+#19 21.38   Downloaded arc-swap v1.8.2
+#19 21.40   Downloaded quote v1.0.43
+#19 21.41   Downloaded rand_chacha v0.9.0
+#19 21.41   Downloaded ark-ec v0.4.2
+#19 21.43   Downloaded solana-keccak-hasher v2.2.1
+#19 21.44   Downloaded solana-blake3-hasher v2.2.1
+#19 21.44   Downloaded solana-loader-v4-interface v2.2.1
+#19 21.44   Downloaded solana-cluster-type v2.2.1
+#19 21.45   Downloaded solana-nonce-account v2.2.1
+#19 21.45   Downloaded solana-msg v2.2.1
+#19 21.46   Downloaded solana-loader-v3-interface v5.0.0
+#19 21.46   Downloaded parking_lot v0.12.5
+#19 21.47   Downloaded solana-loader-v2-interface v2.2.1
+#19 21.47   Downloaded solana-last-restart-slot v2.2.1
+#19 21.48   Downloaded solana-client-traits v2.2.1
+#19 21.48   Downloaded slab v0.4.11
+#19 21.49   Downloaded signal-hook-registry v1.4.8
+#19 21.49   Downloaded bv v0.11.1
+#19 21.50   Downloaded bitflags v2.10.0
+#19 21.52   Downloaded pkg-config v0.3.32
+#19 21.52   Downloaded solana-presigner v2.2.1
+#19 21.53   Downloaded solana-precompiles v2.2.2
+#19 21.53   Downloaded solana-poh-config v2.2.1
+#19 21.53   Downloaded solana-program-memory v2.3.1
+#19 21.54   Downloaded solana-packet v2.2.1
+#19 21.54   Downloaded solana-precompile-error v2.2.2
+#19 21.55   Downloaded solana-program-error v2.2.2
+#19 21.55   Downloaded maxminddb v0.24.0
+#19 21.56   Downloaded base64 v0.22.1
+#19 21.57   Downloaded darling_core v0.23.0
+#19 21.59   Downloaded ark-ff v0.4.2
+#19 21.61   Downloaded libloading v0.9.0
+#19 21.62   Downloaded solana-rent-collector v2.3.0
+#19 21.63   Downloaded solana-inflation v2.2.1
+#19 21.63   Downloaded litemap v0.8.1
+#19 21.64   Downloaded hyper-timeout v0.5.2
+#19 21.65   Downloaded solana-reserved-account-keys v2.2.2
+#19 21.65   Downloaded solana-serde-varint v2.2.2
+#19 21.66   Downloaded solana-sdk-ids v2.2.1
+#19 21.66   Downloaded solana-serialize-utils v2.2.1
+#19 21.67   Downloaded solana-shred-version v2.2.1
+#19 21.67   Downloaded hyper-rustls v0.27.7
+#19 21.68   Downloaded solana-signature v2.3.0
+#19 21.69   Downloaded ryu v1.0.22
+#19 21.70   Downloaded openssl-sys v0.9.111
+#19 21.72   Downloaded serde_derive v1.0.228
+#19 21.74   Downloaded solana-quic-definitions v2.3.1
+#19 21.74   Downloaded solana-sysvar-id v2.2.1
+#19 21.74   Downloaded solana-transaction-error v2.2.1
+#19 21.75   Downloaded borsh v1.6.1
+#19 21.78   Downloaded der v0.7.10
+#19 21.81   Downloaded cc v1.2.52
+#19 21.82   Downloaded solana-system-transaction v2.2.1
+#19 21.82   Downloaded solana-system-interface v1.0.0
+#19 21.83   Downloaded solana-stable-layout v2.2.1
+#19 21.83   Downloaded solana-slot-history v2.2.1
+#19 21.83   Downloaded solana-signer v2.2.1
+#19 21.84   Downloaded getrandom v0.2.17
+#19 21.85   Downloaded solana-short-vec v2.2.1
+#19 21.85   Downloaded solana-sha256-hasher v2.3.0
+#19 21.86   Downloaded solana-serde v2.2.1
+#19 21.86   Downloaded solana-seed-phrase v2.2.1
+#19 21.86   Downloaded solana-seed-derivable v2.2.1
+#19 21.86   Downloaded solana-secp256k1-recover v2.2.1
+#19 21.87   Downloaded solana-sdk-macro v2.2.1
+#19 21.87   Downloaded solana-sanitize v2.2.1
+#19 21.87   Downloaded solana-reward-info v2.2.1
+#19 21.88   Downloaded solana-rent-debits v2.2.1
+#19 21.88   Downloaded shlex v1.3.0
+#19 21.89   Downloaded hmac v0.12.1
+#19 21.90   Downloaded solana-rent v2.2.1
+#19 21.90   Downloaded solana-program-pack v2.2.1
+#19 21.90   Downloaded solana-program-option v2.2.1
+#19 21.91   Downloaded serde_with_macros v3.18.0
+#19 21.91   Downloaded nu-ansi-term v0.50.3
+#19 21.93   Downloaded sharded-slab v0.1.7
+#19 21.94   Downloaded strsim v0.11.1
+#19 21.95   Downloaded stable_deref_trait v1.2.1
+#19 21.95   Downloaded solana-secp256r1-program v2.2.4
+#19 21.96   Downloaded solana-secp256k1-program v2.2.3
+#19 21.96   Downloaded lock_api v0.4.14
+#19 21.97   Downloaded time-core v0.1.7
+#19 21.97   Downloaded ark-crypto-primitives v0.4.0
+#19 22.00   Downloaded bytes v1.11.0
+#19 22.01   Downloaded solana-program-entrypoint v2.3.0
+#19 22.02   Downloaded solana-epoch-rewards-hasher v2.2.1
+#19 22.02   Downloaded allocator-api2 v0.2.21
+#19 22.03   Downloaded solana-epoch-rewards v2.2.1
+#19 22.03   Downloaded solana-ed25519-program v2.2.3
+#19 22.04   Downloaded solana-derivation-path v2.2.1
+#19 22.04   Downloaded solana-define-syscall v2.3.0
+#19 22.05   Downloaded solana-decode-error v2.3.0
+#19 22.05   Downloaded solana-compute-budget-interface v2.2.2
+#19 22.05   Downloaded solana-commitment-config v2.2.1
+#19 22.06   Downloaded solana-clock v2.2.3
+#19 22.06   Downloaded solana-borsh v2.2.1
+#19 22.07   Downloaded solana-program v2.3.0
+#19 22.08   Downloaded tokio-retry v0.3.0
+#19 22.08   Downloaded tinyvec_macros v0.1.1
+#19 22.09   Downloaded prometheus v0.13.4
+#19 22.11   Downloaded solana-fee-calculator v2.2.1
+#19 22.11   Downloaded solana-feature-gate-interface v2.2.2
+#19 22.12   Downloaded solana-example-mocks v2.2.1
+#19 22.12   Downloaded ed25519-dalek v2.2.0
+#19 22.13   Downloaded solana-vote-interface v2.2.6
+#19 22.14   Downloaded rustls-pemfile v2.2.0
+#19 22.15   Downloaded solana-sysvar v2.3.0
+#19 22.16   Downloaded subtle v2.6.1
+#19 22.17   Downloaded tinystr v0.8.2
+#19 22.18   Downloaded thiserror v2.0.17
+#19 22.20   Downloaded tower-layer v0.3.3
+#19 22.20   Downloaded solana-offchain-message v2.2.1
+#19 22.21   Downloaded time-macros v0.2.25
+#19 22.22   Downloaded thread_local v1.1.9
+#19 22.22   Downloaded termcolor v1.4.1
+#19 22.23   Downloaded synstructure v0.13.2
+#19 22.23   Downloaded static_assertions v1.1.0
+#19 22.24   Downloaded solana-nonce v2.2.1
+#19 22.24   Downloaded solana-native-token v2.3.0
+#19 22.24   Downloaded solana-logger v2.3.1
+#19 22.24   Downloaded socket2 v0.6.1
+#19 22.25   Downloaded version_check v0.9.5
+#19 22.26   Downloaded socket2 v0.5.10
+#19 22.26   Downloaded utf-8 v0.7.6
+#19 22.27   Downloaded tower-service v0.3.3
+#19 22.27   Downloaded solana-fee-structure v2.3.0
+#19 22.28   Downloaded prost-types v0.13.5
+#19 22.28   Downloaded untrusted v0.9.0
+#19 22.29   Downloaded pin-project-internal v1.1.10
+#19 22.30   Downloaded utf8_iter v1.0.4
+#19 22.30   Downloaded num_enum_derive v0.7.6
+#19 22.31   Downloaded parking_lot_core v0.9.12
+#19 22.31   Downloaded once_cell v1.21.3
+#19 22.33   Downloaded solana-address-lookup-table-interface v2.2.2
+#19 22.33   Downloaded ipnetwork v0.20.0
+#19 22.35   Downloaded want v0.3.1
+#19 22.36   Downloaded tokio-native-tls v0.3.1
+#19 22.38   Downloaded serde v1.0.228
+#19 22.39   Downloaded yoke-derive v0.8.1
+#19 22.40   Downloaded tokio-macros v2.6.0
+#19 22.40   Downloaded solana-transaction-context v2.3.13
+#19 22.42   Downloaded rand v0.9.2
+#19 22.43   Downloaded toml_datetime v1.0.1+spec-1.1.0
+#19 22.43   Downloaded tokio-tungstenite v0.23.1
+#19 22.44   Downloaded zerofrom-derive v0.1.6
+#19 22.45   Downloaded zerofrom v0.1.6
+#19 22.45   Downloaded simple_asn1 v0.6.3
+#19 22.50   Downloaded solana-account-info v2.3.0
+#19 22.51   Downloaded zeroize_derive v1.4.3
+#19 22.51   Downloaded solana-bn254 v2.2.2
+#19 22.52   Downloaded thiserror v1.0.69
+#19 22.54   Downloaded solana-slot-hashes v2.2.1
+#19 22.55   Downloaded solana-validator-exit v2.2.1
+#19 22.56   Downloaded tracing-log v0.2.0
+#19 22.56   Downloaded solana-time-utils v2.2.1
+#19 22.58   Downloaded sync_wrapper v1.0.2
+#19 22.59   Downloaded rustls-webpki v0.103.8
+#19 22.60   Downloaded tokio-stream v0.1.18
+#19 22.61   Downloaded yoke v0.8.1
+#19 22.62   Downloaded tokio-rustls v0.26.4
+#19 22.63   Downloaded toml_parser v1.0.10+spec-1.1.0
+#19 22.64   Downloaded zeroize v1.8.2
+#19 22.65   Downloaded zerovec-derive v0.11.2
+#19 22.66   Downloaded zmij v1.0.14
+#19 22.67   Downloaded tinyvec v1.11.0
+#19 22.68   Downloaded solana-instruction v2.3.3
+#19 22.69   Downloaded matrixmultiply v0.3.10
+#19 22.71   Downloaded log v0.4.29
+#19 22.72   Downloaded indexmap v1.9.3
+#19 22.73   Downloaded icu_provider v2.1.1
+#19 22.76   Downloaded rand v0.7.3
+#19 22.77   Downloaded combine v4.6.7
+#19 22.79   Downloaded spinning_top v0.3.0
+#19 22.80   Downloaded futures v0.3.31
+#19 22.81   Downloaded raw-cpuid v11.6.0
+#19 22.85   Downloaded unicode-ident v1.0.22
+#19 22.87   Downloaded jsonwebtoken v9.3.1
+#19 22.88   Downloaded uuid v1.19.0
+#19 22.90   Downloaded httparse v1.10.1
+#19 22.91   Downloaded ureq-proto v0.5.3
+#19 22.92   Downloaded axum v0.7.9
+#19 22.96   Downloaded num-traits v0.2.19
+#19 23.02   Downloaded typenum v1.19.0
+#19 23.03   Downloaded aho-corasick v1.1.4
+#19 23.05   Downloaded uriparse v0.6.4
+#19 23.09   Downloaded icu_properties v2.1.2
+#19 23.10   Downloaded toml_edit v0.25.5+spec-1.1.0
+#19 23.13   Downloaded try-lock v0.2.5
+#19 23.14   Downloaded url v2.5.8
+#19 23.16   Downloaded solana-feature-set v2.2.5
+#19 23.19   Downloaded rustls-pki-types v1.13.2
+#19 23.22   Downloaded tonic v0.12.3
+#19 23.25   Downloaded zerotrie v0.2.3
+#19 23.26   Downloaded regex v1.12.2
+#19 23.28   Downloaded serde_json v1.0.149
+#19 23.31   Downloaded zerocopy-derive v0.8.33
+#19 23.34   Downloaded tower v0.4.13
+#19 23.39   Downloaded procfs v0.16.0
+#19 23.41   Downloaded tower v0.5.3
+#19 23.46   Downloaded zerovec v0.11.5
+#19 23.48   Downloaded tokio-util v0.7.18
+#19 23.52   Downloaded webpki-root-certs v1.0.6
+#19 23.53   Downloaded thiserror-impl v1.0.69
+#19 23.54   Downloaded spki v0.7.3
+#19 23.54   Downloaded redis v0.25.4
+#19 23.58   Downloaded chrono v0.4.44
+#19 23.61   Downloaded winnow v1.0.0
+#19 23.65   Downloaded getrandom v0.3.4
+#19 23.66   Downloaded vcpkg v0.2.15
+#19 23.85   Downloaded icu_normalizer_data v2.1.1
+#19 23.86   Downloaded syn v1.0.109
+#19 23.91   Downloaded icu_normalizer v2.1.1
+#19 23.92   Downloaded zerocopy v0.8.33
+#19 24.02   Downloaded tonic-build v0.12.3
+#19 24.02   Downloaded solana-keypair v2.2.3
+#19 24.03   Downloaded rustls v0.23.36
+#19 24.07   Downloaded serde_core v1.0.228
+#19 24.09   Downloaded rustix v0.38.44
+#19 24.19   Downloaded writeable v0.6.2
+#19 24.20   Downloaded curve25519-dalek v3.2.0
+#19 24.23   Downloaded rayon-core v1.13.0
+#19 24.25   Downloaded tracing v0.1.44
+#19 24.34   Downloaded solana-message v2.4.0
+#19 24.35   Downloaded procfs-core v0.16.0
+#19 24.36   Downloaded prettyplease v0.2.37
+#19 24.37   Downloaded regex-automata v0.4.13
+#19 24.44   Downloaded tempfile v3.24.0
+#19 24.45   Downloaded solana-sdk v2.3.1
+#19 24.46   Downloaded signal-hook v0.3.18
+#19 24.47   Downloaded icu_locale_core v2.1.1
+#19 24.50   Downloaded curve25519-dalek v4.1.3
+#19 24.53   Downloaded time v0.3.45
+#19 24.58   Downloaded ureq v3.2.0
+#19 24.60   Downloaded thiserror-impl v2.0.17
+#19 24.61   Downloaded solana-transaction v2.2.3
+#19 24.62   Downloaded solana-stake-interface v1.2.1
+#19 24.62   Downloaded smallvec v1.15.1
+#19 24.63   Downloaded tracing-attributes v0.1.31
+#19 24.64   Downloaded sha3 v0.10.8
+#19 24.67   Downloaded tracing-subscriber v0.2.25
+#19 24.70   Downloaded tower-http v0.6.8
+#19 24.74   Downloaded yamux v0.10.2
+#19 24.75   Downloaded tokio v1.49.0
+#19 24.92   Downloaded toml v0.5.11
+#19 24.93   Downloaded num-bigint v0.4.6
+#19 24.95   Downloaded memchr v2.7.6
+#19 24.97   Downloaded mio v1.1.1
+#19 25.00   Downloaded hashbrown v0.12.3
+#19 25.01   Downloaded tungstenite v0.23.0
+#19 25.03   Downloaded tracing-core v0.1.36
+#19 25.04   Downloaded itertools v0.10.5
+#19 25.06   Downloaded indexmap v2.13.0
+#19 25.08   Downloaded icu_collections v2.1.1
+#19 25.10   Downloaded hyper-util v0.1.19
+#19 25.13   Downloaded http v1.4.0
+#19 25.14   Downloaded rand v0.8.5
+#19 25.16   Downloaded blake3 v1.8.3
+#19 25.19   Downloaded proc-macro2 v1.0.105
+#19 25.20   Downloaded hashbrown v0.13.2
+#19 25.21   Downloaded solana-pubkey v2.4.0
+#19 25.22   Downloaded pin-project v1.1.10
+#19 25.26   Downloaded ort-sys v2.0.0-rc.12
+#19 25.27   Downloaded ort v2.0.0-rc.12
+#19 25.30   Downloaded rayon v1.11.0
+#19 25.34   Downloaded iri-string v0.7.10
+#19 25.37   Downloaded governor v0.6.3
+#19 25.39   Downloaded hashbrown v0.16.1
+#19 25.41   Downloaded encoding_rs v0.8.35
+#19 25.49   Downloaded hashbrown v0.14.5
+#19 25.51   Downloaded itertools v0.14.0
+#19 25.53   Downloaded idna v1.1.0
+#19 25.55   Downloaded icu_properties_data v2.1.2
+#19 25.59   Downloaded hashbrown v0.15.5
+#19 25.61   Downloaded futures-util v0.3.31
+#19 25.71   Downloaded protobuf v2.28.0
+#19 25.74   Downloaded reqwest v0.12.28
+#19 25.76   Downloaded h2 v0.4.13
+#19 25.78   Downloaded hyper v1.8.1
+#19 25.91   Downloaded portable-atomic v1.13.0
+#19 26.04   Downloaded serde_with v3.18.0
+#19 26.26   Downloaded ndarray v0.17.2
+#19 26.30   Downloaded lzma-rust2 v0.15.7
+#19 26.35   Downloaded tracing-subscriber v0.3.22
+#19 26.38   Downloaded ndarray v0.15.6
+#19 26.46   Downloaded openssl v0.10.75
+#19 26.63   Downloaded syn v2.0.114
+#19 26.78   Downloaded regex-syntax v0.8.8
+#19 26.91   Downloaded rustix v1.1.3
+#19 27.67   Downloaded libc v0.2.180
+#19 27.84   Downloaded petgraph v0.7.1
+#19 28.66   Downloaded ring v0.17.14
+#19 29.10   Downloaded linux-raw-sys v0.4.15
+#19 29.29   Downloaded linux-raw-sys v0.11.0
+#19 29.99    Compiling proc-macro2 v1.0.105
+#19 29.99    Compiling quote v1.0.43
+#19 29.99    Compiling unicode-ident v1.0.22
+#19 29.99    Compiling libc v0.2.180
+#19 29.99    Compiling cfg-if v1.0.4
+#19 30.00    Compiling version_check v0.9.5
+#19 30.01    Compiling serde_core v1.0.228
+#19 30.02    Compiling typenum v1.19.0
+#19 30.02    Compiling autocfg v1.5.0
+#19 30.02    Compiling subtle v2.6.1
+#19 30.03    Compiling zerocopy v0.8.33
+#19 30.04    Compiling once_cell v1.21.3
+#19 30.05    Compiling serde v1.0.228
+#19 30.06    Compiling const-oid v0.9.6
+#19 30.12    Compiling syn v1.0.109
+#19 30.27    Compiling equivalent v1.0.2
+#19 30.41    Compiling hashbrown v0.16.1
+#19 30.47    Compiling cpufeatures v0.2.17
+#19 30.56    Compiling getrandom v0.3.4
+#19 30.64    Compiling winnow v1.0.0
+#19 30.74    Compiling memchr v2.7.6
+#19 30.81    Compiling toml_datetime v1.0.1+spec-1.1.0
+#19 30.87    Compiling generic-array v0.14.7
+#19 30.88    Compiling ahash v0.8.12
+#19 30.88    Compiling cfg_aliases v0.2.1
+#19 30.92    Compiling five8_core v0.1.2
+#19 30.96    Compiling num-traits v0.2.19
+#19 30.98    Compiling borsh v1.6.1
+#19 31.02    Compiling five8 v0.2.1
+#19 31.03    Compiling solana-sanitize v2.2.1
+#19 31.05    Compiling itoa v1.0.17
+#19 31.22    Compiling solana-atomic-u64 v2.2.1
+#19 31.33    Compiling semver v1.0.27
+#19 31.41    Compiling five8_const v0.1.4
+#19 31.67    Compiling zmij v1.0.14
+#19 31.76    Compiling serde_json v1.0.149
+#19 32.53    Compiling indexmap v2.13.0
+#19 32.55    Compiling find-msvc-tools v0.1.7
+#19 32.65    Compiling shlex v1.3.0
+#19 32.77    Compiling rustc_version v0.4.1
+#19 33.14    Compiling pin-project-lite v0.2.16
+#19 33.14    Compiling smallvec v1.15.1
+#19 33.19    Compiling cc v1.2.52
+#19 33.41    Compiling lazy_static v1.5.0
+#19 34.04    Compiling curve25519-dalek v4.1.3
+#19 34.08    Compiling scopeguard v1.2.0
+#19 34.17    Compiling parking_lot_core v0.9.12
+#19 34.30    Compiling bytes v1.11.0
+#19 34.39    Compiling syn v2.0.114
+#19 34.57    Compiling getrandom v0.2.17
+#19 34.61    Compiling block-buffer v0.10.4
+#19 34.67    Compiling crypto-common v0.1.7
+#19 34.82    Compiling toml_parser v1.0.10+spec-1.1.0
+#19 34.95    Compiling digest v0.10.7
+#19 34.98    Compiling rand_core v0.6.4
+#19 35.01    Compiling solana-decode-error v2.3.0
+#19 35.13    Compiling errno v0.3.14
+#19 35.18    Compiling lock_api v0.4.14
+#19 35.27    Compiling bs58 v0.5.1
+#19 35.28    Compiling futures-core v0.3.31
+#19 35.42    Compiling signal-hook-registry v1.4.8
+#19 35.59    Compiling sha2 v0.10.9
+#19 35.63    Compiling pkg-config v0.3.32
+#19 35.71    Compiling vcpkg v0.2.15
+#19 35.76    Compiling getrandom v0.1.16
+#19 35.99    Compiling parking_lot v0.12.5
+#19 36.03    Compiling toml_edit v0.25.5+spec-1.1.0
+#19 36.26    Compiling digest v0.9.0
+#19 36.62    Compiling log v0.4.29
+#19 36.70    Compiling mio v1.1.1
+#19 36.81    Compiling socket2 v0.6.1
+#19 37.04    Compiling futures-sink v0.3.31
+#19 37.16    Compiling rand_core v0.5.1
+#19 37.21    Compiling futures-io v0.3.31
+#19 37.23    Compiling ppv-lite86 v0.2.21
+#19 37.43    Compiling block-buffer v0.9.0
+#19 37.46    Compiling opaque-debug v0.3.1
+#19 37.47    Compiling openssl-sys v0.9.111
+#19 37.53    Compiling percent-encoding v2.3.2
+#19 37.59    Compiling sha2 v0.9.9
+#19 37.62    Compiling proc-macro-crate v3.5.0
+#19 37.66    Compiling crossbeam-utils v0.8.21
+#19 37.78    Compiling hashbrown v0.13.2
+#19 37.94    Compiling rand_chacha v0.3.1
+#19 38.05    Compiling rand_chacha v0.2.2
+#19 38.07    Compiling byteorder v1.5.0
+#19 38.09    Compiling openssl v0.10.75
+#19 38.43    Compiling bitflags v2.10.0
+#19 38.60    Compiling rand v0.8.5
+#19 38.62    Compiling slab v0.4.11
+#19 38.66    Compiling futures-channel v0.3.31
+#19 38.67    Compiling num-integer v0.1.46
+#19 38.68    Compiling rand v0.7.3
+#19 38.74    Compiling pin-utils v0.1.0
+#19 38.89    Compiling crunchy v0.2.4
+#19 39.00    Compiling signature v1.6.4
+#19 39.24    Compiling toml v0.5.11
+#19 39.31    Compiling futures-task v0.3.31
+#19 39.35    Compiling fnv v1.0.7
+#19 39.37    Compiling ed25519 v1.5.3
+#19 39.42    Compiling tracing-core v0.1.36
+#19 39.47    Compiling solana-msg v2.2.1
+#19 39.50    Compiling base64 v0.22.1
+#19 39.64    Compiling stable_deref_trait v1.2.1
+#19 39.76    Compiling num-bigint v0.4.6
+#19 39.79    Compiling rayon-core v1.13.0
+#19 39.85    Compiling solana-program-memory v2.3.1
+#19 40.07    Compiling crossbeam-epoch v0.9.18
+#19 40.49    Compiling http v1.4.0
+#19 40.55    Compiling arrayref v0.3.9
+#19 40.63    Compiling either v1.15.0
+#19 40.71    Compiling feature-probe v0.1.1
+#19 40.73    Compiling crossbeam-deque v0.8.6
+#19 40.96    Compiling serde_bytes v0.11.19
+#19 40.97    Compiling bv v0.11.1
+#19 41.04    Compiling blake3 v1.8.3
+#19 41.21    Compiling proc-macro-crate v0.1.5
+#19 41.52    Compiling foreign-types-shared v0.1.1
+#19 41.61    Compiling paste v1.0.15
+#19 41.67    Compiling libsecp256k1-core v0.2.2
+#19 41.71    Compiling native-tls v0.2.14
+#19 41.77    Compiling foreign-types v0.3.2
+#19 42.24    Compiling crypto-mac v0.8.0
+#19 42.31    Compiling arrayvec v0.7.6
+#19 42.32    Compiling anyhow v1.0.100
+#19 42.42    Compiling rayon v1.11.0
+#19 42.47    Compiling constant_time_eq v0.4.2
+#19 42.56    Compiling rustversion v1.0.22
+#19 42.83    Compiling borsh-schema-derive-internal v0.10.4
+#19 42.85    Compiling borsh-derive-internal v0.10.4
+#19 42.96    Compiling http-body v1.0.1
+#19 43.36    Compiling synstructure v0.13.2
+#19 43.56    Compiling libsecp256k1-gen-ecmult v0.2.1
+#19 43.56    Compiling libsecp256k1-gen-genmult v0.2.1
+#19 43.67    Compiling hmac v0.8.1
+#19 43.82    Compiling itertools v0.10.5
+#19 43.85    Compiling libsecp256k1 v0.6.0
+#19 43.91    Compiling derivation-path v0.2.0
+#19 44.01    Compiling litemap v0.8.1
+#19 44.04    Compiling httparse v1.10.1
+#19 44.22    Compiling writeable v0.6.2
+#19 44.60    Compiling tower-service v0.3.3
+#19 44.73    Compiling keccak v0.1.6
+#19 44.79    Compiling hmac-drbg v0.3.0
+#19 44.90    Compiling uriparse v0.6.4
+#19 44.96    Compiling sha3 v0.10.8
+#19 45.01    Compiling qstring v0.7.2
+#19 45.06    Compiling itertools v0.14.0
+#19 45.23    Compiling hmac v0.12.1
+#19 45.46    Compiling aho-corasick v1.1.4
+#19 45.49    Compiling icu_normalizer_data v2.1.1
+#19 45.60    Compiling thiserror v2.0.17
+#19 45.62    Compiling regex-syntax v0.8.8
+#19 45.71    Compiling base64 v0.12.3
+#19 45.74    Compiling icu_properties_data v2.1.2
+#19 46.05    Compiling ring v0.17.14
+#19 46.07    Compiling borsh-derive v0.10.4
+#19 46.10    Compiling ark-serialize-derive v0.4.2
+#19 46.12    Compiling ark-ff-asm v0.4.2
+#19 46.21    Compiling serde_derive v1.0.228
+#19 46.31    Compiling zeroize_derive v1.4.3
+#19 46.54    Compiling borsh-derive v1.6.1
+#19 46.61    Compiling bytemuck_derive v1.10.2
+#19 46.73    Compiling curve25519-dalek-derive v0.1.1
+#19 46.83    Compiling borsh v0.10.4
+#19 46.87    Compiling solana-sdk-macro v2.2.1
+#19 46.88    Compiling tokio-macros v2.6.0
+#19 47.06    Compiling futures-macro v0.3.31
+#19 47.38    Compiling zeroize v1.8.2
+#19 47.61    Compiling openssl-macros v0.1.1
+#19 47.68    Compiling curve25519-dalek v3.2.0
+#19 47.69    Compiling zerofrom-derive v0.1.6
+#19 47.96    Compiling yoke-derive v0.8.1
+#19 48.04    Compiling tracing-attributes v0.1.31
+#19 48.07    Compiling tokio v1.49.0
+#19 48.10    Compiling zerovec-derive v0.11.2
+#19 48.10    Compiling displaydoc v0.2.5
+#19 48.28    Compiling futures-util v0.3.31
+#19 48.69    Compiling bytemuck v1.25.0
+#19 49.13    Compiling ark-std v0.4.0
+#19 49.32    Compiling ark-serialize v0.4.2
+#19 49.35    Compiling ark-ff-macros v0.4.2
+#19 49.56    Compiling derivative v2.2.0
+#19 49.58    Compiling regex-automata v0.4.13
+#19 49.60    Compiling zerofrom v0.1.6
+#19 49.79    Compiling yoke v0.8.1
+#19 49.88    Compiling prost-derive v0.13.5
+#19 49.92    Compiling solana-derivation-path v2.2.1
+#19 50.04    Compiling tracing v0.1.44
+#19 50.08    Compiling zerovec v0.11.5
+#19 50.50    Compiling zerotrie v0.2.3
+#19 50.67    Compiling thiserror-impl v2.0.17
+#19 50.82    Compiling pbkdf2 v0.11.0
+#19 50.98    Compiling solana-precompile-error v2.2.2
+#19 51.11    Compiling tinystr v0.8.2
+#19 51.14    Compiling potential_utf v0.1.4
+#19 51.16    Compiling ident_case v1.0.1
+#19 51.38    Compiling icu_locale_core v2.1.1
+#19 51.40    Compiling icu_collections v2.1.1
+#19 52.23    Compiling strsim v0.11.1
+#19 52.26    Compiling ark-ff v0.4.2
+#19 52.46    Compiling solana-hash v2.3.0
+#19 52.58    Compiling bincode v1.3.3
+#19 52.58    Compiling ed25519-dalek v1.0.1
+#19 52.62    Compiling serde-big-array v0.5.1
+#19 52.74    Compiling solana-sha256-hasher v2.3.0
+#19 52.90    Compiling solana-fee-calculator v2.2.1
+#19 53.01    Compiling solana-signature v2.3.0
+#19 53.22    Compiling solana-pubkey v2.4.0
+#19 53.49    Compiling solana-short-vec v2.2.1
+#19 53.52    Compiling icu_provider v2.1.1
+#19 53.76    Compiling solana-instruction v2.3.3
+#19 53.77    Compiling solana-sdk-ids v2.2.1
+#19 54.01    Compiling solana-sysvar-id v2.2.1
+#19 54.14    Compiling solana-epoch-schedule v2.2.1
+#19 54.24    Compiling solana-system-interface v1.0.0
+#19 54.27    Compiling solana-transaction-error v2.2.1
+#19 54.29    Compiling solana-program-error v2.2.2
+#19 54.32    Compiling solana-clock v2.2.3
+#19 54.52    Compiling solana-account-info v2.3.0
+#19 54.61    Compiling solana-serialize-utils v2.2.1
+#19 54.63    Compiling solana-slot-hashes v2.2.1
+#19 54.71    Compiling solana-rent v2.2.1
+#19 54.80    Compiling solana-cpi v2.2.1
+#19 54.88    Compiling solana-slot-history v2.2.1
+#19 55.00    Compiling solana-stake-interface v1.2.1
+#19 55.00    Compiling solana-instructions-sysvar v2.2.2
+#19 55.01    Compiling solana-program-entrypoint v2.3.0
+#19 55.08    Compiling solana-signer v2.2.1
+#19 55.30    Compiling solana-last-restart-slot v2.2.1
+#19 55.31    Compiling solana-epoch-rewards v2.2.1
+#19 55.43    Compiling solana-feature-set v2.2.5
+#19 55.45    Compiling solana-bincode v2.2.1
+#19 55.60    Compiling solana-message v2.4.0
+#19 55.72    Compiling ed25519-dalek-bip32 v0.2.0
+#19 55.76    Compiling darling_core v0.23.0
+#19 55.95    Compiling solana-seed-phrase v2.2.1
+#19 56.00    Compiling solana-seed-derivable v2.2.1
+#19 56.38    Compiling solana-sysvar v2.3.0
+#19 56.44    Compiling atomic-waker v1.1.2
+#19 56.48    Compiling rustix v1.1.3
+#19 56.64    Compiling tower-layer v0.3.3
+#19 56.93    Compiling base64ct v1.8.3
+#19 56.98    Compiling solana-account v2.2.1
+#19 57.76    Compiling try-lock v0.2.5
+#19 57.93    Compiling want v0.3.1
+#19 58.14    Compiling pem-rfc7468 v0.7.0
+#19 58.46    Compiling tokio-util v0.7.18
+#19 58.52    Compiling icu_properties v2.1.2
+#19 58.60    Compiling icu_normalizer v2.1.1
+#19 58.69    Compiling solana-keypair v2.2.3
+#19 59.72    Compiling rustls-pki-types v1.13.2
+#19 59.76    Compiling pin-project-internal v1.1.10
+#19 59.95    Compiling h2 v0.4.13
+#19 60.23    Compiling sync_wrapper v1.0.2
+#19 60.46    Compiling httpdate v1.0.3
+#19 60.95    Compiling linux-raw-sys v0.11.0
+#19 61.15    Compiling signal-hook v0.3.18
+#19 61.22    Compiling darling_macro v0.23.0
+#19 61.32    Compiling openssl-probe v0.1.6
+#19 61.67    Compiling prettyplease v0.2.37
+#19 61.87    Compiling ureq-proto v0.5.3
+#19 61.93    Compiling darling v0.23.0
+#19 61.96    Compiling pin-project v1.1.10
+#19 62.05    Compiling socks v0.3.4
+#19 62.11    Compiling idna_adapter v1.2.1
+#19 62.14    Compiling webpki-root-certs v1.0.6
+#19 62.15    Compiling solana-secp256k1-program v2.2.3
+#19 62.18    Compiling der v0.7.10
+#19 62.31    Compiling solana-secp256r1-program v2.2.4
+#19 62.34    Compiling solana-ed25519-program v2.2.3
+#19 62.52    Compiling regex v1.12.2
+#19 62.54    Compiling futures-executor v0.3.31
+#19 62.71    Compiling prost v0.13.5
+#19 63.09    Compiling async-trait v0.1.89
+#19 63.10    Compiling http-body-util v0.1.3
+#19 63.56    Compiling form_urlencoded v1.2.2
+#19 63.89    Compiling atty v0.2.14
+#19 64.03    Compiling matrixmultiply v0.3.10
+#19 64.09    Compiling termcolor v1.4.1
+#19 64.38    Compiling thiserror v1.0.69
+#19 64.54    Compiling utf8_iter v1.0.4
+#19 64.59    Compiling untrusted v0.9.0
+#19 64.76    Compiling utf-8 v0.7.6
+#19 64.79    Compiling fixedbitset v0.5.7
+#19 64.81    Compiling fastrand v2.3.0
+#19 64.84    Compiling ipnet v2.11.0
+#19 64.84    Compiling humantime v2.3.0
+#19 64.96    Compiling ureq v3.2.0
+#19 64.97    Compiling idna v1.1.0
+#19 65.03    Compiling prost-types v0.13.5
+#19 65.07    Compiling petgraph v0.7.1
+#19 65.08    Compiling tempfile v3.24.0
+#19 65.13    Compiling env_logger v0.9.3
+#19 65.19    Compiling futures v0.3.31
+#19 65.32    Compiling solana-precompiles v2.2.2
+#19 65.64    Compiling serde_with_macros v3.18.0
+#19 66.38    Compiling hyper v1.8.1
+#19 67.04    Compiling tower v0.5.3
+#19 67.14    Compiling solana-nonce v2.2.1
+#19 67.16    Compiling solana-hard-forks v2.2.1
+#19 67.29    Compiling thiserror-impl v1.0.69
+#19 67.41    Compiling tracing-subscriber v0.2.25
+#19 67.44    Compiling indexmap v1.9.3
+#19 67.47    Compiling memoffset v0.9.1
+#19 67.61    Compiling rawpointer v0.2.1
+#19 67.68    Compiling crc16 v0.4.0
+#19 67.70    Compiling num-conv v0.1.0
+#19 67.72    Compiling multimap v0.10.1
+#19 67.76    Compiling heck v0.5.0
+#19 67.88    Compiling hmac-sha256 v1.1.14
+#19 67.95    Compiling time-core v0.1.7
+#19 67.97    Compiling rustix v0.38.44
+#19 67.98    Compiling ryu v1.0.22
+#19 68.04    Compiling powerfmt v0.2.0
+#19 68.06    Compiling lzma-rust2 v0.15.7
+#19 68.08    Compiling mime v0.3.17
+#19 68.14    Compiling time-macros v0.2.25
+#19 68.15    Compiling prost-build v0.13.5
+#19 68.35    Compiling deranged v0.5.5
+#19 68.78    Compiling solana-shred-version v2.2.1
+#19 68.89    Compiling serde_with v3.18.0
+#19 69.17    Compiling solana-logger v2.3.1
+#19 69.20    Compiling url v2.5.8
+#19 69.27    Compiling hyper-util v0.1.19
+#19 69.31    Compiling ort-sys v2.0.0-rc.12
+#19 69.56    Compiling solana-transaction v2.2.3
+#19 69.95    Compiling solana-address-lookup-table-interface v2.2.2
+#19 70.17    Compiling solana-keccak-hasher v2.2.1
+#19 70.21    Compiling solana-cluster-type v2.2.1
+#19 70.43    Compiling solana-poh-config v2.2.1
+#19 70.51    Compiling solana-inflation v2.2.1
+#19 70.59    Compiling solana-serde-varint v2.2.2
+#19 70.68    Compiling ark-poly v0.4.2
+#19 70.75    Compiling ark-relations v0.4.0
+#19 70.85    Compiling cfg_eval v0.1.2
+#19 70.85    Compiling num_enum_derive v0.7.6
+#19 70.98    Compiling num-derive v0.4.2
+#19 71.12    Compiling rand_core v0.9.5
+#19 71.42    Compiling num-complex v0.4.6
+#19 71.60    Compiling chrono v0.4.44
+#19 71.62    Compiling memmap2 v0.5.10
+#19 71.64    Compiling socket2 v0.5.10
+#19 71.94    Compiling procfs v0.16.0
+#19 72.12    Compiling hex v0.4.3
+#19 72.15    Compiling solana-native-token v2.3.0
+#19 72.18    Compiling portable-atomic v1.13.0
+#19 72.28    Compiling solana-time-utils v2.2.1
+#19 72.55    Compiling protobuf v2.28.0
+#19 72.66    Compiling hashbrown v0.12.3
+#19 72.67    Compiling linux-raw-sys v0.4.15
+#19 72.69    Compiling rustls v0.23.36
+#19 72.69    Compiling num_enum v0.7.6
+#19 72.77    Compiling procfs-core v0.16.0
+#19 72.85    Compiling time v0.3.45
+#19 72.88    Compiling solana-vote-interface v2.2.6
+#19 73.02    Compiling ark-snark v0.4.0
+#19 73.07    Compiling rustls-webpki v0.103.8
+#19 73.14    Compiling rand_chacha v0.9.0
+#19 73.21    Compiling ark-ec v0.4.2
+#19 73.58    Compiling solana-genesis-config v2.3.0
+#19 73.72    Compiling solana-packet v2.2.1
+#19 74.16    Compiling solana-example-mocks v2.2.1
+#19 74.41    Compiling tonic-build v0.12.3
+#19 74.59    Compiling tokio-native-tls v0.3.1
+#19 74.72    Compiling axum-core v0.4.5
+#19 74.81    Compiling tokio-retry v0.3.0
+#19 74.81    Compiling combine v4.6.7
+#19 74.84    Compiling solana-secp256k1-recover v2.2.1
+#19 75.08    Compiling deadpool-runtime v0.1.4
+#19 75.10    Compiling solana-feature-gate-interface v2.2.2
+#19 75.14    Compiling solana-loader-v4-interface v2.2.1
+#19 75.29    Compiling solana-loader-v3-interface v5.0.0
+#19 75.51    Compiling solana-program-pack v2.2.1
+#19 75.66    Compiling solana-loader-v2-interface v2.2.1
+#19 75.73    Compiling solana-stable-layout v2.2.1
+#19 75.92    Compiling solana-blake3-hasher v2.2.1
+#19 75.94    Compiling solana-epoch-info v2.2.1
+#19 75.97    Compiling solana-reward-info v2.2.1
+#19 76.06    Compiling solana-commitment-config v2.2.1
+#19 76.13    Compiling solana-borsh v2.2.1
+#19 76.15    Compiling async-stream-impl v0.3.6
+#19 76.17    Compiling arc-swap v1.8.2
+#19 76.20    Compiling solana-big-mod-exp v2.2.1
+#19 76.21    Compiling raw-cpuid v11.6.0
+#19 76.32    Compiling sha1 v0.10.6
+#19 76.41    Compiling blake2 v0.10.6
+#19 76.44    Compiling num_cpus v1.17.0
+#19 76.54    Compiling signature v2.2.0
+#19 76.71    Compiling ark-bn254 v0.4.0
+#19 76.72    Compiling siphasher v0.3.11
+#19 76.78    Compiling hashbrown v0.14.5
+#19 76.96    Compiling data-encoding v2.10.0
+#19 77.01    Compiling matchit v0.7.3
+#19 77.05    Compiling allocator-api2 v0.2.21
+#19 77.07    Compiling foldhash v0.1.5
+#19 77.37    Compiling prometheus v0.13.4
+#19 77.40    Compiling sha1_smol v1.0.1
+#19 77.58    Compiling solana-program-option v2.2.1
+#19 77.65    Compiling solana-define-syscall v2.3.0
+#19 77.69    Compiling iri-string v0.7.10
+#19 77.76    Compiling solana-bn254 v2.2.2
+#19 77.81    Compiling hashbrown v0.15.5
+#19 77.88    Compiling tungstenite v0.23.0
+#19 77.89    Compiling dashmap v5.5.3
+#19 77.91    Compiling solana-epoch-rewards-hasher v2.2.1
+#19 77.97    Compiling async-stream v0.3.6
+#19 78.01    Compiling ark-crypto-primitives v0.4.0
+#19 78.11    Compiling axum v0.7.9
+#19 78.13    Compiling deadpool v0.12.3
+#19 78.15    Compiling ed25519 v2.2.3
+#19 78.22    Compiling solana-client-traits v2.2.1
+#19 78.44    Compiling solana-rent-debits v2.2.1
+#19 78.55    Compiling edge-gateway v0.1.0 (/app)
+#19 78.88    Compiling simple_asn1 v0.6.3
+#19 78.95    Compiling hyper-tls v0.6.0
+#19 79.05    Compiling quanta v0.12.6
+#19 79.17    Compiling tower v0.4.13
+#19 79.39    Compiling solana-program v2.3.0
+#19 79.47    Compiling solana-rent-collector v2.3.0
+#19 80.12    Compiling solana-offchain-message v2.2.1
+#19 80.41    Compiling rand v0.9.2
+#19 81.01    Compiling tower-http v0.6.8
+#19 81.64    Compiling solana-fee-structure v2.3.0
+#19 81.84    Compiling ndarray v0.17.2
+#19 81.92    Compiling hyper-timeout v0.5.2
+#19 81.97    Compiling solana-system-transaction v2.2.1
+#19 82.01    Compiling serde_urlencoded v0.7.1
+#19 82.20    Compiling solana-nonce-account v2.2.1
+#19 82.39    Compiling solana-quic-definitions v2.3.1
+#19 82.43    Compiling tokio-stream v0.1.18
+#19 82.54    Compiling solana-transaction-context v2.3.13
+#19 82.56    Compiling solana-reserved-account-keys v2.2.2
+#19 82.63    Compiling matchers v0.2.0
+#19 82.66    Compiling solana-presigner v2.2.1
+#19 82.73    Compiling solana-compute-budget-interface v2.2.2
+#19 82.75    Compiling solana-serde v2.2.1
+#19 82.84    Compiling ipnetwork v0.20.0
+#19 82.87    Compiling tracing-log v0.2.0
+#19 82.87    Compiling pem v3.0.6
+#19 82.89    Compiling spinning_top v0.3.0
+#19 83.06    Compiling sharded-slab v0.1.7
+#19 83.08    Compiling libloading v0.9.0
+#19 83.37    Compiling redis v0.25.4
+#19 83.42    Compiling encoding_rs v0.8.35
+#19 83.64    Compiling thread_local v1.1.9
+#19 83.65    Compiling nu-ansi-term v0.50.3
+#19 83.65    Compiling no-std-compat v0.4.1
+#19 83.82    Compiling nohash-hasher v0.2.0
+#19 83.83    Compiling static_assertions v1.1.0
+#19 83.84    Compiling futures-timer v3.0.3
+#19 84.01    Compiling nonzero_ext v0.3.0
+#19 84.02    Compiling solana-validator-exit v2.2.1
+#19 84.08    Compiling yamux v0.10.2
+#19 84.18    Compiling jsonwebtoken v9.3.1
+#19 84.19    Compiling maxminddb v0.24.0
+#19 84.28    Compiling uuid v1.19.0
+#19 84.47    Compiling tracing-subscriber v0.3.22
+#19 84.63    Compiling governor v0.6.3
+#19 85.02    Compiling tonic v0.12.3
+#19 85.22    Compiling tokio-tungstenite v0.23.1
+#19 85.35    Compiling lru v0.12.5
+#19 85.37    Compiling ed25519-dalek v2.2.0
+#19 85.68    Compiling reqwest v0.12.28
+#19 85.70    Compiling ark-groth16 v0.4.0
+#19 85.80    Compiling ndarray v0.15.6
+#19 86.04    Compiling rustls-pemfile v2.2.0
+#19 87.33    Compiling solana-sdk v2.3.1
+#19 88.61    Compiling tokio-rustls v0.26.4
+#19 93.29    Compiling deadpool-redis v0.15.1
+#19 93.50    Compiling ort v2.0.0-rc.12
+#19 99.89 warning: unused import: `error`
+#19 99.89  --> src/circuitbreaker.rs:4:27
+#19 99.89   |
+#19 99.89 4 | use tracing::{info, warn, error};
+#19 99.89   |                           ^^^^^
+#19 99.89   |
+#19 99.89   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+#19 99.89 
+#19 99.89 warning: unused import: `std::sync::Arc`
+#19 99.89  --> src/pricing/demand.rs:7:5
+#19 99.89   |
+#19 99.89 7 | use std::sync::Arc;
+#19 99.89   |     ^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `AsyncCommands`
+#19 99.89  --> src/leader.rs:5:21
+#19 99.89   |
+#19 99.89 5 | use redis::{Client, AsyncCommands};
+#19 99.89   |                     ^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `warn`
+#19 99.89   --> src/pool/connection_pool.rs:19:22
+#19 99.89    |
+#19 99.89 19 | use tracing::{debug, warn};
+#19 99.89    |                      ^^^^
+#19 99.89 
+#19 99.89 warning: unused imports: `PoolStats` and `PooledStream`
+#19 99.89  --> src/pool/mod.rs:3:55
+#19 99.89   |
+#19 99.89 3 | pub use connection_pool::{ConnectionPool, PoolConfig, PoolStats, PooledStream};
+#19 99.89   |                                                       ^^^^^^^^^  ^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `std::sync::Arc`
+#19 99.89  --> src/redis_pool.rs:8:5
+#19 99.89   |
+#19 99.89 8 | use std::sync::Arc;
+#19 99.89   |     ^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `ark_ff::PrimeField`
+#19 99.89  --> src/billing/zk.rs:7:5
+#19 99.89   |
+#19 99.89 7 | use ark_ff::PrimeField;
+#19 99.89   |     ^^^^^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused imports: `Groth16`, `PreparedVerifyingKey`, and `VerifyingKey`
+#19 99.89  --> src/billing/zk.rs:8:19
+#19 99.89   |
+#19 99.89 8 | use ark_groth16::{Groth16, ProvingKey, VerifyingKey, PreparedVerifyingKey};
+#19 99.89   |                   ^^^^^^^              ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `rand::rngs::OsRng`
+#19 99.89   --> src/billing/zk.rs:10:5
+#19 99.89    |
+#19 99.89 10 | use rand::rngs::OsRng;
+#19 99.89    |     ^^^^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `std::sync::Arc`
+#19 99.89   --> src/billing/zk.rs:11:5
+#19 99.89    |
+#19 99.89 11 | use std::sync::Arc;
+#19 99.89    |     ^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `error`
+#19 99.89   --> src/billing/zk.rs:12:21
+#19 99.89    |
+#19 99.89 12 | use tracing::{info, error};
+#19 99.89    |                     ^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `Signer`
+#19 99.89  --> src/billing/solana.rs:6:38
+#19 99.89   |
+#19 99.89 6 | use solana_sdk::signature::{Keypair, Signer};
+#19 99.89   |                                      ^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `solana_sdk::transaction::Transaction`
+#19 99.89  --> src/billing/solana.rs:7:5
+#19 99.89   |
+#19 99.89 7 | use solana_sdk::transaction::Transaction;
+#19 99.89   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `solana_sdk::instruction::Instruction`
+#19 99.89  --> src/billing/solana.rs:8:5
+#19 99.89   |
+#19 99.89 8 | use solana_sdk::instruction::Instruction;
+#19 99.89   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#19 99.89 
+#19 99.89 warning: unused import: `error`
+#19 99.89   --> src/billing/solana.rs:10:21
+#19 99.89    |
+#19 99.89 10 | use tracing::{info, error, warn};
+#19 99.89    |                     ^^^^^
+#19 99.89 
+#19 99.90 warning: unused imports: `Deserialize` and `Serialize`
+#19 99.90   --> src/routing/features.rs:26:13
+#19 99.90    |
+#19 99.90 26 | use serde::{Deserialize, Serialize};
+#19 99.90    |             ^^^^^^^^^^^  ^^^^^^^^^
+#19 99.90 
+#19 99.90 warning: unused imports: `debug` and `warn`
+#19 99.90   --> src/routing/features.rs:27:15
+#19 99.90    |
+#19 99.90 27 | use tracing::{debug, warn};
+#19 99.90    |               ^^^^^  ^^^^
+#19 99.90 
+#19 99.90 warning: unused imports: `error` and `warn`
+#19 99.90   --> src/routing/ml_router.rs:66:19
+#19 99.90    |
+#19 99.90 66 |     use tracing::{error, warn};
+#19 99.90    |                   ^^^^^  ^^^^
+#19 99.90 
+#19 99.90 warning: unused import: `Instant`
+#19 99.90   --> src/security/ddos.rs:20:22
+#19 99.90    |
+#19 99.90 20 |     time::{Duration, Instant},
+#19 99.90    |                      ^^^^^^^
+#19 99.90 
+#19 99.90 warning: unused imports: `Arc`, `AtomicU64`, `Duration`, `Mutex`, `Ordering`, and `collections::HashMap`
+#19 99.90   --> src/security/fingerprint.rs:17:5
+#19 99.90    |
+#19 99.90 17 |     collections::HashMap,
+#19 99.90    |     ^^^^^^^^^^^^^^^^^^^^
+#19 99.90 ...
+#19 99.90 20 |         atomic::{AtomicU64, Ordering},
+#19 99.90    |                  ^^^^^^^^^  ^^^^^^^^
+#19 99.90 21 |         Arc, Mutex,
+#19 99.90    |         ^^^  ^^^^^
+#19 99.90 22 |     },
+#19 99.90 23 |     time::{Duration, Instant},
+#19 99.90    |            ^^^^^^^^
+#19 99.90 
+#19 99.90 warning: unused import: `std::sync::Arc`
+#19 99.90  --> src/security/honeytoken.rs:7:5
+#19 99.90   |
+#19 99.90 7 | use std::sync::Arc;
+#19 99.90   |     ^^^^^^^^^^^^^^
+#19 99.90 
+#19 99.90 warning: unused import: `std::path::Path`
+#19 99.90  --> src/tls.rs:3:5
+#19 99.90   |
+#19 99.90 3 | use std::path::Path;
+#19 99.90   |     ^^^^^^^^^^^^^^^
+#19 99.90 
+#19 99.90 warning: unused import: `prelude::*`
+#19 99.90  --> src/qos.rs:2:16
+#19 99.90   |
+#19 99.90 2 | use governor::{prelude::*, Quota, RateLimiter};
+#19 99.90   |                ^^^^^^^^^^
+#19 99.90 
+#19 100.0 warning: use of deprecated struct `redis::aio::Connection`: aio::Connection is deprecated. Use aio::MultiplexedConnection instead.
+#19 100.0    --> src/config.rs:167:33
+#19 100.0     |
+#19 100.0 167 |         redis: &mut redis::aio::Connection,
+#19 100.0     |                                 ^^^^^^^^^^
+#19 100.0     |
+#19 100.0     = note: `#[warn(deprecated)]` on by default
+#19 100.0 
+#19 100.4 warning: variable does not need to be mutable
+#19 100.4    --> src/blockchain/grpc_stream.rs:256:24
+#19 100.4     |
+#19 100.4 256 |         let (event_tx, mut event_rx) = mpsc::channel::<SignedUsageEvent>(config.batch_size * 2);
+#19 100.4     |                        ----^^^^^^^^
+#19 100.4     |                        |
+#19 100.4     |                        help: remove this `mut`
+#19 100.4     |
+#19 100.4     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+#19 100.4 
+#19 101.0 warning: variable does not need to be mutable
+#19 101.0   --> src/security/honeytoken.rs:63:46
+#19 101.0    |
+#19 101.0 63 |     pub async fn handle_malicious_connection(mut stream: tokio::io::DuplexStream) -> io::Result<()> {
+#19 101.0    |                                              ----^^^^^^
+#19 101.0    |                                              |
+#19 101.0    |                                              help: remove this `mut`
+#19 101.0 
+#19 101.1 error[E0382]: borrow of moved value: `state`
+#19 101.1    --> src/tunnel.rs:364:27
+#19 101.1     |
+#19 101.1 134 | async fn handle_provider_connection<S>(stream: S, peer_addr: SocketAddr, state: Arc<AppState>)
+#19 101.1     |                                                                          ----- move occurs because `state` has type `Arc<AppState>`, which does not implement the `Copy` trait
+#19 101.1 ...
+#19 101.1 328 |     tokio::spawn(async move {
+#19 101.1     |                  ---------- value moved here
+#19 101.1 ...
+#19 101.1 348 |                 state.registry.update_node_info(&registration_node_id, |info| {
+#19 101.1     |                 ----- variable moved due to use in coroutine
+#19 101.1 ...
+#19 101.1 364 |     let heartbeat_state = state.clone();
+#19 101.1     |                           ^^^^^ value borrowed here after move
+#19 101.1     |
+#19 101.1 help: consider cloning the value before moving it into the closure
+#19 101.1     |
+#19 101.1 328 ~     let value = state.clone();
+#19 101.1 329 ~     tokio::spawn(async move {
+#19 101.1 330 |         let req = crate::control_api::RegisterNodeRequest {
+#19 101.1 ...
+#19 101.1 348 |                 // Update local node info with the latest ranking and pricing from the API
+#19 101.1 349 ~                 value.registry.update_node_info(&registration_node_id, |info| {
+#19 101.1     |
+#19 101.1 
+#19 102.0 warning: unused import: `redis::AsyncCommands`
+#19 102.0  --> src/redis_pool.rs:7:5
+#19 102.0   |
+#19 102.0 7 | use redis::AsyncCommands;
+#19 102.0   |     ^^^^^^^^^^^^^^^^^^^^
+#19 102.0 
+#19 102.0 warning: unused import: `tokio::io::AsyncReadExt`
+#19 102.0    --> src/tunnel.rs:393:21
+#19 102.0     |
+#19 102.0 393 |                 use tokio::io::AsyncReadExt;
+#19 102.0     |                     ^^^^^^^^^^^^^^^^^^^^^^^
+#19 102.0 
+#19 102.1 warning: unused variable: `should_flush`
+#19 102.1    --> src/blockchain/grpc_stream.rs:297:17
+#19 102.1     |
+#19 102.1 297 |             let should_flush = batch.len() >= self.config.batch_size 
+#19 102.1     |                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_should_flush`
+#19 102.1     |
+#19 102.1     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+#19 102.1 
+#19 102.3 warning: unused variable: `config`
+#19 102.3    --> src/blockchain/mod.rs:245:13
+#19 102.3     |
+#19 102.3 245 |         let config = self.config.clone();
+#19 102.3     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+#19 102.3 
+#19 102.3 warning: unused variable: `timeout_secs`
+#19 102.3    --> src/heartbeat.rs:100:49
+#19 102.3     |
+#19 102.3 100 |     pub async fn is_alive(&self, node_id: &str, timeout_secs: u64) -> bool {
+#19 102.3     |                                                 ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_timeout_secs`
+#19 102.3 
+#19 102.4 warning: unused variable: `config`
+#19 102.4   --> src/pricing/oracle.rs:37:22
+#19 102.4    |
+#19 102.4 37 |     pub async fn new(config: &PricingConfig) -> Result<Self> {
+#19 102.4    |                      ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+#19 102.4 
+#19 102.4 warning: unused variable: `scaled`
+#19 102.4   --> src/pricing/demand.rs:39:13
+#19 102.4    |
+#19 102.4 39 |         let scaled = (clamped * 100.0) as u64; // Store as hundredths
+#19 102.4    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_scaled`
+#19 102.4 
+#19 102.6 warning: unused variable: `provider_pubkey`
+#19 102.6   --> src/billing/zk.rs:47:9
+#19 102.6    |
+#19 102.6 47 |         provider_pubkey: &[u8; 32],
+#19 102.6    |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_provider_pubkey`
+#19 102.6 
+#19 102.6 warning: unused variable: `proof`
+#19 102.6   --> src/billing/solana.rs:72:9
+#19 102.6    |
+#19 102.6 72 |         proof: &UsageProof,
+#19 102.6    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_proof`
+#19 102.6 
+#19 102.9 warning: unused variable: `active_conns`
+#19 102.9    --> src/tunnel.rs:374:18
+#19 102.9     |
+#19 102.9 374 |             let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
+#19 102.9     |                  ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_active_conns`
+#19 102.9 
+#19 102.9 warning: unused variable: `bytes_up`
+#19 102.9    --> src/tunnel.rs:374:32
+#19 102.9     |
+#19 102.9 374 |             let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
+#19 102.9     |                                ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bytes_up`
+#19 102.9 
+#19 102.9 warning: unused variable: `bytes_down`
+#19 102.9    --> src/tunnel.rs:374:42
+#19 102.9     |
+#19 102.9 374 |             let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
+#19 102.9     |                                          ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bytes_down`
+#19 102.9 
+#19 102.9 warning: unused variable: `is_healthy`
+#19 102.9    --> src/tunnel.rs:374:54
+#19 102.9     |
+#19 102.9 374 |             let (active_conns, bytes_up, bytes_down, is_healthy) = node_info
+#19 102.9     |                                                      ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_healthy`
+#19 102.9 
+#19 102.9 warning: variable `auth_stream_handle` is assigned to, but never used
+#19 102.9    --> src/tunnel.rs:152:9
+#19 102.9     |
+#19 102.9 152 |     let mut auth_stream_handle: Option<yamux::Stream> = None;
+#19 102.9     |         ^^^^^^^^^^^^^^^^^^^^^^
+#19 102.9     |
+#19 102.9     = note: consider using `_auth_stream_handle` instead
+#19 102.9 
+#19 102.9 warning: unused variable: `capabilities`
+#19 102.9    --> src/tunnel.rs:213:9
+#19 102.9     |
+#19 102.9 213 |     let capabilities = match tokio::time::timeout(
+#19 102.9     |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_capabilities`
+#19 102.9 
+#19 102.9 warning: unused variable: `heartbeat_user_id`
+#19 102.9    --> src/tunnel.rs:366:9
+#19 102.9     |
+#19 102.9 366 |     let heartbeat_user_id = user_id.clone();
+#19 102.9     |         ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_heartbeat_user_id`
+#19 102.9 
+#19 102.9 warning: unused variable: `control_api`
+#19 102.9    --> src/tunnel.rs:461:13
+#19 102.9     |
+#19 102.9 461 |         let control_api = state.control_api.clone();
+#19 102.9     |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_control_api`
+#19 102.9 
+#19 102.9 warning: value assigned to `auth_stream_handle` is never read
+#19 102.9    --> src/tunnel.rs:177:33
+#19 102.9     |
+#19 102.9 177 | ...                   auth_stream_handle = Some(stream); // Keep stream open or close? Usually keep open or close gracefully.
+#19 102.9     |                       ^^^^^^^^^^^^^^^^^^
+#19 102.9     |
+#19 102.9     = help: maybe it is overwritten before being read?
+#19 102.9     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+#19 102.9 
+#19 102.9 warning: unused variable: `username_zk`
+#19 102.9    --> src/main.rs:617:37
+#19 102.9     |
+#19 102.9 617 | ...                   let username_zk = username.clone();
+#19 102.9     |                           ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_username_zk`
+#19 102.9 
+#19 103.0 warning: unused variable: `start`
+#19 103.0    --> src/main.rs:896:17
+#19 103.0     |
+#19 103.0 896 |             let start = std::time::Instant::now();
+#19 103.0     |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_start`
+#19 103.0 
+#19 103.1 For more information about this error, try `rustc --explain E0382`.
+#19 103.3 warning: `edge-gateway` (bin "edge-gateway") generated 46 warnings
+#19 103.3 error: could not compile `edge-gateway` (bin "edge-gateway") due to 1 previous error; 46 warnings emitted
+#19 ERROR: process "/bin/sh -c cargo build --release --features ml" did not complete successfully: exit code: 101
+------
+ > [builder 10/10] RUN cargo build --release --features ml:
+102.9 
+103.0 warning: unused variable: `start`
+103.0    --> src/main.rs:896:17
+103.0     |
+103.0 896 |             let start = std::time::Instant::now();
+103.0     |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_start`
+103.0 
+103.1 For more information about this error, try `rustc --explain E0382`.
+103.3 warning: `edge-gateway` (bin "edge-gateway") generated 46 warnings
+103.3 error: could not compile `edge-gateway` (bin "edge-gateway") due to 1 previous error; 46 warnings emitted
+------
+Dockerfile:27
+
+--------------------
+
+  25 |     
+
+  26 |     # Build in release mode with ONNX (ml) and ZK features enabled.
+
+  27 | >>> RUN cargo build --release --features ml
+
+  28 |     
+
+  29 |     # ---------------------------------------------------------------------------
+
+--------------------
+
+failed to solve: process "/bin/sh -c cargo build --release --features ml" did not complete successfully: exit code: 101
+
+
+
+View build details: docker-desktop://dashboard/build/default/default/ino9gvs1jh8i1xwnoggw2zl2c
+

@@ -2,10 +2,10 @@
 
 import { Shield, CheckCircle, Star, Crown, ShieldOff } from 'lucide-react';
 
-export type ProviderTier = 'unverified' | 'basic' | 'verified' | 'premium' | 'enterprise';
+export type ProviderTier = 'Bronze' | 'Silver' | 'Gold' | 'unverified' | 'basic' | 'verified' | 'premium' | 'enterprise';
 
 interface Props {
-  tier: ProviderTier;
+  tier: ProviderTier | string;
   score?: number;
   className?: string;
 }
@@ -17,7 +17,25 @@ interface TierConfig {
   textClass: string;
 }
 
-const TIER_CONFIG: Record<ProviderTier, TierConfig> = {
+const TIER_CONFIG: Record<string, TierConfig> = {
+  Bronze: {
+    label: 'Bronze',
+    icon: <Shield size={12} />,
+    badgeClass: 'bg-orange-900/30 border border-orange-700/50',
+    textClass: 'text-orange-400',
+  },
+  Silver: {
+    label: 'Silver',
+    icon: <CheckCircle size={12} />,
+    badgeClass: 'bg-slate-800/60 border border-slate-500/50',
+    textClass: 'text-slate-300',
+  },
+  Gold: {
+    label: 'Gold',
+    icon: <Crown size={12} />,
+    badgeClass: 'bg-amber-900/40 border border-amber-500/50 shadow-lg shadow-amber-500/10',
+    textClass: 'text-amber-400',
+  },
   unverified: {
     label: 'Unverified',
     icon: <ShieldOff size={12} />,
@@ -25,25 +43,25 @@ const TIER_CONFIG: Record<ProviderTier, TierConfig> = {
     textClass: 'text-gray-400',
   },
   basic: {
-    label: 'Basic',
+    label: 'Bronze', // Mapping for legacy
     icon: <Shield size={12} />,
     badgeClass: 'bg-blue-900/60 border border-blue-600/50',
     textClass: 'text-blue-300',
   },
   verified: {
-    label: 'Verified',
+    label: 'Silver', // Mapping for legacy
     icon: <CheckCircle size={12} />,
     badgeClass: 'bg-green-900/60 border border-green-600/50',
     textClass: 'text-green-300',
   },
   premium: {
-    label: 'Premium',
+    label: 'Gold', // Mapping for legacy
     icon: <Star size={12} />,
     badgeClass: 'bg-violet-900/60 border border-violet-500/50',
     textClass: 'text-violet-300',
   },
   enterprise: {
-    label: 'Enterprise',
+    label: 'Gold', // Mapping for legacy
     icon: <Crown size={12} />,
     badgeClass: 'bg-amber-900/60 border border-amber-500/50',
     textClass: 'text-amber-300',

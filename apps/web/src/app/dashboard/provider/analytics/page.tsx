@@ -87,7 +87,7 @@ export default function ProviderAnalyticsPage() {
                                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trust Score</div>
                             </div>
                             <div className="text-2xl font-black font-mono">
-                                {(nodes.reduce((acc, n) => acc + (n.quality_score || 0), 0) / nodes.length).toFixed(1)}
+                                {(nodes.length > 0 ? (nodes.reduce((acc, n) => acc + (Number(n.quality_score) || 0), 0) / nodes.length) : 0).toFixed(1)}
                             </div>
                             <p className="text-[10px] text-muted-foreground mt-1">Average across nodes</p>
                         </GlassCard>

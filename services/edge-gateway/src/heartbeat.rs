@@ -20,6 +20,11 @@ pub struct HeartbeatStatus {
     pub total_heartbeats: u64,
     pub is_healthy: bool,
     pub latency_ms: u32,
+    pub active_connections: u32,
+    pub cpu_percent: f32,
+    pub memory_percent: f32,
+    pub bandwidth_up: u64,
+    pub bandwidth_down: u64,
 }
 
 impl HeartbeatStatus {
@@ -31,15 +36,25 @@ impl HeartbeatStatus {
             total_heartbeats: 0,
             is_healthy: true,
             latency_ms: 0,
+            active_connections: 0,
+            cpu_percent: 0.0,
+            memory_percent: 0.0,
+            bandwidth_up: 0,
+            bandwidth_down: 0,
         }
     }
 
-    /// Record a successful heartbeat
-    pub fn record_heartbeat(&mut self, latency_ms: u32) {
+    /// Record a successful heartbeat with detailed metrics
+    pub fn record_heartbeat(&mut self, msg: &HeartbeatMessage, latency_ms: u32) {
         self.last_heartbeat = Instant::now();
         self.consecutive_misses = 0;
         self.total_heartbeats += 1;
         self.latency_ms = latency_ms;
+        self.active_connections = msg.active_connections;
+        self.cpu_percent = msg.system_stats.cpu_percent;
+        self.memory_percent = msg.system_stats.memory_percent;
+        self.bandwidth_up = msg.bandwidth_usage.bytes_up;
+        self.bandwidth_down = msg.bandwidth_usage.bytes_down;
         self.is_healthy = true;
     }
 
@@ -228,25 +243,25 @@ impl HeartbeatMonitor {
         debug!("Unregistered provider {} from heartbeat monitoring", node_id);
     }
 
-    /// Record a heartbeat from a provider
-    pub async fn record_heartbeat(&self, node_id: &str, latency_ms: u32) -> Result<(), String> {
+    /// Record a heartbeat from a provider with detailed message
+    pub async fn record_heartbeat_details(&self, msg: &HeartbeatMessage, latency_ms: u32) -> Result<(), String> {
         let mut heartbeats = self.heartbeats.write().await;
         
-        match heartbeats.get_mut(node_id) {
+        match heartbeats.get_mut(&msg.node_id) {
             Some(status) => {
-                status.record_heartbeat(latency_ms);
+                status.record_heartbeat(msg, latency_ms);
                 debug!(
-                    "💓 Heartbeat from {} (latency: {}ms, total: {})",
-                    node_id, latency_ms, status.total_heartbeats
+                    "💓 Heartbeat from {} (latency: {}ms, total: {}, cpu: {}%, bw: {}/{} bytes)",
+                    msg.node_id, latency_ms, status.total_heartbeats, 
+                    status.cpu_percent, status.bandwidth_up, status.bandwidth_down
                 );
                 Ok(())
             }
             None => {
-                // Auto-register if not exists (for backwards compatibility)
-                let mut status = HeartbeatStatus::new(node_id.to_string());
-                status.record_heartbeat(latency_ms);
-                heartbeats.insert(node_id.to_string(), status);
-                warn!("Auto-registered provider {} for heartbeat", node_id);
+                let mut status = HeartbeatStatus::new(msg.node_id.to_string());
+                status.record_heartbeat(msg, latency_ms);
+                heartbeats.insert(msg.node_id.to_string(), status);
+                warn!("Auto-registered provider {} for heartbeat", msg.node_id);
                 Ok(())
             }
         }
@@ -333,7 +348,8 @@ pub struct HeartbeatMessage {
 pub struct BandwidthUsage {
     pub bytes_up: u64,
     pub bytes_down: u64,
-    pub rate_kbps: u32,
+    pub rate_up_kbps: u32,
+    pub rate_down_kbps: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -341,6 +357,7 @@ pub struct SystemStats {
     pub cpu_percent: f32,
     pub memory_percent: f32,
     pub uptime_seconds: u64,
+    pub goroutines: usize,
 }
 
 #[cfg(test)]
@@ -355,10 +372,19 @@ mod tests {
         assert!(status.is_healthy);
         assert_eq!(status.consecutive_misses, 0);
         
+        let msg = HeartbeatMessage {
+            node_id: "node-1".to_string(),
+            timestamp: 0,
+            active_connections: 5,
+            bandwidth_usage: BandwidthUsage { bytes_up: 100, bytes_down: 200, rate_up_kbps: 10, rate_down_kbps: 20 },
+            system_stats: SystemStats { cpu_percent: 10.0, memory_percent: 20.0, uptime_seconds: 100, goroutines: 0 },
+        };
+
         // Record heartbeat
-        status.record_heartbeat(50);
+        status.record_heartbeat(&msg, 50);
         assert_eq!(status.total_heartbeats, 1);
         assert_eq!(status.latency_ms, 50);
+        assert_eq!(status.active_connections, 5);
         
         // Record miss
         status.record_miss();
@@ -379,8 +405,16 @@ mod tests {
         // Register provider
         monitor.register_provider("node-1").await;
         
+        let msg = HeartbeatMessage {
+            node_id: "node-1".to_string(),
+            timestamp: 0,
+            active_connections: 5,
+            bandwidth_usage: BandwidthUsage { bytes_up: 100, bytes_down: 200, rate_up_kbps: 10, rate_down_kbps: 20 },
+            system_stats: SystemStats { cpu_percent: 10.0, memory_percent: 20.0, uptime_seconds: 100, goroutines: 0 },
+        };
+
         // Record heartbeat
-        monitor.record_heartbeat("node-1", 10).await.unwrap();
+        monitor.record_heartbeat_details(&msg, 10).await.unwrap();
         
         // Check healthy
         assert!(monitor.is_healthy("node-1").await);
@@ -401,17 +435,21 @@ mod tests {
             bandwidth_usage: BandwidthUsage {
                 bytes_up: 1000,
                 bytes_down: 2000,
-                rate_kbps: 100,
+                rate_up_kbps: 100,
+                rate_down_kbps: 50,
             },
             system_stats: SystemStats {
                 cpu_percent: 25.5,
                 memory_percent: 60.0,
                 uptime_seconds: 3600,
+                goroutines: 10,
             },
         };
         
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("node-1"));
         assert!(json.contains("1234567890"));
+        assert!(json.contains("rate_up_kbps"));
+        assert!(json.contains("goroutines"));
     }
 }

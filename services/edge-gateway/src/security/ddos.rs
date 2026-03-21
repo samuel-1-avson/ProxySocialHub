@@ -21,6 +21,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 // ---------------------------------------------------------------------------
@@ -209,12 +210,13 @@ struct BehaviorMetrics {
 }
 
 /// Threat classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ThreatLevel {
     None,
     Low,
     Medium,
     High,
+    Critical,
 }
 
 pub struct BehaviorScorer {

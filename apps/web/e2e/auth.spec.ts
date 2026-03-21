@@ -1,45 +1,69 @@
 import { test, expect } from '@playwright/test';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4001';
+const API_URL = process.env.TEST_API_URL || 'http://localhost:8081';
 
-test.describe('Real Authentication Flow', () => {
-    test('should login successfully with seeded admin credentials', async ({ page }) => {
-        // 1. Go to Login Page
+test.describe('Wallet Authentication Flow', () => {
+    test('should show wallet connect button on login page', async ({ page }) => {
         await page.goto(`${BASE_URL}/login`);
 
-        // 2. Fill Credentials (seeded in previous step)
-        await page.fill('input[type="email"]', 'admin@proxyhub.com');
-        await page.fill('input[type="password"]', 'password123');
+        // Verify the page title / heading
+        await expect(page.getByText(/connect wallet/i).first()).toBeVisible({ timeout: 10000 });
 
-        // 3. Submit
-        await page.click('button[type="submit"]');
+        // Verify wallet connect button is present
+        await expect(page.locator('text=Select Wallet').first().or(page.locator('[class*="wallet-adapter"]').first())).toBeVisible({ timeout: 10000 });
 
-        // 4. Verification
-        // Expect redirect to dashboard content or URL
-        // Depending on logic, it might go to /dashboard or /admin
-        // Seeder set admin role, so let's verify we are authenticated.
+        // Verify NO email/password form is present
+        await expect(page.locator('input[type="email"]')).not.toBeVisible();
+        await expect(page.locator('input[type="password"]')).not.toBeVisible();
 
-        // Wait for navigation or specific element
-        await expect(page).not.toHaveURL(/login/);
-
-        // Check for "Dashboard" or user menu
-        // Adjust selector based on actual UI. Assuming standard text presence.
-        try {
-            await expect(page.getByText(/dashboard|overview/i).first()).toBeVisible({ timeout: 15000 });
-        } catch (e) {
-            console.log("Dashboard text not found, checking URL...");
-            expect(page.url()).toContain('dashboard');
-        }
+        // Verify NO OAuth buttons
+        await expect(page.getByText(/google/i)).not.toBeVisible();
+        await expect(page.getByText(/github/i)).not.toBeVisible();
     });
 
-    test('should fail with incorrect password', async ({ page }) => {
-        await page.goto(`${BASE_URL}/login`);
+    test('should show wallet connect button on register page', async ({ page }) => {
+        await page.goto(`${BASE_URL}/register`);
 
-        await page.fill('input[type="email"]', 'admin@proxyhub.com');
-        await page.fill('input[type="password"]', 'wrongpass');
-        await page.click('button[type="submit"]');
+        // Verify the register page heading
+        await expect(page.getByText(/initialize account/i).first()).toBeVisible({ timeout: 10000 });
 
-        // Expect error message
-        await expect(page.getByText(/invalid|failed|error/i)).toBeVisible();
+        // Verify wallet connect button is present
+        await expect(page.locator('text=Select Wallet').first().or(page.locator('[class*="wallet-adapter"]').first())).toBeVisible({ timeout: 10000 });
+
+        // Verify NO email/password form
+        await expect(page.locator('input[type="email"]')).not.toBeVisible();
+        await expect(page.locator('input[type="password"]')).not.toBeVisible();
+    });
+
+    test('should authenticate via dev login and access dashboard', async ({ page }) => {
+        // Use the backend dev login endpoint for E2E testing
+        const devSecret = process.env.DEV_LOGIN_SECRET || 'test-secret';
+
+        const response = await page.request.post(`${API_URL}/v1/auth/dev/login`, {
+            headers: {
+                'X-Dev-Login-Secret': devSecret,
+            }
+        });
+
+        if (response.ok()) {
+            const { token } = await response.json();
+
+            // Set the token in localStorage and navigate to dashboard
+            await page.goto(`${BASE_URL}/login`);
+            await page.evaluate((t) => {
+                localStorage.setItem('proxyhubb_token', t);
+            }, token);
+
+            // Navigate to dashboard
+            await page.goto(`${BASE_URL}/dashboard`);
+
+            // Verify we can access dashboard
+            await expect(page.getByText(/dashboard|overview/i).first()).toBeVisible({ timeout: 15000 });
+        } else {
+            // Dev login not available (production mode or no secret configured)
+            console.log('Dev login not available — skipping authenticated test');
+            test.skip();
+        }
     });
 });

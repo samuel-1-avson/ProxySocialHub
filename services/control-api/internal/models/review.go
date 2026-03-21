@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -14,6 +15,7 @@ type Review struct {
 	SellerID   uuid.UUID  `gorm:"type:uuid;not null" json:"seller_id"`
 	ListingID  *uuid.UUID `gorm:"type:uuid" json:"listing_id,omitempty"`
 	OrderID    *uuid.UUID `gorm:"type:uuid" json:"order_id,omitempty"`
+	SessionID  *uuid.UUID `gorm:"type:uuid;index" json:"session_id,omitempty"` // PAYG: Link to session for usage context
 
 	// Rating
 	Rating  int    `gorm:"not null" json:"rating"` // 1-5
@@ -34,6 +36,7 @@ type Review struct {
 	ResponseAt     *time.Time `json:"response_at,omitempty"`
 
 	VerifiedPurchase bool      `gorm:"default:false" json:"verified_purchase"`
+	UsageContext     datatypes.JSON `gorm:"type:jsonb;default:'{}'" json:"usage_context,omitempty"` // PAYG: Store used_gb, duration, etc.
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 
@@ -42,6 +45,7 @@ type Review struct {
 	Seller   *User         `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
 	Listing  *ProxyListing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`
 	Order    *Order        `gorm:"foreignKey:OrderID" json:"order,omitempty"`
+	Session  *Session      `gorm:"foreignKey:SessionID" json:"session,omitempty"`
 }
 
 // TableName sets the table name for Review

@@ -389,7 +389,7 @@ function pointColor(n: NodeGeoPoint, selId?: string): string {
     if (n.is_active)         return '#10b981';
     return '#ef4444';
 }
-function pointRadius(n: NodeGeoPoint)   { return n.is_validator ? 0.8 : 0.55; }
+function pointRadius(n: NodeGeoPoint)   { return n.is_validator ? 0.06 : 0.04; }
 function pointAltitude(n: NodeGeoPoint) { return n.is_active ? 0.025 : 0.008; }
 
 function nodeTooltip(n: NodeGeoPoint): string {
@@ -687,7 +687,7 @@ export default function GlobeMap({
                 ringLat={(r: object) => (r as NodeGeoPoint).lat}
                 ringLng={(r: object) => (r as NodeGeoPoint).lon}
                 ringColor={() => '#f59e0b'}
-                ringMaxRadius={4}
+                ringMaxRadius={0.4}
                 ringPropagationSpeed={2.5}
                 ringRepeatPeriod={900}
                 ringAltitude={0.025}

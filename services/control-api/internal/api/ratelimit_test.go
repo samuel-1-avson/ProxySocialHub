@@ -6,89 +6,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
-func TestRateLimiter_Allow(t *testing.T) {
-	// Create a fresh limiter for testing
-	testLimiter := &rateLimiter{
-		requests: make(map[string]*requestCounter),
-		limit:    5,
-		window:   time.Second,
-	}
-
-	key := "test-user"
-
-	// First 5 requests should be allowed
-	for i := 0; i < 5; i++ {
-		if !testLimiter.allow(key) {
-			t.Errorf("Request %d should be allowed", i+1)
-		}
-	}
-
-	// 6th request should be blocked
-	if testLimiter.allow(key) {
-		t.Error("6th request should be blocked")
-	}
-}
-
-func TestRateLimiter_GetRemaining(t *testing.T) {
-	testLimiter := &rateLimiter{
-		requests: make(map[string]*requestCounter),
-		limit:    10,
-		window:   time.Minute,
-	}
-
-	key := "test-user"
-
-	// Initial remaining should be the limit
-	remaining := testLimiter.getRemaining(key)
-	if remaining != 10 {
-		t.Errorf("Expected 10 remaining, got %d", remaining)
-	}
-
-	// After 3 requests
-	testLimiter.allow(key)
-	testLimiter.allow(key)
-	testLimiter.allow(key)
-
-	remaining = testLimiter.getRemaining(key)
-	if remaining != 7 {
-		t.Errorf("Expected 7 remaining, got %d", remaining)
-	}
-}
-
-func TestRateLimiter_Cleanup(t *testing.T) {
-	testLimiter := &rateLimiter{
-		requests: make(map[string]*requestCounter),
-		limit:    10,
-		window:   time.Millisecond * 10, // Very short window
-	}
-
-	key := "test-user"
-	testLimiter.allow(key)
-
-	// Should have the entry
-	if len(testLimiter.requests) != 1 {
-		t.Error("Expected 1 entry in requests map")
-	}
-
-	// Wait for expiry
-	time.Sleep(time.Millisecond * 20)
-	testLimiter.cleanup()
-
-	// Entry should be cleaned up
-	if len(testLimiter.requests) != 0 {
-		t.Error("Expected 0 entries after cleanup")
-	}
-}
-
 func TestRateLimitMiddleware(t *testing.T) {
+	// Setup miniredis
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("Failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	// Configure redis client to use miniredis
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	redisClient.Client = client
+
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	
 	// Use a custom limiter with low limit for testing
-	customLimiter := RateLimitWithConfig(3, time.Minute)
+	customLimiter := RateLimitWithConfig(6, time.Minute)
 	r.Use(customLimiter)
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

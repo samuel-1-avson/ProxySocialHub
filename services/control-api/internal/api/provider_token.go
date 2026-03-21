@@ -8,11 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/config"
+	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterProviderTokenRoutes registers provider token management routes
+// RegisterProviderTokenRoutes registers provider token management routes (protected)
 func RegisterProviderTokenRoutes(rg *gin.RouterGroup) {
 	tokens := rg.Group("/provider/tokens")
 	{
@@ -20,10 +22,13 @@ func RegisterProviderTokenRoutes(rg *gin.RouterGroup) {
 		tokens.POST("", createProviderToken)
 		tokens.DELETE("/:id", revokeProviderToken)
 	}
+}
 
+// RegisterProviderAuthRoute registers the public CLI auth endpoint (unprotected)
+func RegisterProviderAuthRoute(rg *gin.RouterGroup) {
 	// CLI authentication endpoint - used by CLI to validate tokens
+	// This is PUBLIC because it's used to authenticate the CLI
 	rg.POST("/provider/auth", validateProviderToken)
-
 }
 
 // RegisterGatewayTokenRoute registers the public gateway-token endpoint on the
@@ -190,6 +195,7 @@ type ValidateTokenResponse struct {
 	TokenID  uuid.UUID `json:"token_id,omitempty"`
 	Message  string    `json:"message,omitempty"`
 	NodeID   uuid.UUID `json:"node_id,omitempty"` // Node ID to use for registration
+	JWTToken string    `json:"jwt_token,omitempty"` // JWT for subsequent authenticated requests
 }
 
 // validateProviderToken validates a token (called by CLI)
@@ -230,12 +236,40 @@ func validateProviderToken(c *gin.Context) {
 	// Generate or get node ID for this token
 	nodeID := getOrCreateNodeID(token)
 	
+	// Generate a JWT token for subsequent authenticated requests
+	// Use the same JWT secret as the main auth system
+	cfg, err := config.Load()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ValidateTokenResponse{
+			Valid:   false,
+			Message: "Failed to load config",
+		})
+		return
+	}
+	
+	jwtToken, err := crypto.GenerateToken(
+		token.UserID,
+		"provider",
+		"", // No email for CLI tokens
+		"", // No wallet for CLI tokens
+		cfg.Auth.JWTSecret,
+		30*24*time.Hour, // 30 days
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ValidateTokenResponse{
+			Valid:   false,
+			Message: "Failed to generate JWT",
+		})
+		return
+	}
+	
 	c.JSON(http.StatusOK, ValidateTokenResponse{
-		Valid:   true,
-		UserID:  token.UserID,
-		TokenID: token.ID,
-		NodeID:  nodeID,
-		Message: "Token valid",
+		Valid:    true,
+		UserID:   token.UserID,
+		TokenID:  token.ID,
+		NodeID:   nodeID,
+		JWTToken: jwtToken,
+		Message:  "Token valid",
 	})
 }
 
@@ -312,6 +346,7 @@ func getOrCreateNodeID(token models.ProviderToken) uuid.UUID {
 	
 	// Create new node
 	node := models.Node{
+		UserID:         token.UserID,  // Required by DB constraint
 		ProviderUserID: token.UserID,
 		IsHealthy:      true,
 	}

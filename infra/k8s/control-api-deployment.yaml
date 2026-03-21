@@ -18,6 +18,7 @@ spec:
         app: control-api
         version: v1
       annotations:
+        linkerd.io/inject: enabled
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"

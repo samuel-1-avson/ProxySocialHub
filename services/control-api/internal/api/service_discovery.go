@@ -1,11 +1,17 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -35,6 +41,19 @@ func discoverServices(c *gin.Context) {
 	var filter models.ServiceFilter
 	if err := c.ShouldBindQuery(&filter); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	logging.Info().
+		Interface("filter", filter).
+		Msg("Discovering services")
+
+	// Try cache
+	cacheKey := generateSearchKey(filter)
+	var cachedResponse gin.H
+	if hit, _ := cache.Get(cacheKey, &cachedResponse); hit {
+		logging.Debug().Msg("Search cache hit")
+		c.JSON(http.StatusOK, cachedResponse)
 		return
 	}
 
@@ -136,12 +155,17 @@ func discoverServices(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"services": listings,
 		"total":    total,
 		"page":     filter.Page,
 		"limit":    filter.Limit,
-	})
+	}
+
+	// Store in cache
+	cache.Set(cacheKey, response, cache.DiscoverySearchTTL)
+
+	c.JSON(http.StatusOK, response)
 }
 
 // FilterOptions represents available filter options
@@ -161,6 +185,13 @@ type FilterOptions struct {
 // @Success 200 {object} FilterOptions
 // @Router /v1/services/filters [get]
 func getAvailableFilters(c *gin.Context) {
+	cacheKey := cache.DiscoveryKeyPrefix + "filters"
+	var cachedOptions FilterOptions
+	if hit, _ := cache.Get(cacheKey, &cachedOptions); hit {
+		c.JSON(http.StatusOK, cachedOptions)
+		return
+	}
+
 	options := FilterOptions{
 		Protocols:     []string{"http", "https", "socks5", "ssh"},
 		ProxyTypes:    []string{"residential", "mobile", "datacenter"},
@@ -184,6 +215,7 @@ func getAvailableFilters(c *gin.Context) {
 		Pluck("isp", &isps)
 	options.ISPs = isps
 
+	cache.Set(cacheKey, options, cache.DiscoveryFiltersTTL)
 	c.JSON(http.StatusOK, options)
 }
 
@@ -226,6 +258,13 @@ type GeoCoverage struct {
 // @Success 200 {array} GeoCoverage
 // @Router /v1/services/geo-coverage [get]
 func getGeoCoverage(c *gin.Context) {
+	cacheKey := cache.DiscoveryKeyPrefix + "geo"
+	var cachedCoverage []GeoCoverage
+	if hit, _ := cache.Get(cacheKey, &cachedCoverage); hit {
+		c.JSON(http.StatusOK, gin.H{"coverage": cachedCoverage})
+		return
+	}
+
 	var coverage []GeoCoverage
 
 	// Aggregate by country
@@ -265,6 +304,7 @@ func getGeoCoverage(c *gin.Context) {
 		}
 	}
 
+	cache.Set(cacheKey, coverage, cache.DiscoveryGeoTTL)
 	c.JSON(http.StatusOK, gin.H{"coverage": coverage})
 }
 
@@ -290,6 +330,20 @@ func matchServices(c *gin.Context) {
 	var req MatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	logging.Info().
+		Str("use_case", req.UseCase).
+		Str("profile_id", req.RoutingProfileID).
+		Int("count", req.Count).
+		Msg("Matching services")
+
+	// Try cache
+	cacheKey := generateMatchKey(req)
+	var cachedResponse gin.H
+	if hit, _ := cache.Get(cacheKey, &cachedResponse); hit {
+		c.JSON(http.StatusOK, cachedResponse)
 		return
 	}
 
@@ -342,35 +396,30 @@ func matchServices(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"matches": listings,
 		"profile": profile,
 		"count":   len(listings),
-	})
+	}
+
+	// Store in cache
+	cache.Set(cacheKey, response, cache.DiscoveryMatchTTL)
+
+	c.JSON(http.StatusOK, response)
 }
 
 func floatToStr(f float64) string {
-	return strings.TrimRight(strings.TrimRight(
-		strings.Replace(
-			strings.TrimPrefix(
-				"0.00"+strings.TrimPrefix(
-					strings.Replace(
-						"0.00",
-						".",
-						"",
-						1,
-					)+strings.TrimPrefix(
-						"0",
-						"",
-					),
-					"",
-				),
-				"0",
-			),
-			"",
-			".",
-			1,
-		),
-		"0",
-	), ".")
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func generateSearchKey(filter models.ServiceFilter) string {
+	data, _ := json.Marshal(filter)
+	hash := sha256.Sum256(data)
+	return cache.DiscoveryKeyPrefix + "search:" + hex.EncodeToString(hash[:])
+}
+
+func generateMatchKey(req MatchRequest) string {
+	data, _ := json.Marshal(req)
+	hash := sha256.Sum256(data)
+	return cache.DiscoveryKeyPrefix + "match:" + hex.EncodeToString(hash[:])
 }

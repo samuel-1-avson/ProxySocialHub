@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"log"
@@ -165,7 +166,7 @@ func awardBadge(userID uuid.UUID, badgeName string) {
 		go func() {
 			client := solana.GetOracleClient()
 			if client != nil {
-				client.AnchorReputation(nil, *user.WalletAddress, solana.RepTypeBadge, hashStr)
+				client.AnchorReputation(context.TODO(), *user.WalletAddress, solana.RepTypeBadge, hashStr)
 			}
 		}()
 	}

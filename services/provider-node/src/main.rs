@@ -1,0 +1,284 @@
+mod config;
+mod ip;
+mod proxy;
+mod stats;
+mod sys;
+mod tunnel;
+
+use clap::{Parser, Subcommand};
+use tracing::info;
+
+/// ProxyHubb Provider Node — share your bandwidth and earn rewards.
+#[derive(Parser)]
+#[command(name = "provider-node", version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Register a new provider node with the Control API
+    Register {
+        /// Control API URL
+        #[arg(long, env = "PROXYHUB_API_URL", default_value = "http://localhost:4000")]
+        api_url: String,
+
+        /// Provider API key / token
+        #[arg(long, env = "PROXYHUB_API_KEY")]
+        api_key: Option<String>,
+    },
+
+    /// Connect to the Edge Gateway and start serving proxy traffic
+    Start {
+        /// Path to configuration file
+        #[arg(short, long, default_value = "provider.toml")]
+        config: String,
+
+        /// Edge Gateway address (host:port)
+        #[arg(long, env = "PROXYHUB_GATEWAY_ADDR")]
+        gateway_addr: Option<String>,
+
+        /// JWT token for authentication
+        #[arg(long, env = "PROXYHUB_JWT_TOKEN")]
+        jwt_token: Option<String>,
+
+        /// Enable TLS for the tunnel connection
+        #[arg(long, default_value_t = false)]
+        use_tls: bool,
+
+        /// Enable debug logging
+        #[arg(long, default_value_t = false)]
+        debug: bool,
+    },
+
+    /// Display real-time node metrics from a running node
+    Metrics {
+        /// Port of the local stats server
+        #[arg(long, default_value_t = 9090)]
+        port: u16,
+    },
+
+    /// Stop a running provider node
+    Stop,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        // ── Register ────────────────────────────────────────────────
+        Commands::Register { api_url, api_key } => {
+            init_logging(false);
+            info!("Starting interactive node registration");
+
+            let public_ip = ip::detect_public_ip().await.unwrap_or_default();
+            if !public_ip.is_empty() {
+                println!("✓ Detected public IP: {public_ip}");
+            } else {
+                println!("⚠ Could not auto-detect IP. You'll need to enter it manually.");
+            }
+
+            let key = api_key.unwrap_or_else(|| {
+                eprintln!("Error: --api-key or PROXYHUB_API_KEY is required for registration.");
+                std::process::exit(1);
+            });
+
+            // Authenticate
+            println!("Authenticating with Control API...");
+            let (user_id, jwt) = ip::validate_api_key(&api_url, &key).await?;
+            println!("✓ Authenticated as user: {user_id}");
+
+            // Register node
+            let node_name = format!("rust-node-{}", public_ip.replace('.', "-"));
+            let node_id = ip::register_node(&api_url, &jwt, &node_name, &public_ip).await?;
+
+            println!();
+            println!("╔══════════════════════════════════════════════════════════╗");
+            println!("║              ✓ NODE REGISTERED SUCCESSFULLY              ║");
+            println!("╚══════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Node ID: {node_id}");
+            println!("JWT Token: {jwt}");
+            println!();
+            println!("Next steps:");
+            println!("  1. provider-node start --jwt-token {jwt}");
+            println!("  2. Visit: http://localhost:3000/explorer/map");
+        }
+
+        // ── Start ───────────────────────────────────────────────────
+        Commands::Start {
+            config: config_path,
+            gateway_addr,
+            jwt_token,
+            use_tls,
+            debug,
+        } => {
+            init_logging(debug);
+            info!("Starting ProxyHubb Provider Node v{}", env!("CARGO_PKG_VERSION"));
+
+            let mut cfg = config::Config::load(&config_path).unwrap_or_default();
+
+            // CLI overrides
+            if let Some(addr) = gateway_addr {
+                cfg.gateway_addr = addr;
+            }
+            if let Some(token) = jwt_token {
+                cfg.jwt_token = token;
+            }
+            cfg.use_tls = use_tls;
+
+            if cfg.jwt_token.is_empty() && cfg.api_key.is_empty() {
+                eprintln!("Error: JWT token or API key is required.");
+                eprintln!("Set via --jwt-token, PROXYHUB_JWT_TOKEN, or in the config file.");
+                std::process::exit(1);
+            }
+
+            // Write PID file
+            let pid_path = dirs_pid_file();
+            if let Err(e) = write_pid_file(&pid_path) {
+                tracing::warn!("Failed to write PID file: {e}");
+            }
+
+            // Stats collector
+            let stats_collector = stats::Collector::new();
+            stats_collector.set_connection_type(cfg.connection_type.clone());
+
+            // Local stats HTTP server
+            if cfg.metrics_enabled {
+                let collector_clone = stats_collector.clone();
+                let port = cfg.metrics_port;
+                tokio::spawn(async move {
+                    stats::serve_metrics(collector_clone, port).await;
+                });
+                info!(port = cfg.metrics_port, "Stats server started");
+            }
+
+            // Reconnect loop
+            let reconnect_interval = cfg.reconnect_interval;
+            loop {
+                let mut client =
+                    tunnel::client::TunnelClient::new(&cfg, stats_collector.clone());
+
+                info!(addr = %cfg.gateway_addr, "Connecting to Edge Gateway...");
+                match client.connect().await {
+                    Ok(()) => {
+                        info!("Connected to Edge Gateway");
+                    }
+                    Err(e) => {
+                        tracing::error!("Connection failed: {e}");
+                        tokio::time::sleep(reconnect_interval).await;
+                        continue;
+                    }
+                }
+
+                // Start heartbeats
+                let hb = tunnel::heartbeat::HeartbeatManager::new(
+                    client.session_handle(),
+                    cfg.node_id.clone(),
+                    std::time::Duration::from_secs(30),
+                    stats_collector.clone(),
+                );
+                let hb_handle = tokio::spawn(async move { hb.run().await });
+
+                // Accept and handle proxy streams
+                let handler = proxy::handler::ProxyHandler::new(&cfg, stats_collector.clone());
+                let accept_result = client.accept_streams(handler).await;
+
+                tracing::warn!("Connection lost: {accept_result:?}");
+                hb_handle.abort();
+                client.close().await;
+
+                tokio::time::sleep(reconnect_interval).await;
+                info!("Attempting to reconnect...");
+            }
+        }
+
+        // ── Metrics ─────────────────────────────────────────────────
+        Commands::Metrics { port } => {
+            init_logging(false);
+            let url = format!("http://localhost:{port}/stats");
+            match reqwest::get(&url).await {
+                Ok(resp) => {
+                    let snap: stats::Snapshot = resp.json().await?;
+                    println!("--- Node Metrics ---");
+                    println!("Uptime:              {}s", snap.uptime_seconds);
+                    println!("Active Connections:  {}", snap.active_connections);
+                    println!("Total Connections:   {}", snap.total_connections);
+                    println!("Upload:              {} bytes", snap.bytes_up);
+                    println!("Download:            {} bytes", snap.bytes_down);
+                    println!("Rate Up:             {} Kbps", snap.rate_up_kbps);
+                    println!("Rate Down:           {} Kbps", snap.rate_down_kbps);
+                    println!("Latency (Gateway):   {} ms", snap.latency_ms);
+                    println!("Connection Type:     {}", snap.connection_type);
+                }
+                Err(_) => {
+                    println!("Node is not running (cannot reach stats server at {url})");
+                    println!("Start your node with: provider-node start");
+                }
+            }
+        }
+
+        // ── Stop ────────────────────────────────────────────────────
+        Commands::Stop => {
+            let pid_path = dirs_pid_file();
+            match std::fs::read_to_string(&pid_path) {
+                Ok(pid_str) => {
+                    println!("Sending stop signal to PID {}", pid_str.trim());
+                    // On Unix we'd send SIGTERM; on Windows we just inform the user.
+                    #[cfg(unix)]
+                    {
+                        use nix::sys::signal::{kill, Signal};
+                        use nix::unistd::Pid;
+                        let pid: i32 = pid_str.trim().parse()?;
+                        kill(Pid::from_raw(pid), Signal::SIGTERM)?;
+                        println!("Stop signal sent successfully.");
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        println!("On Windows, please terminate the process manually (PID: {})", pid_str.trim());
+                    }
+                    let _ = std::fs::remove_file(&pid_path);
+                }
+                Err(_) => {
+                    println!("No running node found (PID file not found).");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+fn init_logging(debug: bool) {
+    use tracing_subscriber::EnvFilter;
+    let filter = if debug {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+    };
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
+fn dirs_pid_file() -> std::path::PathBuf {
+    let home = dirs_home();
+    home.join(".proxyhubb").join("provider.pid")
+}
+
+fn dirs_home() -> std::path::PathBuf {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+}
+
+fn write_pid_file(path: &std::path::Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, std::process::id().to_string())?;
+    Ok(())
+}

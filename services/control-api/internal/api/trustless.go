@@ -23,6 +23,7 @@ func RegisterTrustlessRoutes(r *gin.RouterGroup) {
 	{
 		// Usage Proofs
 		trustless.POST("/usage-proofs", createUsageProof)
+		trustless.GET("/usage-proofs", listUsageProofs)
 		trustless.GET("/usage-proofs/:id", getUsageProof)
 		trustless.GET("/usage-proofs/session/:sessionId", getSessionUsageProofs)
 		trustless.POST("/usage-proofs/:id/sign", signUsageProof)
@@ -42,6 +43,7 @@ func RegisterTrustlessRoutes(r *gin.RouterGroup) {
 // @Success 201 {object} models.UsageProofResponse
 // @Router /v1/trustless/usage-proofs [post]
 func createUsageProof(c *gin.Context) {
+	start := time.Now()
 	userID, _ := c.Get("user_id")
 
 	var req models.CreateUsageProofRequest
@@ -125,7 +127,49 @@ func createUsageProof(c *gin.Context) {
 		MessageToSign: string(proof.GenerateMessage()),
 	}
 
+	logging.Info().
+		Str("proof_id", proof.ID.String()).
+		Str("session_id", req.SessionID.String()).
+		Dur("latency", time.Since(start)).
+		Msg("Usage proof created successfully")
+
 	c.JSON(http.StatusCreated, response)
+}
+
+// @Summary List usage proofs for the current user
+// @Tags trustless
+// @Produce json
+// @Param status query string false "Filter by status"
+// @Param role query string false "Filter by role (buyer/provider)"
+// @Success 200 {array} models.UsageProof
+// @Router /v1/trustless/usage-proofs [get]
+func listUsageProofs(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	status := c.Query("status")
+	role := c.Query("role")
+
+	query := db.DB.Order("created_at DESC")
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if role == "buyer" {
+		query = query.Where("buyer_wallet IN (SELECT wallet_address FROM profiles WHERE id = ?)", userID)
+	} else if role == "provider" {
+		query = query.Where("provider_wallet IN (SELECT wallet_address FROM profiles WHERE id = ?)", userID)
+	} else {
+		// Default to both
+		query = query.Where("buyer_wallet IN (SELECT wallet_address FROM profiles WHERE id = ?) OR provider_wallet IN (SELECT wallet_address FROM profiles WHERE id = ?)", userID, userID)
+	}
+
+	var proofs []models.UsageProof
+	if err := query.Find(&proofs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch usage proofs"})
+		return
+	}
+
+	c.JSON(http.StatusOK, proofs)
 }
 
 // @Summary Get a usage proof
@@ -273,6 +317,7 @@ func signUsageProof(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/trustless/usage-proofs/{id}/submit [post]
 func submitUsageProofOnChain(c *gin.Context) {
+	start := time.Now()
 	proofID := c.Param("id")
 
 	var proof models.UsageProof
@@ -317,6 +362,12 @@ func submitUsageProofOnChain(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update proof status"})
 		return
 	}
+
+	logging.Info().
+		Str("proof_id", proofID).
+		Str("tx_hash", proof.OnChainTxHash).
+		Dur("latency", time.Since(start)).
+		Msg("Usage proof submitted on-chain")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "Usage proof submitted to blockchain",

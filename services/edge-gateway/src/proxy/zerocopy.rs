@@ -73,27 +73,39 @@ where
             // Data arriving from client → forward to provider
             read_res = client.read(&mut buf_cp) => {
                 match read_res {
-                    Ok(0) => break,
+                    Ok(0) => { warn!("Bridge: Client closed connection"); break; }
                     Ok(n) => {
+                        warn!("Bridge: Read {} bytes from client", n);
                         if provider.write_all(&buf_cp[..n]).await.is_err() {
+                            warn!("Bridge: Failed to write to provider");
+                            break;
+                        }
+                        if provider.flush().await.is_err() {
+                            warn!("Bridge: Failed to flush provider");
                             break;
                         }
                         stats.bytes_from_client += n as u64;
                     }
-                    Err(_) => break,
+                    Err(e) => { warn!("Bridge: Client read error: {}", e); break; }
                 }
             }
             // Data arriving from provider → forward to client
             read_res = provider.read(&mut buf_pc) => {
                 match read_res {
-                    Ok(0) => break,
+                    Ok(0) => { warn!("Bridge: Provider closed connection"); break; }
                     Ok(n) => {
+                        warn!("Bridge: Read {} bytes from provider", n);
                         if client.write_all(&buf_pc[..n]).await.is_err() {
+                            warn!("Bridge: Failed to write to client");
+                            break;
+                        }
+                        if client.flush().await.is_err() {
+                            warn!("Bridge: Failed to flush client");
                             break;
                         }
                         stats.bytes_from_provider += n as u64;
                     }
-                    Err(_) => break,
+                    Err(e) => { warn!("Bridge: Provider read error: {}", e); break; }
                 }
             }
             // P2-12: Neither direction sent data within idle_timeout → close tunnel.

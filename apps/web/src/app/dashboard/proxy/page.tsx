@@ -40,6 +40,14 @@ export default function ProxyPage() {
     const [testing, setTesting] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'online' | 'offline'>('idle');
     const [copied, setCopied] = useState<string | null>(null);
+    const [selectedTier, setSelectedTier] = useState<string>('any');
+
+    const tiers = [
+        { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-white/5', bg: 'bg-white/5' },
+        { id: 'Bronze', name: 'Bronze', icon: Shield, color: 'text-orange-400', border: 'border-orange-500/20', bg: 'bg-orange-500/10' },
+        { id: 'Silver', name: 'Silver', icon: CheckCircle, color: 'text-slate-300', border: 'border-slate-500/20', bg: 'bg-slate-500/10' },
+        { id: 'Gold', name: 'Gold', icon: Zap, color: 'text-amber-400', border: 'border-amber-500/20', bg: 'bg-amber-500/10' },
+    ];
 
     const { data: allSessions = [], isLoading: loading } = useQuery({
         queryKey: ['sessions'],
@@ -60,7 +68,10 @@ export default function ProxyPage() {
     async function handleQuickStart(type: 'rotating' | 'sticky') {
         setCreating(true);
         try {
-            const result = await createSession({ type });
+            const result = await createSession({ 
+                type,
+                preferred_tier: selectedTier === 'any' ? undefined : selectedTier
+            });
             await queryClient.invalidateQueries({ queryKey: ['sessions'] });
             // Auto-copy credentials
             if (result.proxy_credentials) {
@@ -231,6 +242,47 @@ export default function ProxyPage() {
                     </div>
                 </GlassCard>
             </motion.div>
+
+            {/* Tier Selection */}
+            {!activeSession && (
+                <motion.div variants={itemVariants} className="space-y-6">
+                    <div className="flex items-center gap-3 px-4">
+                        <Hexagon size={18} className="text-primary" />
+                        <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em]">Select Deployment Tier</h2>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {tiers.map((tier) => (
+                            <button
+                                key={tier.id}
+                                onClick={() => setSelectedTier(tier.id)}
+                                className={`p-6 glass-card border flex flex-col items-center gap-3 transition-all rounded-3xl relative overflow-hidden group ${
+                                    selectedTier === tier.id 
+                                        ? `${tier.border} ${tier.bg} ring-2 ring-primary/20` 
+                                        : 'border-white/5 bg-white/2 hover:bg-white/5'
+                                }`}
+                            >
+                                <div className={`p-3 rounded-xl bg-black/40 border border-white/5 ${selectedTier === tier.id ? tier.color : 'text-muted-foreground/40'}`}>
+                                    <tier.icon size={20} />
+                                </div>
+                                <div className="text-center">
+                                    <div className={`text-[10px] font-black font-mono uppercase tracking-widest ${selectedTier === tier.id ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+                                        {tier.name}
+                                    </div>
+                                    {tier.id === 'Gold' && (
+                                        <div className="text-[8px] font-mono font-bold text-amber-500/60 uppercase mt-1 tracking-tighter">Premium QoS</div>
+                                    )}
+                                </div>
+                                {selectedTier === tier.id && (
+                                    <motion.div 
+                                        layoutId="active-tier"
+                                        className="absolute bottom-0 left-0 right-0 h-1 bg-primary"
+                                    />
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </motion.div>
+            )}
 
             {/* Acquisition Mode / Quick Setup */}
             <motion.div variants={itemVariants} className="space-y-6">

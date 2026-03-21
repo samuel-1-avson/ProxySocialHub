@@ -107,6 +107,7 @@ func InitSocial(dsn string) error {
 		&models.SpeedTest{},
 		&models.Testimonial{},
 		&models.ProviderStats{},
+		&models.UsageMilestone{},
 
 		// Forum
 		&models.ForumCategory{},

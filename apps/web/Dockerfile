@@ -6,8 +6,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 # Install build tools needed for native addons (usb, lightningcss, etc.)
 RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json ./
+RUN npm install
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder

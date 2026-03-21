@@ -45,6 +45,12 @@ type AnalyticsOverview struct {
 	UniqueDestinations int     `json:"unique_destinations"`
 	TopCountry         string  `json:"top_country"`
 	TopISP             string  `json:"top_isp"`
+
+	// Provider Metrics
+	TotalNodes       int     `json:"total_nodes"`
+	TotalEarningsSOL float64 `json:"total_earnings_sol"`
+	AvgQualityScore  int     `json:"avg_quality_score"`
+	ActivePayouts    int     `json:"active_payouts"`
 }
 
 func getAnalyticsOverview(c *gin.Context) {
@@ -122,6 +128,17 @@ func getAnalyticsOverview(c *gin.Context) {
 		Limit(1).
 		Scan(&topISP)
 
+	// 4. Provider Specific Stats
+	var totalNodes int64
+	var avgQuality float64
+	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Count(&totalNodes)
+	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Select("AVG(quality_score)").Scan(&avgQuality)
+
+	// Note: total_earnings_sol and active_payouts would normally come from the billing/wallet engine.
+	// We'll mock these for now as they are handled in separate ledger queries.
+	var wallet models.Wallet
+	db.DB.Where("user_id = ?", userID).First(&wallet)
+
 	c.JSON(http.StatusOK, AnalyticsOverview{
 		TotalRequests:      stats.TotalRequests,
 		TotalBandwidthGB:   totalBandwidthGB,
@@ -131,6 +148,11 @@ func getAnalyticsOverview(c *gin.Context) {
 		UniqueDestinations: stats.UniqueDestinations,
 		TopCountry:         topCountry.Name,
 		TopISP:             topISP.Name,
+
+		TotalNodes:       int(totalNodes),
+		TotalEarningsSOL: wallet.BalanceSOL, // Simplification
+		AvgQualityScore:  int(avgQuality),
+		ActivePayouts:    0, // Default for now
 	})
 }
 

@@ -18,11 +18,13 @@
 //! 9  region_hash          stable float in [0,1] derived from region string
 //! ```
 
-use dashmap::DashMap;
 use std::sync::{
     atomic::{AtomicU32, AtomicU64, Ordering},
     Arc,
 };
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 use crate::state::NodeInfo;
 
@@ -42,15 +44,53 @@ pub struct NodeStats {
     pub ewma_latency_fp: AtomicU32,
     /// Packet-loss estimate in parts-per-million.
     pub packet_loss_ppm: AtomicU32,
+    /// Per-domain success/failure stats.
+    pub domain_stats: DashMap<String, Arc<DomainStats>>,
 }
 
-impl NodeStats {
+/// Success/failure counters for a specific target domain.
+#[derive(Debug, Default)]
+pub struct DomainStats {
+    pub success_count: AtomicU64,
+    pub failure_count: AtomicU64,
+}
+
+impl DomainStats {
     pub fn record_success(&self) {
         self.success_count.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_failure(&self) {
         self.failure_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn success_rate(&self) -> f32 {
+        let s = self.success_count.load(Ordering::Relaxed) as f64;
+        let f = self.failure_count.load(Ordering::Relaxed) as f64;
+        // Laplace smoothing: (s + 1) / (s + f + 2)
+        ((s + 1.0) / (s + f + 2.0)) as f32
+    }
+}
+
+impl NodeStats {
+    pub fn record_success(&self, domain: Option<&str>) {
+        self.success_count.fetch_add(1, Ordering::Relaxed);
+        if let Some(d) = domain {
+            self.domain_stats
+                .entry(d.to_string())
+                .or_insert_with(|| Arc::new(DomainStats::default()))
+                .record_success();
+        }
+    }
+
+    pub fn record_failure(&self, domain: Option<&str>) {
+        self.failure_count.fetch_add(1, Ordering::Relaxed);
+        if let Some(d) = domain {
+            self.domain_stats
+                .entry(d.to_string())
+                .or_insert_with(|| Arc::new(DomainStats::default()))
+                .record_failure();
+        }
     }
 
     /// Update the EWMA latency with `alpha = 0.1`.
@@ -76,21 +116,29 @@ impl NodeStats {
     pub fn ewma_latency_ms(&self) -> f32 {
         self.ewma_latency_fp.load(Ordering::Relaxed) as f32 / 1000.0
     }
+
+    pub fn domain_success_rate(&self, domain: &str) -> f32 {
+        if let Some(stats) = self.domain_stats.get(domain) {
+            stats.success_rate()
+        } else {
+            0.5 // Default Laplace prior for unknown domains
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // NodeFeatures — 10-dim normalised feature vector
 // ---------------------------------------------------------------------------
 
-/// Normalised 10-dimensional feature vector for a single provider node.
+/// Normalised 11-dimensional feature vector for a single provider node.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NodeFeatures {
-    pub values: [f32; 10],
+    pub values: [f32; 11],
 }
 
 impl NodeFeatures {
     /// Build features from live `NodeInfo` and accumulated `NodeStats`.
-    pub fn build(info: &NodeInfo, stats: &NodeStats) -> Self {
+    pub fn build(info: &NodeInfo, stats: &NodeStats, domain: Option<&str>) -> Self {
         let latency = (info.latency_ms as f32 / 500.0).clamp(0.0, 1.0);
 
         let connection_load = if info.max_connections > 0 {
@@ -123,6 +171,12 @@ impl NodeFeatures {
 
         let region_hash = stable_region_hash(&info.region);
 
+        let domain_success = if let Some(d) = domain {
+            stats.domain_success_rate(d)
+        } else {
+            0.5 // Default for global requests
+        };
+
         NodeFeatures {
             values: [
                 latency,
@@ -135,6 +189,7 @@ impl NodeFeatures {
                 uptime_norm,
                 health,
                 region_hash,
+                domain_success,
             ],
         }
     }
@@ -179,24 +234,43 @@ impl FeatureCache {
     }
 
     /// Build a `NodeFeatures` vector using cached stats + live `NodeInfo`.
-    pub fn build_features(&self, info: &NodeInfo) -> NodeFeatures {
+    pub fn build_features(&self, info: &NodeInfo, domain: Option<&str>) -> NodeFeatures {
         let stats = self.get_stats(&info.node_id);
-        NodeFeatures::build(info, &stats)
+        NodeFeatures::build(info, &stats, domain)
     }
 
     /// Record a successful connection on `node_id`.
-    pub fn record_success(&self, node_id: &str) {
-        self.get_stats(node_id).record_success();
+    pub fn record_success(&self, node_id: &str, domain: Option<&str>) {
+        self.get_stats(node_id).record_success(domain);
     }
 
     /// Record a failed connection on `node_id`.
-    pub fn record_failure(&self, node_id: &str) {
-        self.get_stats(node_id).record_failure();
+    pub fn record_failure(&self, node_id: &str, domain: Option<&str>) {
+        self.get_stats(node_id).record_failure(domain);
     }
 
     /// Update the EWMA latency for `node_id`.
     pub fn update_latency(&self, node_id: &str, latency_ms: u32) {
         self.get_stats(node_id).update_latency(latency_ms);
+    }
+
+    /// Dump all cached features for all healthy nodes to a CSV string.
+    pub fn to_csv(&self, registry: &crate::registry::lockfree::LockFreeNodeRegistry) -> String {
+        let mut csv = String::from("node_id,latency,load,bw_util,success_rate,latency_hist,packet_loss,bytes_log,uptime,health,region_hash,domain_success\n");
+        
+        for (_id, _control, info) in registry.list_healthy_with_info() {
+            // Build features for a generic domain (None) to get a baseline
+            let features = self.build_features(&info, None);
+            let row = format!("{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
+                info.node_id,
+                features.values[0], features.values[1], features.values[2],
+                features.values[3], features.values[4], features.values[5],
+                features.values[6], features.values[7], features.values[8],
+                features.values[9], features.values[10]
+            );
+            csv.push_str(&row);
+        }
+        csv
     }
 }
 
@@ -225,9 +299,12 @@ mod tests {
             total_bytes_served: 0,
             active_connections: 2,
             max_connections: 10,
-            latency_ms: 50,
-            bandwidth_rate_kbps: 1000,
+            latency_ms: 0,
+            bandwidth_rate_kbps: 0,
             is_healthy: true,
+            capabilities: crate::tunnel::ProviderCapabilities::default(),
+            assigned_limits: crate::tunnel::AssignedLimits::default(),
+            qos_tier: "basic".to_string(),
         }
     }
 
@@ -235,7 +312,7 @@ mod tests {
     fn test_feature_bounds() {
         let info = make_info();
         let stats = NodeStats::default();
-        let feat = NodeFeatures::build(&info, &stats);
+        let feat = NodeFeatures::build(&info, &stats, None);
         for (i, v) in feat.values.iter().enumerate() {
             assert!(
                 (0.0..=1.0).contains(v),
@@ -250,8 +327,18 @@ mod tests {
         info.active_connections = 10;
         info.max_connections = 10;
         let stats = NodeStats::default();
-        let feat = NodeFeatures::build(&info, &stats);
+        let feat = NodeFeatures::build(&info, &stats, None);
         assert_eq!(feat.values[1], 1.0);
+    }
+
+    #[test]
+    fn test_record_stats() {
+        let stats = NodeStats::default();
+        stats.record_success(Some("google.com"));
+        stats.record_failure(Some("google.com"));
+        assert_eq!(stats.success_count.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.failure_count.load(Ordering::Relaxed), 1);
+        assert!(stats.domain_stats.contains_key("google.com"));
     }
 
     #[test]
@@ -259,8 +346,8 @@ mod tests {
         let stats = NodeStats::default();
         // No observations → Laplace prior = 1/2 = 0.5
         assert!((stats.success_rate() - 0.5).abs() < 1e-5);
-        stats.record_success();
-        stats.record_success();
+        stats.record_success(Some("test.com"));
+        stats.record_success(Some("test.com"));
         // 2 successes: (2+1)/(2+0+2) = 3/4 = 0.75
         assert!((stats.success_rate() - 0.75).abs() < 1e-5);
     }
