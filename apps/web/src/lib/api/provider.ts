@@ -46,6 +46,22 @@ export interface CreateTokenResponse {
     created_at: string;
 }
 
+export interface ProviderApplication {
+    id: string;
+    user_id: string;
+    isp: string;
+    location: string;
+    bandwidth: string;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+}
+
+export interface KYCStatusResponse {
+    user_id: string;
+    kyc_status: 'none' | 'pending' | 'approved' | 'rejected';
+    trust_tier: string;
+}
+
 // ============ CLI Download API ============
 
 /**
@@ -131,6 +147,31 @@ export async function revokeProviderToken(tokenId: string): Promise<{ message: s
     return apiDelete<{ message: string }>(`/v1/provider/tokens/${tokenId}`);
 }
 
+// ============ Provider Application & KYC API ============
+
+/**
+ * Submit an application to become a provider
+ */
+export async function applyForProvider(data: {
+    bandwidth: string;
+}): Promise<{ message: string; application: ProviderApplication }> {
+    return apiPost<{ message: string; application: ProviderApplication }>('/v1/provider/apply', data);
+}
+
+/**
+ * Get current provider application status
+ */
+export async function getProviderStatus(): Promise<{ status: string; application?: ProviderApplication }> {
+    return apiGet<{ status: string; application?: ProviderApplication }>('/v1/provider/status');
+}
+
+/**
+ * Get KYC status for a user
+ */
+export async function getKYCStatus(userId: string): Promise<KYCStatusResponse> {
+    return apiGet<KYCStatusResponse>(`/v1/kyc/status/${userId}`);
+}
+
 // ============ Node Registration API ============
 
 export interface NodeRegistration {
@@ -184,6 +225,15 @@ export async function deleteNode(nodeId: string): Promise<{ message: string }> {
     return apiDelete<{ message: string }>(`/v1/provider/nodes/${nodeId}`);
 }
 
+export interface NodeHistory {
+    uptime: any[];
+    bandwidth: {
+        timestamp: string;
+        upload: number;
+        download: number;
+    }[];
+}
+
 /**
  * Get node uptime statistics
  */
@@ -194,6 +244,7 @@ export async function getNodeUptime(nodeId: string): Promise<{
     checks_24h: number;
     current_status: string;
     last_seen: string;
+    history?: NodeHistory;
 }> {
     return apiGet(`/v1/provider/nodes/${nodeId}/uptime`);
 }

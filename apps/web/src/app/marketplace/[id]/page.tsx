@@ -211,7 +211,12 @@ function ListingDetailContent() {
                         </button>
 
                         <p className="text-[10px] text-center text-muted-foreground font-mono">
-                            Provided by <span className="font-bold text-foreground hover:underline cursor-pointer">{listing.seller?.display_name || "Anonymous"}</span>
+                            Provided by <Link 
+                                href={listing.seller?.username ? `/profile/${listing.seller.username}` : '#'} 
+                                className="font-bold text-foreground hover:text-primary hover:underline transition-colors"
+                            >
+                                {listing.seller?.display_name || "Anonymous"}
+                            </Link>
                         </p>
                     </div>
                 </div>

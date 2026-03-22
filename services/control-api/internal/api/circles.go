@@ -161,11 +161,6 @@ func listCircles(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch circles"})
 			return
 		}
-	} else {
-		// Mock data for testing
-		circles = []models.Circle{
-			// Mocks removed for brevity/consistency
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"circles": circles})

@@ -72,6 +72,7 @@ export function Sidebar() {
         id: "main",
         items: [
             { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+            { href: "/dashboard/provider", label: "Provider", icon: Server, description: "Manage nodes & earnings" },
         ]
     };
 
