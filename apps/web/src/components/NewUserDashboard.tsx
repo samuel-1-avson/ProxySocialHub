@@ -5,24 +5,26 @@ import { ActionCard } from "@/components/ui/ActionCard";
 import { Globe, Server, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
+import { updateProfile } from "@/lib/api/profile";
+import { toast } from "sonner";
 
 export function NewUserDashboard() {
     const { user } = useAuth();
     const [selectedRole, setSelectedRole] = useState<"consumer" | "provider" | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // In a real app, this would call an API to update the user's role
-    // For now, since we have no mock data or a direct update role API mentioned,
-    // we just simulate the selection state to provide a complete UX flow.
     const handleRoleSelect = async (role: "consumer" | "provider") => {
         setSelectedRole(role);
         setIsSubmitting(true);
-        // Simulate API call
-        setTimeout(() => {
-            // Once updated, the useRole() hook in the parent should trigger 
-            // a re-render of the appropriate dashboard.
+        
+        try {
+            await updateProfile({ role: role === "consumer" ? "buyer" : "provider" });
             window.location.reload(); 
-        }, 1500);
+        } catch (error) {
+            toast.error("Failed to update your preference. Please try again.");
+            setIsSubmitting(false);
+            setSelectedRole(null);
+        }
     };
 
     return (

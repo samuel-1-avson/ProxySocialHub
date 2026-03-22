@@ -71,6 +71,7 @@ func createNode(c *gin.Context) {
 	}
 
 	node := models.ProviderNode{
+		ID:        uuid.New(),
 		UserID:    userID,
 		Name:      req.Name,
 		IPAddress: req.IPAddress,
@@ -268,6 +269,19 @@ func getNodeUptime(c *gin.Context) {
 		}
 	}
 
+	// Fetch bandwidth history
+	var usage []struct {
+		Timestamp time.Time `json:"timestamp"`
+		Upload    int64     `json:"upload"`
+		Download  int64     `json:"download"`
+	}
+	db.DB.Table("usage_records").
+		Select("date_trunc('hour', created_at) as timestamp, SUM(bytes_up) as upload, SUM(bytes_down) as download").
+		Where("node_id = ? AND created_at > ?", nodeID, since).
+		Group("timestamp").
+		Order("timestamp ASC").
+		Scan(&usage)
+
 	c.JSON(http.StatusOK, gin.H{
 		"node_id":        nodeID,
 		"uptime_percent": uptimePercent,
@@ -275,6 +289,10 @@ func getNodeUptime(c *gin.Context) {
 		"checks_24h":     totalChecks,
 		"current_status": node.Status,
 		"last_seen":      node.LastSeenAt,
+		"history": gin.H{
+			"uptime":    checks,
+			"bandwidth": usage,
+		},
 	})
 }
 
@@ -290,7 +308,14 @@ func nodeHeartbeat(c *gin.Context) {
 		return
 	}
 
-	// Optional metrics from CLI
+	// Fetch existing status to detect transition to online
+	var currentStatus string
+	var nodeName string
+	if err := db.DB.Model(&models.ProviderNode{}).Where("id = ? AND user_id = ?", nodeID, userID).Select("status, name").Row().Scan(&currentStatus, &nodeName); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+
 	var req struct {
 		LatencyMs         int     `json:"latency_ms"`
 		ActiveConnections int     `json:"active_connections"`
@@ -318,9 +343,20 @@ func nodeHeartbeat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
 		return
 	}
-	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
-		return
+
+	// Trigger Social Feed Event if node transitioned to Online
+	if models.NodeStatus(currentStatus) != models.NodeOnline {
+		PublishFeedEvent(*models.CreateFeedEvent(
+			&userID,
+			models.FeedEventNodeOnline,
+			"node",
+			&nodeID,
+			"Provider Node " + nodeName + " is now online and actively routing traffic!",
+			map[string]interface{}{
+				"node_id":   nodeID.String(),
+				"node_name": nodeName,
+			},
+		))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "server_time": now.Unix()})

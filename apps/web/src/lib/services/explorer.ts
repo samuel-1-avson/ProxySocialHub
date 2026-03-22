@@ -37,6 +37,8 @@ export interface TransactionListResponse {
 
 export interface NodeSummary {
     node_id: string;
+    provider_id?: string;
+    provider_username?: string;
     name?: string;
     chain: string;
     region: string;
@@ -270,6 +272,8 @@ export interface LeaderboardResponse {
 
 export interface NodeDetail {
     node_id: string;
+    provider_id?: string;
+    provider_username?: string;
     name?: string;
     chain: string;
     region: string;

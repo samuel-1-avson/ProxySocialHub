@@ -445,13 +445,11 @@ function featureCentroid(f: any): [number, number] | null {
 }
 
 const COUNTRIES_GEOJSON =
-    'https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson';
+    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson';
 
-// Natural Earth 110m populated places — ~1,245 cities with POP_MAX field
-// Same CDN/dataset family as the country borders above. Used as the live city source;
-// the static CITIES array above serves as an instant fallback while this loads.
+// Natural Earth 50m populated places — ~7,000+ cities
 const POPULATED_PLACES_URL =
-    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_populated_places.geojson';
+    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_populated_places_simple.geojson';
 
 function popToTier(pop: number): number {
     if (pop >= 10_000_000) return 5;
@@ -533,14 +531,14 @@ export default function GlobeMap({
             .then(r => r.json())
             .then(d => {
                 const cities: City[] = (d.features ?? [])
-                    .filter((f: any) => f.geometry?.type === 'Point' && f.properties?.NAMEASCII)
+                    .filter((f: any) => f.geometry?.type === 'Point' && (f.properties?.NAMEASCII || f.properties?.name))
                     .map((f: any) => ({
-                        name: f.properties.NAMEASCII as string,
+                        name: (f.properties.NAMEASCII || f.properties.name) as string,
                         lat:  f.geometry.coordinates[1] as number,
                         lon:  f.geometry.coordinates[0] as number,
-                        tier: popToTier(f.properties.POP_MAX ?? 0),
+                        tier: popToTier(f.properties.pop_max || f.properties.POP_MAX || 0),
                     }));
-                if (cities.length > 10) setCityData(cities);
+                if (cities.length > 50) setCityData(cities);
             })
             .catch(() => {}); // keep static CITIES fallback on network error
     }, []);
@@ -638,6 +636,21 @@ export default function GlobeMap({
         [mapStyle, cityLabels, countryLabels],
     );
 
+    // ── Traffic Arcs: Connect active nodes to a Nexus hub (Central Hub) ──
+    const NEXUS = { lat: 51.5074, lon: -0.1278 }; // London as a central nexus
+    const trafficArcs = useMemo(() =>
+        validNodes
+            .filter(n => n.is_active)
+            .map(n => ({
+                startLat: n.lat,
+                startLng: n.lon,
+                endLat: NEXUS.lat,
+                endLng: NEXUS.lon,
+                color: ['rgba(99,102,241,0.4)', 'rgba(168,85,247,0.4)'],
+            })),
+        [validNodes]
+    );
+
     return (
         <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#050508' }}>
             <Globe
@@ -691,8 +704,18 @@ export default function GlobeMap({
                 ringPropagationSpeed={2.5}
                 ringRepeatPeriod={900}
                 ringAltitude={0.025}
+ 
+                 // ── Traffic Arcs ──────────────────────────────────────────
+                arcsData={trafficArcs}
+                arcColor="color"
+                arcDashLength={0.4}
+                arcDashGap={2}
+                arcDashInitialGap={() => Math.random()}
+                arcDashAnimateTime={2500}
+                arcStroke={0.2}
+                arcAltitudeAutoScale={0.5}
 
-                // ── Session hex-bin density ────────────────────────────────
+                 // ── Session hex-bin density ────────────────────────────────
                 hexBinPointsData={showHeatmap ? validNodes : []}
                 hexBinPointWeight={(n: object) => (n as NodeGeoPoint).active_sessions + 1}
                 hexAltitude={(d: object) => Math.min((d as any).sumWeight * 0.005, 0.25)}

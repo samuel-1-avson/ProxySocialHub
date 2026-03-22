@@ -33,6 +33,7 @@ export interface UserPublicProfile {
     social_links?: Record<string, any>;
     skills?: string[];
     business_name?: string;
+    kyc_status: string;
 }
 
 /**

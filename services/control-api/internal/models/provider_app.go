@@ -12,7 +12,6 @@ type ProviderApplication struct {
 	ID         uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
 	UserID     uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex" json:"user_id"`
 	Status     string     `gorm:"size:20;default:'pending'" json:"status"` // pending, approved, rejected
-	Reason     string     `json:"reason"`                                  // Why they want to be a provider
 	ISP        string     `json:"isp"`
 	Location   string     `json:"location"`
 	Bandwidth  string     `json:"bandwidth"` // e.g., "100Mbps fiber"
