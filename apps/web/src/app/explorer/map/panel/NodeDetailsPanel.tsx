@@ -9,6 +9,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassPanel } from "../components/GlassPanel";
 import { useMapTheme } from "../styles";
+import { getNodeUptime } from "@/lib/api/provider";
 import { 
   LineChart, 
   Line, 
@@ -28,6 +29,8 @@ import {
 
 interface NodeDetails {
   node_id: string;
+  provider_id?: string;
+  provider_username?: string;
   city?: string;
   country: string;
   region: string;
@@ -66,30 +69,6 @@ interface LatencyData {
   latency: number;
 }
 
-// Mock historical data generator
-const generateMockData = (hours: number = 24): { bandwidth: BandwidthData[]; latency: LatencyData[] } => {
-  const bandwidth: BandwidthData[] = [];
-  const latency: LatencyData[] = [];
-  
-  for (let i = 0; i < hours; i++) {
-    const time = new Date();
-    time.setHours(time.getHours() - (hours - i));
-    const timeStr = time.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-    
-    bandwidth.push({
-      timestamp: timeStr,
-      upload: Math.round(50 + Math.random() * 100),
-      download: Math.round(100 + Math.random() * 200),
-    });
-    
-    latency.push({
-      timestamp: timeStr,
-      latency: Math.round(20 + Math.random() * 80),
-    });
-  }
-  
-  return { bandwidth, latency };
-};
 
 // Metric Card Component
 function MetricCard({ 
@@ -247,14 +226,30 @@ export function NodeDetailsPanel({
   }, []);
   
   useEffect(() => {
-    if (node) {
-      const mockData = generateMockData(24);
-      setData({
-        bandwidth: historicalData || mockData.bandwidth,
-        latency: latencyData || mockData.latency,
-      });
+    async function fetchHistory() {
+      if (!node) return;
+      try {
+        const response = await getNodeUptime(node.node_id);
+        if (response.history) {
+          setData({
+            bandwidth: response.history.bandwidth.map((b: any) => ({
+              timestamp: new Date(b.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+              upload: Number(b.upload) / (1024 * 1024), // Convert to MB
+              download: Number(b.download) / (1024 * 1024),
+            })),
+            latency: response.history.uptime.map((u: any) => ({
+              timestamp: new Date(u.checked_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+              latency: u.latency_ms,
+            })),
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch node history:", error);
+      }
     }
-  }, [node, historicalData, latencyData]);
+    
+    fetchHistory();
+  }, [node]);
   
   if (!node) return null;
 
@@ -274,9 +269,25 @@ export function NodeDetailsPanel({
               <h2 className="text-xl font-bold text-white mb-1">
                 {node.city || "Unknown Location"}
               </h2>
-              <p className="text-white/40 text-sm">
-                {node.country} • {node.region}
-              </p>
+              <div className="flex flex-col gap-1">
+                <p className="text-white/40 text-sm">
+                  {node.country} • {node.region}
+                </p>
+                {node.provider_username && (
+                  <a 
+                    href={`/profile/${node.provider_username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cyan-400 text-xs hover:text-cyan-300 transition-colors flex items-center gap-1 group/provider"
+                  >
+                    <span className="text-white/30">Provider:</span>
+                    <span className="font-mono">@{node.provider_username}</span>
+                    <svg className="w-3 h-3 opacity-0 group-hover/provider:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
+              </div>
             </div>
             <button 
               onClick={onClose}

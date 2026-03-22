@@ -271,7 +271,6 @@ func initiateDeposit(c *gin.Context) {
 		"message": "This system operates on SOL only. Please use /wallet/deposit/crypto to fund your wallet with SOL.",
 		"action":  "Use /wallet/deposit/crypto",
 	})
-	return
 }
 
 // Verify payment endpoint - DEPRECATED: SOL-only system
@@ -280,7 +279,6 @@ func verifyDeposit(c *gin.Context) {
 		"error":   "Fiat deposit verification is disabled.",
 		"message": "This system operates on SOL only. Use /wallet/deposit/crypto to fund your wallet.",
 	})
-	return
 }
 
 // Withdrawals would follow similar pattern (Transfer API) but skipping for MVP as per request focusing on "System" usage.
@@ -298,7 +296,6 @@ func initiateWithdrawal(c *gin.Context) {
 		"message": "This system operates on SOL only. Please use /wallet/withdraw/sol to withdraw SOL to your linked wallet.",
 		"action":  "Use /wallet/withdraw/sol",
 	})
-	return
 }
 
 // Helper to refund SOL on failure

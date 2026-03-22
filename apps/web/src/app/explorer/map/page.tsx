@@ -36,6 +36,17 @@ const GlobeMap = dynamic(() => import('./GlobeMap'), {
     ),
 });
 
+const LeafletMap = dynamic(() => import('./LeafletMap'), {
+    ssr: false,
+    loading: () => (
+        <div className="w-full h-full flex items-center justify-center bg-[#050508]">
+            <div className="text-[10px] font-black text-white/20 uppercase tracking-widest animate-pulse">
+                Initialising 2D map…
+            </div>
+        </div>
+    ),
+});
+
 // ─── Fallback coordinates (used only when backend lat/lon = 0) ────────────────
 // These place nodes at country / region centres. Real coordinates come from
 // the GeoIP backfill worker once it has resolved an IP.
@@ -126,6 +137,8 @@ export default function NodeMapPage() {
     const [selectedRegion, setSelectedRegion] = useState<string>('all');
     const [showHeatmap, setShowHeatmap] = useState(false);
     const [mapStyle, setMapStyle] = useState<MapStyle>('minimal');
+    const [mapMode, setMapMode] = useState<'globe' | 'map'>('map'); // Default to Map (2D) for "Wide" feel
+    const [searchQuery, setSearchQuery] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [wsConnected, setWsConnected] = useState(false);
 
@@ -178,8 +191,17 @@ export default function NodeMapPage() {
                 n.region === selectedRegion || n.country === selectedRegion
             );
         }
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            list = list.filter(n =>
+                n.node_id.toLowerCase().includes(q) ||
+                n.city?.toLowerCase().includes(q) ||
+                n.country?.toLowerCase().includes(q) ||
+                n.isp?.toLowerCase().includes(q)
+            );
+        }
         return list;
-    }, [geoData?.nodes, selectedRegion]);
+    }, [geoData?.nodes, selectedRegion, searchQuery]);
 
     const totalActive = nodes.filter(n => n.is_active).length;
     const totalValidator = nodes.filter(n => n.is_validator).length;
@@ -221,12 +243,16 @@ export default function NodeMapPage() {
                 </Link>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // 3D Globe</div>
+                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // {mapMode === 'globe' ? '3D Globe' : '2D Map'}</div>
                         <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
-                            <Globe className="text-primary" size={32} /> Node Globe
+                            {mapMode === 'globe' ? <Globe className="text-primary" size={32} /> : <MapPin className="text-primary" size={32} />}
+                            {mapMode === 'globe' ? 'Node Globe' : 'Network Wide Map'}
                         </h1>
                         <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
-                            Live global relay node distribution · WebGL 3D globe
+                            {mapMode === 'globe' 
+                                ? 'Live global relay node distribution · WebGL 3D globe'
+                                : 'High-resolution network topology · 2D interactive view'
+                            }
                         </p>
                     </div>
                     <div className="flex gap-3 flex-wrap">
@@ -315,19 +341,56 @@ export default function NodeMapPage() {
                             </div>
                         </div>
 
-                        {/* Globe canvas */}
-                        <div style={{ height: '680px' }} className="relative bg-[#050508]">
+                        {/* Map viewport */}
+                        <div style={{ height: '720px' }} className="relative bg-[#050508]">
                             {mounted && (
-                                <GlobeMap
-                                    nodes={nodes}
-                                    onSelectNode={handleSelectNode}
-                                    selectedNodeId={selectedNode?.node_id}
-                                    showHeatmap={showHeatmap}
-                                    mapStyle={mapStyle}
-                                    focusBounds={focusBounds}
-                                    liveUpdates={liveUpdates}
-                                />
+                                <div className="w-full h-full">
+                                    {mapMode === 'globe' ? (
+                                        <GlobeMap
+                                            nodes={nodes}
+                                            onSelectNode={handleSelectNode}
+                                            selectedNodeId={selectedNode?.node_id}
+                                            showHeatmap={showHeatmap}
+                                            mapStyle={mapStyle}
+                                            focusBounds={focusBounds}
+                                            liveUpdates={liveUpdates}
+                                        />
+                                    ) : (
+                                        <LeafletMap
+                                            nodes={nodes}
+                                            onSelectNode={handleSelectNode}
+                                            selectedNodeId={selectedNode?.node_id}
+                                            showHeatmap={showHeatmap}
+                                            focusBounds={focusBounds}
+                                            liveUpdates={liveUpdates}
+                                        />
+                                    )}
+                                </div>
                             )}
+
+                            {/* Engine Toggle Floating Button */}
+                            <div className="absolute bottom-6 left-6 z-[1000] flex gap-2">
+                                <button
+                                    onClick={() => setMapMode('map')}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-[0.2em] transition-all backdrop-blur-md ${
+                                        mapMode === 'map'
+                                            ? 'bg-primary/20 border-primary/50 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]'
+                                            : 'bg-black/60 border-white/10 text-white/40 hover:text-white/60'
+                                    }`}
+                                >
+                                    <MapPin size={12} /> 2D Map
+                                </button>
+                                <button
+                                    onClick={() => setMapMode('globe')}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-[0.2em] transition-all backdrop-blur-md ${
+                                        mapMode === 'globe'
+                                            ? 'bg-primary/20 border-primary/50 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]'
+                                            : 'bg-black/60 border-white/10 text-white/40 hover:text-white/60'
+                                    }`}
+                                >
+                                    <Globe size={12} /> 3D Globe
+                                </button>
+                            </div>
 
                             {/* Error overlay */}
                             {error && (
@@ -371,6 +434,31 @@ export default function NodeMapPage() {
 
                 {/* Sidebar */}
                 <div className="xl:col-span-1 space-y-4">
+                    {/* Search & Discovery */}
+                    <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-5 space-y-4">
+                        <div className="text-[9px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+                            <Layers size={10} /> Search Network
+                        </div>
+                        <div className="relative group">
+                            <div className="absolute -inset-0.5 bg-primary/20 blur opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
+                            <input
+                                type="text"
+                                placeholder="Search Town, ISP, or HW ID..."
+                                className="w-full bg-white/[0.02] border border-white/10 rounded-xl py-3 pl-4 pr-10 text-[10px] font-black uppercase tracking-widest text-white placeholder:text-white/10 outline-none focus:border-primary/40 focus:bg-white/[0.05] transition-all relative z-10"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white z-20"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+                    </GlassCard>
+
                     {/* Selected node card */}
                     {selectedNode ? (
                         <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
