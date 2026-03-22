@@ -344,7 +344,7 @@ func main() {
 	})
 
 	// Emergency Circuit Breaker (Industrial Security)
-	r.Use(middleware.EmergencyBreaker())
+	r.Use(middleware.EmergencyBreaker(cm))
 
 	// OpenTelemetry Tracing Middleware (early for full request coverage)
 	r.Use(middleware.TracingMiddleware("proxyhubb-control-api"))
@@ -409,6 +409,7 @@ func main() {
 		api.RegisterProfileRoutes(v1) // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
+		api.RegisterKYCRoutes(v1)
 		api.RegisterReputationRoutes(v1) // Phase 9.2 Trust Layer
 		api.RegisterExplorerRoutes(v1)      // System Explorer (Public blockchain explorer)
 		api.RegisterExplorerWSRoutes(v1)    // Explorer WebSocket for real-time updates
@@ -470,6 +471,7 @@ func main() {
 
 		// User Security (Phase 21)
 		api.RegisterSecurityRoutes(protected)
+		api.RegisterAPIKeyRoutes(protected)
 
 		// Audit & Monitoring (Phase 22)
 		api.RegisterAuditRoutes(protected)
@@ -577,7 +579,7 @@ func main() {
 		}
 
 		// Start Node Sync Service
-		nodeSyncInterval := 5 * time.Minute
+		nodeSyncInterval := 1 * time.Minute
 		if interval := os.Getenv("NODE_SYNC_INTERVAL_MINUTES"); interval != "" {
 			if mins, err := strconv.Atoi(interval); err == nil {
 				nodeSyncInterval = time.Duration(mins) * time.Minute

@@ -1,13 +1,19 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterOnboardingRoutes registers onboarding routes
@@ -25,9 +31,6 @@ func RegisterAdminOnboardingRoutes(rg *gin.RouterGroup) {
 
 // ApplyProviderRequest is the request body
 type ApplyProviderRequest struct {
-	Reason    string `json:"reason" binding:"required,min=10,max=500"`
-	ISP       string `json:"isp" binding:"required"`
-	Location  string `json:"location" binding:"required"`
 	Bandwidth string `json:"bandwidth" binding:"required"`
 }
 
@@ -42,18 +45,67 @@ func applyForProvider(c *gin.Context) {
 		return
 	}
 
-	// Check if already applied
+	// 1. Check if already applied
 	var existing models.ProviderApplication
 	if err := db.DB.Where("user_id = ? AND status IN ('pending', 'approved')", userID).First(&existing).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "You already have a pending or approved application"})
 		return
 	}
 
+	// 2. SOL Balance Check (Minimum 0.05 SOL)
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User profile not found"})
+		return
+	}
+
+	if user.WalletAddress == nil || *user.WalletAddress == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet linked for verification"})
+		return
+	}
+
+	minBalanceSOL := 0.05
+	if manager := GetConfigManager(); manager != nil {
+		if val, err := manager.Get("kyc.min_sol_balance"); err == nil {
+			if f, err := strconv.ParseFloat(val, 64); err == nil {
+				minBalanceSOL = f
+			}
+		}
+	}
+
+	oracle := solana.GetOracleClient()
+	if oracle != nil {
+		pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress)
+		if err == nil {
+			balanceLamports, err := oracle.GetBalance(context.Background(), pubkey)
+			if err == nil {
+				balanceSOL := float64(balanceLamports) / 1000000000.0
+				if balanceSOL < minBalanceSOL {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error": fmt.Sprintf("Insufficient balance. Minimum %.2f SOL required.", minBalanceSOL),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	// 3. ISP & Location Auto-Detection
+	clientIP := c.ClientIP()
+	geoResult, ok := geoip.Resolve(clientIP)
+	
+	finalISP := "Unknown ISP"
+	finalLocation := "Unknown"
+	
+	if ok {
+		finalISP = geoResult.ISP
+		finalLocation = fmt.Sprintf("%s, %s", geoResult.City, geoResult.Country)
+	}
+
 	app := models.ProviderApplication{
 		UserID:    userID,
-		Reason:    req.Reason,
-		ISP:       req.ISP,
-		Location:  req.Location,
+		ISP:       finalISP,
+		Location:  finalLocation,
 		Bandwidth: req.Bandwidth,
 		Status:    "pending",
 		CreatedAt: time.Now(),

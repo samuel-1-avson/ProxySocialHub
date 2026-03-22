@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
@@ -42,8 +41,8 @@ type updateAPIKeyRequest struct {
 
 // listAPIKeys returns all API keys for the authenticated user
 func listAPIKeys(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -73,8 +72,8 @@ func listAPIKeys(c *gin.Context) {
 
 // createAPIKey creates a new API key for the user
 func createAPIKey(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -123,9 +122,8 @@ func createAPIKey(c *gin.Context) {
 	}
 
 	// Generate the API key
-	userUUID, _ := uuid.Parse(userID)
 	apiKey, plaintextKey, err := models.GenerateAPIKey(
-		userUUID,
+		userID,
 		req.Name,
 		req.Permissions,
 		req.RateLimitPerMin,

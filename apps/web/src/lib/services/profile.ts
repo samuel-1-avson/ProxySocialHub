@@ -28,6 +28,8 @@ export interface UserPublicProfile {
     social_links?: Record<string, any>;
     skills?: string[];
     business_name?: string;
+    tax_id?: string;
+    isp?: string;
 }
 
 export interface Review {
@@ -67,7 +69,17 @@ export async function getMyProfile(): Promise<UserPublicProfile> {
     return getProfile('me');
 }
 
-export async function updateProfile(data: Partial<UserPublicProfile> & { skills?: string[], social_links?: any, business_name?: string }): Promise<UserPublicProfile> {
+export async function updateProfile(data: Partial<UserPublicProfile> & { 
+    skills?: string[], 
+    social_links?: any, 
+    business_name?: string,
+    tax_id?: string,
+    professional_title?: string,
+    experience_years?: number,
+    languages?: string[],
+    primary_specialization?: string,
+    isp?: string
+}): Promise<UserPublicProfile> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

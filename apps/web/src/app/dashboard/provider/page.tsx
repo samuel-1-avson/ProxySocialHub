@@ -13,6 +13,9 @@ import { StatCard } from '@/components/ui/StatCard';
 import { ActionCard } from '@/components/ui/ActionCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SkeletonDashboard } from '@/components/ui/skeleton';
+import { useAuth } from '@/lib/auth';
+import { ProviderApplicationForm } from '@/components/ProviderApplicationForm';
+import { getProviderStatus } from '@/lib/api/provider';
 
 export default function ProviderDashboard() {
     const { data: summary, isLoading: summaryLoading } = useQuery({
@@ -30,8 +33,33 @@ export default function ProviderDashboard() {
     const onlineNodes = nodes.filter((n) => n.status === 'online').length;
     const offlineNodes = nodes.filter((n) => n.status === 'offline').length;
 
-    if (summaryLoading || nodesLoading) {
+    const { user } = useAuth();
+    
+    const { data: statusData, isLoading: statusLoading } = useQuery({
+        queryKey: ['provider-status'],
+        queryFn: getProviderStatus,
+        enabled: !!user && user.role !== 'provider' && user.role !== 'admin',
+    });
+
+    if (summaryLoading || nodesLoading || statusLoading) {
         return <SkeletonDashboard />;
+    }
+
+    // Role-based access control
+    if (user?.role !== 'provider' && user?.role !== 'admin') {
+        // If they have a pending application, show a simplified status view
+        if (statusData?.application?.status === 'pending') {
+            return (
+                <div className="max-w-xl mx-auto py-20 px-4">
+                    <ProviderApplicationForm />
+                </div>
+            );
+        }
+        return (
+            <div className="max-w-xl mx-auto py-20 px-4">
+                <ProviderApplicationForm />
+            </div>
+        );
     }
 
     if (nodes.length === 0) {
@@ -261,8 +289,11 @@ function NewProviderLanding() {
                         <Link href="/dashboard/provider/setup" className="px-8 py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-2xl transition-all shadow-[0_0_30px_rgba(168,85,247,0.3)] flex items-center gap-3">
                             <Plus size={20} /> Deploy Your First Node
                         </Link>
-                        <Link href="/explorer" className="px-8 py-4 bg-white/5 hover:bg-white/10 text-foreground border border-white/10 font-bold rounded-2xl transition-all flex items-center gap-3">
-                            <Globe size={20} /> Explore the Network
+                        <Link href="/dashboard/provider/tokens" className="px-8 py-4 bg-white/5 hover:bg-white/10 text-amber-500 border border-amber-500/20 font-bold rounded-2xl transition-all flex items-center gap-3">
+                            <Fingerprint size={20} /> Manage API Tokens
+                        </Link>
+                        <Link href="/dashboard/provider/cli" className="px-8 py-4 bg-white/5 hover:bg-white/10 text-blue-400 border border-blue-500/20 font-bold rounded-2xl transition-all flex items-center gap-3">
+                            <Terminal size={20} /> CLI Setup
                         </Link>
                     </div>
                 </div>

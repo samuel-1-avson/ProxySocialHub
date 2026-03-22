@@ -40,6 +40,7 @@ type UserPublicProfile struct {
 	AvatarURL          *string    `json:"avatar_url"`
 	CoverImageURL      *string    `json:"cover_image_url"`
 	Location           *string    `json:"location"`
+	ISP                *string    `json:"isp"`
 	Website            *string    `json:"website"`
 	Role               string     `json:"role"`
 	Verified           bool       `json:"verified"`
@@ -50,6 +51,7 @@ type UserPublicProfile struct {
 	ProviderSince      *time.Time `json:"provider_since,omitempty"`
 	TotalBandwidthSold float64    `json:"total_bandwidth_sold"`
 	TrustTier          TrustTier  `json:"trust_tier"`
+	KYCStatus          KYCStatus  `json:"kyc_status"`
 	CreatedAt          time.Time  `json:"created_at"`
 
 	// Relationship status (set dynamically)
@@ -94,6 +96,7 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		AvatarURL:          u.AvatarURL,
 		CoverImageURL:      u.CoverImageURL,
 		Location:           u.Location,
+		ISP:                u.ISP,
 		Website:            u.Website,
 		Role:               u.Role,
 		Verified:           u.Verified,
@@ -104,6 +107,7 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		ProviderSince:      u.ProviderSince,
 		TotalBandwidthSold: u.TotalBandwidthSold,
 		TrustTier:          u.TrustTier,
+		KYCStatus:          u.KYCStatus,
 		CreatedAt:          u.CreatedAt,
 
 		// Professional Info
@@ -124,7 +128,7 @@ type UpdateProfileRequest struct {
 	Username      *string                `json:"username" binding:"omitempty,min=3,max=50,alphanum"`
 	Bio           *string                `json:"bio" binding:"omitempty,max=500"`
 	Location      *string                `json:"location" binding:"omitempty,max=100"`
-	Website       *string                `json:"website" binding:"omitempty,url,max=255"`
+	Website       *string                `json:"website" binding:"omitempty,max=255"`
 	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,url"`
 	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,url"`
 	Skills        []string               `json:"skills"`
@@ -137,4 +141,6 @@ type UpdateProfileRequest struct {
 	ExperienceYears       *int     `json:"experience_years" binding:"omitempty,gte=0"`
 	Languages             []string `json:"languages"`
 	PrimarySpecialization *string  `json:"primary_specialization" binding:"omitempty,max=100"`
+
+	Role *string `json:"role" binding:"omitempty,oneof=buyer provider admin"`
 }

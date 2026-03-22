@@ -463,11 +463,10 @@ func getAvailableRegions(c *gin.Context) {
 		})
 	}
 
-	// If no data, provide Ghana as default
 	if len(regions) == 0 {
-		regions = []RegionInfo{
-			{CountryCode: "GH", CountryName: "Ghana", ProviderCount: 50, AvgLatency: 35, IsAvailable: true},
-		}
+		// P2: In a live system with zero nodes, we return an empty list 
+		// to allow the UI to show an appropriate "No regions available" state.
+		regions = []RegionInfo{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

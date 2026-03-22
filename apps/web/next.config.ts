@@ -50,6 +50,25 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: '/dashboard/settings',
+        destination: '/dashboard/settings/identity',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/profile',
+        destination: '/dashboard/settings/identity',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/security',
+        destination: '/dashboard/settings/security',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

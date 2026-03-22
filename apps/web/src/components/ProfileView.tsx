@@ -180,24 +180,51 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
             <motion.div variants={itemVariants} className="group relative">
                 <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-20 pointer-events-none" />
                 <GlassCard className="!p-0 border-white/5 bg-white/[0.02] overflow-hidden rounded-[3rem] shadow-2xl relative">
-                    {/* Cover Area */}
-                    <div className="h-48 bg-black/40 relative overflow-hidden">
-                        <div className="absolute inset-0 opacity-10"
-                            style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }} />
-                        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
+                    {/* Cover Area with Mesh Grid and Geo Pulse */}
+                    <div className="h-64 bg-black/40 relative overflow-hidden">
+                        {/* Dynamic SVG Mesh Grid */}
+                        <svg className="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <pattern id="meshGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" />
+                                </pattern>
+                                <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stopColor="rgba(16,185,129,0.2)" />
+                                    <stop offset="100%" stopColor="transparent" />
+                                </radialGradient>
+                            </defs>
+                            <rect width="100%" height="100%" fill="url(#meshGrid)" />
+                            <motion.circle
+                                cx="20%" cy="30%" r="150" fill="url(#meshGlow)"
+                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [1, 1.2, 1] }}
+                                transition={{ duration: 8, repeat: Infinity }}
+                            />
+                        </svg>
+                        
+                        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/60 to-transparent" />
 
-                        {/* Top Protocol Status */}
-                        <div className="absolute top-8 inset-x-10 flex justify-between items-start pointer-events-none opacity-40">
-                            <div className="space-y-1">
-                                <div className="text-[8px] font-black uppercase tracking-[0.4em]">Node Origin</div>
-                                <div className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                    <Globe size={12} /> {profile.location || 'Global Mesh'}
+                        {/* Top Protocol Status - Tactically Enhanced */}
+                        <div className="absolute top-10 inset-x-12 flex justify-between items-start pointer-events-none">
+                            <div className="space-y-2">
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/30">Network Origin</div>
+                                <div className="space-y-1">
+                                    <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
+                                        <MapPin size={12} /> {profile.location || 'Global Mesh Node'}
+                                    </div>
+                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/40 uppercase flex items-center gap-2">
+                                        <Globe size={10} className="opacity-50" /> {profile.isp || 'Peer-to-Peer Relay'}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="text-right space-y-1">
-                                <div className="text-[8px] font-black uppercase tracking-[0.4em]">Registry Tier</div>
-                                <div className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 justify-end">
-                                    {profile.trust_tier || 'Alpha'} <Shield size={12} />
+                            <div className="text-right space-y-2">
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/30">Protocol Authority</div>
+                                <div className="space-y-1">
+                                    <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2 justify-end">
+                                        {profile.trust_tier || 'Alpha Sector'} <ShieldCheck size={12} />
+                                    </div>
+                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/40 uppercase">
+                                        Registry Status: <span className="text-emerald-500/60">Verified</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -206,42 +233,59 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <div className="px-12 pb-12 relative flex flex-col md:flex-row gap-12 items-end -mt-16">
                         {/* Avatar HUD */}
                         <div className="relative group/avatar">
-                            <div className="absolute -inset-2 bg-primary/20 rounded-[2.5rem] blur-xl opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-500" />
-                            <div className="w-44 h-44 rounded-[2.2rem] bg-black border-4 border-white/5 p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
+                            <motion.div 
+                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [0.95, 1.05, 0.95] }}
+                                transition={{ duration: 4, repeat: Infinity }}
+                                className="absolute -inset-4 bg-emerald-500/20 rounded-[3rem] blur-2xl" 
+                            />
+                            <div className="w-48 h-48 rounded-[2.5rem] bg-black border-[6px] border-white/5 p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
                                 {profile.avatar_url ? (
-                                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[1.8rem]" />
+                                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[2rem]" />
                                 ) : (
-                                    <div className="w-full h-full bg-white/[0.05] rounded-[1.8rem] flex items-center justify-center text-5xl font-black text-white/10 uppercase italic">
+                                    <div className="w-full h-full bg-gradient-to-br from-white/10 to-white/5 rounded-[2rem] flex items-center justify-center text-6xl font-black text-white italic tracking-tighter shadow-inner">
                                         {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
                                     </div>
                                 )}
                                 {/* Status Indicator */}
-                                <div className="absolute bottom-4 right-4 w-6 h-6 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_15px_rgba(16,185,129,0.5)] flex items-center justify-center">
-                                    <Activity size={10} className="text-black" />
+                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_20px_rgba(16,185,129,0.8)] flex items-center justify-center">
+                                    <Activity size={12} className="text-black" />
                                 </div>
                             </div>
                         </div>
 
                         {/* Identity & Social Hub */}
                         <div className="flex-1 space-y-6 pb-2">
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-4">
-                                    <h1 className="text-5xl font-black uppercase tracking-tighter text-white">
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-6">
+                                    <h1 className="text-6xl font-black uppercase tracking-tighter text-white drop-shadow-2xl">
                                         {profile.display_name || profile.username}
                                     </h1>
                                     {profile.verified && (
-                                        <div className="p-2 rounded-xl bg-primary/20 border border-primary/20 text-primary animate-pulse-slow">
-                                            <ShieldCheck size={20} />
-                                        </div>
+                                        <motion.div 
+                                            animate={{ boxShadow: ["0 0 10px rgba(16,185,129,0)", "0 0 25px rgba(16,185,129,0.4)", "0 0 10px rgba(16,185,129,0)"] }}
+                                            transition={{ duration: 3, repeat: Infinity }}
+                                            className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
+                                        >
+                                            <ShieldCheck size={24} />
+                                        </motion.div>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-6">
-                                    <div className="text-sm font-black text-primary/60 tracking-widest uppercase">
+                                <div className="flex flex-wrap items-center gap-6">
+                                    <div className="text-sm font-black text-emerald-400 tracking-[0.2em] uppercase bg-emerald-500/5 px-4 py-1.5 rounded-full border border-emerald-500/10">
                                         @{profile.username}
                                     </div>
-                                    <div className="h-4 w-px bg-white/5" />
+                                    <div className="h-5 w-px bg-white/10" />
+                                    {profile.professional_title && (
+                                        <div className="flex items-center gap-2 text-[11px] font-black text-white/80 uppercase tracking-widest">
+                                            <Briefcase size={12} className="text-purple-400" /> {profile.professional_title}
+                                            {profile.experience_years > 0 && (
+                                                <span className="text-white/30 lowercase ml-1">({profile.experience_years}y exp)</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="h-5 w-px bg-white/10 invisible md:visible" />
                                     <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <History size={12} /> Joined {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
+                                        <History size={14} /> Node Synced {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
                                     </div>
                                 </div>
                             </div>
@@ -317,13 +361,26 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Neural Summary</div>
                             <div className="h-px bg-white/5 flex-1" />
                         </div>
-                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] relative group">
-                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                                <Terminal size={40} />
+                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] relative group p-8">
+                            <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.1] transition-opacity duration-700">
+                                <Terminal size={80} />
                             </div>
-                            <p className="text-sm font-black text-white/60 leading-relaxed italic">
-                                "{profile.bio || "No neural description recorded in current protocol sector."}"
-                            </p>
+                            <div className="space-y-6 relative z-10">
+                                <p className="text-sm font-black text-white/80 leading-relaxed italic">
+                                    "{profile.bio || "No neural description recorded in current protocol sector."}"
+                                </p>
+                                {profile.primary_specialization && (
+                                    <div className="pt-6 border-t border-white/5 flex items-center gap-4">
+                                        <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                                            <Fingerprint size={14} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-white/20">Specialization</div>
+                                            <div className="text-[11px] font-black uppercase tracking-widest text-white/60">{profile.primary_specialization}</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </GlassCard>
                     </motion.div>
 
@@ -344,19 +401,38 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     </motion.div>
 
                     {/* Capability Map */}
-                    {profile.skills && profile.skills.length > 0 && (
-                        <motion.div variants={itemVariants} className="space-y-6">
+                    {((profile.skills && profile.skills.length > 0) || (profile.languages && profile.languages.length > 0)) && (
+                        <motion.div variants={itemVariants} className="space-y-8">
                             <div className="flex items-center gap-3 px-6">
                                 <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Capacity Matrix</div>
                                 <div className="h-px bg-white/5 flex-1" />
                             </div>
-                            <div className="flex flex-wrap gap-2 px-1">
-                                {profile.skills.map(skill => (
-                                    <span key={skill} className="px-5 py-2.5 rounded-xl bg-white/[0.03] border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-primary hover:border-primary/20 transition-all cursor-default">
-                                        {skill}
-                                    </span>
-                                ))}
-                            </div>
+                            
+                            {profile.languages && profile.languages.length > 0 && (
+                                <div className="space-y-4">
+                                    <div className="text-[8px] font-black uppercase tracking-widest text-emerald-500/40 px-6">Protocol Languages</div>
+                                    <div className="flex flex-wrap gap-2 px-1">
+                                        {profile.languages.map(lang => (
+                                            <span key={lang} className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40">
+                                                {lang}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {profile.skills && profile.skills.length > 0 && (
+                                <div className="space-y-4">
+                                    <div className="text-[8px] font-black uppercase tracking-widest text-purple-500/40 px-6">Specialized Modules</div>
+                                    <div className="flex flex-wrap gap-2 px-1">
+                                        {profile.skills.map(skill => (
+                                            <span key={skill} className="px-5 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-[9px] font-black uppercase tracking-widest text-emerald-400/60 hover:text-emerald-400 hover:border-emerald-500/40 transition-all cursor-default">
+                                                {skill}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </motion.div>
                     )}
                 </div>
