@@ -1,24 +1,24 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/config"
 )
 
-const EmergencyPauseKey = "system:emergency_pause_active"
+// EmergencyPauseKey is the key used in SystemConfiguration and Redis
+const EmergencyPauseKey = "system.emergency_pause"
 
 // EmergencyBreaker prevents state-changing operations if the system is paused
-func EmergencyBreaker() gin.HandlerFunc {
+func EmergencyBreaker(cm *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Only check for mutation methods
 		method := c.Request.Method
 		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete {
 
-			// Check Redis for pause flag
-			val, err := redis.Client.Get(context.Background(), EmergencyPauseKey).Result()
+			// Check ConfigManager (Redis with DB fallback)
+			val, err := cm.Get(EmergencyPauseKey)
 			if err == nil && val == "true" {
 				// System is paused!
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{

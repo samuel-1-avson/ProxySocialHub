@@ -58,13 +58,23 @@ function nodeColor(isActive: boolean, isValidator: boolean, isSelected: boolean)
 }
 
 function markerHtml(color: NodeColor, size: number, count: number, isActive: boolean): string {
+    const ringColor = isActive ? color : 'rgba(255,255,255,0.1)';
+    const innerColor = isActive ? color : 'rgba(255,255,255,0.2)';
+    const glowColor = color;
+    
     const pulse = isActive
-        ? `<div style="position:absolute;inset:-6px;border-radius:50%;background:${color}44;animation:nodePulse 2.5s ease-in-out infinite;filter:blur(2px);"></div>`
+        ? `<div style="position:absolute;inset:-8px;border-radius:50%;border:2px solid ${color}88;animation:nodePulse 3s ease-out infinite;filter:blur(1px);"></div>
+           <div style="position:absolute;inset:-12px;border-radius:50%;border:1px solid ${color}44;animation:nodePulse 3s ease-out infinite 1s;filter:blur(2px);"></div>`
         : '';
-    const label = count > 1 ? `<span style="font-size:${size > 22 ? 11 : 9}px;font-weight:900;color:#000;">${count}</span>` : '';
+
+    const label = count > 1 ? `<span style="font-size:${size > 22 ? 11 : 9}px;font-weight:900;color:#fff;text-shadow:0 0 4px rgba(0,0,0,0.8);">${count}</span>` : '';
+    
     return `<div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
         ${pulse}
-        <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};opacity:.92;border:2px solid ${color}cc;box-shadow:0 0 ${isActive ? 14 : 4}px 3px ${color}66,inset 0 0 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;cursor:pointer;">${label}</div>
+        <div style="width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 30% 30%, ${innerColor}, rgba(0,0,0,0.8));border:2px solid ${ringColor};box-shadow:0 0 ${isActive ? 20 : 5}px ${glowColor}aa, inset 0 0 10px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+            ${label}
+        </div>
+        ${isActive ? `<div style="position:absolute;bottom:-4px;width:12px;height:2px;background:${color};filter:blur(1px);border-radius:50%;opacity:0.6;"></div>` : ''}
     </div>`;
 }
 
@@ -118,17 +128,16 @@ function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
 
 const MAP_CSS = `
 .leaflet-container { background: #050508; font-family: monospace; }
-.leaflet-control-attribution { background: rgba(0,0,0,.6)!important; color: rgba(255,255,255,.2)!important; font-size: 8px!important; }
+.leaflet-control-attribution { background: rgba(0,0,0,.6)!important; color: rgba(255,255,255,.2)!important; font-size: 8px!important; border-top-left-radius: 8px!important; }
 .leaflet-control-attribution a { color: rgba(99,102,241,.6)!important; }
-.leaflet-control-zoom { border: 1px solid rgba(255,255,255,.1)!important; }
-.leaflet-control-zoom a { background: rgba(0,0,0,.8)!important; color: rgba(255,255,255,.5)!important; border-color: rgba(255,255,255,.1)!important; }
-.leaflet-control-zoom a:hover { background: rgba(99,102,241,.2)!important; color: #6366f1!important; }
+.leaflet-control-zoom { border: none!important; margin-left: 24px!important; margin-top: 24px!important; }
+.leaflet-control-zoom a { background: rgba(10,10,15,0.8)!important; color: rgba(255,255,255,0.6)!important; border: 1px solid rgba(255,255,255,0.05)!important; border-radius: 8px!important; margin-bottom: 4px!important; backdrop-filter: blur(8px); }
+.leaflet-control-zoom a:hover { background: rgba(99,102,241,0.2)!important; color: #6366f1!important; border-color: rgba(99,102,241,0.4)!important; }
 .leaflet-custom-popup .leaflet-popup-content-wrapper { background: transparent; border: none; box-shadow: none; padding: 0; }
 .leaflet-custom-popup .leaflet-popup-content { margin: 0; }
 .leaflet-custom-popup .leaflet-popup-tip-container { display: none; }
-.leaflet-custom-popup .leaflet-popup-close-button { color: rgba(255,255,255,.4)!important; font-size:16px!important; top:8px!important; right:8px!important; }
-.leaflet-marker-icon { transition: transform .15s ease; }
-@keyframes nodePulse { 0%,100%{transform:scale(1);opacity:.9} 50%{transform:scale(1.6);opacity:.35} }
+.leaflet-marker-icon { transition: transform .3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+@keyframes nodePulse { 0% { transform: scale(0.6); opacity: 0.8; } 100% { transform: scale(2.2); opacity: 0; } }
 `;
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -359,6 +368,19 @@ export default function LeafletMapComponent({
         if (!mapRef.current || focusBounds !== null) return;
         mapRef.current.setView([20, 10], 2, { animate: true });
     }, [focusBounds]);
+
+    // ── Fly to selected node ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !selectedNodeId) return;
+
+        const node = nodeMapRef.current.get(selectedNodeId);
+        if (node && (Math.abs(node.lat) > 0.001 || Math.abs(node.lon) > 0.001)) {
+            map.flyTo([node.lat, node.lon], 12, { animate: true, duration: 1.5 });
+            // Close any existing popups to prevent UI clutter on fly-to
+            map.closePopup();
+        }
+    }, [selectedNodeId]);
 
     // ── Heatmap canvas (drawn natively, no extra library) ──
     const drawHeatmap = useCallback((currentNodes: NodeGeoPoint[]) => {

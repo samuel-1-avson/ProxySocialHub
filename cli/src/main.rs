@@ -27,7 +27,7 @@ enum Commands {
         key: String,
         
         /// Gateway address
-        #[arg(short, long, default_value = "localhost:8090")]
+        #[arg(short, long, default_value = "localhost:3128")]
         gateway: String,
     },
     /// Start the provider node daemon
@@ -79,7 +79,8 @@ struct AuthResponse {
 
 #[derive(Deserialize)]
 struct RegisterResponse {
-    node_id: String,
+    #[serde(alias = "existing_node_id")]
+    id: String,
 }
 
 async fn handle_join(api_url: &str, api_key: &str, gateway: &str) -> anyhow::Result<()> {
@@ -107,32 +108,36 @@ async fn handle_join(api_url: &str, api_key: &str, gateway: &str) -> anyhow::Res
     let node_name = "cli-node-01".to_string();
 
     pb.set_message("Registering node...");
-    let reg_url = format!("{}/v1/nodes/register", api_url);
-    let reg_resp: RegisterResponse = client.post(&reg_url)
+    let reg_url = format!("{}/v1/provider/nodes", api_url);
+    let resp = client.post(&reg_url)
         .header("Authorization", format!("Bearer {}", jwt))
         .json(&serde_json::json!({
             "name": node_name,
-            "public_ip": public_ip
+            "ip_address": public_ip
         }))
         .send()
-        .await?
-        .json()
         .await?;
+
+    let resp_body = resp.text().await?;
+    // println!("DEBUG: Registration response: {}", resp_body);
+    
+    let reg_resp: RegisterResponse = serde_json::from_str(&resp_body)
+        .map_err(|e| anyhow::anyhow!("Failed to decode response: {}. Body: {}", e, resp_body))?;
         
     let config = ProviderConfig {
         gateway_addr: gateway.to_string(),
         jwt_token: jwt,
         api_key: api_key.to_string(),
-        node_id: reg_resp.node_id.clone(),
+        node_id: reg_resp.id.clone(),
         connection_type: "fiber".to_string(),
     };
     
     let toml_str = toml::to_string(&config)?;
     fs::write("provider.toml", toml_str)?;
 
-    pb.finish_with_message(format!("✅ Provider Enrolled (Node ID: {})", reg_resp.node_id));
+    pb.finish_with_message(format!("✅ Provider Enrolled (Node ID: {})", reg_resp.id));
     println!("\n{}", "Registration Details:".bold().white());
-    println!("  - Node ID: {}", reg_resp.node_id);
+    println!("  - Node ID: {}", reg_resp.id);
     println!("  - IP Address: {}", public_ip);
     println!("  - Config: {}", "provider.toml saved.".green());
     println!("\nRun {} to begin sharing bandwidth.", "proxyhubb-cli start".cyan().bold());

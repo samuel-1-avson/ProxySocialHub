@@ -2,11 +2,13 @@ package api
 
 import (
 	"net/http"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -138,6 +140,23 @@ func updateProfile(c *gin.Context) {
 	}
 	if req.PrimarySpecialization != nil {
 		updates["primary_specialization"] = *req.PrimarySpecialization
+	}
+	// Auto-Detect Location & ISP based on current connection
+	clientIP := c.ClientIP()
+	if geo, ok := geoip.Resolve(clientIP); ok {
+		if geo.City != "" && geo.Region != "" {
+			locStr := fmt.Sprintf("%s, %s", geo.City, geo.Region)
+			updates["location"] = locStr
+		} else if geo.Country != "" {
+			updates["location"] = geo.Country
+		}
+		if geo.ISP != "" {
+			updates["isp"] = geo.ISP
+		}
+	}
+
+	if req.Role != nil {
+		updates["role"] = *req.Role
 	}
 
 	if len(updates) > 0 {

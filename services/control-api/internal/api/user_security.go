@@ -56,7 +56,11 @@ func RegisterSecurityRoutes(r *gin.RouterGroup) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/mfa/status [get]
 func getMFAStatus(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var settings models.UserSettings
 	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
@@ -86,7 +90,11 @@ type MFASetupResponse struct {
 // @Success 200 {object} MFASetupResponse
 // @Router /v1/security/mfa/setup [post]
 func setupMFA(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	// Get user
 	var user models.User
@@ -145,7 +153,11 @@ func setupMFA(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/mfa/verify [post]
 func verifyMFASetup(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var req struct {
 		Code string `json:"code" binding:"required"`
@@ -193,7 +205,11 @@ func verifyMFASetup(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/mfa/disable [post]
 func disableMFA(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var req struct {
 		Code string `json:"code" binding:"required"`
@@ -245,7 +261,11 @@ func disableMFA(c *gin.Context) {
 // @Success 200 {array} models.UserSession
 // @Router /v1/security/sessions [get]
 func getActiveSessions(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	sessions, err := sessionService.GetActiveSessions(userID)
 	if err != nil {
@@ -272,7 +292,11 @@ func getActiveSessions(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/sessions/{id} [delete]
 func revokeSession(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 	sessionID := c.Param("id")
 
 	sessionUUID, err := uuid.Parse(sessionID)
@@ -302,7 +326,11 @@ func revokeSession(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/sessions [delete]
 func revokeAllSessions(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	if err := sessionService.RevokeAllSessions(userID, "User requested logout from all devices"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke sessions"})
@@ -320,7 +348,11 @@ func revokeAllSessions(c *gin.Context) {
 // @Success 200 {object} models.UserSettings
 // @Router /v1/security/settings [get]
 func getSecuritySettings(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var settings models.UserSettings
 	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
@@ -348,7 +380,11 @@ func getSecuritySettings(c *gin.Context) {
 // @Success 200 {object} models.UserSettings
 // @Router /v1/security/settings [put]
 func updateSecuritySettings(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var req struct {
 		SessionTimeout         *int    `json:"session_timeout"`
@@ -405,7 +441,11 @@ func updateSecuritySettings(c *gin.Context) {
 // @Success 200 {array} models.LoginAttempt
 // @Router /v1/security/attempts [get]
 func getLoginAttempts(c *gin.Context) {
-	userID := c.MustGet("user_id").(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	// Get user's wallet/address
 	var user models.User

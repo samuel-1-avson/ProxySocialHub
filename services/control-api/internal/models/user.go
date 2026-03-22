@@ -20,6 +20,16 @@ const (
 	UserStatusBanned    UserStatus = "banned"
 )
 
+type KYCStatus string
+
+const (
+	KYCStatusNone              KYCStatus = "none"
+	KYCStatusPending           KYCStatus = "pending"
+	KYCStatusApproved          KYCStatus = "approved"
+	KYCStatusRejected          KYCStatus = "rejected"
+	KYCStatusInsufficientFunds KYCStatus = "insufficient_funds"
+)
+
 type TrustTier string
 
 const (
@@ -35,6 +45,7 @@ type User struct {
 	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
 	Status    UserStatus `gorm:"type:varchar(50);default:'active'" json:"status"`
 	TrustTier TrustTier `gorm:"default:'new'" json:"trust_tier"`
+	KYCStatus KYCStatus `gorm:"type:varchar(50);default:'none'" json:"kyc_status"`
 
 	// Social Profile fields
 	DisplayName   *string        `gorm:"size:100" json:"display_name,omitempty"`
@@ -43,6 +54,7 @@ type User struct {
 	AvatarURL     *string        `json:"avatar_url,omitempty"`
 	CoverImageURL *string        `json:"cover_image_url,omitempty"`
 	Location      *string        `gorm:"size:100" json:"location,omitempty"`
+	ISP           *string        `gorm:"size:100" json:"isp,omitempty"`
 	Website       *string        `gorm:"size:255" json:"website,omitempty"`
 	SocialLinks   JSONMap        `gorm:"type:jsonb" json:"social_links,omitempty"` // {"twitter": "...", "github": "..."}
 	Skills        pq.StringArray `gorm:"type:text[]" json:"skills,omitempty"`

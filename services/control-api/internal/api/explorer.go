@@ -180,21 +180,23 @@ type NodeListResponse struct {
 }
 
 type NodeSummary struct {
-	NodeID         string    `json:"node_id"`
-	Name           string    `json:"name,omitempty"`
-	Chain          string    `json:"chain"`
-	Region         string    `json:"region"`
-	Country        string    `json:"country"`
-	City           string    `json:"city,omitempty"`
-	ISP            string    `json:"isp,omitempty"`
-	Latitude       float64   `json:"latitude"`
-	Longitude      float64   `json:"longitude"`
-	IsActive       bool      `json:"is_active"`
-	IsValidator    bool      `json:"is_validator"`
-	UptimePercent  float64   `json:"uptime_percent"`
-	ActiveSessions int       `json:"active_sessions"`
-	BandwidthGB    float64   `json:"bandwidth_gb"`
-	LastHeartbeat  time.Time `json:"last_heartbeat"`
+	NodeID           string    `json:"node_id"`
+	ProviderID       string    `json:"provider_id,omitempty"`
+	ProviderUsername string    `json:"provider_username,omitempty"`
+	Name             string    `json:"name,omitempty"`
+	Chain            string    `json:"chain"`
+	Region           string    `json:"region"`
+	Country          string    `json:"country"`
+	City             string    `json:"city,omitempty"`
+	ISP              string    `json:"isp,omitempty"`
+	Latitude         float64   `json:"latitude"`
+	Longitude        float64   `json:"longitude"`
+	IsActive         bool      `json:"is_active"`
+	IsValidator      bool      `json:"is_validator"`
+	UptimePercent    float64   `json:"uptime_percent"`
+	ActiveSessions   int       `json:"active_sessions"`
+	BandwidthGB      float64   `json:"bandwidth_gb"`
+	LastHeartbeat    time.Time `json:"last_heartbeat"`
 }
 
 type NodeDetailResponse struct {
@@ -821,21 +823,23 @@ func listExplorerNodes(c *gin.Context) {
 	summaries := make([]NodeSummary, len(nodes))
 	for i, n := range nodes {
 		summaries[i] = NodeSummary{
-			NodeID:         n.NodeID,
-			Name:           n.Name,
-			Chain:          n.Chain,
-			Region:         n.Region,
-			Country:        n.Country,
-			City:           n.City,
-			ISP:            n.ISP,
-			Latitude:       n.Latitude,
-			Longitude:      n.Longitude,
-			IsActive:       n.IsActive,
-			IsValidator:    n.IsValidator,
-			UptimePercent:  n.UptimePercent,
-			ActiveSessions: n.ActiveSessions,
-			BandwidthGB:    float64(n.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:  n.LastHeartbeat,
+			NodeID:           n.NodeID,
+			ProviderID:       n.ProviderUserID,
+			ProviderUsername: n.ProviderUsername,
+			Name:             n.Name,
+			Chain:            n.Chain,
+			Region:           n.Region,
+			Country:          n.Country,
+			City:             n.City,
+			ISP:              n.ISP,
+			Latitude:         n.Latitude,
+			Longitude:        n.Longitude,
+			IsActive:         n.IsActive,
+			IsValidator:      n.IsValidator,
+			UptimePercent:    n.UptimePercent,
+			ActiveSessions:   n.ActiveSessions,
+			BandwidthGB:      float64(n.TotalBandwidth) / (1024 * 1024 * 1024),
+			LastHeartbeat:    n.LastHeartbeat,
 		}
 	}
 
@@ -940,21 +944,23 @@ func getExplorerNodeDetails(c *gin.Context) {
 
 	c.JSON(http.StatusOK, NodeDetailResponse{
 		NodeSummary: NodeSummary{
-			NodeID:         node.NodeID,
-			Name:           node.Name,
-			Chain:          node.Chain,
-			Region:         node.Region,
-			Country:        node.Country,
-			City:           node.City,
-			ISP:            node.ISP,
-			Latitude:       node.Latitude,
-			Longitude:      node.Longitude,
-			IsActive:       node.IsActive,
-			IsValidator:    node.IsValidator,
-			UptimePercent:  node.UptimePercent,
-			ActiveSessions: node.ActiveSessions,
-			BandwidthGB:    float64(node.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:  node.LastHeartbeat,
+			NodeID:           node.NodeID,
+			ProviderID:       node.ProviderUserID,
+			ProviderUsername: node.ProviderUsername,
+			Name:             node.Name,
+			Chain:            node.Chain,
+			Region:           node.Region,
+			Country:          node.Country,
+			City:             node.City,
+			ISP:              node.ISP,
+			Latitude:         node.Latitude,
+			Longitude:        node.Longitude,
+			IsActive:         node.IsActive,
+			IsValidator:      node.IsValidator,
+			UptimePercent:    node.UptimePercent,
+			ActiveSessions:   node.ActiveSessions,
+			BandwidthGB:      float64(node.TotalBandwidth) / (1024 * 1024 * 1024),
+			LastHeartbeat:    node.LastHeartbeat,
 		},
 		StakeAmount:    node.StakeAmount,
 		CommissionRate: node.CommissionRate,
@@ -1000,21 +1006,23 @@ func listExplorerValidators(c *gin.Context) {
 	summaries := make([]NodeSummary, len(validators))
 	for i, v := range validators {
 		summaries[i] = NodeSummary{
-			NodeID:         v.NodeID,
-			Name:           v.Name,
-			Chain:          v.Chain,
-			Region:         v.Region,
-			Country:        v.Country,
-			City:           v.City,
-			ISP:            v.ISP,
-			Latitude:       v.Latitude,
-			Longitude:      v.Longitude,
-			IsActive:       v.IsActive,
-			IsValidator:    v.IsValidator,
-			UptimePercent:  v.UptimePercent,
-			ActiveSessions: v.ActiveSessions,
-			BandwidthGB:    float64(v.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:  v.LastHeartbeat,
+			NodeID:           v.NodeID,
+			ProviderID:       v.ProviderUserID,
+			ProviderUsername: v.ProviderUsername,
+			Name:             v.Name,
+			Chain:            v.Chain,
+			Region:           v.Region,
+			Country:          v.Country,
+			City:             v.City,
+			ISP:              v.ISP,
+			Latitude:         v.Latitude,
+			Longitude:        v.Longitude,
+			IsActive:         v.IsActive,
+			IsValidator:      v.IsValidator,
+			UptimePercent:    v.UptimePercent,
+			ActiveSessions:   v.ActiveSessions,
+			BandwidthGB:      float64(v.TotalBandwidth) / (1024 * 1024 * 1024),
+			LastHeartbeat:    v.LastHeartbeat,
 		}
 	}
 

@@ -87,17 +87,41 @@ export default function ProviderEarningsPage() {
                     <p className="text-[10px] text-muted-foreground mt-2 italic">Lifetime grid contribution rewards</p>
                 </GlassCard>
 
-                <GlassCard className="p-6 border-amber-500/10 bg-amber-500/5">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-500">
-                            <TrendingUp size={20} />
+                <GlassCard className="p-6 border-amber-500/10 bg-amber-500/5 hover:-translate-y-1 transition-transform relative overflow-hidden group">
+                    {/* Background glow for progress */}
+                    <div 
+                        className="absolute bottom-0 left-0 h-1 bg-amber-500/50 transition-all duration-1000 ease-out" 
+                        style={{ width: `${Math.min(100, ((summary?.pending_sol || 0) / 0.01) * 100)}%` }}
+                    />
+                    
+                    <div className="flex items-center justify-between mb-4 relative z-10">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-500">
+                                <TrendingUp size={20} />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pending Payout</span>
                         </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pending Payout</span>
+                        <div className="text-right">
+                            <div className="text-[10px] font-bold text-amber-500/70">TARGET: 0.01 SOL</div>
+                        </div>
                     </div>
-                    <div className="text-3xl font-black font-mono text-amber-500 tracking-tighter">
+                    
+                    <div className="text-3xl font-black font-mono text-amber-500 tracking-tighter relative z-10">
                         {summary?.pending_sol.toFixed(6)} <span className="text-sm opacity-50">SOL</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-2 italic">Awaiting automated weekly transfer</p>
+                    
+                    <div className="mt-3 relative z-10">
+                        <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                            <span>Progress</span>
+                            <span>{Math.min(100, ((summary?.pending_sol || 0) / 0.01) * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
+                            <div 
+                                className="h-full bg-gradient-to-r from-amber-500/50 to-amber-400 rounded-full"
+                                style={{ width: `${Math.min(100, ((summary?.pending_sol || 0) / 0.01) * 100)}%` }}
+                            />
+                        </div>
+                    </div>
                 </GlassCard>
 
                 <GlassCard className="p-6 border-emerald-500/10 bg-emerald-500/5">

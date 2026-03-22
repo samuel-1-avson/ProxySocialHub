@@ -205,24 +205,39 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 		}
 	}
 
+	// Get provider info
+	var providerID string
+	var providerUsername string
+	if node.ProviderUserID != uuid.Nil {
+		providerID = node.ProviderUserID.String()
+		var provider models.User
+		if err := ns.db.Where("id = ?", node.ProviderUserID).First(&provider).Error; err == nil {
+			if provider.Username != nil {
+				providerUsername = *provider.Username
+			}
+		}
+	}
+
 	explorerNodeData := models.ExplorerNode{
-		NodeID:         node.ID.String(),
-		Chain:          "solana",
-		Name:           ns.getNodeName(node),
-		IP:             node.IPAddress,
-		Region:         region,
-		Country:        country,
-		City:           city,
-		ISP:            isp,
-		Latitude:       lat,
-		Longitude:      lon,
-		IsActive:       node.IsHealthy,
-		IsValidator:    isValidator,
-		UptimePercent:  uptime,
-		TotalBandwidth: bandwidth,
-		ActiveSessions: stats.ActiveSessions,
-		LastHeartbeat:  node.LastSeenAt,
-		Version:        "", // Node model doesn't have Version field
+		NodeID:           node.ID.String(),
+		Chain:            "solana",
+		Name:             ns.getNodeName(node),
+		IP:               node.IPAddress,
+		Region:           region,
+		Country:          country,
+		City:             city,
+		ISP:              isp,
+		Latitude:         lat,
+		Longitude:        lon,
+		IsActive:         node.IsHealthy,
+		IsValidator:      isValidator,
+		UptimePercent:    uptime,
+		TotalBandwidth:   bandwidth,
+		ActiveSessions:   stats.ActiveSessions,
+		ProviderUserID:   providerID,
+		ProviderUsername: providerUsername,
+		LastHeartbeat:    node.LastSeenAt,
+		Version:          "", // Node model doesn't have Version field
 	}
 
 	if explorerNode.ID == uuid.Nil {
