@@ -20,6 +20,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 )
 
@@ -68,19 +69,43 @@ func getAuthChallenge(c *gin.Context) {
 		return
 	}
 
-	// Generate 32 bytes random nonce
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	nonce := hex.EncodeToString(bytes)
+	// D-A1: Build the nonce from two independent entropy sources:
+	//
+	//   nonce = hex(random_32_bytes) + ":" + solana_recent_blockhash
+	//
+	// The Solana recent blockhash is rotated every ~400ms by the network and
+	// has a validity window of ~150 slots (~60 s).  Including it means:
+	//   - The nonce is verifiable without Redis: a client can confirm the
+	//     blockhash was recent by querying any Solana RPC endpoint.
+	//   - Even if Redis/memory is compromised, an attacker cannot forge a nonce
+	//     that pre-dates the blockhash's validity window.
+	//   - Falls back gracefully to random-only if Solana RPC is unavailable.
 
-	// Message to sign
+	randBytes := make([]byte, 32)
+	rand.Read(randBytes)
+	randPart := hex.EncodeToString(randBytes)
+
+	blockhashPart := ""
+	oracle := solanaClient.GetOracleClient()
+	if oracle != nil {
+		if bh, err := oracle.GetRecentBlockhash(c.Request.Context()); err == nil {
+			blockhashPart = bh
+		} else {
+			log.Printf("[AUTH] Solana blockhash fetch failed (using random-only nonce): %v", err)
+		}
+	}
+
+	nonce := randPart
+	if blockhashPart != "" {
+		nonce = randPart + ":" + blockhashPart
+	}
+
 	message := "Sign this message to login to ProxyHubb: " + nonce
 
 	// Store in Redis with 5 min TTL
 	if redisClient.Client != nil {
 		key := "auth:nonce:" + req.Address
-		err := redisClient.Client.Set(c.Request.Context(), key, message, nonceTTL).Err()
-		if err != nil {
+		if err := redisClient.Client.Set(c.Request.Context(), key, message, nonceTTL).Err(); err != nil {
 			log.Printf("[AUTH] Redis nonce store failed for address=%s", maskAddress(req.Address))
 		}
 	}
@@ -94,8 +119,9 @@ func getAuthChallenge(c *gin.Context) {
 	memStoreMutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
-		"nonce":   nonce,
-		"message": message,
+		"nonce":            nonce,
+		"message":          message,
+		"blockhash_backed": blockhashPart != "",
 	})
 }
 

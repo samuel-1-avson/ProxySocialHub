@@ -11,12 +11,13 @@ import (
 type OrderStatus string
 
 const (
-	OrderStatusPending   OrderStatus = "pending"
-	OrderStatusActive    OrderStatus = "active"
-	OrderStatusCompleted OrderStatus = "completed"
-	OrderStatusDisputed  OrderStatus = "disputed"
-	OrderStatusRefunded  OrderStatus = "refunded"
-	OrderStatusCancelled OrderStatus = "cancelled"
+	OrderStatusPending        OrderStatus = "pending"
+	OrderStatusPendingPayment OrderStatus = "pending_payment" // Escrow initiated, awaiting on-chain confirmation
+	OrderStatusActive         OrderStatus = "active"
+	OrderStatusCompleted      OrderStatus = "completed"
+	OrderStatusDisputed       OrderStatus = "disputed"
+	OrderStatusRefunded       OrderStatus = "refunded"
+	OrderStatusCancelled      OrderStatus = "cancelled"
 )
 
 // Order represents a purchase of proxy bandwidth

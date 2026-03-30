@@ -19,6 +19,7 @@ func RegisterKYCRoutes(rg *gin.RouterGroup) {
 	{
 		kyc.POST("/webhook", handleKYCWebhook)
 		kyc.GET("/status/:user_id", getKYCStatus)
+		kyc.POST("/recheck", recheckKYC)
 	}
 }
 
@@ -116,6 +117,89 @@ func handleKYCWebhook(c *gin.Context) {
 		"message": "KYC status updated",
 		"user_id": payload.UserID,
 		"status":  internalStatus,
+	})
+}
+
+// recheckKYC allows an authenticated user whose KYC webhook fired before they
+// linked a wallet (leaving them in KYCStatusPending) to re-run the approval
+// logic now that a wallet address is available.
+func recheckKYC(c *gin.Context) {
+	userID, err := getCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Only re-check users that are stuck in pending or insufficient_funds.
+	if user.KYCStatus != models.KYCStatusPending && user.KYCStatus != models.KYCStatusInsufficientFunds {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      "KYC recheck not applicable",
+			"kyc_status": user.KYCStatus,
+		})
+		return
+	}
+
+	if user.WalletAddress == nil || *user.WalletAddress == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet before rechecking KYC"})
+		return
+	}
+
+	// Re-run the balance check from the webhook approved branch.
+	minBalanceSOL := 0.05
+	if manager := GetConfigManager(); manager != nil {
+		if val, err := manager.Get("kyc.min_sol_balance"); err == nil {
+			if f, err := strconv.ParseFloat(val, 64); err == nil {
+				minBalanceSOL = f
+			}
+		}
+	}
+
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Blockchain oracle not available; please try again later"})
+		return
+	}
+
+	pubkey, err := sol.PublicKeyFromBase58(*user.WalletAddress)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Linked wallet address is invalid"})
+		return
+	}
+
+	balanceLamports, err := oracle.GetBalance(c.Request.Context(), pubkey)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch on-chain balance; please try again later"})
+		return
+	}
+
+	balanceSOL := solana.LamportsToSOL(balanceLamports)
+	if balanceSOL < minBalanceSOL {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":           "Insufficient on-chain SOL balance for KYC approval",
+			"required_sol":    minBalanceSOL,
+			"current_sol":     balanceSOL,
+		})
+		return
+	}
+
+	user.KYCStatus = models.KYCStatusApproved
+	user.TrustTier = models.TrustTierVerified
+	user.UpdatedAt = time.Now()
+	if err := db.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update KYC status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "KYC approved",
+		"kyc_status": user.KYCStatus,
+		"trust_tier": user.TrustTier,
 	})
 }
 

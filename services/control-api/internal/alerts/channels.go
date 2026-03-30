@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/smtp"
 	"os"
 	"strings"
 	"time"
@@ -27,15 +28,23 @@ const (
 // Channels holds the configured alert destinations.
 // Construct with New() which reads from environment variables.
 type Channels struct {
-	slackWebhookURL string
-	adminEmails     []string
-	httpClient      *http.Client
+	slackWebhookURL   string
+	adminEmails       []string
+	pagerdutyKey      string // PAGERDUTY_ROUTING_KEY — Events API v2 integration key
+	smtpHost          string // SMTP_HOST
+	smtpPort          string // SMTP_PORT (default 587)
+	smtpUsername      string // SMTP_USERNAME
+	smtpPassword      string // SMTP_PASSWORD
+	smtpFrom          string // SMTP_FROM
+	httpClient        *http.Client
 }
 
-// New creates an Channels instance from environment variables:
+// New creates a Channels instance from environment variables:
 //
-//	SLACK_ALERT_WEBHOOK_URL  — Slack incoming webhook URL
-//	ALERT_ADMIN_EMAILS       — comma-separated list of email addresses (future use)
+//	SLACK_ALERT_WEBHOOK_URL   — Slack incoming webhook URL
+//	ALERT_ADMIN_EMAILS        — comma-separated recipient email addresses
+//	PAGERDUTY_ROUTING_KEY     — PagerDuty Events API v2 integration key
+//	SMTP_HOST / SMTP_PORT / SMTP_USERNAME / SMTP_PASSWORD / SMTP_FROM
 func New() *Channels {
 	emails := []string{}
 	if raw := os.Getenv("ALERT_ADMIN_EMAILS"); raw != "" {
@@ -45,30 +54,45 @@ func New() *Channels {
 			}
 		}
 	}
+	port := os.Getenv("SMTP_PORT")
+	if port == "" {
+		port = "587"
+	}
 	return &Channels{
 		slackWebhookURL: os.Getenv("SLACK_ALERT_WEBHOOK_URL"),
 		adminEmails:     emails,
+		pagerdutyKey:    os.Getenv("PAGERDUTY_ROUTING_KEY"),
+		smtpHost:        os.Getenv("SMTP_HOST"),
+		smtpPort:        port,
+		smtpUsername:    os.Getenv("SMTP_USERNAME"),
+		smtpPassword:    os.Getenv("SMTP_PASSWORD"),
+		smtpFrom:        os.Getenv("SMTP_FROM"),
 		httpClient:      &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
 // Send dispatches an alert to all configured channels.
-// It always logs — Slack and email are best-effort (errors are logged, not returned).
+// It always logs; Slack, PagerDuty, and email are best-effort (errors logged, not returned).
 func (c *Channels) Send(level Level, title, message string) {
 	// Always log
-	entry := logging.Warn().
+	logging.Warn().
 		Str("alert_level", string(level)).
-		Str("alert_title", title)
-	if level == Critical {
-		entry = logging.Warn(). // zerolog doesn't have Fatal-without-exit; use Warn with field
-			Str("alert_level", "CRITICAL").
-			Str("alert_title", title)
-	}
-	entry.Msg(message)
+		Str("alert_title", title).
+		Msg(message)
 
 	// Slack (non-blocking)
 	if c.slackWebhookURL != "" {
 		go c.sendSlack(level, title, message)
+	}
+
+	// PagerDuty — only for Critical alerts
+	if c.pagerdutyKey != "" && level == Critical {
+		go c.sendPagerDuty(title, message)
+	}
+
+	// Email — Critical and Warning
+	if c.smtpHost != "" && len(c.adminEmails) > 0 && (level == Critical || level == Warning) {
+		go c.sendEmail(level, title, message)
 	}
 }
 
@@ -103,6 +127,56 @@ func (c *Channels) sendSlack(level Level, title, message string) {
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		logging.Warn().Int("status", resp.StatusCode).Msg("alerts: Slack webhook returned non-2xx")
+	}
+}
+
+// sendPagerDuty triggers a PagerDuty incident via the Events API v2.
+func (c *Channels) sendPagerDuty(title, message string) {
+	payload := map[string]interface{}{
+		"routing_key":  c.pagerdutyKey,
+		"event_action": "trigger",
+		"payload": map[string]interface{}{
+			"summary":   title + ": " + message,
+			"severity":  "critical",
+			"source":    "proxyhubb-control-api",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		logging.Warn().Err(err).Msg("alerts: failed to marshal PagerDuty payload")
+		return
+	}
+	resp, err := c.httpClient.Post(
+		"https://events.pagerduty.com/v2/enqueue",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		logging.Warn().Err(err).Msg("alerts: PagerDuty delivery failed")
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		logging.Warn().Int("status", resp.StatusCode).Msg("alerts: PagerDuty returned non-2xx")
+	}
+}
+
+// sendEmail delivers the alert to all configured admin email addresses via SMTP.
+func (c *Channels) sendEmail(level Level, title, message string) {
+	subject := fmt.Sprintf("[ProxyHubb %s] %s", strings.ToUpper(string(level)), title)
+	body := fmt.Sprintf("Subject: %s\r\nFrom: %s\r\nTo: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s\r\n\n-- ProxyHubb · %s",
+		subject,
+		c.smtpFrom,
+		strings.Join(c.adminEmails, ", "),
+		message,
+		time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
+	)
+
+	auth := smtp.PlainAuth("", c.smtpUsername, c.smtpPassword, c.smtpHost)
+	addr := c.smtpHost + ":" + c.smtpPort
+	if err := smtp.SendMail(addr, auth, c.smtpFrom, c.adminEmails, []byte(body)); err != nil {
+		logging.Warn().Err(err).Msg("alerts: email delivery failed")
 	}
 }
 
