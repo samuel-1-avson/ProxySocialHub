@@ -626,7 +626,27 @@ func claimRevenue(c *gin.Context) {
 		totalAmount += r.Amount
 	}
 
-	// TODO: Transfer funds to provider's wallet
+	// Credit provider's internal wallet with the claimed revenue amount.
+	if totalAmount > 0 {
+		var wallet models.Wallet
+		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
+			wallet.BalanceSOL += totalAmount
+			if saveErr := db.DB.Save(&wallet).Error; saveErr == nil {
+				ledger := models.WalletLedgerEntry{
+					WalletID:    wallet.ID,
+					Amount:      totalAmount,
+					BalanceAfter: wallet.BalanceSOL,
+					Type:        models.TransactionEarning,
+					Description: fmt.Sprintf("Circle pool revenue claim (%d records)", len(revenues)),
+				}
+				db.DB.Create(&ledger)
+			} else {
+				log.Printf("[claimRevenue] Failed to save wallet for user %s: %v", userID, saveErr)
+			}
+		} else {
+			log.Printf("[claimRevenue] Failed to find wallet for user %s: %v", userID, err)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "Revenue claimed",

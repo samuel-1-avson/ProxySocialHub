@@ -2,9 +2,11 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
 )
@@ -92,7 +94,9 @@ func StartSystemMonitor(interval time.Duration) {
 			health := CheckSystem()
 			if !health.Healthy {
 				log.Printf("CRITICAL: System Unhealthy! DB: %v, Redis: %v", health.Database.Healthy, health.Redis.Healthy)
-				// TODO: Send email/pagerduty alert here
+				msg := fmt.Sprintf("DB healthy=%v Redis healthy=%v",
+					health.Database.Healthy, health.Redis.Healthy)
+				alerts.Send(alerts.Critical, "System Unhealthy", msg)
 			}
 		}
 	}()

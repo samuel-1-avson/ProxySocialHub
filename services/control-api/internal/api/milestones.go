@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -135,8 +136,21 @@ func claimMilestoneReward(c *gin.Context) {
 		return
 	}
 
-	// TODO: Add credit to user's wallet
-	// walletService.AddCredit(userID, milestone.RewardAmount)
+	// Credit the user's internal wallet with the milestone reward.
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
+		wallet.BalanceSOL += milestone.RewardAmount
+		if saveErr := db.DB.Save(&wallet).Error; saveErr == nil {
+			ledger := models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       milestone.RewardAmount,
+				BalanceAfter: wallet.BalanceSOL,
+				Type:         models.TransactionEarning,
+				Description:  fmt.Sprintf("Milestone reward: %s", milestone.MilestoneType),
+			}
+			db.DB.Create(&ledger)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "Reward claimed successfully",

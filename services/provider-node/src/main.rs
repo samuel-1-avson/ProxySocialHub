@@ -35,9 +35,15 @@ enum Commands {
         #[arg(short, long, default_value = "provider.toml")]
         config: String,
 
-        /// Edge Gateway address (host:port)
+        /// Primary Edge Gateway address (host:port)
         #[arg(long, env = "PROXYHUB_GATEWAY_ADDR")]
         gateway_addr: Option<String>,
+
+        /// Comma-separated list of gateway addresses for multi-gateway failover.
+        /// e.g. "gw1.proxyhubb.io:4000,gw2.proxyhubb.io:4000"
+        /// The node cycles through all addresses on reconnect.
+        #[arg(long, env = "PROXYHUB_GATEWAY_ADDRS", value_delimiter = ',')]
+        gateway_addrs: Option<Vec<String>>,
 
         /// JWT token for authentication
         #[arg(long, env = "PROXYHUB_JWT_TOKEN")]
@@ -111,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Start {
             config: config_path,
             gateway_addr,
+            gateway_addrs,
             jwt_token,
             use_tls,
             debug,
@@ -124,6 +131,9 @@ async fn main() -> anyhow::Result<()> {
             if let Some(addr) = gateway_addr {
                 cfg.gateway_addr = addr;
             }
+            if let Some(addrs) = gateway_addrs {
+                cfg.gateway_addrs = addrs;
+            }
             if let Some(token) = jwt_token {
                 cfg.jwt_token = token;
             }
@@ -134,6 +144,22 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Set via --jwt-token, PROXYHUB_JWT_TOKEN, or in the config file.");
                 std::process::exit(1);
             }
+
+            // Build the ordered gateway list — primary addr is always first.
+            // Deduplicate while preserving order.
+            let mut gateway_list: Vec<String> = Vec::new();
+            if !cfg.gateway_addr.is_empty() {
+                gateway_list.push(cfg.gateway_addr.clone());
+            }
+            for addr in &cfg.gateway_addrs {
+                if !gateway_list.contains(addr) {
+                    gateway_list.push(addr.clone());
+                }
+            }
+            if gateway_list.is_empty() {
+                gateway_list.push("localhost:4000".to_string());
+            }
+            info!(gateways = ?gateway_list, "Multi-gateway failover list built");
 
             // Write PID file
             let pid_path = dirs_pid_file();
@@ -155,19 +181,31 @@ async fn main() -> anyhow::Result<()> {
                 info!(port = cfg.metrics_port, "Stats server started");
             }
 
-            // Reconnect loop
+            // Multi-gateway reconnect loop:
+            // On each failure the index advances to the next gateway so the
+            // node automatically migrates away from a dead endpoint.
             let reconnect_interval = cfg.reconnect_interval;
-            loop {
-                let mut client =
-                    tunnel::client::TunnelClient::new(&cfg, stats_collector.clone());
+            let gw_count = gateway_list.len();
+            let mut gw_idx: usize = 0;
 
-                info!(addr = %cfg.gateway_addr, "Connecting to Edge Gateway...");
+            loop {
+                let addr = gateway_list[gw_idx % gw_count].clone();
+                let mut loop_cfg = cfg.clone();
+                loop_cfg.gateway_addr = addr.clone();
+
+                let mut client =
+                    tunnel::client::TunnelClient::new(&loop_cfg, stats_collector.clone());
+
+                info!(addr = %addr, gateway_index = gw_idx % gw_count, "Connecting to Edge Gateway...");
                 match client.connect().await {
                     Ok(()) => {
-                        info!("Connected to Edge Gateway");
+                        info!(addr = %addr, "Connected to Edge Gateway");
+                        // Successful connection: stay on this gateway until it drops.
+                        // Do not advance the index here — we prefer the current node.
                     }
                     Err(e) => {
-                        tracing::error!("Connection failed: {e}");
+                        tracing::error!(addr = %addr, "Connection failed: {e}");
+                        gw_idx += 1; // rotate to next gateway on next attempt
                         tokio::time::sleep(reconnect_interval).await;
                         continue;
                     }
@@ -183,15 +221,20 @@ async fn main() -> anyhow::Result<()> {
                 let hb_handle = tokio::spawn(async move { hb.run().await });
 
                 // Accept and handle proxy streams
-                let handler = proxy::handler::ProxyHandler::new(&cfg, stats_collector.clone());
+                let handler = proxy::handler::ProxyHandler::new(&loop_cfg, stats_collector.clone());
                 let accept_result = client.accept_streams(handler).await;
 
-                tracing::warn!("Connection lost: {accept_result:?}");
+                tracing::warn!(addr = %addr, "Connection lost: {accept_result:?}");
                 hb_handle.abort();
                 client.close().await;
 
+                // Rotate to next gateway after a connection drop
+                gw_idx += 1;
                 tokio::time::sleep(reconnect_interval).await;
-                info!("Attempting to reconnect...");
+                info!(
+                    next_gateway = %gateway_list[(gw_idx) % gw_count],
+                    "Rotating to next gateway..."
+                );
             }
         }
 

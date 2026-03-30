@@ -31,16 +31,18 @@ func (s *BillingServiceImpl) ProcessUsage(ctx context.Context, usage domain.Usag
 		return fmt.Errorf("session lookup failed: %w", err)
 	}
 
-	// 2. Verify Signature
-	if signatureHex != "" {
-		pubKey, err := s.sessionRepo.GetProviderPublicKey(ctx, session.ProviderID)
-		if err != nil {
-			return fmt.Errorf("provider key lookup failed: %w", err)
-		}
+	// 2. Verify Signature — mandatory; unsigned usage reports are rejected.
+	if signatureHex == "" {
+		return fmt.Errorf("missing usage report signature")
+	}
 
-		if err := s.verifySignature(pubKey, usage.SessionID, usage.BytesUp, usage.BytesDown, nonce, signatureHex); err != nil {
-			return fmt.Errorf("invalid signature: %w", err)
-		}
+	pubKey, err := s.sessionRepo.GetProviderPublicKey(ctx, session.ProviderID)
+	if err != nil {
+		return fmt.Errorf("provider key lookup failed: %w", err)
+	}
+
+	if err := s.verifySignature(pubKey, usage.SessionID, usage.BytesUp, usage.BytesDown, nonce, signatureHex); err != nil {
+		return fmt.Errorf("invalid signature: %w", err)
 	}
 
 	// 3. Aggregate

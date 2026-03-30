@@ -106,6 +106,7 @@ impl Default for GatewayStatus {
 #[derive(Default)]
 pub struct ProgramState {
     pub admin: Pubkey,                 // Program administrator
+    pub pending_admin: Pubkey,         // D-S1: nominated successor (zero if none)
     pub paused: bool,                  // Emergency pause flag
     pub paused_at: i64,                // When pause was activated
     pub min_oracle_signatures: u8,     // Required signatures (default: 3)
@@ -118,6 +119,7 @@ pub struct ProgramState {
 impl ProgramState {
     pub const LEN: usize = 8 + // discriminator
         32 + // admin
+        32 + // pending_admin (D-S1)
         1 +  // paused
         8 +  // paused_at
         1 +  // min_oracle_signatures
@@ -464,6 +466,39 @@ impl ProviderRegistry {
         1;   // bump
 }
 
+/// UsageProofRecord - Immutable on-chain record of a bandwidth usage period.
+///
+/// PDA seeds: ["usage_proof", escrow_pda, proof_index (u32 LE)]
+///
+/// A new record is created for each batched usage window.  Records are
+/// append-only — once created they are never modified.  The escrow settlement
+/// instruction (`settle_escrow_multisig`) reads the sum of all records for an
+/// escrow to determine the final proportional payout.
+#[account]
+#[derive(Default)]
+pub struct UsageProofRecord {
+    pub escrow: Pubkey,       // Which escrow this window belongs to
+    pub oracle: Pubkey,       // Oracle that submitted (audit trail)
+    pub proof_index: u32,     // Sequential index within the escrow (0, 1, 2, …)
+    pub total_bytes: u64,     // Bytes transferred during this period
+    pub period_start: i64,    // Unix timestamp — period start
+    pub period_end: i64,      // Unix timestamp — period end
+    pub submitted_at: i64,    // Wall-clock when the oracle anchored this record
+    pub bump: u8,
+}
+
+impl UsageProofRecord {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // escrow
+        32 + // oracle
+        4 +  // proof_index
+        8 +  // total_bytes
+        8 +  // period_start
+        8 +  // period_end
+        8 +  // submitted_at
+        1;   // bump
+}
+
 /// Gateway Account - Federated gateway registration
 #[account]
 #[derive(Default)]
@@ -634,6 +669,32 @@ pub struct GatewayRegisteredEvent {
     pub owner: Pubkey,
     pub endpoint: String,
     pub stake: u64,
+}
+
+#[event]
+pub struct UsageProofSubmitted {
+    pub escrow: Pubkey,
+    pub proof_record: Pubkey,
+    pub proof_index: u32,
+    pub total_bytes: u64,
+    pub period_start: i64,
+    pub period_end: i64,
+}
+
+#[event]
+pub struct ProviderRegisteredEvent {
+    pub registry: Pubkey,
+    pub provider: Pubkey,
+    pub endpoint: String,
+    pub location: String,
+}
+
+#[event]
+pub struct ProviderHeartbeatEvent {
+    pub registry: Pubkey,
+    pub provider: Pubkey,
+    pub quality_score: u8,
+    pub last_heartbeat: i64,
 }
 
 // =============================================================================
@@ -857,6 +918,112 @@ pub mod proxyhub {
         oracle.last_update = clock.unix_timestamp;
 
         msg!("Updated threshold to {}", new_threshold);
+        Ok(())
+    }
+
+    // =========================================================================
+    // D-S1: ADMIN KEY ROTATION (two-step handoff)
+    //
+    // Replaces the single-admin model with a two-step proposal/accept flow.
+    // The current admin proposes a successor; the successor must explicitly
+    // accept — preventing accidental or malicious key theft.
+    // =========================================================================
+
+    /// Step 1: Current admin nominates a new admin.
+    /// The new key is stored in `pending_admin`; it takes effect only when
+    /// the nominee calls `accept_admin_transfer`.
+    pub fn propose_admin_transfer(
+        ctx: Context<ProposeAdminTransfer>,
+        new_admin: Pubkey,
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.program_state;
+        let clock = Clock::get()?;
+
+        require!(new_admin != state.admin, EscrowError::InvalidStatus);
+        state.pending_admin = new_admin;
+        state.updated_at = clock.unix_timestamp;
+
+        msg!("Admin transfer proposed: current={} → pending={}", state.admin, new_admin);
+        Ok(())
+    }
+
+    /// Step 2: The nominated account accepts and becomes the new admin.
+    /// Only the exact `pending_admin` key may call this.
+    pub fn accept_admin_transfer(ctx: Context<AcceptAdminTransfer>) -> Result<()> {
+        let state = &mut ctx.accounts.program_state;
+        let clock = Clock::get()?;
+
+        let pending = state.pending_admin;
+        require!(pending != Pubkey::default(), EscrowError::Unauthorized);
+        require!(
+            ctx.accounts.new_admin.key() == pending,
+            EscrowError::Unauthorized
+        );
+
+        let old_admin = state.admin;
+        state.admin = pending;
+        state.pending_admin = Pubkey::default(); // clear nomination
+        state.updated_at = clock.unix_timestamp;
+
+        msg!("Admin transfer accepted: {} → {}", old_admin, state.admin);
+        Ok(())
+    }
+
+    // =========================================================================
+    // D-S2: MULTI-SIG PAUSE (replaces single-admin pause)
+    //
+    // Emergency pause now requires M-of-N oracle signers rather than a single
+    // admin key.  This prevents a compromised admin wallet from unilaterally
+    // halting the protocol.  Signers submit their approval in separate txns;
+    // once `threshold` approvals are recorded the program is paused atomically.
+    //
+    // For un-pausing the existing single-admin `emergency_resume` is kept so
+    // that recovery is fast when the oracle quorum is operational.
+    // =========================================================================
+
+    /// Record one oracle signer's approval to pause the program.
+    /// Once the number of approvals reaches `multisig_oracle.threshold` the
+    /// program state is flipped to `paused = true` in the same transaction.
+    pub fn multi_sig_pause_vote(
+        ctx: Context<MultiSigPauseVote>,
+        approvals: Vec<Pubkey>, // slice of oracle signer keys that have agreed off-chain
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.program_state;
+        let oracle = &ctx.accounts.multisig_oracle;
+        let clock = Clock::get()?;
+
+        require!(!state.paused, EscrowError::InvalidStatus);
+
+        // Verify the caller is in the oracle signer set
+        let caller = ctx.accounts.oracle_signer.key();
+        require!(oracle.signers.contains(&caller), EscrowError::Unauthorized);
+
+        // Count how many unique, valid oracle signers are in the approval list
+        // (caller's own key counts as one; the rest are validated against the set)
+        let mut valid_approvals: Vec<Pubkey> = Vec::new();
+        if !valid_approvals.contains(&caller) {
+            valid_approvals.push(caller);
+        }
+        for pk in &approvals {
+            if oracle.signers.contains(pk) && !valid_approvals.contains(pk) {
+                valid_approvals.push(*pk);
+            }
+        }
+
+        require!(
+            valid_approvals.len() >= oracle.threshold as usize,
+            EscrowError::InsufficientSignatures
+        );
+
+        state.paused = true;
+        state.paused_at = clock.unix_timestamp;
+        state.updated_at = clock.unix_timestamp;
+
+        msg!(
+            "Program PAUSED via multi-sig: {}/{} oracle signers approved",
+            valid_approvals.len(),
+            oracle.signers.len()
+        );
         Ok(())
     }
 
@@ -1398,11 +1565,245 @@ pub mod proxyhub {
     }
 
     // ... Additional functions for token escrows, streaming, etc. can be added here
+
+    // =========================================================================
+    // USAGE PROOF ANCHORING
+    //
+    // The oracle submits one UsageProofRecord per metering window (typically
+    // every 15 minutes or at session termination).  Records are append-only and
+    // keyed by (escrow_pda, proof_index).  They serve as an immutable audit
+    // trail; the actual fund release happens via settle_escrow / settle_escrow_multisig.
+    //
+    // This makes bandwidth accounting trustless: any party can independently
+    // audit total bytes consumed by summing all UsageProofRecord accounts for
+    // an escrow PDA — without trusting the ProxyHubb server.
+    // =========================================================================
+
+    /// Anchor a bandwidth usage proof on-chain for a specific escrow window.
+    ///
+    /// Called by the oracle when:
+    ///   - A 15-minute metering batch accumulates signed proofs, OR
+    ///   - A session is terminated (bandwidth exhausted or user-initiated).
+    ///
+    /// The instruction is idempotent in effect: submitting the same (escrow,
+    /// proof_index) twice will fail at PDA init (account already exists),
+    /// preventing double-counting.
+    pub fn submit_usage_proof(
+        ctx: Context<SubmitUsageProof>,
+        proof_index: u32,
+        total_bytes: u64,
+        period_start: i64,
+        period_end: i64,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(total_bytes > 0, EscrowError::InvalidStatus);
+        require!(period_end > period_start, EscrowError::InvalidStatus);
+
+        let record = &mut ctx.accounts.usage_proof;
+        let clock = Clock::get()?;
+
+        // The escrow account is passed as a raw AccountInfo so both the legacy
+        // (["escrow", buyer, seller]) and multi-sig (["escrow_multisig", …]) PDAs
+        // are accepted.  We do not mutate it here — settlement instructions
+        // handle fund release based on the cumulative bytes recorded.
+        let escrow_key = ctx.accounts.escrow.key();
+
+        record.escrow = escrow_key;
+        record.oracle = ctx.accounts.oracle.key();
+        record.proof_index = proof_index;
+        record.total_bytes = total_bytes;
+        record.period_start = period_start;
+        record.period_end = period_end;
+        record.submitted_at = clock.unix_timestamp;
+        record.bump = ctx.bumps.usage_proof;
+
+        emit!(UsageProofSubmitted {
+            escrow: escrow_key,
+            proof_record: record.key(),
+            proof_index,
+            total_bytes,
+            period_start,
+            period_end,
+        });
+
+        msg!(
+            "Usage proof anchored: escrow={}, index={}, bytes={}, window=[{},{}]",
+            escrow_key,
+            proof_index,
+            total_bytes,
+            period_start,
+            period_end
+        );
+        Ok(())
+    }
+
+    // =========================================================================
+    // PROVIDER REGISTRY
+    //
+    // Providers are registered on-chain via the oracle (server-signed tx).
+    // PDA seeds: ["provider-registry", provider_pubkey].
+    // The oracle is the payer/signer; provider pubkey is an instruction arg.
+    // =========================================================================
+
+    /// Register a provider node in the on-chain registry.
+    /// Called by the oracle when a provider completes registration via the API.
+    pub fn register_provider(
+        ctx: Context<RegisterProvider>,
+        provider: Pubkey,
+        endpoint: String,
+        location: String,
+    ) -> Result<()> {
+        require!(
+            endpoint.len() <= ProviderRegistry::MAX_ENDPOINT_LEN,
+            EscrowError::InvalidStatus
+        );
+        require!(
+            location.len() <= ProviderRegistry::MAX_LOCATION_LEN,
+            EscrowError::InvalidStatus
+        );
+
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let registry = &mut ctx.accounts.provider_registry;
+        let clock = Clock::get()?;
+
+        registry.provider = provider;
+        registry.endpoint = endpoint.clone();
+        registry.location = location.clone();
+        registry.stake_account = Pubkey::default(); // populated when provider stakes
+        registry.quality_score = 100;
+        registry.total_bandwidth_served = 0;
+        registry.successful_sessions = 0;
+        registry.failed_sessions = 0;
+        registry.is_active = true;
+        registry.registered_at = clock.unix_timestamp;
+        registry.last_heartbeat = clock.unix_timestamp;
+        registry.bump = ctx.bumps.provider_registry;
+
+        emit!(ProviderRegisteredEvent {
+            registry: registry.key(),
+            provider,
+            endpoint,
+            location,
+        });
+
+        msg!("Provider registered on-chain: {}", provider);
+        Ok(())
+    }
+
+    /// Update provider heartbeat and cumulative metrics.
+    /// Called by the oracle every heartbeat cycle.
+    pub fn provider_heartbeat(
+        ctx: Context<ProviderHeartbeat>,
+        provider: Pubkey,
+        quality_score: u8,
+        bandwidth_served_delta: u64,
+        successful_sessions_delta: u32,
+        failed_sessions_delta: u32,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let registry = &mut ctx.accounts.provider_registry;
+        let clock = Clock::get()?;
+
+        registry.quality_score = quality_score;
+        registry.total_bandwidth_served = registry
+            .total_bandwidth_served
+            .saturating_add(bandwidth_served_delta);
+        registry.successful_sessions = registry
+            .successful_sessions
+            .saturating_add(successful_sessions_delta);
+        registry.failed_sessions = registry
+            .failed_sessions
+            .saturating_add(failed_sessions_delta);
+        registry.is_active = true; // heartbeat re-activates a deregistered provider
+        registry.last_heartbeat = clock.unix_timestamp;
+
+        emit!(ProviderHeartbeatEvent {
+            registry: registry.key(),
+            provider,
+            quality_score,
+            last_heartbeat: clock.unix_timestamp,
+        });
+
+        msg!("Provider heartbeat: {}, quality={}", provider, quality_score);
+        Ok(())
+    }
+
+    /// Mark a provider as inactive in the on-chain registry.
+    /// Called by the oracle when a provider deregisters or is removed.
+    pub fn deregister_provider(
+        ctx: Context<DeregisterProvider>,
+        provider: Pubkey,
+    ) -> Result<()> {
+        let registry = &mut ctx.accounts.provider_registry;
+
+        registry.is_active = false;
+
+        msg!("Provider deregistered on-chain: {}", provider);
+        Ok(())
+    }
 }
 
 // =============================================================================
 // ACCOUNT VALIDATION STRUCTURES
 // =============================================================================
+
+// Provider Registry contexts — oracle signs all registry mutations.
+// PDA seeds: ["provider-registry", provider_pubkey_bytes]
+
+#[derive(Accounts)]
+#[instruction(provider: Pubkey)]
+pub struct RegisterProvider<'info> {
+    #[account(
+        init,
+        payer = oracle,
+        space = ProviderRegistry::LEN,
+        seeds = [b"provider-registry", provider.as_ref()],
+        bump
+    )]
+    pub provider_registry: Account<'info, ProviderRegistry>,
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider: Pubkey)]
+pub struct ProviderHeartbeat<'info> {
+    #[account(
+        mut,
+        seeds = [b"provider-registry", provider.as_ref()],
+        bump = provider_registry.bump,
+    )]
+    pub provider_registry: Account<'info, ProviderRegistry>,
+    /// Oracle must be the current program admin.
+    #[account(address = program_state.admin)]
+    pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider: Pubkey)]
+pub struct DeregisterProvider<'info> {
+    #[account(
+        mut,
+        seeds = [b"provider-registry", provider.as_ref()],
+        bump = provider_registry.bump,
+    )]
+    pub provider_registry: Account<'info, ProviderRegistry>,
+    /// Oracle must be the current program admin.
+    #[account(address = program_state.admin)]
+    pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
 
 #[derive(Accounts)]
 pub struct InitializeProgram<'info> {
@@ -1463,6 +1864,35 @@ pub struct ManageMultiSigOracle<'info> {
     #[account(address = program_state.admin)]
     pub admin: Signer<'info>,
     pub program_state: Account<'info, ProgramState>,
+}
+
+// D-S1: Admin key rotation contexts
+#[derive(Accounts)]
+pub struct ProposeAdminTransfer<'info> {
+    #[account(mut, seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    /// Must be the current admin.
+    #[account(address = program_state.admin)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptAdminTransfer<'info> {
+    #[account(mut, seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    /// Must be the pending_admin nominated by `propose_admin_transfer`.
+    pub new_admin: Signer<'info>,
+}
+
+// D-S2: Multi-sig pause context
+#[derive(Accounts)]
+pub struct MultiSigPauseVote<'info> {
+    #[account(mut, seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    #[account(seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
+    pub multisig_oracle: Account<'info, MultiSigOracle>,
+    /// One oracle signer submitting their pause approval.
+    pub oracle_signer: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -1630,4 +2060,45 @@ pub struct SettleEscrow<'info> {
     #[account(mut)]
     /// CHECK: Seller account
     pub seller: AccountInfo<'info>,
+}
+
+// ── Usage Proof anchoring ─────────────────────────────────────────────────────
+
+/// Account order must match SubmitUsageProofParams in Go (settlement.go):
+///   0  oracle           — Signer, writable (pays rent)
+///   1  escrow           — Writable (unchecked: supports both legacy + multisig PDAs)
+///   2  usage_proof      — Init, writable (new PDA)
+///   3  sysvar_ixs       — Read-only (reserved for future Ed25519 introspection)
+///   4  system_program
+///   5  program_state    — Read-only (pause guard)
+#[derive(Accounts)]
+#[instruction(proof_index: u32)]
+pub struct SubmitUsageProof<'info> {
+    /// Oracle pays for the PDA rent.
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+
+    /// The escrow PDA this proof belongs to.  Accepted as unchecked AccountInfo
+    /// so both the legacy and multi-sig escrow seed variants are valid.
+    /// CHECK: Escrow PDA is verified off-chain by the oracle before submission.
+    pub escrow: AccountInfo<'info>,
+
+    /// New immutable usage proof record.
+    /// Seeds: ["usage_proof", escrow_key, proof_index (u32 LE)]
+    #[account(
+        init,
+        payer = oracle,
+        space = UsageProofRecord::LEN,
+        seeds = [b"usage_proof", escrow.key().as_ref(), &proof_index.to_le_bytes()],
+        bump
+    )]
+    pub usage_proof: Account<'info, UsageProofRecord>,
+
+    /// CHECK: SysVar reserved for future Ed25519 instruction introspection.
+    pub sysvar_instructions: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }

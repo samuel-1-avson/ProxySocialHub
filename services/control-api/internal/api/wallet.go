@@ -153,28 +153,42 @@ func getWallet(c *gin.Context) {
 			logging.Info().Str("user_id", userIDStr).Msg("getWallet: User profile confirmed/created")
 		}
 
-		// Now attempt wallet creation with higher confidence
-		// Get user's trust tier for default limits
-		var userTrustTier models.TrustTier = models.TrustTierNew
-		db.DB.Model(&models.User{}).Select("trust_tier").Where("id = ?", userID).Scan(&userTrustTier)
+		// M-02: Wrap wallet creation in a transaction with SELECT FOR UPDATE on the
+		// user row to serialize concurrent creation attempts. Two goroutines that
+		// both passed the "wallet doesn't exist" check above will contend on this
+		// lock; only one proceeds to INSERT while the other waits, then re-fetches
+		// the wallet the winner created.
+		createErr := db.DB.Transaction(func(tx *gorm.DB) error {
+			// Lock the user row — serializes all concurrent wallet-creation attempts
+			// for this user.
+			var lockedUser models.User
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", userID).First(&lockedUser).Error; err != nil {
+				return fmt.Errorf("failed to lock user row: %w", err)
+			}
 
-		wallet = models.Wallet{
-			UserID:     userID,
-			BalanceSOL: 0,
-		}
-		wallet.InitializeWithDefaultLimits(userTrustTier)
+			// Another goroutine may have created the wallet while we waited for the
+			// lock — check again before inserting.
+			var existing models.Wallet
+			if err := tx.Where("user_id = ?", userID).First(&existing).Error; err == nil {
+				wallet = existing
+				return nil
+			}
 
-		// Attempt creation — OnConflict DoNothing handles concurrent races safely
-		if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&wallet).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet: " + err.Error()})
-			return
-		}
-
-		// Re-fetch to confirm existence and get ID
-		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-			logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Failed to retrieve wallet after creation attempt")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet or user not found"})
+			newWallet := models.Wallet{
+				UserID:     userID,
+				BalanceSOL: 0,
+			}
+			newWallet.InitializeWithDefaultLimits(lockedUser.TrustTier)
+			if err := tx.Create(&newWallet).Error; err != nil {
+				return fmt.Errorf("failed to create wallet: %w", err)
+			}
+			wallet = newWallet
+			return nil
+		})
+		if createErr != nil {
+			logging.Error(createErr).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
 			return
 		}
 		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Initialized wallet")
@@ -242,19 +256,44 @@ func getWallet(c *gin.Context) {
 		})
 	}
 
-	// Fetch user to checks linked wallets
+	// Fetch user to check linked Solana wallet
 	var user models.User
 	if err := db.DB.Select("wallet_address").First(&user, "id = ?", userID).Error; err != nil {
 		logging.Warn().Err(err).Msg("Failed to fetch user linked wallets")
 	}
 
+	// D-C2: Query on-chain SOL balance when a Solana wallet address is linked.
+	// The on-chain balance is the canonical source of truth for the user's SOL
+	// holdings; the DB balance (balance_sol) is an internal ledger that tracks
+	// funds already escrowed or locked inside the platform.
+	var onChainSOL *float64
+	if user.WalletAddress != nil && *user.WalletAddress != "" {
+		oracle := solana.GetOracleClient()
+		if oracle != nil {
+			if pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err == nil {
+				if lamports, err := oracle.GetBalance(c.Request.Context(), pubkey); err == nil {
+					bal := solana.LamportsToSOL(lamports)
+					onChainSOL = &bal
+				}
+			}
+		}
+	}
+
+	walletResp := gin.H{
+		"wallet_id":             wallet.ID,
+		"balance_sol":           wallet.BalanceSOL,
+		"transactions":          transactions,
+		"linked_solana_address": user.WalletAddress,
+	}
+	if onChainSOL != nil {
+		// on_chain_sol: actual SOL held in the user's external wallet (not escrowed)
+		walletResp["on_chain_sol"] = *onChainSOL
+		// available_sol: the smaller of on-chain + platform balance for spending
+		walletResp["available_sol"] = wallet.BalanceSOL
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"wallet": gin.H{
-			"wallet_id":             wallet.ID,
-			"balance_sol":           wallet.BalanceSOL,
-			"transactions":          transactions,
-			"linked_solana_address": user.WalletAddress,
-		},
+		"wallet": walletResp,
 	})
 }
 
