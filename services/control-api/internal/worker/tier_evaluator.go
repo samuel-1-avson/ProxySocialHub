@@ -198,7 +198,7 @@ func notifyTierChange(node models.ProviderNode, fromTier, toTier string) {
 		Body:   message,
 	}
 
-	if err := db.DB.Create(&notification).Error; err != nil {
+	if err := notification.CreateDeduped(db.DB); err != nil {
 		log.Printf("Tier Evaluator: failed to create tier-change notification for user %s: %v", node.UserID, err)
 	}
 }

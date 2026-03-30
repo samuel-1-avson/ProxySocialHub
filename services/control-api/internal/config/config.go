@@ -28,9 +28,10 @@ type AdminConfig struct {
 }
 
 type AdminAccount struct {
-	Username string
-	Password string // plaintext from env var; compared with constant-time compare
-	Role     string // superadmin | sysops | support
+	Username   string
+	Password   string // plaintext from env var; compared with constant-time compare
+	Role       string // superadmin | sysops | support
+	TOTPSecret string // base32-encoded TOTP secret; if set, MFA is required at login
 }
 
 type GatewayConfig struct {
@@ -175,19 +176,22 @@ func Load() (*Config, error) {
 	cfg.Admin.SessionTTLHr = 4
 	cfg.Admin.Accounts = []AdminAccount{
 		{
-			Username: getEnv("ADMIN_ACCOUNT_1_USERNAME", "superadmin"),
-			Password: getEnv("ADMIN_ACCOUNT_1_PASSWORD", "PHub@Super2026!"),
-			Role:     getEnv("ADMIN_ACCOUNT_1_ROLE", "superadmin"),
+			Username:   getEnv("ADMIN_ACCOUNT_1_USERNAME", "superadmin"),
+			Password:   getEnv("ADMIN_ACCOUNT_1_PASSWORD", "PHub@Super2026!"),
+			Role:       getEnv("ADMIN_ACCOUNT_1_ROLE", "superadmin"),
+			TOTPSecret: getEnv("ADMIN_ACCOUNT_1_TOTP_SECRET", ""),
 		},
 		{
-			Username: getEnv("ADMIN_ACCOUNT_2_USERNAME", "sysops"),
-			Password: getEnv("ADMIN_ACCOUNT_2_PASSWORD", "PHub@Ops2026!"),
-			Role:     getEnv("ADMIN_ACCOUNT_2_ROLE", "sysops"),
+			Username:   getEnv("ADMIN_ACCOUNT_2_USERNAME", "sysops"),
+			Password:   getEnv("ADMIN_ACCOUNT_2_PASSWORD", "PHub@Ops2026!"),
+			Role:       getEnv("ADMIN_ACCOUNT_2_ROLE", "sysops"),
+			TOTPSecret: getEnv("ADMIN_ACCOUNT_2_TOTP_SECRET", ""),
 		},
 		{
-			Username: getEnv("ADMIN_ACCOUNT_3_USERNAME", "support"),
-			Password: getEnv("ADMIN_ACCOUNT_3_PASSWORD", "PHub@Support2026!"),
-			Role:     getEnv("ADMIN_ACCOUNT_3_ROLE", "support"),
+			Username:   getEnv("ADMIN_ACCOUNT_3_USERNAME", "support"),
+			Password:   getEnv("ADMIN_ACCOUNT_3_PASSWORD", "PHub@Support2026!"),
+			Role:       getEnv("ADMIN_ACCOUNT_3_ROLE", "support"),
+			TOTPSecret: getEnv("ADMIN_ACCOUNT_3_TOTP_SECRET", ""),
 		},
 	}
 

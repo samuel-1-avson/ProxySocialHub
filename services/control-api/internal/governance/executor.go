@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
 // ProposalExecutor handles execution of passed proposals
@@ -100,33 +102,75 @@ func (e *ProposalExecutor) ExecuteProposal(proposal models.Proposal) error {
 	return nil
 }
 
-// executeTreasuryTransfer handles treasury fund transfers
+// executeTreasuryTransfer executes an on-chain SOL transfer from the treasury
+// wallet to the recipient specified in the governance proposal.
+//
+// D-G1: Governance decisions now trigger *actual* on-chain transactions rather
+// than creating a "pending" DB record and waiting for a manual operator step.
+// This removes the platform admin as an intermediary in treasury disbursements.
 func (e *ProposalExecutor) executeTreasuryTransfer(proposal models.Proposal) error {
 	var transfer TreasuryTransfer
 	if err := json.Unmarshal([]byte(proposal.ExecutionData), &transfer); err != nil {
 		return fmt.Errorf("failed to parse treasury transfer data: %w", err)
 	}
 
-	// Log the transfer (actual on-chain execution would require Solana client)
 	logging.Info().
 		Str("recipient", transfer.Recipient).
 		Float64("amount", transfer.Amount).
 		Str("currency", transfer.Currency).
-		Msg("Treasury transfer scheduled")
+		Msg("Executing on-chain treasury transfer")
 
-	// Create treasury transaction record
+	// Create the record first so we have an audit trail even if on-chain fails.
 	txRecord := models.TreasuryTransaction{
 		ProposalID:  proposal.ID,
 		Recipient:   transfer.Recipient,
 		Amount:      transfer.Amount,
 		Currency:    transfer.Currency,
 		Description: transfer.Description,
-		Status:      "pending", // Actual execution happens via Solana program
+		Status:      "submitted",
 		CreatedAt:   time.Now(),
 	}
-
 	if err := db.DB.Create(&txRecord).Error; err != nil {
 		return fmt.Errorf("failed to create treasury transaction record: %w", err)
+	}
+
+	// Only SOL transfers can be executed on-chain by the oracle wallet.
+	// USDC/TAO transfers are logged as "pending" and require a separate relayer.
+	if transfer.Currency == "SOL" {
+		oracle := solanaClient.GetOracleClient()
+		if oracle == nil {
+			db.DB.Model(&txRecord).Update("status", "failed_no_oracle")
+			return fmt.Errorf("oracle client not available — treasury transfer cannot proceed on-chain")
+		}
+
+		recipientKey, err := sol.PublicKeyFromBase58(transfer.Recipient)
+		if err != nil {
+			db.DB.Model(&txRecord).Update("status", "failed_invalid_address")
+			return fmt.Errorf("invalid recipient address %q: %w", transfer.Recipient, err)
+		}
+
+		lamports := uint64(transfer.Amount * 1e9) // SOL → lamports
+		txHash, err := oracle.SendSOL(e.ctx, recipientKey, lamports)
+		if err != nil {
+			db.DB.Model(&txRecord).Update("status", "failed_on_chain")
+			return fmt.Errorf("on-chain treasury transfer failed: %w", err)
+		}
+
+		db.DB.Model(&txRecord).Updates(map[string]interface{}{
+			"status":       "completed",
+			"tx_signature": txHash,
+		})
+		logging.Info().
+			Str("tx_hash", txHash).
+			Str("recipient", transfer.Recipient).
+			Float64("amount_sol", transfer.Amount).
+			Msg("Treasury transfer executed on-chain")
+	} else {
+		// Non-SOL currencies: mark as pending for relayer processing.
+		db.DB.Model(&txRecord).Update("status", "pending_relayer")
+		logging.Info().
+			Str("currency", transfer.Currency).
+			Msg("Non-SOL treasury transfer queued for relayer")
 	}
 
 	return nil
@@ -171,7 +215,11 @@ func (e *ProposalExecutor) executeParameterChange(proposal models.Proposal) erro
 	return nil
 }
 
-// executeSlashing slashes a misbehaving gateway
+// executeSlashing slashes a misbehaving gateway/provider on-chain.
+//
+// D-G2: Slashing now calls the Solana reputation program directly so that stake
+// is removed on-chain and cannot be disputed by the slashed party.  The DB
+// record is written regardless, serving as an audit log.
 func (e *ProposalExecutor) executeSlashing(proposal models.Proposal) error {
 	var slash GatewaySlash
 	if err := json.Unmarshal([]byte(proposal.ExecutionData), &slash); err != nil {
@@ -182,9 +230,8 @@ func (e *ProposalExecutor) executeSlashing(proposal models.Proposal) error {
 		Str("gateway", slash.GatewayAddress).
 		Uint8("percentage", slash.SlashPercentage).
 		Str("reason", slash.Reason).
-		Msg("Executing gateway slashing")
+		Msg("Executing on-chain gateway slashing")
 
-	// Record slashing event (actual on-chain slashing via Solana program)
 	slashRecord := models.SlashingEvent{
 		ProposalID:      proposal.ID,
 		GatewayAddress:  slash.GatewayAddress,
@@ -193,10 +240,51 @@ func (e *ProposalExecutor) executeSlashing(proposal models.Proposal) error {
 		Evidence:        slash.Evidence,
 		ExecutedAt:      time.Now(),
 	}
-
 	if err := db.DB.Create(&slashRecord).Error; err != nil {
 		return fmt.Errorf("failed to record slashing event: %w", err)
 	}
+
+	// Call the Solana reputation program to slash the provider's stake.
+	oracle := solanaClient.GetOracleClient()
+	if oracle == nil {
+		logging.Warn().Msg("Oracle client not available — slashing recorded in DB only (no on-chain execution)")
+		return nil
+	}
+
+	providerKey, err := sol.PublicKeyFromBase58(slash.GatewayAddress)
+	if err != nil {
+		return fmt.Errorf("invalid gateway address %q: %w", slash.GatewayAddress, err)
+	}
+
+	// Fetch provider's staked SOL from the node record (StakedAmountSOL).
+	var node models.Node
+	if err := db.DB.Where("hotkey = ? OR gateway_node_id = ?", slash.GatewayAddress, slash.GatewayAddress).
+		First(&node).Error; err != nil {
+		logging.Warn().Str("address", slash.GatewayAddress).Msg("Node not found in DB — skipping on-chain slash")
+		return nil
+	}
+
+	// slash_percentage of the provider's staked SOL → lamports
+	slashLamports := uint64(node.StakedAmountSOL * float64(slash.SlashPercentage) / 100.0 * 1e9)
+	if slashLamports == 0 {
+		logging.Warn().Msg("Calculated slash amount is zero — skipping on-chain call")
+		return nil
+	}
+
+	txHash, err := oracle.SlashStake(e.ctx, solanaClient.SlashStakeParams{
+		ProviderWallet: providerKey,
+		Amount:         slashLamports,
+	})
+	if err != nil {
+		return fmt.Errorf("on-chain slash failed: %w", err)
+	}
+
+	db.DB.Model(&slashRecord).Update("tx_signature", txHash)
+	logging.Warn().
+		Str("tx_hash", txHash).
+		Str("gateway", slash.GatewayAddress).
+		Uint64("lamports_slashed", slashLamports).
+		Msg("On-chain slash executed successfully")
 
 	return nil
 }

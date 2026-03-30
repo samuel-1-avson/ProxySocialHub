@@ -108,12 +108,15 @@ services:
       - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
       - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
       - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-admin}
+      - ADMIN_ACCOUNT_1_TOTP_SECRET=${ADMIN_ACCOUNT_1_TOTP_SECRET:-}
       - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
       - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
       - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-admin}
+      - ADMIN_ACCOUNT_2_TOTP_SECRET=${ADMIN_ACCOUNT_2_TOTP_SECRET:-}
       - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
       - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
       - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-moderator}
+      - ADMIN_ACCOUNT_3_TOTP_SECRET=${ADMIN_ACCOUNT_3_TOTP_SECRET:-}
       # --- Dev backdoor (disabled in production) ---
       - DEV_LOGIN_SECRET=${DEV_LOGIN_SECRET:-}
       # --- Provider Engine ---
@@ -126,6 +129,11 @@ services:
       # --- Alert Channels ---
       - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL:-}
       - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
+      - PAGERDUTY_ROUTING_KEY=${PAGERDUTY_ROUTING_KEY:-}
+      # Alert SMTP sender (can share values with SMTP_USER/SMTP_PASS above)
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
       # --- Oracle Velocity Guard ---
       - ORACLE_MAX_SINGLE_TRANSFER_SOL=${ORACLE_MAX_SINGLE_TRANSFER_SOL:-50}
       - ORACLE_MAX_HOURLY_OUTFLOW_SOL=${ORACLE_MAX_HOURLY_OUTFLOW_SOL:-500}
@@ -202,13 +210,21 @@ services:
       # P2-12: Per-operation timeouts
       - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
       - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
-      - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
       - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+      # --- GeoIP Auto-Update (weekly cron) ---
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY:-}
       # --- Phase 8: DAO & Staking ---
       - SOLANA_RPC_URL=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       - REPUTATION_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
       - PHUBB_TOKEN_MINT=${PHB_TOKEN_MINT}
       - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
+      # --- D-O1: Multi-source price oracle (CoinGecko + Binance + CoinMarketCap) ---
+      # CoinGecko: optional key; free tier works without one but rate-limited
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+      # CoinMarketCap: optional; skipped entirely when absent (2-source median still works)
+      - COINMARKETCAP_API_KEY=${COINMARKETCAP_API_KEY:-}
+      # Emergency fallback price (USD) when all live feeds + cache are stale
+      - EMERGENCY_SOL_PRICE_USD=${EMERGENCY_SOL_PRICE_USD:-200}
     volumes:
       - ./certs:/app/certs:ro
       - ./geoip:/app/geoip:ro
@@ -308,12 +324,15 @@ services:
       - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
       - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
       - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-admin}
+      - ADMIN_ACCOUNT_1_TOTP_SECRET=${ADMIN_ACCOUNT_1_TOTP_SECRET:-}
       - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
       - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
       - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-admin}
+      - ADMIN_ACCOUNT_2_TOTP_SECRET=${ADMIN_ACCOUNT_2_TOTP_SECRET:-}
       - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
       - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
       - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-moderator}
+      - ADMIN_ACCOUNT_3_TOTP_SECRET=${ADMIN_ACCOUNT_3_TOTP_SECRET:-}
     depends_on:
       control-api:
         condition: service_healthy

@@ -30,21 +30,24 @@ const (
 	cbPauseDuration  = 5 * time.Minute
 )
 
+const cbRedisKey = "circuit:payout:state"
+
 type circuitBreaker struct {
-	mu           sync.Mutex
-	failures     []time.Time // timestamps of recent failures
-	pausedUntil  time.Time
+	mu          sync.Mutex
+	failures    []time.Time // timestamps of recent failures
+	pausedUntil time.Time
 }
 
 var settlementCB = &circuitBreaker{}
 
 // recordFailure adds a failure timestamp and returns true if the breaker just tripped.
+// When tripped, the pause deadline is persisted to Redis so a service restart does
+// not immediately retry into a degraded Solana RPC (4.1).
 func (cb *circuitBreaker) recordFailure() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-cbWindow)
-	// Drop stale failures
 	fresh := cb.failures[:0]
 	for _, t := range cb.failures {
 		if t.After(cutoff) {
@@ -56,23 +59,46 @@ func (cb *circuitBreaker) recordFailure() bool {
 	if len(cb.failures) >= cbMaxFailures {
 		cb.pausedUntil = now.Add(cbPauseDuration)
 		cb.failures = cb.failures[:0]
+		// Persist to Redis — if the process restarts while tripped, isOpen() will
+		// restore the deadline from Redis instead of resetting to zero.
+		redis.Client.Set(context.Background(), cbRedisKey,
+			cb.pausedUntil.Unix(), cbPauseDuration)
 		return true
 	}
 	return false
 }
 
 // isOpen returns true when the breaker is tripped and settlement must be skipped.
+// On first call after a restart, hydrates pausedUntil from Redis if the in-memory
+// value is zero (4.1).
 func (cb *circuitBreaker) isOpen() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	return time.Now().Before(cb.pausedUntil)
+	now := time.Now()
+	// In-memory state is authoritative while the process is running.
+	if cb.pausedUntil.After(now) {
+		return true
+	}
+	// After a restart pausedUntil is zero — check Redis for a persisted deadline.
+	if cb.pausedUntil.IsZero() {
+		if val, err := redis.Client.Get(context.Background(), cbRedisKey).Int64(); err == nil {
+			persisted := time.Unix(val, 0)
+			if persisted.After(now) {
+				cb.pausedUntil = persisted
+				return true
+			}
+		}
+	}
+	return false
 }
 
-// recordSuccess resets the failure window on a successful settlement.
+// recordSuccess resets the failure window and clears the Redis persisted state.
 func (cb *circuitBreaker) recordSuccess() {
 	cb.mu.Lock()
 	cb.failures = cb.failures[:0]
+	cb.pausedUntil = time.Time{} // zero so isOpen re-checks Redis next time if needed
 	cb.mu.Unlock()
+	redis.Client.Del(context.Background(), cbRedisKey)
 }
 
 // globalBatchProcessor is the singleton batch payout processor

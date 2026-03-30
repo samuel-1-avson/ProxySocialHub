@@ -593,15 +593,73 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+// estimateResponseTime returns the provider's average first-reply time in
+// minutes calculated from the messages table over the last 30 days.
+// It looks for conversations where the provider is Participant2 (seller),
+// and computes the average gap between the first buyer message and the
+// provider's first reply in the same conversation.
+// Falls back to 15 minutes when there is insufficient data.
 func estimateResponseTime(providerID uuid.UUID) int {
-	// TODO: Calculate from actual message response times
-	// For now, return estimated based on provider stats
-	return 15 // minutes
+	// Raw SQL: for each conversation involving this provider, find the first
+	// buyer message and the first subsequent provider reply, then average the gap.
+	type avgResult struct {
+		AvgMinutes float64
+	}
+	var result avgResult
+
+	// conversations where the provider is a participant
+	err := db.Social().Raw(`
+		SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (provider_reply.created_at - buyer_msg.created_at)) / 60), 0) AS avg_minutes
+		FROM conversations c
+		JOIN LATERAL (
+			SELECT m.created_at
+			FROM messages m
+			WHERE m.conversation_id = c.id
+			  AND m.sender_id != ?
+			  AND m.is_deleted = false
+			ORDER BY m.created_at ASC
+			LIMIT 1
+		) buyer_msg ON true
+		JOIN LATERAL (
+			SELECT m.created_at
+			FROM messages m
+			WHERE m.conversation_id = c.id
+			  AND m.sender_id = ?
+			  AND m.created_at > buyer_msg.created_at
+			  AND m.is_deleted = false
+			ORDER BY m.created_at ASC
+			LIMIT 1
+		) provider_reply ON true
+		WHERE (c.participant1 = ? OR c.participant2 = ?)
+		  AND c.created_at >= NOW() - INTERVAL '30 days'
+	`, providerID, providerID, providerID, providerID).Scan(&result).Error
+
+	if err != nil || result.AvgMinutes <= 0 {
+		return 15 // fallback
+	}
+	avg := int(result.AvgMinutes)
+	if avg < 1 {
+		return 1
+	}
+	return avg
 }
 
+// trackInquiry records an inquiry event as a feed entry so conversion metrics
+// (inquiries → orders) can be measured in the analytics pipeline.
 func trackInquiry(listingID, buyerID, providerID uuid.UUID, intent string, expectedGB float64) {
-	// TODO: Implement inquiry tracking for analytics
-	// This would track conversion rates, popular intents, etc.
+	meta := map[string]interface{}{
+		"intent":      intent,
+		"expected_gb": expectedGB,
+	}
+	event := models.CreateFeedEvent(
+		&buyerID,
+		models.FeedEventType("listing_inquiry"),
+		"listing",
+		&listingID,
+		"sent an inquiry",
+		meta,
+	)
+	db.Social().Create(event)
 }
 
 // RelationshipStats represents statistics about provider relationships

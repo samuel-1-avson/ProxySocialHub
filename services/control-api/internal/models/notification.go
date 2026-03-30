@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // NotificationType represents different types of notifications
@@ -76,6 +77,32 @@ type Notification struct {
 // TableName sets the table name
 func (Notification) TableName() string {
 	return "notifications"
+}
+
+// dedupWindow is the window within which a duplicate unread notification of the
+// same (user_id, type, actor_id) is suppressed (4.4).
+const dedupWindow = 60 * time.Second
+
+// CreateDeduped inserts the notification only if no unread notification with the
+// same (user_id, type, actor_id) exists within the last dedupWindow seconds.
+// Returns nil without inserting when a duplicate is found (idempotent).
+func (n *Notification) CreateDeduped(db *gorm.DB) error {
+	query := db.Model(&Notification{}).
+		Where("user_id = ? AND type = ? AND is_read = false AND created_at > ?",
+			n.UserID, n.Type, time.Now().Add(-dedupWindow))
+	if n.ActorID != nil {
+		query = query.Where("actor_id = ?", *n.ActorID)
+	} else {
+		query = query.Where("actor_id IS NULL")
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil // duplicate within window — skip
+	}
+	return db.Create(n).Error
 }
 
 // NotificationPreference represents user notification settings

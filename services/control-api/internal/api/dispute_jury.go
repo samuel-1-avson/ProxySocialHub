@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterDisputeJuryRoutes registers decentralized dispute resolution routes
@@ -243,7 +247,10 @@ func castJuryVote(c *gin.Context) {
 	if jury.CanAutoResolve() {
 		jury.Resolve()
 
-		// TODO: Submit to blockchain for on-chain settlement
+		// Submit the resolution to the blockchain.
+		// Captured by value so the goroutine is safe after jury is saved below.
+		jurySnapshot := jury
+		go settleDisputeOnChain(jurySnapshot)
 	}
 
 	if err := db.DB.Save(&jury).Error; err != nil {
@@ -328,6 +335,93 @@ func submitSellerEvidence(c *gin.Context) {
 	db.DB.Save(&jury)
 
 	c.JSON(http.StatusOK, jury)
+}
+
+// settleDisputeOnChain submits the jury resolution to the Solana blockchain.
+// It is always called in a goroutine — failures are logged but do not affect the HTTP response.
+func settleDisputeOnChain(jury models.DisputeJury) {
+	ctx := context.Background()
+
+	// Fetch the related order to get escrow details.
+	var order models.Order
+	if err := db.DB.Where("id = ?", jury.DisputeID).First(&order).Error; err != nil {
+		logging.Error(err).Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: order not found")
+		return
+	}
+
+	// For pay-as-you-go orders there is no on-chain escrow; nothing to settle.
+	if order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
+		db.DB.Model(&order).Update("status", models.OrderStatusRefunded)
+		return
+	}
+
+	oracle := solana.GetOracle()
+	if oracle == nil {
+		logging.Warn().Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: oracle not configured, skipping blockchain call")
+		return
+	}
+
+	buyerPubKey, err := sol.PublicKeyFromBase58(order.BuyerWallet)
+	if err != nil {
+		logging.Error(err).Str("buyer_wallet", order.BuyerWallet).Msg("dispute settlement: invalid buyer wallet address")
+		return
+	}
+	sellerPubKey, err := sol.PublicKeyFromBase58(order.SellerWallet)
+	if err != nil {
+		logging.Error(err).Str("seller_wallet", order.SellerWallet).Msg("dispute settlement: invalid seller wallet address")
+		return
+	}
+	escrowPDA, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	if err != nil {
+		logging.Error(err).Str("escrow_pda", order.EscrowPDA).Msg("dispute settlement: invalid escrow PDA")
+		return
+	}
+
+	decision, _ := jury.GetMajority()
+
+	var txHash string
+	switch decision {
+	case models.VoteBuyerWins:
+		// Return all locked SOL to buyer.
+		txHash, err = oracle.EmergencyRefund(ctx, solana.RefundEscrowParams{
+			Buyer:     buyerPubKey,
+			EscrowPDA: escrowPDA,
+		})
+	case models.VoteSellerWins:
+		// Release full escrow to seller (bandwidth_used = bandwidth_limit).
+		txHash, err = oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+			Buyer:           buyerPubKey,
+			Seller:          sellerPubKey,
+			EscrowPDA:       escrowPDA,
+			BandwidthUsedGB: order.BandwidthLimitGB,
+		})
+	case models.VoteSplitFunds:
+		// Settle at 50% usage so funds split proportionally.
+		txHash, err = oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+			Buyer:           buyerPubKey,
+			Seller:          sellerPubKey,
+			EscrowPDA:       escrowPDA,
+			BandwidthUsedGB: order.BandwidthLimitGB / 2,
+		})
+	default:
+		logging.Warn().Int("decision", int(decision)).Msg("dispute settlement: unhandled vote decision")
+		return
+	}
+
+	if err != nil {
+		logging.Error(err).Str("jury_id", jury.ID.String()).Msg("dispute settlement: blockchain call failed")
+		return
+	}
+
+	db.DB.Model(&order).Updates(map[string]interface{}{
+		"status":   models.OrderStatusCompleted,
+		"tx_hash":  txHash,
+	})
+
+	logging.Info().
+		Str("jury_id", jury.ID.String()).
+		Str("tx_hash", txHash).
+		Msg("dispute settlement: blockchain settlement submitted")
 }
 
 // @Summary Get jury voting status

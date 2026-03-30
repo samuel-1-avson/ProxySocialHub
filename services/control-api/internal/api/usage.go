@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -16,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
 // PricePerGBSOL is a fallback display rate used only when no listing price is available.
@@ -190,20 +192,165 @@ func reportUsage(c *gin.Context) {
 }
 
 // autoTerminateSessionBandwidth terminates a session that has exhausted its bandwidth limit.
+//
+// D-UP1: On-chain usage proof + escrow settlement wiring.
+// After marking the session terminated in the DB the function:
+//  1. Looks up the order linked to the session.
+//  2. If the order has an on-chain EscrowPDA it submits a UsageProofRecord to
+//     Solana (immutable audit trail) and then settles the escrow proportionally
+//     so the provider is paid and the buyer receives the unused SOL refund.
+//  3. Marks the order as completed in the DB.
+//
+// All Solana calls are fire-and-forget within a sub-goroutine to avoid
+// blocking the metering flush path.
 func autoTerminateSessionBandwidth(sessionID, credentialsUser string) {
 	if sessionID == "" {
 		return
 	}
+
+	now := time.Now()
+
 	if err := db.DB.Model(&models.Session{}).
 		Where("id = ?", sessionID).
 		Updates(map[string]interface{}{
 			"status":   models.SessionTerminated,
-			"end_time": time.Now(),
+			"end_time": now,
 		}).Error; err != nil {
 		logging.Error(err).Str("session_id", sessionID).Msg("Failed to auto-terminate bandwidth-exhausted session")
 		return
 	}
 	logging.Info().Str("session_id", sessionID).Str("credentials_user", credentialsUser).Msg("Session auto-terminated: bandwidth limit exhausted")
+
+	// D-UP1: submit usage proof + settle escrow on-chain (non-blocking)
+	go anchorUsageProofAndSettle(sessionID, now)
+}
+
+// anchorUsageProofAndSettle submits a UsageProofRecord to Solana and then
+// triggers escrow settlement for the session's linked order.
+// It is called only when a session is terminated due to bandwidth exhaustion.
+func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
+	oracle := solanaClient.GetOracleClient()
+	if oracle == nil {
+		logging.Warn().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: oracle not configured, skipping")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// 1. Find the order linked to this session.
+	var order models.Order
+	if err := db.DB.Where("session_id = ?", sessionID).First(&order).Error; err != nil {
+		// No escrow order — standalone/PAYG session, nothing to settle on-chain.
+		logging.Debug().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: no linked order, skipping")
+		return
+	}
+
+	if order.EscrowPDA == "" {
+		logging.Debug().Str("order_id", order.ID.String()).Msg("anchorUsageProofAndSettle: order has no EscrowPDA (PAYG), skipping")
+		return
+	}
+
+	escrowPDA, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	if err != nil {
+		logging.Error(err).Str("escrow_pda", order.EscrowPDA).Msg("anchorUsageProofAndSettle: invalid EscrowPDA")
+		return
+	}
+
+	// 2. Determine how many bytes were consumed (from DB session).
+	var session models.Session
+	if err := db.DB.Where("id = ?", sessionID).First(&session).Error; err != nil {
+		logging.Error(err).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: session not found")
+		return
+	}
+
+	totalBytes := session.BytesUsed
+	if totalBytes <= 0 {
+		logging.Warn().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: zero bytes used, skipping proof")
+		return
+	}
+
+	// 3. Determine the next proof index for this escrow.
+	var onChainCount int64
+	db.DB.Model(&models.UsageProof{}).
+		Where("order_id = ? AND status = ?", order.ID, models.UsageProofOnChain).
+		Count(&onChainCount)
+	proofIndex := uint32(onChainCount)
+
+	// 4. Submit UsageProofRecord to Solana.
+	// Use session.CreatedAt as the period start (session wall-clock start).
+	periodStart := session.CreatedAt
+
+	txHash, err := oracle.SubmitUsageProof(ctx, solanaClient.SubmitUsageProofParams{
+		EscrowPDA:   escrowPDA,
+		ProofIndex:  proofIndex,
+		TotalBytes:  uint64(totalBytes),
+		PeriodStart: periodStart.Unix(),
+		PeriodEnd:   terminatedAt.Unix(),
+	})
+	if err != nil {
+		logging.Error(err).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: SubmitUsageProof failed (non-fatal)")
+		// Continue to settle escrow even if proof anchoring failed
+	} else {
+		// Persist the on-chain reference in the usage_proofs table.
+		db.DB.Model(&models.UsageProof{}).
+			Where("order_id = ? AND status IN ?", order.ID, []string{
+				string(models.UsageProofSigned),
+				string(models.UsageProofSettlingConfidential),
+			}).
+			Updates(map[string]interface{}{
+				"status":           models.UsageProofOnChain,
+				"on_chain_tx_hash": txHash,
+				"on_chain_slot":    terminatedAt.Unix(),
+			})
+		logging.Info().Str("tx_hash", txHash).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: usage proof anchored on-chain")
+	}
+
+	// 5. Settle the escrow — release funds proportionally to bytes consumed.
+	bandwidthUsedGB := uint64(totalBytes) / (1024 * 1024 * 1024)
+	if bandwidthUsedGB == 0 && totalBytes > 0 {
+		bandwidthUsedGB = 1 // round up to 1 GB minimum so partial usage still credits provider
+	}
+
+	settleSig, err := oracle.SettleEscrow(ctx, solanaClient.SettleEscrowParams{
+		Buyer:           mustPubkey(order.BuyerWallet),
+		Seller:          mustPubkey(order.SellerWallet),
+		EscrowPDA:       escrowPDA,
+		BandwidthUsedGB: bandwidthUsedGB,
+	})
+	if err != nil {
+		logging.Error(err).
+			Str("order_id", order.ID.String()).
+			Str("escrow_pda", order.EscrowPDA).
+			Msg("anchorUsageProofAndSettle: SettleEscrow failed")
+		return
+	}
+
+	// 6. Mark order completed in DB.
+	db.DB.Model(&models.Order{}).Where("id = ?", order.ID).Updates(map[string]interface{}{
+		"status":          "completed",
+		"settlement_tx":   settleSig,
+		"completed_at":    terminatedAt,
+	})
+
+	logging.Info().
+		Str("settle_sig", settleSig).
+		Str("order_id", order.ID.String()).
+		Uint64("bandwidth_used_gb", bandwidthUsedGB).
+		Msg("anchorUsageProofAndSettle: escrow settled on-chain")
+}
+
+// mustPubkey converts a base58 wallet string to a PublicKey, returning a zero
+// key on failure (SettleEscrow will then be a no-op for that party).
+func mustPubkey(addr string) sol.PublicKey {
+	if addr == "" {
+		return sol.PublicKey{}
+	}
+	pk, err := sol.PublicKeyFromBase58(addr)
+	if err != nil {
+		return sol.PublicKey{}
+	}
+	return pk
 }
 
 // getSessionUsage returns usage stats for a specific session

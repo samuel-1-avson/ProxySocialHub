@@ -230,35 +230,31 @@ func castVote(c *gin.Context) {
 		return
 	}
 
-	// 3. Get Voting Power (TAO Balance)
-	// We use the TaoClient (which uses the Bridge) to get the wallet balance
-	// Note: In a real system, we'd snapshot the balance at proposal start block
-	// For MVP: We check current balance
+	// D-G3: Stake-weighted voting.
+	//
+	// Voting power = sum of StakedAmountSOL across all active nodes owned by
+	// the voter, plus a 1.0 base for non-providers so everyone can vote.
+	//
+	// Using staked collateral (not total wallet balance) is intentional:
+	//   - Prevents a holder from voting with funds they haven't committed.
+	//   - Aligns governance power with skin-in-the-game.
+	//   - Capped per address at 10 000 SOL to prevent whale capture.
+	//
+	// TODO (Phase A): snapshot stake at proposal.StartTime block to prevent
+	// last-minute stake manipulation; requires on-chain registry migration.
+	votingPower := 1.0 // base — every authenticated wallet gets 1 vote
 
-	// Calculate voting power based on user role and wallet balance
-	votingPower := 0.0
+	var totalStaked float64
+	db.DB.Model(&models.Node{}).
+		Where("user_id = ? AND is_healthy = true AND deleted_at IS NULL", userID).
+		Select("COALESCE(SUM(staked_amount_sol), 0)").
+		Scan(&totalStaked)
 
-	var user models.User
-	if err := db.DB.First(&user, "id = ?", userID).Error; err == nil {
-		// Base voting power
-		votingPower = 1.0
-		
-		// Additional power for providers
-		if user.Role == "provider" {
-			votingPower += 9.0 // 10 total for providers
-		}
-		
-		// Additional power based on wallet balance (if staked)
-		var wallet models.Wallet
-		if err := db.DB.First(&wallet, "user_id = ?", userID).Error; err == nil {
-			// 1 additional vote per 10 SOL staked, max 100
-			stakePower := wallet.BalanceSOL / 10.0
-			if stakePower > 100 {
-				stakePower = 100
-			}
-			votingPower += stakePower
-		}
+	const maxStakeVotingPower = 10_000.0
+	if totalStaked > maxStakeVotingPower {
+		totalStaked = maxStakeVotingPower
 	}
+	votingPower += totalStaked
 
 	// 4. Record Vote
 	vote := models.Vote{

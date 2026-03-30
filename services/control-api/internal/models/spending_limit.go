@@ -211,13 +211,13 @@ func GetDefaultLimits(trustTier TrustTier) DefaultSpendingLimits {
 }
 
 // InitializeWithDefaultLimits stores the recommended limits for the trust tier
-// but does NOT enable them — the user must opt in via the settings API.
-// This preserves the invariant that LimitsEnabled=false means "no restriction".
+// and enables them immediately. Limits are active by default to protect new
+// accounts; users may raise or disable them via the settings API.
 func (w *Wallet) InitializeWithDefaultLimits(trustTier TrustTier) {
 	limits := GetDefaultLimits(trustTier)
 	w.DailyLimit = limits.Daily
 	w.WeeklyLimit = limits.Weekly
 	w.MonthlyLimit = limits.Monthly
 	w.LimitWindowStart = time.Now()
-	// LimitsEnabled intentionally left false — user must opt in.
+	w.LimitsEnabled = true
 }

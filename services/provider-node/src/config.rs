@@ -4,9 +4,18 @@ use std::time::Duration;
 /// Provider node configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Edge Gateway address (host:port).
+    /// Primary Edge Gateway address (host:port).
+    /// Kept for backward-compatibility; prefer `gateway_addrs` for multi-gateway.
     #[serde(default = "default_gateway_addr")]
     pub gateway_addr: String,
+
+    /// Ordered list of Edge Gateway addresses to try on connect/reconnect.
+    /// The node cycles through this list on each reconnect attempt so a single
+    /// gateway outage does not take the provider offline.
+    /// If non-empty, `gateway_addr` is used as an implicit first entry unless
+    /// already present in this list.
+    #[serde(default)]
+    pub gateway_addrs: Vec<String>,
 
     /// JWT token for authentication.
     #[serde(default)]
@@ -73,6 +82,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             gateway_addr: default_gateway_addr(),
+            gateway_addrs: Vec::new(),
             jwt_token: String::new(),
             api_key: String::new(),
             node_id: String::new(),
