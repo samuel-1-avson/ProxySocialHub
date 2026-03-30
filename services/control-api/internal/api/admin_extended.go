@@ -450,23 +450,57 @@ func adminListProposals(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"proposals": proposals, "count": len(proposals)})
 }
 
+// adminCancelProposal cancels an active governance proposal.
+//
+// D-G4: Admins can no longer cancel proposals unilaterally once community
+// voting has begun.  Cancellation is only permitted when:
+//   1. The proposal is still within the 1-hour grace window (no one has voted
+//      yet, so the community has not committed any stake), OR
+//   2. The proposal has received zero votes from any address.
+//
+// This prevents the platform from silently killing inconvenient proposals
+// after the community has already expressed intent.
 func adminCancelProposal(c *gin.Context) {
 	proposalID := c.Param("id")
 	adminUsername := c.GetString("adminUsername")
 
-	result := db.DB.Model(&models.Proposal{}).Where("id = ?", proposalID).Updates(map[string]interface{}{
-		"status":     "cancelled",
-		"updated_at": time.Now(),
-	})
-
-	if result.RowsAffected == 0 {
+	var proposal models.Proposal
+	if err := db.DB.First(&proposal, "id = ?", proposalID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
 		return
 	}
 
+	if proposal.Status != models.ProposalActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only active proposals can be cancelled"})
+		return
+	}
+
+	// Grace window: first hour after creation, no votes cast yet.
+	gracePeriod := proposal.CreatedAt.Add(1 * time.Hour)
+	totalVotes := proposal.YesVotes + proposal.NoVotes
+	withinGrace := time.Now().Before(gracePeriod)
+	noVotesCast := totalVotes == 0
+
+	if !withinGrace && !noVotesCast {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot cancel: voting has begun and the 1-hour grace window has passed. " +
+				"Submit a counter-proposal or wait for the vote to conclude.",
+			"yes_votes":    proposal.YesVotes,
+			"no_votes":     proposal.NoVotes,
+			"grace_expired": gracePeriod.UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	db.DB.Model(&proposal).Updates(map[string]interface{}{
+		"status":     "cancelled",
+		"updated_at": time.Now(),
+	})
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "Proposal cancelled by admin",
-		"proposal_id": proposalID,
+		"message":      "Proposal cancelled",
+		"proposal_id":  proposalID,
 		"cancelled_by": adminUsername,
+		"reason":       "Within grace window or zero votes cast",
 	})
 }

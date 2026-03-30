@@ -187,7 +187,9 @@ func (w *UsageMilestoneWorker) notifyUserOfMilestone(session models.Session, mil
 		Title:  fmt.Sprintf("%.0fGB Milestone!", def.ThresholdGB),
 		Body:   message,
 	}
-	db.Social().Create(&notification)
+	if err := notification.CreateDeduped(db.Social()); err != nil {
+		log.Printf("usage_milestones: failed to create milestone notification: %v", err)
+	}
 }
 
 // notifyProviderOfMilestone informs provider of buyer's milestone

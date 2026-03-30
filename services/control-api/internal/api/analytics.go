@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,7 +24,73 @@ func RegisterAnalyticsRoutes(r *gin.RouterGroup) {
 		analytics.GET("/geo", getGeoAnalytics)
 		analytics.GET("/top-destinations", getTopDestinations)
 		analytics.GET("/performance/benchmarks", getZKBenchmarks)
+		analytics.GET("/earnings/export", exportProviderEarnings)
 	}
+}
+
+// exportProviderEarnings streams a CSV of the calling provider's earnings.
+// Query params:
+//
+//	format=csv  (only csv supported; default csv)
+//	from=YYYY-MM-DD  (inclusive; default 30 days ago)
+//	to=YYYY-MM-DD    (inclusive; default today)
+func exportProviderEarnings(c *gin.Context) {
+	userID := c.GetString("userID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+	providerID, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Parse date range
+	now := time.Now().UTC()
+	fromStr := c.DefaultQuery("from", now.AddDate(0, 0, -30).Format("2006-01-02"))
+	toStr := c.DefaultQuery("to", now.Format("2006-01-02"))
+
+	from, err := time.ParseInLocation("2006-01-02", fromStr, time.UTC)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' date, expected YYYY-MM-DD"})
+		return
+	}
+	// End of the 'to' day
+	to, err := time.ParseInLocation("2006-01-02", toStr, time.UTC)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' date, expected YYYY-MM-DD"})
+		return
+	}
+	to = to.Add(24*time.Hour - time.Nanosecond)
+
+	var earnings []models.ProviderEarning
+	if err := db.DB.
+		Where("provider_user_id = ? AND created_at >= ? AND created_at <= ?", providerID, from, to).
+		Order("created_at ASC").
+		Find(&earnings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch earnings"})
+		return
+	}
+
+	filename := fmt.Sprintf("earnings-%s-to-%s.csv", fromStr, toStr)
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"date", "session_id", "bandwidth_gb", "gross_sol", "fee_sol", "net_sol", "status"})
+	for _, e := range earnings {
+		_ = w.Write([]string{
+			e.CreatedAt.UTC().Format("2006-01-02"),
+			e.SessionID.String(),
+			fmt.Sprintf("%.8f", e.BandwidthGB),
+			fmt.Sprintf("%.8f", e.GrossAmountSOL),
+			fmt.Sprintf("%.8f", e.PlatformFeeSOL),
+			fmt.Sprintf("%.8f", e.NetAmountSOL),
+			e.Status,
+		})
+	}
+	w.Flush()
 }
 
 // RegisterGeoRoutes registers geo-targeting API routes

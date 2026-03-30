@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -92,7 +93,7 @@ func (bp *BatchPayoutProcessor) QueuePayout(providerID uuid.UUID, walletAddress 
 	sorted := make([]string, len(sessionIDs))
 	copy(sorted, sessionIDs)
 	sort.Strings(sorted)
-	raw := providerID.String() + ":" + strings.Join(sorted, ",")
+	raw := providerID.String() + ":" + walletAddress + ":" + strings.Join(sorted, ",")
 	hash := sha256.Sum256([]byte(raw))
 	idempotencyKey := hex.EncodeToString(hash[:])
 
@@ -354,6 +355,17 @@ func (bp *BatchPayoutProcessor) processBatch(ctx context.Context, pending []mode
 		return dbErr
 	}
 
+	// H-03: Poll Solana for finality before marking completed.
+	// If finality times out the batch stays 'submitted' with the txHash so ops
+	// can reconcile manually — we never re-queue because SOL is already sent.
+	if err := waitForTxFinality(ctx, txHash); err != nil {
+		logging.Error(err).
+			Str("batch_id", batch.ID.String()).
+			Str("tx_hash", txHash).
+			Msg("batch_payout: finality not confirmed — batch left in 'submitted' state for reconciliation")
+		return nil
+	}
+
 	// DB write confirmed — now finalize to 'completed'.
 	batch.Status = models.BatchStatusCompleted
 	batch.SuccessCount = len(items)
@@ -445,6 +457,31 @@ func (bp *BatchPayoutProcessor) GetStats() (*models.BatchPayoutStats, error) {
 	stats.SavingsPercent = 30.0 // Estimated based on config
 
 	return &stats, nil
+}
+
+// waitForTxFinality polls Solana until the transaction reaches CommitmentFinalized
+// or the context is cancelled. Returns nil immediately when the oracle is not
+// configured (dev/test mode).
+func waitForTxFinality(ctx context.Context, txHash string) error {
+	if !solana.IsOracleConfigured() {
+		return nil
+	}
+	oracle := solana.GetOracle()
+	const maxAttempts = 12
+	const pollInterval = 5 * time.Second
+
+	for i := 0; i < maxAttempts; i++ {
+		tx, err := oracle.GetTransaction(ctx, txHash)
+		if err == nil && tx != nil {
+			return nil // finalized
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+	return fmt.Errorf("transaction %s not finalized after %d attempts", txHash, maxAttempts)
 }
 
 // GetPendingCount returns the number of payouts waiting in queue

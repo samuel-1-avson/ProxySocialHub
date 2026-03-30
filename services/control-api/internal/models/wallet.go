@@ -30,7 +30,7 @@ type Wallet struct {
 	// P2-17: LimitsEnabled is the gate. When false, all spending is allowed
 	// regardless of limit values. When true, DailyLimit/WeeklyLimit/MonthlyLimit
 	// of 0 mean "zero allowed" (not "unlimited").
-	LimitsEnabled    bool      `gorm:"column:limits_enabled;default:false" json:"limits_enabled"`
+	LimitsEnabled    bool      `gorm:"column:limits_enabled;default:true" json:"limits_enabled"`
 	DailyLimit       float64   `gorm:"column:daily_limit;type:numeric(20,9);default:0" json:"daily_limit"`
 	WeeklyLimit      float64   `gorm:"column:weekly_limit;type:numeric(20,9);default:0" json:"weekly_limit"`
 	MonthlyLimit     float64   `gorm:"column:monthly_limit;type:numeric(20,9);default:0" json:"monthly_limit"`

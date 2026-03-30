@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
@@ -13,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterProviderNodeRoutes registers provider node management routes
@@ -94,6 +96,41 @@ func createNode(c *gin.Context) {
 	// Auto-publish a marketplace listing so the node is immediately discoverable.
 	// The provider can update pricing/description later from their dashboard.
 	go autoPublishListing(userID, node, req.ConnectionType)
+
+	// D-C1: Mirror provider registration to the on-chain ProviderRegistry PDA.
+	// We use the node's Hotkey (Solana pubkey) if set; otherwise skip silently.
+	// The oracle pays rent — providers do not need SOL for this.
+	if node.Hotkey != "" {
+		go func(nodeID uuid.UUID, hotkey, ip, country string) {
+			oracle := solanaClient.GetOracleClient()
+			if oracle == nil {
+				return
+			}
+			providerPubkey, err := sol.PublicKeyFromBase58(hotkey)
+			if err != nil {
+				logging.Warn().Str("hotkey", hotkey).Msg("createNode: invalid hotkey for on-chain registration")
+				return
+			}
+			endpoint := ip
+			if endpoint == "" {
+				endpoint = "unknown"
+			}
+			sig, err := oracle.RegisterProviderOnChain(context.Background(), solanaClient.RegisterProviderParams{
+				Provider: providerPubkey,
+				Endpoint: endpoint,
+				Location: country,
+			})
+			if err != nil {
+				logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("createNode: on-chain registration failed (non-fatal)")
+				return
+			}
+			// Mark as registered on-chain in the DB
+			db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
+				"is_registered_on_chain": true,
+			})
+			logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("createNode: provider registered on-chain")
+		}(node.ID, node.Hotkey, req.IPAddress, req.Country)
+	}
 
 	// Update the nodes table with IP and geo data for explorer map visibility
 	// Find the most recent node entry for this user (created during auth)
@@ -343,6 +380,45 @@ func nodeHeartbeat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
 		return
 	}
+
+	// D-C1: Mirror heartbeat metrics to the on-chain ProviderRegistry.
+	// Fetch hotkey from DB (not in the current query); skip if unavailable.
+	go func(nodeID uuid.UUID, latency int, uptime float64) {
+		oracle := solanaClient.GetOracleClient()
+		if oracle == nil {
+			return
+		}
+		var hotkeyStr string
+		if err := db.DB.Model(&models.ProviderNode{}).
+			Where("id = ?", nodeID).
+			Select("hotkey").
+			Scan(&hotkeyStr).Error; err != nil || hotkeyStr == "" {
+			return
+		}
+		providerPubkey, err := sol.PublicKeyFromBase58(hotkeyStr)
+		if err != nil {
+			return
+		}
+		qualityScore := uint8(100)
+		if uptime > 0 {
+			qualityScore = uint8(uptime)
+			if qualityScore > 100 {
+				qualityScore = 100
+			}
+		}
+		sig, err := oracle.ProviderHeartbeatOnChain(context.Background(), solanaClient.ProviderHeartbeatParams{
+			Provider:                providerPubkey,
+			QualityScore:            qualityScore,
+			BandwidthServedDelta:    0, // bandwidth delta tracked separately by session settlement
+			SuccessfulSessionsDelta: 0,
+			FailedSessionsDelta:     0,
+		})
+		if err != nil {
+			logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("nodeHeartbeat: on-chain heartbeat failed (non-fatal)")
+			return
+		}
+		logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("nodeHeartbeat: on-chain heartbeat recorded")
+	}(nodeID, req.LatencyMs, req.UptimePercent)
 
 	// Trigger Social Feed Event if node transitioned to Online
 	if models.NodeStatus(currentStatus) != models.NodeOnline {

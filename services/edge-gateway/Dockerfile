@@ -35,9 +35,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     libssl3 \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/edge-gateway /usr/local/bin/
+COPY scripts/update_geoip.sh /app/scripts/update_geoip.sh
+RUN chmod +x /app/scripts/update_geoip.sh
+
+# Weekly GeoIP update: every Sunday at 03:00 UTC
+RUN echo "0 3 * * 0 /app/scripts/update_geoip.sh >> /var/log/geoip_update.log 2>&1" \
+    | crontab -
 
 # Runtime environment defaults (override via docker-compose or -e flags)
 ENV RUST_LOG=info \
@@ -58,4 +65,5 @@ EXPOSE 3128 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8090/health || exit 1
 
-CMD ["edge-gateway"]
+# Start cron in background then run the gateway
+CMD ["sh", "-c", "cron && edge-gateway"]

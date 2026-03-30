@@ -120,6 +120,10 @@ func initiateSolanaPayment(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price"})
 		return
 	}
+	if solPrice <= 0 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Invalid SOL price: price feed returned zero"})
+		return
+	}
 
 	// Safety buffer: 1.05x to account for fluctuations? Or fixed USD value?
 	// Smart contract usually locks specific SOL amount.
@@ -127,14 +131,32 @@ func initiateSolanaPayment(c *gin.Context) {
 	amountSOL := order.TotalPrice / solPrice
 	amountLamports := uint64(amountSOL * 1e9)
 
-	// Update Order with Intent
+	// H-02: Verify buyer has sufficient on-chain SOL balance before recording the PDA.
+	// Without this check the DB row would reference an escrow that can never be funded.
+	buyerOnChainLamports, err := oracle.GetBalance(c.Request.Context(), buyerPubKey)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch buyer on-chain balance"})
+		return
+	}
+	if buyerOnChainLamports < amountLamports {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":     "Insufficient on-chain SOL balance",
+			"required":  amountSOL,
+			"available": float64(buyerOnChainLamports) / 1e9,
+		})
+		return
+	}
+
+	// Update Order with Intent — move to pending_payment so the order is not
+	// treated as active until the on-chain escrow deposit is confirmed.
 	db.DB.Model(&order).Updates(map[string]interface{}{
+		"status":             models.OrderStatusPendingPayment,
 		"payment_method":     "solana_escrow",
 		"escrow_pda":         pda.String(),
 		"buyer_wallet":       buyerWallet.Address,
 		"seller_wallet":      sellerWallet.Address,
 		"amount_locked_sol":  amountSOL,
-		"bandwidth_limit_gb": uint64(order.BandwidthGB), // Type conversion
+		"bandwidth_limit_gb": uint64(order.BandwidthGB),
 	})
 
 	c.JSON(http.StatusOK, gin.H{
@@ -539,8 +561,8 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or active orders can be cancelled"})
+	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusPendingPayment && order.Status != models.OrderStatusActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending, pending_payment, or active orders can be cancelled"})
 		return
 	}
 
