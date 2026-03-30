@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -106,17 +107,56 @@ func (z *ZKAggregator) settleGroupConfidencially(ctx context.Context, sessionID 
 	})
 }
 
-// submitToSolana submits the ZK proof to Solana blockchain
+// submitToSolana submits the ZK proof to Solana via SubmitUsageProof.
+// For PAYG sessions without an escrow PDA, a local reference is returned.
 func submitToSolana(sessionID uuid.UUID, proofIDs []uuid.UUID, totalBytes int64) (string, int64, error) {
-	// Check if oracle is configured
 	if !solana.IsOracleConfigured() {
-		// Return placeholder values if oracle not configured
-		// In production, this should return an error
 		return "pending_" + uuid.New().String()[:8], time.Now().Unix(), nil
 	}
 
-	// TODO: call the on-chain ZK settlement instruction once SubmitZKSettlement is implemented.
-	// For now, return a placeholder transaction hash so the settlement flow continues.
-	_ = solana.GetOracle()
-	return "pending_" + uuid.New().String()[:8], time.Now().Unix(), nil
+	oracle := solana.GetOracle()
+
+	// Resolve session → order → escrow PDA.
+	var order models.Order
+	if err := db.DB.Where("session_id = ?", sessionID).First(&order).Error; err != nil {
+		// No order (standalone session) — not an error; nothing to anchor on-chain.
+		return "payg_" + uuid.New().String()[:8], time.Now().Unix(), nil
+	}
+
+	if order.EscrowPDA == "" {
+		// Pay-as-you-go order, no on-chain escrow to update.
+		return "payg_" + uuid.New().String()[:8], time.Now().Unix(), nil
+	}
+
+	escrowPDA, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid escrow PDA %q: %w", order.EscrowPDA, err)
+	}
+
+	// Use the count of already-on-chain proofs for this session as the next index.
+	var onChainCount int64
+	db.DB.Model(&models.UsageProof{}).
+		Where("session_id = ? AND status = ?", sessionID, models.UsageProofOnChain).
+		Count(&onChainCount)
+	proofIndex := uint32(onChainCount)
+
+	now := time.Now()
+	txHash, err := oracle.SubmitUsageProof(context.Background(), solana.SubmitUsageProofParams{
+		EscrowPDA:   escrowPDA,
+		ProofIndex:  proofIndex,
+		TotalBytes:  uint64(totalBytes),
+		PeriodStart: now.Add(-15 * time.Minute).Unix(),
+		PeriodEnd:   now.Unix(),
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("SubmitUsageProof failed: %w", err)
+	}
+
+	logging.Info().
+		Str("session_id", sessionID.String()).
+		Str("tx_hash", txHash).
+		Int64("total_bytes", totalBytes).
+		Msg("ZKAggregator: usage proof anchored on-chain")
+
+	return txHash, now.Unix(), nil
 }

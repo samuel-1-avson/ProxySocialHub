@@ -59,7 +59,9 @@ func RegisterEscrowRoutes(rg *gin.RouterGroup) {
 	rg.GET("/escrow/:orderId", getEscrowStatus)
 	rg.POST("/escrow/:orderId/release", releaseEscrow)
 	rg.POST("/escrow/:orderId/dispute", createEscrowDispute)
-	// Admin only: Resolve disputes requires disputes:manage permission
+	// Juror vote by order ID — any assigned juror can call this (no admin permission needed)
+	rg.POST("/escrow/:orderId/jury-vote", castJuryVoteByOrder)
+	// Admin fallback: only usable when jury is deadlocked or jury period expired
 	rg.POST("/escrow/:orderId/resolve", RequirePermission("disputes:manage"), resolveEscrowDispute)
 	rg.GET("/escrow/disputes", getMyEscrowDisputes)
 }
@@ -256,19 +258,255 @@ func createEscrowDispute(c *gin.Context) {
 	// Update escrow status
 	db.DB.Model(&escrow).Update("status", models.EscrowDisputed)
 
+	// D-E1: Automatically convene a 3-juror jury from reputation-weighted
+	// validators, excluding the two parties.  If fewer than 3 validators are
+	// available the dispute falls back to admin resolution.
+	juryConvened := false
+	jurorIDs, juryErr := models.SelectJurors(db.DB, escrow.BuyerID, escrow.SellerID, 3)
+	if juryErr == nil && len(jurorIDs) >= 3 {
+		jury := models.DisputeJury{
+			DisputeID:      dispute.ID,
+			EscrowID:       escrow.ID,
+			BuyerID:        escrow.BuyerID,
+			SellerID:       escrow.SellerID,
+			Juror1ID:       jurorIDs[0],
+			Juror2ID:       jurorIDs[1],
+			Juror3ID:       jurorIDs[2],
+			DisputeReason:  string(req.Reason),
+			DisputedAmount: escrow.Amount,
+			Status:         models.JuryVoting,
+		}
+		if len(jurorIDs) >= 4 {
+			jury.Juror4ID = &jurorIDs[3]
+		}
+		if len(jurorIDs) >= 5 {
+			jury.Juror5ID = &jurorIDs[4]
+		}
+		if createErr := db.DB.Create(&jury).Error; createErr == nil {
+			juryConvened = true
+			// Notify each juror
+			for _, jid := range jurorIDs[:3] {
+				ws.BroadcastToUser(jid.String(), ws.MsgTypeOrderUpdate, gin.H{
+					"type":       "jury_assigned",
+					"dispute_id": dispute.ID,
+					"escrow_id":  escrow.ID,
+					"message":    "You have been selected as a juror. Please review and cast your vote within 48 hours.",
+				})
+			}
+		}
+	}
+
 	// Notify counterparty
 	counterpartyID := escrow.SellerID
 	if userID == escrow.SellerID {
 		counterpartyID = escrow.BuyerID
 	}
-
 	ws.BroadcastToUser(counterpartyID.String(), ws.MsgTypeOrderUpdate, gin.H{
-		"order_id": orderID,
-		"message":  "Dispute opened on order",
-		"type":     "dispute_opened",
+		"order_id":      orderID,
+		"message":       "Dispute opened on order",
+		"type":          "dispute_opened",
+		"jury_convened": juryConvened,
 	})
 
-	c.JSON(http.StatusCreated, dispute)
+	c.JSON(http.StatusCreated, gin.H{
+		"dispute":       dispute,
+		"jury_convened": juryConvened,
+	})
+}
+
+// castJuryVoteByOrder allows an assigned juror to vote on a dispute via order ID.
+//
+// D-E1: Any of the 3–5 randomly selected jurors can call this endpoint.
+// Once a majority is reached the jury auto-resolves: funds are released
+// on-chain without any admin involvement.
+func castJuryVoteByOrder(c *gin.Context) {
+	currentUserID, _ := c.Get("user_id")
+	userID := currentUserID.(uuid.UUID)
+
+	orderID, err := uuid.Parse(c.Param("orderId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	var req models.CastVoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find the open dispute for this order
+	var escrow models.EscrowTransaction
+	if err := db.DB.Where("order_id = ?", orderID).First(&escrow).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Escrow not found"})
+		return
+	}
+
+	var dispute models.EscrowDispute
+	if err := db.DB.Where("escrow_id = ? AND status = ?", escrow.ID, models.DisputeOpen).First(&dispute).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No open dispute found"})
+		return
+	}
+
+	// Find the jury panel for this dispute
+	var jury models.DisputeJury
+	if err := db.DB.Where("dispute_id = ?", dispute.ID).First(&jury).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No jury panel found for this dispute — contact support"})
+		return
+	}
+
+	if jury.Status != models.JuryVoting {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Jury voting is not open for this dispute"})
+		return
+	}
+
+	if time.Now().After(jury.VotingDeadline) {
+		db.DB.Model(&jury).Update("status", models.JuryExpired)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Jury voting deadline has passed"})
+		return
+	}
+
+	// Verify caller is an assigned juror and hasn't voted yet
+	slot := jury.GetJurorSlot(userID)
+	if slot == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a juror for this dispute"})
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{}
+	switch slot {
+	case 1:
+		if jury.Vote1 != models.VotePending {
+			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+			return
+		}
+		updates["vote1"] = req.Vote
+		updates["vote1_at"] = now
+	case 2:
+		if jury.Vote2 != models.VotePending {
+			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+			return
+		}
+		updates["vote2"] = req.Vote
+		updates["vote2_at"] = now
+	case 3:
+		if jury.Vote3 != models.VotePending {
+			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+			return
+		}
+		updates["vote3"] = req.Vote
+		updates["vote3_at"] = now
+	case 4:
+		if jury.Vote4 != models.VotePending {
+			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+			return
+		}
+		updates["vote4"] = req.Vote
+		updates["vote4_at"] = now
+	case 5:
+		if jury.Vote5 != models.VotePending {
+			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+			return
+		}
+		updates["vote5"] = req.Vote
+		updates["vote5_at"] = now
+	}
+
+	db.DB.Model(&jury).Updates(updates)
+	// Reload to get full vote state
+	db.DB.First(&jury, "id = ?", jury.ID)
+
+	// Check if majority is now reached — auto-resolve without admin
+	if jury.CanAutoResolve() {
+		jury.Resolve()
+		db.DB.Save(&jury)
+
+		// Apply the jury decision to the escrow
+		txDB := db.DB.Begin()
+		switch jury.Decision {
+		case models.VoteBuyerWins:
+			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowRefunded, "released_at": now})
+			var buyerWallet models.Wallet
+			if err := txDB.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
+				newBal := buyerWallet.BalanceSOL + jury.BuyerPayout
+				txDB.Model(&buyerWallet).Update("balance_sol", newBal)
+				txDB.Create(&models.WalletLedgerEntry{
+					WalletID: buyerWallet.ID, Amount: jury.BuyerPayout,
+					BalanceAfter: newBal, Type: "jury_refund", ReferenceID: escrow.ID.String(),
+					Description: "Jury ruled: buyer wins",
+				})
+			}
+		case models.VoteSellerWins:
+			sellerAmount := usageProportionalSellerAmount(txDB, escrow)
+			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowReleased, "released_at": now})
+			var sellerWallet models.Wallet
+			if err := txDB.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
+				newBal := sellerWallet.BalanceSOL + sellerAmount
+				txDB.Model(&sellerWallet).Update("balance_sol", newBal)
+				txDB.Create(&models.WalletLedgerEntry{
+					WalletID: sellerWallet.ID, Amount: sellerAmount,
+					BalanceAfter: newBal, Type: "jury_release", ReferenceID: escrow.ID.String(),
+					Description: "Jury ruled: seller wins",
+				})
+			}
+		case models.VoteSplitFunds:
+			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowReleased, "released_at": now})
+			var buyerWallet, sellerWallet models.Wallet
+			if err := txDB.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
+				newBal := buyerWallet.BalanceSOL + jury.BuyerPayout
+				txDB.Model(&buyerWallet).Update("balance_sol", newBal)
+				txDB.Create(&models.WalletLedgerEntry{
+					WalletID: buyerWallet.ID, Amount: jury.BuyerPayout,
+					BalanceAfter: newBal, Type: "jury_split", ReferenceID: escrow.ID.String(),
+					Description: "Jury ruled: split funds (buyer portion)",
+				})
+			}
+			if err := txDB.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
+				newBal := sellerWallet.BalanceSOL + jury.SellerPayout
+				txDB.Model(&sellerWallet).Update("balance_sol", newBal)
+				txDB.Create(&models.WalletLedgerEntry{
+					WalletID: sellerWallet.ID, Amount: jury.SellerPayout,
+					BalanceAfter: newBal, Type: "jury_split", ReferenceID: escrow.ID.String(),
+					Description: "Jury ruled: split funds (seller portion)",
+				})
+			}
+		}
+
+		// Close the dispute record — map jury decision to dispute status
+		disputeStatus := models.DisputeResolvedSeller
+		if jury.Decision == models.VoteBuyerWins {
+			disputeStatus = models.DisputeResolvedBuyer
+		}
+		txDB.Model(&dispute).Updates(map[string]interface{}{
+			"status":      disputeStatus,
+			"resolution":  fmt.Sprintf("Jury decision: %d (majority vote)", jury.Decision),
+			"resolved_at": now,
+		})
+		txDB.Commit()
+
+		// Notify both parties
+		ws.BroadcastToUser(escrow.BuyerID.String(), ws.MsgTypeOrderUpdate, gin.H{
+			"type": "jury_resolved", "order_id": orderID, "decision": jury.Decision,
+		})
+		ws.BroadcastToUser(escrow.SellerID.String(), ws.MsgTypeOrderUpdate, gin.H{
+			"type": "jury_resolved", "order_id": orderID, "decision": jury.Decision,
+		})
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":  "Vote cast — jury has reached a majority decision",
+			"decision": jury.Decision,
+			"resolved": true,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Vote recorded",
+		"votes_cast":  jury.GetVoteCount(),
+		"votes_total": jury.GetJurorCount(),
+		"resolved":    false,
+	})
 }
 
 // getMyEscrowDisputes returns user's escrow disputes

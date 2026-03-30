@@ -151,6 +151,17 @@ func (c *OracleClient) rotateRPC() {
 	c.currentIdx = (c.currentIdx + 1) % len(c.rpcClients)
 }
 
+// GetRecentBlockhash returns the base58-encoded latest blockhash from Solana.
+// Used by the auth challenge endpoint (D-A1) to embed a network-verifiable
+// entropy source in login nonces.
+func (c *OracleClient) GetRecentBlockhash(ctx context.Context) (string, error) {
+	result, err := c.rpc().GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("GetRecentBlockhash: %w", err)
+	}
+	return result.Value.Blockhash.String(), nil
+}
+
 // loadKeypair loads a Solana keypair from a file.
 // P0-14: if ORACLE_KEYPAIR_ENCRYPTION_KEY is set the file is expected to be
 // AES-256-GCM encrypted (written by EncryptKeypairFile); otherwise the legacy
