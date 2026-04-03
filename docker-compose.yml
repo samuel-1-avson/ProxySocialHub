@@ -59,7 +59,7 @@ services:
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:-dev-gateway-shared-secret-change-me}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3009,http://127.0.0.1:3009,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3009,http://127.0.0.1:3009,http://localhost:3000,http://127.0.0.1:3000}
       # APP_URL is used for WebSocket CORS origin validation.
       # Set to your frontend public URL. Empty = allow all origins (dev mode).
       - APP_URL=${APP_URL:-}
@@ -337,38 +337,6 @@ services:
       timeout: 10s
       start_period: 40s
       retries: 3
-    restart: unless-stopped
-
-  # ==================== Admin Panel ====================
-  admin:
-    build:
-      context: ./apps/admin
-      dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_API_URL=http://control-api:8080
-    ports:
-      - "3002:3002"
-    environment:
-      - API_URL=http://control-api:8080
-      - NEXT_PUBLIC_API_URL=http://control-api:8080
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
-      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
-      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
-      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-admin}
-      - ADMIN_ACCOUNT_1_TOTP_SECRET=${ADMIN_ACCOUNT_1_TOTP_SECRET:-}
-      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
-      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
-      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-admin}
-      - ADMIN_ACCOUNT_2_TOTP_SECRET=${ADMIN_ACCOUNT_2_TOTP_SECRET:-}
-      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
-      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
-      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-moderator}
-      - ADMIN_ACCOUNT_3_TOTP_SECRET=${ADMIN_ACCOUNT_3_TOTP_SECRET:-}
-    depends_on:
-      control-api:
-        condition: service_healthy
-    networks:
-      - proxyhubb
     restart: unless-stopped
 
   # ==================== PostgreSQL ====================

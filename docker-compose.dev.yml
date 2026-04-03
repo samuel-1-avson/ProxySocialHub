@@ -235,36 +235,6 @@ services:
       - backend
       - frontend
 
-  # ==================== ADMIN PANEL ====================
-  admin:
-    build:
-      context: ./apps/admin
-      dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_API_URL=http://control-api:8080
-    container_name: proxyhubb-admin
-    ports:
-      - "3002:3002"
-    environment:
-      - API_URL=http://control-api:8080
-      - NEXT_PUBLIC_API_URL=http://control-api:8080
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
-      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
-      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
-      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-admin}
-      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
-      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
-      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-admin}
-      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
-      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
-      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-moderator}
-    depends_on:
-      control-api:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - backend
-
   # ==================== POSTGRES ====================
   postgres:
     image: postgres:16-alpine
