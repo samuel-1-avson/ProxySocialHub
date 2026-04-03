@@ -85,7 +85,7 @@ export default function ProviderServicesPage() {
     const { data: configs = [], isLoading: loading } = useQuery({
         queryKey: ['provider-service-configs'],
         queryFn: async () => {
-            const response = await fetch('/api/v1/provider/services', { credentials: 'include' });
+            const response = await fetch('/v1/provider/services', { credentials: 'include' });
             if (!response.ok) throw new Error('Failed to fetch configs');
             return response.json() as Promise<ServiceConfig[]>;
         },
@@ -95,7 +95,7 @@ export default function ProviderServicesPage() {
     const { data: templatesData } = useQuery({
         queryKey: ['provider-service-templates'],
         queryFn: async () => {
-            const response = await fetch('/api/v1/provider/services/templates', { credentials: 'include' });
+            const response = await fetch('/v1/provider/services/templates', { credentials: 'include' });
             if (!response.ok) throw new Error('Failed to fetch templates');
             return response.json() as Promise<{ templates: Template[] }>;
         },
@@ -107,7 +107,7 @@ export default function ProviderServicesPage() {
     const updateConfig = async (nodeId: string, updates: Partial<ServiceConfig>) => {
         setSaving(true);
         try {
-            const response = await fetch(`/api/v1/provider/services/${nodeId}`, {
+            const response = await fetch(`/v1/provider/services/${nodeId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',

@@ -30,6 +30,8 @@ func RegisterOrderRoutes(rg *gin.RouterGroup) {
 
 // initiateSolanaPayment prepares a non-custodial escrow transaction
 func initiateSolanaPayment(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "read_only_balance_check", "source_of_truth")
+
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
 		if uid, exists := c.Get("user_id"); exists {
@@ -173,6 +175,8 @@ func initiateSolanaPayment(c *gin.Context) {
 
 // createOrder creates a new order (purchase)
 func createOrder(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	// Robust User ID Extraction
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
@@ -364,6 +368,8 @@ func createOrder(c *gin.Context) {
 
 // getMyOrders returns the current user's purchases
 func getMyOrders(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
 		if uid, exists := c.Get("user_id"); exists {
@@ -408,6 +414,8 @@ func getMyOrders(c *gin.Context) {
 
 // getOrder returns a single order
 func getOrder(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
 		if uid, exists := c.Get("user_id"); exists {
@@ -448,6 +456,8 @@ func getOrder(c *gin.Context) {
 
 // getMySales returns the current user's sales
 func getMySales(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
 		if uid, exists := c.Get("user_id"); exists {
@@ -533,6 +543,8 @@ func getDisplayName(user *models.User) string {
 
 // cancelOrder cancels an active or pending order owned by the caller
 func cancelOrder(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
 		if uid, exists := c.Get("user_id"); exists {
@@ -580,4 +592,3 @@ func cancelOrder(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Order cancelled successfully"})
 }
-

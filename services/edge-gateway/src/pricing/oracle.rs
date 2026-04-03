@@ -83,7 +83,8 @@ impl PriceOracle {
         let mut prices: Vec<f64> = [cg, bn, cmc]
             .into_iter()
             .filter_map(|r| {
-                r.map_err(|e| debug!(error = %e, "price source failed")).ok()
+                r.map_err(|e| debug!(error = %e, "price source failed"))
+                    .ok()
             })
             .collect();
 
@@ -170,7 +171,9 @@ impl PriceOracle {
         resp["price"]
             .as_str()
             .and_then(|s| s.parse::<f64>().ok())
-            .ok_or_else(|| Error::Validation("Binance: missing or unparseable price field".to_string()))
+            .ok_or_else(|| {
+                Error::Validation("Binance: missing or unparseable price field".to_string())
+            })
     }
 
     // ── Source 3: CoinMarketCap (optional — skipped if no API key) ────────────

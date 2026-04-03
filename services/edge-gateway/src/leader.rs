@@ -17,11 +17,12 @@
 //! The two paths share the same `is_leader: Arc<AtomicBool>` flag so the rest
 //! of the codebase is unaffected.
 
+use bytes::Bytes;
+use redis::{AsyncCommands, Client as RedisClient};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
-use redis::{Client as RedisClient, AsyncCommands};
 
 /// Controls how long the Redis lock lives before it must be renewed.
 const LOCK_TTL_SECS: usize = 30;
@@ -51,8 +52,7 @@ impl LeaderElector {
         key: String,
         _ttl_seconds: usize, // kept for API compat; we use LOCK_TTL_SECS internally
     ) -> Self {
-        let nats_url = std::env::var("NATS_URL")
-            .unwrap_or_else(|_| "nats://nats:4222".to_string());
+        let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://nats:4222".to_string());
         Self {
             redis_client,
             nats_url,
@@ -194,6 +194,8 @@ impl LeaderElector {
             .await
             .map_err(|e| anyhow::anyhow!("NATS connect failed: {e}"))?;
 
+        let leader_value = Bytes::from(self.service_id.clone());
+
         let js = async_nats::jetstream::new(client);
 
         // Create or open the KV bucket for leader election
@@ -210,18 +212,16 @@ impl LeaderElector {
         match kv.get(&self.key).await {
             Ok(None) => {
                 // Key absent — try to create it (CAS revision 0 = must not exist)
-                match kv.create(&self.key, self.service_id.as_bytes().into()).await {
-                    Ok(_) => Ok(true),  // we won
+                match kv.create(&self.key, leader_value.clone()).await {
+                    Ok(_) => Ok(true),   // we won
                     Err(_) => Ok(false), // someone else won the race
                 }
             }
             Ok(Some(entry)) => {
-                let current = String::from_utf8_lossy(&entry.value);
+                let current = String::from_utf8_lossy(&entry);
                 if current == self.service_id {
-                    // We own it — update to refresh TTL (CAS by revision)
-                    let _ = kv
-                        .update(&self.key, self.service_id.as_bytes().into(), entry.revision)
-                        .await;
+                    // We own it — refresh value to extend TTL.
+                    let _ = kv.put(&self.key, leader_value.clone()).await;
                     Ok(true)
                 } else {
                     Ok(false) // someone else holds the lock

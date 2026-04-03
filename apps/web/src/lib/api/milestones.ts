@@ -16,6 +16,7 @@ export interface Milestone {
     badge_name: string;
     reward_amount: number;
     claimed: boolean;
+    reward_claimed?: boolean;
     claimed_at?: string;
     achieved_at: string;
     // Provider info when milestone was with a specific provider
@@ -92,15 +93,33 @@ export async function getUserMilestones(userId: string): Promise<Milestone[]> {
  * Get milestone statistics for current user
  */
 export async function getMilestoneStats(): Promise<MilestoneStats> {
-    const data = await apiGet<{ stats: MilestoneStats }>('/v1/milestones/stats');
-    return data.stats;
+    const data = await apiGet<{
+        milestones?: Milestone[];
+        total_count?: number;
+        total_rewards?: number;
+        unclaimed_rewards?: number;
+    }>('/v1/milestones');
+
+    const totalMilestones = data.total_count ?? data.milestones?.length ?? 0;
+    const claimedRewards = data.total_rewards ?? 0;
+    const pendingRewards = data.unclaimed_rewards ?? 0;
+
+    return {
+        total_milestones: totalMilestones,
+        total_rewards_claimed: claimedRewards,
+        total_rewards_pending: pendingRewards,
+        current_tier: 'current',
+        progress_to_next: 0,
+    };
 }
 
 /**
  * Check for newly achieved milestones (call after session ends)
  */
 export async function checkNewMilestones(): Promise<{ new_milestones: Milestone[] }> {
-    return apiGet<{ new_milestones: Milestone[] }>('/v1/milestones/check');
+    const milestones = await getMyMilestones();
+    const newMilestones = milestones.filter((m) => !(m.claimed ?? m.reward_claimed ?? false));
+    return { new_milestones: newMilestones };
 }
 
 // ============ Query Keys for React Query ============

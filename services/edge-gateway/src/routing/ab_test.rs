@@ -43,7 +43,11 @@ impl VariantStats {
     pub fn success_rate(&self) -> f64 {
         let s = self.success.load(Ordering::Relaxed) as f64;
         let t = self.total() as f64;
-        if t == 0.0 { 0.0 } else { s / t }
+        if t == 0.0 {
+            0.0
+        } else {
+            s / t
+        }
     }
 }
 
@@ -78,7 +82,11 @@ impl AbTestCoordinator {
             return "heuristic";
         }
         let roll: f64 = rand::thread_rng().gen();
-        let backend = if roll < self.ml_fraction { "onnx" } else { "heuristic" };
+        let backend = if roll < self.ml_fraction {
+            "onnx"
+        } else {
+            "heuristic"
+        };
         debug!("A/B: roll={:.4} → {}", roll, backend);
         backend
     }

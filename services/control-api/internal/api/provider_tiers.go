@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -135,10 +134,9 @@ func GetTierRequirements(c *gin.Context) {
 // UpdateProviderTier allows a provider to update their own node's tier-related settings.
 // PUT /v1/providers/:id/tier
 func UpdateProviderTier(c *gin.Context) {
-	userIDStr := c.GetString("user_id")
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user session"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 

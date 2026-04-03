@@ -31,22 +31,25 @@ export async function getMySubscription(): Promise<UserSubscription | null> {
     return data.subscription || null;
 }
 
-export async function subscribeToPlan(planId: string): Promise<UserSubscription> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/subscriptions/subscribe`, {
+export async function subscribeToPlan(planId: string, billingCycle: 'monthly' | 'yearly' = 'monthly'): Promise<UserSubscription> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/subscriptions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: planId }),
+        body: JSON.stringify({ plan_id: planId, billing_cycle: billingCycle }),
     });
     if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to subscribe');
     }
-    return response.json();
+    const data = await response.json();
+    return data.subscription;
 }
 
-export async function cancelSubscription(): Promise<void> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/subscriptions/cancel`, {
-        method: 'POST',
+export async function cancelSubscription(reason?: string): Promise<void> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/subscriptions`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: reason ? JSON.stringify({ reason }) : undefined,
     });
     if (!response.ok) throw new Error('Failed to cancel subscription');
 }

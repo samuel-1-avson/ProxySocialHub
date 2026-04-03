@@ -84,14 +84,43 @@ export async function getUserPresence(userId: string): Promise<PresenceStatus> {
  * Get online status for multiple users (batch)
  */
 export async function getBatchPresence(userIds: string[]): Promise<PresenceBatchResponse> {
-    return apiPost<PresenceBatchResponse>('/v1/presence/batch', { user_ids: userIds });
+    const users = await Promise.all(
+        userIds.map(async (userId) => {
+            try {
+                const presence = await getUserPresence(userId);
+                return [userId, presence] as const;
+            } catch {
+                return null;
+            }
+        })
+    );
+
+    const map: Record<string, PresenceStatus> = {};
+    const notFound: string[] = [];
+
+    users.forEach((entry) => {
+        if (!entry) return;
+        map[entry[0]] = entry[1];
+    });
+
+    userIds.forEach((id) => {
+        if (!map[id]) notFound.push(id);
+    });
+
+    return { users: map, not_found: notFound };
 }
 
 /**
  * Get provider presence info (for marketplace listings)
  */
 export async function getProviderPresence(providerId: string): Promise<ProviderPresence> {
-    return apiGet<ProviderPresence>(`/v1/providers/${providerId}/presence`);
+    const base = await getUserPresence(providerId);
+    return {
+        ...base,
+        provider_name: 'Provider',
+        response_time_avg_min: 0,
+        current_sessions_count: 0,
+    };
 }
 
 // ============ Self Status APIs ============
@@ -100,21 +129,30 @@ export async function getProviderPresence(providerId: string): Promise<ProviderP
  * Update own presence status
  */
 export async function updatePresence(request: UpdatePresenceRequest): Promise<PresenceStatus> {
-    return apiPost<PresenceStatus>('/v1/presence/status', request);
+    await apiPost<HeartbeatResponse>('/v1/presence/heartbeat', {
+        activity: request.current_activity || request.status_message || 'active',
+        timestamp: new Date().toISOString(),
+    });
+    return getMyPresence();
 }
 
 /**
  * Go offline (explicit logout/away)
  */
 export async function setOffline(): Promise<{ message: string }> {
-    return apiPost<{ message: string }>('/v1/presence/offline', {});
+    await apiPost<HeartbeatResponse>('/v1/presence/heartbeat', {
+        activity: 'offline',
+        timestamp: new Date().toISOString(),
+    });
+    return { message: 'Presence updated' };
 }
 
 /**
  * Get my current presence status
  */
 export async function getMyPresence(): Promise<PresenceStatus> {
-    return apiGet<PresenceStatus>('/v1/presence/me');
+    const me = await apiGet<{ id: string }>('/v1/auth/me');
+    return getUserPresence(me.id);
 }
 
 // ============ Query Keys ============
@@ -146,7 +184,7 @@ export function subscribeToPresenceUpdates(
     // Note: This is a placeholder. Actual implementation would use WebSocket
     // or Server-Sent Events connection to receive real-time updates
     const ws = new WebSocket(
-        `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8081'}/v1/presence/ws`
+        `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8081'}/v1/ws`
     );
     
     ws.onmessage = (event) => {

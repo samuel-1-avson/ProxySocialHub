@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { getExplorerWsUrl } from '../ws-url';
 
 export interface WSUpdate {
     type: 'initial' | 'new_transaction' | 'new_block' | 'node_update';
@@ -40,9 +41,7 @@ export function useExplorerWS(options: UseExplorerWSOptions = {}) {
     const connect = useCallback(() => {
         if (typeof window === 'undefined' || unmounted.current) return;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const url = `${protocol}//${host}/v1/explorer/ws`;
+        const url = getExplorerWsUrl();
 
         const ws = new WebSocket(url);
         wsRef.current = ws;

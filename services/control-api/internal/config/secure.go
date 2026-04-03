@@ -170,15 +170,6 @@ func LoadSecure() (*SecureConfig, error) {
 	cfg.Redis.URL = fmt.Sprintf("redis://:%s@%s:%s", redisPassword, redisHost, redisPort)
 	cfg.Database.RedisURL = cfg.Redis.URL
 	
-	// Supabase (required for production)
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	if supabaseURL == "" && cfg.Server.Environment == "production" {
-		return nil, fmt.Errorf("SUPABASE_URL is required in production")
-	}
-	cfg.Auth.SupabaseURL = supabaseURL
-	cfg.Auth.SupabaseAnonKey = os.Getenv("SUPABASE_ANON_KEY")
-	cfg.Auth.SupabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
-	
 	return cfg, nil
 }
 

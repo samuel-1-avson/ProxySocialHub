@@ -251,9 +251,7 @@ fn bench_concurrent_selection(c: &mut Criterion) {
 /// Score calculation baseline — measures pure computation without any locking.
 fn bench_node_score(c: &mut Criterion) {
     let info = make_info(50, 10);
-    c.bench_function("node_info_score", |b| {
-        b.iter(|| black_box(info.score()))
-    });
+    c.bench_function("node_info_score", |b| b.iter(|| black_box(info.score())));
 }
 
 criterion_group! {

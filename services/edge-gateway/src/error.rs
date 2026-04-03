@@ -1,5 +1,5 @@
 //! Error types for Edge Gateway
-//! 
+//!
 //! Centralized error handling for all gateway operations.
 
 use std::fmt;
@@ -9,40 +9,40 @@ use std::fmt;
 pub enum Error {
     /// Internal server error
     Internal(String),
-    
+
     /// Configuration error
     Configuration(String),
-    
+
     /// Validation error
     Validation(String),
-    
+
     /// Authentication error
     Authentication(String),
-    
+
     /// Authorization error
     Authorization(String),
-    
+
     /// Not found
     NotFound(String),
-    
+
     /// Rate limit exceeded
     RateLimited { retry_after: Option<u64> },
-    
+
     /// Circuit breaker open
     CircuitOpen(String),
-    
+
     /// Blockchain connection error
     BlockchainConnection(String),
-    
+
     /// Redis connection error
     RedisConnection(String),
-    
+
     /// Serialization error
     Serialization(String),
-    
+
     /// Network error
     Network(String),
-    
+
     /// Timeout
     Timeout(String),
 }

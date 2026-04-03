@@ -64,14 +64,14 @@ impl SessionAuthenticator {
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // P1-A4: Use connection pool instead of single ConnectionManager
         let conn_pool = PooledConnectionManager::new(redis_url, 32).await?;
-        
+
         // Ensure cache_size is at least 1
         let effective_size = cache_size.max(1);
-        
+
         let authenticator = Self {
             conn_pool,
             cache: Arc::new(Mutex::new(LruCache::new(
-                NonZeroUsize::new(effective_size).unwrap()
+                NonZeroUsize::new(effective_size).unwrap(),
             ))),
             cache_ttl: Duration::from_secs(cache_ttl_secs),
             cache_max_size: effective_size,
@@ -79,7 +79,7 @@ impl SessionAuthenticator {
 
         // Start background task to report cache metrics
         authenticator.start_metrics_task();
-        
+
         Ok(authenticator)
     }
 
@@ -89,15 +89,15 @@ impl SessionAuthenticator {
         tokio::spawn(async move {
             // Wait 10 seconds before first report
             tokio::time::sleep(Duration::from_secs(10)).await;
-            
+
             let mut interval = tokio::time::interval(Duration::from_secs(10));
-            
+
             loop {
                 interval.tick().await;
                 let cache_guard = cache.lock().await;
                 let size = cache_guard.len() as i64;
                 drop(cache_guard);
-                
+
                 metrics::set_session_cache_size(size);
             }
         });
@@ -105,7 +105,11 @@ impl SessionAuthenticator {
 
     /// Validate session and return session data if valid
     /// P0-A2: Tracks cache hit/miss metrics for observability
-    pub async fn validate_session(&self, username: &str, force_refresh: bool) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
+    pub async fn validate_session(
+        &self,
+        username: &str,
+        force_refresh: bool,
+    ) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
         // Check cache first
         if !force_refresh {
             let mut cache = self.cache.lock().await;
@@ -131,7 +135,7 @@ impl SessionAuthenticator {
         match data {
             Some(json_str) => {
                 let session_data: SessionData = serde_json::from_str(&json_str)?;
-                
+
                 // Check if session is active
                 if session_data.status != "active" {
                     return Ok(None);
@@ -145,10 +149,13 @@ impl SessionAuthenticator {
                 // Cache the session
                 {
                     let mut cache = self.cache.lock().await;
-                    cache.put(username.to_string(), CachedSession {
-                        data: session_data.clone(),
-                        cached_at: Instant::now(),
-                    });
+                    cache.put(
+                        username.to_string(),
+                        CachedSession {
+                            data: session_data.clone(),
+                            cached_at: Instant::now(),
+                        },
+                    );
                 }
 
                 Ok(Some(session_data))
@@ -158,7 +165,11 @@ impl SessionAuthenticator {
     }
 
     /// Report usage for a session
-    pub async fn report_usage(&self, username: &str, bytes: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn report_usage(
+        &self,
+        username: &str,
+        bytes: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("session:{}:usage", username);
         let _: () = con.incr(&key, bytes).await?;
@@ -188,7 +199,10 @@ impl SessionAuthenticator {
 
     /// Get the sticky node binding for a session
     /// Returns Some(node_id) if session is bound, None otherwise
-    pub async fn get_sticky_node(&self, session_id: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    pub async fn get_sticky_node(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let node_id: Option<String> = con.get(&key).await?;
@@ -196,7 +210,12 @@ impl SessionAuthenticator {
     }
 
     /// Bind a session to a specific node (for sticky sessions)
-    pub async fn set_sticky_node(&self, session_id: &str, node_id: &str, ttl_secs: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn set_sticky_node(
+        &self,
+        session_id: &str,
+        node_id: &str,
+        ttl_secs: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let _: () = con.set_ex(&key, node_id, ttl_secs).await?;
@@ -204,7 +223,10 @@ impl SessionAuthenticator {
     }
 
     /// Remove sticky binding (e.g., when session terminates)
-    pub async fn remove_sticky_node(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn remove_sticky_node(
+        &self,
+        session_id: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("sticky:{}", session_id);
         let _: () = con.del(&key).await?;
@@ -215,23 +237,30 @@ impl SessionAuthenticator {
 
     /// Check and increment rate limit counter
     /// Returns Ok(true) if allowed, Ok(false) if rate limited
-    pub async fn check_rate_limit(&self, session_id: &str, limit_per_minute: u32) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    pub async fn check_rate_limit(
+        &self,
+        session_id: &str,
+        limit_per_minute: u32,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("ratelimit:{}", session_id);
-        
+
         // INCR the counter
         let count: i64 = con.incr(&key, 1).await?;
-        
+
         // Set expiry on first request (60 seconds window)
         if count == 1 {
             let _: () = con.expire(&key, 60).await?;
         }
-        
+
         Ok(count <= limit_per_minute as i64)
     }
 
     /// Get current request count for a session
-    pub async fn get_request_count(&self, session_id: &str) -> Result<u32, Box<dyn Error + Send + Sync>> {
+    pub async fn get_request_count(
+        &self,
+        session_id: &str,
+    ) -> Result<u32, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
         let key = format!("ratelimit:{}", session_id);
         let count: Option<u32> = con.get(&key).await?;
@@ -267,7 +296,9 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
-    fn default_active() -> bool { true }
+    fn default_active() -> bool {
+        true
+    }
 }
 
 /// P0-A2: Cache statistics for monitoring
@@ -294,13 +325,13 @@ mod tests {
         }"#;
 
         let session: SessionData = serde_json::from_str(json).expect("Failed to parse");
-        
+
         assert_eq!(session.user_id, "user-123");
         assert_eq!(session.session_id, "sess-456");
         assert_eq!(session.session_type, "rotating");
         assert_eq!(session.status, "active");
         assert_eq!(session.bandwidth_limit, 5368709120); // 5GB
-        assert_eq!(session.bandwidth_used, 1073741824);  // 1GB
+        assert_eq!(session.bandwidth_used, 1073741824); // 1GB
     }
 
     #[test]
@@ -331,7 +362,7 @@ mod tests {
             bandwidth_used: 500,
             ..Default::default()
         };
-        
+
         assert_eq!(active_session.status, "active");
         assert!(active_session.bandwidth_used < active_session.bandwidth_limit);
 
@@ -339,7 +370,7 @@ mod tests {
             status: "terminated".to_string(),
             ..active_session.clone()
         };
-        
+
         assert_ne!(terminated_session.status, "active");
     }
 
@@ -358,4 +389,3 @@ mod tests {
         assert!(session.bandwidth_used >= session.bandwidth_limit);
     }
 }
-

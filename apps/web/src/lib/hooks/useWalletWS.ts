@@ -6,6 +6,7 @@
 // page refreshes without a full reload.
 
 import { useEffect, useRef, useCallback } from 'react';
+import { getExplorerWsUrl } from '../ws-url';
 
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS  = 30_000;
@@ -39,8 +40,7 @@ export function useWalletWS({ userID, onBalanceUpdate, enabled = true }: UseWall
     const connect = useCallback(() => {
         if (unmountedRef.current || !userID) return;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/v1/explorer/ws`;
+        const wsUrl = getExplorerWsUrl();
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 

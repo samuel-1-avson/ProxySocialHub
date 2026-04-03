@@ -64,12 +64,12 @@ func ProviderTokenAuth() gin.HandlerFunc {
 	}
 }
 
-// validateJWT validates a Supabase-issued JWT using SUPABASE_JWT_SECRET (HS256).
+// validateJWT validates a self-hosted JWT using JWT_SECRET (HS256).
 // Returns the user's UUID string (sub claim) on success.
 func validateJWT(tokenStr string) (string, error) {
-	secret := os.Getenv("SUPABASE_JWT_SECRET")
+	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		return "", errors.New("SUPABASE_JWT_SECRET not configured")
+		return "", errors.New("JWT_SECRET not configured")
 	}
 
 	parsed, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {

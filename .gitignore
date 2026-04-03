@@ -159,3 +159,21 @@ build_errors.txt
 !*.example
 .vercel
 .env*.local
+
+# Generated analysis/probe artifacts
+*_method_paths*.csv
+*_probe_results_*.csv
+*_backend_matches.csv
+*_missing_in_backend_strings.txt
+*_v1_endpoints.txt
+*_v1_paths.txt
+*_routes_raw.csv
+*_endpoint_refs_raw.csv
+backend_v1_strings.txt
+openapi_v1_paths.txt
+internal_api_routes_raw.csv
+internal_solana_routes_raw.csv
+web_endpoint_refs_raw.csv
+
+# Framework build artifacts
+**/.next/

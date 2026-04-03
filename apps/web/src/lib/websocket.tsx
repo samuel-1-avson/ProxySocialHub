@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
 
 interface WebSocketMessage {
   type: string;
@@ -25,9 +24,8 @@ export function useWebSocket(url?: string) {
 
 
   const connect = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+    // Read JWT from local storage — issued by the self-hosted backend on login.
+    const token = typeof window !== 'undefined' ? localStorage.getItem('proxyhubb_token') : null;
 
     if (!token) return;
 

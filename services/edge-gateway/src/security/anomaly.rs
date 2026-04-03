@@ -37,20 +37,21 @@ impl AnomalyTracker {
 
     /// Update metrics for a session and return true if an anomaly is detected.
     pub fn record_request(&self, session_id: &str) -> bool {
-        let metrics = self.sessions
+        let metrics = self
+            .sessions
             .entry(session_id.to_string())
             .or_insert_with(|| Arc::new(SessionMetrics::default()))
             .clone();
 
         let count = metrics.request_count.fetch_add(1, Ordering::Relaxed);
-        
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or(Duration::ZERO)
             .as_secs();
-            
+
         let last = metrics.last_request_time.swap(now, Ordering::Relaxed);
-        
+
         if last > 0 {
             let interval = now.saturating_sub(last) as u32;
             let prev_avg = metrics.avg_interval_ms.load(Ordering::Relaxed);
@@ -62,8 +63,8 @@ impl AnomalyTracker {
         // Simple anomaly check: requests per minute (RPM)
         // Reset count if > 1 minute since last update
         if now.saturating_sub(last) > 60 {
-             metrics.request_count.store(1, Ordering::Relaxed);
-             return false;
+            metrics.request_count.store(1, Ordering::Relaxed);
+            return false;
         }
 
         count > self.max_rpm

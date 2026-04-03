@@ -1,14 +1,18 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterAdminRoutes registers all admin API routes
@@ -187,6 +191,41 @@ func updateUserTier(c *gin.Context) {
 	if result := db.DB.Save(&user); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tier"})
 		return
+	}
+
+	// AUTH-003: Mirror trust-tier elevation on-chain so it cannot be silently
+	// reverted by a DB rollback without a corresponding chain record.
+	if user.WalletAddress != nil && *user.WalletAddress != "" {
+		go func(wallet string, tier models.TrustTier) {
+			oracle := solana.GetOracleClient()
+			if oracle == nil {
+				return
+			}
+			pubkey, err := sol.PublicKeyFromBase58(wallet)
+			if err != nil {
+				return
+			}
+			var onChainTier uint8
+			switch tier {
+			case models.TrustTierVerified:
+				onChainTier = solana.KYCTierVerified
+			case models.TrustTierPremium:
+				onChainTier = solana.KYCTierPremium
+			default:
+				onChainTier = solana.KYCTierNew
+			}
+			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if sig, err := oracle.WriteKYCAttestation(ctx2, solana.WriteKYCAttestationParams{
+				Wallet:    pubkey,
+				TrustTier: onChainTier,
+				KYCStatus: solana.KYCStatusApprovedOnChain,
+			}); err != nil {
+				logging.Error(err).Str("wallet", wallet).Msg("updateUserTier: WriteKYCAttestation failed (non-fatal)")
+			} else {
+				logging.Info().Str("sig", sig).Str("wallet", wallet).Msg("updateUserTier: trust tier anchored on-chain")
+			}
+		}(*user.WalletAddress, user.TrustTier)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

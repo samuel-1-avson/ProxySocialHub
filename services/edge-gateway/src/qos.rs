@@ -9,11 +9,11 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// Return the bandwidth cap in bytes/sec for a given trust tier (B-05).
 pub fn bandwidth_cap_for_tier(tier: &str) -> u32 {
     match tier {
-        "basic"      =>  2 * 1024 * 1024,  //  2 MB/s
-        "standard"   => 10 * 1024 * 1024,  // 10 MB/s
-        "premium"    => 50 * 1024 * 1024,  // 50 MB/s
-        "enterprise" => u32::MAX / 2,       // effectively unlimited (governor requires NonZeroU32)
-        _            =>  2 * 1024 * 1024,  // default: basic cap
+        "basic" => 2 * 1024 * 1024,     //  2 MB/s
+        "standard" => 10 * 1024 * 1024, // 10 MB/s
+        "premium" => 50 * 1024 * 1024,  // 50 MB/s
+        "enterprise" => u32::MAX / 2,   // effectively unlimited (governor requires NonZeroU32)
+        _ => 2 * 1024 * 1024,           // default: basic cap
     }
 }
 
@@ -56,7 +56,11 @@ impl TrafficShaper {
     {
         let quota = Quota::per_second(NonZeroU32::new(bytes_per_sec.max(1)).unwrap());
         let limiter = Arc::new(RateLimiter::keyed(quota));
-        ShapedStream { inner: stream, key, limiter }
+        ShapedStream {
+            inner: stream,
+            key,
+            limiter,
+        }
     }
 }
 

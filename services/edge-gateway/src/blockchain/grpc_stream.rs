@@ -1,11 +1,14 @@
 //! P2-A9: gRPC Streaming Implementation
-//! 
+//!
 //! Manages bidirectional gRPC streams for blockchain communication.
 //! Handles connection lifecycle, reconnection, and backpressure.
 
-use super::{metrics, BlockchainConfig, SignedBatch, SignedUsageEvent, SettlementResponse, PricingResponse, SettlementStatus};
-use crate::error::{Error, Result};
+use super::{
+    metrics, BlockchainConfig, PricingResponse, SettlementResponse, SettlementStatus, SignedBatch,
+    SignedUsageEvent,
+};
 use crate::blockchain::signer::EventSigner;
+use crate::error::{Error, Result};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,7 +128,9 @@ pub struct UsageStreamClient {
 
 impl Clone for UsageStreamClient {
     fn clone(&self) -> Self {
-        Self { channel: self.channel.clone() }
+        Self {
+            channel: self.channel.clone(),
+        }
     }
 }
 
@@ -133,8 +138,11 @@ impl UsageStreamClient {
     pub fn new(channel: Channel) -> Self {
         Self { channel }
     }
-    
-    pub async fn ping(&mut self, _request: Request<PingRequest>) -> std::result::Result<Response<PongResponse>, Status> {
+
+    pub async fn ping(
+        &mut self,
+        _request: Request<PingRequest>,
+    ) -> std::result::Result<Response<PongResponse>, Status> {
         // Placeholder implementation
         Ok(tonic::Response::new(PongResponse {
             server_timestamp_ms: std::time::SystemTime::now()
@@ -146,18 +154,31 @@ impl UsageStreamClient {
             health: 0, // OPERATIONAL
         }))
     }
-    
-    pub async fn stream_usage(&mut self, _request: Request<impl tokio_stream::Stream<Item = UsageEventBatch> + Send + 'static>) -> std::result::Result<Response<tonic::Streaming<StreamStatus>>, Status> {
+
+    pub async fn stream_usage(
+        &mut self,
+        _request: Request<impl tokio_stream::Stream<Item = UsageEventBatch> + Send + 'static>,
+    ) -> std::result::Result<Response<tonic::Streaming<StreamStatus>>, Status> {
         // Placeholder - in real implementation would set up bidirectional stream
-        Err(tonic::Status::unimplemented("Stream usage not yet implemented"))
+        Err(tonic::Status::unimplemented(
+            "Stream usage not yet implemented",
+        ))
     }
-    
-    pub async fn settle_provider(&mut self, _request: Request<impl tokio_stream::Stream<Item = SettlementRequest> + Send + 'static>) -> std::result::Result<Response<tonic::Streaming<SettlementResponse_>>, Status> {
+
+    pub async fn settle_provider(
+        &mut self,
+        _request: Request<impl tokio_stream::Stream<Item = SettlementRequest> + Send + 'static>,
+    ) -> std::result::Result<Response<tonic::Streaming<SettlementResponse_>>, Status> {
         // Placeholder
-        Err(tonic::Status::unimplemented("Settle provider not yet implemented"))
+        Err(tonic::Status::unimplemented(
+            "Settle provider not yet implemented",
+        ))
     }
-    
-    pub async fn get_current_pricing(&mut self, _request: Request<PricingRequest>) -> std::result::Result<Response<PricingResponse_>, Status> {
+
+    pub async fn get_current_pricing(
+        &mut self,
+        _request: Request<PricingRequest>,
+    ) -> std::result::Result<Response<PricingResponse_>, Status> {
         // Placeholder
         Ok(tonic::Response::new(PricingResponse_ {
             base_rate_usd_per_gb: 0.05,
@@ -173,7 +194,8 @@ impl UsageStreamClient {
             valid_until_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_millis() as u64 + 60000,
+                .as_millis() as u64
+                + 60000,
             oracle_signature: vec![],
         }))
     }
@@ -183,28 +205,28 @@ impl UsageStreamClient {
 pub struct BlockchainStream {
     /// Underlying gRPC client
     client: RwLock<UsageStreamClient>,
-    
+
     /// Event signer for fraud prevention
     signer: Arc<EventSigner>,
-    
+
     /// Configuration
     config: BlockchainConfig,
-    
+
     /// Channel for sending events
     event_tx: mpsc::Sender<SignedUsageEvent>,
-    
+
     /// Last health check timestamp
     last_health_check: RwLock<Instant>,
-    
+
     /// Stream health status
     is_healthy: RwLock<bool>,
-    
+
     /// Connection endpoint
     endpoint: String,
-    
+
     /// Connection established at
     connected_at: Instant,
-    
+
     /// Events sent counter
     events_sent: RwLock<u64>,
 }
@@ -223,16 +245,16 @@ impl BlockchainStream {
             .connect()
             .await
             .map_err(|e| Error::BlockchainConnection(format!("Failed to connect: {}", e)))?;
-        
+
         let client = UsageStreamClient::new(channel);
-        
+
         // Test connection with ping
         let mut test_client = client.clone();
         let ping = PingRequest {
             client_timestamp_ms: Instant::now().elapsed().as_millis() as u64,
             client_version: env!("CARGO_PKG_VERSION").to_string(),
         };
-        
+
         match test_client.ping(Request::new(ping)).await {
             Ok(response) => {
                 let pong = response.into_inner();
@@ -251,10 +273,10 @@ impl BlockchainStream {
                 );
             }
         }
-        
+
         // Create event channel with bounded buffer for backpressure
         let (event_tx, mut event_rx) = mpsc::channel::<SignedUsageEvent>(config.batch_size * 2);
-        
+
         let stream = Self {
             client: RwLock::new(client),
             signer,
@@ -266,41 +288,41 @@ impl BlockchainStream {
             connected_at: Instant::now(),
             events_sent: RwLock::new(0),
         };
-        
+
         // Start background tasks
         let stream_clone = Arc::new(stream);
-        
+
         // Spawn event batching task
         let batcher_stream = stream_clone.clone();
         tokio::spawn(async move {
             batcher_stream.run_event_batcher(event_rx).await;
         });
-        
+
         // Spawn health check task
         let health_stream = stream_clone.clone();
         tokio::spawn(async move {
             health_stream.run_health_checks().await;
         });
-        
+
         // Return the stream from Arc
         Arc::try_unwrap(stream_clone)
             .map_err(|_| Error::Internal("Failed to unwrap Arc".to_string()))
     }
-    
+
     /// Run the event batching loop
     async fn run_event_batcher(&self, mut rx: mpsc::Receiver<SignedUsageEvent>) {
         let mut batch = Vec::with_capacity(self.config.batch_size);
         let mut last_flush = Instant::now();
-        
+
         loop {
             let timeout = Duration::from_millis(self.config.flush_interval_ms);
-            let should_flush = batch.len() >= self.config.batch_size 
+            let should_flush = batch.len() >= self.config.batch_size
                 || (!batch.is_empty() && last_flush.elapsed() >= timeout);
-            
+
             tokio::select! {
                 Some(event) = rx.recv() => {
                     batch.push(event);
-                    
+
                     if batch.len() >= self.config.batch_size {
                         self.flush_batch(std::mem::take(&mut batch)).await;
                         batch = Vec::with_capacity(self.config.batch_size);
@@ -322,46 +344,46 @@ impl BlockchainStream {
             }
         }
     }
-    
+
     /// Flush a batch of events to the blockchain
     async fn flush_batch(&self, batch: Vec<SignedUsageEvent>) {
         if batch.is_empty() {
             return;
         }
-        
+
         let batch_size = batch.len();
         let _timer = metrics::BLOCKCHAIN_LATENCY.start_timer();
-        
+
         // Convert to protobuf
         let proto_batch = self.signer.create_proto_batch(&batch);
-        
+
         // Send with retries
         let mut retries = 0;
         loop {
             let mut client = self.client.write().await;
-            
+
             // Create a stream from the batch
             let batch_stream = tokio_stream::iter(vec![proto_batch.clone()]);
-            
+
             match client.stream_usage(Request::new(batch_stream)).await {
                 Ok(response) => {
                     let mut stream = response.into_inner();
-                    
+
                     // Wait for acknowledgment
                     match stream.message().await {
                         Ok(Some(status)) => {
                             metrics::BLOCKCHAIN_BATCHES_SENT.inc();
                             metrics::BLOCKCHAIN_EVENTS_SENT.inc_by(batch_size as u64);
-                            
+
                             *self.events_sent.write().await += batch_size as u64;
-                            
+
                             tracing::debug!(
                                 batch_size = batch_size,
                                 accepted = status.events_accepted,
                                 rejected = status.events_rejected,
                                 "Batch sent successfully"
                             );
-                            
+
                             return;
                         }
                         Ok(None) => {
@@ -381,7 +403,7 @@ impl BlockchainStream {
                     );
                 }
             }
-            
+
             retries += 1;
             if retries >= self.config.max_retries {
                 tracing::error!(
@@ -391,32 +413,32 @@ impl BlockchainStream {
                 *self.is_healthy.write().await = false;
                 return;
             }
-            
+
             tokio::time::sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
         }
     }
-    
+
     /// Run periodic health checks
     async fn run_health_checks(&self) {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
-        
+
         loop {
             interval.tick().await;
-            
+
             let ping = PingRequest {
                 client_timestamp_ms: Instant::now().elapsed().as_millis() as u64,
                 client_version: env!("CARGO_PKG_VERSION").to_string(),
             };
-            
+
             let mut client = self.client.write().await;
-            
+
             match client.ping(Request::new(ping)).await {
                 Ok(response) => {
                     let pong = response.into_inner();
-                    
+
                     *self.last_health_check.write().await = Instant::now();
                     *self.is_healthy.write().await = pong.health == 0; // OPERATIONAL
-                    
+
                     tracing::debug!("Health check passed");
                 }
                 Err(e) => {
@@ -426,22 +448,26 @@ impl BlockchainStream {
             }
         }
     }
-    
+
     /// Send a single signed event
     pub async fn send_event(&self, event: SignedUsageEvent) -> Result<()> {
-        self.event_tx.send(event).await
+        self.event_tx
+            .send(event)
+            .await
             .map_err(|_| Error::Internal("Event channel closed".to_string()))
     }
-    
+
     /// Send a signed batch
     pub async fn send_batch(&self, batch: SignedBatch) -> Result<()> {
         for event in batch.events {
-            self.event_tx.send(event).await
+            self.event_tx
+                .send(event)
+                .await
                 .map_err(|_| Error::Internal("Event channel closed".to_string()))?;
         }
         Ok(())
     }
-    
+
     /// Request settlement for a provider
     pub async fn request_settlement(
         &self,
@@ -449,7 +475,7 @@ impl BlockchainStream {
         amount_lamports: u64,
     ) -> Result<SettlementResponse> {
         let _timer = metrics::BLOCKCHAIN_LATENCY.start_timer();
-        
+
         let request = SettlementRequest {
             provider_id,
             total_bytes: 0, // Calculated on-chain
@@ -460,19 +486,21 @@ impl BlockchainStream {
             period_end_ms: 0,
             rate_usd_per_gb: 0.0,
         };
-        
+
         let mut client = self.client.write().await;
-        
+
         let request_stream = tokio_stream::iter(vec![request]);
-        let response = client.settle_provider(Request::new(request_stream)).await
+        let response = client
+            .settle_provider(Request::new(request_stream))
+            .await
             .map_err(|e| Error::BlockchainConnection(format!("Settlement failed: {}", e)))?;
-        
+
         let mut stream = response.into_inner();
-        
+
         match stream.message().await {
             Ok(Some(proto_response)) => {
                 metrics::BLOCKCHAIN_SETTLEMENTS.inc();
-                
+
                 Ok(SettlementResponse {
                     transaction_signature: proto_response.transaction_signature,
                     slot: proto_response.slot,
@@ -494,27 +522,31 @@ impl BlockchainStream {
                     actual_amount_lamports: proto_response.actual_amount_lamports,
                 })
             }
-            Ok(None) => Err(Error::Internal("No settlement response received".to_string())),
+            Ok(None) => Err(Error::Internal(
+                "No settlement response received".to_string(),
+            )),
             Err(e) => Err(Error::BlockchainConnection(format!("Stream error: {}", e))),
         }
     }
-    
+
     /// Get current pricing from blockchain oracle
     pub async fn get_pricing(&self) -> Result<PricingResponse> {
         let _timer = metrics::BLOCKCHAIN_LATENCY.start_timer();
-        
+
         let request = PricingRequest {
             provider_id: String::new(),
             region: String::new(),
         };
-        
+
         let mut client = self.client.write().await;
-        
-        let response = client.get_current_pricing(Request::new(request)).await
+
+        let response = client
+            .get_current_pricing(Request::new(request))
+            .await
             .map_err(|e| Error::BlockchainConnection(format!("Pricing request failed: {}", e)))?;
-        
+
         let proto = response.into_inner();
-        
+
         Ok(PricingResponse {
             base_rate_usd_per_gb: proto.base_rate_usd_per_gb,
             demand_multiplier: proto.demand_multiplier,
@@ -525,12 +557,12 @@ impl BlockchainStream {
             valid_until_ms: proto.valid_until_ms,
         })
     }
-    
+
     /// Check if the stream is healthy
     pub async fn is_healthy(&self) -> bool {
         *self.is_healthy.read().await
     }
-    
+
     /// Get connection statistics
     pub async fn stats(&self) -> StreamStats {
         StreamStats {
@@ -552,5 +584,3 @@ pub struct StreamStats {
     pub events_sent: u64,
     pub is_healthy: bool,
 }
-
-

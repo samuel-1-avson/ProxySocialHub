@@ -41,7 +41,7 @@ export interface FeedEvent {
  * Get unified social feed
  */
 export async function getFeed() {
-    const data = await apiGet<{ events: FeedEvent[] }>('/v1/social/feed');
+    const data = await apiGet<{ events: FeedEvent[] }>('/v1/feed');
     return data.events || [];
 }
 
@@ -72,13 +72,20 @@ export async function sendMessage(conversationId: string, content: string) {
  * Initialize a new chat session
  */
 export async function startConversation(recipientId: string, message: string) {
-    return apiPost<{ conversation_id: string }>('/v1/conversations', { recipient_id: recipientId, message });
+    const data = await apiPost<{ id: string } | { conversation_id: string }>(
+        '/v1/conversations',
+        { recipient_id: recipientId, message }
+    );
+    if ('conversation_id' in data) {
+        return { conversation_id: data.conversation_id };
+    }
+    return { conversation_id: data.id };
 }
 
 /**
  * List verified friends for session sharing
  */
 export async function listFriends() {
-    const data = await apiGet<{ friends: Friendship[] }>('/v1/social/friends');
-    return data.friends || [];
+    const data = await apiGet<Friendship[] | { friends: Friendship[] }>('/v1/friends');
+    return Array.isArray(data) ? data : data.friends || [];
 }
