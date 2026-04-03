@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+FROM rust:1.94-bookworm AS builder
 
 WORKDIR /app
 
@@ -11,10 +11,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
 # Copy manifest and source
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
@@ -23,8 +19,16 @@ COPY src ./src
 # Bench sources declared in Cargo.toml — must be present for manifest parsing.
 COPY benches ./benches
 
+# Improve resilience against transient crates.io and CDN failures during image builds.
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=20 \
+    CARGO_HTTP_TIMEOUT=600
+
+RUN cargo fetch --locked || cargo fetch --locked || cargo fetch --locked
+
 # Build in release mode with ONNX (ml) and ZK features enabled.
-RUN cargo build --release --features ml
+RUN cargo build --release --locked --features ml
 
 # ---------------------------------------------------------------------------
 # Runtime image — NVIDIA CUDA Base for GPU-acceleration (Phase 9)
