@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Circuit breaker state
 #[derive(Debug, Clone, PartialEq)]
@@ -110,12 +110,15 @@ impl CircuitBreaker {
     /// Check if a request can be made based on current state
     async fn can_request(&self) -> bool {
         let mut state = self.state.write().await;
-        
+
         match *state {
             CircuitState::Closed { .. } => true,
             CircuitState::Open { last_failure } => {
                 if last_failure.elapsed() > self.config.timeout {
-                    info!("Circuit breaker {} transitioning to half-open", self.service_name);
+                    info!(
+                        "Circuit breaker {} transitioning to half-open",
+                        self.service_name
+                    );
                     *state = CircuitState::HalfOpen { successes: 0 };
                     true
                 } else {
@@ -129,7 +132,7 @@ impl CircuitBreaker {
     /// Handle successful request
     async fn on_success(&self) {
         let mut state = self.state.write().await;
-        
+
         match *state {
             CircuitState::Closed { .. } => {
                 // Reset failure count on success
@@ -148,12 +151,17 @@ impl CircuitBreaker {
                         "Circuit breaker {} half-open success {}/{}",
                         self.service_name, new_successes, self.config.success_threshold
                     );
-                    *state = CircuitState::HalfOpen { successes: new_successes };
+                    *state = CircuitState::HalfOpen {
+                        successes: new_successes,
+                    };
                 }
             }
             CircuitState::Open { .. } => {
                 // This shouldn't happen, but handle gracefully
-                warn!("Unexpected success in open circuit breaker {}", self.service_name);
+                warn!(
+                    "Unexpected success in open circuit breaker {}",
+                    self.service_name
+                );
             }
         }
     }
@@ -161,21 +169,29 @@ impl CircuitBreaker {
     /// Handle failed request
     async fn on_failure(&self) {
         let mut state = self.state.write().await;
-        
+
         match *state {
             CircuitState::Closed { failures } => {
                 let new_failures = failures + 1;
                 if new_failures >= self.config.failure_threshold {
-                    warn!("Circuit breaker {} opening after {} failures", self.service_name, new_failures);
+                    warn!(
+                        "Circuit breaker {} opening after {} failures",
+                        self.service_name, new_failures
+                    );
                     *state = CircuitState::Open {
                         last_failure: Instant::now(),
                     };
                 } else {
-                    *state = CircuitState::Closed { failures: new_failures };
+                    *state = CircuitState::Closed {
+                        failures: new_failures,
+                    };
                 }
             }
             CircuitState::HalfOpen { .. } => {
-                warn!("Circuit breaker {} reopening after failure in half-open state", self.service_name);
+                warn!(
+                    "Circuit breaker {} reopening after failure in half-open state",
+                    self.service_name
+                );
                 *state = CircuitState::Open {
                     last_failure: Instant::now(),
                 };
@@ -197,7 +213,7 @@ impl CircuitBreaker {
     /// Get circuit breaker statistics
     pub async fn stats(&self) -> CircuitStats {
         let state = self.state.read().await;
-        
+
         match *state {
             CircuitState::Closed { failures } => CircuitStats {
                 service_name: self.service_name.clone(),
@@ -244,7 +260,11 @@ impl CircuitBreakerManager {
     }
 
     /// Get or create a circuit breaker for a service
-    pub async fn get_breaker(&self, service_name: &str, config: CircuitConfig) -> Arc<CircuitBreaker> {
+    pub async fn get_breaker(
+        &self,
+        service_name: &str,
+        config: CircuitConfig,
+    ) -> Arc<CircuitBreaker> {
         let breakers = self.breakers.read().await;
         if let Some(breaker) = breakers.get(service_name) {
             return breaker.clone();
@@ -267,11 +287,11 @@ impl CircuitBreakerManager {
     pub async fn get_all_stats(&self) -> Vec<CircuitStats> {
         let breakers = self.breakers.read().await;
         let mut stats = Vec::new();
-        
+
         for breaker in breakers.values() {
             stats.push(breaker.stats().await);
         }
-        
+
         stats
     }
 }
@@ -295,13 +315,13 @@ mod tests {
             success_threshold: 2,
             request_timeout: Duration::from_millis(50),
         };
-        
+
         let cb = CircuitBreaker::new("test".to_string(), config);
-        
+
         // Should start in closed state
         let state = cb.state().await;
         assert!(matches!(state, CircuitState::Closed { failures: 0 }));
-        
+
         // Successful calls should keep it closed
         for _ in 0..5 {
             let result = cb.call(|| async { Ok::<_, &str>("success") }).await;
@@ -319,14 +339,14 @@ mod tests {
             success_threshold: 2,
             request_timeout: Duration::from_millis(50),
         };
-        
+
         let cb = CircuitBreaker::new("test".to_string(), config);
-        
+
         // Make failures to open the circuit
         for i in 0..3 {
             let result = cb.call(|| async { Err::<&str, _>("error") }).await;
             assert!(matches!(result, Err(CircuitError::Failure(_))));
-            
+
             let state = cb.state().await;
             if i < 2 {
                 assert!(matches!(state, CircuitState::Closed { failures: _ }));
@@ -334,9 +354,11 @@ mod tests {
                 assert!(matches!(state, CircuitState::Open { .. }));
             }
         }
-        
+
         // Next call should fail immediately
-        let result = cb.call(|| async { Ok::<_, &str>("should not be called") }).await;
+        let result = cb
+            .call(|| async { Ok::<_, &str>("should not be called") })
+            .await;
         assert!(matches!(result, Err(CircuitError::Open)));
     }
 
@@ -348,24 +370,24 @@ mod tests {
             success_threshold: 1,
             request_timeout: Duration::from_millis(100),
         };
-        
+
         let cb = CircuitBreaker::new("test".to_string(), config);
-        
+
         // Open the circuit
         for _ in 0..2 {
             let _ = cb.call(|| async { Err::<&str, _>("error") }).await;
         }
-        
+
         let state = cb.state().await;
         assert!(matches!(state, CircuitState::Open { .. }));
-        
+
         // Wait for timeout
         sleep(Duration::from_millis(60)).await;
-        
+
         // Next call should transition to half-open and succeed
         let result = cb.call(|| async { Ok::<_, &str>("success") }).await;
         assert!(result.is_ok());
-        
+
         let state = cb.state().await;
         assert!(matches!(state, CircuitState::Closed { failures: 0 }));
     }
@@ -378,15 +400,17 @@ mod tests {
             success_threshold: 2,
             request_timeout: Duration::from_millis(50),
         };
-        
+
         let cb = CircuitBreaker::new("test".to_string(), config);
-        
+
         // Call that takes longer than timeout
-        let result = cb.call(|| async {
-            sleep(Duration::from_millis(100)).await;
-            Ok::<_, &str>("success")
-        }).await;
-        
+        let result = cb
+            .call(|| async {
+                sleep(Duration::from_millis(100)).await;
+                Ok::<_, &str>("success")
+            })
+            .await;
+
         assert!(matches!(result, Err(CircuitError::Timeout)));
     }
 }

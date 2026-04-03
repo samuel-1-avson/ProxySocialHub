@@ -13,6 +13,13 @@ info:
     ## Rate Limiting
     - 100 requests per minute per user/IP
     - Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+
+    ## Authority Headers
+    The API emits authority metadata headers so operators can distinguish
+    chain-authoritative and DB-authoritative paths at runtime:
+    - `X-ProxyHubb-Authority-Mode`
+    - `X-ProxyHubb-Authority-Chain-Scope`
+    - `X-ProxyHubb-Authority-DB-Role`
   version: 1.0.0
   contact:
     name: ProxyHub Support
@@ -351,6 +358,23 @@ components:
       scheme: bearer
       bearerFormat: JWT
 
+  headers:
+    ProxyHubbAuthorityMode:
+      description: Runtime authority model for the endpoint.
+      schema:
+        type: string
+        enum: [chain_authoritative, db_authoritative, hybrid_async_chain]
+    ProxyHubbAuthorityChainScope:
+      description: Chain interaction scope for this response.
+      schema:
+        type: string
+        examples: [none, read_only_balance_check, write, async_write, async_write_attestation, async_write_settlement, required]
+    ProxyHubbAuthorityDBRole:
+      description: Role of the DB in the response path.
+      schema:
+        type: string
+        examples: [source_of_truth, mirror, none]
+
   schemas:
     RegisterRequest:
       type: object
@@ -530,6 +554,13 @@ components:
   responses:
     BadRequest:
       description: Invalid request
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
       content:
         application/json:
           schema:
@@ -540,6 +571,13 @@ components:
 
     Unauthorized:
       description: Authentication required
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
       content:
         application/json:
           schema:
@@ -550,6 +588,13 @@ components:
 
     NotFound:
       description: Resource not found
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
       content:
         application/json:
           schema:

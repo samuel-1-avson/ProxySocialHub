@@ -5,7 +5,27 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+
+function apiUrl(path: string): string {
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
+
+async function parseJsonResponse<T>(response: Response, context: string): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+  const raw = await response.text();
+
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const snippet = raw.slice(0, 140).replace(/\s+/g, ' ').trim();
+    throw new Error(`${context} returned non-JSON response (status ${response.status}). ${snippet || 'Empty response body.'}`);
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(`${context} returned invalid JSON (status ${response.status}).`);
+  }
+}
 
 // ---------- User type (no longer depends on Supabase User) ----------
 
@@ -47,14 +67,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (typeof window !== 'undefined') {
           const token = localStorage.getItem('proxyhubb_token');
           if (token) {
-            const res = await fetch(`${API_URL}/v1/auth/me`, {
+            const res = await fetch(apiUrl('/v1/auth/me'), {
               headers: {
                 'Authorization': `Bearer ${token}`
               }
             });
 
             if (res.ok) {
-              const apiUser = await res.json();
+              const apiUser = await parseJsonResponse<any>(res, 'Auth session check');
               setUser({
                 id: apiUser.id,
                 email: apiUser.email,
@@ -86,13 +106,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const walletLogin = async (address: string, signer: any) => {
     try {
       // 1. Get Challenge
-      const challengeRes = await fetch(`${API_URL}/v1/auth/wallet/challenge`, {
+      const challengeRes = await fetch(apiUrl('/v1/auth/wallet/challenge'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address })
       });
-      if (!challengeRes.ok) throw new Error('Failed to get auth challenge');
-      const { message } = await challengeRes.json();
+
+      const challengeData = await parseJsonResponse<{ message?: string; error?: string }>(challengeRes, 'Wallet challenge');
+      if (!challengeRes.ok) {
+        throw new Error(challengeData.error || 'Failed to get auth challenge');
+      }
+      const { message } = challengeData;
+      if (!message) {
+        throw new Error('Wallet challenge response missing message');
+      }
 
       // 2. Sign Message
       let signature = '';
@@ -107,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Login
-      const loginRes = await fetch(`${API_URL}/v1/auth/wallet/login`, {
+      const loginRes = await fetch(apiUrl('/v1/auth/wallet/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -117,12 +144,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       });
 
+      const loginData = await parseJsonResponse<{ token?: string; user?: any; error?: string }>(loginRes, 'Wallet login');
       if (!loginRes.ok) {
-        const errData = await loginRes.json();
-        throw new Error(errData.error || 'Login failed');
+        throw new Error(loginData.error || 'Login failed');
       }
 
-      const { token, user: apiUser } = await loginRes.json();
+      const { token, user: apiUser } = loginData;
+      if (!token || !apiUser) {
+        throw new Error('Wallet login response missing token or user payload');
+      }
 
       // 4. Store Token
       if (typeof window !== 'undefined') {

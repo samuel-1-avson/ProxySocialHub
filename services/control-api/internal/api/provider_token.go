@@ -61,6 +61,8 @@ type TokenListItem struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+const gatewayTokenTTL = 1 * time.Hour
+
 // listProviderTokens returns all tokens for the current user
 func listProviderTokens(c *gin.Context) {
 	currentUserID, exists := c.Get("user_id")
@@ -69,7 +71,7 @@ func listProviderTokens(c *gin.Context) {
 		return
 	}
 	userID := currentUserID.(uuid.UUID)
-	
+
 	var tokens []models.ProviderToken
 	if err := db.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
 		Order("created_at DESC").
@@ -77,7 +79,7 @@ func listProviderTokens(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tokens"})
 		return
 	}
-	
+
 	// Convert to safe response format
 	result := make([]TokenListItem, len(tokens))
 	for i, t := range tokens {
@@ -91,7 +93,7 @@ func listProviderTokens(c *gin.Context) {
 			CreatedAt: t.CreatedAt,
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"tokens": result})
 }
 
@@ -109,30 +111,30 @@ func createProviderToken(c *gin.Context) {
 		return
 	}
 	userID := currentUserID.(uuid.UUID)
-	
+
 	var req CreateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Generate raw token
 	rawToken, err := models.GenerateRawToken()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
-	
+
 	// Hash token for storage using HMAC-SHA256 (keyed by TOKEN_HMAC_SECRET)
 	hashedToken := models.HashToken(rawToken)
-	
+
 	// Calculate expiration
 	var expiresAt *time.Time
 	if req.ExpiresIn > 0 {
 		exp := time.Now().Add(time.Duration(req.ExpiresIn) * 24 * time.Hour)
 		expiresAt = &exp
 	}
-	
+
 	// Create token record
 	token := models.ProviderToken{
 		UserID:    userID,
@@ -141,12 +143,12 @@ func createProviderToken(c *gin.Context) {
 		IsActive:  true,
 		ExpiresAt: expiresAt,
 	}
-	
+
 	if err := db.DB.Create(&token).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save token"})
 		return
 	}
-	
+
 	// Return response with raw token (only time it's shown)
 	c.JSON(http.StatusCreated, TokenResponse{
 		ID:        token.ID,
@@ -166,20 +168,20 @@ func revokeProviderToken(c *gin.Context) {
 		return
 	}
 	userID := currentUserID.(uuid.UUID)
-	
+
 	tokenID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token ID"})
 		return
 	}
-	
+
 	// Soft delete - only user's own tokens
 	result := db.DB.Where("id = ? AND user_id = ?", tokenID, userID).Delete(&models.ProviderToken{})
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "Token revoked successfully"})
 }
 
@@ -195,7 +197,7 @@ type ValidateTokenResponse struct {
 	UserID   uuid.UUID `json:"user_id,omitempty"`
 	TokenID  uuid.UUID `json:"token_id,omitempty"`
 	Message  string    `json:"message,omitempty"`
-	NodeID   uuid.UUID `json:"node_id,omitempty"` // Node ID to use for registration
+	NodeID   uuid.UUID `json:"node_id,omitempty"`   // Node ID to use for registration
 	JWTToken string    `json:"jwt_token,omitempty"` // JWT for subsequent authenticated requests
 }
 
@@ -206,13 +208,13 @@ func validateProviderToken(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"valid": false, "message": err.Error()})
 		return
 	}
-	
+
 	// Hash the provided token using the same HMAC-SHA256 function
 	hashedToken := models.HashToken(req.Token)
-	
+
 	// Find token
 	var token models.ProviderToken
-	if err := db.DB.Where("token = ? AND is_active = ? AND deleted_at IS NULL", 
+	if err := db.DB.Where("token = ? AND is_active = ? AND deleted_at IS NULL",
 		hashedToken, true).First(&token).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, ValidateTokenResponse{
 			Valid:   false,
@@ -220,7 +222,7 @@ func validateProviderToken(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Check expiration
 	if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
 		c.JSON(http.StatusUnauthorized, ValidateTokenResponse{
@@ -229,14 +231,14 @@ func validateProviderToken(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Update last used
 	token.LastUsed = time.Now()
 	db.DB.Save(&token)
-	
+
 	// Generate or get node ID for this token
 	nodeID := getOrCreateNodeID(token)
-	
+
 	// Generate a JWT token for subsequent authenticated requests
 	// Use the same JWT secret as the main auth system
 	cfg, err := config.Load()
@@ -247,7 +249,7 @@ func validateProviderToken(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	jwtToken, err := crypto.GenerateToken(
 		token.UserID,
 		"provider",
@@ -263,7 +265,7 @@ func validateProviderToken(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, ValidateTokenResponse{
 		Valid:    true,
 		UserID:   token.UserID,
@@ -276,7 +278,7 @@ func validateProviderToken(c *gin.Context) {
 
 // issueGatewayToken exchanges a provider API token for a short-lived JWT that
 // the edge gateway tunnel server accepts.  The JWT uses the same HS256 secret
-// (JWT_SECRET env var) and claim names that tunnel.rs expects: user_id / role / exp.
+// (JWT_SECRET env var) and claim names that tunnel.rs expects: sub / role / exp.
 func issueGatewayToken(c *gin.Context) {
 	var req ValidateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -305,12 +307,17 @@ func issueGatewayToken(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+
 	// Claims must match the struct expected by tunnel.rs:
-	//   user_id string, role string, exp usize
+	//   sub string, role string, exp usize
 	claims := jwt.MapClaims{
-		"user_id": token.UserID.String(),
+		"sub":     token.UserID.String(),
+		"user_id": token.UserID.String(), // Backward compatibility for legacy consumers.
 		"role":    "provider",
-		"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(), // 30 days
+		"iat":     now.Unix(),
+		"exp":     now.Add(gatewayTokenTTL).Unix(),
+		"iss":     "proxyhubb-control-api",
 	}
 	gatewayJWT, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
 	if err != nil {
@@ -325,7 +332,7 @@ func issueGatewayToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"gateway_token": gatewayJWT,
 		"user_id":       token.UserID,
-		"expires_in":    int((30 * 24 * time.Hour).Seconds()),
+		"expires_in":    int(gatewayTokenTTL.Seconds()),
 	})
 }
 
@@ -346,10 +353,10 @@ func getOrCreateNodeID(token models.ProviderToken) uuid.UUID {
 		First(&registration).Error; err == nil {
 		return registration.NodeID
 	}
-	
+
 	// Create new node
 	node := models.Node{
-		UserID:         token.UserID,  // Required by DB constraint
+		UserID:         token.UserID, // Required by DB constraint
 		ProviderUserID: token.UserID,
 		IsHealthy:      true,
 	}
@@ -357,7 +364,7 @@ func getOrCreateNodeID(token models.ProviderToken) uuid.UUID {
 		// Fallback - return a new UUID that won't be persisted
 		return uuid.New()
 	}
-	
+
 	// Create registration record
 	registration = models.ProviderNodeRegistration{
 		UserID:    token.UserID,
@@ -368,6 +375,6 @@ func getOrCreateNodeID(token models.ProviderToken) uuid.UUID {
 		IsActive:  true,
 	}
 	db.DB.Create(&registration)
-	
+
 	return node.ID
 }

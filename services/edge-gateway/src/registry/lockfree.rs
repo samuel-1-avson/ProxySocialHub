@@ -117,14 +117,18 @@ impl LockFreeNodeRegistry {
             .nodes
             .iter()
             .filter(|e| e.value().is_healthy.load(Ordering::Relaxed))
-            .map(|e| (e.value().score(), e.key().clone(), e.value().control.clone()))
+            .map(|e| {
+                (
+                    e.value().score(),
+                    e.key().clone(),
+                    e.value().control.clone(),
+                )
+            })
             .collect();
         // Sort descending by score — best node first.
         scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-        let snapshot: Vec<(String, Control)> = scored
-            .into_iter()
-            .map(|(_, id, ctrl)| (id, ctrl))
-            .collect();
+        let snapshot: Vec<(String, Control)> =
+            scored.into_iter().map(|(_, id, ctrl)| (id, ctrl)).collect();
         if let Ok(mut top) = self.top_nodes.write() {
             *top = snapshot;
         }
@@ -134,9 +138,7 @@ impl LockFreeNodeRegistry {
     /// Call once at startup from main.rs after constructing the registry.
     pub fn start_score_refresh(registry: Arc<Self>, interval_ms: u64) {
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(
-                std::time::Duration::from_millis(interval_ms),
-            );
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
             loop {
                 ticker.tick().await;
                 registry.rebuild_score_snapshot();
@@ -163,9 +165,10 @@ impl LockFreeNodeRegistry {
 
     /// Remove a provider and return its last known NodeInfo.
     pub fn remove(&self, node_id: &str) -> Option<NodeInfo> {
-        let result = self.nodes.remove(node_id).and_then(|(_, entry)| {
-            entry.info.read().ok().map(|i| i.clone())
-        });
+        let result = self
+            .nodes
+            .remove(node_id)
+            .and_then(|(_, entry)| entry.info.read().ok().map(|i| i.clone()));
         self.rebuild_score_snapshot(); // P-06: keep snapshot current
         result
     }

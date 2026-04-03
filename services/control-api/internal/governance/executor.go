@@ -134,8 +134,13 @@ func (e *ProposalExecutor) executeTreasuryTransfer(proposal models.Proposal) err
 		return fmt.Errorf("failed to create treasury transaction record: %w", err)
 	}
 
-	// Only SOL transfers can be executed on-chain by the oracle wallet.
-	// USDC/TAO transfers are logged as "pending" and require a separate relayer.
+	// Only SOL transfers are supported.  The Ethereum relayer was decommissioned
+	// (2026-04-01); all on-chain operations run exclusively via the Solana oracle.
+	// Governance proposals must specify SOL as the treasury transfer currency.
+	if transfer.Currency != "SOL" {
+		db.DB.Model(&txRecord).Update("status", "failed_unsupported_currency")
+		return fmt.Errorf("treasury transfers only support SOL; currency %q is not supported (Ethereum relayer decommissioned)", transfer.Currency)
+	}
 	if transfer.Currency == "SOL" {
 		oracle := solanaClient.GetOracleClient()
 		if oracle == nil {
@@ -165,12 +170,6 @@ func (e *ProposalExecutor) executeTreasuryTransfer(proposal models.Proposal) err
 			Str("recipient", transfer.Recipient).
 			Float64("amount_sol", transfer.Amount).
 			Msg("Treasury transfer executed on-chain")
-	} else {
-		// Non-SOL currencies: mark as pending for relayer processing.
-		db.DB.Model(&txRecord).Update("status", "pending_relayer")
-		logging.Info().
-			Str("currency", transfer.Currency).
-			Msg("Non-SOL treasury transfer queued for relayer")
 	}
 
 	return nil

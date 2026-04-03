@@ -1,19 +1,14 @@
-import { createBrowserClient } from '@supabase/ssr'
+// Supabase has been removed. Authentication is handled entirely by the
+// self-hosted backend (JWT issued on login, stored in localStorage as
+// 'proxyhubb_token'). This file is kept as a stub so that any remaining
+// import paths resolve without error while they are migrated.
 
+/** @deprecated Use the local auth context from @/lib/auth instead. */
 export function createClient() {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    
-    // Return null if Supabase is not configured
-    if (!url || !key) {
-        console.warn('Supabase not configured - authentication will use backend JWT only')
-        return null as any
-    }
-    
-    return createBrowserClient(url, key)
+  return null as any;
 }
 
-// Helper to check if Supabase is available
+/** Always returns false — Supabase is no longer configured. */
 export function isSupabaseConfigured(): boolean {
-    return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  return false;
 }

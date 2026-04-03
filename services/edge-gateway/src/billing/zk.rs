@@ -5,11 +5,11 @@
 
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use ark_groth16::{Groth16, ProvingKey, VerifyingKey, PreparedVerifyingKey};
+use ark_groth16::{Groth16, PreparedVerifyingKey, ProvingKey, VerifyingKey};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand::rngs::OsRng;
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// The public inputs for the ZK-verify on-chain (Solana).
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
@@ -46,16 +46,19 @@ impl ZkProver {
         bytes_down: u64,
         provider_pubkey: &[u8; 32],
     ) -> Option<UsageProof> {
-        info!("Generating ZK-proof for session {} ({} up, {} down)", session_id, bytes_up, bytes_down);
-        
+        info!(
+            "Generating ZK-proof for session {} ({} up, {} down)",
+            session_id, bytes_up, bytes_down
+        );
+
         // This is a placeholder for the actual Groth16::prove call.
         // Generating a real SNARK in a single thread can take 5-10 seconds.
         // In this implementation, we simulate the non-determinism.
-        
+
         // Real logic:
         // let circuit = UsageCircuit { ... };
         // let proof = Groth16::<Bn254>::prove(&self.proving_key?, circuit, &mut OsRng).ok()?;
-        
+
         None // For MVP, we return None if no key is loaded
     }
 }
@@ -69,9 +72,9 @@ impl Default for ZkProver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_zk_struct_serialization() {
-       // Verify that our ZK types can be serialized for Solana submission
+        // Verify that our ZK types can be serialized for Solana submission
     }
 }

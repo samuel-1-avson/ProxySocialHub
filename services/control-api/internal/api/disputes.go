@@ -23,6 +23,8 @@ func RegisterDisputeRoutes(rg *gin.RouterGroup) {
 
 // POST /v1/disputes — consumer submits a dispute against a completed session
 func createDispute(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, ok := GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -98,6 +100,8 @@ func createDispute(c *gin.Context) {
 
 // GET /v1/disputes — list disputes for the calling user (consumer or provider view)
 func listMyDisputes(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, ok := GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -115,6 +119,8 @@ func listMyDisputes(c *gin.Context) {
 
 // GET /v1/disputes/:id
 func getDispute(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, ok := GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -139,6 +145,8 @@ func getDispute(c *gin.Context) {
 
 // POST /v1/admin/disputes/:id/resolve — admin resolves a dispute
 func resolveDispute(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	if !isAdmin(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
 		return
@@ -179,6 +187,8 @@ func resolveDispute(c *gin.Context) {
 
 // POST /v1/admin/disputes/:id/dismiss — admin dismisses an invalid dispute
 func dismissDispute(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	if !isAdmin(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
 		return

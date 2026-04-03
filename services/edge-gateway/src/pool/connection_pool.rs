@@ -36,9 +36,7 @@ struct PoolBucket {
 
 impl PoolBucket {
     fn new() -> Self {
-        let now_ms = Instant::now()
-            .elapsed()
-            .as_millis() as u64; // relative; good enough for eviction
+        let now_ms = Instant::now().elapsed().as_millis() as u64; // relative; good enough for eviction
         Self {
             idle: Mutex::new(VecDeque::new()),
             in_use: AtomicUsize::new(0),
@@ -59,8 +57,10 @@ impl PoolBucket {
         }
         if let Some(idle) = queue.pop_front() {
             self.in_use.fetch_add(1, Ordering::Relaxed);
-            self.last_used
-                .store(Instant::now().elapsed().as_millis() as u64, Ordering::Relaxed);
+            self.last_used.store(
+                Instant::now().elapsed().as_millis() as u64,
+                Ordering::Relaxed,
+            );
             Some(idle.stream)
         } else {
             None

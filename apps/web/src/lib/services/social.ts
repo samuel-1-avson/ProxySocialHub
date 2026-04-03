@@ -49,17 +49,17 @@ export interface Friendship {
 }
 
 export async function listFriends(): Promise<Friendship[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/friends`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends`);
     if (!response.ok) return [];
     const data = await response.json();
-    return data.friends || [];
+    return Array.isArray(data) ? data : (data.friends || []);
 }
 
 export async function getFriendRequests(): Promise<Friendship[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/friends/requests`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends/requests`);
     if (!response.ok) return [];
     const data = await response.json();
-    return data.requests || [];
+    return Array.isArray(data) ? data : (data.requests || []);
 }
 
 // Chat / Messaging
@@ -91,32 +91,31 @@ export interface ConversationWithPreview {
 }
 
 export async function getConversations(): Promise<ConversationWithPreview[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/conversations`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/conversations`);
     if (!response.ok) throw new Error('Failed to fetch conversations');
     const data = await response.json();
     return data.conversations || [];
 }
 
-export async function startConversation(userId: string): Promise<Conversation> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/conversations`, {
+export async function startConversation(userId: string, message = 'Hi there!'): Promise<Conversation> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/conversations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({ recipient_id: userId, message }),
     });
     if (!response.ok) throw new Error('Failed to start conversation');
-    const data = await response.json();
-    return data.conversation;
+    return response.json();
 }
 
 export async function getMessages(conversationId: string, page = 1): Promise<Message[]> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/conversations/${conversationId}/messages?page=${page}`);
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/conversations/${conversationId}/messages?page=${page}`);
     if (!response.ok) throw new Error('Failed to fetch messages');
     const data = await response.json();
     return data.messages || [];
 }
 
 export async function sendMessage(conversationId: string, content: string): Promise<Message> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/social/conversations/${conversationId}/messages`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/conversations/${conversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),

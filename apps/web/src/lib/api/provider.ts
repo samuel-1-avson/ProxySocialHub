@@ -3,7 +3,7 @@
  * CLI downloads, token management, and node registration
  */
 
-import { apiGet, apiPost, apiDelete } from './client';
+import { apiGet, apiPost, apiDelete, apiPut } from './client';
 
 // ============ Types ============
 
@@ -215,7 +215,7 @@ export async function createNode(data: CreateNodeRequest): Promise<NodeRegistrat
  * Update a node
  */
 export async function updateNode(nodeId: string, data: Partial<CreateNodeRequest>): Promise<NodeRegistration> {
-    return apiPost<NodeRegistration>(`/v1/provider/nodes/${nodeId}`, data);
+    return apiPut<NodeRegistration>(`/v1/provider/nodes/${nodeId}`, data);
 }
 
 /**

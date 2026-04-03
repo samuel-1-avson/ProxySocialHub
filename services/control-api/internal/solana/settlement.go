@@ -5,9 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/proxyhubb/control-api/internal/logging"
 )
 
 // anchorDiscriminator computes the 8-byte Anchor instruction discriminator for a
@@ -30,6 +34,60 @@ var (
 	discSubmitUsageProof = anchorDiscriminator("submit_usage_proof")
 )
 
+// SettlementTelemetry is a runtime snapshot of settlement activity by source.
+// It helps prove which code path initiated each settlement operation.
+type SettlementTelemetry struct {
+	Source     string    `json:"source"`
+	Attempts   uint64    `json:"attempts"`
+	Successes  uint64    `json:"successes"`
+	Failures   uint64    `json:"failures"`
+	LastTxHash string    `json:"last_tx_hash,omitempty"`
+	LastError  string    `json:"last_error,omitempty"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
+var settlementTelemetryStore = struct {
+	mu   sync.RWMutex
+	data map[string]*SettlementTelemetry
+}{
+	data: make(map[string]*SettlementTelemetry),
+}
+
+func recordSettlementTelemetry(source string, txHash string, err error) {
+	settlementTelemetryStore.mu.Lock()
+	defer settlementTelemetryStore.mu.Unlock()
+
+	entry, ok := settlementTelemetryStore.data[source]
+	if !ok {
+		entry = &SettlementTelemetry{Source: source}
+		settlementTelemetryStore.data[source] = entry
+	}
+
+	entry.Attempts++
+	entry.LastSeenAt = time.Now().UTC()
+	if err != nil {
+		entry.Failures++
+		entry.LastError = err.Error()
+		return
+	}
+
+	entry.Successes++
+	entry.LastError = ""
+	entry.LastTxHash = txHash
+}
+
+// GetSettlementTelemetrySnapshot returns a point-in-time copy of settlement telemetry.
+func GetSettlementTelemetrySnapshot() []SettlementTelemetry {
+	settlementTelemetryStore.mu.RLock()
+	defer settlementTelemetryStore.mu.RUnlock()
+
+	out := make([]SettlementTelemetry, 0, len(settlementTelemetryStore.data))
+	for _, v := range settlementTelemetryStore.data {
+		out = append(out, *v)
+	}
+	return out
+}
+
 // SettleEscrowParams contains the parameters for settling an escrow
 type SettleEscrowParams struct {
 	// Buyer public key (for refund)
@@ -51,9 +109,23 @@ type SubmitUsageProofParams struct {
 	PeriodEnd   int64
 }
 
-// SettleEscrow creates and sends a settle_escrow transaction
-// This transfers funds proportionally: used portion to seller, remainder to buyer
-func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowParams) (string, error) {
+// SettleEscrow creates and sends a settle_escrow transaction.
+// This transfers funds proportionally: used portion to seller, remainder to buyer.
+// source must identify the runtime call path (for example: api.escrow.release).
+func (c *OracleClient) SettleEscrow(ctx context.Context, source string, params SettleEscrowParams) (string, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		err := fmt.Errorf("settlement source label is required")
+		recordSettlementTelemetry("missing_source", "", err)
+		return "", err
+	}
+
+	logging.Info().
+		Str("source", source).
+		Str("escrow_pda", params.EscrowPDA.String()).
+		Uint64("bandwidth_used_gb", params.BandwidthUsedGB).
+		Msg("SettleEscrow attempt")
+
 	// Build the settle_escrow instruction
 	instruction := c.buildSettleInstruction(params)
 
@@ -65,6 +137,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 		return err
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 
@@ -75,6 +148,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 		sol.TransactionPayer(c.oracleKey.PublicKey()),
 	)
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to build transaction: %w", err)
 	}
 
@@ -86,6 +160,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 		return nil
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
@@ -97,17 +172,39 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, params SettleEscrowPara
 		return err
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to send transaction: %w", err)
 	}
+
+	recordSettlementTelemetry(source, sig.String(), nil)
+	logging.Info().
+		Str("source", source).
+		Str("tx_hash", sig.String()).
+		Msg("SettleEscrow success")
 
 	return sig.String(), nil
 }
 
-// BatchSettleEscrows builds and sends a transaction with multiple settle_escrow instructions
-func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEscrowParams) (string, error) {
-	if len(batch) == 0 {
-		return "", fmt.Errorf("empty batch")
+// BatchSettleEscrows builds and sends a transaction with multiple settle_escrow instructions.
+// source must identify the runtime call path.
+func (c *OracleClient) BatchSettleEscrows(ctx context.Context, source string, batch []SettleEscrowParams) (string, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		err := fmt.Errorf("batch settlement source label is required")
+		recordSettlementTelemetry("missing_source", "", err)
+		return "", err
 	}
+
+	if len(batch) == 0 {
+		err := fmt.Errorf("empty batch")
+		recordSettlementTelemetry(source, "", err)
+		return "", err
+	}
+
+	logging.Info().
+		Str("source", source).
+		Int("batch_size", len(batch)).
+		Msg("BatchSettleEscrows attempt")
 
 	instructions := make([]sol.Instruction, len(batch))
 	for i, params := range batch {
@@ -122,6 +219,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEsc
 		return err
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 
@@ -132,6 +230,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEsc
 		sol.TransactionPayer(c.oracleKey.PublicKey()),
 	)
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to build batch transaction: %w", err)
 	}
 
@@ -143,6 +242,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEsc
 		return nil
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to sign batch transaction: %w", err)
 	}
 
@@ -154,8 +254,16 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, batch []SettleEsc
 		return err
 	})
 	if err != nil {
+		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to send batch transaction: %w", err)
 	}
+
+	recordSettlementTelemetry(source, sig.String(), nil)
+	logging.Info().
+		Str("source", source).
+		Str("tx_hash", sig.String()).
+		Int("batch_size", len(batch)).
+		Msg("BatchSettleEscrows success")
 
 	return sig.String(), nil
 }

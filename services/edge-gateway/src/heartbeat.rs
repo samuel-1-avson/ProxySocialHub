@@ -2,14 +2,14 @@
 //!
 //! Tracks provider health via periodic heartbeats and evicts unhealthy providers.
 
+use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tracing::{info, warn, error, debug};
-use serde::{Deserialize, Serialize};
-use redis::AsyncCommands;
+use tracing::{debug, error, info, warn};
 
 /// Heartbeat status of a provider (in-memory tracking)
 #[derive(Debug, Clone)]
@@ -91,7 +91,7 @@ impl HeartbeatStore {
 
         let key = format!("heartbeat:{}", node_id);
         let timestamp_str = timestamp.to_string();
-        
+
         if let Err(e) = redis::cmd("HSET")
             .arg(&key)
             .arg("timestamp")
@@ -107,7 +107,7 @@ impl HeartbeatStore {
 
         // Set expiry on the heartbeat key (2 minutes)
         let _: Result<(), _> = conn.expire(&key, 120).await;
-        
+
         debug!("Updated heartbeat for {} at {}", node_id, timestamp);
     }
 
@@ -122,7 +122,7 @@ impl HeartbeatStore {
         };
 
         let key = format!("heartbeat:{}", node_id);
-        
+
         match conn.exists(&key).await {
             Ok::<bool, _>(exists) => exists,
             Err(e) => {
@@ -143,7 +143,7 @@ impl HeartbeatStore {
         };
 
         let key = format!("heartbeat:{}", node_id);
-        
+
         match conn.hget::<_, _, Option<String>>(&key, "timestamp").await {
             Ok(Some(ts)) => ts.parse().ok(),
             Ok(None) => None,
@@ -208,7 +208,10 @@ impl HeartbeatMonitor {
     }
 
     /// Start the heartbeat monitoring task
-    pub fn start_monitoring(self: Arc<Self>, registry: Arc<crate::registry::lockfree::LockFreeNodeRegistry>) {
+    pub fn start_monitoring(
+        self: Arc<Self>,
+        registry: Arc<crate::registry::lockfree::LockFreeNodeRegistry>,
+    ) {
         let check_interval = self.config.check_interval;
 
         tokio::spawn(async move {
@@ -223,7 +226,10 @@ impl HeartbeatMonitor {
             }
         });
 
-        info!("🔍 Heartbeat monitor started (check interval: {:?})", check_interval);
+        info!(
+            "🔍 Heartbeat monitor started (check interval: {:?})",
+            check_interval
+        );
     }
 
     /// Register a new provider for heartbeat tracking
@@ -231,29 +237,43 @@ impl HeartbeatMonitor {
         let mut heartbeats = self.heartbeats.write().await;
         heartbeats.insert(
             node_id.to_string(),
-            HeartbeatStatus::new(node_id.to_string())
+            HeartbeatStatus::new(node_id.to_string()),
         );
-        info!("💓 Registered provider {} for heartbeat monitoring", node_id);
+        info!(
+            "💓 Registered provider {} for heartbeat monitoring",
+            node_id
+        );
     }
 
     /// Unregister a provider (when they disconnect)
     pub async fn unregister_provider(&self, node_id: &str) {
         let mut heartbeats = self.heartbeats.write().await;
         heartbeats.remove(node_id);
-        debug!("Unregistered provider {} from heartbeat monitoring", node_id);
+        debug!(
+            "Unregistered provider {} from heartbeat monitoring",
+            node_id
+        );
     }
 
     /// Record a heartbeat from a provider with detailed message
-    pub async fn record_heartbeat_details(&self, msg: &HeartbeatMessage, latency_ms: u32) -> Result<(), String> {
+    pub async fn record_heartbeat_details(
+        &self,
+        msg: &HeartbeatMessage,
+        latency_ms: u32,
+    ) -> Result<(), String> {
         let mut heartbeats = self.heartbeats.write().await;
-        
+
         match heartbeats.get_mut(&msg.node_id) {
             Some(status) => {
                 status.record_heartbeat(msg, latency_ms);
                 debug!(
                     "💓 Heartbeat from {} (latency: {}ms, total: {}, cpu: {}%, bw: {}/{} bytes)",
-                    msg.node_id, latency_ms, status.total_heartbeats, 
-                    status.cpu_percent, status.bandwidth_up, status.bandwidth_down
+                    msg.node_id,
+                    latency_ms,
+                    status.total_heartbeats,
+                    status.cpu_percent,
+                    status.bandwidth_up,
+                    status.bandwidth_down
                 );
                 Ok(())
             }
@@ -281,13 +301,14 @@ impl HeartbeatMonitor {
 
                 warn!(
                     "⚠️ Provider {} heartbeat stale (missed: {}/{})",
-                    node_id,
-                    status.consecutive_misses,
-                    self.config.max_missed_heartbeats
+                    node_id, status.consecutive_misses, self.config.max_missed_heartbeats
                 );
 
                 if status.consecutive_misses >= self.config.max_missed_heartbeats {
-                    error!("🚫 Provider {} exceeded max missed heartbeats, evicting", node_id);
+                    error!(
+                        "🚫 Provider {} exceeded max missed heartbeats, evicting",
+                        node_id
+                    );
                     to_evict.push(node_id.clone());
                     status.is_healthy = false;
                 }
@@ -368,16 +389,26 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_status() {
         let mut status = HeartbeatStatus::new("node-1".to_string());
-        
+
         assert!(status.is_healthy);
         assert_eq!(status.consecutive_misses, 0);
-        
+
         let msg = HeartbeatMessage {
             node_id: "node-1".to_string(),
             timestamp: 0,
             active_connections: 5,
-            bandwidth_usage: BandwidthUsage { bytes_up: 100, bytes_down: 200, rate_up_kbps: 10, rate_down_kbps: 20 },
-            system_stats: SystemStats { cpu_percent: 10.0, memory_percent: 20.0, uptime_seconds: 100, goroutines: 0 },
+            bandwidth_usage: BandwidthUsage {
+                bytes_up: 100,
+                bytes_down: 200,
+                rate_up_kbps: 10,
+                rate_down_kbps: 20,
+            },
+            system_stats: SystemStats {
+                cpu_percent: 10.0,
+                memory_percent: 20.0,
+                uptime_seconds: 100,
+                goroutines: 0,
+            },
         };
 
         // Record heartbeat
@@ -385,7 +416,7 @@ mod tests {
         assert_eq!(status.total_heartbeats, 1);
         assert_eq!(status.latency_ms, 50);
         assert_eq!(status.active_connections, 5);
-        
+
         // Record miss
         status.record_miss();
         assert_eq!(status.consecutive_misses, 1);
@@ -399,29 +430,39 @@ mod tests {
             max_missed_heartbeats: 2,
             check_interval: Duration::from_millis(50),
         };
-        
+
         let monitor = Arc::new(HeartbeatMonitor::new(config));
-        
+
         // Register provider
         monitor.register_provider("node-1").await;
-        
+
         let msg = HeartbeatMessage {
             node_id: "node-1".to_string(),
             timestamp: 0,
             active_connections: 5,
-            bandwidth_usage: BandwidthUsage { bytes_up: 100, bytes_down: 200, rate_up_kbps: 10, rate_down_kbps: 20 },
-            system_stats: SystemStats { cpu_percent: 10.0, memory_percent: 20.0, uptime_seconds: 100, goroutines: 0 },
+            bandwidth_usage: BandwidthUsage {
+                bytes_up: 100,
+                bytes_down: 200,
+                rate_up_kbps: 10,
+                rate_down_kbps: 20,
+            },
+            system_stats: SystemStats {
+                cpu_percent: 10.0,
+                memory_percent: 20.0,
+                uptime_seconds: 100,
+                goroutines: 0,
+            },
         };
 
         // Record heartbeat
         monitor.record_heartbeat_details(&msg, 10).await.unwrap();
-        
+
         // Check healthy
         assert!(monitor.is_healthy("node-1").await);
-        
+
         // Wait for timeout
         sleep(Duration::from_millis(150)).await;
-        
+
         // Should be unhealthy now
         assert!(!monitor.is_healthy("node-1").await);
     }
@@ -445,7 +486,7 @@ mod tests {
                 goroutines: 10,
             },
         };
-        
+
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("node-1"));
         assert!(json.contains("1234567890"));
