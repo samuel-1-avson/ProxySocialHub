@@ -464,7 +464,7 @@ impl AppState {
         // Initialize Control API client for node registration
         let control_api = Arc::new(crate::control_api::ControlApiClient::new(
             &config.control_api_url,
-            &config.jwt_secret,
+            &config.gateway_shared_secret,
         ));
         let honeytoken = Arc::new(crate::security::honeytoken::HoneytokenRegistry::new());
         let anomaly = Arc::new(crate::security::anomaly::AnomalyTracker::new(

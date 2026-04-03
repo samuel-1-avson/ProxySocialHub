@@ -6,8 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/solana"
 
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -18,6 +20,8 @@ func RegisterAdminExtendedRoutes(r *gin.RouterGroup) {
 	// System health & alerts (system:monitor permission)
 	r.GET("/system/health", RequirePermission("system:monitor"), adminSystemHealth)
 	r.GET("/system/alerts", RequirePermission("system:monitor"), adminSystemAlerts)
+	r.GET("/system/staking-readiness", RequirePermission("system:monitor"), adminStakingReadiness)
+	r.GET("/system/governance-execution-readiness", RequirePermission("system:monitor"), adminGovernanceExecutionReadiness)
 
 	// User force-logout (users:manage permission)
 	r.POST("/users/:id/force-logout", RequirePermission("users:manage"), adminForceLogout)
@@ -143,6 +147,40 @@ func adminSystemAlerts(c *gin.Context) {
 	})
 }
 
+// adminStakingReadiness reports whether deployed Solana program instructions
+// required for staking_v2 are available before traffic reaches staking APIs.
+func adminStakingReadiness(c *gin.Context) {
+	report := solana.GetStakingCapabilityReport(c.Request.Context())
+
+	statusCode := http.StatusOK
+	if !report.Ready {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	c.JSON(statusCode, gin.H{
+		"staking":               report,
+		"full_decentralization": decentralization.FullModeEnabled(),
+		"checked_at":            time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// adminGovernanceExecutionReadiness reports whether deployed Solana program
+// instructions required for chain-authoritative governance execution are available.
+func adminGovernanceExecutionReadiness(c *gin.Context) {
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+
+	statusCode := http.StatusOK
+	if !report.Ready {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	c.JSON(statusCode, gin.H{
+		"governance_execution":  report,
+		"full_decentralization": decentralization.FullModeEnabled(),
+		"checked_at":            time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // ========== User Force-Logout ==========
 
 func adminForceLogout(c *gin.Context) {
@@ -161,9 +199,9 @@ func adminForceLogout(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":            "All sessions terminated",
-		"sessions_affected":  result.RowsAffected,
-		"user_id":            userID,
+		"message":           "All sessions terminated",
+		"sessions_affected": result.RowsAffected,
+		"user_id":           userID,
 	})
 }
 
@@ -295,10 +333,10 @@ func adminTreasuryOverview(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"revenue": gin.H{
-			"total":        totalRevenue,
-			"today":        todayRevenue,
-			"this_week":    weekRevenue,
-			"this_month":   monthRevenue,
+			"total":      totalRevenue,
+			"today":      todayRevenue,
+			"this_week":  weekRevenue,
+			"this_month": monthRevenue,
 		},
 		"payouts": gin.H{
 			"pending_total_sol": pendingPayouts,
@@ -430,11 +468,11 @@ func adminForceResolveDispute(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":    "Dispute force-resolved by admin",
-		"dispute_id": disputeID,
-		"resolution": req.Resolution,
+		"message":     "Dispute force-resolved by admin",
+		"dispute_id":  disputeID,
+		"resolution":  req.Resolution,
 		"resolved_by": adminUsername,
-		"reason":     req.Reason,
+		"reason":      req.Reason,
 	})
 }
 
@@ -454,53 +492,15 @@ func adminListProposals(c *gin.Context) {
 //
 // D-G4: Admins can no longer cancel proposals unilaterally once community
 // voting has begun.  Cancellation is only permitted when:
-//   1. The proposal is still within the 1-hour grace window (no one has voted
-//      yet, so the community has not committed any stake), OR
-//   2. The proposal has received zero votes from any address.
+//  1. The proposal is still within the 1-hour grace window (no one has voted
+//     yet, so the community has not committed any stake), OR
+//  2. The proposal has received zero votes from any address.
 //
 // This prevents the platform from silently killing inconvenient proposals
 // after the community has already expressed intent.
 func adminCancelProposal(c *gin.Context) {
-	proposalID := c.Param("id")
-	adminUsername := c.GetString("adminUsername")
-
-	var proposal models.Proposal
-	if err := db.DB.First(&proposal, "id = ?", proposalID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
-		return
-	}
-
-	if proposal.Status != models.ProposalActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only active proposals can be cancelled"})
-		return
-	}
-
-	// Grace window: first hour after creation, no votes cast yet.
-	gracePeriod := proposal.CreatedAt.Add(1 * time.Hour)
-	totalVotes := proposal.YesVotes + proposal.NoVotes
-	withinGrace := time.Now().Before(gracePeriod)
-	noVotesCast := totalVotes == 0
-
-	if !withinGrace && !noVotesCast {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot cancel: voting has begun and the 1-hour grace window has passed. " +
-				"Submit a counter-proposal or wait for the vote to conclude.",
-			"yes_votes":    proposal.YesVotes,
-			"no_votes":     proposal.NoVotes,
-			"grace_expired": gracePeriod.UTC().Format(time.RFC3339),
-		})
-		return
-	}
-
-	db.DB.Model(&proposal).Updates(map[string]interface{}{
-		"status":     "cancelled",
-		"updated_at": time.Now(),
-	})
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":      "Proposal cancelled",
-		"proposal_id":  proposalID,
-		"cancelled_by": adminUsername,
-		"reason":       "Within grace window or zero votes cast",
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+	c.JSON(http.StatusGone, gin.H{
+		"error": "Centralized governance cancel endpoint is disabled. Governance state transitions must be finalized through chain-authoritative flow.",
 	})
 }

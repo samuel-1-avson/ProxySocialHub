@@ -52,10 +52,7 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret          string
-	SupabaseURL        string
-	SupabaseAnonKey    string
-	SupabaseServiceKey string
+	JWTSecret string
 }
 
 type OAuthConfig struct {
@@ -92,6 +89,7 @@ type CryptoConfig struct {
 type BlockchainConfig struct {
 	EthRPC          string
 	RegistryAddress string
+	PHBTokenMint    string // SPL token mint address for the PHB governance/fee token
 }
 
 // Load loads configuration from environment variables
@@ -117,8 +115,8 @@ func Load() (*Config, error) {
 			"http://localhost:3001",
 			"http://127.0.0.1:3000",
 			"http://localhost:4001",
-			"http://localhost:3002",      // Admin web app
-			"http://127.0.0.1:3002",     // Admin web app (alternate)
+			"http://localhost:3002",               // Admin web app
+			"http://127.0.0.1:3002",               // Admin web app (alternate)
 			"https://proxy-social-hub.vercel.app", // Allow Vercel Frontend
 		}
 	}
@@ -132,9 +130,6 @@ func Load() (*Config, error) {
 
 	// Auth
 	cfg.Auth.JWTSecret = getEnv("JWT_SECRET", "proxyhubb-dev-secret-change-in-production")
-	cfg.Auth.SupabaseURL = os.Getenv("SUPABASE_URL")
-	cfg.Auth.SupabaseAnonKey = os.Getenv("SUPABASE_ANON_KEY")
-	cfg.Auth.SupabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
 
 	// OAuth
 	cfg.OAuth.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
@@ -165,31 +160,61 @@ func Load() (*Config, error) {
 
 	// Blockchain
 	cfg.Blockchain.EthRPC = getEnv("ETH_RPC_URL", "http://localhost:8545")
-
 	cfg.Blockchain.RegistryAddress = os.Getenv("REGISTRY_CONTRACT_ADDRESS")
+	cfg.Blockchain.PHBTokenMint = os.Getenv("PHB_TOKEN_MINT")
 
 	// Edge Gateway
 	cfg.Gateway.ManagementURL = getEnv("EDGE_GATEWAY_MGMT_URL", "http://edge-gateway:8090")
 
 	// Admin Panel
-	cfg.Admin.JWTSecret = getEnv("ADMIN_JWT_SECRET", "proxyhubb-admin-secret-change-in-production")
+	adminJWTSecret, err := requireEnv("ADMIN_JWT_SECRET")
+	if err != nil {
+		return nil, err
+	}
+	cfg.Admin.JWTSecret = adminJWTSecret
 	cfg.Admin.SessionTTLHr = 4
+
+	admin1Username, err := requireEnv("ADMIN_ACCOUNT_1_USERNAME")
+	if err != nil {
+		return nil, err
+	}
+	admin1Password, err := requireEnv("ADMIN_ACCOUNT_1_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+	admin2Username, err := requireEnv("ADMIN_ACCOUNT_2_USERNAME")
+	if err != nil {
+		return nil, err
+	}
+	admin2Password, err := requireEnv("ADMIN_ACCOUNT_2_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+	admin3Username, err := requireEnv("ADMIN_ACCOUNT_3_USERNAME")
+	if err != nil {
+		return nil, err
+	}
+	admin3Password, err := requireEnv("ADMIN_ACCOUNT_3_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg.Admin.Accounts = []AdminAccount{
 		{
-			Username:   getEnv("ADMIN_ACCOUNT_1_USERNAME", "superadmin"),
-			Password:   getEnv("ADMIN_ACCOUNT_1_PASSWORD", "PHub@Super2026!"),
+			Username:   admin1Username,
+			Password:   admin1Password,
 			Role:       getEnv("ADMIN_ACCOUNT_1_ROLE", "superadmin"),
 			TOTPSecret: getEnv("ADMIN_ACCOUNT_1_TOTP_SECRET", ""),
 		},
 		{
-			Username:   getEnv("ADMIN_ACCOUNT_2_USERNAME", "sysops"),
-			Password:   getEnv("ADMIN_ACCOUNT_2_PASSWORD", "PHub@Ops2026!"),
+			Username:   admin2Username,
+			Password:   admin2Password,
 			Role:       getEnv("ADMIN_ACCOUNT_2_ROLE", "sysops"),
 			TOTPSecret: getEnv("ADMIN_ACCOUNT_2_TOTP_SECRET", ""),
 		},
 		{
-			Username:   getEnv("ADMIN_ACCOUNT_3_USERNAME", "support"),
-			Password:   getEnv("ADMIN_ACCOUNT_3_PASSWORD", "PHub@Support2026!"),
+			Username:   admin3Username,
+			Password:   admin3Password,
 			Role:       getEnv("ADMIN_ACCOUNT_3_ROLE", "support"),
 			TOTPSecret: getEnv("ADMIN_ACCOUNT_3_TOTP_SECRET", ""),
 		},
@@ -203,4 +228,12 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func requireEnv(key string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return "", fmt.Errorf("%s is required", key)
+	}
+	return value, nil
 }

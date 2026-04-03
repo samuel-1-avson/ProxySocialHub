@@ -1,11 +1,15 @@
 package api
 
 import (
+	"crypto/subtle"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -13,13 +17,38 @@ import (
 )
 
 // RegisterGatewayRoutes registers gateway-specific routes (called by Edge Gateway)
-func RegisterGatewayRoutes(rg *gin.RouterGroup) {
+func RegisterGatewayRoutes(rg *gin.RouterGroup, cfg *config.Config) {
 	gateway := rg.Group("/gateway")
+	gateway.Use(requireGatewayAuth(cfg))
 	{
 		// Node registration and heartbeat
 		gateway.POST("/nodes/register", registerGatewayNode)
 		gateway.POST("/nodes/:id/heartbeat", updateGatewayNodeHeartbeat)
 		gateway.POST("/nodes/:id/status", updateGatewayNodeStatus)
+	}
+}
+
+// requireGatewayAuth restricts gateway control-plane endpoints to trusted
+// edge-gateway callers using a shared secret header.
+func requireGatewayAuth(cfg *config.Config) gin.HandlerFunc {
+	sharedSecret := strings.TrimSpace(os.Getenv("GATEWAY_SHARED_SECRET"))
+	if sharedSecret == "" && cfg != nil {
+		sharedSecret = strings.TrimSpace(cfg.Auth.JWTSecret)
+	}
+
+	return func(c *gin.Context) {
+		if sharedSecret == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Gateway authentication is not configured"})
+			return
+		}
+
+		provided := strings.TrimSpace(c.GetHeader("X-Gateway-Auth"))
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(sharedSecret)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized gateway request"})
+			return
+		}
+
+		c.Next()
 	}
 }
 
@@ -170,7 +199,7 @@ func registerGatewayNode(c *gin.Context) {
 
 // GatewayHeartbeatRequest represents a heartbeat update from Edge Gateway
 type GatewayHeartbeatRequest struct {
-	ActiveConnections int  `json:"active_connections"`
+	ActiveConnections int   `json:"active_connections"`
 	TotalBytesUp      int64 `json:"total_bytes_up"`
 	TotalBytesDown    int64 `json:"total_bytes_down"`
 	LatencyMs         int   `json:"latency_ms"`

@@ -43,8 +43,8 @@ export function MilestoneProgress({ className }: MilestoneProgressProps) {
     useEffect(() => {
         const fetchNextMilestone = async () => {
             try {
-                const token = localStorage.getItem('token');
-                const response = await fetch('/api/v1/milestones/next', {
+                const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+                const response = await fetch('/v1/milestones/next', {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {},
                 });
 

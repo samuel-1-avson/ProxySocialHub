@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn};
 pub struct ControlApiClient {
     client: Client,
     base_url: String,
-    jwt_secret: String,
+    gateway_auth_secret: String,
 }
 
 /// Node registration request
@@ -73,7 +73,7 @@ pub struct StatusUpdateRequest {
 
 impl ControlApiClient {
     /// Create a new Control API client
-    pub fn new(base_url: &str, jwt_secret: &str) -> Self {
+    pub fn new(base_url: &str, gateway_auth_secret: &str) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .pool_idle_timeout(Duration::from_secs(30))
@@ -83,21 +83,21 @@ impl ControlApiClient {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
-            jwt_secret: jwt_secret.to_string(),
+            gateway_auth_secret: gateway_auth_secret.to_string(),
         }
     }
 
     /// Register or update a node in Control API
     pub async fn register_node(&self, req: &RegisterNodeRequest) -> Result<RegisterNodeResponse> {
         let url = format!("{}/v1/gateway/nodes/register", self.base_url);
-        
+
         debug!("Registering node with Control API: {}", req.node_id);
 
         let response = self
             .client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("X-Gateway-Auth", &self.jwt_secret)
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
             .json(req)
             .send()
             .await
@@ -107,18 +107,18 @@ impl ControlApiClient {
             })?;
 
         let status = response.status();
-        
+
         if status.is_success() {
             let body = response.json::<RegisterNodeResponse>().await.map_err(|e| {
                 error!("Failed to parse registration response: {}", e);
                 Error::Internal(format!("Parse error: {}", e))
             })?;
-            
+
             info!(
                 "Node registered successfully: {} (DB ID: {})",
                 body.node_id, body.id
             );
-            
+
             Ok(body)
         } else {
             let text = response.text().await.unwrap_or_default();
@@ -147,7 +147,7 @@ impl ControlApiClient {
             .client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("X-Gateway-Auth", &self.jwt_secret)
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
             .json(req)
             .send()
             .await
@@ -163,9 +163,9 @@ impl ControlApiClient {
                 error!("Failed to parse heartbeat response: {}", e);
                 Error::Internal(format!("Parse error: {}", e))
             })?;
-            
+
             debug!("Heartbeat sent successfully for node: {}", db_node_id);
-            
+
             Ok(body)
         } else {
             let text = response.text().await.unwrap_or_default();
@@ -200,7 +200,7 @@ impl ControlApiClient {
             .client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("X-Gateway-Auth", &self.jwt_secret)
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
             .json(&req)
             .send()
             .await

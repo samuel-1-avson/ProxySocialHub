@@ -50,7 +50,9 @@ impl ReputationEntry {
         let now = unix_second();
         let prev = self.last_update.swap(now, Ordering::Relaxed);
         let elapsed_hours = (now.saturating_sub(prev)) / 3600;
-        if elapsed_hours == 0 { return; }
+        if elapsed_hours == 0 {
+            return;
+        }
 
         let score = self.score.load(Ordering::Relaxed);
         let delta = (score - INITIAL_SCORE).signum() * (elapsed_hours as i32).min(score.abs());
@@ -233,8 +235,12 @@ impl GeoBlockList {
             .map(|s| s.to_uppercase())
     }
 
-    pub fn deny_count(&self) -> usize { self.denied.len() }
-    pub fn allow_count(&self) -> usize { self.allowed.len() }
+    pub fn deny_count(&self) -> usize {
+        self.denied.len()
+    }
+    pub fn allow_count(&self) -> usize {
+        self.allowed.len()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +266,9 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    fn ip(a: u8) -> IpAddr { IpAddr::V4(Ipv4Addr::new(10, 0, 0, a)) }
+    fn ip(a: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, a))
+    }
 
     #[test]
     fn test_initial_score_is_neutral() {
@@ -272,7 +280,9 @@ mod tests {
     #[test]
     fn test_auth_failures_lower_score() {
         let store = IpReputationStore::new(Duration::from_secs(3600));
-        for _ in 0..10 { store.auth_failure(ip(2)); }
+        for _ in 0..10 {
+            store.auth_failure(ip(2));
+        }
         let score = store.score(ip(2));
         assert!(score < INITIAL_SCORE);
     }
@@ -281,42 +291,40 @@ mod tests {
     fn test_ddos_block_causes_block_decision() {
         let store = IpReputationStore::new(Duration::from_secs(3600));
         // 3 DDoS blocks = −60 → score = max(0, 50−60) = 0
-        for _ in 0..3 { store.ddos_block(ip(3)); }
+        for _ in 0..3 {
+            store.ddos_block(ip(3));
+        }
         assert_eq!(store.decide(ip(3)), ReputationDecision::Block);
     }
 
     #[test]
     fn test_success_raises_score() {
         let store = IpReputationStore::new(Duration::from_secs(3600));
-        for _ in 0..20 { store.success(ip(4)); }
+        for _ in 0..20 {
+            store.success(ip(4));
+        }
         assert!(store.score(ip(4)) > INITIAL_SCORE);
     }
 
     #[test]
     fn test_score_capped_at_max() {
         let store = IpReputationStore::new(Duration::from_secs(3600));
-        for _ in 0..200 { store.success(ip(5)); }
+        for _ in 0..200 {
+            store.success(ip(5));
+        }
         assert_eq!(store.score(ip(5)), MAX_SCORE);
     }
 
     #[test]
     fn test_geoblock_deny() {
-        let geo = GeoBlockList::new(
-            vec!["XX".to_string()],
-            vec![],
-            None,
-        );
+        let geo = GeoBlockList::new(vec!["XX".to_string()], vec![], None);
         // Without GeoIP db and empty allow list, unknown IPs are allowed
         assert!(geo.is_allowed(ip(1)));
     }
 
     #[test]
     fn test_geoblock_allowlist_blocks_unknown() {
-        let geo = GeoBlockList::new(
-            vec![],
-            vec!["GH".to_string()],
-            None,
-        );
+        let geo = GeoBlockList::new(vec![], vec!["GH".to_string()], None);
         // With non-empty allow list and no GeoIP, unknown IPs are denied
         assert!(!geo.is_allowed(ip(1)));
     }

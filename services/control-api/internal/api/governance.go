@@ -2,11 +2,14 @@ package api
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
@@ -14,8 +17,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/ipfs"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // RegisterGovernanceRoutes registers governance routes
@@ -23,6 +26,8 @@ func RegisterGovernanceRoutes(rg *gin.RouterGroup) {
 	rg.GET("/governance/proposals", getProposals)
 	rg.POST("/governance/proposals", createProposal)
 	rg.GET("/governance/proposals/:id", getProposal)
+	rg.POST("/governance/proposals/:id/vote/build", buildGovernanceVoteTx)
+	rg.POST("/governance/proposals/:id/vote/relay", relayGovernanceVoteTx)
 	rg.POST("/governance/proposals/:id/vote", castVote)
 	rg.POST("/governance/proposals/:id/execute", executeProposal) // automated/manual trigger
 }
@@ -34,9 +39,21 @@ type CreateProposalRequest struct {
 }
 
 type GovernanceVoteRequest struct {
-	Choice        string `json:"choice" binding:"required,oneof=yes no abstain"`
-	Signature     string `json:"signature" binding:"required"`      // Cryptographic signature
-	WalletAddress string `json:"wallet_address" binding:"required"` // Address that signed
+	Choice        string `json:"choice" binding:"required,oneof=yes no"`
+	Signature     string `json:"signature" binding:"required"`       // Cryptographic signature
+	WalletAddress string `json:"wallet_address" binding:"required"`  // Address that signed
+	OnChainTxSig  string `json:"on_chain_tx_sig" binding:"required"` // Finalized Solana transaction signature
+}
+
+type GovernanceVoteBuildTxRequest struct {
+	Choice        string `json:"choice" binding:"required,oneof=yes no"`
+	Signature     string `json:"signature" binding:"required"`
+	WalletAddress string `json:"wallet_address" binding:"required"`
+}
+
+type GovernanceVoteRelayTxRequest struct {
+	WalletAddress           string `json:"wallet_address" binding:"required"`
+	SignedTransactionBase64 string `json:"signed_transaction_base64" binding:"required"`
 }
 
 // verifyVoteSignature checks if the signature is valid for the vote using Ed25519.
@@ -54,23 +71,22 @@ func verifyVoteSignature(address, message, signature string) bool {
 
 // createProposal creates a new governance proposal
 func createProposal(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		// Try fallback to context keys set by different middlewares
-		if uid, exists := c.Get("user_id"); exists {
-			if id, ok := uid.(uuid.UUID); ok {
-				userIDStr = id.String()
-			}
-		}
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "mirror")
+
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+	if !report.Ready {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":                "governance chain execution is not ready",
+			"governance_execution": report,
+		})
 		return
 	}
 
-	// Check if user has minimum balance to propose (e.g. 10 TAO)
-	// For MVP, we skip this check or check if they are "verified"
+	userID, ok := governanceUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
 
 	var req CreateProposalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -78,17 +94,76 @@ func createProposal(c *gin.Context) {
 		return
 	}
 
-	// Upload description to IPFS
+	walletAddr, walletErr := governanceUserWalletAddress(userID)
+	if walletErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": walletErr.Error()})
+		return
+	}
+
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle unavailable"})
+		return
+	}
+
+	proposerPK, err := solana.PublicKeyFromBase58String(walletAddr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid linked Solana wallet"})
+		return
+	}
+
+	// PHB-GOV: Optional minimum on-chain PHB gate.
+	if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
+		mintKey, mintErr := solana.PublicKeyFromBase58String(mintStr)
+		if mintErr == nil {
+			const minPHBRaw = uint64(100_000_000_000) // 100 PHB @ 9 decimals
+			phbBal, balErr := oracle.GetTokenBalance(c.Request.Context(), proposerPK, mintKey)
+			if balErr == nil && phbBal < minPHBRaw {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": fmt.Sprintf("insufficient PHB: need >=100 PHB to create proposal, have %d raw units", phbBal),
+				})
+				return
+			}
+		}
+	}
+
 	ipfsClient := ipfs.NewClient()
 	cid, err := ipfsClient.UploadText(req.Description)
 	if err != nil {
-		logging.Error(err).Msg("Failed to upload proposal to IPFS")
-		// Continue but warn? Or fail? For MVP, we fail if storage fails.
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to decentralized storage"})
 		return
 	}
 
-	// 1. Ensure Governance Forum Category exists
+	proposalID := uuid.New()
+	now := time.Now()
+	endTime := now.Add(time.Duration(req.DurationDays) * 24 * time.Hour)
+	endSlot := uint64(time.Until(endTime).Milliseconds() / 400)
+	if endSlot == 0 {
+		endSlot = 1
+	}
+	var pidBytes [16]byte
+	copy(pidBytes[:], proposalID[:])
+	titleHash := sha256.Sum256([]byte(req.Title + "|" + cid))
+
+	proposalPDA, txSig, err := oracle.CreateProposalOnChain(c.Request.Context(), solana.CreateProposalParams{
+		ProposalID: pidBytes,
+		Proposer:   proposerPK,
+		TitleHash:  titleHash,
+		EndSlot:    endSlot,
+	})
+	if err != nil {
+		if solana.IsProgramUpgradeRequired(err) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":                "governance program upgrade required",
+				"governance_execution": report,
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "On-chain proposal creation failed: " + err.Error()})
+		return
+	}
+
+	var threadID *uuid.UUID
 	var govCat models.ForumCategory
 	if err := db.Social().Where("name = ?", "Governance").First(&govCat).Error; err != nil {
 		govCat = models.ForumCategory{
@@ -97,44 +172,62 @@ func createProposal(c *gin.Context) {
 			Description: "Official DAO Proposal Discussions",
 			SortOrder:   0,
 		}
-		db.Social().Create(&govCat)
+		_ = db.Social().Create(&govCat).Error
 	}
-
-	// 2. Create Forum Thread
-	thread := models.ForumThread{
-		CategoryID: govCat.ID,
-		AuthorID:   userID,
-		Title:      "Proposal: " + req.Title,
-		Slug:       slugify("proposal-" + req.Title),
-		Content:    req.Description + "\n\n[System] Proposal created automatically.",
-	}
-
-	if err := db.Social().Create(&thread).Error; err != nil {
-		logging.Warn().Err(err).Msg("Failed to auto-create governance thread")
-		// Non-blocking, continue
+	if govCat.ID != uuid.Nil {
+		thread := models.ForumThread{
+			CategoryID: govCat.ID,
+			AuthorID:   userID,
+			Title:      "Proposal: " + req.Title,
+			Slug:       slugify("proposal-" + req.Title),
+			Content:    req.Description + "\n\n[System] Proposal created via chain-authoritative flow.",
+		}
+		if err := db.Social().Create(&thread).Error; err == nil {
+			threadID = &thread.ID
+		}
 	}
 
 	proposal := models.Proposal{
+		ID:          proposalID,
 		Title:       req.Title,
 		Description: req.Description,
 		ProposerID:  userID,
-		StartTime:   time.Now(),
-		EndTime:     time.Now().Add(time.Duration(req.DurationDays) * 24 * time.Hour),
+		Type:        models.ProposalTypeGeneral,
+		StartTime:   now,
+		EndTime:     endTime,
 		Status:      models.ProposalActive,
 		IPFSHash:    cid,
-		ThreadID:    &thread.ID, // Link
+		ThreadID:    threadID,
 	}
 
 	if err := db.Social().Create(&proposal).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proposal"})
+		logging.Warn().Err(err).Str("proposal_id", proposalID.String()).Msg("createProposal: on-chain success, DB mirror failed")
+		c.JSON(http.StatusAccepted, gin.H{
+			"message":      "proposal created on-chain; db mirror pending reconciliation",
+			"proposal_id":  proposalID,
+			"proposal_pda": proposalPDA.String(),
+			"tx_sig":       txSig,
+			"warning":      err.Error(),
+		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"proposal": proposal, "thread_slug": thread.Slug})
+	// Best-effort: persist on-chain PDA if column exists in DB schema.
+	if err := db.Social().Model(&models.Proposal{}).Where("id = ?", proposalID).Update("onchain_pda", proposalPDA.String()).Error; err != nil {
+		logging.Debug().Err(err).Str("proposal_id", proposalID.String()).Msg("createProposal: onchain_pda mirror skipped")
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"proposal":     proposal,
+		"proposal_pda": proposalPDA.String(),
+		"tx_sig":       txSig,
+	})
 }
 
 // getProposals lists all proposals
 func getProposals(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	var proposals []models.Proposal
 
 	query := db.Social().Preload("Proposer").Order("created_at DESC")
@@ -153,6 +246,8 @@ func getProposals(c *gin.Context) {
 
 // getProposal gets a single proposal details
 func getProposal(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
@@ -168,19 +263,229 @@ func getProposal(c *gin.Context) {
 	c.JSON(http.StatusOK, proposal)
 }
 
+// buildGovernanceVoteTx returns an unsigned cast_governance_vote transaction
+// for the caller wallet to sign client-side.
+func buildGovernanceVoteTx(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "mirror")
+
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+	if !report.Ready {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":                "governance chain execution is not ready",
+			"governance_execution": report,
+		})
+		return
+	}
+
+	userID, ok := governanceUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	proposalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proposal ID"})
+		return
+	}
+
+	var req GovernanceVoteBuildTxRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	voteMsg := fmt.Sprintf("vote:%s:%s", proposalID.String(), req.Choice)
+	if !verifyVoteSignature(req.WalletAddress, voteMsg, req.Signature) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
+		return
+	}
+
+	linkedWallet, walletErr := governanceUserWalletAddress(userID)
+	if walletErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": walletErr.Error()})
+		return
+	}
+	if linkedWallet != req.WalletAddress {
+		c.JSON(http.StatusForbidden, gin.H{"error": "wallet_address must match your linked wallet"})
+		return
+	}
+
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle unavailable"})
+		return
+	}
+
+	voterPK, err := solana.PublicKeyFromBase58String(req.WalletAddress)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet_address"})
+		return
+	}
+
+	var pidBytes [16]byte
+	copy(pidBytes[:], proposalID[:])
+	proposalPDA, _, err := oracle.GetGovernanceProposalPDA(pidBytes)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to resolve proposal PDA"})
+		return
+	}
+
+	votingPower := governanceVotePowerRaw(c, oracle, voterPK)
+	builtTx, err := oracle.BuildGovernanceVoteTransaction(c.Request.Context(), solana.BuildGovernanceVoteTxParams{
+		ProposalPDA: proposalPDA,
+		VoterWallet: voterPK,
+		VoteYes:     req.Choice == "yes",
+		VotingPower: votingPower,
+	})
+	if err != nil {
+		if solana.IsProgramUpgradeRequired(err) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":                "governance program upgrade required",
+				"governance_execution": report,
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to build vote transaction: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"proposal_id":                 proposalID,
+		"proposal_pda":                proposalPDA.String(),
+		"governance_vote_pda":         builtTx.GovernanceVotePDA.String(),
+		"wallet_address":              req.WalletAddress,
+		"choice":                      req.Choice,
+		"voting_power":                votingPower,
+		"unsigned_transaction_base64": builtTx.UnsignedTxBase64,
+		"recent_blockhash":            builtTx.RecentBlockhash,
+	})
+}
+
+// relayGovernanceVoteTx relays a fully signed governance vote transaction.
+func relayGovernanceVoteTx(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+	if !report.Ready {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":                "governance chain execution is not ready",
+			"governance_execution": report,
+		})
+		return
+	}
+
+	userID, ok := governanceUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	proposalID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proposal ID"})
+		return
+	}
+
+	var req GovernanceVoteRelayTxRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	linkedWallet, walletErr := governanceUserWalletAddress(userID)
+	if walletErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": walletErr.Error()})
+		return
+	}
+	if linkedWallet != req.WalletAddress {
+		c.JSON(http.StatusForbidden, gin.H{"error": "wallet_address must match your linked wallet"})
+		return
+	}
+
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle unavailable"})
+		return
+	}
+
+	voterPK, err := solana.PublicKeyFromBase58String(req.WalletAddress)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet_address"})
+		return
+	}
+
+	var pidBytes [16]byte
+	copy(pidBytes[:], proposalID[:])
+	proposalPDA, _, err := oracle.GetGovernanceProposalPDA(pidBytes)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to resolve proposal PDA"})
+		return
+	}
+	votePDA, _, err := oracle.GetGovernanceVotePDA(proposalPDA, voterPK)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to resolve governance vote PDA"})
+		return
+	}
+
+	tx, err := sol.TransactionFromBase64(req.SignedTransactionBase64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signed_transaction_base64"})
+		return
+	}
+	if err := tx.VerifySignatures(); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid transaction signatures"})
+		return
+	}
+	if !tx.IsSigner(voterPK) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "signed transaction must include linked wallet as signer"})
+		return
+	}
+	hasProposal, err := tx.HasAccount(proposalPDA)
+	if err != nil || !hasProposal {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "signed transaction does not target proposal account"})
+		return
+	}
+	hasVotePDA, err := tx.HasAccount(votePDA)
+	if err != nil || !hasVotePDA {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "signed transaction does not include expected governance vote account"})
+		return
+	}
+	hasProgram, err := tx.HasAccount(oracle.GetProgramID())
+	if err != nil || !hasProgram {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "signed transaction does not include governance program"})
+		return
+	}
+
+	txSig, err := oracle.RelaySignedTransactionBase64(c.Request.Context(), req.SignedTransactionBase64)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to relay signed transaction: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message":      "Signed governance vote transaction relayed",
+		"proposal_id":  proposalID,
+		"proposal_pda": proposalPDA.String(),
+		"tx_sig":       txSig,
+	})
+}
+
 // castVote allows a user to vote on a proposal
 func castVote(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	// Normalize user ID retrieval
-	if userIDStr == "" {
-		if uid, exists := c.Get("user_id"); exists {
-			if id, ok := uid.(uuid.UUID); ok {
-				userIDStr = id.String()
-			}
-		}
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "mirror")
+
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+	if !report.Ready {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":                "governance chain execution is not ready",
+			"governance_execution": report,
+		})
+		return
 	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
+
+	userID, ok := governanceUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
 		return
 	}
@@ -197,248 +502,270 @@ func castVote(c *gin.Context) {
 		return
 	}
 
-	// 1. Verify Signature (Decentralization Enforcement)
 	voteMsg := fmt.Sprintf("vote:%s:%s", proposalID.String(), req.Choice)
 	if !verifyVoteSignature(req.WalletAddress, voteMsg, req.Signature) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid signature"})
 		return
 	}
 
-	// 2. Check Proposal Status
-	var proposal models.Proposal
-	if err := db.Social().First(&proposal, "id = ?", proposalID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
+	linkedWallet, walletErr := governanceUserWalletAddress(userID)
+	if walletErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": walletErr.Error()})
+		return
+	}
+	if linkedWallet != req.WalletAddress {
+		c.JSON(http.StatusForbidden, gin.H{"error": "wallet_address must match your linked wallet"})
 		return
 	}
 
-	if proposal.Status != models.ProposalActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Voting is closed for this proposal"})
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle unavailable"})
 		return
 	}
 
-	if time.Now().After(proposal.EndTime) {
-		// Auto-close if expired
-		db.Social().Model(&proposal).Update("status", models.ProposalPassed) // Simplification
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Voting period has ended"})
+	voterPK, err := solana.PublicKeyFromBase58String(req.WalletAddress)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid wallet_address"})
 		return
 	}
 
-	// 2. Check if already voted
-	var existingVote models.Vote
-	if err := db.Social().Where("proposal_id = ? AND voter_id = ?", proposalID, userID).First(&existingVote).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
+	var pidBytes [16]byte
+	copy(pidBytes[:], proposalID[:])
+	proposalPDA, _, err := oracle.GetGovernanceProposalPDA(pidBytes)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to resolve proposal PDA"})
 		return
 	}
 
-	// D-G3: Stake-weighted voting.
-	//
-	// Voting power = sum of StakedAmountSOL across all active nodes owned by
-	// the voter, plus a 1.0 base for non-providers so everyone can vote.
-	//
-	// Using staked collateral (not total wallet balance) is intentional:
-	//   - Prevents a holder from voting with funds they haven't committed.
-	//   - Aligns governance power with skin-in-the-game.
-	//   - Capped per address at 10 000 SOL to prevent whale capture.
-	//
-	// TODO (Phase A): snapshot stake at proposal.StartTime block to prevent
-	// last-minute stake manipulation; requires on-chain registry migration.
-	votingPower := 1.0 // base — every authenticated wallet gets 1 vote
-
-	var totalStaked float64
-	db.DB.Model(&models.Node{}).
-		Where("user_id = ? AND is_healthy = true AND deleted_at IS NULL", userID).
-		Select("COALESCE(SUM(staked_amount_sol), 0)").
-		Scan(&totalStaked)
-
-	const maxStakeVotingPower = 10_000.0
-	if totalStaked > maxStakeVotingPower {
-		totalStaked = maxStakeVotingPower
-	}
-	votingPower += totalStaked
-
-	// 4. Record Vote
-	vote := models.Vote{
-		ProposalID: proposalID,
-		VoterID:    userID,
-		Choice:     req.Choice,
-		Power:      votingPower,
-	}
-
-	tx := db.Social().Begin()
-	if err := tx.Create(&vote).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cast vote"})
+	if _, err := oracle.GetTransaction(c.Request.Context(), req.OnChainTxSig); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "On-chain vote transaction not finalized yet", "details": err.Error()})
 		return
 	}
 
-	// Update Proposal Counts
-	metrics := map[string]interface{}{}
-	if req.Choice == "yes" {
-		metrics["yes_votes"] = gorm.Expr("yes_votes + ?", votingPower)
-	} else if req.Choice == "no" {
-		metrics["no_votes"] = gorm.Expr("no_votes + ?", votingPower)
+	voteOnChain, err := oracle.ReadGovernanceVote(c.Request.Context(), proposalPDA, voterPK)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to verify on-chain vote: " + err.Error()})
+		return
 	}
-
-	if err := tx.Model(&proposal).Updates(metrics).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vote counts"})
+	if voteOnChain == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "On-chain vote record not found for wallet"})
 		return
 	}
 
-	tx.Commit()
+	expectedVoteYes := req.Choice == "yes"
+	if voteOnChain.VoteYes != expectedVoteYes {
+		c.JSON(http.StatusConflict, gin.H{"error": "Vote choice does not match on-chain vote record"})
+		return
+	}
+
+	proposalOnChain, err := oracle.ReadGovernanceProposal(c.Request.Context(), proposalPDA)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to read on-chain proposal state"})
+		return
+	}
+
+	mirrorErr := db.Social().Transaction(func(tx *gorm.DB) error {
+		var existingVote models.Vote
+		err := tx.Where("proposal_id = ? AND voter_id = ?", proposalID, userID).First(&existingVote).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			newVote := models.Vote{
+				ProposalID: proposalID,
+				VoterID:    userID,
+				Choice:     req.Choice,
+				Power:      float64(voteOnChain.VotingPower),
+			}
+			if err := tx.Create(&newVote).Error; err != nil {
+				return err
+			}
+		case err == nil:
+			if err := tx.Model(&existingVote).Updates(map[string]interface{}{
+				"choice": req.Choice,
+				"power":  float64(voteOnChain.VotingPower),
+			}).Error; err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+
+		if err := tx.Model(&models.Proposal{}).Where("id = ?", proposalID).Updates(map[string]interface{}{
+			"yes_votes":  float64(proposalOnChain.VoteYes),
+			"no_votes":   float64(proposalOnChain.VoteNo),
+			"status":     governanceProposalStatusFromOnChain(proposalOnChain.Status),
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if mirrorErr != nil {
+		logging.Warn().Err(mirrorErr).Str("proposal_id", proposalID.String()).Msg("castVote: on-chain verified, DB mirror failed")
+		c.JSON(http.StatusAccepted, gin.H{
+			"message":         "vote verified on-chain; db mirror pending reconciliation",
+			"proposal_id":     proposalID,
+			"proposal_pda":    proposalPDA.String(),
+			"on_chain_tx_sig": req.OnChainTxSig,
+			"warning":         mirrorErr.Error(),
+		})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "Vote cast successfully",
-		"power":   votingPower,
+		"message":         "Vote verified and mirrored from chain",
+		"proposal_id":     proposalID,
+		"proposal_pda":    proposalPDA.String(),
+		"on_chain_tx_sig": req.OnChainTxSig,
+		"power":           float64(voteOnChain.VotingPower),
 	})
 }
 
 // executeProposal processes a finished proposal
 func executeProposal(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "mirror")
+
+	report := solana.GetGovernanceExecutionCapabilityReport(c.Request.Context())
+	if !report.Ready {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":                "governance chain execution is not ready",
+			"governance_execution": report,
+		})
+		return
+	}
+
 	proposalID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid proposal ID"})
 		return
 	}
 
-	var proposal models.Proposal
-	if err := db.Social().First(&proposal, "id = ?", proposalID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Proposal not found"})
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle unavailable"})
 		return
 	}
 
-	// Authorization: only the proposer or an admin may trigger execution
-	callerRole, _ := c.Get("userRole")
-	callerIDRaw, _ := c.Get("userID")
-	isAdmin := callerRole == "admin"
-	isProposer := false
-	switch v := callerIDRaw.(type) {
-	case uuid.UUID:
-		isProposer = v == proposal.ProposerID
-	case string:
-		if parsed, err := uuid.Parse(v); err == nil {
-			isProposer = parsed == proposal.ProposerID
-		}
-	}
-	if !isAdmin && !isProposer {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Only the proposer or an admin can execute a proposal"})
+	var pidBytes [16]byte
+	copy(pidBytes[:], proposalID[:])
+	proposalPDA, _, err := oracle.GetGovernanceProposalPDA(pidBytes)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to resolve proposal PDA"})
 		return
 	}
 
-	// 1. Validation
-	if proposal.Status != models.ProposalActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Proposal is not active (already executed or rejected)"})
+	txSig, err := oracle.FinalizeProposalOnChain(c.Request.Context(), proposalPDA)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "On-chain governance finalize failed: " + err.Error()})
 		return
 	}
 
-	if time.Now().Before(proposal.EndTime) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Voting period has not ended yet"})
+	proposalOnChain, err := oracle.ReadGovernanceProposal(c.Request.Context(), proposalPDA)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to read on-chain proposal state"})
 		return
 	}
 
-	// 2. Tally Votes
-	totalVotes := proposal.YesVotes + proposal.NoVotes
-	passed := false
-	status := models.ProposalRejected
+	mirrorErr := db.Social().Model(&models.Proposal{}).Where("id = ?", proposalID).Updates(map[string]interface{}{
+		"yes_votes":  float64(proposalOnChain.VoteYes),
+		"no_votes":   float64(proposalOnChain.VoteNo),
+		"status":     governanceProposalStatusFromOnChain(proposalOnChain.Status),
+		"updated_at": time.Now(),
+	}).Error
 
-	if totalVotes >= proposal.Quorum && proposal.YesVotes > proposal.NoVotes {
-		passed = true
-		status = models.ProposalPassed
-	}
-
-	tx := db.DB.Begin()
-
-	// 3. Execution Logic (if passed)
-	if passed {
-		status = models.ProposalExecuted // Mark executed immediately if successful
-
-		switch proposal.Type {
-		case models.ProposalTypeTreasury:
-			// Parse execution data: {"recipient": "0x...", "amount": 100, "currency": "SOL"}
-			var data struct {
-				Recipient string  `json:"recipient"`
-				Amount    float64 `json:"amount"`
-				Currency  string  `json:"currency"`
-			}
-			
-			recipient := "DAO_Recipient"
-			amount := 0.0
-			currency := "SOL"
-			
-			if proposal.ExecutionData != "" {
-				if err := json.Unmarshal([]byte(proposal.ExecutionData), &data); err == nil {
-					recipient = data.Recipient
-					amount = data.Amount
-					currency = data.Currency
-				}
-			}
-
-			// Record Treasury Tx
-			trx := models.TreasuryTransaction{
-				ProposalID:  proposal.ID,
-				Recipient:   recipient,
-				Amount:      amount,
-				Currency:    currency,
-				Description: "Executed via Proposal " + proposal.Title,
-				Status:      "executed",
-			}
-			tx.Create(&trx)
-
-		case models.ProposalTypeParameter:
-			// Update Parameter
-			// Logic: Parse "key=value" from ExecutionData
-			var data struct {
-				Key   string `json:"key"`
-				Value string `json:"value"`
-			}
-			
-			paramName := "sys_commission_rate"
-			paramValue := "0.05"
-			
-			if proposal.ExecutionData != "" {
-				if err := json.Unmarshal([]byte(proposal.ExecutionData), &data); err == nil {
-					paramName = data.Key
-					paramValue = data.Value
-				}
-			}
-			
-			param := models.ProtocolParameter{
-				Name:  paramName,
-				Value: paramValue,
-			}
-			tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "name"}},
-				DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
-			}).Create(&param)
-		}
-	}
-
-	// 4. Update Status
-	if err := tx.Model(&proposal).Update("status", status).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
+	if mirrorErr != nil {
+		logging.Warn().Err(mirrorErr).Str("proposal_id", proposalID.String()).Msg("executeProposal: on-chain finalized, DB mirror failed")
+		c.JSON(http.StatusAccepted, gin.H{
+			"message":      "proposal finalized on-chain; db mirror pending reconciliation",
+			"proposal_id":  proposalID,
+			"proposal_pda": proposalPDA.String(),
+			"tx_sig":       txSig,
+			"status":       governanceProposalStatusFromOnChain(proposalOnChain.Status),
+			"yes":          proposalOnChain.VoteYes,
+			"no":           proposalOnChain.VoteNo,
+			"warning":      mirrorErr.Error(),
+		})
 		return
-	}
-
-	tx.Commit()
-
-	// Notify Forum Thread
-	if proposal.ThreadID != nil {
-		go func() {
-			msg := fmt.Sprintf("[System] Proposal has ended. Status: **%s**.", status)
-			post := models.ForumPost{
-				ThreadID: *proposal.ThreadID,
-				AuthorID: proposal.ProposerID, // Or system bot ID
-				Content:  msg,
-			}
-			db.Social().Create(&post)
-		}()
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Proposal processed",
-		"status":  status,
-		"yes":     proposal.YesVotes,
-		"no":      proposal.NoVotes,
+		"message":      "Proposal finalized from chain",
+		"proposal_id":  proposalID,
+		"proposal_pda": proposalPDA.String(),
+		"tx_sig":       txSig,
+		"status":       governanceProposalStatusFromOnChain(proposalOnChain.Status),
+		"yes":          proposalOnChain.VoteYes,
+		"no":           proposalOnChain.VoteNo,
 	})
+}
+
+func governanceUserID(c *gin.Context) (uuid.UUID, bool) {
+	userIDStr := c.GetString("userID")
+	if userIDStr == "" {
+		if uid, exists := c.Get("user_id"); exists {
+			switch v := uid.(type) {
+			case uuid.UUID:
+				return v, true
+			case string:
+				userIDStr = v
+			}
+		}
+	}
+	parsed, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return uuid.Nil, false
+	}
+	return parsed, true
+}
+
+func governanceUserWalletAddress(userID uuid.UUID) (string, error) {
+	var user models.User
+	if err := db.DB.Select("wallet_address").First(&user, "id = ?", userID).Error; err != nil {
+		return "", fmt.Errorf("failed to resolve linked wallet")
+	}
+	if user.WalletAddress == nil || *user.WalletAddress == "" {
+		return "", fmt.Errorf("link a Solana wallet before using governance write endpoints")
+	}
+	return *user.WalletAddress, nil
+}
+
+func governanceProposalStatusFromOnChain(status uint8) models.ProposalStatus {
+	switch status {
+	case 1:
+		return models.ProposalPassed
+	case 2:
+		return models.ProposalRejected
+	case 3:
+		return models.ProposalExecuted
+	default:
+		return models.ProposalActive
+	}
+}
+
+func governanceVotePowerRaw(ctx *gin.Context, oracle *solana.OracleClient, voterWallet sol.PublicKey) uint64 {
+	const phbDecimals = uint64(1_000_000_000)
+	var votingPower uint64 = 1
+
+	mintStr := os.Getenv("PHB_TOKEN_MINT")
+	if mintStr == "" {
+		return votingPower
+	}
+
+	mintKey, err := solana.PublicKeyFromBase58String(mintStr)
+	if err != nil {
+		return votingPower
+	}
+
+	rawBalance, err := oracle.GetTokenBalance(ctx.Request.Context(), voterWallet, mintKey)
+	if err != nil || rawBalance == 0 {
+		return votingPower
+	}
+
+	if phbPower := rawBalance / phbDecimals; phbPower > 0 {
+		votingPower = phbPower
+	}
+
+	return votingPower
 }

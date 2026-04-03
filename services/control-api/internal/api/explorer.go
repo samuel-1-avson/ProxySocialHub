@@ -3,17 +3,23 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/prices"
@@ -27,6 +33,7 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 	// The /nodes/geo endpoint has a tighter limit (20/min) because it returns
 	// a large payload and is the most expensive query.
 	explorer := r.Group("/explorer", RateLimitWithConfig(120, time.Minute))
+	explorer.Use(enforceExplorerFullDecentralization())
 	{
 		// Dashboard metrics
 		explorer.GET("/metrics", getExplorerMetrics)
@@ -58,6 +65,8 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 		// Bandwidth & Network
 		explorer.GET("/bandwidth", getBandwidthStats)
 		explorer.GET("/network/health", getNetworkHealth)
+		explorer.GET("/decentralization/status", getExplorerDecentralizationStatus)
+		explorer.GET("/decentralization/writers", getExplorerDecentralizationWriters)
 
 		// Analytics & Leaderboard
 		explorer.GET("/analytics", getExplorerAnalytics)
@@ -206,13 +215,13 @@ type NodeDetailResponse struct {
 	Version        string  `json:"version,omitempty"`
 	TotalBandwidth uint64  `json:"total_bandwidth_bytes"`
 	// Extended fields sourced from the nodes table (real telemetry)
-	LatencyMs    int     `json:"latency_ms"`
-	QualityScore float64 `json:"quality_score"`
-	SuccessRate  float64 `json:"success_rate"`
-	TotalSessions int64  `json:"total_sessions"`
-	BytesUp      int64   `json:"bytes_up"`
-	BytesDown    int64   `json:"bytes_down"`
-	Hotkey       string  `json:"hotkey,omitempty"`
+	LatencyMs     int     `json:"latency_ms"`
+	QualityScore  float64 `json:"quality_score"`
+	SuccessRate   float64 `json:"success_rate"`
+	TotalSessions int64   `json:"total_sessions"`
+	BytesUp       int64   `json:"bytes_up"`
+	BytesDown     int64   `json:"bytes_down"`
+	Hotkey        string  `json:"hotkey,omitempty"`
 }
 
 // NodeGeoPoint is the lightweight payload returned by GET /nodes/geo.
@@ -276,6 +285,176 @@ type NetworkHealthResponse struct {
 	ActiveNodes       int64     `json:"active_nodes"`
 	AvgResponseTimeMs float64   `json:"avg_response_time_ms"`
 	LastChecked       time.Time `json:"last_checked"`
+}
+
+type ExplorerDecentralizationStatusResponse struct {
+	Chain               string    `json:"chain"`
+	WindowSlots         uint64    `json:"window_slots"`
+	LatestAttestedSlot  uint64    `json:"latest_attested_slot"`
+	RecentSlotsAnalyzed int64     `json:"recent_slots_analyzed"`
+	UniqueWriters       int64     `json:"unique_writers"`
+	MinWritersRequired  int64     `json:"min_writers_required"`
+	SlotsMeetingQuorum  int64     `json:"slots_meeting_quorum"`
+	ConflictingSlots    int64     `json:"conflicting_slots"`
+	QuorumRatio         float64   `json:"quorum_ratio"`
+	ExplorerMode        string    `json:"explorer_mode"`
+	FullyDecentralized  bool      `json:"fully_decentralized"`
+	LastUpdated         time.Time `json:"last_updated"`
+}
+
+type ExplorerDecentralizationWritersResponse struct {
+	Chain               string                 `json:"chain"`
+	WindowSlots         uint64                 `json:"window_slots"`
+	LatestAttestedSlot  uint64                 `json:"latest_attested_slot"`
+	RecentSlotsAnalyzed int64                  `json:"recent_slots_analyzed"`
+	MinWritersRequired  int64                  `json:"min_writers_required"`
+	Writers             []ExplorerWriterHealth `json:"writers"`
+	LastUpdated         time.Time              `json:"last_updated"`
+}
+
+type ExplorerWriterHealth struct {
+	WriterID                string    `json:"writer_id"`
+	RPCEndpoint             string    `json:"rpc_endpoint"`
+	WriterPublicKey         string    `json:"writer_public_key,omitempty"`
+	SignatureScheme         string    `json:"signature_scheme,omitempty"`
+	HasAttestationSignature bool      `json:"has_attestation_signature"`
+	IdentityVerified        bool      `json:"identity_verified"`
+	LatestSlot              uint64    `json:"latest_slot"`
+	LagSlots                uint64    `json:"lag_slots"`
+	AttestationCount        int64     `json:"attestation_count"`
+	SlotsCovered            int64     `json:"slots_covered"`
+	ParticipationRatio      float64   `json:"participation_ratio"`
+	ConflictingSlots        int64     `json:"conflicting_slots"`
+	FirstAttestedAt         time.Time `json:"first_attested_at"`
+	LastAttestedAt          time.Time `json:"last_attested_at"`
+}
+
+type explorerWriterRollupRow struct {
+	WriterID         string
+	RPCEndpoint      string
+	LatestSlot       uint64
+	AttestationCount int64
+	SlotsCovered     int64
+	FirstAttestedAt  time.Time
+	LastAttestedAt   time.Time
+}
+
+type explorerWriterIdentityEvidence struct {
+	WriterID             string
+	Chain                string
+	Slot                 uint64
+	BlockHash            string
+	ParentHash           string
+	AttestedAt           time.Time
+	WriterPublicKey      string
+	SignatureScheme      string
+	AttestationSignature string
+}
+
+var explorerDecentralizationStatusLoader = loadExplorerDecentralizationStatus
+var explorerDecentralizationWritersLoader = loadExplorerDecentralizationWriters
+
+var explorerDecentralizationStatusCache = struct {
+	mu        sync.RWMutex
+	window    uint64
+	response  ExplorerDecentralizationStatusResponse
+	fetchedAt time.Time
+	cacheTTL  time.Duration
+}{
+	cacheTTL: 5 * time.Second,
+}
+
+func clearExplorerDecentralizationStatusCache() {
+	explorerDecentralizationStatusCache.mu.Lock()
+	defer explorerDecentralizationStatusCache.mu.Unlock()
+	explorerDecentralizationStatusCache.window = 0
+	explorerDecentralizationStatusCache.response = ExplorerDecentralizationStatusResponse{}
+	explorerDecentralizationStatusCache.fetchedAt = time.Time{}
+}
+
+func setExplorerTrustHeaders(c *gin.Context, status ExplorerDecentralizationStatusResponse) {
+	c.Header("X-ProxyHubb-Explorer-Mode", status.ExplorerMode)
+	c.Header("X-ProxyHubb-Explorer-Quorum", fmt.Sprintf("%d/%d", status.SlotsMeetingQuorum, status.RecentSlotsAnalyzed))
+	c.Header("X-ProxyHubb-Explorer-Confidence", fmt.Sprintf("%.4f", status.QuorumRatio))
+}
+
+func shouldBypassExplorerDecentralizationGate(c *gin.Context) bool {
+	path := c.FullPath()
+	if path == "" {
+		return false
+	}
+
+	return strings.HasSuffix(path, "/decentralization/status") ||
+		strings.HasSuffix(path, "/decentralization/writers") ||
+		strings.HasSuffix(path, "/network/health")
+}
+
+func loadExplorerDecentralizationStatusCached(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
+	if windowSlots == 0 {
+		windowSlots = 256
+	}
+
+	now := time.Now()
+	explorerDecentralizationStatusCache.mu.RLock()
+	if explorerDecentralizationStatusCache.window == windowSlots &&
+		!explorerDecentralizationStatusCache.fetchedAt.IsZero() &&
+		now.Sub(explorerDecentralizationStatusCache.fetchedAt) < explorerDecentralizationStatusCache.cacheTTL {
+		cached := explorerDecentralizationStatusCache.response
+		explorerDecentralizationStatusCache.mu.RUnlock()
+		return cached, nil
+	}
+	explorerDecentralizationStatusCache.mu.RUnlock()
+
+	status, err := explorerDecentralizationStatusLoader(windowSlots)
+	if err != nil {
+		return status, err
+	}
+
+	explorerDecentralizationStatusCache.mu.Lock()
+	explorerDecentralizationStatusCache.window = windowSlots
+	explorerDecentralizationStatusCache.response = status
+	explorerDecentralizationStatusCache.fetchedAt = now
+	explorerDecentralizationStatusCache.mu.Unlock()
+
+	return status, nil
+}
+
+func enforceExplorerFullDecentralization() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !decentralization.FullModeEnabled() || shouldBypassExplorerDecentralizationGate(c) {
+			c.Next()
+			return
+		}
+
+		setAuthorityHeaders(c, authorityModeHybridAsyncChain, "indexed_reads_with_quorum_attestation", "mirror")
+
+		status, err := loadExplorerDecentralizationStatusCached(256)
+		if err != nil {
+			logging.Error(err).Msg("[ProxyExplorer] Full decentralization gate failed to evaluate quorum status")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "explorer full decentralization gate active; decentralization status unavailable",
+			})
+			return
+		}
+
+		setExplorerTrustHeaders(c, status)
+
+		if !status.FullyDecentralized {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error":                 "explorer full decentralization gate active; quorum requirements not satisfied",
+				"explorer_mode":         status.ExplorerMode,
+				"min_writers_required":  status.MinWritersRequired,
+				"unique_writers":        status.UniqueWriters,
+				"recent_slots_analyzed": status.RecentSlotsAnalyzed,
+				"slots_meeting_quorum":  status.SlotsMeetingQuorum,
+				"conflicting_slots":     status.ConflictingSlots,
+				"quorum_ratio":          status.QuorumRatio,
+			})
+			return
+		}
+
+		c.Next()
+	}
 }
 
 // ============================================================
@@ -1255,6 +1434,411 @@ func getNetworkHealth(c *gin.Context) {
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
 
 	c.JSON(http.StatusOK, health)
+}
+
+func getExplorerDecentralizationStatus(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "indexed_reads_with_quorum_attestation", "mirror")
+
+	const (
+		defaultWindowSlots uint64 = 256
+		maxWindowSlots     uint64 = 4096
+	)
+
+	windowSlots := defaultWindowSlots
+	if raw := c.Query("window_slots"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil && parsed > 0 {
+			if parsed > maxWindowSlots {
+				parsed = maxWindowSlots
+			}
+			windowSlots = parsed
+		}
+	}
+
+	response, err := explorerDecentralizationStatusLoader(windowSlots)
+	if err != nil {
+		logging.Error(err).Msg("[ProxyExplorer] Failed to compute decentralization status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute decentralization status"})
+		return
+	}
+
+	setExplorerTrustHeaders(c, response)
+	c.JSON(http.StatusOK, response)
+}
+
+func loadExplorerDecentralizationStatus(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
+	minWriters := explorerMinWritersRequired()
+	response := ExplorerDecentralizationStatusResponse{
+		Chain:              "solana",
+		WindowSlots:        windowSlots,
+		MinWritersRequired: minWriters,
+		LastUpdated:        time.Now(),
+	}
+
+	var latestSlot uint64
+	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+		Where("chain = ?", "solana").
+		Select("COALESCE(MAX(slot), 0)").
+		Scan(&latestSlot).Error; err != nil {
+		// Before migration rollout this table may not exist on some environments.
+		if strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			response.ExplorerMode = "legacy_no_attestation_schema"
+			return response, nil
+		}
+		return response, fmt.Errorf("latest slot query failed: %w", err)
+	}
+
+	response.LatestAttestedSlot = latestSlot
+	if latestSlot == 0 {
+		response.ExplorerMode = "bootstrap_no_attestations"
+		return response, nil
+	}
+
+	fromSlot := uint64(1)
+	if latestSlot >= windowSlots {
+		fromSlot = latestSlot - windowSlots + 1
+	}
+
+	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+		Where("chain = ? AND slot >= ?", "solana", fromSlot).
+		Distinct("slot").
+		Count(&response.RecentSlotsAnalyzed).Error; err != nil {
+		return response, fmt.Errorf("recent slot count failed: %w", err)
+	}
+
+	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+		Where("chain = ? AND slot >= ?", "solana", fromSlot).
+		Distinct("writer_id").
+		Count(&response.UniqueWriters).Error; err != nil {
+		return response, fmt.Errorf("unique writer count failed: %w", err)
+	}
+
+	if err := db.DB.Raw(`
+		SELECT COUNT(*)
+		FROM (
+			SELECT slot, MAX(writer_count) AS max_count
+			FROM (
+				SELECT slot, block_hash, COUNT(DISTINCT writer_id) AS writer_count
+				FROM explorer_block_attestations
+				WHERE chain = ? AND slot >= ?
+				GROUP BY slot, block_hash
+			) grouped
+			GROUP BY slot
+			HAVING MAX(writer_count) >= ?
+		) quorum_slots
+	`, "solana", fromSlot, minWriters).Scan(&response.SlotsMeetingQuorum).Error; err != nil {
+		return response, fmt.Errorf("quorum slot count failed: %w", err)
+	}
+
+	if err := db.DB.Raw(`
+		SELECT COUNT(*)
+		FROM (
+			SELECT slot
+			FROM explorer_block_attestations
+			WHERE chain = ? AND slot >= ?
+			GROUP BY slot
+			HAVING COUNT(DISTINCT block_hash) > 1
+		) conflicting
+	`, "solana", fromSlot).Scan(&response.ConflictingSlots).Error; err != nil {
+		return response, fmt.Errorf("conflicting slot count failed: %w", err)
+	}
+
+	if response.RecentSlotsAnalyzed > 0 {
+		response.QuorumRatio = float64(response.SlotsMeetingQuorum) / float64(response.RecentSlotsAnalyzed)
+	}
+
+	response.ExplorerMode = classifyExplorerDecentralizationMode(
+		response.UniqueWriters,
+		response.MinWritersRequired,
+		response.RecentSlotsAnalyzed,
+		response.SlotsMeetingQuorum,
+		response.ConflictingSlots,
+	)
+	response.FullyDecentralized = isExplorerFullyDecentralized(response)
+
+	return response, nil
+}
+
+func getExplorerDecentralizationWriters(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "indexed_reads_with_quorum_attestation", "mirror")
+
+	const (
+		defaultWindowSlots uint64 = 256
+		maxWindowSlots     uint64 = 4096
+	)
+
+	windowSlots := defaultWindowSlots
+	if raw := c.Query("window_slots"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil && parsed > 0 {
+			if parsed > maxWindowSlots {
+				parsed = maxWindowSlots
+			}
+			windowSlots = parsed
+		}
+	}
+
+	response, err := explorerDecentralizationWritersLoader(windowSlots)
+	if err != nil {
+		logging.Error(err).Msg("[ProxyExplorer] Failed to compute writer health")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute writer health"})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentralizationWritersResponse, error) {
+	response := ExplorerDecentralizationWritersResponse{
+		Chain:              "solana",
+		WindowSlots:        windowSlots,
+		MinWritersRequired: explorerMinWritersRequired(),
+		LastUpdated:        time.Now(),
+		Writers:            make([]ExplorerWriterHealth, 0),
+	}
+
+	var latestSlot uint64
+	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+		Where("chain = ?", "solana").
+		Select("COALESCE(MAX(slot), 0)").
+		Scan(&latestSlot).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return response, nil
+		}
+		return response, fmt.Errorf("latest slot query failed: %w", err)
+	}
+
+	response.LatestAttestedSlot = latestSlot
+	if latestSlot == 0 {
+		return response, nil
+	}
+
+	fromSlot := uint64(1)
+	if latestSlot >= windowSlots {
+		fromSlot = latestSlot - windowSlots + 1
+	}
+
+	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+		Where("chain = ? AND slot >= ?", "solana", fromSlot).
+		Distinct("slot").
+		Count(&response.RecentSlotsAnalyzed).Error; err != nil {
+		return response, fmt.Errorf("recent slot count failed: %w", err)
+	}
+
+	var writerRows []explorerWriterRollupRow
+	if err := db.DB.Raw(`
+		SELECT
+			writer_id,
+			MAX(rpc_endpoint) AS rpc_endpoint,
+			MAX(slot) AS latest_slot,
+			COUNT(*) AS attestation_count,
+			COUNT(DISTINCT slot) AS slots_covered,
+			MIN(attested_at) AS first_attested_at,
+			MAX(attested_at) AS last_attested_at
+		FROM explorer_block_attestations
+		WHERE chain = ? AND slot >= ?
+		GROUP BY writer_id
+		ORDER BY slots_covered DESC, writer_id ASC
+	`, "solana", fromSlot).Scan(&writerRows).Error; err != nil {
+		return response, fmt.Errorf("writer rollup query failed: %w", err)
+	}
+
+	conflictsByWriter := make(map[string]int64)
+	type conflictRow struct {
+		WriterID         string
+		ConflictingSlots int64
+	}
+	var conflictRows []conflictRow
+	if err := db.DB.Raw(`
+		WITH slot_majority AS (
+			SELECT
+				slot,
+				block_hash,
+				ROW_NUMBER() OVER (
+					PARTITION BY slot
+					ORDER BY COUNT(*) DESC, block_hash ASC
+				) AS rn
+			FROM explorer_block_attestations
+			WHERE chain = ? AND slot >= ?
+			GROUP BY slot, block_hash
+		), canonical AS (
+			SELECT slot, block_hash
+			FROM slot_majority
+			WHERE rn = 1
+		)
+		SELECT
+			a.writer_id,
+			COUNT(*) AS conflicting_slots
+		FROM explorer_block_attestations a
+		JOIN canonical c ON c.slot = a.slot
+		WHERE a.chain = ? AND a.slot >= ? AND a.block_hash <> c.block_hash
+		GROUP BY a.writer_id
+	`, "solana", fromSlot, "solana", fromSlot).Scan(&conflictRows).Error; err != nil {
+		return response, fmt.Errorf("writer conflict query failed: %w", err)
+	}
+
+	for _, row := range conflictRows {
+		conflictsByWriter[row.WriterID] = row.ConflictingSlots
+	}
+
+	identityByWriter, err := loadLatestWriterIdentityEvidence(fromSlot)
+	if err != nil {
+		return response, err
+	}
+
+	response.Writers = buildWriterHealthRows(response, latestSlot, writerRows, conflictsByWriter, identityByWriter)
+	return response, nil
+}
+
+func loadLatestWriterIdentityEvidence(fromSlot uint64) (map[string]explorerWriterIdentityEvidence, error) {
+	var rows []explorerWriterIdentityEvidence
+	if err := db.DB.Raw(`
+		SELECT DISTINCT ON (writer_id)
+			writer_id,
+			chain,
+			slot,
+			block_hash,
+			parent_hash,
+			attested_at,
+			writer_public_key,
+			signature_scheme,
+			attestation_signature
+		FROM explorer_block_attestations
+		WHERE chain = ? AND slot >= ?
+		ORDER BY writer_id ASC, slot DESC, attested_at DESC
+	`, "solana", fromSlot).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("writer identity query failed: %w", err)
+	}
+
+	out := make(map[string]explorerWriterIdentityEvidence, len(rows))
+	for _, row := range rows {
+		out[row.WriterID] = row
+	}
+	return out, nil
+}
+
+func buildWriterHealthRows(
+	response ExplorerDecentralizationWritersResponse,
+	latestSlot uint64,
+	writerRows []explorerWriterRollupRow,
+	conflictsByWriter map[string]int64,
+	identityByWriter map[string]explorerWriterIdentityEvidence,
+) []ExplorerWriterHealth {
+	writers := make([]ExplorerWriterHealth, 0, len(writerRows))
+	for _, row := range writerRows {
+		evidence := identityByWriter[row.WriterID]
+
+		health := ExplorerWriterHealth{
+			WriterID:                row.WriterID,
+			RPCEndpoint:             row.RPCEndpoint,
+			WriterPublicKey:         evidence.WriterPublicKey,
+			SignatureScheme:         evidence.SignatureScheme,
+			HasAttestationSignature: strings.TrimSpace(evidence.AttestationSignature) != "",
+			IdentityVerified:        verifyWriterIdentityEvidence(evidence),
+			LatestSlot:              row.LatestSlot,
+			AttestationCount:        row.AttestationCount,
+			SlotsCovered:            row.SlotsCovered,
+			ConflictingSlots:        conflictsByWriter[row.WriterID],
+			FirstAttestedAt:         row.FirstAttestedAt,
+			LastAttestedAt:          row.LastAttestedAt,
+		}
+
+		if latestSlot >= row.LatestSlot {
+			health.LagSlots = latestSlot - row.LatestSlot
+		}
+		if response.RecentSlotsAnalyzed > 0 {
+			health.ParticipationRatio = float64(row.SlotsCovered) / float64(response.RecentSlotsAnalyzed)
+		}
+
+		writers = append(writers, health)
+	}
+	return writers
+}
+
+func verifyWriterIdentityEvidence(evidence explorerWriterIdentityEvidence) bool {
+	if strings.ToLower(strings.TrimSpace(evidence.SignatureScheme)) != "ed25519" {
+		return false
+	}
+
+	pubKeyBytes, err := decodeAttestationIdentityBytes(evidence.WriterPublicKey)
+	if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
+		return false
+	}
+
+	sigBytes, err := decodeAttestationIdentityBytes(evidence.AttestationSignature)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return false
+	}
+
+	payload := []byte(fmt.Sprintf(
+		"%s|%d|%s|%s|%d|%s",
+		evidence.Chain,
+		evidence.Slot,
+		evidence.BlockHash,
+		evidence.ParentHash,
+		evidence.AttestedAt.UTC().UnixNano(),
+		evidence.WriterID,
+	))
+
+	return ed25519.Verify(ed25519.PublicKey(pubKeyBytes), payload, sigBytes)
+}
+
+func decodeAttestationIdentityBytes(raw string) ([]byte, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil, fmt.Errorf("empty value")
+	}
+
+	if b, err := base64.StdEncoding.DecodeString(v); err == nil {
+		return b, nil
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(v); err == nil {
+		return b, nil
+	}
+	if b, err := hex.DecodeString(v); err == nil {
+		return b, nil
+	}
+
+	return nil, fmt.Errorf("unsupported encoding")
+}
+
+func explorerMinWritersRequired() int64 {
+	const defaultMinWriters = int64(2)
+	raw := os.Getenv("EXPLORER_MIN_WRITERS")
+	if raw == "" {
+		return defaultMinWriters
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || parsed < 1 {
+		return defaultMinWriters
+	}
+	if parsed > 50 {
+		return 50
+	}
+	return parsed
+}
+
+func classifyExplorerDecentralizationMode(uniqueWriters, minWriters, slotsAnalyzed, slotsMeetingQuorum, conflictingSlots int64) string {
+	switch {
+	case slotsAnalyzed == 0:
+		return "bootstrap_no_attestations"
+	case uniqueWriters < 2:
+		return "centralized_single_writer"
+	case uniqueWriters < minWriters:
+		return "multi_writer_below_threshold"
+	case conflictingSlots > 0:
+		return "multi_writer_conflicting_views"
+	case slotsMeetingQuorum < slotsAnalyzed:
+		return "multi_writer_partial_quorum"
+	default:
+		return "multi_writer_quorum"
+	}
+}
+
+func isExplorerFullyDecentralized(resp ExplorerDecentralizationStatusResponse) bool {
+	return resp.ExplorerMode == "multi_writer_quorum" &&
+		resp.MinWritersRequired >= 3 &&
+		resp.ConflictingSlots == 0 &&
+		resp.RecentSlotsAnalyzed > 0 &&
+		resp.SlotsMeetingQuorum == resp.RecentSlotsAnalyzed
 }
 
 // cacheResponse caches a response in Redis

@@ -3,12 +3,7 @@
 import { FC, ReactNode, useMemo, useState, useEffect } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import {
-    SolflareWalletAdapter,
-    TorusWalletAdapter,
-    LedgerWalletAdapter,
-    AlphaWalletAdapter
-} from '@solana/wallet-adapter-wallets';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl } from '@solana/web3.js';
 
 // Import default styles
@@ -41,9 +36,6 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         () => [
             // Phantom is automatically registered as a Standard Wallet as of wallet-adapter 0.9.x+
             new SolflareWalletAdapter(),
-            new TorusWalletAdapter(),
-            new LedgerWalletAdapter(),
-            new AlphaWalletAdapter(),
         ],
         []
     );

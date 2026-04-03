@@ -43,12 +43,23 @@ const nextConfig: NextConfig = {
   // (not NEXT_PUBLIC_*) so it is never baked into the browser JS bundle.
   async rewrites() {
     const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-    return [
-      {
-        source: '/v1/:path*',
-        destination: `${apiUrl}/v1/:path*`,
-      },
-    ];
+    return {
+      // /api is reserved by Next internals; keep legacy alias in beforeFiles
+      // so compatibility rewrites run before filesystem/API route checks.
+      beforeFiles: [
+        {
+          source: '/api/v1/:path*',
+          destination: `${apiUrl}/v1/:path*`,
+        },
+      ],
+      afterFiles: [
+        {
+          source: '/v1/:path*',
+          destination: `${apiUrl}/v1/:path*`,
+        },
+      ],
+      fallback: [],
+    };
   },
   async redirects() {
     return [

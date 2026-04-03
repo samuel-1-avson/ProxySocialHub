@@ -5,8 +5,8 @@
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter_vec, register_gauge_vec, register_histogram_vec, register_int_counter,
-    register_int_gauge, CounterVec, GaugeVec, HistogramVec, IntCounter, IntGauge, TextEncoder,
-    Encoder,
+    register_int_gauge, CounterVec, Encoder, GaugeVec, HistogramVec, IntCounter, IntGauge,
+    TextEncoder,
 };
 use std::time::Instant;
 
@@ -176,10 +176,10 @@ static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 /// Initialize metrics system
 pub fn init() {
     START_TIME.get_or_init(Instant::now);
-    
+
     // ProcessCollector removed - not available in this prometheus version
     // CPU/memory metrics can be collected externally via node_exporter
-    
+
     tracing::info!("Prometheus metrics initialized");
 }
 
@@ -188,12 +188,12 @@ pub fn gather_metrics() -> String {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
-    
+
     if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
         tracing::error!("Failed to encode metrics: {}", e);
         return String::new();
     }
-    
+
     String::from_utf8(buffer).unwrap_or_default()
 }
 
@@ -205,13 +205,13 @@ pub fn connection_started() {
 
 pub fn connection_ended(bytes_up: u64, bytes_down: u64) {
     ACTIVE_CONNECTIONS.dec();
-    
+
     if bytes_up > 0 {
         BANDWIDTH_BYTES_TOTAL
             .with_label_values(&["up"])
             .inc_by(bytes_up as f64);
     }
-    
+
     if bytes_down > 0 {
         BANDWIDTH_BYTES_TOTAL
             .with_label_values(&["down"])
@@ -307,10 +307,7 @@ pub fn record_connection_by_country(country_code: &str) {
 
 /// Get uptime in seconds
 pub fn uptime_seconds() -> u64 {
-    START_TIME
-        .get()
-        .map(|t| t.elapsed().as_secs())
-        .unwrap_or(0)
+    START_TIME.get().map(|t| t.elapsed().as_secs()).unwrap_or(0)
 }
 
 /// P0-A2: Record session cache hit
@@ -350,7 +347,7 @@ mod tests {
         let initial = ACTIVE_CONNECTIONS.get();
         connection_started();
         assert_eq!(ACTIVE_CONNECTIONS.get(), initial + 1);
-        
+
         connection_ended(1000, 2000);
         assert_eq!(ACTIVE_CONNECTIONS.get(), initial);
     }

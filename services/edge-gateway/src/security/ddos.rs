@@ -93,9 +93,9 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            base_limit: 200,           // 200 req / 10 s per IP
-            tight_limit: 80,           // halved under load
-            load_threshold: 50_000,    // 50K req/s globally
+            base_limit: 200,        // 200 req / 10 s per IP
+            tight_limit: 80,        // halved under load
+            load_threshold: 50_000, // 50K req/s globally
             block_duration: Duration::from_secs(60),
         }
     }
@@ -164,11 +164,17 @@ impl AdaptiveRateLimiter {
             // Far above limit — hard block
             let expiry = unix_second() + self.config.block_duration.as_secs();
             self.blocked.insert(ip, expiry);
-            warn!("🛑 DDoS hard-block: {} (count={} limit={})", ip, count, limit);
+            warn!(
+                "🛑 DDoS hard-block: {} (count={} limit={})",
+                ip, count, limit
+            );
             RateLimitResult::Block
         } else if count > limit {
             // Somewhat above — soft challenge
-            debug!("⚠️ DDoS challenge: {} (count={} limit={})", ip, count, limit);
+            debug!(
+                "⚠️ DDoS challenge: {} (count={} limit={})",
+                ip, count, limit
+            );
             RateLimitResult::Challenge
         } else {
             RateLimitResult::Allow
@@ -274,9 +280,21 @@ impl BehaviorScorer {
 
         // Simple additive scoring (each contributes 1-3 points)
         let mut points = 0u32;
-        if targets > 100 { points += 3; } else if targets > 20 { points += 1; }
-        if auth_fail > 10 { points += 3; } else if auth_fail > 3 { points += 2; }
-        if conn_err > 50 { points += 2; } else if conn_err > 10 { points += 1; }
+        if targets > 100 {
+            points += 3;
+        } else if targets > 20 {
+            points += 1;
+        }
+        if auth_fail > 10 {
+            points += 3;
+        } else if auth_fail > 3 {
+            points += 2;
+        }
+        if conn_err > 50 {
+            points += 2;
+        } else if conn_err > 10 {
+            points += 1;
+        }
 
         match points {
             0 => ThreatLevel::None,
@@ -289,7 +307,8 @@ impl BehaviorScorer {
     /// Evict records older than `ttl`.  Call periodically.
     pub fn evict_stale(&self) {
         let cutoff = unix_second().saturating_sub(self.ttl.as_secs());
-        self.metrics.retain(|_, m| m.last_seen.load(Ordering::Relaxed) >= cutoff);
+        self.metrics
+            .retain(|_, m| m.last_seen.load(Ordering::Relaxed) >= cutoff);
     }
 }
 
@@ -433,7 +452,9 @@ mod tests {
 
         assert_eq!(scorer.score(client), ThreatLevel::None);
 
-        for _ in 0..5 { scorer.record_auth_failure(client); }
+        for _ in 0..5 {
+            scorer.record_auth_failure(client);
+        }
         assert!(scorer.score(client) >= ThreatLevel::Medium);
     }
 

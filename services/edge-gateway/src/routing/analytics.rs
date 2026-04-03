@@ -91,8 +91,11 @@ lazy_static! {
         "Heuristic backend connection success rate"
     )
     .unwrap();
-    static ref ML_FRACTION_GAUGE: Gauge =
-        Gauge::new("routing_ml_fraction", "Fraction of traffic sent to ML backend").unwrap();
+    static ref ML_FRACTION_GAUGE: Gauge = Gauge::new(
+        "routing_ml_fraction",
+        "Fraction of traffic sent to ML backend"
+    )
+    .unwrap();
 }
 
 /// Register all routing gauges into a Prometheus `Registry`.
@@ -202,10 +205,26 @@ impl RoutingAnalytics {
 
         AnalyticsSnapshot {
             total_decisions: latencies.len(),
-            p50_latency_us: if latencies.is_empty() { 0 } else { percentile(&latencies, 50) },
-            p99_latency_us: if latencies.is_empty() { 0 } else { percentile(&latencies, 99) },
-            ml_accuracy: if ml_t > 0 { ml_s as f64 / ml_t as f64 } else { 0.0 },
-            heuristic_accuracy: if h_t > 0 { h_s as f64 / h_t as f64 } else { 0.0 },
+            p50_latency_us: if latencies.is_empty() {
+                0
+            } else {
+                percentile(&latencies, 50)
+            },
+            p99_latency_us: if latencies.is_empty() {
+                0
+            } else {
+                percentile(&latencies, 99)
+            },
+            ml_accuracy: if ml_t > 0 {
+                ml_s as f64 / ml_t as f64
+            } else {
+                0.0
+            },
+            heuristic_accuracy: if h_t > 0 {
+                h_s as f64 / h_t as f64
+            } else {
+                0.0
+            },
             ml_fraction: self.ml_fraction,
         }
     }

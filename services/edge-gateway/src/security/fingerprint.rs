@@ -87,7 +87,10 @@ impl Ja3Fingerprint {
             .collect::<Vec<_>>()
             .join("-");
 
-        let raw = format!("{},{},{},{},{}", hello.tls_version, ciphers, exts, curves, formats);
+        let raw = format!(
+            "{},{},{},{},{}",
+            hello.tls_version, ciphers, exts, curves, formats
+        );
         let digest = format!("{:x}", md5_simple(raw.as_bytes()));
 
         Self { raw, digest }
@@ -130,10 +133,16 @@ fn md5_simple(data: &[u8]) -> u128 {
 /// ...
 /// ```
 fn parse_client_hello(buf: &[u8]) -> Option<TlsClientHello> {
-    if buf.len() < 44 { return None; }
+    if buf.len() < 44 {
+        return None;
+    }
     // Check TLS handshake record
-    if buf[0] != 22 { return None; }   // ContentType: handshake
-    if buf[5] != 1  { return None; }   // HandshakeType: ClientHello
+    if buf[0] != 22 {
+        return None;
+    } // ContentType: handshake
+    if buf[5] != 1 {
+        return None;
+    } // HandshakeType: ClientHello
 
     let tls_version = u16::from_be_bytes([buf[9], buf[10]]);
 
@@ -179,7 +188,7 @@ fn parse_client_hello(buf: &[u8]) -> Option<TlsClientHello> {
 
     while pos + 4 <= ext_end && pos + 4 <= buf.len() {
         let ext_type = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
-        let ext_len  = u16::from_be_bytes([buf[pos + 2], buf[pos + 3]]) as usize;
+        let ext_len = u16::from_be_bytes([buf[pos + 2], buf[pos + 3]]) as usize;
         pos += 4;
 
         extensions.push(ext_type);
@@ -278,7 +287,7 @@ fn opt_u32(v: Option<u32>) -> String {
 pub struct RequestProfile {
     pub ip: IpAddr,
     pub user_agent: String,
-    pub ja3: Option<String>,      // JA3 digest
+    pub ja3: Option<String>, // JA3 digest
     pub h2: Option<H2Fingerprint>,
     pub request_interval_ms: u64, // avg ms between requests
     pub header_order_hash: u64,   // FNV hash of header name ordering
@@ -309,8 +318,12 @@ impl RequestProfile {
 pub struct BotScore(pub f32);
 
 impl BotScore {
-    pub fn is_likely_bot(&self) -> bool { self.0 >= 0.7 }
-    pub fn is_suspicious(&self) -> bool { self.0 >= 0.4 }
+    pub fn is_likely_bot(&self) -> bool {
+        self.0 >= 0.7
+    }
+    pub fn is_suspicious(&self) -> bool {
+        self.0 >= 0.4
+    }
 }
 
 pub struct BotClassifier;
@@ -397,7 +410,9 @@ impl FingerprintDb {
                 bot_hits: 0,
             });
         rec.request_count += 1;
-        if is_bot { rec.bot_hits += 1; }
+        if is_bot {
+            rec.bot_hits += 1;
+        }
     }
 
     pub fn observe_h2(&self, canonical: &str, is_bot: bool) {
@@ -410,22 +425,37 @@ impl FingerprintDb {
                 bot_hits: 0,
             });
         rec.request_count += 1;
-        if is_bot { rec.bot_hits += 1; }
+        if is_bot {
+            rec.bot_hits += 1;
+        }
     }
 
     /// Bot rate for a JA3 digest (0.0 if unseen).
     pub fn ja3_bot_rate(&self, digest: &str) -> f32 {
-        self.ja3_records.get(digest).map(|r| {
-            if r.request_count == 0 { 0.0 } else { r.bot_hits as f32 / r.request_count as f32 }
-        }).unwrap_or(0.0)
+        self.ja3_records
+            .get(digest)
+            .map(|r| {
+                if r.request_count == 0 {
+                    0.0
+                } else {
+                    r.bot_hits as f32 / r.request_count as f32
+                }
+            })
+            .unwrap_or(0.0)
     }
 
-    pub fn ja3_count(&self) -> usize { self.ja3_records.len() }
-    pub fn h2_count(&self)  -> usize { self.h2_records.len() }
+    pub fn ja3_count(&self) -> usize {
+        self.ja3_records.len()
+    }
+    pub fn h2_count(&self) -> usize {
+        self.h2_records.len()
+    }
 }
 
 impl Default for FingerprintDb {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -443,12 +473,12 @@ mod tests {
             tls_version: 0x0303,
             cipher_suites: vec![0x0A0A, 0x1301, 0x1302], // 0x0A0A is GREASE
             extensions: vec![0x1A1A, 0x0000, 0x0010],    // 0x1A1A is GREASE
-            elliptic_curves: vec![0x2A2A, 0x0017],        // 0x2A2A is GREASE
+            elliptic_curves: vec![0x2A2A, 0x0017],       // 0x2A2A is GREASE
             elliptic_curve_formats: vec![0],
         };
         let fp = Ja3Fingerprint::compute(&hello);
-        assert!(!fp.raw.contains("2570"),  "GREASE 0x0A0A should be excluded");
-        assert!(fp.raw.contains("4865"),   "0x1301 should be present");
+        assert!(!fp.raw.contains("2570"), "GREASE 0x0A0A should be excluded");
+        assert!(fp.raw.contains("4865"), "0x1301 should be present");
     }
 
     #[test]
@@ -464,7 +494,7 @@ mod tests {
         };
         let c = fp.canonical();
         assert!(c.contains("4096"));
-        assert!(c.contains("?"));  // max_header_list_size missing
+        assert!(c.contains("?")); // max_header_list_size missing
     }
 
     #[test]

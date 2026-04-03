@@ -58,13 +58,13 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
             if (!listing.id) return;
             
             try {
-                const token = localStorage.getItem('token');
+                const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
                 const headers: HeadersInit = {};
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
                 }
 
-                const response = await fetch(`/api/v1/listings/${listing.id}/social`, { headers });
+                const response = await fetch(`/v1/listings/${listing.id}/social`, { headers });
                 if (response.ok) {
                     const data = await response.json();
                     setSocialContext(data);

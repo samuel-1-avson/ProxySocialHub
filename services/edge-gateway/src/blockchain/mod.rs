@@ -1,5 +1,5 @@
 //! P2-A9: Direct gRPC to Blockchain
-//! 
+//!
 //! This module provides direct streaming communication between the Edge Gateway
 //! and Solana blockchain without routing through Control API. This eliminates
 //! 50-100ms latency and single points of failure.
@@ -25,29 +25,29 @@
 //! - Reconnection: <100ms
 //! - Batch size: 100 events optimal
 
-pub mod grpc_stream;
 pub mod client;
+pub mod grpc_stream;
 pub mod signer;
 
 use crate::error::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub use grpc_stream::BlockchainStream;
 pub use client::SolanaClient;
+pub use grpc_stream::BlockchainStream;
 pub use signer::EventSigner;
 
 /// Global blockchain manager that handles connections and streaming
 pub struct BlockchainManager {
     /// Active gRPC stream connections
     streams: Arc<RwLock<Vec<Arc<BlockchainStream>>>>,
-    
+
     /// Solana RPC client
     solana_client: Arc<SolanaClient>,
-    
+
     /// Event signer for fraud prevention
     signer: Arc<EventSigner>,
-    
+
     /// Configuration
     config: BlockchainConfig,
 }
@@ -57,28 +57,28 @@ pub struct BlockchainManager {
 pub struct BlockchainConfig {
     /// Primary Solana RPC endpoint
     pub primary_endpoint: String,
-    
+
     /// Fallback endpoints for HA
     pub fallback_endpoints: Vec<String>,
-    
+
     /// Gateway's Ed25519 private key (32 bytes, hex encoded)
     pub private_key_hex: String,
-    
+
     /// Program ID for ProxyHubb on-chain program
     pub program_id: String,
-    
+
     /// Treasury account for settlements
     pub treasury_pubkey: String,
-    
+
     /// Number of connections to maintain
     pub connection_pool_size: usize,
-    
+
     /// Batch size for usage events
     pub batch_size: usize,
-    
+
     /// Flush interval in milliseconds
     pub flush_interval_ms: u64,
-    
+
     /// Retry policy
     pub max_retries: u32,
     pub retry_delay_ms: u64,
@@ -109,84 +109,80 @@ impl BlockchainManager {
     pub async fn new(config: BlockchainConfig) -> Result<Self> {
         let signer = Arc::new(EventSigner::from_hex(&config.private_key_hex)?);
         let solana_client = Arc::new(SolanaClient::new(&config).await?);
-        
-        let streams = Arc::new(RwLock::new(Vec::with_capacity(
-            config.connection_pool_size
-        )));
-        
+
+        let streams = Arc::new(RwLock::new(Vec::with_capacity(config.connection_pool_size)));
+
         let manager = Self {
             streams,
             solana_client,
             signer,
             config,
         };
-        
+
         // Initialize connection pool
         manager.initialize_pool().await?;
-        
+
         Ok(manager)
     }
-    
+
     /// Initialize the connection pool with multiple streams
     async fn initialize_pool(&self) -> Result<()> {
         let mut streams = self.streams.write().await;
-        
+
         for i in 0..self.config.connection_pool_size {
             let endpoint = if i == 0 {
                 &self.config.primary_endpoint
             } else {
-                self.config.fallback_endpoints
+                self.config
+                    .fallback_endpoints
                     .get((i - 1) % self.config.fallback_endpoints.len())
                     .unwrap_or(&self.config.primary_endpoint)
             };
-            
+
             let stream = Arc::new(
-                BlockchainStream::connect(
-                    endpoint,
-                    self.signer.clone(),
-                    self.config.clone(),
-                ).await?
+                BlockchainStream::connect(endpoint, self.signer.clone(), self.config.clone())
+                    .await?,
             );
-            
+
             streams.push(stream);
         }
-        
+
         tracing::info!(
             pool_size = streams.len(),
             "Blockchain connection pool initialized"
         );
-        
+
         Ok(())
     }
-    
+
     /// Submit a usage event to the blockchain
     pub async fn submit_usage(&self, event: UsageEvent) -> Result<()> {
         // Get a healthy stream
         let stream = self.get_healthy_stream().await?;
-        
+
         // Sign the event
         let signed_event = self.signer.sign_event(&event);
-        
+
         // Submit to blockchain
         stream.send_event(signed_event).await
     }
-    
+
     /// Submit a batch of usage events efficiently
     pub async fn submit_usage_batch(&self, events: Vec<UsageEvent>) -> Result<()> {
         if events.is_empty() {
             return Ok(());
         }
-        
+
         // Get a healthy stream
         let stream = self.get_healthy_stream().await?;
-        
+
         // Sign and batch
         let signed_batch = self.signer.sign_batch(&events);
-        
+
         // Submit batch
         stream.send_batch(signed_batch).await
     }
-    
+
     /// Request settlement for a provider
     pub async fn request_settlement(
         &self,
@@ -194,64 +190,62 @@ impl BlockchainManager {
         amount_lamports: u64,
     ) -> Result<SettlementResponse> {
         let stream = self.get_healthy_stream().await?;
-        stream.request_settlement(provider_id, amount_lamports).await
+        stream
+            .request_settlement(provider_id, amount_lamports)
+            .await
     }
-    
+
     /// Get current pricing information
     pub async fn get_pricing(&self) -> Result<PricingResponse> {
         let stream = self.get_healthy_stream().await?;
         stream.get_pricing().await
     }
-    
+
     /// Get a healthy stream from the pool
     async fn get_healthy_stream(&self) -> Result<Arc<BlockchainStream>> {
         let streams = self.streams.read().await;
-        
+
         // Try each stream in round-robin
         for stream in streams.iter() {
             if stream.is_healthy().await {
                 return Ok(stream.clone());
             }
         }
-        
+
         // All streams unhealthy - trigger reconnection
         drop(streams);
         self.reconnect_pool().await?;
-        
+
         // Try again
         let streams = self.streams.read().await;
-        streams.first()
-            .cloned()
-            .ok_or_else(|| crate::error::Error::Internal(
-                "No blockchain streams available".to_string()
-            ))
+        streams.first().cloned().ok_or_else(|| {
+            crate::error::Error::Internal("No blockchain streams available".to_string())
+        })
     }
-    
+
     /// Reconnect all streams in the pool
     async fn reconnect_pool(&self) -> Result<()> {
         tracing::warn!("Reconnecting all blockchain streams");
-        
+
         let mut streams = self.streams.write().await;
         streams.clear();
-        
+
         // Reinitialize
         drop(streams);
         self.initialize_pool().await
     }
-    
+
     /// Start background health monitoring
     pub async fn start_health_monitor(&self) {
         let streams = self.streams.clone();
         let config = self.config.clone();
-        
+
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                tokio::time::Duration::from_secs(30)
-            );
-            
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
             loop {
                 interval.tick().await;
-                
+
                 let streams_guard = streams.read().await;
                 let mut unhealthy_count = 0;
                 for s in streams_guard.iter() {
@@ -259,9 +253,9 @@ impl BlockchainManager {
                         unhealthy_count += 1;
                     }
                 }
-                
+
                 metrics::BLOCKCHAIN_UNHEALTHY_STREAMS.set(unhealthy_count as i64);
-                
+
                 if unhealthy_count > 0 {
                     tracing::warn!(
                         unhealthy = unhealthy_count,
@@ -342,38 +336,39 @@ pub struct PricingResponse {
 /// Metrics for blockchain operations
 pub mod metrics {
     use lazy_static::lazy_static;
-    use prometheus::{IntCounter, IntGauge, Histogram};
-    
+    use prometheus::{Histogram, IntCounter, IntGauge};
+
     lazy_static! {
         pub static ref BLOCKCHAIN_EVENTS_SENT: IntCounter = prometheus::register_int_counter!(
             "edge_gateway_blockchain_events_sent_total",
             "Total usage events sent to blockchain"
-        ).unwrap();
-        
+        )
+        .unwrap();
         pub static ref BLOCKCHAIN_BATCHES_SENT: IntCounter = prometheus::register_int_counter!(
             "edge_gateway_blockchain_batches_sent_total",
             "Total batches sent to blockchain"
-        ).unwrap();
-        
+        )
+        .unwrap();
         pub static ref BLOCKCHAIN_UNHEALTHY_STREAMS: IntGauge = prometheus::register_int_gauge!(
             "edge_gateway_blockchain_unhealthy_streams",
             "Number of unhealthy blockchain streams"
-        ).unwrap();
-        
+        )
+        .unwrap();
         pub static ref BLOCKCHAIN_LATENCY: Histogram = prometheus::register_histogram!(
             "edge_gateway_blockchain_latency_seconds",
             "Blockchain operation latency",
             prometheus::exponential_buckets(0.001, 2.0, 15).unwrap()
-        ).unwrap();
-        
+        )
+        .unwrap();
         pub static ref BLOCKCHAIN_SETTLEMENTS: IntCounter = prometheus::register_int_counter!(
             "edge_gateway_blockchain_settlements_total",
             "Total settlements submitted"
-        ).unwrap();
-        
+        )
+        .unwrap();
         pub static ref BLOCKCHAIN_RECONNECTS: IntCounter = prometheus::register_int_counter!(
             "edge_gateway_blockchain_reconnects_total",
             "Total stream reconnections"
-        ).unwrap();
+        )
+        .unwrap();
     }
 }

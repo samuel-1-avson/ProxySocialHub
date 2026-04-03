@@ -85,11 +85,12 @@ export function QuickMessageModal({
         setIsSending(true);
 
         try {
-            const response = await fetch(`/api/v1/listings/${listingId}/inquire`, {
+            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const response = await fetch(`/v1/listings/${listingId}/inquire`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({
                     message: message.trim(),

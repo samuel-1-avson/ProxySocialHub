@@ -1,12 +1,22 @@
 import { Program, AnchorProvider, web3, BN, Idl } from '@project-serum/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import idl from './idl/proxyhub.json';
 
 // Constants
 const PROGRAM_ID = new PublicKey('2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7');
 const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
 const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+
+const getAssociatedTokenAddress = async (mint: PublicKey, owner: PublicKey): Promise<PublicKey> => {
+    const [address] = PublicKey.findProgramAddressSync(
+        [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+        ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    return address;
+};
 
 // Types
 export type EscrowStatus = 'Pending' | 'Active' | 'Settled' | 'Refunded' | 'Disputed';
