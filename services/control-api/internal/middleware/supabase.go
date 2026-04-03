@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -12,18 +10,12 @@ import (
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
-	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
-	"gorm.io/gorm/clause"
 )
 
-type SupabaseUser struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
-}
-
-// SupabaseAuthMiddleware verifies the Bearer token by calling Supabase Auth API
+// SupabaseAuthMiddleware authenticates requests using the self-hosted JWT or
+// provider CLI token. Supabase Auth is no longer used — all tokens are issued
+// by this backend.
 func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := ""
@@ -40,9 +32,8 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 1. Try Local JWT Verification (Wallet Auth)
+		// 1. Local JWT verification (wallet auth / email auth)
 		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
-			// Valid local token
 			c.Set("userID", claims.UserID)
 			if uid, err := uuid.Parse(claims.UserID); err == nil {
 				c.Set("user_id", uid)
@@ -53,112 +44,29 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2. Try Provider Token (CLI authentication)
+		// 2. Provider CLI token
 		if providerToken, _ := validateProviderToken(tokenString); providerToken != nil {
-			// Valid provider token - set user context
 			c.Set("userID", providerToken.UserID.String())
 			c.Set("user_id", providerToken.UserID)
 			c.Set("token_id", providerToken.ID)
-			c.Set("userEmail", "") // Provider tokens don't have email
+			c.Set("userEmail", "")
 			c.Set("userRole", "provider")
 			c.Set("auth_type", "provider_token")
-			
-			// Update last used asynchronously
 			go func() {
 				db.DB.Model(&models.ProviderToken{}).
 					Where("id = ?", providerToken.ID).
 					Update("last_used", time.Now())
 			}()
-			
 			c.Next()
 			return
 		}
 
-		// 3. Fallback to Supabase Auth API with circuit breaker protection
-		var user SupabaseUser
-		err := ProtectedServiceCall(c, "supabase", func() error {
-			req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
-			if err != nil {
-				return err
-			}
-
-			req.Header.Set("Authorization", "Bearer "+tokenString)
-			req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
-
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("invalid token: status %d", resp.StatusCode)
-			}
-
-			return json.NewDecoder(resp.Body).Decode(&user)
-		})
-
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Failed to verify token"})
-			return
-		}
-
-		// Map Supabase system roles to application roles; default new signups to buyer.
-		appRole := user.Role
-		if appRole == "authenticated" || appRole == "anon" || appRole == "" {
-			appRole = "buyer"
-		}
-
-		// Sync user to local DB if not exists
-		var dbUser models.User
-		userUUID, err := uuid.Parse(user.ID)
-		if err != nil {
-			logging.Error(err).Str("user_id", user.ID).Msg("Failed to parse UUID for sync")
-		} else {
-			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
-				// Ensure the auth.users parent row exists (satisfies profiles_id_fkey FK).
-				// The on_auth_user_created trigger will auto-create the profiles row.
-				if authErr := db.DB.Exec(
-					`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
-					userUUID, user.Email,
-				).Error; authErr != nil {
-					logging.Error(authErr).Str("user_id", user.ID).Msg("Failed to sync auth.users row")
-				}
-
-				// User not found, create new
-				username := strings.Split(user.Email, "@")[0]
-				if len(user.ID) >= 8 {
-					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
-				}
-				newUser := models.User{
-					ID:        userUUID,
-					Email:     user.Email,
-					Username:  &username,
-					TrustTier: models.TrustTierNew,
-					Role:      appRole,
-				}
-				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
-					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to create user record")
-				} else {
-					logging.Info().Str("user_id", user.ID).Msg("User synced to local DB")
-				}
-			}
-		}
-
-		// Store in context
-		c.Set("userID", user.ID)
-		if uid, err := uuid.Parse(user.ID); err == nil {
-			c.Set("user_id", uid)
-		}
-		c.Set("userEmail", user.Email)
-		c.Set("userRole", appRole)
-
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 	}
 }
 
-// SupabaseAuthMiddlewareOptional validates token if present, but does not abort if missing.
+// SupabaseAuthMiddlewareOptional validates the self-hosted JWT if present,
+// but does not abort if missing — the request proceeds as a guest.
 func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := ""
@@ -170,12 +78,10 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
-			// No token, just proceed as guest
 			c.Next()
 			return
 		}
 
-		// 1. Try Local JWT Verification
 		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
 			c.Set("userID", claims.UserID)
 			if uid, err := uuid.Parse(claims.UserID); err == nil {
@@ -183,86 +89,17 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			}
 			c.Set("userEmail", claims.Email)
 			c.Set("userRole", claims.Role)
-			c.Next()
-			return
 		}
 
-		// 2. Fallback to Supabase Auth API with circuit breaker protection
-		var user SupabaseUser
-		err := ProtectedServiceCall(c, "supabase", func() error {
-			req, err := http.NewRequest("GET", fmt.Sprintf("%s/auth/v1/user", cfg.Auth.SupabaseURL), nil)
-			if err != nil {
-				return err
-			}
-
-			req.Header.Set("Authorization", "Bearer "+tokenString)
-			req.Header.Set("apikey", cfg.Auth.SupabaseAnonKey)
-
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("invalid token: status %d", resp.StatusCode)
-			}
-
-			return json.NewDecoder(resp.Body).Decode(&user)
-		})
-
-		if err != nil {
-			// Request failed, ignore and proceed as guest
-			c.Next()
-			return
-		}
-
-		// Map Supabase system roles to application roles; default new signups to buyer.
-		optAppRole := user.Role
-		if optAppRole == "authenticated" || optAppRole == "anon" || optAppRole == "" {
-			optAppRole = "buyer"
-		}
-
-		// Sync user to local DB
-		var dbUser models.User
-		userUUID, err := uuid.Parse(user.ID)
-		if err == nil {
-			if result := db.DB.First(&dbUser, "id = ?", userUUID); result.Error != nil {
-				// Ensure the auth.users parent row exists (satisfies profiles_id_fkey FK).
-				if authErr := db.DB.Exec(
-					`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
-					userUUID, user.Email,
-				).Error; authErr != nil {
-					logging.Error(authErr).Str("user_id", user.ID).Msg("Failed to sync auth.users row (optional)")
-				}
-
-				// User not found, create new (Atomically)
-				username := strings.Split(user.Email, "@")[0]
-				if len(user.ID) >= 8 {
-					username = fmt.Sprintf("%s_%s", username, user.ID[:8])
-				}
-				newUser := models.User{
-					ID:        userUUID,
-					Email:     user.Email,
-					Username:  &username,
-					TrustTier: models.TrustTierNew,
-					Role:      optAppRole,
-				}
-				// Use OnConflict to handle race conditions during parallel requests
-				if createErr := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&newUser).Error; createErr != nil {
-					logging.Error(createErr).Str("user_id", user.ID).Msg("Failed to sync guest user record")
-				}
+		// Provider CLI token fallback
+		if _, exists := c.Get("user_id"); !exists {
+			if providerToken, _ := validateProviderToken(tokenString); providerToken != nil {
+				c.Set("userID", providerToken.UserID.String())
+				c.Set("user_id", providerToken.UserID)
+				c.Set("userRole", "provider")
+				c.Set("auth_type", "provider_token")
 			}
 		}
-
-		// Store in context
-		c.Set("userID", user.ID)
-		if uid, err := uuid.Parse(user.ID); err == nil {
-			c.Set("user_id", uid)
-		}
-		c.Set("userEmail", user.Email)
-		c.Set("userRole", optAppRole)
 
 		c.Next()
 	}

@@ -2,6 +2,9 @@ package indexer
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -24,17 +27,22 @@ type IndexerCallbacks struct {
 
 // BlockchainIndexer polls Solana blockchain and indexes data into explorer tables
 type BlockchainIndexer struct {
-	rpcClient    *rpc.Client
-	programID    solana.PublicKey
-	indexAll     bool // when true, skip program-relevance filter
-	isRunning    bool
-	pollInterval time.Duration
-	batchSize    int
-	lastSlot     uint64
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	callbacks    IndexerCallbacks
+	rpcClient       *rpc.Client
+	rpcEndpoint     string
+	programID       solana.PublicKey
+	writerID        string
+	writerPublicKey string
+	writerSigner    ed25519.PrivateKey
+	signatureScheme string
+	indexAll        bool // when true, skip program-relevance filter
+	isRunning       bool
+	pollInterval    time.Duration
+	batchSize       int
+	lastSlot        uint64
+	mu              sync.RWMutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	callbacks       IndexerCallbacks
 }
 
 // SetCallbacks sets notification callbacks called after each DB write.
@@ -46,11 +54,14 @@ func (bi *BlockchainIndexer) SetCallbacks(cb IndexerCallbacks) {
 
 // IndexerConfig holds configuration for the blockchain indexer
 type IndexerConfig struct {
-	RPCEndpoint string
-	ProgramID   string
-	PollInterval time.Duration
-	BatchSize   int
-	StartSlot   uint64 // 0 = auto (start from current slot)
+	RPCEndpoint      string
+	ProgramID        string
+	WriterID         string
+	WriterPublicKey  string
+	WriterPrivateKey string
+	PollInterval     time.Duration
+	BatchSize        int
+	StartSlot        uint64 // 0 = auto (start from current slot)
 	// IndexAll: when true, index every transaction on the chain regardless of
 	// program involvement. Useful for local/devnet environments where the
 	// ProxyHub program has no transactions yet. Set via INDEXER_INDEX_ALL=true.
@@ -61,6 +72,22 @@ type IndexerConfig struct {
 func NewBlockchainIndexer(cfg IndexerConfig) (*BlockchainIndexer, error) {
 	if cfg.RPCEndpoint == "" {
 		cfg.RPCEndpoint = rpc.DevNet_RPC
+	}
+	if cfg.WriterID == "" {
+		cfg.WriterID = "indexer-default"
+	}
+
+	var signer ed25519.PrivateKey
+	derivedWriterPublicKey := strings.TrimSpace(cfg.WriterPublicKey)
+	if strings.TrimSpace(cfg.WriterPrivateKey) != "" {
+		parsedSigner, parsedPubKey, err := parseEd25519PrivateKey(cfg.WriterPrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid indexer writer signing key: %w", err)
+		}
+		signer = parsedSigner
+		if derivedWriterPublicKey == "" {
+			derivedWriterPublicKey = parsedPubKey
+		}
 	}
 
 	rpcClient := rpc.New(cfg.RPCEndpoint)
@@ -81,8 +108,18 @@ func NewBlockchainIndexer(cfg IndexerConfig) (*BlockchainIndexer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &BlockchainIndexer{
-		rpcClient:    rpcClient,
-		programID:    programID,
+		rpcClient:       rpcClient,
+		rpcEndpoint:     cfg.RPCEndpoint,
+		programID:       programID,
+		writerID:        cfg.WriterID,
+		writerPublicKey: derivedWriterPublicKey,
+		writerSigner:    signer,
+		signatureScheme: func() string {
+			if len(signer) > 0 {
+				return "ed25519"
+			}
+			return ""
+		}(),
 		indexAll:     cfg.IndexAll,
 		pollInterval: cfg.PollInterval,
 		batchSize:    cfg.BatchSize,
@@ -116,6 +153,7 @@ func (bi *BlockchainIndexer) Start() {
 
 	logging.Info().
 		Str("program", bi.programID.String()).
+		Str("writer_id", bi.writerID).
 		Dur("interval", bi.pollInterval).
 		Msg("[BlockchainIndexer] Started")
 
@@ -240,6 +278,8 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 	} else if bi.callbacks.OnNewBlock != nil {
 		bi.callbacks.OnNewBlock(&explorerBlock)
 	}
+
+	bi.recordBlockAttestation(slot, blockHash, parentHash)
 
 	// P3-06: Re-org detection.
 	// If the previous slot's stored block hash differs from our parentHash, the
@@ -446,6 +486,80 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 	)
 
 	return nil
+}
+
+func (bi *BlockchainIndexer) recordBlockAttestation(slot uint64, blockHash, parentHash string) {
+	attestedAt := time.Now().UTC().Truncate(time.Microsecond)
+	signature := ""
+	if len(bi.writerSigner) > 0 {
+		sigBytes := ed25519.Sign(bi.writerSigner, explorerAttestationPayload("solana", slot, blockHash, parentHash, attestedAt, bi.writerID))
+		signature = base64.StdEncoding.EncodeToString(sigBytes)
+	}
+
+	att := models.ExplorerBlockAttestation{
+		Chain:                "solana",
+		Slot:                 slot,
+		BlockHash:            blockHash,
+		ParentHash:           parentHash,
+		WriterID:             bi.writerID,
+		WriterPublicKey:      bi.writerPublicKey,
+		SignatureScheme:      bi.signatureScheme,
+		AttestationSignature: signature,
+		RPCEndpoint:          bi.rpcEndpoint,
+		AttestedAt:           attestedAt,
+	}
+
+	if err := db.DB.
+		Where("chain = ? AND slot = ? AND writer_id = ?", att.Chain, att.Slot, att.WriterID).
+		Assign(att).
+		FirstOrCreate(&att).Error; err != nil {
+		logging.Error(err).
+			Uint64("slot", slot).
+			Str("writer_id", bi.writerID).
+			Msg("[BlockchainIndexer] Failed to upsert block attestation")
+	}
+}
+
+func parseEd25519PrivateKey(raw string) (ed25519.PrivateKey, string, error) {
+	decoded, err := decodeSignerString(raw)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if len(decoded) == ed25519.SeedSize {
+		pk := ed25519.NewKeyFromSeed(decoded)
+		return pk, base64.StdEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), nil
+	}
+	if len(decoded) == ed25519.PrivateKeySize {
+		pk := ed25519.PrivateKey(decoded)
+		pub := pk.Public().(ed25519.PublicKey)
+		return pk, base64.StdEncoding.EncodeToString(pub), nil
+	}
+
+	return nil, "", fmt.Errorf("expected %d-byte seed or %d-byte private key, got %d bytes", ed25519.SeedSize, ed25519.PrivateKeySize, len(decoded))
+}
+
+func decodeSignerString(raw string) ([]byte, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil, fmt.Errorf("empty key")
+	}
+
+	if b, err := base64.StdEncoding.DecodeString(v); err == nil {
+		return b, nil
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(v); err == nil {
+		return b, nil
+	}
+	if b, err := hex.DecodeString(v); err == nil {
+		return b, nil
+	}
+
+	return nil, fmt.Errorf("unsupported key encoding (expected base64 or hex)")
+}
+
+func explorerAttestationPayload(chain string, slot uint64, blockHash, parentHash string, attestedAt time.Time, writerID string) []byte {
+	return []byte(fmt.Sprintf("%s|%d|%s|%s|%d|%s", chain, slot, blockHash, parentHash, attestedAt.UTC().UnixNano(), writerID))
 }
 
 // inferTxType classifies a Solana transaction into a ProxyHub operation type.

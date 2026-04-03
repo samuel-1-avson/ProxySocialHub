@@ -51,18 +51,18 @@ impl RolloutStage {
     pub fn percentage(self) -> u8 {
         match self {
             RolloutStage::Disabled => 0,
-            RolloutStage::Canary   => 5,
-            RolloutStage::Partial  => 25,
-            RolloutStage::Full     => 100,
+            RolloutStage::Canary => 5,
+            RolloutStage::Partial => 25,
+            RolloutStage::Full => 100,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             RolloutStage::Disabled => "disabled",
-            RolloutStage::Canary   => "canary(5%)",
-            RolloutStage::Partial  => "partial(25%)",
-            RolloutStage::Full     => "full(100%)",
+            RolloutStage::Canary => "canary(5%)",
+            RolloutStage::Partial => "partial(25%)",
+            RolloutStage::Full => "full(100%)",
         }
     }
 }
@@ -104,8 +104,12 @@ impl RolloutController {
     /// that is stable across the lifetime of a session.
     pub fn is_enabled(&self, key: &str) -> bool {
         let pct = self.percentage.load(Ordering::Relaxed);
-        if pct == 0   { return false; }
-        if pct == 100 { return true; }
+        if pct == 0 {
+            return false;
+        }
+        if pct == 100 {
+            return true;
+        }
         fnv_bucket(key) < pct
     }
 
@@ -116,16 +120,18 @@ impl RolloutController {
     /// Derive the `RolloutStage` closest to the current percentage.
     pub fn current_stage(&self) -> RolloutStage {
         match self.current_percentage() {
-            0        => RolloutStage::Disabled,
-            1..=5    => RolloutStage::Canary,
-            6..=25   => RolloutStage::Partial,
-            _        => RolloutStage::Full,
+            0 => RolloutStage::Disabled,
+            1..=5 => RolloutStage::Canary,
+            6..=25 => RolloutStage::Partial,
+            _ => RolloutStage::Full,
         }
     }
 }
 
 impl Default for RolloutController {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +175,9 @@ impl RolloutPlan {
 
     pub fn record(&self, error: bool) {
         self.stage_requests.fetch_add(1, Ordering::Relaxed);
-        if error { self.stage_errors.fetch_add(1, Ordering::Relaxed); }
+        if error {
+            self.stage_errors.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Try to advance to `next_stage`.
@@ -177,7 +185,7 @@ impl RolloutPlan {
     /// Returns `Ok(())` if advanced, `Err(reason)` if safety check failed.
     pub fn try_advance(&self, next_stage: RolloutStage) -> Result<(), String> {
         let requests = self.stage_requests.load(Ordering::Relaxed);
-        let errors   = self.stage_errors.load(Ordering::Relaxed);
+        let errors = self.stage_errors.load(Ordering::Relaxed);
 
         if requests < MIN_SAMPLE_SIZE {
             return Err(format!(
@@ -186,7 +194,11 @@ impl RolloutPlan {
             ));
         }
 
-        let error_rate = if requests > 0 { errors as f64 / requests as f64 } else { 0.0 };
+        let error_rate = if requests > 0 {
+            errors as f64 / requests as f64
+        } else {
+            0.0
+        };
         if error_rate > 0.01 {
             return Err(format!(
                 "error rate too high: {:.2}% > 1.0% threshold",
@@ -203,7 +215,9 @@ impl RolloutPlan {
 }
 
 impl Default for RolloutPlan {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -266,10 +280,14 @@ mod tests {
     #[test]
     fn test_current_stage_mapping() {
         let r = RolloutController::new();
-        r.set_percentage(0);  assert_eq!(r.current_stage(), RolloutStage::Disabled);
-        r.set_percentage(5);  assert_eq!(r.current_stage(), RolloutStage::Canary);
-        r.set_percentage(25); assert_eq!(r.current_stage(), RolloutStage::Partial);
-        r.set_percentage(100);assert_eq!(r.current_stage(), RolloutStage::Full);
+        r.set_percentage(0);
+        assert_eq!(r.current_stage(), RolloutStage::Disabled);
+        r.set_percentage(5);
+        assert_eq!(r.current_stage(), RolloutStage::Canary);
+        r.set_percentage(25);
+        assert_eq!(r.current_stage(), RolloutStage::Partial);
+        r.set_percentage(100);
+        assert_eq!(r.current_stage(), RolloutStage::Full);
     }
 
     #[test]

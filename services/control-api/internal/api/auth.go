@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"sync"
@@ -47,9 +48,19 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		// Falls back to in-memory if Redis is unavailable.
 		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
 		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
-		auth.POST("/dev/login", devLogin)
+		if isDevLoginEnabled() {
+			auth.POST("/dev/login", devLogin)
+			log.Printf("[AUTH] /auth/dev/login route enabled")
+		} else {
+			log.Printf("[AUTH] /auth/dev/login route disabled (set ENABLE_DEV_LOGIN=true to enable)")
+		}
 		auth.GET("/me", getMe)
 	}
+}
+
+func isDevLoginEnabled() bool {
+	flag := strings.TrimSpace(os.Getenv("ENABLE_DEV_LOGIN"))
+	return strings.EqualFold(flag, "true") || flag == "1"
 }
 
 type ChallengeRequest struct {
@@ -208,7 +219,6 @@ func walletLogin(c *gin.Context) {
 			return
 		}
 
-
 		// User not found → Create new user
 		tx := db.DB.Begin()
 
@@ -280,7 +290,6 @@ func walletLogin(c *gin.Context) {
 		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
 	}
 
-
 	// 4. Issue JWT
 	cfg, err := config.Load()
 	if err != nil {
@@ -311,6 +320,12 @@ func walletLogin(c *gin.Context) {
 // devLogin is a BACKDOOR for E2E testing.
 // SECURITY: Only available in development environment with secret token
 func devLogin(c *gin.Context) {
+	if !isDevLoginEnabled() {
+		log.Printf("[SECURITY] devLogin attempted while route is disabled")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		return
+	}
+
 	// CRITICAL SECURITY: Only allow in development mode
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv != "development" && appEnv != "dev" && appEnv != "local" {

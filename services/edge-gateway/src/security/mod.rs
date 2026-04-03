@@ -4,8 +4,8 @@
 //! - `fingerprint` — JA3 / HTTP2 fingerprinting + bot classifier (P4-W14)
 //! - `reputation`  — IP reputation store + geo-blocking (P4-W13/W14)
 
+pub mod anomaly;
 pub mod ddos;
 pub mod fingerprint;
-pub mod reputation;
 pub mod honeytoken;
-pub mod anomaly;
+pub mod reputation;

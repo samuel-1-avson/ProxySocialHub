@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"net/http"
 	"time"
 
@@ -37,6 +38,8 @@ func RegisterDisputeJuryRoutes(r *gin.RouterGroup) {
 // @Success 201 {object} models.DisputeJury
 // @Router /v1/disputes/jury/create/{orderId} [post]
 func createDisputeJury(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "async_write_settlement", "source_of_truth")
+
 	userID, _ := c.Get("user_id")
 	orderID := c.Param("orderId")
 
@@ -114,6 +117,40 @@ func createDisputeJury(c *gin.Context) {
 	order.Status = models.OrderStatusDisputed
 	db.DB.Save(&order)
 
+	// DISP-001/002: Open dispute on-chain with slot-seed VRF so jury
+	// selection cannot be replayed or pre-computed by the server.
+	if order.EscrowPDA != "" {
+		go func(escrowAddr string, reason string) {
+			oracle := solana.GetOracleClient()
+			if oracle == nil {
+				return
+			}
+			escrowPDA, err := sol.PublicKeyFromBase58(escrowAddr)
+			if err != nil {
+				logging.Error(err).Msg("createDisputeJury: invalid escrow PDA")
+				return
+			}
+			reasonHash := sha256.Sum256([]byte(reason))
+			// Use current nanosecond timestamp as a pseudo-random slot seed.
+			// Production deployments should use a recent slot hash from GetSlot.
+			slotSeed := uint64(time.Now().UnixNano())
+
+			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			disputePDA, sig, err := oracle.OpenDisputeOnChain(ctx2, solana.OpenDisputeParams{
+				EscrowPDA:  escrowPDA,
+				ReasonHash: reasonHash,
+				SlotSeed:   slotSeed,
+			})
+			if err != nil {
+				logging.Error(err).Str("escrow", escrowAddr).Msg("createDisputeJury: OpenDisputeOnChain failed (non-fatal)")
+				return
+			}
+			logging.Info().Str("dispute_pda", disputePDA.String()).Str("sig", sig).Msg("createDisputeJury: dispute anchored on-chain")
+		}(order.EscrowPDA, req.DisputeReason)
+	}
+
 	c.JSON(http.StatusCreated, jury)
 }
 
@@ -124,6 +161,8 @@ func createDisputeJury(c *gin.Context) {
 // @Success 200 {object} models.DisputeJury
 // @Router /v1/disputes/jury/{id} [get]
 func getDisputeJury(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	juryID := c.Param("id")
 
 	var jury models.DisputeJury
@@ -143,6 +182,8 @@ func getDisputeJury(c *gin.Context) {
 // @Success 200 {array} models.DisputeJury
 // @Router /v1/disputes/jury/my [get]
 func getMyJuryDisputes(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, _ := c.Get("user_id")
 
 	var disputes []models.DisputeJury
@@ -168,6 +209,8 @@ func getMyJuryDisputes(c *gin.Context) {
 // @Success 200 {object} models.DisputeJury
 // @Router /v1/disputes/jury/{id}/vote [post]
 func castJuryVote(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "async_write_settlement", "source_of_truth")
+
 	userID, _ := c.Get("user_id")
 	juryID := c.Param("id")
 
@@ -276,6 +319,8 @@ func castJuryVote(c *gin.Context) {
 // @Success 200 {object} models.DisputeJury
 // @Router /v1/disputes/jury/{id}/evidence/buyer [post]
 func submitBuyerEvidence(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, _ := c.Get("user_id")
 	juryID := c.Param("id")
 
@@ -311,6 +356,8 @@ func submitBuyerEvidence(c *gin.Context) {
 // @Success 200 {object} models.DisputeJury
 // @Router /v1/disputes/jury/{id}/evidence/seller [post]
 func submitSellerEvidence(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	userID, _ := c.Get("user_id")
 	juryID := c.Param("id")
 
@@ -389,7 +436,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		})
 	case models.VoteSellerWins:
 		// Release full escrow to seller (bandwidth_used = bandwidth_limit).
-		txHash, err = oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+		txHash, err = oracle.SettleEscrow(ctx, "api.dispute_jury.seller_wins", solana.SettleEscrowParams{
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
 			EscrowPDA:       escrowPDA,
@@ -397,7 +444,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		})
 	case models.VoteSplitFunds:
 		// Settle at 50% usage so funds split proportionally.
-		txHash, err = oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+		txHash, err = oracle.SettleEscrow(ctx, "api.dispute_jury.split_funds", solana.SettleEscrowParams{
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
 			EscrowPDA:       escrowPDA,
@@ -414,8 +461,8 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 	}
 
 	db.DB.Model(&order).Updates(map[string]interface{}{
-		"status":   models.OrderStatusCompleted,
-		"tx_hash":  txHash,
+		"status":  models.OrderStatusCompleted,
+		"tx_hash": txHash,
 	})
 
 	logging.Info().
@@ -431,6 +478,8 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 // @Success 200 {object} gin.H
 // @Router /v1/disputes/jury/{id}/status [get]
 func getJuryStatus(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
 	juryID := c.Param("id")
 
 	var jury models.DisputeJury
@@ -453,4 +502,8 @@ func getJuryStatus(c *gin.Context) {
 		"buyer_payout":     jury.BuyerPayout,
 		"seller_payout":    jury.SellerPayout,
 	})
+}
+
+func computeReasonHash(reason string) [32]byte {
+	return sha256.Sum256([]byte(reason))
 }

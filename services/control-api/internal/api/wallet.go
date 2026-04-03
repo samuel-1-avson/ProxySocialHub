@@ -338,8 +338,31 @@ func initiateWithdrawal(c *gin.Context) {
 }
 
 // Helper to refund SOL on failure
+// refundWalletSOL credits a user's platform balance and creates an audit
+// ledger entry.  For escrow-backed sessions the on-chain EmergencyRefund
+// instruction already releases SOL to the buyer; this function only mirrors
+// that event in the DB ledger.  For custodial-only sessions (no escrow PDA)
+// this is both the refund record and the source of truth.
 func refundWalletSOL(userID string, amount float64) {
-	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userID).Update("balance_sol", gorm.Expr("balance_sol + ?", amount)).Error; err != nil {
+	var wallet models.Wallet
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+			return err
+		}
+		wallet.BalanceSOL += amount
+		if err := tx.Save(&wallet).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.WalletLedgerEntry{
+			WalletID:     wallet.ID,
+			Amount:       amount,
+			BalanceAfter: wallet.BalanceSOL,
+			Type:         "refund",
+			Description:  fmt.Sprintf("Refund of %.6f SOL", amount),
+			CreatedAt:    time.Now(),
+		}).Error
+	})
+	if err != nil {
 		logging.Error(err).Str("user_id", userID).Float64("amount", amount).Msg("Failed to refund SOL wallet")
 	}
 }
@@ -507,6 +530,51 @@ func transferP2P(c *gin.Context) {
 	tx.Create(&recipientLedger)
 
 	tx.Commit()
+
+	// FIN-001: After the DB commits, fire an on-chain SOL transfer when both
+	// parties have linked Solana wallets. The DB balance adjustment is the
+	// platform ledger; the chain transfer is the verifiable settlement record.
+	// If the chain call fails we issue a compensating DB credit (no double-debit).
+	go func(senderWalletAddr, recipientWalletAddr *string, amount float64, sUUID, rID uuid.UUID, ref string) {
+		if senderWalletAddr == nil || *senderWalletAddr == "" ||
+			recipientWalletAddr == nil || *recipientWalletAddr == "" {
+			return // custodial-only path; no on-chain transfer
+		}
+		oracle := solana.GetOracleClient()
+		if oracle == nil {
+			return
+		}
+		lamports := uint64(amount * 1e9)
+		ctx2, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+
+		recipPubkey, err := solanaGo.PublicKeyFromBase58(*recipientWalletAddr)
+		if err != nil {
+			logging.Error(err).Msg("transferP2P: invalid recipient wallet")
+			return
+		}
+		txHash, err := oracle.SendSOL(ctx2, recipPubkey, lamports)
+		if err != nil {
+			// Compensating refund — restore the sender's DB balance.
+			db.DB.Model(&models.Wallet{}).Where("user_id = ?", sUUID).
+				Update("balance_sol", gorm.Expr("balance_sol + ?", amount))
+			db.DB.Create(&models.WalletLedgerEntry{
+				WalletID:    senderWallet.ID,
+				Amount:      amount,
+				Type:        "p2p_failed_refund",
+				ReferenceID: ref,
+				Description: "On-chain transfer failed — balance restored",
+			})
+			logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded")
+			return
+		}
+		// Persist the chain tx_hash in the sender ledger entry.
+		db.DB.Model(&models.WalletLedgerEntry{}).
+			Where("reference_id = ? AND type = 'p2p_sent'", ref).
+			Update("tx_hash", txHash)
+		logging.Info().Str("tx_hash", txHash).Str("ref", ref).Msg("transferP2P: on-chain SOL transfer confirmed")
+	}(senderUser.WalletAddress, recipient.WalletAddress, req.Amount, senderUUID, recipient.ID, refID)
+
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transfer complete", "reference": refID})
 }
 
@@ -598,14 +666,27 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Send on-chain — if this fails, refund the internal balance
-
+	// FIN-006: Fire on-chain transfer *after* the DB commit. If the chain
+	// transfer fails we issue a compensating DB credit with a full ledger entry
+	// so the failure is auditable (not a silent UPDATE).
 	ctx := context.Background()
 	txHash, sendErr := sendSOLOnChain(ctx, oracle, *user.WalletAddress, req.Amount)
 	if sendErr != nil {
-		// Refund
-		db.DB.Model(&models.Wallet{}).Where("user_id = ?", userUUID).
-			Update("balance_sol", gorm.Expr("balance_sol + ?", req.Amount))
+		// Compensating refund with proper audit trail.
+		_ = db.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&models.Wallet{}).Where("user_id = ?", userUUID).
+				Update("balance_sol", gorm.Expr("balance_sol + ?", req.Amount)).Error; err != nil {
+				return err
+			}
+			return tx.Create(&models.WalletLedgerEntry{
+				WalletID:     walletRecord.ID,
+				Amount:       req.Amount,
+				BalanceAfter: walletRecord.BalanceSOL, // pre-deduct value; close enough for audit
+				Type:         "withdrawal_failed_refund",
+				Description:  fmt.Sprintf("On-chain transfer failed: %v", sendErr),
+				CreatedAt:    time.Now(),
+			}).Error
+		})
 		logging.Error(sendErr).
 			Str("user_id", userUUID.String()).
 			Float64("amount", req.Amount).

@@ -120,7 +120,10 @@ where
         if total - last_reval_total >= revalidate_every {
             last_reval_total = total;
             if !should_continue(total).await {
-                warn!("Bridge terminated by revalidation callback at {} bytes", total);
+                warn!(
+                    "Bridge terminated by revalidation callback at {} bytes",
+                    total
+                );
                 break;
             }
         }
@@ -198,8 +201,15 @@ pub mod splice {
             )
         };
         if n_in <= 0 {
-            unsafe { libc::close(pipe_rd); libc::close(pipe_wr); }
-            return if n_in == 0 { SpliceResult::Eof } else { SpliceResult::Unsupported };
+            unsafe {
+                libc::close(pipe_rd);
+                libc::close(pipe_wr);
+            }
+            return if n_in == 0 {
+                SpliceResult::Eof
+            } else {
+                SpliceResult::Unsupported
+            };
         }
 
         // Splice pipe_read → dst
@@ -213,7 +223,10 @@ pub mod splice {
                 SPLICE_F_MOVE as libc::c_uint,
             )
         };
-        unsafe { libc::close(pipe_rd); libc::close(pipe_wr); }
+        unsafe {
+            libc::close(pipe_rd);
+            libc::close(pipe_wr);
+        }
 
         if n_out > 0 {
             debug!("splice: moved {} bytes kernel-to-kernel", n_out);
@@ -278,14 +291,7 @@ mod tests {
         drop(p2);
 
         // Revalidate every 128 bytes, always return false → should terminate early
-        let stats = bridge_tracked(
-            &mut c2,
-            &mut p1,
-            128,
-            None,
-            |_total| async { false },
-        )
-        .await;
+        let stats = bridge_tracked(&mut c2, &mut p1, 128, None, |_total| async { false }).await;
 
         // Bridge terminated — bytes_from_client will be ≤ 256
         assert!(stats.bytes_from_client <= 256);

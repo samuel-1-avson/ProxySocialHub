@@ -161,9 +161,8 @@ impl PrewarmEngine {
         }
 
         // Prune stale patterns for nodes that are no longer registered
-        self.patterns.retain(|node_id, _| {
-            registry.get_by_id(node_id).is_some()
-        });
+        self.patterns
+            .retain(|node_id, _| registry.get_by_id(node_id).is_some());
     }
 }
 

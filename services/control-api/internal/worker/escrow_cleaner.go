@@ -70,7 +70,7 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 			buyer := sol.MustPublicKeyFromBase58(order.BuyerWallet)
 			seller := sol.MustPublicKeyFromBase58(order.SellerWallet)
 
-			sig, err := ec.client.SettleEscrow(ctx, solana.SettleEscrowParams{
+			sig, err := ec.client.SettleEscrow(ctx, "worker.escrow_cleaner.expiry_refund", solana.SettleEscrowParams{
 				Buyer:           buyer,
 				Seller:          seller,
 				EscrowPDA:       pda,

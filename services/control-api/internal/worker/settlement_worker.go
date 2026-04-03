@@ -80,7 +80,7 @@ func (w *SettlementAggregator) runBatchSettlement(ctx context.Context) {
 	}
 
 	// 3. Execute Batch Settle
-	sig, err := w.oracle.BatchSettleEscrows(ctx, batch)
+	sig, err := w.oracle.BatchSettleEscrows(ctx, "worker.settlement_aggregator.batch", batch)
 	if err != nil {
 		log.Printf("[SettlementWorker] Batch settlement failed: %v", err)
 		return

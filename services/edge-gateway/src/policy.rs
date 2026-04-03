@@ -11,24 +11,15 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 /// Providers further restrict via their node service_configuration (N-01).
 const ALLOWED_PORTS: &[u16] = &[
     // HTTP / HTTPS
-    80, 443, 8000, 8008, 8080, 8443, 8888,
-    // Development servers
-    3000, 3001, 3002, 4000, 4200, 5000, 5001, 9000,
-    // SSH / tunnels
-    22, 2222,
-    // SOCKS / proxy
-    1080, 3128,
-    // Email (SMTP/IMAP/POP3 and their TLS variants)
-    25, 465, 587, 110, 995, 143, 993,
-    // DNS over TCP
-    53,
-    // FTP
-    21,
-    // VPN
-    1194, 1723,
-    // Mobile push (Google/Firebase)
-    5228, 5229, 5230,
-    // XMPP / chat
+    80, 443, 8000, 8008, 8080, 8443, 8888, // Development servers
+    3000, 3001, 3002, 4000, 4200, 5000, 5001, 9000, // SSH / tunnels
+    22, 2222, // SOCKS / proxy
+    1080, 3128, // Email (SMTP/IMAP/POP3 and their TLS variants)
+    25, 465, 587, 110, 995, 143, 993, // DNS over TCP
+    53, // FTP
+    21, // VPN
+    1194, 1723, // Mobile push (Google/Firebase)
+    5228, 5229, 5230, // XMPP / chat
     5222, 5223,
 ];
 
@@ -189,16 +180,23 @@ pub fn is_safe_hostname(host: &str) -> Result<(), String> {
 
     // Block .local mDNS / Bonjour domains (RFC 6762)
     if h.ends_with(".local") || h.ends_with(".localhost") {
-        return Err(format!("Hostname '{}' resolves to a local mDNS domain", host));
+        return Err(format!(
+            "Hostname '{}' resolves to a local mDNS domain",
+            host
+        ));
     }
 
     // Block .internal and common cloud metadata service hostnames
     if h.ends_with(".internal")
         || h == "metadata.google.internal"
         || h == "169.254.169.254"  // caught by IP check, but also as string
-        || h == "instance-data"    // common EC2 alias
+        || h == "instance-data"
+    // common EC2 alias
     {
-        return Err(format!("Hostname '{}' targets internal infrastructure", host));
+        return Err(format!(
+            "Hostname '{}' targets internal infrastructure",
+            host
+        ));
     }
 
     // Block obviously numeric hostnames that look like private IPs expressed as hostnames
@@ -219,10 +217,10 @@ mod tests {
         assert!(is_allowed_port(8080));
         assert!(is_allowed_port(8443));
         assert!(is_allowed_port(3000));
-        assert!(is_allowed_port(22));   // SSH tunnels supported
+        assert!(is_allowed_port(22)); // SSH tunnels supported
         assert!(is_allowed_port(1080)); // SOCKS5
-        assert!(!is_allowed_port(3306));  // MySQL — not a proxy port
-        assert!(!is_allowed_port(6379));  // Redis — not a proxy port
+        assert!(!is_allowed_port(3306)); // MySQL — not a proxy port
+        assert!(!is_allowed_port(6379)); // Redis — not a proxy port
     }
 
     #[test]
@@ -253,8 +251,8 @@ mod tests {
         assert!(validate_destination("example.com:1080").is_ok()); // SOCKS5 now allowed
 
         assert!(validate_destination("example.com:3306").is_err()); // MySQL blocked
-        assert!(validate_destination("127.0.0.1:80").is_err());     // loopback blocked
-        assert!(validate_destination("192.168.1.1:443").is_err());  // private IP blocked
+        assert!(validate_destination("127.0.0.1:80").is_err()); // loopback blocked
+        assert!(validate_destination("192.168.1.1:443").is_err()); // private IP blocked
     }
 
     #[test]
@@ -300,7 +298,9 @@ pub mod blocklist {
 
     impl DomainPolicy {
         /// Create a new domain policy
-        pub fn new(redis_url: Option<&str>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        pub fn new(
+            redis_url: Option<&str>,
+        ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
             let redis_client = match redis_url {
                 Some(url) => match redis::Client::open(url) {
                     Ok(client) => Some(client),
@@ -434,7 +434,9 @@ pub mod blocklist {
         }
 
         /// Reload from Redis
-        pub async fn reload_from_redis(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        pub async fn reload_from_redis(
+            &self,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let client = match &self.redis_client {
                 Some(c) => c,
                 None => return Ok(()),
@@ -472,8 +474,7 @@ pub mod blocklist {
 
             info!(
                 "Reloaded domain policy: {} blocked, {} allowed",
-                blocked_count,
-                allowed_count
+                blocked_count, allowed_count
             );
 
             Ok(())
@@ -509,8 +510,14 @@ pub mod blocklist {
         #[test]
         fn test_pattern_matching() {
             assert!(DomainPolicy::matches_pattern("example.com", "example.com"));
-            assert!(DomainPolicy::matches_pattern("sub.example.com", "*.example.com"));
-            assert!(DomainPolicy::matches_pattern("example.com", "*.example.com"));
+            assert!(DomainPolicy::matches_pattern(
+                "sub.example.com",
+                "*.example.com"
+            ));
+            assert!(DomainPolicy::matches_pattern(
+                "example.com",
+                "*.example.com"
+            ));
             assert!(!DomainPolicy::matches_pattern("other.com", "*.example.com"));
         }
     }

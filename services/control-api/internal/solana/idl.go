@@ -65,6 +65,8 @@ func LoadAndValidateIDL(ctx context.Context, rpcEndpoint, programID string) erro
 		"settle_escrow":      discSettleEscrow,
 		"emergency_refund":   discEmergencyRefund,
 		"slash_stake":        discSlashStake,
+		"stake_provider":     discStakeProvider,
+		"unstake_provider":   discUnstakeProvider,
 		"submit_usage_proof": discSubmitUsageProof,
 	}
 

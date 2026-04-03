@@ -50,8 +50,8 @@ export function UsageReviewModal({ isOpen, onClose, sessionId, listingTitle, pro
     const fetchEligibility = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(`/api/v1/sessions/${sessionId}/review-eligibility`, {
+            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const response = await fetch(`/v1/sessions/${sessionId}/review-eligibility`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             });
 
@@ -82,8 +82,8 @@ export function UsageReviewModal({ isOpen, onClose, sessionId, listingTitle, pro
 
         setSubmitting(true);
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(`/api/v1/sessions/${sessionId}/review`, {
+            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const response = await fetch(`/v1/sessions/${sessionId}/review`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

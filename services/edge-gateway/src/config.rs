@@ -11,6 +11,7 @@ pub struct Config {
     pub redis_url: String,
     pub sticky_ttl_secs: u64,
     pub jwt_secret: String,
+    pub gateway_shared_secret: String,
     pub provider_private_key: String,
     pub geoip_db_path: Option<String>,
     pub control_api_url: String,
@@ -63,6 +64,13 @@ impl Config {
             .expect("STICKY_TTL_SECS must be a number");
 
         let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
+        // Dedicated shared secret for edge-gateway -> control-api control-plane calls.
+        // Falls back to JWT_SECRET for backward compatibility in existing deployments.
+        let gateway_shared_secret = env::var("GATEWAY_SHARED_SECRET")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| jwt_secret.clone());
 
         let provider_private_key = env::var("PROVIDER_PRIVATE_KEY")
             .expect("PROVIDER_PRIVATE_KEY must be set");
@@ -129,6 +137,7 @@ impl Config {
             redis_url,
             sticky_ttl_secs,
             jwt_secret,
+            gateway_shared_secret,
             provider_private_key,
             geoip_db_path,
             geo_deny_list,
@@ -165,7 +174,7 @@ impl DynamicConfig {
         redis: &mut redis::aio::Connection,
     ) -> Result<Self, redis::RedisError> {
         use redis::AsyncCommands;
-        
+
         let treasury: String = redis.hget("sys:config:hash", "treasury_wallet_solana").await.unwrap_or_default();
         let limit_str: String = redis.hget("sys:config:hash", "global_bandwidth_limit").await.unwrap_or_else(|_| "0".to_string());
         let maintenance: bool = redis.hget("sys:config:hash", "maintenance_mode").await.unwrap_or(false);

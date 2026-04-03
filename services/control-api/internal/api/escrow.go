@@ -59,10 +59,11 @@ func RegisterEscrowRoutes(rg *gin.RouterGroup) {
 	rg.GET("/escrow/:orderId", getEscrowStatus)
 	rg.POST("/escrow/:orderId/release", releaseEscrow)
 	rg.POST("/escrow/:orderId/dispute", createEscrowDispute)
-	// Juror vote by order ID — any assigned juror can call this (no admin permission needed)
+	// Legacy order-ID jury voting endpoint is hard-disabled to prevent DB-only
+	// settlement paths. Use /v1/disputes/jury/* chain-enforced flow instead.
 	rg.POST("/escrow/:orderId/jury-vote", castJuryVoteByOrder)
-	// Admin fallback: only usable when jury is deadlocked or jury period expired
-	rg.POST("/escrow/:orderId/resolve", RequirePermission("disputes:manage"), resolveEscrowDispute)
+	// Legacy admin fallback route is hard-disabled in all modes.
+	rg.POST("/escrow/:orderId/resolve", resolveEscrowDispute)
 	rg.GET("/escrow/disputes", getMyEscrowDisputes)
 }
 
@@ -137,6 +138,12 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
+	if order.EscrowPDA != "" && order.SellerWallet != "" {
+		setAuthorityHeaders(c, authorityModeChainAuthoritative, "write", "mirror")
+	} else {
+		setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+	}
+
 	// P0-09: Trigger the on-chain settlement BEFORE committing the DB state.
 	// If the on-chain call fails, we roll back and return an error so the
 	// escrow is not marked released in DB while funds remain locked on-chain.
@@ -158,7 +165,7 @@ func releaseEscrow(c *gin.Context) {
 		}
 
 		var txErr error
-		settleTxHash, txErr = oracle.SettleEscrow(c.Request.Context(), solanaClient.SettleEscrowParams{
+		settleTxHash, txErr = oracle.SettleEscrow(c.Request.Context(), "api.escrow.release", solanaClient.SettleEscrowParams{
 			EscrowPDA:       escrowPDA,
 			Seller:          sellerKey,
 			Buyer:           buyerKey,
@@ -316,196 +323,11 @@ func createEscrowDispute(c *gin.Context) {
 
 // castJuryVoteByOrder allows an assigned juror to vote on a dispute via order ID.
 //
-// D-E1: Any of the 3–5 randomly selected jurors can call this endpoint.
-// Once a majority is reached the jury auto-resolves: funds are released
-// on-chain without any admin involvement.
+// This legacy endpoint is intentionally disabled. Use /v1/disputes/jury/*.
 func castJuryVoteByOrder(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
-
-	orderID, err := uuid.Parse(c.Param("orderId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
-		return
-	}
-
-	var req models.CastVoteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Find the open dispute for this order
-	var escrow models.EscrowTransaction
-	if err := db.DB.Where("order_id = ?", orderID).First(&escrow).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Escrow not found"})
-		return
-	}
-
-	var dispute models.EscrowDispute
-	if err := db.DB.Where("escrow_id = ? AND status = ?", escrow.ID, models.DisputeOpen).First(&dispute).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No open dispute found"})
-		return
-	}
-
-	// Find the jury panel for this dispute
-	var jury models.DisputeJury
-	if err := db.DB.Where("dispute_id = ?", dispute.ID).First(&jury).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No jury panel found for this dispute — contact support"})
-		return
-	}
-
-	if jury.Status != models.JuryVoting {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Jury voting is not open for this dispute"})
-		return
-	}
-
-	if time.Now().After(jury.VotingDeadline) {
-		db.DB.Model(&jury).Update("status", models.JuryExpired)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Jury voting deadline has passed"})
-		return
-	}
-
-	// Verify caller is an assigned juror and hasn't voted yet
-	slot := jury.GetJurorSlot(userID)
-	if slot == 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a juror for this dispute"})
-		return
-	}
-
-	now := time.Now()
-	updates := map[string]interface{}{}
-	switch slot {
-	case 1:
-		if jury.Vote1 != models.VotePending {
-			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
-			return
-		}
-		updates["vote1"] = req.Vote
-		updates["vote1_at"] = now
-	case 2:
-		if jury.Vote2 != models.VotePending {
-			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
-			return
-		}
-		updates["vote2"] = req.Vote
-		updates["vote2_at"] = now
-	case 3:
-		if jury.Vote3 != models.VotePending {
-			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
-			return
-		}
-		updates["vote3"] = req.Vote
-		updates["vote3_at"] = now
-	case 4:
-		if jury.Vote4 != models.VotePending {
-			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
-			return
-		}
-		updates["vote4"] = req.Vote
-		updates["vote4_at"] = now
-	case 5:
-		if jury.Vote5 != models.VotePending {
-			c.JSON(http.StatusConflict, gin.H{"error": "You have already voted"})
-			return
-		}
-		updates["vote5"] = req.Vote
-		updates["vote5_at"] = now
-	}
-
-	db.DB.Model(&jury).Updates(updates)
-	// Reload to get full vote state
-	db.DB.First(&jury, "id = ?", jury.ID)
-
-	// Check if majority is now reached — auto-resolve without admin
-	if jury.CanAutoResolve() {
-		jury.Resolve()
-		db.DB.Save(&jury)
-
-		// Apply the jury decision to the escrow
-		txDB := db.DB.Begin()
-		switch jury.Decision {
-		case models.VoteBuyerWins:
-			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowRefunded, "released_at": now})
-			var buyerWallet models.Wallet
-			if err := txDB.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
-				newBal := buyerWallet.BalanceSOL + jury.BuyerPayout
-				txDB.Model(&buyerWallet).Update("balance_sol", newBal)
-				txDB.Create(&models.WalletLedgerEntry{
-					WalletID: buyerWallet.ID, Amount: jury.BuyerPayout,
-					BalanceAfter: newBal, Type: "jury_refund", ReferenceID: escrow.ID.String(),
-					Description: "Jury ruled: buyer wins",
-				})
-			}
-		case models.VoteSellerWins:
-			sellerAmount := usageProportionalSellerAmount(txDB, escrow)
-			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowReleased, "released_at": now})
-			var sellerWallet models.Wallet
-			if err := txDB.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
-				newBal := sellerWallet.BalanceSOL + sellerAmount
-				txDB.Model(&sellerWallet).Update("balance_sol", newBal)
-				txDB.Create(&models.WalletLedgerEntry{
-					WalletID: sellerWallet.ID, Amount: sellerAmount,
-					BalanceAfter: newBal, Type: "jury_release", ReferenceID: escrow.ID.String(),
-					Description: "Jury ruled: seller wins",
-				})
-			}
-		case models.VoteSplitFunds:
-			txDB.Model(&escrow).Updates(map[string]interface{}{"status": models.EscrowReleased, "released_at": now})
-			var buyerWallet, sellerWallet models.Wallet
-			if err := txDB.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
-				newBal := buyerWallet.BalanceSOL + jury.BuyerPayout
-				txDB.Model(&buyerWallet).Update("balance_sol", newBal)
-				txDB.Create(&models.WalletLedgerEntry{
-					WalletID: buyerWallet.ID, Amount: jury.BuyerPayout,
-					BalanceAfter: newBal, Type: "jury_split", ReferenceID: escrow.ID.String(),
-					Description: "Jury ruled: split funds (buyer portion)",
-				})
-			}
-			if err := txDB.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
-				newBal := sellerWallet.BalanceSOL + jury.SellerPayout
-				txDB.Model(&sellerWallet).Update("balance_sol", newBal)
-				txDB.Create(&models.WalletLedgerEntry{
-					WalletID: sellerWallet.ID, Amount: jury.SellerPayout,
-					BalanceAfter: newBal, Type: "jury_split", ReferenceID: escrow.ID.String(),
-					Description: "Jury ruled: split funds (seller portion)",
-				})
-			}
-		}
-
-		// Close the dispute record — map jury decision to dispute status
-		disputeStatus := models.DisputeResolvedSeller
-		if jury.Decision == models.VoteBuyerWins {
-			disputeStatus = models.DisputeResolvedBuyer
-		}
-		txDB.Model(&dispute).Updates(map[string]interface{}{
-			"status":      disputeStatus,
-			"resolution":  fmt.Sprintf("Jury decision: %d (majority vote)", jury.Decision),
-			"resolved_at": now,
-		})
-		txDB.Commit()
-
-		// Notify both parties
-		ws.BroadcastToUser(escrow.BuyerID.String(), ws.MsgTypeOrderUpdate, gin.H{
-			"type": "jury_resolved", "order_id": orderID, "decision": jury.Decision,
-		})
-		ws.BroadcastToUser(escrow.SellerID.String(), ws.MsgTypeOrderUpdate, gin.H{
-			"type": "jury_resolved", "order_id": orderID, "decision": jury.Decision,
-		})
-
-		c.JSON(http.StatusOK, gin.H{
-			"message":  "Vote cast — jury has reached a majority decision",
-			"decision": jury.Decision,
-			"resolved": true,
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "Vote recorded",
-		"votes_cast":  jury.GetVoteCount(),
-		"votes_total": jury.GetJurorCount(),
-		"resolved":    false,
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+	c.JSON(http.StatusGone, gin.H{
+		"error": "Legacy escrow jury-vote endpoint is disabled. Use /v1/disputes/jury/* for chain-enforced dispute settlement.",
 	})
 }
 
@@ -525,127 +347,12 @@ func getMyEscrowDisputes(c *gin.Context) {
 }
 
 // resolveEscrowDispute handles admin resolution of an escrow dispute
-// Requires disputes:manage permission (enforced by route middleware)
+// This legacy endpoint is intentionally disabled. Use /v1/disputes/jury/*.
 func resolveEscrowDispute(c *gin.Context) {
-
-	orderID, err := uuid.Parse(c.Param("orderId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
-		return
-	}
-
-	var req struct {
-		Decision string `json:"decision"` // "refund" or "release"
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var escrow models.EscrowTransaction
-	if err := db.DB.Where("order_id = ?", orderID).First(&escrow).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Escrow not found"})
-		return
-	}
-
-	if escrow.Status != models.EscrowDisputed {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction is not in dispute"})
-		return
-	}
-
-	tx := db.DB.Begin()
-	now := time.Now()
-
-	if req.Decision == "refund" {
-		// P1-20: Deduct already-released milestone amounts from the refund so
-		// funds that were legitimately paid to the seller are not returned twice.
-		var releasedMilestones []models.EscrowMilestone
-		tx.Where("escrow_id = ? AND status = ?", escrow.ID, "released").Find(&releasedMilestones)
-		var alreadyReleased float64
-		for _, m := range releasedMilestones {
-			alreadyReleased += m.Amount
-		}
-		refundAmount := escrow.Amount - alreadyReleased
-		if refundAmount < 0 {
-			refundAmount = 0
-		}
-
-		// Refund Buyer
-		tx.Model(&escrow).Updates(map[string]interface{}{
-			"status":      models.EscrowRefunded,
-			"released_at": now,
-		})
-
-		if refundAmount > 0 {
-			var buyerWallet models.Wallet
-			if err := tx.First(&buyerWallet, "user_id = ?", escrow.BuyerID).Error; err == nil {
-				newBalance := buyerWallet.BalanceSOL + refundAmount
-				tx.Model(&buyerWallet).Update("balance_sol", newBalance)
-
-				tx.Create(&models.WalletLedgerEntry{
-					WalletID:     buyerWallet.ID,
-					Amount:       refundAmount,
-					BalanceAfter: newBalance,
-					Type:         "escrow_refund",
-					ReferenceID:  escrow.ID.String(),
-					Description:  "Refund from dispute resolution (excluding released milestones)",
-				})
-			}
-		}
-	} else if req.Decision == "release" {
-		// Release to Seller (Standard Logic)
-		// We can reuse the release logic or duplicate it here for explicit control
-		// For simplicity, we duplicate the core credit logic here but ideally we should refactor into a helper.
-
-		tx.Model(&escrow).Updates(map[string]interface{}{
-			"status":      models.EscrowReleased,
-			"released_at": now,
-		})
-
-		// ... (Seller Credit Logic would go here - for brevity assumming manual release trigger or calling helper)
-		// Since we can't easily call the route handler, and refactoring is risky right now,
-		// we will implement the critical credit:
-
-		// P3-03: pay seller proportional to actual bandwidth delivered.
-		sellerAmount := usageProportionalSellerAmount(tx, escrow)
-
-		var sellerWallet models.Wallet
-		if err := tx.First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err == nil {
-			newBalance := sellerWallet.BalanceSOL + sellerAmount
-			tx.Model(&sellerWallet).Update("balance_sol", newBalance)
-
-			tx.Create(&models.WalletLedgerEntry{
-				WalletID:     sellerWallet.ID,
-				Amount:       sellerAmount,
-				BalanceAfter: newBalance,
-				Type:         "escrow_release_admin",
-				ReferenceID:  escrow.ID.String(),
-				Description:  "Admin resolved dispute: Release (usage-proportional)",
-			})
-		}
-	} else {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision"})
-		return
-	}
-
-	// Close Dispute
-	var dispute models.EscrowDispute
-	if err := tx.Where("escrow_id = ? AND status = ?", escrow.ID, models.DisputeOpen).First(&dispute).Error; err == nil {
-		newStatus := models.DisputeResolvedSeller
-		if req.Decision == "refund" {
-			newStatus = models.DisputeResolvedBuyer
-		}
-
-		tx.Model(&dispute).Updates(map[string]interface{}{
-			"status":      newStatus,
-			"resolution":  "Admin decision: " + req.Decision,
-			"resolved_at": now,
-		})
-	}
-
-	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"message": "Dispute resolved successfully"})
+	setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+	c.JSON(http.StatusGone, gin.H{
+		"error": "Centralized escrow dispute resolution endpoint is disabled. Use decentralized jury flow with on-chain settlement.",
+	})
 }
 
 // AutoReleaseExpiredEscrows releases escrows past auto-release date (run as cron).
