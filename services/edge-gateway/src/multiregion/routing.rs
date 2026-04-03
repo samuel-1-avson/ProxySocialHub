@@ -19,7 +19,7 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU32, AtomicU64, AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -48,8 +48,8 @@ impl LatLon {
         let dlon = (other.lon - self.lon).to_radians();
         let a = (dlat / 2.0).sin().powi(2)
             + self.lat.to_radians().cos()
-            * other.lat.to_radians().cos()
-            * (dlon / 2.0).sin().powi(2);
+                * other.lat.to_radians().cos()
+                * (dlon / 2.0).sin().powi(2);
         R * 2.0 * a.sqrt().atan2((1.0 - a).sqrt())
     }
 }
@@ -106,7 +106,9 @@ impl RegionHealth {
 
     /// Composite routing score.  Higher = more desirable.
     pub fn routing_score(&self, client_location: Option<&LatLon>) -> f64 {
-        if !self.is_available() { return 0.0; }
+        if !self.is_available() {
+            return 0.0;
+        }
 
         let health = self.health.load(Ordering::Relaxed) as f64;
         let weight = self.config.weight as f64;
@@ -152,7 +154,8 @@ impl MultiRegionRouter {
     /// Register a region.
     pub fn add_region(&self, config: RegionConfig) {
         let name = config.name.clone();
-        self.regions.insert(name, Arc::new(RegionHealth::new(config)));
+        self.regions
+            .insert(name, Arc::new(RegionHealth::new(config)));
     }
 
     /// Get a region's live health state.
@@ -216,11 +219,8 @@ impl MultiRegionRouter {
 
     /// List all regions sorted by routing score (best first).
     pub fn ranked_regions(&self, client_location: Option<&LatLon>) -> Vec<Arc<RegionHealth>> {
-        let mut list: Vec<Arc<RegionHealth>> = self
-            .regions
-            .iter()
-            .map(|e| e.value().clone())
-            .collect();
+        let mut list: Vec<Arc<RegionHealth>> =
+            self.regions.iter().map(|e| e.value().clone()).collect();
         list.sort_by(|a, b| {
             b.routing_score(client_location)
                 .partial_cmp(&a.routing_score(client_location))
@@ -229,7 +229,9 @@ impl MultiRegionRouter {
         list
     }
 
-    pub fn region_count(&self) -> usize { self.regions.len() }
+    pub fn region_count(&self) -> usize {
+        self.regions.len()
+    }
 
     /// Background task: marks regions stale if not updated in `timeout`.
     pub fn start_staleness_checker(
@@ -244,10 +246,7 @@ impl MultiRegionRouter {
                 for entry in router.regions.iter() {
                     let region = entry.value();
                     if region.last_update.load(Ordering::Relaxed) < cutoff {
-                        warn!(
-                            "🌍 Region {} is stale, marking unhealthy",
-                            entry.key()
-                        );
+                        warn!("🌍 Region {} is stale, marking unhealthy", entry.key());
                         region.health.store(0, Ordering::Relaxed);
                     }
                 }
@@ -302,8 +301,14 @@ mod tests {
 
     #[test]
     fn test_haversine_distance() {
-        let accra = LatLon { lat: 5.6037, lon: -0.187 };
-        let lagos = LatLon { lat: 6.5244, lon: 3.3792 };
+        let accra = LatLon {
+            lat: 5.6037,
+            lon: -0.187,
+        };
+        let lagos = LatLon {
+            lat: 6.5244,
+            lon: 3.3792,
+        };
         let dist = accra.distance_km(&lagos);
         // Roughly 360 km
         assert!(dist > 300.0 && dist < 420.0, "unexpected dist={}", dist);

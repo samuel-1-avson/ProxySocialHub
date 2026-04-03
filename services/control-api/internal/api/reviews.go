@@ -1,14 +1,16 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
+	"fmt"
 	"net/http"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
@@ -107,17 +109,42 @@ func createReview(c *gin.Context) {
 
 	tx.Commit()
 
-	// DECENTRALIZATION (Phase 21): Anchor to Solana
-	var seller models.User
-	if err := db.DB.First(&seller, "id = ?", order.SellerID).Error; err == nil && seller.WalletAddress != nil {
-		hash := sha256.Sum256([]byte(review.Content))
-		hashStr := hex.EncodeToString(hash[:])
-		go func() {
-			client := solana.GetOracleClient()
-			if client != nil {
-				client.AnchorReputation(c.Request.Context(), *seller.WalletAddress, solana.RepTypeReview, hashStr)
+	// REP-001: Anchor review as immutable on-chain attestation.
+	// rating_hash = SHA-256(rating|content|review_id) — plaintext stays in DB;
+	// the hash makes it tamper-evident without expensive on-chain storage.
+	if order.EscrowPDA != "" {
+		go func(rev models.Review, escrowAddr string, reviewerWallet string) {
+			oracle := solana.GetOracleClient()
+			if oracle == nil {
+				return
 			}
-		}()
+			escrowPDA, err := sol.PublicKeyFromBase58(escrowAddr)
+			if err != nil {
+				logging.Warn().Str("escrow", escrowAddr).Msg("createReview: invalid escrow PDA, skipping attestation")
+				return
+			}
+			var reviewerPubkey sol.PublicKey
+			if reviewerWallet != "" {
+				reviewerPubkey, _ = sol.PublicKeyFromBase58(reviewerWallet)
+			}
+			ratingHash := solana.ComputeRatingHash(
+				fmt.Sprintf("%d", rev.Rating),
+				rev.Content,
+				rev.ID.String(),
+			)
+			ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			reviewPDA, sig, err := oracle.SubmitReviewAttestation(ctx2, solana.ReviewAttestationParams{
+				OrderEscrowPDA: escrowPDA,
+				Reviewer:       reviewerPubkey,
+				RatingHash:     ratingHash,
+			})
+			if err != nil {
+				logging.Error(err).Str("review_id", rev.ID.String()).Msg("createReview: SubmitReviewAttestation failed (non-fatal)")
+				return
+			}
+			logging.Info().Str("pda", reviewPDA.String()).Str("sig", sig).Str("review_id", rev.ID.String()).Msg("createReview: review attested on-chain")
+		}(review, order.EscrowPDA, order.BuyerWallet)
 	}
 
 	db.Social().Preload("Reviewer").First(&review, "id = ?", review.ID)

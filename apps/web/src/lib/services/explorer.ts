@@ -123,6 +123,48 @@ export interface NetworkHealth {
     last_checked: string;
 }
 
+export interface ExplorerDecentralizationStatus {
+    chain: string;
+    window_slots: number;
+    latest_attested_slot: number;
+    recent_slots_analyzed: number;
+    unique_writers: number;
+    min_writers_required: number;
+    slots_meeting_quorum: number;
+    conflicting_slots: number;
+    quorum_ratio: number;
+    explorer_mode: string;
+    fully_decentralized: boolean;
+    last_updated: string;
+}
+
+export interface ExplorerWriterHealth {
+    writer_id: string;
+    rpc_endpoint: string;
+    writer_public_key?: string;
+    signature_scheme?: string;
+    has_attestation_signature?: boolean;
+    identity_verified?: boolean;
+    latest_slot: number;
+    lag_slots: number;
+    attestation_count: number;
+    slots_covered: number;
+    participation_ratio: number;
+    conflicting_slots: number;
+    first_attested_at: string;
+    last_attested_at: string;
+}
+
+export interface ExplorerDecentralizationWritersResponse {
+    chain: string;
+    window_slots: number;
+    latest_attested_slot: number;
+    recent_slots_analyzed: number;
+    min_writers_required: number;
+    writers: ExplorerWriterHealth[];
+    last_updated: string;
+}
+
 // Service Functions
 
 // P1-16: thin wrapper so every service function can propagate an AbortSignal.
@@ -134,9 +176,38 @@ async function xfetch(url: string, signal?: AbortSignal): Promise<Response> {
     return fetch(url, signal ? { signal } : undefined);
 }
 
+type ExplorerServiceError = Error & {
+    status?: number;
+    details?: string;
+};
+
+async function throwExplorerError(response: Response, fallback: string): Promise<never> {
+    let details = '';
+
+    try {
+        const payload = await response.json();
+        if (payload && typeof payload === 'object') {
+            const rec = payload as Record<string, unknown>;
+            details = String(rec.error || rec.message || '').trim();
+        }
+    } catch {
+        try {
+            details = (await response.text()).trim();
+        } catch {
+            details = '';
+        }
+    }
+
+    const msg = details ? `${fallback}: ${details}` : `${fallback} (HTTP ${response.status})`;
+    const err: ExplorerServiceError = new Error(msg);
+    err.status = response.status;
+    err.details = details;
+    throw err;
+}
+
 export async function getExplorerMetrics(chain = 'all', signal?: AbortSignal): Promise<ExplorerMetrics> {
     const response = await xfetch(`${API_BASE_URL}/v1/explorer/metrics?chain=${chain}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch explorer metrics');
+    if (!response.ok) await throwExplorerError(response, 'Failed to fetch explorer metrics');
     return response.json();
 }
 
@@ -153,7 +224,7 @@ export async function getRecentTransactions(page = 1, pageSize = 10, chain?: str
     if (status) url += `&status=${encodeURIComponent(status)}`;
 
     const response = await xfetch(url, signal);
-    if (!response.ok) throw new Error('Failed to fetch transactions');
+    if (!response.ok) await throwExplorerError(response, 'Failed to fetch transactions');
     return response.json();
 }
 
@@ -177,7 +248,7 @@ export async function getWalletTransactions(address: string, page = 1, pageSize 
 
 export async function getBlocks(page = 1, pageSize = 10, chain = 'solana', signal?: AbortSignal): Promise<BlockListResponse> {
     const response = await xfetch(`${API_BASE_URL}/v1/explorer/blocks?page=${page}&page_size=${pageSize}&chain=${chain}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch blocks');
+    if (!response.ok) await throwExplorerError(response, 'Failed to fetch blocks');
     return response.json();
 }
 
@@ -185,7 +256,7 @@ export async function getNodes(page = 1, pageSize = 20, activeOnly = true, valid
     let url = `${API_BASE_URL}/v1/explorer/nodes?page=${page}&page_size=${pageSize}&active=${activeOnly}`;
     if (validatorOnly) url += `&validator=true`;
     const response = await xfetch(url, signal);
-    if (!response.ok) throw new Error('Failed to fetch nodes');
+    if (!response.ok) await throwExplorerError(response, 'Failed to fetch nodes');
     return response.json();
 }
 
@@ -233,6 +304,18 @@ export async function getContractDetails(address: string, signal?: AbortSignal):
 export async function getNetworkHealth(signal?: AbortSignal): Promise<NetworkHealth> {
     const response = await xfetch(`${API_BASE_URL}/v1/explorer/network/health`, signal);
     if (!response.ok) throw new Error('Failed to fetch network health');
+    return response.json();
+}
+
+export async function getExplorerDecentralizationStatus(windowSlots = 256, signal?: AbortSignal): Promise<ExplorerDecentralizationStatus> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/decentralization/status?window_slots=${windowSlots}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch explorer decentralization status');
+    return response.json();
+}
+
+export async function getExplorerDecentralizationWriters(windowSlots = 256, signal?: AbortSignal): Promise<ExplorerDecentralizationWritersResponse> {
+    const response = await xfetch(`${API_BASE_URL}/v1/explorer/decentralization/writers?window_slots=${windowSlots}`, signal);
+    if (!response.ok) throw new Error('Failed to fetch explorer writer health');
     return response.json();
 }
 
@@ -309,7 +392,7 @@ export async function getAnalytics(period = '24h', from?: string, to?: string, s
     if (from) url += `&from=${encodeURIComponent(from)}`;
     if (to) url += `&to=${encodeURIComponent(to)}`;
     const response = await xfetch(url, signal);
-    if (!response.ok) throw new Error('Failed to fetch analytics');
+    if (!response.ok) await throwExplorerError(response, 'Failed to fetch analytics');
     return response.json();
 }
 

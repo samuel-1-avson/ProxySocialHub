@@ -11,6 +11,7 @@ import (
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 )
 
 // Global oracle client instance
@@ -35,6 +36,9 @@ func InitOracleFromEnv() error {
 
 	keypairPath := os.Getenv("SOLANA_ORACLE_KEYPAIR")
 	if keypairPath == "" {
+		if decentralization.FullModeEnabled() {
+			return fmt.Errorf("FULL_DECENTRALIZATION requires SOLANA_ORACLE_KEYPAIR to be configured")
+		}
 		// Skip initialization if no keypair configured
 		fmt.Println("[Solana] Oracle keypair not configured, settlement disabled")
 		return nil
@@ -55,6 +59,7 @@ func InitOracleFromEnv() error {
 	}
 
 	oracleClient = client
+	globalOracleClient = client
 	fmt.Printf("[Solana] Oracle initialized on %s: %s\n", network, client.GetOraclePublicKey().String())
 	return nil
 }
@@ -198,7 +203,7 @@ func settleEscrowHandler(c *gin.Context) {
 	}
 
 	// Execute settlement
-	txSig, err := oracleClient.SettleEscrow(context.Background(), SettleEscrowParams{
+	txSig, err := oracleClient.SettleEscrow(context.Background(), "solana.handlers.settle", SettleEscrowParams{
 		Buyer:           buyer,
 		Seller:          seller,
 		EscrowPDA:       escrowPDA,

@@ -19,24 +19,24 @@ type ExplorerBlock struct {
 	ValidatorPubkey  string    `gorm:"type:varchar(128)" json:"validator_pubkey,omitempty"`
 	Slot             uint64    `json:"slot,omitempty"` // Solana-specific
 	// P3-06: true when this block was replaced by a canonical fork.
-	IsOrphaned       bool      `gorm:"default:false" json:"is_orphaned"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	IsOrphaned bool      `gorm:"default:false" json:"is_orphaned"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ExplorerTransaction represents a cached transaction from the blockchain
 type ExplorerTransaction struct {
-	ID            uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
-	TxHash        string    `gorm:"type:varchar(128);uniqueIndex" json:"tx_hash"`
-	Chain         string    `gorm:"type:varchar(20);default:'solana'" json:"chain"`
-	BlockHash     string    `gorm:"type:varchar(128);index" json:"block_hash"`
-	BlockNumber   uint64    `gorm:"index" json:"block_number"`
-	FromAddress   string    `gorm:"type:varchar(128);index" json:"from_address"`
-	ToAddress     string    `gorm:"type:varchar(128);index" json:"to_address"`
-	Amount        float64   `gorm:"type:numeric(20,8)" json:"amount"`
-	Currency      string    `gorm:"type:varchar(20);default:'SOL'" json:"currency"` // "SOL" or SPL token symbol
+	ID          uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	TxHash      string    `gorm:"type:varchar(128);uniqueIndex" json:"tx_hash"`
+	Chain       string    `gorm:"type:varchar(20);default:'solana'" json:"chain"`
+	BlockHash   string    `gorm:"type:varchar(128);index" json:"block_hash"`
+	BlockNumber uint64    `gorm:"index" json:"block_number"`
+	FromAddress string    `gorm:"type:varchar(128);index" json:"from_address"`
+	ToAddress   string    `gorm:"type:varchar(128);index" json:"to_address"`
+	Amount      float64   `gorm:"type:numeric(20,8)" json:"amount"`
+	Currency    string    `gorm:"type:varchar(20);default:'SOL'" json:"currency"` // "SOL" or SPL token symbol
 	// P3-05: SPL token support — mint address when currency is an SPL token.
-	TokenMint     string    `gorm:"type:varchar(128)" json:"token_mint,omitempty"`
+	TokenMint string `gorm:"type:varchar(128)" json:"token_mint,omitempty"`
 	// P3-06: set true when the block this tx belongs to is orphaned.
 	IsOrphaned    bool      `gorm:"default:false" json:"is_orphaned"`
 	Fee           float64   `gorm:"type:numeric(20,8)" json:"fee"`
@@ -52,30 +52,30 @@ type ExplorerTransaction struct {
 
 // ExplorerNode represents a cached node/validator from the network
 type ExplorerNode struct {
-	ID             uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
-	NodeID         string    `gorm:"type:varchar(128);uniqueIndex" json:"node_id"` // Solana/Ethereum address
-	Chain          string    `gorm:"type:varchar(20)" json:"chain"`
-	Name           string    `gorm:"type:varchar(255)" json:"name,omitempty"`
-	IP             string    `gorm:"type:varchar(45)" json:"-"` // Hidden for privacy, only show region
-	Region         string    `gorm:"type:varchar(50)" json:"region"`
-	Country        string    `gorm:"type:varchar(50)" json:"country"`
-	City           string    `gorm:"type:varchar(100)" json:"city,omitempty"`
-	ISP            string    `gorm:"type:varchar(200)" json:"isp,omitempty"`
-	Latitude       float64   `gorm:"type:numeric(10,6);default:0" json:"latitude"`
-	Longitude      float64   `gorm:"type:numeric(10,6);default:0" json:"longitude"`
-	IsActive       bool      `gorm:"default:true" json:"is_active"`
-	IsValidator    bool      `gorm:"default:false" json:"is_validator"`
-	StakeAmount    float64   `gorm:"type:numeric(20,8)" json:"stake_amount"`
-	CommissionRate float64   `gorm:"type:numeric(5,2)" json:"commission_rate"`
-	UptimePercent  float64   `gorm:"type:numeric(5,2)" json:"uptime_percent"`
-	TotalBandwidth uint64    `json:"total_bandwidth_bytes"`
-	ActiveSessions int       `json:"active_sessions"`
+	ID               uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	NodeID           string    `gorm:"type:varchar(128);uniqueIndex" json:"node_id"` // Solana/Ethereum address
+	Chain            string    `gorm:"type:varchar(20)" json:"chain"`
+	Name             string    `gorm:"type:varchar(255)" json:"name,omitempty"`
+	IP               string    `gorm:"type:varchar(45)" json:"-"` // Hidden for privacy, only show region
+	Region           string    `gorm:"type:varchar(50)" json:"region"`
+	Country          string    `gorm:"type:varchar(50)" json:"country"`
+	City             string    `gorm:"type:varchar(100)" json:"city,omitempty"`
+	ISP              string    `gorm:"type:varchar(200)" json:"isp,omitempty"`
+	Latitude         float64   `gorm:"type:numeric(10,6);default:0" json:"latitude"`
+	Longitude        float64   `gorm:"type:numeric(10,6);default:0" json:"longitude"`
+	IsActive         bool      `gorm:"default:true" json:"is_active"`
+	IsValidator      bool      `gorm:"default:false" json:"is_validator"`
+	StakeAmount      float64   `gorm:"type:numeric(20,8)" json:"stake_amount"`
+	CommissionRate   float64   `gorm:"type:numeric(5,2)" json:"commission_rate"`
+	UptimePercent    float64   `gorm:"type:numeric(5,2)" json:"uptime_percent"`
+	TotalBandwidth   uint64    `json:"total_bandwidth_bytes"`
+	ActiveSessions   int       `json:"active_sessions"`
 	ProviderUserID   string    `gorm:"type:varchar(128);index" json:"provider_user_id,omitempty"`
 	ProviderUsername string    `gorm:"type:varchar(255)" json:"provider_username,omitempty"`
-	LastHeartbeat  time.Time `json:"last_heartbeat"`
-	Version        string    `gorm:"type:varchar(50)" json:"version,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	LastHeartbeat    time.Time `json:"last_heartbeat"`
+	Version          string    `gorm:"type:varchar(50)" json:"version,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // ExplorerContract represents a registered smart contract
@@ -113,6 +113,25 @@ type ExplorerMetrics struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// ExplorerBlockAttestation records which block hash a specific indexer writer
+// observed for a slot. Quorum across multiple writers is used to evaluate
+// explorer decentralization and detect divergent views.
+type ExplorerBlockAttestation struct {
+	ID                   uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	Chain                string    `gorm:"type:varchar(20);not null;default:'solana';uniqueIndex:uq_explorer_block_att_chain_slot_writer,priority:1;index:idx_explorer_block_att_chain_slot,priority:1;index:idx_explorer_block_att_chain_slot_hash,priority:1" json:"chain"`
+	Slot                 uint64    `gorm:"not null;uniqueIndex:uq_explorer_block_att_chain_slot_writer,priority:2;index:idx_explorer_block_att_chain_slot,priority:2;index:idx_explorer_block_att_chain_slot_hash,priority:2" json:"slot"`
+	BlockHash            string    `gorm:"type:varchar(128);not null;index:idx_explorer_block_att_chain_slot_hash,priority:3" json:"block_hash"`
+	ParentHash           string    `gorm:"type:varchar(128);not null;default:''" json:"parent_hash"`
+	WriterID             string    `gorm:"type:varchar(128);not null;uniqueIndex:uq_explorer_block_att_chain_slot_writer,priority:3;index:idx_explorer_block_att_writer" json:"writer_id"`
+	WriterPublicKey      string    `gorm:"type:text;not null;default:''" json:"writer_public_key,omitempty"`
+	SignatureScheme      string    `gorm:"type:varchar(32);not null;default:''" json:"signature_scheme,omitempty"`
+	AttestationSignature string    `gorm:"type:text;not null;default:''" json:"attestation_signature,omitempty"`
+	RPCEndpoint          string    `gorm:"type:varchar(255);not null;default:''" json:"rpc_endpoint"`
+	AttestedAt           time.Time `gorm:"index" json:"attested_at"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
 func (b *ExplorerBlock) BeforeCreate(tx *gorm.DB) (err error) {
 	if b.ID == uuid.Nil {
 		b.ID = uuid.New()
@@ -144,6 +163,16 @@ func (c *ExplorerContract) BeforeCreate(tx *gorm.DB) (err error) {
 func (m *ExplorerMetrics) BeforeCreate(tx *gorm.DB) (err error) {
 	if m.ID == uuid.Nil {
 		m.ID = uuid.New()
+	}
+	return
+}
+
+func (a *ExplorerBlockAttestation) BeforeCreate(tx *gorm.DB) (err error) {
+	if a.ID == uuid.Nil {
+		a.ID = uuid.New()
+	}
+	if a.AttestedAt.IsZero() {
+		a.AttestedAt = time.Now()
 	}
 	return
 }

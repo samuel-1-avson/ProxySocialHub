@@ -3,7 +3,7 @@
  * Managing recurring plans and member access levels
  */
 
-import { apiGet, apiPost } from './client';
+import { apiDeleteWithBody, apiGet, apiPost } from './client';
 
 export interface SubscriptionPlan {
     id: string;
@@ -41,13 +41,20 @@ export async function getMySubscription() {
 /**
  * Subscribe the user to a specific plan
  */
-export async function subscribeToPlan(planId: string) {
-    return apiPost<UserSubscription>('/v1/subscriptions/subscribe', { plan_id: planId });
+export async function subscribeToPlan(planId: string, billingCycle: 'monthly' | 'yearly' = 'monthly') {
+    const data = await apiPost<{ subscription: UserSubscription; message: string }>(
+        '/v1/subscriptions',
+        { plan_id: planId, billing_cycle: billingCycle }
+    );
+    return data.subscription;
 }
 
 /**
  * Cancel the current active subscription
  */
-export async function cancelSubscription() {
-    return apiPost<{ message: string }>('/v1/subscriptions/cancel');
+export async function cancelSubscription(reason?: string) {
+    return apiDeleteWithBody<{ message: string; access_until?: string }, { reason?: string }>(
+        '/v1/subscriptions',
+        reason ? { reason } : undefined
+    );
 }

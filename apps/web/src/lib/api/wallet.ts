@@ -86,11 +86,13 @@ export async function getWallet() {
 /**
  * Get wallet transactions
  */
-export function getTransactions(limit = 20, offset = 0) {
-    return apiGet<{ transactions: WalletTransaction[]; total: number }>(
-        '/v1/wallet/transactions',
-        { limit: limit.toString(), offset: offset.toString() }
-    );
+export async function getTransactions(limit = 20, offset = 0) {
+    const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
+    const all = data.wallet.transactions ?? [];
+    return {
+        transactions: all.slice(offset, offset + limit),
+        total: all.length,
+    };
 }
 
 /**
@@ -98,7 +100,9 @@ export function getTransactions(limit = 20, offset = 0) {
  * @deprecated Use depositCrypto for user deposits
  */
 export function depositWallet(amount: number, email: string) {
-    return apiPost<DepositResponse>('/v1/wallet/deposit', { amount, email });
+    void amount;
+    void email;
+    throw new Error('Fiat deposits are disabled. Use depositCrypto with /v1/wallet/deposit/crypto.');
 }
 
 /**
@@ -106,14 +110,25 @@ export function depositWallet(amount: number, email: string) {
  * @deprecated
  */
 export function verifyDeposit(reference: string) {
-    return apiGet<{ status: string; message: string }>(`/v1/wallet/verify?reference=${reference}`);
+    void reference;
+    throw new Error('Fiat deposit verification is disabled.');
 }
 
 /**
  * Initiate a withdrawal (Mobile Money - Providers only)
  */
-export function withdrawWallet(amount: number, phone: string, network: string) {
-    return apiPost<WithdrawResponse>('/v1/wallet/withdraw', { amount, phone, network });
+export async function withdrawWallet(amount: number, phone: string, network: string) {
+    void phone;
+    void network;
+    const data = await apiPost<{ status: string; tx_hash?: string; new_balance: number }>(
+        '/v1/wallet/withdraw/sol',
+        { amount }
+    );
+    return {
+        status: data.status,
+        reference: data.tx_hash || '',
+        new_balance: data.new_balance,
+    } as WithdrawResponse;
 }
 
 /**

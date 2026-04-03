@@ -110,7 +110,7 @@ export function joinCircle(id: string, message?: string) {
  * Leave a circle
  */
 export function leaveCircle(id: string) {
-    return apiPost<{ message: string }>(`/v1/circles/${id}/leave`);
+    return apiDelete<{ message: string }>(`/v1/circles/${id}/members/me`);
 }
 
 /**

@@ -68,6 +68,9 @@ mod tests {
 
     #[test]
     fn test_detect_unknown() {
-        assert_eq!(detect_from_preface(b"\x00\x01\x02"), DetectedProtocol::Unknown);
+        assert_eq!(
+            detect_from_preface(b"\x00\x01\x02"),
+            DetectedProtocol::Unknown
+        );
     }
 }

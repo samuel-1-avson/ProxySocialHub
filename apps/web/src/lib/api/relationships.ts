@@ -104,7 +104,7 @@ export async function getProviderRelationshipStats(): Promise<RelationshipStats>
  * Get all provider relationships for the current buyer
  */
 export async function getBuyerRelationships(): Promise<ProviderBuyerRelationship[]> {
-    const data = await apiGet<{ relationships: ProviderBuyerRelationship[] }>('/v1/buyer/relationships');
+    const data = await apiGet<{ relationships: ProviderBuyerRelationship[] }>('/v1/provider/relationships');
     return data.relationships || [];
 }
 
@@ -112,7 +112,7 @@ export async function getBuyerRelationships(): Promise<ProviderBuyerRelationship
  * Get detailed information about a specific provider relationship
  */
 export async function getBuyerRelationshipDetail(providerId: string): Promise<RelationshipDetail> {
-    return apiGet<RelationshipDetail>(`/v1/buyer/relationships/${providerId}`);
+    return apiGet<RelationshipDetail>(`/v1/provider/relationships/${providerId}`);
 }
 
 // ============ Query Keys ============

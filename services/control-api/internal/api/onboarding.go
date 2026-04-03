@@ -36,8 +36,11 @@ type ApplyProviderRequest struct {
 
 // applyForProvider handles provider application submission
 func applyForProvider(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID, _ := uuid.Parse(currentUserID.(string))
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	var req ApplyProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -93,10 +96,10 @@ func applyForProvider(c *gin.Context) {
 	// 3. ISP & Location Auto-Detection
 	clientIP := c.ClientIP()
 	geoResult, ok := geoip.Resolve(clientIP)
-	
+
 	finalISP := "Unknown ISP"
 	finalLocation := "Unknown"
-	
+
 	if ok {
 		finalISP = geoResult.ISP
 		finalLocation = fmt.Sprintf("%s, %s", geoResult.City, geoResult.Country)
@@ -125,8 +128,11 @@ func applyForProvider(c *gin.Context) {
 
 // getProviderStatus returns the application status
 func getProviderStatus(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID, _ := uuid.Parse(currentUserID.(string))
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	var app models.ProviderApplication
 	if err := db.DB.Where("user_id = ?", userID).Order("created_at DESC").First(&app).Error; err != nil {

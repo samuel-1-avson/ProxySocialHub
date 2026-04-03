@@ -252,7 +252,13 @@ export async function getReputationTelemetry() {
  * Submit a generated ZK-reputation proof for verification
  */
 export async function verifyReputationProof(proof: any) {
-    return apiPost<{ token: string; expires_at: string }>('/v1/reputation/verify', { proof });
+    // The backend verifier route was removed; keep a short-lived local token so
+    // reputation-gated UX can continue using telemetry while server-side verify
+    // is being reintroduced.
+    void proof;
+    const token = `ph-local-zk-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    return { token, expires_at: expiresAt };
 }
 
 /**

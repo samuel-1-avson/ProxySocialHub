@@ -86,16 +86,10 @@ services:
       - APP_URL=${APP_URL:-}
 
       # Dev backdoor (disabled if blank)
+      - ENABLE_DEV_LOGIN=${ENABLE_DEV_LOGIN:-false}
       - DEV_LOGIN_SECRET=${DEV_LOGIN_SECRET:-}
       # Skip plaintext-credential block in dev (encrypt with MIGRATE_CREDENTIALS=true first)
       - SKIP_CREDENTIAL_CHECK=${SKIP_CREDENTIAL_CHECK:-true}
-
-      # Optional external services
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      # Direct Postgres URL for social tables — leave blank to use local DB
-      - SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL}
 
       # Blockchain
       - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
@@ -115,9 +109,13 @@ services:
 
       # Edge Gateway management
       - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway:8090}
+      # Halo2 prover
+      - HALO2_PROVER_URL=${HALO2_PROVER_URL:-http://zk-prover:8095}
+      - HALO2_PROVER_TIMEOUT_MS=${HALO2_PROVER_TIMEOUT_MS:-15000}
+      - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-true}
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-true}
 
       # Provider Engine
-      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - PLATFORM_FEE_PERCENT=${PLATFORM_FEE_PERCENT:-0.10}
       - MIN_PAYOUT_SOL=${MIN_PAYOUT_SOL:-0.01}
       - PAYOUT_BATCH_SIZE=${PAYOUT_BATCH_SIZE:-20}
@@ -175,6 +173,29 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      zk-prover:
+        condition: service_healthy
+
+  # ==================== ZK PROVER ====================
+  zk-prover:
+    build:
+      context: ./services/zk-prover
+      dockerfile: Dockerfile
+    container_name: proxyhubb-zk-prover
+    ports:
+      - "8095:8095"
+    environment:
+      - PORT=8095
+      - RUST_LOG=${ZK_PROVER_LOG:-info}
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8095/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - backend
 
   # ==================== WEB (Frontend) ====================
   web:
@@ -186,8 +207,6 @@ services:
         - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
         - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
         - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
-        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8080}
         - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:8080}
     container_name: proxyhubb-web
@@ -202,8 +221,6 @@ services:
       - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
       - NEXT_PUBLIC_SOLANA_TREASURY=${SOLANA_TREASURY_ADDRESS}
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     depends_on:
       control-api:
         condition: service_healthy
@@ -343,6 +360,7 @@ services:
       - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
       - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
       - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-true}
 
     volumes:
       - ./geoip:/app/geoip:ro

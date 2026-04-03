@@ -26,13 +26,9 @@ export async function getWallet(): Promise<Wallet> {
 }
 
 export async function depositWallet(amount: number, email: string): Promise<{ status: string; reference: string; message: string; authorization_url: string }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, email }),
-    });
-    if (!response.ok) throw new Error('Failed to initiate deposit');
-    return response.json();
+    void amount;
+    void email;
+    throw new Error('Fiat deposits are disabled. Use depositCrypto with /v1/wallet/deposit/crypto.');
 }
 
 export async function linkWallet(address: string, chain: 'solana', signature?: string, message?: string): Promise<{ status: string; message: string }> {
@@ -59,19 +55,26 @@ export async function depositCrypto(amount: number, txHash: string, chain: 'sola
 }
 
 export async function verifyDeposit(reference: string): Promise<{ status: string; message: string }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/verify?reference=${reference}`);
-    if (!response.ok) throw new Error('Failed to verify deposit');
-    return response.json();
+    void reference;
+    throw new Error('Fiat deposit verification is disabled.');
 }
 
 export async function withdrawWallet(amount: number, phone: string, network: string): Promise<{ status: string; reference: string; new_balance: number }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw`, {
+    void phone;
+    void network;
+
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw/sol`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, phone, network }),
+        body: JSON.stringify({ amount }),
     });
     if (!response.ok) throw new Error('Failed to initiate withdrawal');
-    return response.json();
+    const data = await response.json();
+    return {
+        status: data.status,
+        reference: data.tx_hash || '',
+        new_balance: data.new_balance,
+    };
 }
 
 export async function transferFunds(recipient: string, amount: number): Promise<{ status: string; message: string }> {

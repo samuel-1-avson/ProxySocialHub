@@ -8,6 +8,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useUIStore } from "@/lib/store/ui-store";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { ExplorerTrustBadge } from "@/components/explorer/ExplorerTrustBadge";
 
 export default function ExplorerLayout({
     children,
@@ -47,7 +48,10 @@ export default function ExplorerLayout({
                 
                 {/* Explorer Sub-navigation Header */}
                 <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-4 mt-16 md:mt-0">
-                    <h1 className="text-2xl font-bold mb-4 font-sans tracking-tight">Network Explorer</h1>
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                        <h1 className="text-2xl font-bold font-sans tracking-tight">Network Explorer</h1>
+                        <ExplorerTrustBadge className="shrink-0" />
+                    </div>
                     <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none snap-x mask-fade-edges">
                         {explorerTabs.map((tab) => {
                             const isActive = pathname === tab.href || pathname?.startsWith(tab.href + '/');

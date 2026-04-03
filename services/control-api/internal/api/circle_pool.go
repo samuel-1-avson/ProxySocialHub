@@ -1,15 +1,19 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
@@ -117,9 +121,31 @@ func getCirclePoolStatus(c *gin.Context) {
 	// Calculate pool stats
 	var totalCapacity, usedCapacity float64
 	var activeSessions int64
-	
+
+	// REP-005: Prefer on-chain ProviderRegistry.total_bandwidth_served as the
+	// authoritative capacity figure.  Falls back to DB ContributedBandwidthGB
+	// when the oracle is unavailable or a member hasn't registered on-chain.
+	oracle := solana.GetOracleClient()
 	for _, member := range circleMembers {
-		totalCapacity += member.ContributedBandwidthGB
+		var memberCapacityGB float64
+		if oracle != nil {
+			var memberUser models.User
+			db.DB.Select("wallet_address").First(&memberUser, "id = ?", member.UserID)
+			if memberUser.WalletAddress != nil && *memberUser.WalletAddress != "" {
+				if pubkey, err := sol.PublicKeyFromBase58(*memberUser.WalletAddress); err == nil {
+					if reg, err := oracle.ReadProviderRegistry(c.Request.Context(), pubkey); err == nil {
+						// Convert bytes → GB
+						memberCapacityGB = float64(reg.TotalBandwidthServed) / (1024 * 1024 * 1024)
+					} else {
+						logging.Warn().Str("user", member.UserID.String()).Msg("getCirclePoolStatus: ReadProviderRegistry failed, using DB fallback")
+					}
+				}
+			}
+		}
+		if memberCapacityGB == 0 {
+			memberCapacityGB = member.ContributedBandwidthGB
+		}
+		totalCapacity += memberCapacityGB
 	}
 	
 	// Get active pool sessions
@@ -689,17 +715,36 @@ func distributeRevenue(quote models.CircleQuote) {
 		return
 	}
 
-	// Calculate total contribution
+	// REP-005: Use on-chain ProviderRegistry.total_bandwidth_served as the
+	// authoritative contribution weight; fall back to DB ContributedBandwidthGB.
+	oracle := solana.GetOracleClient()
+	capacities := make([]float64, len(members))
 	var totalContribution float64
-	for _, m := range members {
-		totalContribution += m.ContributedBandwidthGB
+	for i, m := range members {
+		var cap float64
+		if oracle != nil {
+			var u models.User
+			db.DB.Select("wallet_address").First(&u, "id = ?", m.UserID)
+			if u.WalletAddress != nil && *u.WalletAddress != "" {
+				if pubkey, err := sol.PublicKeyFromBase58(*u.WalletAddress); err == nil {
+					if reg, err := oracle.ReadProviderRegistry(context.Background(), pubkey); err == nil {
+						cap = float64(reg.TotalBandwidthServed) / (1024 * 1024 * 1024)
+					}
+				}
+			}
+		}
+		if cap == 0 {
+			cap = m.ContributedBandwidthGB
+		}
+		capacities[i] = cap
+		totalContribution += cap
 	}
 
 	// Distribute revenue proportionally
-	for _, member := range members {
+	for i, member := range members {
 		share := 0.0
 		if totalContribution > 0 {
-			share = (member.ContributedBandwidthGB / totalContribution) * quote.FinalPrice
+			share = (capacities[i] / totalContribution) * quote.FinalPrice
 		}
 
 		revenue := models.CircleRevenue{

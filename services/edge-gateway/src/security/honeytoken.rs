@@ -24,13 +24,25 @@ pub struct HoneytokenRegistry {
 impl HoneytokenRegistry {
     pub fn new() -> Self {
         let tokens = DashMap::new();
-        
+
         // Default honeytokens (standard decoys)
-        tokens.insert("metadata.google.internal".to_string(), HoneytokenType::SensitiveEndpoint);
-        tokens.insert("169.254.169.254".to_string(), HoneytokenType::SensitiveEndpoint);
-        tokens.insert("vault.internal.proxyhubb.io".to_string(), HoneytokenType::DecoyDomain);
-        tokens.insert("admin-console.internal".to_string(), HoneytokenType::DecoyDomain);
-        
+        tokens.insert(
+            "metadata.google.internal".to_string(),
+            HoneytokenType::SensitiveEndpoint,
+        );
+        tokens.insert(
+            "169.254.169.254".to_string(),
+            HoneytokenType::SensitiveEndpoint,
+        );
+        tokens.insert(
+            "vault.internal.proxyhubb.io".to_string(),
+            HoneytokenType::DecoyDomain,
+        );
+        tokens.insert(
+            "admin-console.internal".to_string(),
+            HoneytokenType::DecoyDomain,
+        );
+
         Self { tokens }
     }
 
@@ -55,25 +67,27 @@ impl Default for HoneytokenRegistry {
 
 /// A "sink" for malicious connections. Emits data that confuses scrapers.
 pub mod sink {
-    use tokio::io::{AsyncWriteExt, repeat};
     use std::io;
+    use tokio::io::{repeat, AsyncWriteExt};
 
     /// Consumes all input and provides an infinite stream of random-looking data
     /// or "slow-roll" response to waste the attacker's time.
-    pub async fn handle_malicious_connection(mut stream: tokio::io::DuplexStream) -> io::Result<()> {
+    pub async fn handle_malicious_connection(
+        mut stream: tokio::io::DuplexStream,
+    ) -> io::Result<()> {
         let mut sink = tokio::io::sink();
         let mut source = repeat(0xCC); // "Trap" pattern
-        
+
         // Concurrent read (drain attacker) and write (slow trap)
         let (mut req_rx, mut req_tx) = tokio::io::split(stream);
-        
-        let reader = async move {
-            tokio::io::copy(&mut req_rx, &mut sink).await
-        };
-        
+
+        let reader = async move { tokio::io::copy(&mut req_rx, &mut sink).await };
+
         let writer = async move {
             // Send decoy header to make it look like a real (but broken) backend
-            let _ = req_tx.write_all(b"HTTP/1.1 200 OK\r\nServer: Nginx\r\nContent-Type: text/plain\r\n\r\n").await;
+            let _ = req_tx
+                .write_all(b"HTTP/1.1 200 OK\r\nServer: Nginx\r\nContent-Type: text/plain\r\n\r\n")
+                .await;
             tokio::io::copy(&mut source, &mut req_tx).await
         };
 

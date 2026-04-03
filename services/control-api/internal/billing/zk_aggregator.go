@@ -1,162 +1,228 @@
+// Package billing — ZK batch aggregator (L2 Phase 4).
+//
+// ProcessSignedProofs batches all signed UsageProofs into a single Merkle-root
+// commitment and submits one Solana TX instead of N individual TXes.
+//
+// Flow:
+//  1. Fetch all "signed" UsageProofs (both parties have signed)
+//  2. Build ProofLeaf for each
+//  3. Compute BatchProof (Merkle root via zk.Prover)
+//  4. Idempotency-check: skip if root already anchored on-chain
+//  5. Call oracle.SubmitZKBatch — one TX on Solana
+//  6. Mark all proofs as "on_chain" with the shared TX hash
+//  7. Save ZKBatch record for audit
 package billing
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
-	sol "github.com/gagliardetto/solana-go"
-	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/zk"
 	"gorm.io/gorm"
 )
 
-// ZKAggregator handles batching and confidential settlement of usage proofs
+// ZKAggregator handles batching and on-chain settlement of usage proofs.
 type ZKAggregator struct {
 	batchSize int
+	prover    *zk.Prover
+	halo2     *zk.Halo2Client
 }
 
 func NewZKAggregator() *ZKAggregator {
 	return &ZKAggregator{
 		batchSize: 50,
+		prover:    zk.NewProver(),
+		halo2:     zk.NewHalo2ClientFromEnv(),
 	}
 }
 
-// ProcessSignedProofs scans for signed usage proofs and aggregates them by session
+// ProcessSignedProofs fetches signed UsageProofs, generates a batch Merkle
+// commitment, submits it in one Solana TX, and marks the proofs as on_chain.
 func (z *ZKAggregator) ProcessSignedProofs(ctx context.Context) error {
 	logging.Info().Msg("ZKAggregator: Scanning for signed usage proofs...")
 
-	// 1. Fetch SIGNED proofs
 	var proofs []models.UsageProof
-	if err := db.DB.Where("status = ?", models.UsageProofSigned).Limit(z.batchSize).Find(&proofs).Error; err != nil {
-		return fmt.Errorf("failed to fetch signed proofs: %w", err)
+	if err := db.DB.Where("status = ?", models.UsageProofSigned).
+		Limit(z.batchSize).Find(&proofs).Error; err != nil {
+		return fmt.Errorf("ZKAggregator: fetch signed proofs: %w", err)
 	}
-
 	if len(proofs) == 0 {
 		return nil
 	}
 
-	logging.Info().Int("count", len(proofs)).Msg("ZKAggregator: Found signed proofs for processing")
+	logging.Info().Int("count", len(proofs)).Msg("ZKAggregator: building batch proof")
 
-	// 2. Group by SessionID
-	sessionGroups := make(map[uuid.UUID][]models.UsageProof)
+	// Build proof leaves.
+	leaves := make([]zk.ProofLeaf, 0, len(proofs))
+	proofIDs := make([]interface{}, 0, len(proofs))
 	for _, p := range proofs {
-		sessionGroups[p.SessionID] = append(sessionGroups[p.SessionID], p)
+		var sessionIDBytes [16]byte
+		copy(sessionIDBytes[:], p.SessionID[:])
+
+		buyerSig, _ := base58.Decode(p.BuyerSignature)
+		providerSig, _ := base58.Decode(p.ProviderSignature)
+
+		leaves = append(leaves, zk.ProofLeaf{
+			SessionID:   sessionIDBytes,
+			TotalBytes:  uint64(p.TotalBytes),
+			PeriodStart: p.PeriodStart.Unix(),
+			PeriodEnd:   p.PeriodEnd.Unix(),
+			BuyerSig:    buyerSig,
+			ProviderSig: providerSig,
+		})
+		proofIDs = append(proofIDs, p.ID)
 	}
 
-	// 3. Process each session group
-	for sessionID, group := range sessionGroups {
-		if err := z.settleGroupConfidencially(ctx, sessionID, group); err != nil {
-			logging.Error(err).Str("session_id", sessionID.String()).Msg("ZKAggregator: Group settlement failed")
-		}
+	batch, err := z.prover.GenerateBatchProof(leaves)
+	if err != nil {
+		return fmt.Errorf("ZKAggregator: GenerateBatchProof: %w", err)
 	}
 
-	return nil
-}
+	rootHex := hex.EncodeToString(batch.Root[:])
+	if err := z.attachHalo2Proof(ctx, batch, rootHex); err != nil {
+		return fmt.Errorf("ZKAggregator: proof generation: %w", err)
+	}
 
-func (z *ZKAggregator) settleGroupConfidencially(ctx context.Context, sessionID uuid.UUID, group []models.UsageProof) error {
-	// Start DB Transaction
+	// Submit on-chain (idempotency handled inside SubmitZKBatchOnChain).
+	txSig, err := z.submitBatchOnChain(ctx, batch, rootHex)
+	if err != nil {
+		return fmt.Errorf("ZKAggregator: on-chain submission: %w", err)
+	}
+
+	// Persist results in a single DB transaction.
 	return db.DB.Transaction(func(tx *gorm.DB) error {
-		// A. Sum totals
-		var totalBytes int64
-		proofIDs := make([]uuid.UUID, 0, len(group))
-		for _, p := range group {
-			totalBytes += p.TotalBytes
-			proofIDs = append(proofIDs, p.ID)
+		// Mark all proofs as on_chain.
+		if err := tx.Model(&models.UsageProof{}).
+			Where("id IN ?", proofIDs).
+			Updates(map[string]interface{}{
+				"status":           models.UsageProofOnChain,
+				"on_chain_tx_hash": txSig,
+				"on_chain_slot":    time.Now().Unix(),
+			}).Error; err != nil {
+			return fmt.Errorf("mark on_chain: %w", err)
 		}
 
-		// B. Mark proofs as settling
-		if err := tx.Model(&models.UsageProof{}).Where("id IN ?", proofIDs).Update("status", models.UsageProofSettlingConfidential).Error; err != nil {
-			return err
+		// Create ZKBatch audit record.
+		zkBatch := models.ZKBatch{
+			BatchRoot:    rootHex,
+			SessionCount: batch.SessionCount,
+			TotalBytes:   batch.TotalBytes,
+			PeriodStart:  time.Unix(batch.PeriodStart, 0),
+			PeriodEnd:    time.Unix(batch.PeriodEnd, 0),
+			OnChainTxSig: txSig,
+			OnChainSlot:  time.Now().Unix(),
+			ProofBytes:   batch.Proof,
+			Status:       models.ZKBatchConfirmed,
 		}
-
-		// C. Generate ZK Witness
-		// Calls ZK-Proof Generation Service (WASM or hardware-accelerated)
-		logging.Info().
-			Str("session_id", sessionID.String()).
-			Int64("total_bytes", totalBytes).
-			Msg("ZKAggregator: Confidential witness generated")
-
-		// D. Save Confidential Settlement Record
-		// (We might need a new model for ZK Settlements, but for the prototype we can log it)
-		// For now, we simulate the "On-Chain" callback by marking them as on_chain
-
-		// Submit witness to Solana and get transaction hash
-		txHash, slot, err := submitToSolana(sessionID, proofIDs, totalBytes)
-		if err != nil {
-			return err
-		}
-
-		if err := tx.Model(&models.UsageProof{}).Where("id IN ?", proofIDs).Updates(map[string]interface{}{
-			"status":           models.UsageProofOnChain,
-			"on_chain_tx_hash": txHash,
-			"on_chain_slot":    slot,
-		}).Error; err != nil {
-			return err
+		if err := tx.Create(&zkBatch).Error; err != nil {
+			return fmt.Errorf("create ZKBatch record: %w", err)
 		}
 
 		logging.Info().
-			Str("tx_hash", txHash).
-			Int("proof_count", len(group)).
-			Msg("ZKAggregator: Confidential settlement submitted to blockchain")
+			Str("root", rootHex).
+			Str("tx_sig", txSig).
+			Uint32("sessions", batch.SessionCount).
+			Uint64("total_bytes", batch.TotalBytes).
+			Msg("ZKAggregator: batch committed on-chain")
 
 		return nil
 	})
 }
 
-// submitToSolana submits the ZK proof to Solana via SubmitUsageProof.
-// For PAYG sessions without an escrow PDA, a local reference is returned.
-func submitToSolana(sessionID uuid.UUID, proofIDs []uuid.UUID, totalBytes int64) (string, int64, error) {
-	if !solana.IsOracleConfigured() {
-		return "pending_" + uuid.New().String()[:8], time.Now().Unix(), nil
+// SubmitBatchDirect is called by the API handler when a batch arrives via HTTP
+// (as opposed to the background worker picking it up from the DB).
+// It updates the existing ZKBatch record with the final TX sig and status.
+func (z *ZKAggregator) SubmitBatchDirect(ctx context.Context, batch *zk.BatchProof, rootHex string) error {
+	if err := z.attachHalo2Proof(ctx, batch, rootHex); err != nil {
+		db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
+			Updates(map[string]interface{}{"status": models.ZKBatchFailed})
+		return err
 	}
 
-	oracle := solana.GetOracle()
-
-	// Resolve session → order → escrow PDA.
-	var order models.Order
-	if err := db.DB.Where("session_id = ?", sessionID).First(&order).Error; err != nil {
-		// No order (standalone session) — not an error; nothing to anchor on-chain.
-		return "payg_" + uuid.New().String()[:8], time.Now().Unix(), nil
-	}
-
-	if order.EscrowPDA == "" {
-		// Pay-as-you-go order, no on-chain escrow to update.
-		return "payg_" + uuid.New().String()[:8], time.Now().Unix(), nil
-	}
-
-	escrowPDA, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	txSig, err := z.submitBatchOnChain(ctx, batch, rootHex)
 	if err != nil {
-		return "", 0, fmt.Errorf("invalid escrow PDA %q: %w", order.EscrowPDA, err)
+		db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
+			Updates(map[string]interface{}{"status": models.ZKBatchFailed})
+		return err
+	}
+	db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
+		Updates(map[string]interface{}{
+			"status":          models.ZKBatchConfirmed,
+			"on_chain_tx_sig": txSig,
+			"on_chain_slot":   time.Now().Unix(),
+			"proof_bytes":     batch.Proof,
+		})
+	return nil
+}
+
+func (z *ZKAggregator) attachHalo2Proof(ctx context.Context, batch *zk.BatchProof, rootHex string) error {
+	if z.halo2 == nil {
+		recordZKProverResult("skipped", 0)
+		return nil
 	}
 
-	// Use the count of already-on-chain proofs for this session as the next index.
-	var onChainCount int64
-	db.DB.Model(&models.UsageProof{}).
-		Where("session_id = ? AND status = ?", sessionID, models.UsageProofOnChain).
-		Count(&onChainCount)
-	proofIndex := uint32(onChainCount)
-
-	now := time.Now()
-	txHash, err := oracle.SubmitUsageProof(context.Background(), solana.SubmitUsageProofParams{
-		EscrowPDA:   escrowPDA,
-		ProofIndex:  proofIndex,
-		TotalBytes:  uint64(totalBytes),
-		PeriodStart: now.Add(-15 * time.Minute).Unix(),
-		PeriodEnd:   now.Unix(),
-	})
+	started := time.Now()
+	proofBytes, err := z.halo2.GenerateBatchProof(ctx, batch)
+	elapsed := time.Since(started).Seconds()
 	if err != nil {
-		return "", 0, fmt.Errorf("SubmitUsageProof failed: %w", err)
+		recordZKProverResult("failed", elapsed)
+		return fmt.Errorf("attach halo2 proof for root %s: %w", rootHex, err)
 	}
+
+	if len(proofBytes) == 0 {
+		recordZKProverResult("skipped", elapsed)
+		return nil
+	}
+
+	batch.Proof = proofBytes
+	recordZKProverResult("success", elapsed)
 
 	logging.Info().
-		Str("session_id", sessionID.String()).
-		Str("tx_hash", txHash).
-		Int64("total_bytes", totalBytes).
-		Msg("ZKAggregator: usage proof anchored on-chain")
+		Str("root", rootHex).
+		Int("proof_bytes", len(proofBytes)).
+		Msg("ZKAggregator: external Halo2 proof attached")
 
-	return txHash, now.Unix(), nil
+	return nil
+}
+
+// submitBatchOnChain submits the batch root to Solana and returns the TX sig.
+// Full decentralization requires an initialized oracle; no placeholder tx is returned.
+func (z *ZKAggregator) submitBatchOnChain(ctx context.Context, batch *zk.BatchProof, rootHex string) (string, error) {
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		return "", fmt.Errorf("oracle not configured: cannot submit ZK batch on-chain")
+	}
+
+	// Idempotency: skip if already anchored.
+	anchored, err := oracle.IsZKBatchAnchored(ctx, batch.Root)
+	if err != nil {
+		logging.Warn().Err(err).Msg("ZKAggregator: idempotency check failed, proceeding with submission")
+	} else if anchored {
+		// Already on-chain — retrieve the DB record for the existing TX sig.
+		var existing models.ZKBatch
+		if dbErr := db.DB.Where("batch_root = ?", rootHex).First(&existing).Error; dbErr == nil {
+			logging.Info().Str("root", rootHex).Msg("ZKAggregator: batch already anchored, reusing TX sig")
+			return existing.OnChainTxSig, nil
+		}
+		return "already_anchored_" + rootHex[:8], nil
+	}
+
+	txSig, _, err := oracle.SubmitZKBatch(ctx, solana.ZKBatchParams{
+		BatchRoot:    batch.Root,
+		SessionCount: batch.SessionCount,
+		TotalBytes:   batch.TotalBytes,
+		PeriodStart:  batch.PeriodStart,
+		PeriodEnd:    batch.PeriodEnd,
+	})
+	if err != nil {
+		return "", fmt.Errorf("SubmitZKBatch RPC: %w", err)
+	}
+	return txSig, nil
 }

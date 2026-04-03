@@ -94,8 +94,9 @@ pub async fn handle_ws_upgrade(
         Some(t) => t,
         None => {
             warn!("WS upgrade missing ?target= param");
-            let mut resp =
-                Response::new(Full::new(Bytes::from("Missing ?target=host:port query param")));
+            let mut resp = Response::new(Full::new(Bytes::from(
+                "Missing ?target=host:port query param",
+            )));
             *resp.status_mut() = StatusCode::BAD_REQUEST;
             return Ok(resp);
         }
@@ -165,7 +166,10 @@ pub async fn handle_ws_upgrade(
                 let ws = WebSocketStream::from_raw_socket(io, Role::Server, None).await;
                 match bridge_ws(ws, &target, &username, state, auth_clone).await {
                     Ok(stats) => {
-                        metrics::connection_ended(stats.bytes_from_client, stats.bytes_from_provider);
+                        metrics::connection_ended(
+                            stats.bytes_from_client,
+                            stats.bytes_from_provider,
+                        );
                         metrics::ACTIVE_SESSIONS.dec();
                         info!(
                             "✅ WS bridge closed: {}/{} bytes up/down for {}",
@@ -245,10 +249,7 @@ where
         ));
     }
 
-    info!(
-        "🔗 WS bridge: {} → {} via {}",
-        username, target, node_id
-    );
+    info!("🔗 WS bridge: {} → {} via {}", username, target, node_id);
     metrics::connection_started();
 
     // Split WS into independent sink + stream halves

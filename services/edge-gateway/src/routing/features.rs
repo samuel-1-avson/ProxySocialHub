@@ -18,12 +18,12 @@
 //! 9  region_hash          stable float in [0,1] derived from region string
 //! ```
 
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicU32, AtomicU64, Ordering},
     Arc,
 };
-use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::state::NodeInfo;
@@ -257,16 +257,24 @@ impl FeatureCache {
     /// Dump all cached features for all healthy nodes to a CSV string.
     pub fn to_csv(&self, registry: &crate::registry::lockfree::LockFreeNodeRegistry) -> String {
         let mut csv = String::from("node_id,latency,load,bw_util,success_rate,latency_hist,packet_loss,bytes_log,uptime,health,region_hash,domain_success\n");
-        
+
         for (_id, _control, info) in registry.list_healthy_with_info() {
             // Build features for a generic domain (None) to get a baseline
             let features = self.build_features(&info, None);
-            let row = format!("{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
+            let row = format!(
+                "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}\n",
                 info.node_id,
-                features.values[0], features.values[1], features.values[2],
-                features.values[3], features.values[4], features.values[5],
-                features.values[6], features.values[7], features.values[8],
-                features.values[9], features.values[10]
+                features.values[0],
+                features.values[1],
+                features.values[2],
+                features.values[3],
+                features.values[4],
+                features.values[5],
+                features.values[6],
+                features.values[7],
+                features.values[8],
+                features.values[9],
+                features.values[10]
             );
             csv.push_str(&row);
         }
@@ -314,10 +322,7 @@ mod tests {
         let stats = NodeStats::default();
         let feat = NodeFeatures::build(&info, &stats, None);
         for (i, v) in feat.values.iter().enumerate() {
-            assert!(
-                (0.0..=1.0).contains(v),
-                "feature[{i}] = {v} out of [0,1]"
-            );
+            assert!((0.0..=1.0).contains(v), "feature[{i}] = {v} out of [0,1]");
         }
     }
 
