@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -150,10 +151,6 @@ func main() {
 	api.InitConfigManager(cm)
 	log.Println("Internal Config Manager initialized and synced")
 
-	// Initialize Admin Config (3 hardcoded admin accounts)
-	api.InitAdminConfig(&cfg.Admin)
-	log.Println("Admin config initialized")
-
 	// Initialize Agent Dispatcher (Phase 13 Orchestration)
 	ad := worker.NewAgentTaskDispatcher()
 	api.InitAgentDispatcher(ad)
@@ -233,7 +230,9 @@ func main() {
 
 	// Initialize Treasury Auto-Topup Service
 	treasuryManager := treasury.NewTreasuryManager()
-	go treasuryManager.StartAutoTopupMonitor(context.Background())
+	worker.GoSupervised("TreasuryAutoTopupMonitor", 5*time.Second, func() {
+		treasuryManager.StartAutoTopupMonitor(context.Background())
+	})
 	log.Println("Treasury auto-topup monitor started")
 
 	// Initialize Usage Milestone Worker (PAYG Social Feature)
@@ -250,12 +249,7 @@ func main() {
 				refreshMins = n
 			}
 		}
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("ERROR: leaderboard MV refresh goroutine panicked: %v — goroutine terminated", r)
-				}
-			}()
+		worker.GoSupervised("LeaderboardMVRefresh", 5*time.Second, func() {
 			ticker := time.NewTicker(time.Duration(refreshMins) * time.Minute)
 			defer ticker.Stop()
 			for range ticker.C {
@@ -263,7 +257,7 @@ func main() {
 					log.Printf("Warning: leaderboard MV refresh failed: %v", err2)
 				}
 			}
-		}()
+		})
 		log.Printf("Provider leaderboard MV refresh goroutine started (interval: %dm)", refreshMins)
 	}
 
@@ -382,6 +376,18 @@ func main() {
 	r.Use(middleware.CircuitBreakerMiddleware("redis", middleware.DefaultCircuitBreakerConfigs["redis"]))
 	r.Use(middleware.CircuitBreakerMiddleware("solana", middleware.DefaultCircuitBreakerConfigs["solana"]))
 
+	// Centralized admin API surface is intentionally disabled.
+	r.Use(func(c *gin.Context) {
+		if c.Request.URL.Path == "/v1/admin" || strings.HasPrefix(c.Request.URL.Path, "/v1/admin/") {
+			c.AbortWithStatusJSON(http.StatusGone, gin.H{
+				"error":   "admin_api_disabled",
+				"message": "Admin API routes have been removed from this deployment",
+			})
+			return
+		}
+		c.Next()
+	})
+
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
 
@@ -487,33 +493,7 @@ func main() {
 		api.RegisterTierRoutes(protected)
 	}
 
-	// ======== Admin Panel Routes ========
-	// Completely separate auth — signed with ADMIN_JWT_SECRET, not user JWT_SECRET.
-	// Only the 3 hardcoded admin accounts can authenticate here.
-	adminGroup := r.Group("/v1/admin")
-	{
-		// Public admin auth (no middleware)
-		adminAuth := adminGroup.Group("/auth")
-		api.RegisterAdminAuthRoutes(adminAuth)
-
-		// SSE stream — validates admin token via ?token= query param (EventSource can't set headers)
-		api.RegisterAdminSessionStreamRoute(adminGroup, cfg)
-
-		// Protected admin routes (require valid admin JWT)
-		adminProtected := adminGroup.Group("/")
-		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
-		{
-			api.RegisterAdminMeRoute(adminProtected.Group("/auth"))
-
-			// Core admin operations (user mgmt, nodes, payouts, stats, audit)
-			// AdminAuthMiddleware already sets userRole="admin" so RequirePermission works.
-			admin := adminProtected.Group("/")
-			api.RegisterAdminRoutes(admin)
-			api.RegisterAdminExtendedRoutes(admin)
-			api.RegisterSystemAdminRoutes(admin)
-		}
-	}
-	log.Println("Admin panel routes registered at /v1/admin")
+	log.Println("Admin API routes disabled (all /v1/admin endpoints return 410)")
 
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()
@@ -706,7 +686,9 @@ func main() {
 
 		// Initialize Price Feed Service (Phase 2: Operational Reliability)
 		pricing.InitPriceFeed()
-		go pricing.GetPriceFeed().StartPriceUpdater(context.Background(), 5*time.Minute)
+		worker.GoSupervised("PriceFeedUpdater", 5*time.Second, func() {
+			pricing.GetPriceFeed().StartPriceUpdater(context.Background(), 5*time.Minute)
+		})
 		log.Println("Price feed service started with 5-minute update interval")
 
 		// Initialize Ledger Reconciliation Service (Phase 2: Operational Reliability)
@@ -727,7 +709,9 @@ func main() {
 
 		// Start Automated Settlement Aggregator (Phase 14)
 		sa := worker.NewSettlementAggregator(oracleClient, 1*time.Hour)
-		go sa.Start(context.Background())
+		worker.GoSupervised("SettlementAggregator", 5*time.Second, func() {
+			sa.Start(context.Background())
+		})
 
 		log.Println("Liquidity Manager, Ghost Prober, Staking, Proof and Settlement services started")
 	} else {
@@ -755,12 +739,16 @@ func main() {
 
 	// Start On-Chain Registry Sync Worker (Phase 9.3 Lifecycle Integrity)
 	rw := indexer.NewRegistrySyncWorker(5 * time.Minute)
-	go rw.Start(context.Background())
+	worker.GoSupervised("RegistrySyncWorker", 5*time.Second, func() {
+		rw.Start(context.Background())
+	})
 	log.Println("Registry Sync Worker started")
 
 	// Start AI Agent Worker (Phase 13 Orchestration)
 	aw := worker.NewAgentWorker()
-	go aw.Start(context.Background())
+	worker.GoSupervised("AgentWorker", 5*time.Second, func() {
+		aw.Start(context.Background())
+	})
 	log.Println("AI Agent Execution Worker started")
 
 	// Start All Background Workers (Phase 17 Reliability)
@@ -776,7 +764,9 @@ func main() {
 	log.Println("Heartbeat Monitor started")
 
 	// Start settlement telemetry alert monitor (Phase 0 hardening).
-	go monitoring.StartSettlementTelemetryAlerts(context.Background())
+	worker.GoSupervised("SettlementTelemetryAlerts", 5*time.Second, func() {
+		monitoring.StartSettlementTelemetryAlerts(context.Background())
+	})
 	log.Println("Settlement telemetry alert monitor started")
 
 	// Start GeoIP backfill — resolves lat/lon for explorer nodes that have an IP

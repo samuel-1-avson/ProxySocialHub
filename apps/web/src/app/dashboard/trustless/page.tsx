@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { 
     ShieldCheck, 
     History, 
@@ -34,6 +35,7 @@ const itemVariants = {
 
 export default function TrustlessPage() {
     const queryClient = useQueryClient();
+    const { signMessage, publicKey } = useWallet();
     const [filterStatus, setFilterStatus] = useState<UsageProofStatus | 'all'>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -60,10 +62,20 @@ export default function TrustlessPage() {
     });
 
     const handleSign = async (id: string) => {
-        // In a real implementation, this would trigger a wallet sign transaction
-        // For now, we'll simulate a signature for the demonstration
-        const mockSignature = `sig_${Math.random().toString(36).slice(2)}`;
-        signMutation.mutate({ id, signature: mockSignature });
+        if (!publicKey || !signMessage) {
+            alert('Please connect your Solana wallet to sign proofs.');
+            return;
+        }
+        try {
+            const message = new TextEncoder().encode(
+                `ProxyHubb: Sign usage proof ${id} with wallet ${publicKey.toBase58()}`
+            );
+            const sigBytes = await signMessage(message);
+            const signature = Buffer.from(sigBytes).toString('base64');
+            signMutation.mutate({ id, signature });
+        } catch (err) {
+            console.error('Wallet signing failed:', err);
+        }
     };
 
     const handleSubmit = (id: string) => {

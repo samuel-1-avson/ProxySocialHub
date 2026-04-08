@@ -452,7 +452,7 @@ func acceptQuote(c *gin.Context) {
 	quote.Circle.BandwidthPoolGB -= quote.BandwidthGB
 	db.Social().Save(&quote.Circle)
 
-	// Distribute revenue to providers (simplified - even split for now)
+	// Distribute revenue to providers (proportional to bandwidth contribution)
 	go distributeRevenue(quote)
 
 	// Notify circle
@@ -586,6 +586,18 @@ func getCircleRevenue(c *gin.Context) {
 		}
 	}
 
+	// Calculate provider share % from actual circle provider membership
+	var providerCount int64
+	db.Social().Table("circle_members").Where("circle_id = ? AND role = 'provider'", circleID).Count(&providerCount)
+	sharePercent := 0.0
+	if providerCount > 0 {
+		sharePercent = 100.0 / float64(providerCount)
+	}
+
+	// Sum total pool revenue for this circle
+	var totalPoolRevenue float64
+	db.Social().Table("circle_revenues").Where("circle_id = ?", circleID).Select("COALESCE(SUM(amount), 0)").Scan(&totalPoolRevenue)
+
 	var revenueResponses []CircleRevenueResponse
 	for _, r := range revenues {
 		status := "pending"
@@ -593,14 +605,13 @@ func getCircleRevenue(c *gin.Context) {
 			status = "paid"
 		}
 		
-		// Map 1:1 to maintain compatibility with frontend expected fields
 		revenueResponses = append(revenueResponses, CircleRevenueResponse{
 			RevenueID:            r.ID,
-			PeriodStart:          r.CreatedAt, // Approximation
+			PeriodStart:          r.CreatedAt,
 			PeriodEnd:            r.CreatedAt,
-			TotalPoolRevenue:     r.Amount,    // Approximation
+			TotalPoolRevenue:     totalPoolRevenue,
 			ProviderID:           r.ProviderID,
-			ProviderSharePercent: 0.0,         // Placeholder balance
+			ProviderSharePercent: sharePercent,
 			ProviderRevenue:      r.Amount,
 			SessionsCount:        1,
 			Status:               status,

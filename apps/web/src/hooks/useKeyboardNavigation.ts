@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseKeyboardNavigationOptions {
     onEscape?: () => void;
@@ -164,8 +164,8 @@ export function useListNavigation(itemCount: number, onSelect: (index: number) =
 }
 
 // Hook for managing focus trap in modals/dropdowns
-export function useFocusTrap(isActive: boolean) {
-    const containerRef = useRef<HTMLElement>(null);
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(isActive: boolean) {
+    const containerRef = useRef<T | null>(null);
     const previousFocus = useRef<HTMLElement | null>(null);
 
     useEffect(() => {
@@ -212,5 +212,3 @@ export function useFocusTrap(isActive: boolean) {
 
     return containerRef;
 }
-
-import { useState } from "react";

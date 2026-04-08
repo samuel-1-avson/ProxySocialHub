@@ -2,7 +2,7 @@
 
 import { useRef, useCallback } from "react";
 import type { Notification } from "@/lib/notifications-api";
-import { getNotificationTypeLabel, NotificationType } from "@/lib/notifications-api";
+import { NotificationType } from "@/lib/notifications-api";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -26,17 +26,18 @@ const notificationIcons: Record<string, React.ReactNode> = {
     [NotificationType.PaymentReceived]: <Coins className="w-4 h-4 text-green-500" />,
     [NotificationType.BadgeEarned]: <Award className="w-4 h-4 text-purple-500" />,
     [NotificationType.SecurityAlert]: <AlertTriangle className="w-4 h-4 text-red-500" />,
-    [NotificationType.TierUpgrade]: <Award className="w-4 h-4 text-yellow-500" />,
-    [NotificationType.ShowcaseFeatured]: <Bell className="w-4 h-4 text-cyan-500" />,
+    [NotificationType.TrustTierChange]: <Award className="w-4 h-4 text-yellow-500" />,
+    [NotificationType.ThreadFeatured]: <Bell className="w-4 h-4 text-cyan-500" />,
 };
 
 interface VirtualizedNotificationListProps {
     notifications: Notification[];
-    onMarkAsRead: (id: string) => void;
-    onMarkAllAsRead: () => void;
-    hasMore: boolean;
-    isLoadingMore: boolean;
-    onLoadMore: () => void;
+    onMarkAsRead: (id: string) => void | Promise<void>;
+    onMarkAllAsRead?: () => void | Promise<void>;
+    hasMore?: boolean;
+    isLoadingMore?: boolean;
+    onLoadMore?: () => void | Promise<void>;
+    markingReadId?: string | null;
 }
 
 const ITEM_HEIGHT = 72;
@@ -46,9 +47,10 @@ export function VirtualizedNotificationList({
     notifications,
     onMarkAsRead,
     onMarkAllAsRead,
-    hasMore,
-    isLoadingMore,
+    hasMore = false,
+    isLoadingMore = false,
     onLoadMore,
+    markingReadId,
 }: VirtualizedNotificationListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const observerRef = useRef<IntersectionObserver | null>(null);
@@ -59,8 +61,8 @@ export function VirtualizedNotificationList({
             if (observerRef.current) observerRef.current.disconnect();
 
             observerRef.current = new IntersectionObserver((entries) => {
-                if (entries[0].isIntersecting && hasMore) {
-                    onLoadMore();
+                if (entries[0].isIntersecting && hasMore && onLoadMore) {
+                    void onLoadMore();
                 }
             });
 
@@ -83,6 +85,10 @@ export function VirtualizedNotificationList({
             {notifications.map((notification, index) => {
                 const isLast = index === notifications.length - 1;
                 const icon = notificationIcons[notification.type] || <Bell className="w-4 h-4" />;
+                const actorDisplayName = notification.actor?.display_name || notification.actor?.username || "User";
+                const isUnread = !notification.is_read;
+                const message = notification.body || notification.title;
+                const targetLink = notification.action_url || getEntityLink(notification.target_type, notification.target_id);
 
                 return (
                     <div
@@ -92,19 +98,19 @@ export function VirtualizedNotificationList({
                         className={`
                             group flex items-start gap-3 p-3 rounded-lg cursor-pointer
                             transition-colors duration-200
-                            ${notification.isRead
+                            ${notification.is_read
                                 ? "bg-background hover:bg-muted/50"
                                 : "bg-primary/5 hover:bg-primary/10 border-l-2 border-l-primary"
                             }
                         `}
-                        onClick={() => !notification.isRead && onMarkAsRead(notification.id)}
+                        onClick={() => isUnread && void onMarkAsRead(notification.id)}
                     >
                         {/* Avatar or Icon */}
                         <div className="relative shrink-0">
                             {notification.actor ? (
                                 <img
-                                    src={notification.actor.avatar || "/default-avatar.png"}
-                                    alt={notification.actor.displayName}
+                                    src={notification.actor.avatar_url || "/default-avatar.png"}
+                                    alt={actorDisplayName}
                                     className="w-10 h-10 rounded-full object-cover ring-2 ring-background"
                                 />
                             ) : (
@@ -127,44 +133,49 @@ export function VirtualizedNotificationList({
                                         className="font-medium hover:underline"
                                         onClick={(e) => e.stopPropagation()}
                                     >
-                                        {notification.actor.displayName}
+                                        {actorDisplayName}
                                     </Link>
                                 )}{" "}
                                 <span className="text-muted-foreground">
-                                    {notification.message}
+                                    {message}
                                 </span>
                             </p>
 
                             {/* Related entity link */}
-                            {notification.entityType && notification.entityId && (
+                            {targetLink && (
                                 <Link
-                                    href={getEntityLink(notification.entityType, notification.entityId)}
+                                    href={targetLink}
                                     className="text-xs text-primary hover:underline mt-1 inline-block"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    View {notification.entityType.toLowerCase()}
+                                    View details
                                 </Link>
                             )}
 
                             {/* Timestamp and actions */}
                             <div className="flex items-center gap-2 mt-1.5">
                                 <span className="text-xs text-muted-foreground">
-                                    {formatDistanceToNow(new Date(notification.createdAt), {
+                                    {formatDistanceToNow(new Date(notification.created_at), {
                                         addSuffix: true,
                                     })}
                                 </span>
-                                {!notification.isRead && (
+                                {isUnread && (
                                     <>
                                         <span className="w-1 h-1 rounded-full bg-primary" />
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onMarkAsRead(notification.id);
+                                                void onMarkAsRead(notification.id);
                                             }}
                                             className="text-xs text-primary hover:underline flex items-center gap-1"
+                                            disabled={markingReadId === notification.id}
                                         >
-                                            <Check className="w-3 h-3" />
-                                            Mark as read
+                                            {markingReadId === notification.id ? (
+											<Loader2 className="w-3 h-3 animate-spin" />
+										) : (
+											<Check className="w-3 h-3" />
+										)}
+                                            {markingReadId === notification.id ? "Marking..." : "Mark as read"}
                                         </button>
                                     </>
                                 )}
@@ -172,7 +183,7 @@ export function VirtualizedNotificationList({
                         </div>
 
                         {/* Unread indicator */}
-                        {!notification.isRead && (
+                        {isUnread && (
                             <div className="w-2 h-2 rounded-full bg-primary mt-2" />
                         )}
                     </div>
@@ -187,9 +198,9 @@ export function VirtualizedNotificationList({
             )}
 
             {/* Mark all as read button */}
-            {notifications.some((n) => !n.isRead) && (
+            {notifications.some((n) => !n.is_read) && onMarkAllAsRead && (
                 <button
-                    onClick={onMarkAllAsRead}
+                    onClick={() => void onMarkAllAsRead()}
                     className="w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
                     Mark all as read
@@ -199,7 +210,11 @@ export function VirtualizedNotificationList({
     );
 }
 
-function getEntityLink(type: string, id: string): string {
+function getEntityLink(type?: string, id?: string): string | null {
+	if (!type || !id) {
+		return null;
+	}
+
     switch (type) {
         case "PROVIDER":
             return `/providers/${id}`;
@@ -212,6 +227,6 @@ function getEntityLink(type: string, id: string): string {
         case "MESSAGE":
             return `/messages?conversation=${id}`;
         default:
-            return `#`;
+            return null;
     }
 }

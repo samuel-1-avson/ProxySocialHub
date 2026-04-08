@@ -10,8 +10,6 @@ import {
     markNotificationRead,
     markAllNotificationsRead,
     type Notification,
-    NotificationType,
-    getNotificationTypeLabel,
 } from "@/lib/notifications-api";
 import { useKeyboardNavigation, useFocusTrap } from "@/hooks/useKeyboardNavigation";
 import { announce, generateId } from "@/utils/a11y";
@@ -24,9 +22,20 @@ import {
 } from "lucide-react";
 import { VirtualizedNotificationList } from "./virtualized/VirtualizedNotificationList";
 
+function isNotificationPayload(value: unknown): value is Notification {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        "id" in value &&
+        "title" in value &&
+        typeof value.id === "string" &&
+        typeof value.title === "string"
+    );
+}
+
 export function NotificationCenter() {
-    const { user, isAuthenticated } = useAuth();
-    const { socket, isConnected } = useWebSocket();
+    const { isAuthenticated } = useAuth();
+    const { subscribe, isConnected } = useWebSocket();
     const [isOpen, setIsOpen] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
@@ -37,7 +46,7 @@ export function NotificationCenter() {
     const buttonId = useRef(generateId("notification-button"));
 
     // Focus trap for dropdown
-    const dropdownRef = useFocusTrap(isOpen);
+    const dropdownRef = useFocusTrap<HTMLDivElement>(isOpen);
 
     // Keyboard navigation
     const { handleKeyDown } = useKeyboardNavigation({
@@ -87,26 +96,24 @@ export function NotificationCenter() {
 
     // WebSocket listener for real-time notifications
     useEffect(() => {
-        if (!socket || !isAuthenticated) return;
+        if (!isAuthenticated) return;
 
-        const handleNotification = (event: MessageEvent) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "notification") {
-                    setNotifications((prev) => [data.payload, ...prev]);
-                    setUnreadCount((prev) => prev + 1);
-                    announce(`New notification: ${data.payload.title}`, "polite");
-                }
-            } catch (err) {
-                console.error("WebSocket message error:", err);
+        return subscribe("notification", (message) => {
+            const payload = message.data?.payload ?? message.data;
+
+            if (isNotificationPayload(payload)) {
+                setNotifications((prev) => [payload, ...prev]);
+            } else if (isOpen) {
+                void fetchNotifications();
             }
-        };
 
-        socket.addEventListener("message", handleNotification);
-        return () => {
-            socket.removeEventListener("message", handleNotification);
-        };
-    }, [socket, isAuthenticated]);
+            void fetchUnreadCount();
+            announce(
+                `New notification: ${isNotificationPayload(payload) ? payload.title : "Update received"}`,
+                "polite"
+            );
+        });
+    }, [fetchNotifications, fetchUnreadCount, isAuthenticated, isOpen, subscribe]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -258,7 +265,8 @@ export function NotificationCenter() {
                         ) : (
                             <VirtualizedNotificationList
                                 notifications={notifications}
-                                onMarkRead={handleMarkRead}
+                                onMarkAsRead={handleMarkRead}
+                                onMarkAllAsRead={handleMarkAllRead}
                                 markingReadId={markingReadId}
                             />
                         )}

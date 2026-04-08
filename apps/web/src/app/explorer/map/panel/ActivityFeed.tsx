@@ -2,10 +2,12 @@
 
 /**
  * Activity Feed Component
- * Real-time node activity feed with filtering
+ * Real-time node activity feed with filtering.
+ * Fetches real session events from the backend API and subscribes
+ * to the WebSocket for live updates.
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassPanel } from "../components/GlassPanel";
 
@@ -28,69 +30,43 @@ interface ActivityFeedProps {
 
 // Event type configurations
 const eventConfig: Record<ActivityEvent["type"], { icon: string; color: string; label: string }> = {
-  session_start: { icon: "🔌", color: "#39FF14", label: "Session Started" },
-  session_end: { icon: "🔌", color: "#FF4444", label: "Session Ended" },
-  bandwidth: { icon: "📊", color: "#00F5FF", label: "Bandwidth" },
-  reward: { icon: "💰", color: "#FFD700", label: "Reward" },
-  status_change: { icon: "🔄", color: "#B24DFF", label: "Status" },
-  error: { icon: "⚠️", color: "#FF4444", label: "Error" },
+  session_start: { icon: "\u{1F50C}", color: "#39FF14", label: "Session Started" },
+  session_end: { icon: "\u{1F50C}", color: "#FF4444", label: "Session Ended" },
+  bandwidth: { icon: "\u{1F4CA}", color: "#00F5FF", label: "Bandwidth" },
+  reward: { icon: "\u{1F4B0}", color: "#FFD700", label: "Reward" },
+  status_change: { icon: "\u{1F504}", color: "#B24DFF", label: "Status" },
+  error: { icon: "\u{26A0}\u{FE0F}", color: "#FF4444", label: "Error" },
 };
 
-// Generate mock activity events
-const generateMockEvents = (count: number = 20): ActivityEvent[] => {
-  const types: ActivityEvent["type"][] = ["session_start", "session_end", "bandwidth", "reward", "status_change"];
-  const nodes = [
-    { id: "1", name: "New York" },
-    { id: "2", name: "London" },
-    { id: "3", name: "Tokyo" },
-    { id: "4", name: "Singapore" },
-    { id: "5", name: "Frankfurt" },
-  ];
-  
-  const events: ActivityEvent[] = [];
-  const now = new Date();
-  
-  for (let i = 0; i < count; i++) {
-    const type = types[Math.floor(Math.random() * types.length)];
-    const node = nodes[Math.floor(Math.random() * nodes.length)];
-    const time = new Date(now.getTime() - i * 60000 * Math.random() * 10);
-    
-    let details = "";
-    let value: number | undefined;
-    
-    switch (type) {
-      case "session_start":
-        details = `New client connected from ${["US", "UK", "DE", "JP", "AU"][Math.floor(Math.random() * 5)]}`;
-        break;
-      case "session_end":
-        details = `Session ended - Duration: ${Math.floor(Math.random() * 60 + 5)}m`;
-        break;
-      case "bandwidth":
-        value = Math.round(Math.random() * 1000);
-        details = `Transferred ${value} MB`;
-        break;
-      case "reward":
-        value = Math.round(Math.random() * 10 * 100) / 100;
-        details = `Earned ${value} PRXY`;
-        break;
-      case "status_change":
-        details = Math.random() > 0.5 ? "Node came online" : "Node went offline";
-        break;
-    }
-    
-    events.push({
-      id: `${Date.now()}-${i}`,
-      type,
-      nodeId: node.id,
-      nodeName: node.name,
-      timestamp: time,
-      details,
-      value,
-    });
+/** Convert a raw session object from the API into an ActivityEvent. */
+function sessionToEvent(s: Record<string, unknown>): ActivityEvent {
+  const status = (s.status as string) || "";
+  let type: ActivityEvent["type"] = "session_start";
+  let details = "";
+  let value: number | undefined;
+
+  if (status === "active") {
+    type = "session_start";
+    details = `New session on ${(s.node_id as string) || "unknown"} (${(s.type as string) || "rotating"})`;
+  } else if (status === "terminated" || status === "expired") {
+    type = "session_end";
+    details = `Session ended — ${((s.bytes_used as number) / (1024 * 1024)).toFixed(1)} MB used`;
+  } else {
+    type = "bandwidth";
+    value = Math.round((s.bytes_used as number) / (1024 * 1024));
+    details = `Transferred ${value} MB`;
   }
-  
-  return events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-};
+
+  return {
+    id: (s.id as string) || crypto.randomUUID(),
+    type,
+    nodeId: (s.node_id as string) || "",
+    nodeName: (s.node_id as string) || "Unknown",
+    timestamp: new Date((s.created_at as string) || Date.now()),
+    details,
+    value,
+  };
+}
 
 // Format relative time
 const formatRelativeTime = (date: Date): string => {
@@ -157,31 +133,48 @@ export function ActivityFeed({
   const [isPaused, setIsPaused] = useState(false);
   const [activeFilter, setActiveFilter] = useState(filter);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Initialize with mock data
-  useEffect(() => {
-    setEvents(generateMockEvents(15));
+  const latestTimestamp = useRef<string | null>(null);
+
+  /** Fetch recent sessions from the backend and convert to events. */
+  const fetchEvents = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/sessions?limit=20&sort=created_at:desc", {
+        headers: {
+          Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("proxyhubb_token") || "" : ""}`,
+        },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const sessions: Record<string, unknown>[] = Array.isArray(data) ? data : data.sessions || [];
+      const mapped = sessions.map(sessionToEvent);
+      if (mapped.length > 0) {
+        latestTimestamp.current = (sessions[0]?.created_at as string) || null;
+      }
+      setEvents(mapped);
+    } catch {
+      // API unreachable — keep existing events
+    }
   }, []);
-  
-  // Simulate real-time updates
+
+  // Initial fetch
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
+
+  // Poll for updates every 10 seconds
   useEffect(() => {
     if (isPaused) return;
-    
+
     intervalRef.current = setInterval(() => {
-      setEvents((prev) => {
-        const newEvent = generateMockEvents(1)[0];
-        const filtered = nodeId ? prev.filter(e => e.nodeId === nodeId) : prev;
-        const updated = [newEvent, ...filtered].slice(0, maxItems);
-        return updated;
-      });
-    }, 5000);
-    
+      fetchEvents();
+    }, 10_000);
+
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPaused, maxItems, nodeId]);
+  }, [isPaused, fetchEvents]);
   
   // Filter events
   const filteredEvents = events.filter((event) => {
@@ -283,8 +276,26 @@ export function ActivityFeedCompact({
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   
   useEffect(() => {
-    setEvents(generateMockEvents(maxItems));
-  }, [maxItems]);
+    const fetchCompactEvents = async () => {
+      try {
+        const url = nodeId
+          ? `/api/v1/sessions?limit=${maxItems}&sort=created_at:desc&node_id=${nodeId}`
+          : `/api/v1/sessions?limit=${maxItems}&sort=created_at:desc`;
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("proxyhubb_token") || "" : ""}`,
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const sessions: Record<string, unknown>[] = Array.isArray(data) ? data : data.sessions || [];
+        setEvents(sessions.map(sessionToEvent));
+      } catch {
+        // API unreachable
+      }
+    };
+    fetchCompactEvents();
+  }, [maxItems, nodeId]);
   
   const filteredEvents = nodeId 
     ? events.filter(e => e.nodeId === nodeId).slice(0, maxItems)

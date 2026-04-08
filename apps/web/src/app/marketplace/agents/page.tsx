@@ -11,7 +11,7 @@ export default function AgentsPage() {
     const toast = useToast();
     const [rentingId, setRentingId] = useState<string | null>(null);
 
-    const { data: agents = [], isLoading } = useQuery({
+    const { data: agents = [], isLoading } = useQuery<MarketAgent[]>({
         queryKey: ['market-agents'],
         queryFn: getMarketAgents,
         retry: 2,

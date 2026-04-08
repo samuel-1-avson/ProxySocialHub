@@ -3,22 +3,25 @@
  * Loading placeholders with animated pulse effects
  */
 
+import type { CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 
 interface SkeletonProps {
     className?: string;
+    style?: CSSProperties;
 }
 
 /**
  * Base Skeleton component with pulse animation
  */
-export function Skeleton({ className }: SkeletonProps) {
+export function Skeleton({ className, style }: SkeletonProps) {
     return (
         <div
             className={cn(
                 "animate-pulse rounded-sm bg-muted",
                 className
             )}
+            style={style}
         />
     );
 }

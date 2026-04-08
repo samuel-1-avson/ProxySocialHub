@@ -18,14 +18,14 @@ const heartbeatTimeout = 5 * time.Minute
 // StartHeartbeatMonitor runs every minute and marks nodes offline
 // when their last heartbeat exceeds the timeout window.
 func StartHeartbeatMonitor() {
-	go func() {
+	GoSupervised("HeartbeatMonitor", 5*time.Second, func() {
 		log.Println("Heartbeat Monitor started — checking every 60s, timeout after 5m")
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			runHeartbeatCheck()
+			RunSafely("HeartbeatMonitor.cycle", runHeartbeatCheck)
 		}
-	}()
+	})
 }
 
 func runHeartbeatCheck() {

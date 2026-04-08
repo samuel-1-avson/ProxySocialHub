@@ -2,10 +2,11 @@
 
 import { motion, HTMLMotionProps } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { forwardRef } from 'react';
+import { forwardRef, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
-interface GlowButtonProps extends HTMLMotionProps<'button'> {
+interface GlowButtonProps extends Omit<HTMLMotionProps<'button'>, 'children'> {
+    children?: ReactNode;
     variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
     size?: 'sm' | 'md' | 'lg';
     loading?: boolean;

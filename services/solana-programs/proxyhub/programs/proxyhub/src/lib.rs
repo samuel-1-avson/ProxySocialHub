@@ -992,6 +992,13 @@ pub struct ProposalFinalized {
 }
 
 #[event]
+pub struct ProposalExecuted {
+    pub proposal_pda: Pubkey,
+    pub executed_by: Pubkey,
+    pub executed_at: i64,
+}
+
+#[event]
 pub struct DisputeOpened {
     pub dispute_pda: Pubkey,
     pub escrow: Pubkey,
@@ -2384,6 +2391,39 @@ pub mod proxyhub {
         Ok(())
     }
 
+    /// Execute a passed governance proposal.  Only the admin can execute, and
+    /// the proposal must have status 1 (passed).  A minimum timelock of 24 hours
+    /// (172 800 slots @ ~400ms) after finalization is enforced.
+    ///
+    /// Status transitions: 1 (passed) → 3 (executed).
+    pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let proposal = &mut ctx.accounts.proposal;
+        require!(proposal.status == 1, EscrowError::InvalidStatus); // must be passed
+
+        // Enforce 24-hour timelock (≈172 800 slots at 400ms/slot).
+        // Since we only stored end_slot (when voting closed), the timelock is
+        // measured from end_slot rather than a separate finalization timestamp.
+        let clock = Clock::get()?;
+        let timelock_slots: u64 = 172_800; // ~24 hours
+        require!(
+            clock.slot >= proposal.end_slot.saturating_add(timelock_slots),
+            EscrowError::NotExpired
+        );
+
+        proposal.status = 3; // executed
+
+        emit!(ProposalExecuted {
+            proposal_pda: proposal.key(),
+            executed_by: ctx.accounts.admin.key(),
+            executed_at: clock.unix_timestamp,
+        });
+
+        msg!("Proposal executed by admin {}", ctx.accounts.admin.key());
+        Ok(())
+    }
+
     // =========================================================================
     // DISPUTE / JURY (DISP-001/002/003/004)
     // =========================================================================
@@ -2579,13 +2619,11 @@ pub mod proxyhub {
     // For Phase 4 the root is a SHA-256 Merkle commitment (auditable off-chain).
     //
     // PDA seeds: [b"zk_batch", batch_root (32 bytes)]
-    // =========================================================================
-
-    /// Commit a ZK batch settlement root on-chain.
-    /// `batch_root`    — 32-byte Merkle root over N session proof leaves.
-    /// `session_count` — number of sessions included.
-    /// `total_bytes`   — sum of all session bytes (for on-chain analytics).
-    /// `period_start`  / `period_end` — Unix timestamps spanning the batch.
+    /// `proof_hash`    — SHA-256 of the off-chain ZK proof blob.  Set to all-zeros
+    ///                   to skip verification (devnet only; mainnet will require a
+    ///                   verified Ed25519 signature over the proof via
+    ///                   `ed25519_program` introspection).  When non-zero the
+    ///                   oracle attests it verified the proof off-chain.
     pub fn submit_zk_batch(
         ctx: Context<SubmitZKBatch>,
         batch_root: [u8; 32],
@@ -2593,8 +2631,9 @@ pub mod proxyhub {
         total_bytes: u64,
         period_start: i64,
         period_end: i64,
+        proof_hash: [u8; 32],
     ) -> Result<()> {
-        require!(!ctx.accounts.program_state.is_paused, EscrowError::ProgramPaused);
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
         require!(session_count > 0, EscrowError::InsufficientFunds);
         require!(total_bytes > 0, EscrowError::InsufficientFunds);
 
@@ -2604,6 +2643,14 @@ pub mod proxyhub {
         batch.batch_root    = batch_root;
         batch.session_count = session_count;
         batch.total_bytes   = total_bytes;
+        batch.period_start  = period_start;
+        batch.period_end    = period_end;
+        batch.submitted_at  = clock.unix_timestamp;
+        batch.proof_hash    = proof_hash;
+        batch.bump          = ctx.bumps.zk_batch;
+
+        msg!("submit_zk_batch: root={:?} sessions={} bytes={} proof_hash={:?} window=[{},{}]",
+            batch_root, session_count, total_bytes, proof_hash
         batch.period_start  = period_start;
         batch.period_end    = period_end;
         batch.submitted_at  = clock.unix_timestamp;
@@ -2631,7 +2678,7 @@ pub mod proxyhub {
         session_id: [u8; 16],
         deposit_lamports: u64,
     ) -> Result<()> {
-        require!(!ctx.accounts.program_state.is_paused, EscrowError::ProgramPaused);
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
         require!(deposit_lamports > 0, EscrowError::InsufficientFunds);
 
         let ch = &mut ctx.accounts.channel;
@@ -3171,7 +3218,20 @@ pub struct LockSessionCommitment<'info> {
 #[instruction(proposal_id: [u8; 16])]
 pub struct CreateProposal<'info> {
     #[account(mut)]
-    pub oracle: Signer<'info>,
+ 
+
+#[derive(Accounts)]
+pub struct ExecuteProposal<'info> {
+    #[account(mut)]
+    pub proposal: Account<'info, GovernanceProposal>,
+    #[account(
+        seeds = [b"program_state"],
+        bump = program_state.bump,
+        has_one = admin,
+    )]
+    pub program_state: Account<'info, ProgramState>,
+    pub admin: Signer<'info>,
+}   pub oracle: Signer<'info>,
     #[account(
         init, payer = oracle,
         space = GovernanceProposal::LEN,
@@ -3327,11 +3387,12 @@ pub struct LogSpendingEvent<'info> {
 //
 // ZKBatchPDA stores an immutable Merkle root commitment for N session proofs.
 // PDA seeds: [b"zk_batch", batch_root (32 bytes)]
-//
-// Layout (after 8-byte Anchor discriminator):
-//   batch_root      [u8; 32]  — Merkle root
-//   session_count   u32       — number of sessions
-//   total_bytes     u64       — aggregate bytes
+//proof_hash:    [u8; 32],
+    pub bump:          u8,
+}
+
+impl ZKBatchPDA {
+    pub const LEN: usize = 8 + 32 + 4 + 8 + 8 + 8 + 8 + 32 + 1; // = 109
 //   period_start    i64       — batch window start (Unix)
 //   period_end      i64       — batch window end (Unix)
 //   submitted_at    i64       — on-chain timestamp

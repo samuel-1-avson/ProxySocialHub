@@ -4,10 +4,35 @@ import { useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { Loader2, Smile, Edit2, Trash2 } from "lucide-react";
-import type { Message, MessageReaction } from "@/lib/messaging-api";
+
+interface MessageReaction {
+    emoji: string;
+    count: number;
+    userIds: string[];
+}
+
+interface VirtualizedMessage {
+    id: string;
+    content: string;
+    sender_id?: string;
+    senderId?: string;
+    created_at?: string;
+    createdAt?: string;
+    edited_at?: string;
+    editedAt?: string;
+    is_deleted?: boolean;
+    isDeleted?: boolean;
+    sender?: {
+        avatar?: string;
+        avatar_url?: string;
+        displayName?: string;
+        display_name?: string;
+    };
+    reactions?: MessageReaction[];
+}
 
 interface VirtualizedMessageListProps {
-    messages: Message[];
+    messages: VirtualizedMessage[];
     currentUserId: string;
     hasMore: boolean;
     isLoadingMore: boolean;
@@ -82,7 +107,13 @@ export function VirtualizedMessageList({
                     <div className="space-y-4">
                         {dateMessages.map((message, index) => {
                             const isFirst = index === 0 && date === Object.keys(groupedMessages)[0];
-                            const isOwn = message.senderId === currentUserId;
+                            const senderId = message.sender_id || message.senderId || '';
+                            const senderName = message.sender?.display_name || message.sender?.displayName || 'User';
+                            const senderAvatar = message.sender?.avatar_url || message.sender?.avatar || "/default-avatar.png";
+                            const createdAt = message.created_at || message.createdAt || new Date().toISOString();
+                            const editedAt = message.edited_at || message.editedAt;
+                            const isDeleted = message.is_deleted ?? message.isDeleted ?? false;
+                            const isOwn = senderId === currentUserId;
 
                             return (
                                 <div
@@ -91,10 +122,10 @@ export function VirtualizedMessageList({
                                     className={`flex gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
                                 >
                                     {/* Avatar */}
-                                    <Link href={`/providers/${message.senderId}`}>
+                                    <Link href={`/providers/${senderId}`}>
                                         <img
-                                            src={message.sender?.avatar || "/default-avatar.png"}
-                                            alt={message.sender?.displayName}
+                                            src={senderAvatar}
+                                            alt={senderName}
                                             className="w-8 h-8 rounded-full object-cover"
                                         />
                                     </Link>
@@ -104,7 +135,7 @@ export function VirtualizedMessageList({
                                         {/* Sender name */}
                                         {!isOwn && (
                                             <span className="text-xs text-muted-foreground ml-1">
-                                                {message.sender?.displayName}
+                                                {senderName}
                                             </span>
                                         )}
 
@@ -118,7 +149,7 @@ export function VirtualizedMessageList({
                                                 }
                                             `}
                                         >
-                                            {message.isDeleted ? (
+                                            {isDeleted ? (
                                                 <span className="italic opacity-70">
                                                     This message was deleted
                                                 </span>
@@ -131,7 +162,7 @@ export function VirtualizedMessageList({
                                             {/* Reactions */}
                                             {message.reactions && message.reactions.length > 0 && (
                                                 <div className="flex flex-wrap gap-1 mt-2">
-                                                    {message.reactions.map((reaction) => (
+                                                    {message.reactions.map((reaction: MessageReaction) => (
                                                         <button
                                                             key={reaction.emoji}
                                                             onClick={() => onReaction(message.id, reaction.emoji)}
@@ -151,7 +182,7 @@ export function VirtualizedMessageList({
                                             )}
 
                                             {/* Edit/Delete menu */}
-                                            {isOwn && !message.isDeleted && (
+                                            {isOwn && !isDeleted && (
                                                 <div className="absolute top-0 -right-20 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                                                     <button
                                                         onClick={() => onEdit(message.id, message.content)}
@@ -169,7 +200,7 @@ export function VirtualizedMessageList({
                                             )}
 
                                             {/* Reaction picker */}
-                                            {!message.isDeleted && (
+                                            {!isDeleted && (
                                                 <div className="absolute top-0 -right-8 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button
                                                         onClick={() => onReaction(message.id, "❤️")}
@@ -183,10 +214,10 @@ export function VirtualizedMessageList({
 
                                         {/* Timestamp */}
                                         <span className="text-[10px] text-muted-foreground mt-1 block">
-                                            {formatDistanceToNow(new Date(message.createdAt), {
+                                            {formatDistanceToNow(new Date(createdAt), {
                                                 addSuffix: true,
                                             })}
-                                            {message.editedAt && " (edited)"}
+                                            {editedAt && " (edited)"}
                                         </span>
                                     </div>
                                 </div>
@@ -199,11 +230,12 @@ export function VirtualizedMessageList({
     );
 }
 
-function groupMessagesByDate(messages: Message[]): Record<string, Message[]> {
-    const groups: Record<string, Message[]> = {};
+function groupMessagesByDate(messages: VirtualizedMessage[]): Record<string, VirtualizedMessage[]> {
+    const groups: Record<string, VirtualizedMessage[]> = {};
 
     messages.forEach((message) => {
-        const date = new Date(message.createdAt).toLocaleDateString("en-US", {
+        const createdAt = message.created_at || message.createdAt || new Date().toISOString();
+        const date = new Date(createdAt).toLocaleDateString("en-US", {
             weekday: "long",
             year: "numeric",
             month: "long",

@@ -39,6 +39,14 @@ interface GlobeViewSimpleProps {
   height?: number;
 }
 
+type GlobeNodePoint = {
+  lat: number;
+  lng: number;
+  size: number;
+  color: string;
+  nodeData: NodeData;
+};
+
 export function GlobeViewSimple({
   nodes,
   selectedNodeId,
@@ -175,25 +183,29 @@ export function GlobeViewSimple({
         arcDashGap={0.2}
         arcDashAnimateTime={2000}
         arcStroke={0.5}
-        onPointClick={(point: { nodeData: NodeData }) => {
-          onNodeClick?.(point.nodeData);
+        onPointClick={(point: object) => {
+          const globePoint = point as GlobeNodePoint;
+          onNodeClick?.(globePoint.nodeData);
         }}
-        pointLabel={(point: { nodeData: NodeData }) => `
+        pointLabel={(point: object) => {
+          const globePoint = point as GlobeNodePoint;
+          return `
           <div style="
             background: rgba(0,0,0,0.8);
             padding: 8px 12px;
             border-radius: 8px;
-            border: 1px solid ${point.nodeData.isValidator ? "#B24DFF" : "#00F5FF"};
+            border: 1px solid ${globePoint.nodeData.isValidator ? "#B24DFF" : "#00F5FF"};
             color: white;
             font-family: sans-serif;
           ">
-            <strong>${point.nodeData.city || point.nodeData.country}</strong><br/>
+            <strong>${globePoint.nodeData.city || globePoint.nodeData.country}</strong><br/>
             <span style="font-size: 12px; opacity: 0.8;">
-              ${point.nodeData.isActive ? "● Online" : "○ Offline"}
-              ${point.nodeData.isValidator ? " ★ Validator" : ""}
+              ${globePoint.nodeData.isActive ? "● Online" : "○ Offline"}
+              ${globePoint.nodeData.isValidator ? " ★ Validator" : ""}
             </span>
           </div>
-        `}
+        `;
+        }}
       />
 
       {/* Controls hint */}
