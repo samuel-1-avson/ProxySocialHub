@@ -54,7 +54,6 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
 
       # Database
       - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:-proxyhubb}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
@@ -85,9 +84,6 @@ services:
       # APP_URL: used for WebSocket CORS. Empty = allow all (dev mode).
       - APP_URL=${APP_URL:-}
 
-      # Dev backdoor (disabled if blank)
-      - ENABLE_DEV_LOGIN=${ENABLE_DEV_LOGIN:-false}
-      - DEV_LOGIN_SECRET=${DEV_LOGIN_SECRET:-}
       # Skip plaintext-credential block in dev (encrypt with MIGRATE_CREDENTIALS=true first)
       - SKIP_CREDENTIAL_CHECK=${SKIP_CREDENTIAL_CHECK:-true}
 

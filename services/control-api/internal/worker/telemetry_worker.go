@@ -22,14 +22,15 @@ const anchorInterval = 5 * time.Minute // Anchor every 5 minutes
 
 // StartTelemetryWorker periodically pushes usage updates to active sessions
 func StartTelemetryWorker() {
-	ticker := time.NewTicker(5 * time.Second)
 	log.Printf("[Worker] Telemetry Worker started (Interval: 5s)")
 
-	go func() {
+	GoSupervised("TelemetryWorker", 5*time.Second, func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for range ticker.C {
-			pushTelemetry()
+			RunSafely("TelemetryWorker.cycle", pushTelemetry)
 		}
-	}()
+	})
 }
 
 func pushTelemetry() {
@@ -60,7 +61,11 @@ func pushTelemetry() {
 
 			// Only anchor if there is usage
 			if usage > 0 {
-				go anchorUsage(session, usage)
+				capturedSession := session
+				capturedUsage := usage
+				Go("TelemetryWorker.anchorUsage", func() {
+					anchorUsage(capturedSession, capturedUsage)
+				})
 			}
 		}
 	}

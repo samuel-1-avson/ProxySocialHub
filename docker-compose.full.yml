@@ -35,18 +35,6 @@ services:
       - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       # Path inside the container to the oracle keypair JSON (64-byte array)
       - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
-      # --- Admin ---
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
-      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
-      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
-      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-superadmin}
-      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
-      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
-      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-sysops}
-      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
-      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
-      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-support}
-      - ENABLE_DEV_LOGIN=${ENABLE_DEV_LOGIN:-false}
 
     # Mount oracle keypair as a read-only secret file.
     # Before running: create ./oracle-keypair.json (64-byte Solana keypair array).

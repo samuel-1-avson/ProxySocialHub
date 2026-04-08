@@ -22,19 +22,22 @@ func NewEscrowCleaner(client *solana.OracleClient) *EscrowCleaner {
 
 // Start runs the cleaner periodically
 func (ec *EscrowCleaner) Start(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
 	log.Printf("[EscrowCleaner] Started (Interval: %v)", interval)
 
-	go func() {
+	GoSupervised("EscrowCleaner", 5*time.Second, func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				ec.ScanAndRefund(ctx)
+				RunSafely("EscrowCleaner.cycle", func() {
+					ec.ScanAndRefund(ctx)
+				})
 			}
 		}
-	}()
+	})
 }
 
 func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {

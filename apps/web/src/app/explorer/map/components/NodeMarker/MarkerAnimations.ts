@@ -3,6 +3,8 @@
  * Using Framer Motion format
  */
 
+import type { Variants } from "framer-motion";
+
 // Entry animation when node appears on map
 export const nodeEntryVariants = {
   hidden: {
@@ -15,7 +17,7 @@ export const nodeEntryVariants = {
     opacity: 1,
     filter: "blur(0px)",
     transition: {
-      type: "spring",
+      type: "spring" as const,
       stiffness: 400,
       damping: 15,
       delay: delay,
@@ -27,10 +29,10 @@ export const nodeEntryVariants = {
     filter: "blur(10px)",
     transition: {
       duration: 0.3,
-      ease: [0.4, 0, 0.2, 1],
+      ease: [0.4, 0, 0.2, 1] as const,
     },
   },
-};
+} satisfies Variants;
 
 // Continuous pulse animation for active nodes
 export const pulseRingVariants = {
@@ -43,7 +45,7 @@ export const pulseRingVariants = {
       repeat: Infinity,
     },
   },
-};
+} satisfies Variants;
 
 // Rotating halo effect
 export const haloRingVariants = {
@@ -55,7 +57,7 @@ export const haloRingVariants = {
       repeat: Infinity,
     },
   },
-};
+} satisfies Variants;
 
 // Hover interaction
 export const markerHoverVariants = {
@@ -63,18 +65,18 @@ export const markerHoverVariants = {
     scale: 1,
     transition: {
       duration: 0.2,
-      ease: [0.4, 0, 0.2, 1],
+      ease: [0.4, 0, 0.2, 1] as const,
     },
   },
   hover: {
     scale: 1.3,
     transition: {
-      type: "spring",
+      type: "spring" as const,
       stiffness: 400,
       damping: 10,
     },
   },
-};
+} satisfies Variants;
 
 // Selection state
 export const selectionVariants = {
@@ -94,7 +96,7 @@ export const selectionVariants = {
     ],
     transition: {
       scale: {
-        type: "spring",
+        type: "spring" as const,
         stiffness: 500,
         damping: 20,
       },
@@ -105,7 +107,7 @@ export const selectionVariants = {
       },
     },
   },
-};
+} satisfies Variants;
 
 // Core dot pulse
 export const corePulseVariants = {
@@ -118,7 +120,7 @@ export const corePulseVariants = {
       repeat: isActive ? Infinity : 0,
     },
   }),
-};
+} satisfies Variants;
 
 // Tooltip animation
 export const tooltipVariants = {
@@ -135,12 +137,12 @@ export const tooltipVariants = {
     y: 0,
     scale: 1,
     transition: {
-      type: "spring",
+      type: "spring" as const,
       stiffness: 300,
       damping: 20,
     },
   },
-};
+} satisfies Variants;
 
 // Status-based colors
 export const getStatusColor = (status: string, isValidator: boolean = false): string => {

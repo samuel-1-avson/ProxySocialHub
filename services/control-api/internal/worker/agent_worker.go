@@ -76,26 +76,25 @@ func (w *AgentWorker) processJob(ctx context.Context, jobID uuid.UUID, task map[
 		"started_at": time.Now(),
 	})
 
-	// 2. SIMULATE Docker Execution (Phase 13 Runtime)
-	// In production, this would call Docker SDK to run the image
-	time.Sleep(5 * time.Second)
+	// 2. Execute via Docker SDK
+	// Docker container execution requires the Docker SDK integration (Phase 13).
+	// Until implemented, jobs fail explicitly rather than returning simulated results.
+	dockerImage, _ := task["docker_image"].(string)
+	errMsg := "Docker container execution not yet implemented (requires Docker SDK integration). Image: " + dockerImage
 
 	result := map[string]interface{}{
-		"status":      "success",
-		"output":      "Simulated analysis complete for image: " + task["docker_image"].(string),
-		"token_usage": 1500,
+		"status": "error",
+		"error":  errMsg,
 	}
 
-	// 3. Update status to 'completed'
-	logs := "Container spawned...\nExecuting agent script...\nGenerated result: " + result["output"].(string)
-
+	// 3. Update status to 'failed' with clear error
 	db.DB.Model(&models.AgentJob{}).Where("id = ?", jobID).Updates(map[string]interface{}{
-		"status":       "completed",
+		"status":       "failed",
 		"result":       result,
-		"logs":         logs,
+		"logs":         errMsg,
 		"completed_at": time.Now(),
-		"duration_sec": 5.0,
+		"duration_sec": 0,
 	})
 
-	log.Printf("[AgentWorker] Completed JobID=%s", jobID)
+	log.Printf("[AgentWorker] JobID=%s failed: %s", jobID, errMsg)
 }

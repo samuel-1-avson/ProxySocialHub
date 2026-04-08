@@ -25,7 +25,7 @@ func NewZKSettlementWorker() *ZKSettlementWorker {
 func (w *ZKSettlementWorker) Start(ctx context.Context) {
 	logging.Info().Msg("ZKSettlementWorker: Background loop starting...")
 
-	go func() {
+	GoSupervised("ZKSettlementWorker", 5*time.Second, func() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 
@@ -35,10 +35,12 @@ func (w *ZKSettlementWorker) Start(ctx context.Context) {
 				logging.Info().Msg("ZKSettlementWorker: Shutting down background loop...")
 				return
 			case <-ticker.C:
-				if err := w.aggregator.ProcessSignedProofs(ctx); err != nil {
-					logging.Error(err).Msg("ZKSettlementWorker: Failed to process proofs")
-				}
+				RunSafely("ZKSettlementWorker.cycle", func() {
+					if err := w.aggregator.ProcessSignedProofs(ctx); err != nil {
+						logging.Error(err).Msg("ZKSettlementWorker: Failed to process proofs")
+					}
+				})
 			}
 		}
-	}()
+	})
 }

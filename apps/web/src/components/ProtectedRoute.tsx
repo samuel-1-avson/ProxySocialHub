@@ -6,24 +6,25 @@ import { useAuth } from "@/lib/auth";
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
+    requireAuth?: boolean;
     requiredRole?: "buyer" | "provider" | "admin";
 }
 
-export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, requireAuth = true, requiredRole }: ProtectedRouteProps) {
     const { user, isLoading, isAuthenticated } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
 
     useEffect(() => {
-        if (!isLoading && !isAuthenticated) {
+        if (requireAuth && !isLoading && !isAuthenticated) {
             // Redirect to login with return URL
             router.push(`/login?redirect=${encodeURIComponent(pathname || "/")}`);
         }
-    }, [isLoading, isAuthenticated, router, pathname]);
+    }, [requireAuth, isLoading, isAuthenticated, router, pathname]);
 
     useEffect(() => {
         // Check role if required
-        if (!isLoading && isAuthenticated && requiredRole && user?.role !== requiredRole) {
+        if (requireAuth && !isLoading && isAuthenticated && requiredRole && user?.role !== requiredRole) {
             // User doesn't have required role
             if (requiredRole === "provider" && user?.role === "buyer") {
                 router.push("/dashboard?error=provider_required");
@@ -31,7 +32,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
                 router.push("/dashboard?error=admin_required");
             }
         }
-    }, [isLoading, isAuthenticated, requiredRole, user, router]);
+    }, [requireAuth, isLoading, isAuthenticated, requiredRole, user, router]);
 
     // Show loading state
     if (isLoading) {
@@ -43,6 +44,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
                 </div>
             </div>
         );
+    }
+
+    if (!requireAuth) {
+        return <>{children}</>;
     }
 
     // Not authenticated, will redirect
@@ -77,7 +82,7 @@ export function withAuth<P extends object>(
 ) {
     return function ProtectedComponent(props: P) {
         return (
-            <ProtectedRoute requiredRole={requiredRole}>
+            <ProtectedRoute requireAuth requiredRole={requiredRole}>
                 <Component {...props} />
             </ProtectedRoute>
         );

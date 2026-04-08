@@ -227,7 +227,7 @@ export default function MessagesPage() {
                             ) : (
                                 friends.map(friend => (
                                     <div key={friend.id}
-                                        onClick={() => handleNewMessage(friend.friend_id === authUser?.id ? friend.user_id : friend.friend_id)}
+                                        onClick={() => handleNewMessage(friend.friend_id === authUser?.id ? (friend.user_id ?? friend.friend_id) : friend.friend_id)}
                                         className="p-3 border border-border rounded-sm hover:bg-secondary cursor-pointer flex items-center gap-3 transition-colors"
                                     >
                                         <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">

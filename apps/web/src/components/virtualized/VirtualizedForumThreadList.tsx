@@ -57,6 +57,12 @@ export function VirtualizedForumThreadList({
         <div ref={containerRef} className="space-y-4">
             {threads.map((thread, index) => {
                 const isLast = index === threads.length - 1;
+                const authorId = thread.author?.id;
+                const authorName = thread.author?.display_name || thread.author?.username || 'Unknown';
+                const createdAt = thread.created_at;
+                const tags: string[] = [];
+                const replyCount = thread.replies_count;
+                const likeCount = thread.upvotes;
 
                 return (
                     <div
@@ -105,7 +111,7 @@ export function VirtualizedForumThreadList({
                             {/* Content */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-start gap-2">
-                                    {thread.isPinned && (
+                                    {thread.is_pinned && (
                                         <Pin className="w-4 h-4 text-amber-500 mt-1" />
                                     )}
                                     <Link
@@ -123,20 +129,24 @@ export function VirtualizedForumThreadList({
                                 <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                                     <span>
                                         Posted by{" "}
-                                        <Link
-                                            href={`/providers/${thread.author.id}`}
-                                            className="text-foreground hover:underline"
-                                        >
-                                            {thread.author.displayName}
-                                        </Link>
+                                        {authorId ? (
+                                            <Link
+                                                href={`/providers/${authorId}`}
+                                                className="text-foreground hover:underline"
+                                            >
+                                                {authorName}
+                                            </Link>
+                                        ) : (
+                                            <span className="text-foreground">{authorName}</span>
+                                        )}
                                     </span>
                                     <span>•</span>
                                     <span>
-                                        {formatDistanceToNow(new Date(thread.createdAt), {
+                                        {formatDistanceToNow(new Date(createdAt), {
                                             addSuffix: true,
                                         })}
                                     </span>
-                                    {thread.tags.map((tag) => (
+                                    {tags.map((tag: string) => (
                                         <span
                                             key={tag}
                                             className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs"
@@ -149,11 +159,11 @@ export function VirtualizedForumThreadList({
                                 <div className="flex items-center gap-4 mt-3">
                                     <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                                         <MessageSquare className="w-4 h-4" />
-                                        {thread.replyCount} replies
+                                        {replyCount} replies
                                     </button>
                                     <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
                                         <Heart className="w-4 h-4" />
-                                        {thread.likeCount} likes
+                                        {likeCount} likes
                                     </button>
                                 </div>
                             </div>

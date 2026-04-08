@@ -12,6 +12,7 @@ import {
     getAnalytics,
     getExplorerDecentralizationStatus,
     getExplorerDecentralizationWriters,
+    type NetworkHealth,
 } from '@/lib/services/explorer';
 import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
 import { useRouter } from 'next/navigation';
@@ -136,9 +137,9 @@ export default function ExplorerDashboard() {
         retry: false,
     });
 
-    const { data: health } = useQuery({
+    const { data: health } = useQuery<NetworkHealth>({
         queryKey: ['network-health'],
-        queryFn: getNetworkHealth,
+        queryFn: ({ signal }) => getNetworkHealth(signal),
         refetchInterval: 30000,
     });
 

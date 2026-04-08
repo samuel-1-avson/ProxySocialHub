@@ -3,7 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getNetworkHealth, getHealthHistory, getExplorerMetrics } from '@/lib/services/explorer';
+import {
+    getNetworkHealth,
+    getHealthHistory,
+    getExplorerMetrics,
+    type ExplorerMetrics,
+    type HealthHistoryResponse,
+    type NetworkHealth,
+} from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     ArrowLeft, Activity, CheckCircle, AlertTriangle, XCircle,
@@ -72,33 +79,34 @@ export default function HealthPage() {
     const [mounted, setMounted] = useState(false);
     useEffect(() => { setMounted(true); }, []);
 
-    const { data: health, isLoading: loadingHealth } = useQuery({
+    const { data: health, isLoading: loadingHealth } = useQuery<NetworkHealth>({
         queryKey: ['network-health'],
-        queryFn: getNetworkHealth,
+        queryFn: ({ signal }) => getNetworkHealth(signal),
         refetchInterval: 15000,
         retry: false,
     });
 
-    const { data: historyData, isLoading: loadingHistory } = useQuery({
+    const { data: historyData, isLoading: loadingHistory } = useQuery<HealthHistoryResponse>({
         queryKey: ['health-history'],
-        queryFn: () => getHealthHistory('24h'),
+        queryFn: ({ signal }) => getHealthHistory('24h', signal),
         refetchInterval: 60000,
         retry: false,
     });
 
-    const { data: metrics } = useQuery({
+    const { data: metrics } = useQuery<ExplorerMetrics>({
         queryKey: ['explorer-metrics-health'],
-        queryFn: () => getExplorerMetrics('all'),
+        queryFn: ({ signal }) => getExplorerMetrics('all', signal),
         refetchInterval: 30000,
         retry: false,
     });
 
-    const history = (historyData?.history || []).map((p: any) => ({
+    const history = (historyData?.history ?? []).map((p: any) => ({
         t: (() => { try { return format(new Date(p.timestamp), 'HH:mm'); } catch { return p.timestamp; } })(),
         nodes: p.active_nodes,
         response: p.avg_response_ms,
         healthy: p.status === 'healthy' ? 1 : 0,
     }));
+    const healthEvents = historyData?.events ?? [];
 
     const uptime24h = historyData?.uptime_percent ?? null;
 
@@ -157,9 +165,9 @@ export default function HealthPage() {
                     detail={health?.solana_health === 'healthy' ? 'Mainnet connected' : 'Check RPC endpoint'} />
                 <SubsystemCard label="Database" status={health?.database_health || 'unknown'} icon={Database}
                     detail="PostgreSQL" />
-                <SubsystemCard label="Relay Nodes" status={health?.active_nodes > 0 ? 'healthy' : 'degraded'} icon={Server}
+                <SubsystemCard label="Relay Nodes" status={(health?.active_nodes ?? 0) > 0 ? 'healthy' : 'degraded'} icon={Server}
                     detail={`${health?.active_nodes ?? 0} online`} />
-                <SubsystemCard label="Response Time" status={health?.avg_response_time_ms < RESPONSE_HEALTHY_MS ? 'healthy' : health?.avg_response_time_ms < RESPONSE_DEGRADED_MS ? 'degraded' : 'down'} icon={Clock}
+                <SubsystemCard label="Response Time" status={(health?.avg_response_time_ms ?? Infinity) < RESPONSE_HEALTHY_MS ? 'healthy' : (health?.avg_response_time_ms ?? Infinity) < RESPONSE_DEGRADED_MS ? 'degraded' : 'down'} icon={Clock}
                     detail={health ? `${health.avg_response_time_ms.toFixed(0)}ms avg` : 'N/A'} />
             </motion.section>
 
@@ -236,9 +244,9 @@ export default function HealthPage() {
                     <History size={14} className="text-primary" /> Health Event Log
                 </h2>
                 <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
-                    {historyData?.events?.length > 0 ? (
+                    {healthEvents.length > 0 ? (
                         <div className="divide-y divide-white/5">
-                            {historyData.events.map((ev: any, i: number) => (
+                            {healthEvents.map((ev: any, i: number) => (
                                 <div key={i} className="flex items-center gap-4 px-6 py-4">
                                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.status === 'healthy' ? 'bg-emerald-500' : ev.status === 'degraded' ? 'bg-yellow-400' : 'bg-rose-500'}`} />
                                     <div className="flex-1 min-w-0">

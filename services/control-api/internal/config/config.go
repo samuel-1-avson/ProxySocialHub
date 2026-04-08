@@ -20,7 +20,8 @@ type Config struct {
 	Admin      AdminConfig
 }
 
-// AdminConfig holds credentials for the 3 hardcoded admin accounts.
+// AdminConfig keeps legacy admin auth settings. Admin API routes are disabled,
+// so these values are optional and retained only for backward compatibility.
 type AdminConfig struct {
 	JWTSecret    string
 	SessionTTLHr int
@@ -115,8 +116,6 @@ func Load() (*Config, error) {
 			"http://localhost:3001",
 			"http://127.0.0.1:3000",
 			"http://localhost:4001",
-			"http://localhost:3002",               // Admin web app
-			"http://127.0.0.1:3002",               // Admin web app (alternate)
 			"https://proxy-social-hub.vercel.app", // Allow Vercel Frontend
 		}
 	}
@@ -166,59 +165,27 @@ func Load() (*Config, error) {
 	// Edge Gateway
 	cfg.Gateway.ManagementURL = getEnv("EDGE_GATEWAY_MGMT_URL", "http://edge-gateway:8090")
 
-	// Admin Panel
-	adminJWTSecret, err := requireEnv("ADMIN_JWT_SECRET")
-	if err != nil {
-		return nil, err
-	}
-	cfg.Admin.JWTSecret = adminJWTSecret
+	// Legacy Admin Config (optional)
+	cfg.Admin.JWTSecret = strings.TrimSpace(os.Getenv("ADMIN_JWT_SECRET"))
 	cfg.Admin.SessionTTLHr = 4
 
-	admin1Username, err := requireEnv("ADMIN_ACCOUNT_1_USERNAME")
-	if err != nil {
-		return nil, err
-	}
-	admin1Password, err := requireEnv("ADMIN_ACCOUNT_1_PASSWORD")
-	if err != nil {
-		return nil, err
-	}
-	admin2Username, err := requireEnv("ADMIN_ACCOUNT_2_USERNAME")
-	if err != nil {
-		return nil, err
-	}
-	admin2Password, err := requireEnv("ADMIN_ACCOUNT_2_PASSWORD")
-	if err != nil {
-		return nil, err
-	}
-	admin3Username, err := requireEnv("ADMIN_ACCOUNT_3_USERNAME")
-	if err != nil {
-		return nil, err
-	}
-	admin3Password, err := requireEnv("ADMIN_ACCOUNT_3_PASSWORD")
-	if err != nil {
-		return nil, err
+	addAdminAccount := func(usernameEnv, passwordEnv, roleEnv, defaultRole, totpEnv string) {
+		username := strings.TrimSpace(os.Getenv(usernameEnv))
+		password := strings.TrimSpace(os.Getenv(passwordEnv))
+		if username == "" || password == "" {
+			return
+		}
+		cfg.Admin.Accounts = append(cfg.Admin.Accounts, AdminAccount{
+			Username:   username,
+			Password:   password,
+			Role:       getEnv(roleEnv, defaultRole),
+			TOTPSecret: getEnv(totpEnv, ""),
+		})
 	}
 
-	cfg.Admin.Accounts = []AdminAccount{
-		{
-			Username:   admin1Username,
-			Password:   admin1Password,
-			Role:       getEnv("ADMIN_ACCOUNT_1_ROLE", "superadmin"),
-			TOTPSecret: getEnv("ADMIN_ACCOUNT_1_TOTP_SECRET", ""),
-		},
-		{
-			Username:   admin2Username,
-			Password:   admin2Password,
-			Role:       getEnv("ADMIN_ACCOUNT_2_ROLE", "sysops"),
-			TOTPSecret: getEnv("ADMIN_ACCOUNT_2_TOTP_SECRET", ""),
-		},
-		{
-			Username:   admin3Username,
-			Password:   admin3Password,
-			Role:       getEnv("ADMIN_ACCOUNT_3_ROLE", "support"),
-			TOTPSecret: getEnv("ADMIN_ACCOUNT_3_TOTP_SECRET", ""),
-		},
-	}
+	addAdminAccount("ADMIN_ACCOUNT_1_USERNAME", "ADMIN_ACCOUNT_1_PASSWORD", "ADMIN_ACCOUNT_1_ROLE", "superadmin", "ADMIN_ACCOUNT_1_TOTP_SECRET")
+	addAdminAccount("ADMIN_ACCOUNT_2_USERNAME", "ADMIN_ACCOUNT_2_PASSWORD", "ADMIN_ACCOUNT_2_ROLE", "sysops", "ADMIN_ACCOUNT_2_TOTP_SECRET")
+	addAdminAccount("ADMIN_ACCOUNT_3_USERNAME", "ADMIN_ACCOUNT_3_PASSWORD", "ADMIN_ACCOUNT_3_ROLE", "support", "ADMIN_ACCOUNT_3_TOTP_SECRET")
 
 	return cfg, nil
 }

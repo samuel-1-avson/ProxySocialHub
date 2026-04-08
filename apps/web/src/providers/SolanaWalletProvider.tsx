@@ -33,16 +33,14 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
     }, [network]);
 
     const wallets = useMemo(
-        () => [
-            // Phantom is automatically registered as a Standard Wallet as of wallet-adapter 0.9.x+
-            new SolflareWalletAdapter(),
-        ],
-        []
+        () => (mounted
+            ? [
+                // Phantom is automatically registered as a Standard Wallet as of wallet-adapter 0.9.x+
+                new SolflareWalletAdapter(),
+            ]
+            : []),
+        [mounted]
     );
-
-    if (!mounted) {
-        return <>{children}</>;
-    }
 
     return (
         <ConnectionProvider endpoint={endpoint}>

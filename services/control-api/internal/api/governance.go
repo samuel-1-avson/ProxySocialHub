@@ -18,6 +18,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/token"
 	"gorm.io/gorm"
 )
 
@@ -116,9 +117,8 @@ func createProposal(c *gin.Context) {
 	if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
 		mintKey, mintErr := solana.PublicKeyFromBase58String(mintStr)
 		if mintErr == nil {
-			const minPHBRaw = uint64(100_000_000_000) // 100 PHB @ 9 decimals
 			phbBal, balErr := oracle.GetTokenBalance(c.Request.Context(), proposerPK, mintKey)
-			if balErr == nil && phbBal < minPHBRaw {
+			if balErr == nil && phbBal < token.PHBProposalMinimumRaw {
 				c.JSON(http.StatusForbidden, gin.H{
 					"error": fmt.Sprintf("insufficient PHB: need >=100 PHB to create proposal, have %d raw units", phbBal),
 				})
@@ -745,7 +745,6 @@ func governanceProposalStatusFromOnChain(status uint8) models.ProposalStatus {
 }
 
 func governanceVotePowerRaw(ctx *gin.Context, oracle *solana.OracleClient, voterWallet sol.PublicKey) uint64 {
-	const phbDecimals = uint64(1_000_000_000)
 	var votingPower uint64 = 1
 
 	mintStr := os.Getenv("PHB_TOKEN_MINT")
@@ -763,7 +762,7 @@ func governanceVotePowerRaw(ctx *gin.Context, oracle *solana.OracleClient, voter
 		return votingPower
 	}
 
-	if phbPower := rawBalance / phbDecimals; phbPower > 0 {
+	if phbPower := rawBalance / token.PHBDecimals; phbPower > 0 {
 		votingPower = phbPower
 	}
 

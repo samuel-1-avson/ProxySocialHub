@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getWatchtowerAlerts, AlertEvent } from '@/lib/api/monitoring';
-import { isAuthenticated } from '@/lib/auth.tsx';
+import { isAuthenticated } from '@/lib/auth';
 import {
     Bell,
     X,

@@ -1,13 +1,16 @@
 import type { NextConfig } from "next";
 
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
+
+if (!walletConnectProjectId && process.env.NODE_ENV !== "test") {
+  console.warn("NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect will be unavailable in the web app.");
+}
+
 const nextConfig: NextConfig = {
   compress: true,
   output: "standalone",
   trailingSlash: false,
   reactCompiler: true,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     remotePatterns: [
       {

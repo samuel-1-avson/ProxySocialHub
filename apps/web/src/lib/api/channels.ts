@@ -51,10 +51,31 @@ export async function updateChannelState(channelId: string, nonce: number, total
 }
 
 /**
- * Generate a cryptographic signature for a state update
- * Requires a loaded protocol identity
+ * Generate a cryptographic signature for a state update.
+ * Uses the connected Solana wallet to sign an Ed25519 message
+ * encoding the channel state transition.
+ *
+ * @param signMessage - The wallet adapter's signMessage function (from useWallet())
  */
-export async function signStateUpdate(channelId: string, nonce: number, amount: number, bytes: number): Promise<string> {
-    // Protocol requires WASM Ed25519 signer integration
-    throw new Error('Cryptographic Identity Not Loaded: signStateUpdate failed');
+export async function signStateUpdate(
+    channelId: string,
+    nonce: number,
+    amount: number,
+    bytes: number,
+    signMessage?: (message: Uint8Array) => Promise<Uint8Array>,
+): Promise<string> {
+    if (!signMessage) {
+        throw new Error('Wallet not connected: signStateUpdate requires a connected Solana wallet with signMessage support');
+    }
+
+    // Encode the state update as a deterministic message
+    const encoder = new TextEncoder();
+    const message = encoder.encode(
+        `proxyhubb:channel_state:${channelId}:${nonce}:${amount}:${bytes}`
+    );
+
+    const signatureBytes = await signMessage(message);
+
+    // Return base58-encoded signature
+    return Buffer.from(signatureBytes).toString('base64');
 }

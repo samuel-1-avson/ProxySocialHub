@@ -19,7 +19,8 @@ import {
     RefreshCw,
     Eye,
     EyeOff,
-    Trash2
+    Trash2,
+    type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -40,7 +41,7 @@ interface SetupStep {
     id: number;
     title: string;
     description: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     content: React.ReactNode;
 }
 
