@@ -1,37 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
-import { Globe, ArrowRight, AlertCircle, Loader2, Wallet, ShoppingCart, Coins } from 'lucide-react';
-import { getErrorMessage } from '@/lib/utils';
+import dynamic from 'next/dynamic';
+import { Globe, ShoppingCart, Coins } from 'lucide-react';
 import Link from 'next/link';
 
+const WalletAuthPanel = dynamic(
+  () => import('@/components/WalletAuthPanel').then((mod) => mod.WalletAuthPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mb-6 flex min-h-[132px] items-center justify-center rounded-sm border border-border bg-background text-center text-xs font-mono uppercase tracking-wider text-muted-foreground">
+        Initializing wallet access...
+      </div>
+    ),
+  }
+);
+
 export default function RegisterPage() {
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { walletLogin } = useAuth();
-  const { connected, publicKey, signMessage } = useWallet();
-  const router = useRouter();
-
-  const handleWalletRegister = async () => {
-    if (!publicKey || !signMessage) return;
-
-    setLoading(true);
-    setError('');
-    try {
-      await walletLogin(publicKey.toBase58(), { signMessage });
-      router.push('/dashboard');
-      router.refresh();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err) || 'Wallet registration failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden px-4 py-20 md:bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]">
       <div className="max-w-md w-full relative z-10">
@@ -53,13 +38,6 @@ export default function RegisterPage() {
         <div className="card-retro p-8 md:p-10 bg-card">
           <h2 className="text-xl font-bold font-mono text-center mb-8 uppercase border-b-2 border-border pb-4 w-full">Initialize Account</h2>
 
-          {error && (
-            <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-sm mb-6 text-sm font-mono">
-              <AlertCircle size={16} className="shrink-0" />
-              <p>{error}</p>
-            </div>
-          )}
-
           {/* How it works */}
           <div className="mb-6 space-y-3">
             <div className="flex items-center gap-3 p-3 border border-border rounded-sm bg-background">
@@ -76,28 +54,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Wallet Connect Button */}
-          <div className="mb-6 flex justify-center">
-            <SolanaWalletButton />
-          </div>
-
-          {connected && publicKey && (
-            <button
-              type="button"
-              onClick={handleWalletRegister}
-              disabled={loading}
-              className="w-full btn-retro btn-retro-primary py-3 text-sm mb-6"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  INITIALIZE VIA WALLET ({publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)})
-                  <ArrowRight size={16} className="ml-2" />
-                </>
-              )}
-            </button>
-          )}
+          <WalletAuthPanel mode="register" actionLabel="INITIALIZE VIA WALLET" />
 
           {/* Role Info */}
           <div className="mt-6 pt-6 border-t border-border">

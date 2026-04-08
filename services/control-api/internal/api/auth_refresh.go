@@ -1,0 +1,287 @@
+package api
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/crypto"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
+)
+
+const (
+	accessTokenStorageKey  = "proxyhubb_token"
+	refreshTokenStorageKey = "proxyhubb_refresh_token"
+)
+
+type authSessionResponse struct {
+	Token                 string      `json:"token"`
+	RefreshToken          string      `json:"refresh_token,omitempty"`
+	AccessTokenExpiresAt  time.Time   `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt *time.Time  `json:"refresh_token_expires_at,omitempty"`
+	User                  interface{} `json:"user,omitempty"`
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func authAccessTokenTTL() time.Duration {
+	const defaultMinutes = 24 * 60
+
+	if raw := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL_MINUTES")); raw != "" {
+		if minutes, err := strconv.Atoi(raw); err == nil && minutes > 0 {
+			return time.Duration(minutes) * time.Minute
+		}
+	}
+
+	return defaultMinutes * time.Minute
+}
+
+func authRefreshTokenTTL() time.Duration {
+	const defaultHours = 30 * 24
+
+	if raw := strings.TrimSpace(os.Getenv("REFRESH_TOKEN_TTL_HOURS")); raw != "" {
+		if hours, err := strconv.Atoi(raw); err == nil && hours > 0 {
+			return time.Duration(hours) * time.Hour
+		}
+	}
+
+	return defaultHours * time.Hour
+}
+
+func issueAuthSession(user models.User, walletAddress string, jwtSecret string) (authSessionResponse, error) {
+	accessTTL := authAccessTokenTTL()
+	accessToken, err := crypto.GenerateToken(
+		user.ID,
+		user.Role,
+		user.Email,
+		walletAddress,
+		jwtSecret,
+		accessTTL,
+	)
+	if err != nil {
+		return authSessionResponse{}, err
+	}
+
+	response := authSessionResponse{
+		Token:                accessToken,
+		AccessTokenExpiresAt: time.Now().Add(accessTTL),
+	}
+
+	if !refreshTokenStorageReady() {
+		return response, nil
+	}
+
+	refreshTTL := authRefreshTokenTTL()
+	rawRefreshToken, record, err := newRefreshTokenRecord(user.ID, "", "", refreshTTL)
+	if err != nil {
+		log.Printf("[AUTH] Failed to create refresh token material for user %s: %v", user.ID, err)
+		return response, nil
+	}
+
+	if err := db.DB.Create(&record).Error; err != nil {
+		log.Printf("[AUTH] Failed to persist refresh token for user %s: %v", user.ID, err)
+		return response, nil
+	}
+
+	response.RefreshToken = rawRefreshToken
+	response.RefreshTokenExpiresAt = &record.ExpiresAt
+
+	return response, nil
+}
+
+func refreshSession(c *gin.Context) {
+	if !refreshTokenStorageReady() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh token storage unavailable"})
+		return
+	}
+
+	var req refreshRequest
+	_ = c.ShouldBindJSON(&req)
+
+	rawRefreshToken := strings.TrimSpace(req.RefreshToken)
+	if rawRefreshToken == "" {
+		if cookieValue, err := c.Cookie(refreshTokenStorageKey); err == nil {
+			rawRefreshToken = strings.TrimSpace(cookieValue)
+		}
+	}
+
+	if rawRefreshToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token required"})
+		return
+	}
+
+	refreshHash := hashRefreshToken(rawRefreshToken)
+	var current models.RefreshTokenFamily
+	if err := db.DB.Where("token_hash = ?", refreshHash).First(&current).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+			return
+		}
+
+		log.Printf("[AUTH] Refresh token lookup failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh session"})
+		return
+	}
+
+	now := time.Now()
+	if current.RevokedAt != nil || now.After(current.ExpiresAt) {
+		revokeRefreshTokenFamily(current.FamilyID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token expired"})
+		return
+	}
+
+	if !current.IsCurrent {
+		revokeRefreshTokenFamily(current.FamilyID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token reuse detected"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.Where("id = ?", current.UserID).First(&user).Error; err != nil {
+		log.Printf("[AUTH] Refresh token user lookup failed: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+		return
+	}
+
+	walletAddress := ""
+	if user.WalletAddress != nil {
+		walletAddress = *user.WalletAddress
+	}
+
+	accessTTL := authAccessTokenTTL()
+	accessToken, err := crypto.GenerateToken(
+		user.ID,
+		user.Role,
+		user.Email,
+		walletAddress,
+		mustJWTSecret(),
+		accessTTL,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
+		return
+	}
+
+	refreshTTL := authRefreshTokenTTL()
+	newRawRefreshToken, nextRecord, err := newRefreshTokenRecord(user.ID, current.FamilyID, current.TokenID, refreshTTL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		return
+	}
+
+	tx := db.DB.Begin()
+	if err := tx.Model(&models.RefreshTokenFamily{}).
+		Where("id = ?", current.ID).
+		Updates(map[string]interface{}{"is_current": false}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		return
+	}
+
+	if err := tx.Create(&nextRecord).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to persist refresh token"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit refresh token rotation"})
+		return
+	}
+
+	c.JSON(http.StatusOK, authSessionResponse{
+		Token:                 accessToken,
+		RefreshToken:          newRawRefreshToken,
+		AccessTokenExpiresAt:  now.Add(accessTTL),
+		RefreshTokenExpiresAt: &nextRecord.ExpiresAt,
+		User:                  user,
+	})
+}
+
+func refreshTokenStorageReady() bool {
+	return db.DB != nil && db.DB.Migrator().HasTable(&models.RefreshTokenFamily{})
+}
+
+func revokeRefreshTokenFamily(familyID string) {
+	if familyID == "" || db.DB == nil {
+		return
+	}
+
+	now := time.Now()
+	if err := db.DB.Model(&models.RefreshTokenFamily{}).
+		Where("family_id = ? AND revoked_at IS NULL", familyID).
+		Updates(map[string]interface{}{
+			"revoked_at": now,
+			"is_current": false,
+		}).Error; err != nil {
+		log.Printf("[AUTH] Failed to revoke refresh token family %s: %v", familyID, err)
+	}
+}
+
+func newRefreshTokenRecord(userID uuid.UUID, familyID string, parentTokenID string, ttl time.Duration) (string, models.RefreshTokenFamily, error) {
+	randomPart, err := randomHex(32)
+	if err != nil {
+		return "", models.RefreshTokenFamily{}, err
+	}
+
+	if familyID == "" {
+		familyID, err = randomHex(16)
+		if err != nil {
+			return "", models.RefreshTokenFamily{}, err
+		}
+	}
+
+	tokenID, err := randomHex(16)
+	if err != nil {
+		return "", models.RefreshTokenFamily{}, err
+	}
+
+	issuedAt := time.Now()
+	rawToken := strings.Join([]string{familyID, tokenID, randomPart}, ".")
+
+	return rawToken, models.RefreshTokenFamily{
+		FamilyID:      familyID,
+		UserID:        userID,
+		TokenID:       tokenID,
+		TokenHash:     hashRefreshToken(rawToken),
+		ParentTokenID: parentTokenID,
+		IssuedAt:      issuedAt,
+		ExpiresAt:     issuedAt.Add(ttl),
+		IsCurrent:     true,
+	}, nil
+}
+
+func hashRefreshToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func randomHex(numBytes int) (string, error) {
+	b := make([]byte, numBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func mustJWTSecret() string {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		return "proxyhubb-dev-secret-change-in-production"
+	}
+	return secret
+}

@@ -20,16 +20,16 @@ type PricingEvaluator struct{}
 
 // StartPricingEvaluator starts a background goroutine that evaluates node pricing tiers every 15 minutes.
 func StartPricingEvaluator() {
-	go func() {
+	GoSupervised("PricingEvaluator", 5*time.Second, func() {
 		log.Println("Pricing Evaluator started — running immediately then every 15 minutes")
-		runPricingEvaluation()
+		RunSafely("PricingEvaluator.initial", runPricingEvaluation)
 
 		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			runPricingEvaluation()
+			RunSafely("PricingEvaluator.cycle", runPricingEvaluation)
 		}
-	}()
+	})
 }
 
 // computeDynamicPricingTier calculates the score and assigns the tier and price.

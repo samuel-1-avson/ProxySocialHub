@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as walletApi from '../api/wallet';
 import * as sessionsApi from '../api/sessions';
+import * as usageApi from '../api/usage';
 import * as circlesApi from '../api/circles';
 import * as marketplaceApi from '../api/marketplace';
 
@@ -28,7 +29,7 @@ export function useTransactions(limit = 20, offset = 0) {
 export function useDeposit() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: walletApi.deposit,
+        mutationFn: async ({ amount, email }: walletApi.DepositRequest) => walletApi.depositWallet(amount, email),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: walletApi.walletKeys.all });
         },
@@ -38,7 +39,8 @@ export function useDeposit() {
 export function useWithdraw() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: walletApi.withdraw,
+        mutationFn: ({ amount, phone, network }: walletApi.WithdrawRequest) =>
+            walletApi.withdrawWallet(amount, phone, network),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: walletApi.walletKeys.all });
         },
@@ -65,7 +67,7 @@ export function useSession(id: string) {
 export function useSessionUsage(id: string) {
     return useQuery({
         queryKey: sessionsApi.sessionKeys.usage(id),
-        queryFn: () => sessionsApi.getSessionUsage(id),
+        queryFn: () => usageApi.getSessionUsage(id),
         enabled: !!id,
         refetchInterval: 30000, // Refetch every 30 seconds
     });
@@ -94,7 +96,7 @@ export function useTerminateSession() {
 export function useTotalUsage() {
     return useQuery({
         queryKey: sessionsApi.sessionKeys.totalUsage(),
-        queryFn: sessionsApi.getUserUsage,
+        queryFn: usageApi.getUserUsage,
     });
 }
 

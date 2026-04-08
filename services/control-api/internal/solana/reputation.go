@@ -46,7 +46,7 @@ func (c *OracleClient) AnchorReputation(ctx context.Context, userWallet string, 
 	// For this oracle, we'll assume the instruction exists in the program.
 
 	// Pre-requisite: Get Recent Blockhash
-	recent, err := c.rpc().GetRecentBlockhash(ctx, rpc.CommitmentFinalized)
+	recent, err := c.rpc().GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return "", fmt.Errorf("failed to get blockhash: %w", err)
 	}

@@ -403,7 +403,7 @@ function DemoContent() {
 }
 
 // Helper component that throws an error
-function ThrowError() {
+function ThrowError(): never {
   throw new Error("This is a demo error!");
 }
 

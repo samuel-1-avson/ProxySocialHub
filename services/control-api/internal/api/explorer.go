@@ -25,6 +25,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/prices"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/token"
 )
 
 // RegisterExplorerRoutes registers all public explorer endpoints
@@ -767,8 +768,7 @@ func getWalletDetails(c *gin.Context) {
 			if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
 				if mintKey, err := solanaGo.PublicKeyFromBase58(mintStr); err == nil {
 					if rawBal, err := oracle.GetTokenBalance(c.Request.Context(), pubkey, mintKey); err == nil {
-						// PHB uses 6 decimal places (standard SPL)
-						balancePlatform = float64(rawBal) / 1e6
+						balancePlatform = token.PHBFromRaw(rawBal)
 					}
 				}
 			}

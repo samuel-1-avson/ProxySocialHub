@@ -3,34 +3,41 @@
 import { getDefaultConfig, RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { WagmiProvider } from 'wagmi';
 import { polygonAmoy, sepolia, mainnet, polygon } from 'wagmi/chains';
-import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import '@rainbow-me/rainbowkit/styles.css';
 
-const config = getDefaultConfig({
-    appName: 'ProxyHub',
-    projectId: 'YOUR_PROJECT_ID', // TODO: User needs to provide this or use env
-    chains: [polygonAmoy, sepolia, mainnet, polygon],
-    ssr: true,
-});
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() || '';
 
-const queryClient = new QueryClient();
+if (!walletConnectProjectId && process.env.NODE_ENV !== 'test') {
+    console.warn('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect will be unavailable.');
+}
+
+const config = walletConnectProjectId
+    ? getDefaultConfig({
+        appName: 'ProxyHub',
+        projectId: walletConnectProjectId,
+        chains: [polygonAmoy, sepolia, mainnet, polygon],
+        ssr: true,
+    })
+    : null;
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
+    if (!config) {
+        return <>{children}</>;
+    }
+
     return (
         <WagmiProvider config={config}>
-            <QueryClientProvider client={queryClient}>
-                <RainbowKitProvider
-                    theme={darkTheme({
-                        accentColor: '#f97316', // Orange-500
-                        accentColorForeground: 'white',
-                        borderRadius: 'medium',
-                        fontStack: 'system',
-                        overlayBlur: 'small',
-                    })}
-                >
-                    {children}
-                </RainbowKitProvider>
-            </QueryClientProvider>
+            <RainbowKitProvider
+                theme={darkTheme({
+                    accentColor: '#f97316', // Orange-500
+                    accentColorForeground: 'white',
+                    borderRadius: 'medium',
+                    fontStack: 'system',
+                    overlayBlur: 'small',
+                })}
+            >
+                {children}
+            </RainbowKitProvider>
         </WagmiProvider>
     );
 }

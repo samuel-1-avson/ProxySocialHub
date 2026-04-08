@@ -233,7 +233,7 @@ export function startHeartbeatInterval(
     onHeartbeat?: (response: HeartbeatResponse) => void,
     onError?: (error: Error) => void
 ): () => void {
-    const sendHeartbeat = async () => {
+    const triggerHeartbeat = async () => {
         try {
             const response = await sendHeartbeat();
             onHeartbeat?.(response);
@@ -243,10 +243,10 @@ export function startHeartbeatInterval(
     };
     
     // Send initial heartbeat
-    sendHeartbeat();
+    triggerHeartbeat();
     
     // Set up interval
-    const intervalId = setInterval(sendHeartbeat, intervalSeconds * 1000);
+    const intervalId = setInterval(triggerHeartbeat, intervalSeconds * 1000);
     
     // Return cleanup function
     return () => clearInterval(intervalId);

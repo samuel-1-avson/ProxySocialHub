@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
-import { Listing, createOrder, createSessionFromListing, ProxyCredentials } from '@/lib/api/marketplace';
+import { Listing, createOrder, createSessionFromListing, type MarketplaceProxyCredentials } from '@/lib/api/marketplace';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
@@ -11,7 +11,7 @@ import { getErrorMessage } from '@/lib/utils';
 interface BuyListingModalProps {
     listing: Listing;
     onClose: () => void;
-    onSuccess: (orderId: string, credentials?: ProxyCredentials) => void;
+    onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
 }
 
 export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModalProps) {
@@ -20,7 +20,7 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     const toast = useToast();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [credentials, setCredentials] = useState<ProxyCredentials | null>(null);
+    const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
     const [showPass, setShowPass] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
 

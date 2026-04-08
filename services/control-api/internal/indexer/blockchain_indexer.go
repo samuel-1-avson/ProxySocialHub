@@ -328,8 +328,8 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 	if len(decodedTx.Signatures) > 0 {
 		txHash = decodedTx.Signatures[0].String()
 	} else {
-		// Generate a placeholder if no signature
-		txHash = fmt.Sprintf("tx_%d_%d", blockNumber, index)
+		// Skip transactions without valid signatures — they cannot be audited
+		return nil
 	}
 
 	// Get account keys

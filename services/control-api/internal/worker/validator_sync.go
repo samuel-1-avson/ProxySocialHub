@@ -33,7 +33,7 @@ func StartValidatorSync(client *solana.OracleClient) {
 
 	stakingSvc := solana.NewStakingService(client)
 
-	go func() {
+	GoSupervised("ValidatorSync", 5*time.Second, func() {
 		logging.Info().
 			Float64("min_stake_sol", minValidatorStakeSOL).
 			Msg("ValidatorSync: started Solana-staked validator sync loop")
@@ -42,9 +42,11 @@ func StartValidatorSync(client *solana.OracleClient) {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			syncValidatorStakes(stakingSvc)
+			RunSafely("ValidatorSync.cycle", func() {
+				syncValidatorStakes(stakingSvc)
+			})
 		}
-	}()
+	})
 }
 
 // syncValidatorStakes fetches on-chain stake for each known validator and

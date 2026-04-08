@@ -11,16 +11,16 @@ import (
 )
 
 const (
-	baseURL      = "http://localhost:8080/v1"
-	adminToken   = "test-admin-token" // Replace with real token or use env
-	providerID   = "7963d7e5-1c3a-4a7b-8e9f-0c1d2e3f4a5b" // Example provider UUID
-	concurrency  = 10
-	iterations   = 5
+	baseURL     = "http://localhost:8080/v1"
+	adminToken  = "test-admin-token"                     // Replace with real token or use env
+	providerID  = "7963d7e5-1c3a-4a7b-8e9f-0c1d2e3f4a5b" // Example provider UUID
+	concurrency = 10
+	iterations  = 5
 )
 
 func main() {
 	fmt.Println("🚀 Starting Payout Stress Test...")
-	
+
 	var wg sync.WaitGroup
 	start := time.Now()
 
@@ -36,14 +36,14 @@ func main() {
 
 	wg.Wait()
 	duration := time.Since(start)
-	
+
 	fmt.Printf("\n✅ Stress test complete in %v\n", duration)
-	fmt.Println("Please run 'GET /v1/admin/treasury/reconciliation' to verify ledger consistency.")
+	fmt.Println("Please run 'GET /v1/monitoring/treasury' to verify ledger consistency.")
 }
 
 func queuePayout(workerID, iteration int) {
 	url := fmt.Sprintf("%s/admin/payouts/queue", baseURL)
-	
+
 	payload := map[string]string{
 		"provider_id": providerID,
 	}
