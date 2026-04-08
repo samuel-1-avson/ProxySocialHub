@@ -42,7 +42,7 @@ func (w *MarketplaceWatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create telemetry consumer: %w", err)
 	}
 
-	go func() {
+	GoSupervised("MarketplaceWatcher", 5*time.Second, func() {
 		iter, _ := consumer.Messages()
 		for {
 			msg, err := iter.Next()
@@ -60,11 +60,13 @@ func (w *MarketplaceWatcher) Start(ctx context.Context) error {
 			}
 
 			// Update Redis Discovery Cache
-			w.updateDiscoveryCache(ctx, event)
+			RunSafely("MarketplaceWatcher.cacheUpdate", func() {
+				w.updateDiscoveryCache(ctx, event)
+			})
 
 			msg.Ack()
 		}
-	}()
+	})
 
 	return nil
 }

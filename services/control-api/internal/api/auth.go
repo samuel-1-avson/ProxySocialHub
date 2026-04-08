@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -48,19 +47,10 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		// Falls back to in-memory if Redis is unavailable.
 		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
 		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
-		if isDevLoginEnabled() {
-			auth.POST("/dev/login", devLogin)
-			log.Printf("[AUTH] /auth/dev/login route enabled")
-		} else {
-			log.Printf("[AUTH] /auth/dev/login route disabled (set ENABLE_DEV_LOGIN=true to enable)")
-		}
+		auth.POST("/refresh", StrictRateLimit(), refreshSession)
+		log.Printf("[AUTH] Wallet-only mode enabled (/auth/dev/login disabled)")
 		auth.GET("/me", getMe)
 	}
-}
-
-func isDevLoginEnabled() bool {
-	flag := strings.TrimSpace(os.Getenv("ENABLE_DEV_LOGIN"))
-	return strings.EqualFold(flag, "true") || flag == "1"
 }
 
 type ChallengeRequest struct {
@@ -298,114 +288,14 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 
-	token, err := crypto.GenerateToken(
-		user.ID,
-		user.Role,
-		user.Email,
-		req.Address,
-		cfg.Auth.JWTSecret,
-		24*time.Hour,
-	)
+	authSession, err := issueAuthSession(user, req.Address, cfg.Auth.JWTSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to generate token"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user":  user,
-	})
-}
-
-// devLogin is a BACKDOOR for E2E testing.
-// SECURITY: Only available in development environment with secret token
-func devLogin(c *gin.Context) {
-	if !isDevLoginEnabled() {
-		log.Printf("[SECURITY] devLogin attempted while route is disabled")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-		return
-	}
-
-	// CRITICAL SECURITY: Only allow in development mode
-	appEnv := os.Getenv("APP_ENV")
-	if appEnv != "development" && appEnv != "dev" && appEnv != "local" {
-		log.Printf("[SECURITY] devLogin attempted in non-development environment")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-		return
-	}
-
-	// ADDITIONAL SECURITY: Require a secret token
-	devSecret := os.Getenv("DEV_LOGIN_SECRET")
-	if devSecret == "" {
-		// If no secret is configured, disable dev login entirely
-		log.Printf("[SECURITY] devLogin attempted but DEV_LOGIN_SECRET not configured")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-		return
-	}
-
-	// Validate secret token from header
-	providedSecret := c.GetHeader("X-Dev-Login-Secret")
-	if providedSecret != devSecret {
-		log.Printf("[SECURITY] devLogin attempted with invalid secret")
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
-		return
-	}
-
-	// Create or Get a "Dev User"
-	devAddr := "5DTestAddressForGovernanceVerification"
-
-	// Check user
-	var user models.User
-	result := db.DB.Where("wallet_address = ?", devAddr).First(&user)
-	if result.Error != nil {
-		// Dev user is a plain "user" with zero balance.
-		// Tests that need SOL or provider permissions should set them up explicitly.
-		user = models.User{
-			ID:            uuid.New(),
-			Role:          "user",
-			TrustTier:     models.TrustTierNew,
-			WalletAddress: &devAddr,
-			Username:      func(s string) *string { return &s }("dev_tester"),
-			Email:         "dev@test.com",
-		}
-		if err := db.DB.Create(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create dev user"})
-			return
-		}
-
-		// Zero balance — fund explicitly in tests via the faucet or admin endpoint.
-		wallet := models.Wallet{
-			UserID:     user.ID,
-			BalanceSOL: 0.0,
-		}
-		wallet.InitializeWithDefaultLimits(models.TrustTierNew)
-		db.DB.Create(&wallet)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		log.Printf("[AUTH] Failed to load config for dev token: %v", err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Internal configuration error"})
-		return
-	}
-
-	token, err := crypto.GenerateToken(
-		user.ID,
-		user.Role,
-		user.Email,
-		devAddr,
-		cfg.Auth.JWTSecret,
-		24*time.Hour,
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to generate token"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user":  user,
-	})
+	authSession.User = user
+	c.JSON(http.StatusOK, authSession)
 }
 
 // maskAddress masks an address for safe logging (shows first 6 and last 4 chars)
@@ -446,23 +336,32 @@ func GetMe(c *gin.Context) {
 
 // getMe returns the currently authenticated user
 func getMe(c *gin.Context) {
-	// Let's assume we need to parse the token to get the user ID.
-	authHeader := c.GetHeader("Authorization")
-	if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Missing or invalid authorization header"})
-		return
-	}
-	tokenString := authHeader[7:]
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		tokenString := ""
+		authHeader := c.GetHeader("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenString = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		} else if cookieToken, err := c.Cookie(accessTokenStorageKey); err == nil {
+			tokenString = strings.TrimSpace(cookieToken)
+		}
 
-	cfg, _ := config.Load()
-	claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid token"})
-		return
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Missing or invalid authorization token"})
+			return
+		}
+
+		cfg, _ := config.Load()
+		claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid token"})
+			return
+		}
+		userIDValue = claims.UserID
 	}
 
 	var user models.User
-	if err := db.DB.Where("id = ?", claims.UserID).First(&user).Error; err != nil {
+	if err := db.DB.Where("id = ?", userIDValue).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
 		return
 	}

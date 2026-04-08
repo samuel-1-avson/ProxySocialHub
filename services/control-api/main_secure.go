@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -60,7 +61,7 @@ func main() {
 	// Start background workers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	startWorkers(ctx, cfg)
 
 	// Graceful shutdown
@@ -77,13 +78,13 @@ func main() {
 
 	<-quit
 	log.Println("👋 Shutting down gracefully...")
-	
+
 	// Cancel context to stop workers
 	cancel()
-	
+
 	// Give workers time to cleanup
 	time.Sleep(2 * time.Second)
-	
+
 	log.Println("✅ Shutdown complete")
 }
 
@@ -109,14 +110,14 @@ func setupSecurityMiddleware(r *gin.Engine, cfg *config.SecureConfig) {
 		ContentSecurityPolicy: "default-src 'self'",
 		ReferrerPolicy:        "strict-origin-when-cross-origin",
 	}
-	
+
 	if cfg.Server.Environment == "production" {
 		securityConfig.AllowedHosts = []string{
 			"api.yourdomain.com",
 			"yourdomain.com",
 		}
 	}
-	
+
 	r.Use(secure.New(securityConfig))
 
 	// 5. WAF / Attack detection
@@ -142,8 +143,8 @@ func setupRoutes(r *gin.Engine, cfg *config.SecureConfig) {
 	// Health check (before auth middleware)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status": "healthy",
-			"version": "1.0.0",
+			"status":      "healthy",
+			"version":     "1.0.0",
 			"environment": cfg.Server.Environment,
 		})
 	})
@@ -153,7 +154,7 @@ func setupRoutes(r *gin.Engine, cfg *config.SecureConfig) {
 	{
 		api.RegisterHealthRoutes(v1)
 		api.RegisterAuthRoutes(v1)
-		
+
 		// Public listings
 		api.RegisterListingRoutes(v1)
 	}
@@ -170,22 +171,23 @@ func setupRoutes(r *gin.Engine, cfg *config.SecureConfig) {
 		// ... other protected routes
 	}
 
-	// Admin routes
+	// Admin routes are intentionally disabled.
 	admin := v1.Group("/admin")
-	admin.Use(middleware.RequireAuth())
-	admin.Use(middleware.RequireAdmin())
-	{
-		api.RegisterAdminRoutes(admin)
-	}
+	admin.Any("", func(c *gin.Context) {
+		c.JSON(http.StatusGone, gin.H{"error": "admin_api_disabled"})
+	})
+	admin.Any("/*path", func(c *gin.Context) {
+		c.JSON(http.StatusGone, gin.H{"error": "admin_api_disabled"})
+	})
 }
 
 func startWorkers(ctx context.Context, cfg *config.SecureConfig) {
 	// Start session cleanup worker
 	go worker.StartSessionReaper(ctx, 30*time.Minute)
-	
+
 	// Start usage aggregator
 	go worker.StartUsageAggregator(ctx, 5*time.Minute)
-	
+
 	log.Println("✅ Background workers started")
 }
 

@@ -202,10 +202,20 @@ func getAnalyticsOverview(c *gin.Context) {
 	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Count(&totalNodes)
 	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Select("AVG(quality_score)").Scan(&avgQuality)
 
-	// Note: total_earnings_sol and active_payouts would normally come from the billing/wallet engine.
-	// We'll mock these for now as they are handled in separate ledger queries.
+	// Fetch wallet balance and pending payouts from ledger
 	var wallet models.Wallet
 	db.DB.Where("user_id = ?", userID).First(&wallet)
+
+	// Count active (unclaimed) payouts from circle revenue
+	var activePayouts int64
+	db.DB.Table("circle_revenues").Where("provider_id = ? AND claimed = false", userID).Count(&activePayouts)
+
+	// Sum total earnings from circle revenue history
+	var totalEarnings float64
+	db.DB.Table("circle_revenues").Where("provider_id = ?", userID).Select("COALESCE(SUM(amount), 0)").Scan(&totalEarnings)
+	if totalEarnings == 0 {
+		totalEarnings = wallet.BalanceSOL
+	}
 
 	c.JSON(http.StatusOK, AnalyticsOverview{
 		TotalRequests:      stats.TotalRequests,
@@ -218,9 +228,9 @@ func getAnalyticsOverview(c *gin.Context) {
 		TopISP:             topISP.Name,
 
 		TotalNodes:       int(totalNodes),
-		TotalEarningsSOL: wallet.BalanceSOL, // Simplification
+		TotalEarningsSOL: totalEarnings,
 		AvgQualityScore:  int(avgQuality),
-		ActivePayouts:    0, // Default for now
+		ActivePayouts:    int(activePayouts),
 	})
 }
 

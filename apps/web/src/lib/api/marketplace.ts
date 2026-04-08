@@ -48,6 +48,11 @@ export interface Listing {
         avg_rating?: number;
         location?: string;
         verified: boolean;
+        is_online?: boolean;
+        last_seen_at?: string;
+        reviews_count?: number;
+        total_bandwidth_sold?: number;
+        response_time_min?: number;
     };
 }
 

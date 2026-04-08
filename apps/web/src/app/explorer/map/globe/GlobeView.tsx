@@ -206,7 +206,7 @@ function NodeMarker({
       {/* Core dot */}
       <mesh onClick={onClick}>
         <sphereGeometry args={[0.02, 16, 16]} />
-        <meshBasicMaterial
+        <meshStandardMaterial
           color={color}
           emissive={color}
           emissiveIntensity={isSelected ? 2 : 0.5}
@@ -286,15 +286,14 @@ function ConnectionLines({
         const curve = new THREE.QuadraticBezierCurve3(line.start, midPoint, line.end);
         const points = curve.getPoints(50);
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: themeConfig.accent,
+          transparent: true,
+          opacity: 0.3,
+        });
         
         return (
-          <line key={i} geometry={geometry}>
-            <lineBasicMaterial
-              color={themeConfig.accent}
-              transparent
-              opacity={0.3}
-            />
-          </line>
+          <primitive key={i} object={new THREE.Line(geometry, material)} />
         );
       })}
     </>

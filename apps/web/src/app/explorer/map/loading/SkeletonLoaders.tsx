@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
 // Shimmer animation for skeletons
 const shimmerVariants = {
@@ -15,10 +15,10 @@ const shimmerVariants = {
     transition: {
       duration: 1.5,
       repeat: Infinity,
-      ease: "linear",
+      ease: "linear" as const,
     },
   },
-};
+} satisfies Variants;
 
 // Base skeleton with shimmer effect
 interface SkeletonProps {

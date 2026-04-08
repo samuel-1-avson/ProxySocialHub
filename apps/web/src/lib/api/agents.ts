@@ -22,10 +22,12 @@ export interface AgentInstance {
     id: string;
     agent_id: string;
     user_id: string;
-    status: 'idle' | 'running' | 'completed' | 'failed';
+    status: 'idle' | 'running' | 'completed' | 'failed' | 'stopped' | 'pending';
     created_at: string;
     completed_at?: string;
     agent?: MarketAgent;
+    market_agent?: MarketAgent;
+    expires_at?: string;
 }
 
 /**

@@ -25,6 +25,11 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		} else {
 			// Fallback to query parameter (e.g. for WebSockets)
 			tokenString = c.Query("token")
+			if tokenString == "" {
+				if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
+					tokenString = cookieToken
+				}
+			}
 		}
 
 		if tokenString == "" {
@@ -75,6 +80,11 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
 		} else {
 			tokenString = c.Query("token")
+			if tokenString == "" {
+				if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
+					tokenString = cookieToken
+				}
+			}
 		}
 
 		if tokenString == "" {
@@ -115,5 +125,3 @@ func RequireAuth() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-

@@ -184,10 +184,33 @@ async fn proxy(
         let healthy = nodes.len();
 
         let mut node_scores = Vec::new();
-        for (id, _control, info) in nodes {
+        let mut latency_sum: u64 = 0;
+        let mut latency_count: u64 = 0;
+        let mut country_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+        // Fetch heartbeat latencies from in-memory monitor
+        let hb_statuses = state.heartbeat_monitor.get_all_status().await;
+        let hb_map: std::collections::HashMap<String, u32> = hb_statuses
+            .into_iter()
+            .filter(|s| s.latency_ms > 0)
+            .map(|s| (s.node_id.clone(), s.latency_ms))
+            .collect();
+
+        for (id, _control, info) in &nodes {
             // Build features to get the current score
-            let features = state.feature_cache.build_features(&info, None);
+            let features = state.feature_cache.build_features(info, None);
             let score = state.routing.score_features(&features);
+
+            // Collect latency from heartbeat monitor
+            if let Some(&lat) = hb_map.get(id) {
+                latency_sum += lat as u64;
+                latency_count += 1;
+            }
+
+            // Count countries
+            if !info.country_code.is_empty() {
+                *country_counts.entry(info.country_code.clone()).or_insert(0) += 1;
+            }
 
             node_scores.push(NodeScore {
                 id: id.clone(),
@@ -197,11 +220,18 @@ async fn proxy(
             });
         }
 
+        let avg_latency = if latency_count > 0 { (latency_sum / latency_count) as u32 } else { 0 };
+
+        // Top countries by node count
+        let mut country_vec: Vec<_> = country_counts.into_iter().collect();
+        country_vec.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_countries: Vec<String> = country_vec.into_iter().take(5).map(|(c, _)| c).collect();
+
         let status = NetworkStatus {
             total_nodes: total,
             healthy_nodes: healthy,
-            avg_latency: 45, // Placeholder for global avg
-            top_countries: vec!["GH".into(), "NG".into(), "KE".into()],
+            avg_latency,
+            top_countries,
             node_scores,
         };
 
@@ -748,7 +778,7 @@ async fn proxy(
                                     );
                                 } else {
                                     tokio::spawn(async move {
-                                        let provider_pubkey = [0u8; 32]; // Stub for batching
+                                        let provider_pubkey = state_zk.solana_relayer.provider_pubkey();
                                         if let Some(proof) = state_zk
                                             .zk_prover
                                             .prove_usage(
@@ -759,8 +789,18 @@ async fn proxy(
                                             )
                                             .await
                                         {
+                                            // Derive session_id_hash from session_id string
+                                            let session_hash = {
+                                                use sha2::{Sha256, Digest};
+                                                let mut h = Sha256::new();
+                                                h.update(session_id_zk.as_bytes());
+                                                let result = h.finalize();
+                                                let mut out = [0u8; 32];
+                                                out.copy_from_slice(&result);
+                                                out
+                                            };
                                             let inputs = crate::billing::zk::PublicInputs {
-                                                session_id_hash: [0; 32], // Hash of session_id_zk
+                                                session_id_hash: session_hash,
                                                 total_bytes_up: bytes_up,
                                                 total_bytes_down: bytes_down,
                                                 provider_pubkey,
@@ -1116,7 +1156,7 @@ async fn bridge_to_provider(
             let session_id = username.clone();
             let up = from_client;
             let down = from_provider;
-            let provider_pk = [0u8; 32]; // Placeholder: fetch from session_data or registry
+            let provider_pk = state_zk.solana_relayer.provider_pubkey();
 
             if full_decentralization_enabled() {
                 info!(
@@ -1130,8 +1170,17 @@ async fn bridge_to_provider(
                         .prove_usage(&session_id, up, down, &provider_pk)
                         .await
                     {
+                        let session_hash = {
+                            use sha2::{Sha256, Digest};
+                            let mut h = Sha256::new();
+                            h.update(session_id.as_bytes());
+                            let result = h.finalize();
+                            let mut out = [0u8; 32];
+                            out.copy_from_slice(&result);
+                            out
+                        };
                         let inputs = crate::billing::zk::PublicInputs {
-                            session_id_hash: [0u8; 32],
+                            session_id_hash: session_hash,
                             total_bytes_up: up,
                             total_bytes_down: down,
                             provider_pubkey: provider_pk,

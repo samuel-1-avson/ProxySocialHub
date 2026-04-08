@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getFeed, subscribeToFeed, type FeedEvent } from "@/lib/services/feed";
-import { isAuthenticated } from "@/lib/auth.tsx";
+import { isAuthenticated } from "@/lib/auth";
 import { Activity, Shield, Users, Server, DollarSign, Vote, AlertTriangle, Radio, Wifi, Hexagon, ChevronRight, Zap, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
