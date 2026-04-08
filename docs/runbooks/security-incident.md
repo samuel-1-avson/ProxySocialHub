@@ -47,9 +47,8 @@ This runbook provides step-by-step procedures for handling security incidents.
 ### Initial Assessment
 
 ```bash
-# Check recent security events
-curl -s https://api.proxyhubb.com/v1/admin/security/events \
-  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.'
+# Check recent security events from service logs (admin API removed)
+kubectl logs deployment/control-api | grep "security_event" | tail -100
 
 # Review failed authentication attempts
 kubectl logs deployment/control-api | grep "auth_failure" | tail -100

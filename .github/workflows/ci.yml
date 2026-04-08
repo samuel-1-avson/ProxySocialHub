@@ -171,7 +171,6 @@ jobs:
 
     - name: Run unit tests
       run: npm test -- --coverage --watchAll=false
-      continue-on-error: true
 
   # ==================== Edge Gateway (Rust) ====================
   edge-gateway-check:
@@ -236,7 +235,6 @@ jobs:
     
     - name: Run tests
       run: anchor test
-      continue-on-error: true
 
   # ==================== Smart Contracts (Solidity) ====================
   contracts-check:
@@ -264,7 +262,6 @@ jobs:
     
     - name: Run tests
       run: npx hardhat test
-      continue-on-error: true
 
   # ==================== Docker Build Check ====================
   docker-build:

@@ -246,14 +246,8 @@ func RotateAPIKey(userID string) (*APIKey, error) {
 ### User Notification
 
 ```bash
-# Notify users with expiring keys
-curl -X POST https://api.proxyhubb.com/v1/admin/notify-expiring-keys \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "days_until_expiry": 7,
-    "notification_type": "email"
-  }'
+# Notify users with expiring keys via comms workflow (admin API removed)
+./scripts/security/send-key-expiry-notices.sh --days 7 --channel email
 ```
 
 ---

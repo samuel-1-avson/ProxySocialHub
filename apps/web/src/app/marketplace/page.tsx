@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SmartMatchWidget } from "@/components/SmartMatchWidget";
 import { BuyListingModal } from "@/components/BuyListingModal";
 import { ListingCard } from "@/components/ListingCard";
+import { ListingCardEnhanced } from "@/components/ListingCardEnhanced";
 import { GlassCard } from "@/components/ui/glass-card";
 
 export default function MarketplacePage() {

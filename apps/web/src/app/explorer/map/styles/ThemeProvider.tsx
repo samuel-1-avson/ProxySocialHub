@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { MapTheme, ThemeConfig, mapThemes, generateThemeCSS } from "./MapThemes";
+import { MapTheme, ThemeConfig, globeColors, mapThemes, generateThemeCSS } from "./MapThemes";
 
 interface ThemeContextType {
   theme: MapTheme;
@@ -80,5 +80,8 @@ export function useMapTheme() {
   }
   return context;
 }
+
+export type { MapTheme, ThemeConfig } from "./MapThemes";
+export { globeColors, mapThemes } from "./MapThemes";
 
 export default ThemeProvider;

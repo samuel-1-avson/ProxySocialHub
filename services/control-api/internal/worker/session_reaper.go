@@ -11,14 +11,15 @@ import (
 
 // SessionReaper cleans up inconsistent session states between DB and Redis
 func StartSessionReaper() {
-	ticker := time.NewTicker(5 * time.Minute)
 	log.Printf("[Worker] Session Reaper started (Interval: 5m)")
 
-	go func() {
+	GoSupervised("SessionReaper", 5*time.Second, func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
 		for range ticker.C {
-			reap()
+			RunSafely("SessionReaper.cycle", reap)
 		}
-	}()
+	})
 }
 
 func reap() {

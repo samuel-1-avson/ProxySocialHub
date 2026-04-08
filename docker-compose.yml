@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: proxyhubb-db-migrate
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - AUTO_MIGRATE=true
       - FORCE_MIGRATE=${FORCE_MIGRATE:-false}
       - MIGRATE_ONLY=true
@@ -17,13 +17,6 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
       - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET must be set}
-      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME:?ADMIN_ACCOUNT_1_USERNAME must be set}
-      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD:?ADMIN_ACCOUNT_1_PASSWORD must be set}
-      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME:?ADMIN_ACCOUNT_2_USERNAME must be set}
-      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD:?ADMIN_ACCOUNT_2_PASSWORD must be set}
-      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME:?ADMIN_ACCOUNT_3_USERNAME must be set}
-      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD:?ADMIN_ACCOUNT_3_PASSWORD must be set}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - NATS_URL=nats://nats:4222
       - PORT=8080
@@ -50,23 +43,19 @@ services:
       - PORT=8080
       - APP_ENV=${APP_ENV:-development}
       - GIN_MODE=${GIN_MODE:-debug}
-      - DATABASE_URL=${DATABASE_URL:-postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       # Dedicated control-plane secret for edge-gateway -> control-api gateway routes.
-      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:-dev-gateway-shared-secret-change-me}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3009,http://127.0.0.1:3009,http://localhost:3000,http://127.0.0.1:3000}
       # APP_URL is used for WebSocket CORS origin validation.
       # Set to your frontend public URL. Empty = allow all origins (dev mode).
       - APP_URL=${APP_URL:-}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - API_BASE_URL=${API_BASE_URL:-http://localhost:18080}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3009}
       - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
@@ -113,23 +102,6 @@ services:
       - READ_REPLICA_URL=${READ_REPLICA_URL:-}
       # --- Leaderboard MV refresh interval ---
       - MV_LEADERBOARD_REFRESH_MINS=${MV_LEADERBOARD_REFRESH_MINS:-15}
-      # --- Admin ---
-      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET}
-      - ADMIN_ACCOUNT_1_USERNAME=${ADMIN_ACCOUNT_1_USERNAME}
-      - ADMIN_ACCOUNT_1_PASSWORD=${ADMIN_ACCOUNT_1_PASSWORD}
-      - ADMIN_ACCOUNT_1_ROLE=${ADMIN_ACCOUNT_1_ROLE:-admin}
-      - ADMIN_ACCOUNT_1_TOTP_SECRET=${ADMIN_ACCOUNT_1_TOTP_SECRET:-}
-      - ADMIN_ACCOUNT_2_USERNAME=${ADMIN_ACCOUNT_2_USERNAME}
-      - ADMIN_ACCOUNT_2_PASSWORD=${ADMIN_ACCOUNT_2_PASSWORD}
-      - ADMIN_ACCOUNT_2_ROLE=${ADMIN_ACCOUNT_2_ROLE:-admin}
-      - ADMIN_ACCOUNT_2_TOTP_SECRET=${ADMIN_ACCOUNT_2_TOTP_SECRET:-}
-      - ADMIN_ACCOUNT_3_USERNAME=${ADMIN_ACCOUNT_3_USERNAME}
-      - ADMIN_ACCOUNT_3_PASSWORD=${ADMIN_ACCOUNT_3_PASSWORD}
-      - ADMIN_ACCOUNT_3_ROLE=${ADMIN_ACCOUNT_3_ROLE:-moderator}
-      - ADMIN_ACCOUNT_3_TOTP_SECRET=${ADMIN_ACCOUNT_3_TOTP_SECRET:-}
-      # --- Dev backdoor (disabled in production) ---
-      - ENABLE_DEV_LOGIN=${ENABLE_DEV_LOGIN:-false}
-      - DEV_LOGIN_SECRET=${DEV_LOGIN_SECRET:-}
       # --- Provider Engine ---
       - PLATFORM_FEE_PERCENT=${PLATFORM_FEE_PERCENT:-0.10}
       - MIN_PAYOUT_SOL=${MIN_PAYOUT_SOL:-0.01}
@@ -231,10 +203,10 @@ services:
       - CONTROL_API_URL=http://control-api:8080
       - JWT_SECRET=${JWT_SECRET}
       # Dedicated control-plane secret for edge-gateway -> control-api gateway routes.
-      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:-dev-gateway-shared-secret-change-me}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
-      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
       - GEO_DENY_LIST=${GEO_DENY_LIST:-}
       - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
       - REGION=${REGION:-default}
@@ -350,6 +322,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
     networks:
       - proxyhubb
     healthcheck:

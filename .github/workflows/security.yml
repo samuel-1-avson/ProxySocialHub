@@ -30,13 +30,11 @@ jobs:
     
     - name: Run govulncheck
       run: govulncheck ./...
-      continue-on-error: true
     
     - name: Run Gosec Security Scanner
       uses: securego/gosec@master
       with:
         args: '-fmt sarif -out gosec.sarif ./...'
-      continue-on-error: true
     
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v3
@@ -54,12 +52,10 @@ jobs:
     - name: Audit Web Frontend
       working-directory: ./apps/web
       run: npm audit --audit-level=high
-      continue-on-error: true
     
     - name: Audit Contracts Package
       working-directory: ./packages/contracts
       run: npm audit --audit-level=high
-      continue-on-error: true
     
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
@@ -68,7 +64,6 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
-      continue-on-error: true
     
     - name: Upload Trivy scan results
       uses: github/codeql-action/upload-sarif@v3
@@ -94,7 +89,6 @@ jobs:
     
     - name: Run cargo audit
       run: cargo audit
-      continue-on-error: true
 
   # ==================== Secret Scanning ====================
   secret-scan:
@@ -109,7 +103,6 @@ jobs:
       uses: gitleaks/gitleaks-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      continue-on-error: true
     
     - name: Run TruffleHog
       uses: trufflesecurity/trufflehog@main
@@ -118,7 +111,6 @@ jobs:
         base: main
         head: HEAD
         extra_args: --debug --only-verified
-      continue-on-error: true
 
   # ==================== Solidity Security ====================
   solidity-security:
@@ -146,7 +138,6 @@ jobs:
     
     - name: Run Slither
       run: slither . --sarif slither.sarif
-      continue-on-error: true
     
     - name: Upload Slither SARIF
       uses: github/codeql-action/upload-sarif@v3
@@ -173,7 +164,6 @@ jobs:
         image-ref: 'control-api:scan'
         format: 'sarif'
         output: 'trivy-control-api.sarif'
-      continue-on-error: true
     
     - name: Run Trivy on Web
       uses: aquasecurity/trivy-action@master
@@ -181,7 +171,6 @@ jobs:
         image-ref: 'web:scan'
         format: 'sarif'
         output: 'trivy-web.sarif'
-      continue-on-error: true
     
     - name: Upload Trivy results
       uses: github/codeql-action/upload-sarif@v3

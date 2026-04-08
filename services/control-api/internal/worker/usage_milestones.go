@@ -6,11 +6,11 @@ import (
 	"log"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/ws"
-	"github.com/gin-gonic/gin"
 )
 
 // UsageMilestoneWorker monitors session usage and triggers milestones
@@ -31,25 +31,24 @@ func NewUsageMilestoneWorker() *UsageMilestoneWorker {
 
 // Start begins the milestone monitoring loop
 func (w *UsageMilestoneWorker) Start() {
-	w.ticker = time.NewTicker(5 * time.Minute) // Check every 5 minutes
-	
 	log.Println("[UsageMilestoneWorker] Started")
-	
+
 	// Run immediately on start
-	w.checkMilestones()
-	
+	RunSafely("UsageMilestoneWorker.initial", w.checkMilestones)
+
 	// Then run on ticker
-	go func() {
+	GoSupervised("UsageMilestoneWorker", 5*time.Second, func() {
+		w.ticker = time.NewTicker(5 * time.Minute) // Check every 5 minutes
+		defer w.ticker.Stop()
 		for {
 			select {
 			case <-w.ctx.Done():
-				w.ticker.Stop()
 				return
 			case <-w.ticker.C:
-				w.checkMilestones()
+				RunSafely("UsageMilestoneWorker.cycle", w.checkMilestones)
 			}
 		}
-	}()
+	})
 }
 
 // Stop halts the worker
@@ -57,6 +56,7 @@ func (w *UsageMilestoneWorker) Stop() {
 	w.cancel()
 	if w.ticker != nil {
 		w.ticker.Stop()
+		w.ticker = nil
 	}
 	log.Println("[UsageMilestoneWorker] Stopped")
 }
@@ -65,7 +65,7 @@ func (w *UsageMilestoneWorker) Stop() {
 func (w *UsageMilestoneWorker) checkMilestones() {
 	start := time.Now()
 	log.Println("[UsageMilestoneWorker] Checking milestones...")
-	
+
 	// Get all active sessions with usage
 	var sessions []models.Session
 	if err := db.DB.
@@ -76,30 +76,30 @@ func (w *UsageMilestoneWorker) checkMilestones() {
 		log.Printf("[UsageMilestoneWorker] Error fetching sessions: %v", err)
 		return
 	}
-	
+
 	for _, session := range sessions {
 		// Convert bytes to GB
 		usedGB := float64(session.BytesUsed) / (1024 * 1024 * 1024)
-		
+
 		// Check each milestone definition
 		for _, def := range models.MilestoneDefinitions {
 			if usedGB >= def.ThresholdGB {
 				w.processMilestone(session, def)
 			}
 		}
-		
+
 		// Check for low balance (alert at 20% remaining)
 		if session.BandwidthLimit > 0 {
 			limitGB := float64(session.BandwidthLimit) / (1024 * 1024 * 1024)
 			remainingGB := limitGB - usedGB
 			percentRemaining := (remainingGB / limitGB) * 100
-			
+
 			if percentRemaining <= 20 && percentRemaining > 0 {
 				w.checkLowBalanceAlert(session, remainingGB, percentRemaining)
 			}
 		}
 	}
-	
+
 	log.Printf("[UsageMilestoneWorker] Checked %d sessions in %v", len(sessions), time.Since(start))
 }
 
@@ -111,12 +111,12 @@ func (w *UsageMilestoneWorker) processMilestone(session models.Session, def mode
 		Where("user_id = ? AND milestone_type = ? AND threshold_gb = ?",
 			session.UserID, def.Type, def.ThresholdGB).
 		First(&existing).Error
-	
+
 	if err == nil {
 		// Milestone already exists
 		return
 	}
-	
+
 	// Create new milestone
 	milestone := models.UsageMilestone{
 		UserID:        session.UserID,
@@ -126,29 +126,29 @@ func (w *UsageMilestoneWorker) processMilestone(session models.Session, def mode
 		RewardAmount:  def.RewardAmount,
 		AchievedAt:    time.Now(),
 	}
-	
+
 	if err := db.Social().Create(&milestone).Error; err != nil {
 		log.Printf("[UsageMilestoneWorker] Error creating milestone: %v", err)
 		return
 	}
-	
+
 	log.Printf("[UsageMilestoneWorker] Milestone achieved: %s - %.0fGB by user %s",
 		def.Type, def.ThresholdGB, session.UserID)
-	
+
 	// Notify user
 	w.notifyUserOfMilestone(session, milestone, def)
-	
+
 	// Notify provider
 	w.notifyProviderOfMilestone(session, milestone, def)
-	
+
 	// Create feed event
 	w.createFeedEvent(session, milestone, def)
-	
+
 	// Award badge if applicable
 	if def.BadgeName != "" {
 		w.awardBadge(session.UserID, def.BadgeName)
 	}
-	
+
 	// Update relationship score
 	w.updateRelationshipScore(session)
 }
@@ -157,29 +157,29 @@ func (w *UsageMilestoneWorker) processMilestone(session models.Session, def mode
 func (w *UsageMilestoneWorker) notifyUserOfMilestone(session models.Session, milestone models.UsageMilestone, def models.MilestoneDefinition) {
 	// Build notification message
 	message := fmt.Sprintf("🎉 You've used %.0fGB of proxy bandwidth!", def.ThresholdGB)
-	
+
 	if def.BadgeName != "" {
 		message += fmt.Sprintf("\n🏆 Earned: %s badge", def.BadgeName)
 	}
-	
+
 	if def.RewardAmount > 0 {
 		message += fmt.Sprintf("\n💰 Reward: $%.2f credit", def.RewardAmount)
 	}
-	
+
 	// WebSocket notification
 	ws.BroadcastToUser(session.UserID.String(), "usage_milestone", gin.H{
-		"milestone_id":   milestone.ID,
-		"type":           def.Type,
-		"threshold_gb":   def.ThresholdGB,
-		"badge_name":     def.BadgeName,
-		"reward_amount":  def.RewardAmount,
-		"provider_id":    session.Listing.SellerID,
-		"provider_name":  session.Listing.Seller.DisplayName,
-		"session_id":     session.ID,
-		"message":        message,
-		"prompt_review":  def.ThresholdGB >= 10, // Prompt review at 10GB+
+		"milestone_id":  milestone.ID,
+		"type":          def.Type,
+		"threshold_gb":  def.ThresholdGB,
+		"badge_name":    def.BadgeName,
+		"reward_amount": def.RewardAmount,
+		"provider_id":   session.Listing.SellerID,
+		"provider_name": session.Listing.Seller.DisplayName,
+		"session_id":    session.ID,
+		"message":       message,
+		"prompt_review": def.ThresholdGB >= 10, // Prompt review at 10GB+
 	})
-	
+
 	// Create notification record
 	notification := models.Notification{
 		UserID: session.UserID,
@@ -198,9 +198,9 @@ func (w *UsageMilestoneWorker) notifyProviderOfMilestone(session models.Session,
 	if def.ThresholdGB < 10 {
 		return
 	}
-	
+
 	message := fmt.Sprintf("🎉 Your customer has used %.0fGB!", def.ThresholdGB)
-	
+
 	ws.BroadcastToUser(session.Listing.SellerID.String(), "customer_milestone", gin.H{
 		"buyer_id":       session.UserID,
 		"threshold_gb":   def.ThresholdGB,
@@ -216,7 +216,7 @@ func (w *UsageMilestoneWorker) createFeedEvent(session models.Session, milestone
 	if def.ThresholdGB < 100 {
 		return
 	}
-	
+
 	event := models.CreateFeedEvent(
 		&session.UserID,
 		models.FeedEventMilestone,
@@ -229,7 +229,7 @@ func (w *UsageMilestoneWorker) createFeedEvent(session models.Session, milestone
 			"provider_id":  session.Listing.SellerID,
 		},
 	)
-	
+
 	db.Social().Create(event)
 }
 
@@ -246,40 +246,40 @@ func (w *UsageMilestoneWorker) awardBadge(userID uuid.UUID, badgeName string) {
 		}
 		db.Social().Create(&badge)
 	}
-	
+
 	// Check if user already has badge
 	var existing models.UserBadge
 	if err := db.Social().Where("user_id = ? AND badge_id = ?", userID, badge.ID).First(&existing).Error; err == nil {
 		return // Already has badge
 	}
-	
+
 	// Award badge
 	userBadge := models.UserBadge{
 		UserID:  userID,
 		BadgeID: badge.ID,
 	}
 	db.Social().Create(&userBadge)
-	
+
 	log.Printf("[UsageMilestoneWorker] Badge awarded: %s to user %s", badgeName, userID)
 }
 
 // updateRelationshipScore updates the provider-buyer relationship score
 func (w *UsageMilestoneWorker) updateRelationshipScore(session models.Session) {
 	usedGB := float64(session.BytesUsed) / (1024 * 1024 * 1024)
-	
+
 	var relationship models.ProviderBuyerRelationship
 	err := db.Social().
 		Where("provider_id = ? AND buyer_id = ?", session.Listing.SellerID, session.UserID).
 		First(&relationship).Error
-	
+
 	if err != nil {
 		// Create new relationship
 		relationship = models.ProviderBuyerRelationship{
-			ProviderID:       session.Listing.SellerID,
-			BuyerID:          session.UserID,
-			FirstSessionAt:   session.CreatedAt,
-			LastSessionAt:    &session.CreatedAt,
-			TotalBandwidthGB: usedGB,
+			ProviderID:        session.Listing.SellerID,
+			BuyerID:           session.UserID,
+			FirstSessionAt:    session.CreatedAt,
+			LastSessionAt:     &session.CreatedAt,
+			TotalBandwidthGB:  usedGB,
 			RelationshipScore: int(usedGB), // 1 point per GB
 		}
 		db.Social().Create(&relationship)
@@ -290,12 +290,12 @@ func (w *UsageMilestoneWorker) updateRelationshipScore(session models.Session) {
 			"total_bandwidth_gb": relationship.TotalBandwidthGB + usedGB,
 			"relationship_score": relationship.RelationshipScore + int(usedGB),
 		}
-		
+
 		// Upgrade to VIP if significant usage
 		if relationship.TotalBandwidthGB+usedGB >= 100 && relationship.Status != "vip" {
 			updates["status"] = "vip"
 		}
-		
+
 		db.Social().Model(&relationship).Updates(updates)
 	}
 }
@@ -311,7 +311,7 @@ func (w *UsageMilestoneWorker) checkLowBalanceAlert(session models.Session, rema
 		"listing_title":     session.Listing.Title,
 		"message":           fmt.Sprintf("⚠️ Low balance: %.1fGB remaining (%.0f%%)", remainingGB, percentRemaining),
 	})
-	
+
 	// Notify provider for potential refill offer
 	ws.BroadcastToUser(session.Listing.SellerID.String(), "customer_low_balance", gin.H{
 		"buyer_id":          session.UserID,
@@ -320,7 +320,7 @@ func (w *UsageMilestoneWorker) checkLowBalanceAlert(session models.Session, rema
 		"percent_remaining": percentRemaining,
 		"message":           fmt.Sprintf("Customer has %.1fGB remaining", remainingGB),
 	})
-	
+
 	log.Printf("[UsageMilestoneWorker] Low balance alert: session %s has %.1fGB remaining",
 		session.ID, remainingGB)
 }

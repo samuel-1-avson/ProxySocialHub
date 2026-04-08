@@ -23,16 +23,16 @@ type TierEvaluator struct{}
 
 // StartTierEvaluator starts a background goroutine that evaluates provider tiers every hour.
 func StartTierEvaluator() {
-	go func() {
+	GoSupervised("TierEvaluator", 5*time.Second, func() {
 		log.Println("Tier Evaluator started — running immediately then every hour")
-		runTierEvaluation()
+		RunSafely("TierEvaluator.initial", runTierEvaluation)
 
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			runTierEvaluation()
+			RunSafely("TierEvaluator.cycle", runTierEvaluation)
 		}
-	}()
+	})
 }
 
 // computeTierScore calculates a tier score (0–100) for a provider node using the formula:
@@ -169,7 +169,12 @@ func runTierEvaluation() {
 
 		// Notify provider if tier actually changed
 		if tier != node.Tier {
-			go notifyTierChange(node, node.Tier, tier)
+			capturedNode := node
+			capturedFromTier := node.Tier
+			capturedToTier := tier
+			Go("TierEvaluator.notifyTierChange", func() {
+				notifyTierChange(capturedNode, capturedFromTier, capturedToTier)
+			})
 		}
 	}
 
@@ -202,4 +207,3 @@ func notifyTierChange(node models.ProviderNode, fromTier, toTier string) {
 		log.Printf("Tier Evaluator: failed to create tier-change notification for user %s: %v", node.UserID, err)
 	}
 }
-

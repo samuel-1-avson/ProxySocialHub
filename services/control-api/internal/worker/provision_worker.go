@@ -46,7 +46,7 @@ func (w *ProvisioningWorker) Start(ctx context.Context) error {
 
 	log.Printf("Session Provisioning Worker started")
 
-	go func() {
+	GoSupervised("ProvisioningWorker", 5*time.Second, func() {
 		for {
 			msg, err := iter.Next()
 			if err != nil {
@@ -59,12 +59,16 @@ func (w *ProvisioningWorker) Start(ctx context.Context) error {
 			subject := msg.Subject()
 			switch subject {
 			case "proxy.sessions.v1.created":
-				w.handleCreated(ctx, msg)
+				RunSafely("ProvisioningWorker.created", func() {
+					w.handleCreated(ctx, msg)
+				})
 			case "proxy.sessions.v1.terminated":
-				w.handleTerminated(ctx, msg)
+				RunSafely("ProvisioningWorker.terminated", func() {
+					w.handleTerminated(ctx, msg)
+				})
 			}
 		}
-	}()
+	})
 
 	return nil
 }

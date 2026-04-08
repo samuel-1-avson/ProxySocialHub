@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/token"
 )
 
 // RegisterStakingRoutes registers node staking routes
@@ -409,13 +410,12 @@ func stakePHB(c *gin.Context) {
 	ctx5, cancel5 := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel5()
 
-	const phbDecimals = 1_000_000_000.0
 	phbRaw, err := oracle.GetTokenBalance(ctx5, walletPK, mintKey)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to verify on-chain PHB balance"})
 		return
 	}
-	onChainPHB := float64(phbRaw) / phbDecimals
+	onChainPHB := token.PHBFromRaw(phbRaw)
 	if onChainPHB < req.AmountPHB {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": fmt.Sprintf("insufficient PHB: have %.4f, need %.4f", onChainPHB, req.AmountPHB),
