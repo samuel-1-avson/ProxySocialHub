@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("Se5sionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-
+declare_id!("tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy");
 /// Session status - tracks the lifecycle of a proxy session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum SessionStatus {
