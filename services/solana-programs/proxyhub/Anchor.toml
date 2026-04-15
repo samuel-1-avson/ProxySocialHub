@@ -1,6 +1,6 @@
 [toolchain]
 package_manager = "yarn"
-anchor_version = "0.30.1"
+anchor_version = "0.32.1"
 
 [features]
 resolution = true
@@ -8,13 +8,11 @@ skip-lint = false
 
 [programs.localnet]
 proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
-session = "Se5sionXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+session = "tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy"
 
 [programs.devnet]
 proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
-
-[programs.mainnet-beta]
-proxyhub = "PROXYHUBB_MAINNET_PLACEHOLDER"
+session = "tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy"
 
 [registry]
 url = "https://api.apr.dev"
