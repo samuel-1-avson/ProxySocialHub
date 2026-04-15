@@ -1,3 +1,6 @@
+pub mod session_intent;
+pub mod provider_lease;
+
 use crate::metrics;
 use crate::redis_pool::PooledConnectionManager;
 use lru::LruCache;
@@ -8,6 +11,19 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProxyAuthSource {
+    LegacySession,
+    SessionIntent,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedProxySession {
+    pub username: String,
+    pub session: SessionData,
+    pub source: ProxyAuthSource,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionData {
@@ -38,6 +54,10 @@ pub struct SessionData {
     pub rotation_interval_seconds: u32,
     #[serde(default)]
     pub time_limit_minutes: u32,
+    #[serde(default)]
+    pub auth_source: String,
+    #[serde(default)]
+    pub intent_expires_at: i64,
 }
 
 struct CachedSession {
@@ -164,6 +184,51 @@ impl SessionAuthenticator {
         }
     }
 
+    pub async fn resolve_proxy_auth(
+        &self,
+        username: &str,
+        password: &str,
+        intent_secret: &str,
+    ) -> Result<Option<ResolvedProxySession>, Box<dyn Error + Send + Sync>> {
+        if is_session_intent_username(username) {
+            let claims = session_intent::SessionIntentValidator::new(intent_secret)
+                .validate(password)
+                .map_err(|err| -> Box<dyn Error + Send + Sync> {
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        err.to_string(),
+                    ))
+                })?;
+
+            let resolved_username = format!("intent:{}", claims.jti);
+            let session_data = SessionData::from_session_intent(&claims);
+
+            {
+                let mut cache = self.cache.lock().await;
+                cache.put(
+                    resolved_username.clone(),
+                    CachedSession {
+                        data: session_data.clone(),
+                        cached_at: Instant::now(),
+                    },
+                );
+            }
+
+            return Ok(Some(ResolvedProxySession {
+                username: resolved_username,
+                session: session_data,
+                source: ProxyAuthSource::SessionIntent,
+            }));
+        }
+
+        let session = self.validate_session(username, false).await?;
+        Ok(session.map(|session| ResolvedProxySession {
+            username: username.to_string(),
+            session,
+            source: ProxyAuthSource::LegacySession,
+        }))
+    }
+
     /// Report usage for a session
     pub async fn report_usage(
         &self,
@@ -275,6 +340,62 @@ impl SessionAuthenticator {
         let cfg: NodeConfig = serde_json::from_str(&json_str?).ok()?;
         Some(cfg)
     }
+}
+
+impl SessionData {
+    pub fn from_session_intent(claims: &session_intent::SessionIntentClaims) -> Self {
+        Self {
+            user_id: claims.sub.clone(),
+            session_id: claims.jti.clone(),
+            provider_id: String::new(),
+            session_type: claims.session_type.clone(),
+            status: "active".to_string(),
+            bandwidth_limit: claims.bandwidth_limit,
+            bandwidth_used: 0,
+            trust_tier: claims.trust_tier.clone(),
+            target_geo: claims.target_geo.clone(),
+            target_isp: claims.target_isp.clone(),
+            allowed_domains: claims.allowed_domains.clone(),
+            blocked_domains: claims.blocked_domains.clone(),
+            rotation_type: claims.rotation_type.clone(),
+            rotation_interval_seconds: claims.rotation_interval_seconds.max(0) as u32,
+            time_limit_minutes: claims.time_limit_minutes.max(0) as u32,
+            auth_source: "session_intent".to_string(),
+            intent_expires_at: claims.exp as i64,
+        }
+    }
+
+    pub fn is_session_intent(&self) -> bool {
+        self.auth_source == "session_intent"
+    }
+
+    pub fn intent_still_valid(&self) -> bool {
+        if !self.is_session_intent() || self.intent_expires_at <= 0 {
+            return true;
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or_default();
+        now <= self.intent_expires_at
+    }
+}
+
+pub async fn revalidate_live_session(
+    authenticator: &SessionAuthenticator,
+    username: &str,
+    session: &SessionData,
+) -> bool {
+    if session.is_session_intent() {
+        return session.intent_still_valid();
+    }
+
+    matches!(authenticator.validate_session(username, true).await, Ok(Some(_)))
+}
+
+fn is_session_intent_username(username: &str) -> bool {
+    username.eq_ignore_ascii_case("intent") || username.eq_ignore_ascii_case("session-intent")
 }
 
 /// Subset of ServiceConfiguration enforced by the edge-gateway (N-01).

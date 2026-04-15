@@ -128,7 +128,11 @@ func Load() (*Config, error) {
 	cfg.Database.RedisURL = getEnv("REDIS_URL", "redis://localhost:6379")
 
 	// Auth
-	cfg.Auth.JWTSecret = getEnv("JWT_SECRET", "proxyhubb-dev-secret-change-in-production")
+	jwtSecret, err := requireEnv("JWT_SECRET")
+	if err != nil {
+		return nil, err
+	}
+	cfg.Auth.JWTSecret = jwtSecret
 
 	// OAuth
 	cfg.OAuth.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")

@@ -29,7 +29,7 @@ use tokio_tungstenite::{
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{error, info, warn};
 
-use crate::auth::SessionAuthenticator;
+use crate::auth::{SessionAuthenticator, SessionData};
 use crate::metrics;
 use crate::state::AppState;
 
@@ -104,11 +104,14 @@ pub async fn handle_ws_upgrade(
 
     // 2. Authenticate (same Proxy-Authorization as CONNECT)
     let auth_header = req.headers().get(PROXY_AUTHORIZATION);
-    let username = match crate::extract_proxy_auth(auth_header) {
-        Some((u, _p)) => match authenticator.validate_session(&u, false).await {
-            Ok(Some(_)) => {
+    let (username, session_data) = match crate::extract_proxy_auth(auth_header) {
+        Some((u, p)) => match authenticator
+            .resolve_proxy_auth(&u, &p, &state.config.gateway_shared_secret)
+            .await
+        {
+            Ok(Some(resolved)) => {
                 metrics::ACTIVE_SESSIONS.inc();
-                u
+                (resolved.username, resolved.session)
             }
             Ok(None) => {
                 warn!("WS: invalid session for {}", u);
@@ -123,8 +126,16 @@ pub async fn handle_ws_upgrade(
             }
             Err(e) => {
                 error!("WS: auth backend error: {}", e);
-                // Graceful degradation — allow through (mirrors CONNECT behaviour)
-                "anonymous".to_string()
+                metrics::record_auth_failure("auth_backend_error");
+                let mut resp = Response::new(Full::new(Bytes::from(
+                    "Authentication service temporarily unavailable. Please retry.",
+                )));
+                *resp.status_mut() = StatusCode::PROXY_AUTHENTICATION_REQUIRED;
+                resp.headers_mut().insert(
+                    "Proxy-Authenticate",
+                    hyper::header::HeaderValue::from_static("Basic realm=\"ProxyHub\""),
+                );
+                return Ok(resp);
             }
         },
         None => {
@@ -164,7 +175,7 @@ pub async fn handle_ws_upgrade(
             Ok(upgraded) => {
                 let io = TokioIo::new(upgraded);
                 let ws = WebSocketStream::from_raw_socket(io, Role::Server, None).await;
-                match bridge_ws(ws, &target, &username, state, auth_clone).await {
+                match bridge_ws(ws, &target, &username, session_data, state, auth_clone).await {
                     Ok(stats) => {
                         metrics::connection_ended(
                             stats.bytes_from_client,
@@ -209,6 +220,7 @@ async fn bridge_ws<S>(
     ws: WebSocketStream<S>,
     target: &str,
     username: &str,
+    session_data: SessionData,
     state: Arc<AppState>,
     authenticator: Arc<SessionAuthenticator>,
 ) -> std::io::Result<WsBridgeStats>
@@ -216,7 +228,17 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     // Select best provider
-    let (mut control, node_id) = match state.registry.get_best() {
+    let (mut control, node_id) = match state
+        .registry
+        .get_best_for(
+            if session_data.target_geo.is_empty() {
+                None
+            } else {
+                Some(session_data.target_geo.as_str())
+            },
+            None,
+        )
+    {
         Some(result) => result,
         None => {
             warn!("No providers available for WS bridge to {}", target);
@@ -250,6 +272,22 @@ where
     }
 
     info!("🔗 WS bridge: {} → {} via {}", username, target, node_id);
+    crate::sync_session_intent_lifecycle(
+        state.clone(),
+        &session_data,
+        "routed",
+        Some(&node_id),
+        Some(target),
+    )
+    .await;
+    crate::sync_session_intent_lifecycle(
+        state.clone(),
+        &session_data,
+        "active",
+        Some(&node_id),
+        Some(target),
+    )
+    .await;
     metrics::connection_started();
 
     // Split WS into independent sink + stream halves
@@ -258,6 +296,8 @@ where
     let mut bytes_from_client = 0u64;
     let mut bytes_from_provider = 0u64;
     let mut last_reval_total = 0u64;
+    let mut last_usage_synced_up = 0u64;
+    let mut last_usage_synced_down = 0u64;
     const REVAL_THRESHOLD: u64 = 100 * 1024 * 1024; // 100 MB
 
     let mut tcp_buf = vec![0u8; 65536];
@@ -310,15 +350,43 @@ where
         let total = bytes_from_client + bytes_from_provider;
         if total - last_reval_total >= REVAL_THRESHOLD {
             last_reval_total = total;
-            match authenticator.validate_session(username, true).await {
-                Ok(Some(_)) => {}
-                _ => {
-                    warn!("🛑 WS session {} limit reached. Terminating.", username);
-                    break;
+            crate::sync_session_intent_usage(
+                state.clone(),
+                &session_data,
+                Some(&node_id),
+                Some(target),
+                bytes_from_client.saturating_sub(last_usage_synced_up),
+                bytes_from_provider.saturating_sub(last_usage_synced_down),
+            )
+            .await;
+            last_usage_synced_up = bytes_from_client;
+            last_usage_synced_down = bytes_from_provider;
+            if !crate::auth::revalidate_live_session(&authenticator, username, &session_data).await {
+                if session_data.is_session_intent() {
+                    crate::sync_session_intent_lifecycle(
+                        state.clone(),
+                        &session_data,
+                            "closing",
+                        Some(&node_id),
+                        Some(target),
+                    )
+                    .await;
                 }
+                warn!("🛑 WS session {} limit reached. Terminating.", username);
+                break;
             }
         }
     }
+
+    crate::finalize_session_intent_ledger(
+        state,
+        &session_data,
+        Some(&node_id),
+        Some(target),
+        bytes_from_client.saturating_sub(last_usage_synced_up),
+        bytes_from_provider.saturating_sub(last_usage_synced_down),
+    )
+    .await;
 
     ws_sink.close().await.ok();
     Ok(WsBridgeStats {

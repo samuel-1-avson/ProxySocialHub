@@ -218,6 +218,7 @@ export function Sidebar() {
                     <Link
                         key={item.href}
                         href={item.href}
+                        prefetch={false}
                         className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
                             isActive(item.href)
                                 ? "bg-white/10 text-foreground font-bold"
@@ -231,6 +232,7 @@ export function Sidebar() {
                     </Link>
                 ))}
                 
+                        prefetch={false}
                 <button
                     onClick={logout}
                     aria-label="Log out"

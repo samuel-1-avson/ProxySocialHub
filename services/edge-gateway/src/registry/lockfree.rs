@@ -8,13 +8,16 @@
 
 use dashmap::DashMap;
 use rand::seq::IteratorRandom;
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, RwLock,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 use yamux::Control;
 
+use crate::auth::provider_lease::{lease_is_fresh, provider_leases_required};
 use crate::state::NodeInfo;
 
 /// Per-node entry with atomic hot-path fields and RwLock for cold metadata.
@@ -57,6 +60,9 @@ impl NodeEntry {
         let Ok(info) = self.info.read() else {
             return 0;
         };
+        if provider_leases_required() && !lease_is_fresh(info.lease_expires_at) {
+            return 0;
+        }
 
         // Use the AI-driven quality score as the base
         let mut score = (info.quality_score * 10.0) as u32; // Scaling 0-100 to 0-1000
@@ -100,6 +106,8 @@ pub struct LockFreeNodeRegistry {
     nodes: DashMap<String, Arc<NodeEntry>>,
     /// Pre-sorted (score desc) list of (node_id, Control). Rebuilt on mutations.
     top_nodes: Arc<std::sync::RwLock<Vec<(String, Control)>>>,
+    /// Shard-specific pre-sorted snapshots keyed by country and/or connection type.
+    shard_nodes: Arc<std::sync::RwLock<HashMap<String, Vec<(String, Control)>>>>,
 }
 
 impl LockFreeNodeRegistry {
@@ -107,30 +115,48 @@ impl LockFreeNodeRegistry {
         Self {
             nodes: DashMap::new(),
             top_nodes: Arc::new(std::sync::RwLock::new(Vec::new())),
+            shard_nodes: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
 
     /// Rebuild the pre-sorted score snapshot (P-06).
     /// Called after every structural change and by the background refresh task.
     fn rebuild_score_snapshot(&self) {
-        let mut scored: Vec<(u32, String, Control)> = self
+        let mut scored: Vec<(u32, String, Control, NodeInfo)> = self
             .nodes
             .iter()
-            .filter(|e| e.value().is_healthy.load(Ordering::Relaxed))
-            .map(|e| {
-                (
+            .filter_map(|e| {
+                if !e.value().is_healthy.load(Ordering::Relaxed) {
+                    return None;
+                }
+                let info = e.value().info.read().ok()?.clone();
+                if provider_leases_required() && !lease_is_fresh(info.lease_expires_at) {
+                    return None;
+                }
+                Some((
                     e.value().score(),
                     e.key().clone(),
                     e.value().control.clone(),
-                )
+                    info,
+                ))
             })
             .collect();
         // Sort descending by score — best node first.
         scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
         let snapshot: Vec<(String, Control)> =
-            scored.into_iter().map(|(_, id, ctrl)| (id, ctrl)).collect();
+            scored.iter().map(|(_, id, ctrl, _)| (id.clone(), ctrl.clone())).collect();
         if let Ok(mut top) = self.top_nodes.write() {
             *top = snapshot;
+        }
+
+        let mut shards: HashMap<String, Vec<(String, Control)>> = HashMap::new();
+        for (_, id, ctrl, info) in scored {
+            for key in ordered_shard_keys(Some(&info.country_code), Some(&info.capabilities.connection_type)) {
+                shards.entry(key).or_default().push((id.clone(), ctrl.clone()));
+            }
+        }
+        if let Ok(mut shard_nodes) = self.shard_nodes.write() {
+            *shard_nodes = shards;
         }
     }
 
@@ -187,7 +213,12 @@ impl LockFreeNodeRegistry {
     /// Get a yamux Control for a specific node (sticky session routing).
     pub fn get_by_id(&self, node_id: &str) -> Option<Control> {
         self.nodes.get(node_id).and_then(|entry| {
-            if entry.is_healthy.load(Ordering::Relaxed) {
+            let lease_ok = entry
+                .info
+                .read()
+                .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                .unwrap_or(false);
+            if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
                 Some(entry.control.clone())
             } else {
                 None
@@ -224,16 +255,61 @@ impl LockFreeNodeRegistry {
     /// Adjust the live active connection count by `delta` (positive = open, negative = close).
     pub fn update_active_connections(&self, node_id: &str, delta: i32) {
         if let Some(entry) = self.nodes.get(node_id) {
-            if delta > 0 {
-                entry
+            let amount = delta.unsigned_abs();
+            let new_active = loop {
+                let current = entry.active_connections.load(Ordering::Relaxed);
+                let next = if delta >= 0 {
+                    current.saturating_add(amount)
+                } else {
+                    current.saturating_sub(amount)
+                };
+
+                if entry
                     .active_connections
-                    .fetch_add(delta as u32, Ordering::Relaxed);
-            } else {
-                entry
-                    .active_connections
-                    .fetch_sub((-delta) as u32, Ordering::Relaxed);
+                    .compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    break next;
+                }
+            };
+
+            if let Ok(mut info) = entry.info.write() {
+                info.active_connections = new_active;
             }
         }
+    }
+
+    /// Update live routing metrics from provider heartbeats.
+    pub fn update_live_metrics(
+        &self,
+        node_id: &str,
+        active_connections: u32,
+        latency_ms: u32,
+        bandwidth_rate_kbps: u32,
+        total_bytes_served: u64,
+    ) {
+        if let Some(entry) = self.nodes.get(node_id) {
+            entry
+                .active_connections
+                .store(active_connections, Ordering::Relaxed);
+            entry.is_healthy.store(true, Ordering::Relaxed);
+            entry.last_heartbeat.store(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                Ordering::Relaxed,
+            );
+
+            if let Ok(mut info) = entry.info.write() {
+                info.active_connections = active_connections;
+                info.latency_ms = latency_ms;
+                info.bandwidth_rate_kbps = bandwidth_rate_kbps;
+                info.total_bytes_served = total_bytes_served;
+                info.is_healthy = true;
+            }
+        }
+        self.rebuild_score_snapshot();
     }
 
     /// Update node info using a closure (allows atomic updates to multiple fields).
@@ -246,6 +322,7 @@ impl LockFreeNodeRegistry {
                 f(&mut info);
             }
         }
+        self.rebuild_score_snapshot();
     }
 
     /// Get a random healthy node (fallback when best-node selection unavailable).
@@ -253,7 +330,14 @@ impl LockFreeNodeRegistry {
         let mut rng = rand::thread_rng();
         self.nodes
             .iter()
-            .filter(|e| e.value().is_healthy.load(Ordering::Relaxed))
+            .filter(|e| {
+                e.value().is_healthy.load(Ordering::Relaxed)
+                    && e.value()
+                        .info
+                        .read()
+                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .unwrap_or(false)
+            })
             .choose(&mut rng)
             .map(|e| e.value().control.clone())
     }
@@ -267,7 +351,12 @@ impl LockFreeNodeRegistry {
         if let Ok(top) = self.top_nodes.read() {
             for (id, ctrl) in top.iter() {
                 if let Some(entry) = self.nodes.get(id) {
-                    if entry.is_healthy.load(Ordering::Relaxed) {
+                    let lease_ok = entry
+                        .info
+                        .read()
+                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .unwrap_or(false);
+                    if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
                         return Some((ctrl.clone(), id.clone()));
                     }
                 }
@@ -276,9 +365,42 @@ impl LockFreeNodeRegistry {
         // Slow fallback: all snapshot entries are unhealthy or snapshot is empty.
         self.nodes
             .iter()
-            .filter(|e| e.value().is_healthy.load(Ordering::Relaxed))
+            .filter(|e| {
+                e.value().is_healthy.load(Ordering::Relaxed)
+                    && e.value()
+                        .info
+                        .read()
+                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .unwrap_or(false)
+            })
             .max_by_key(|e| e.value().score())
             .map(|e| (e.value().control.clone(), e.key().clone()))
+    }
+
+    pub fn get_best_for(
+        &self,
+        country_code: Option<&str>,
+        connection_type: Option<&str>,
+    ) -> Option<(Control, String)> {
+        if let Ok(shards) = self.shard_nodes.read() {
+            for key in ordered_shard_keys(country_code, connection_type) {
+                if let Some(entries) = shards.get(&key) {
+                    for (id, ctrl) in entries.iter() {
+                        if let Some(entry) = self.nodes.get(id) {
+                            let lease_ok = entry
+                                .info
+                                .read()
+                                .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                                .unwrap_or(false);
+                            if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
+                                return Some((ctrl.clone(), id.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.get_best()
     }
 
     /// Get a healthy node in the given country (geo-aware routing).
@@ -291,7 +413,10 @@ impl LockFreeNodeRegistry {
                     && e.value()
                         .info
                         .read()
-                        .map(|i| i.country_code == country_code)
+                        .map(|i| {
+                            i.country_code == country_code
+                                && (!provider_leases_required() || lease_is_fresh(i.lease_expires_at))
+                        })
                         .unwrap_or(false)
             })
             .choose(&mut rng)
@@ -309,7 +434,10 @@ impl LockFreeNodeRegistry {
                     && e.value()
                         .info
                         .read()
-                        .map(|i| i.region.to_lowercase().contains(&region_lower))
+                        .map(|i| {
+                            i.region.to_lowercase().contains(&region_lower)
+                                && (!provider_leases_required() || lease_is_fresh(i.lease_expires_at))
+                        })
                         .unwrap_or(false)
             })
             .choose(&mut rng)
@@ -323,8 +451,12 @@ impl LockFreeNodeRegistry {
             .filter(|e| {
                 let entry = e.value();
                 let active = entry.active_connections.load(Ordering::Relaxed);
-                let max = entry.info.read().map(|i| i.max_connections).unwrap_or(100);
-                entry.is_healthy.load(Ordering::Relaxed) && active < max
+                let (max, lease_ok) = entry
+                    .info
+                    .read()
+                    .map(|i| (i.max_connections, !provider_leases_required() || lease_is_fresh(i.lease_expires_at)))
+                    .unwrap_or((100, false));
+                entry.is_healthy.load(Ordering::Relaxed) && active < max && lease_ok
             })
             .min_by_key(|e| e.value().active_connections.load(Ordering::Relaxed))
             .map(|e| e.value().control.clone())
@@ -344,7 +476,14 @@ impl LockFreeNodeRegistry {
     pub fn list_healthy_with_info(&self) -> Vec<(String, Control, NodeInfo)> {
         self.nodes
             .iter()
-            .filter(|e| e.value().is_healthy.load(Ordering::Relaxed))
+            .filter(|e| {
+                e.value().is_healthy.load(Ordering::Relaxed)
+                    && e.value()
+                        .info
+                        .read()
+                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .unwrap_or(false)
+            })
             .filter_map(|e| {
                 e.value()
                     .info
@@ -360,6 +499,27 @@ impl Default for LockFreeNodeRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn ordered_shard_keys(country_code: Option<&str>, connection_type: Option<&str>) -> Vec<String> {
+    let country = country_code
+        .map(|value| value.trim().to_ascii_uppercase())
+        .filter(|value| !value.is_empty());
+    let connection = connection_type
+        .map(|value| value.trim().to_ascii_uppercase())
+        .filter(|value| !value.is_empty());
+
+    let mut keys = Vec::new();
+    if let (Some(country), Some(connection)) = (country.as_deref(), connection.as_deref()) {
+        keys.push(format!("country:{}|conn:{}", country, connection));
+    }
+    if let Some(country) = country.as_deref() {
+        keys.push(format!("country:{}", country));
+    }
+    if let Some(connection) = connection.as_deref() {
+        keys.push(format!("conn:{}", connection));
+    }
+    keys
 }
 
 #[cfg(test)]
@@ -387,6 +547,10 @@ mod tests {
             capabilities: ProviderCapabilities::default(),
             assigned_limits: AssignedLimits::default(),
             qos_tier: "basic".to_string(),
+            current_tier: "Bronze".to_string(),
+            quality_score: 100.0,
+            base_price_per_gb: 0.20,
+            lease_expires_at: 0,
         }
     }
 

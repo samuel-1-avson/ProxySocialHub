@@ -4,6 +4,10 @@ use std::time::Duration;
 /// Provider node configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Control API base URL used for auth and provider lease issuance.
+    #[serde(default = "default_control_api_url")]
+    pub control_api_url: String,
+
     /// Primary Edge Gateway address (host:port).
     /// Kept for backward-compatibility; prefer `gateway_addrs` for multi-gateway.
     #[serde(default = "default_gateway_addr")]
@@ -81,6 +85,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            control_api_url: default_control_api_url(),
             gateway_addr: default_gateway_addr(),
             gateway_addrs: Vec::new(),
             jwt_token: String::new(),
@@ -118,7 +123,10 @@ impl Config {
 // ── Defaults ────────────────────────────────────────────────────────
 
 fn default_gateway_addr() -> String {
-    "localhost:4000".to_string()
+    "localhost:3128".to_string()
+}
+fn default_control_api_url() -> String {
+    "http://localhost:18080".to_string()
 }
 fn default_max_connections() -> u32 {
     500
