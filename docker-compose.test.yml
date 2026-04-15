@@ -1,8 +1,6 @@
 # docker-compose.test.yml
 # Test environment for validating new financial engine features
 
-version: '3.8'
-
 services:
   # ==================== Control API (Test Build) ====================
   control-api:

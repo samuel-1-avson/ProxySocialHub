@@ -3,7 +3,7 @@
  * CLI downloads, token management, and node registration
  */
 
-import { apiGet, apiPost, apiDelete, apiPut } from './client';
+import { ApiError, apiGet, apiPost, apiDelete, apiPut } from './client';
 
 // ============ Types ============
 
@@ -86,7 +86,7 @@ export async function getLatestCLI(platform?: string, arch?: string): Promise<CL
  * Returns a URL that can be used to download the binary
  */
 export function getCLIDownloadUrl(platform: string, arch: string, version?: string): string {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
     let url = `${apiBase}/v1/cli/download?platform=${platform}&arch=${arch}`;
     if (version) {
         url += `&version=${version}`;
@@ -162,7 +162,15 @@ export async function applyForProvider(data: {
  * Get current provider application status
  */
 export async function getProviderStatus(): Promise<{ status: string; application?: ProviderApplication }> {
-    return apiGet<{ status: string; application?: ProviderApplication }>('/v1/provider/status');
+    try {
+        return await apiGet<{ status: string; application?: ProviderApplication }>('/v1/provider/status');
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+            return { status: 'none' };
+        }
+
+        throw error;
+    }
 }
 
 /**

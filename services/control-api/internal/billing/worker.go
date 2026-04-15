@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/sessionintent"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -25,9 +27,9 @@ const providerPayoutThresholdSOL = 0.05
 // After cbMaxFailures consecutive failures inside a cbWindow window the worker
 // pauses for cbPauseDuration before resuming.
 const (
-	cbMaxFailures    = 3
-	cbWindow         = 60 * time.Second
-	cbPauseDuration  = 5 * time.Minute
+	cbMaxFailures   = 3
+	cbWindow        = 60 * time.Second
+	cbPauseDuration = 5 * time.Minute
 )
 
 const cbRedisKey = "circuit:payout:state"
@@ -229,10 +231,118 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 	// P3-13: Successful settlement resets the failure window.
 	settlementCB.recordSuccess()
 
+	if err := markSettlementArtifactsSettled(session.ID); err != nil {
+		logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark settlement artifacts settled")
+	}
+
 	if queuePayoutAfterCommit != uuid.Nil {
 		go queueProviderPayout(queuePayoutAfterCommit)
 	}
 	return nil
+}
+
+func markSettlementArtifactsSettled(sessionID uuid.UUID) error {
+	now := time.Now().UTC()
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		var session models.Session
+		if err := tx.Select("id", "user_id", "listing_id", "node_id").First(&session, "id = ?", sessionID).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.UsageReceipt{}).
+			Where("session_id = ? AND status IN ?", sessionID, []models.UsageReceiptStatus{models.UsageReceiptPending, models.UsageReceiptAggregated, models.UsageReceiptFailed}).
+			Updates(map[string]interface{}{
+				"status":     models.UsageReceiptSettled,
+				"settled_at": now,
+				"last_error": nil,
+			}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.SettlementManifest{}).
+			Where("session_id = ? AND status IN ?", sessionID, []models.SettlementManifestStatus{models.SettlementManifestOpen, models.SettlementManifestCoordinated, models.SettlementManifestFailed}).
+			Updates(map[string]interface{}{
+				"status":     models.SettlementManifestSettled,
+				"settled_at": now,
+				"last_error": nil,
+			}).Error; err != nil {
+			return err
+		}
+
+		return advanceSessionIntentSettlementLifecycle(tx, &session, now)
+	})
+}
+
+func advanceSessionIntentSettlementLifecycle(tx *gorm.DB, session *models.Session, now time.Time) error {
+	record, err := findSessionIntentForSettlement(tx, session)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	updates := map[string]interface{}{}
+	if sessionintent.CanAdvanceGatewayLifecycle(record.LifecycleState, models.SessionIntentLedgerCommitted) {
+		sessionintent.ApplyLifecycleTransition(&record, updates, models.SessionIntentLedgerCommitted, now)
+		record.LifecycleState = models.SessionIntentLedgerCommitted
+	}
+
+	for _, next := range []models.SessionIntentLifecycle{
+		models.SessionIntentBatched,
+		models.SessionIntentChainCommitted,
+		models.SessionIntentArchived,
+	} {
+		if !sessionintent.CanAdvanceSettlementLifecycle(record.LifecycleState, next) {
+			continue
+		}
+		sessionintent.ApplyLifecycleTransition(&record, updates, next, now)
+		record.LifecycleState = next
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	updates["updated_at"] = now
+	return tx.Model(&models.SessionIntentRecord{}).
+		Where("id = ?", record.ID).
+		Updates(updates).Error
+}
+
+func findSessionIntentForSettlement(tx *gorm.DB, session *models.Session) (models.SessionIntentRecord, error) {
+	buildQuery := func() *gorm.DB {
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ?", session.UserID).
+			Where("lifecycle_state IN ?", []models.SessionIntentLifecycle{
+				models.SessionIntentActive,
+				models.SessionIntentClosing,
+				models.SessionIntentLedgerCommitted,
+				models.SessionIntentBatched,
+				models.SessionIntentChainCommitted,
+			})
+
+		if session.ListingID != nil {
+			query = query.Where("listing_id = ?", *session.ListingID)
+		} else {
+			query = query.Where("listing_id IS NULL")
+		}
+
+		return query.Order("updated_at DESC").Order("created_at DESC")
+	}
+
+	if session.NodeID != nil {
+		var exact models.SessionIntentRecord
+		if err := buildQuery().Where("provider_node_id = ?", session.NodeID.String()).First(&exact).Error; err == nil {
+			return exact, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.SessionIntentRecord{}, err
+		}
+	}
+
+	var record models.SessionIntentRecord
+	err := buildQuery().First(&record).Error
+	return record, err
 }
 
 // computeSessionCost returns (costSOL, costUSD) for totalBytes of consumption.
@@ -564,9 +674,9 @@ func processPayoutRetries() {
 		err := sendSOLToWallet(ctx, entry.WalletAddress, entry.AmountSOL)
 
 		update := map[string]interface{}{
-			"attempt_count":    entry.AttemptCount + 1,
+			"attempt_count":     entry.AttemptCount + 1,
 			"last_attempted_at": now,
-			"updated_at":       now,
+			"updated_at":        now,
 		}
 
 		if err == nil {
@@ -614,20 +724,20 @@ func getSessionLatency(sessionID uuid.UUID) float64 {
 	// Try to get from Redis first
 	ctx := context.Background()
 	latencyKey := fmt.Sprintf("session:%s:latency", sessionID.String())
-	
+
 	if redis.Client != nil {
 		latency, err := redis.Client.Get(ctx, latencyKey).Float64()
 		if err == nil && latency > 0 {
 			return latency
 		}
 	}
-	
+
 	// Fallback: query database for session metrics
 	var metrics models.SessionMetrics
 	if err := db.DB.Where("session_id = ?", sessionID).Order("created_at DESC").First(&metrics).Error; err == nil {
 		return metrics.AvgLatencyMs
 	}
-	
+
 	// Default fallback if no data available
 	return 0
 }

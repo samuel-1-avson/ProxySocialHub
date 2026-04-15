@@ -123,18 +123,10 @@ test.describe('Landing Page', () => {
 // ==================== Admin Tests ====================
 
 test.describe('Admin Panel', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto(`${BASE_URL}`);
-    await page.evaluate(() => {
-      localStorage.setItem('access_token', 'mock-admin-token');
-      localStorage.setItem('user', JSON.stringify({ id: 'admin-user', email: 'admin@example.com', role: 'admin' }));
-    });
-  });
+  test('should display retired admin notice', async ({ page }) => {
+    await page.goto(`${BASE_URL}/dashboard/admin`);
 
-  test('should display admin dashboard', async ({ page }) => {
-    await page.goto(`${BASE_URL}/admin`);
-
-    await expect(page.getByText(/admin|management/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/legacy admin dashboard removed/i)).toBeVisible({ timeout: 10000 });
   });
 });
 

@@ -169,6 +169,69 @@ paths:
                     type: string
                     example: "proxy.proxyhubb.com:8443"
 
+  /v1/sessions/intent:
+    post:
+      tags: [Sessions]
+      summary: Issue a signed V2 session intent token
+      operationId: createSessionIntent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionIntentRequest'
+      responses:
+        '200':
+          description: Session intent issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionIntentResponse'
+
+  /v1/sessions/intents:
+    get:
+      tags: [Sessions]
+      summary: List recent V2 session intents for the current user
+      operationId: listSessionIntents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Recent session intents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionIntentStatusResponse'
+
+  /v1/sessions/intents/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get lifecycle state for a signed V2 session intent
+      operationId: getSessionIntentStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session intent status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionIntentStatusResponse'
+
   /v1/sessions/{id}:
     get:
       tags: [Sessions]
@@ -207,6 +270,27 @@ paths:
       responses:
         '200':
           description: Session terminated
+
+  /v1/provider/lease:
+    post:
+      tags: [Provider]
+      summary: Issue a short-lived provider capability lease for gateway admission
+      operationId: issueProviderLease
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueProviderLeaseRequest'
+      responses:
+        '200':
+          description: Provider lease issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderLeaseResponse'
 
   # ==================== Wallet ====================
   /v1/wallet:
@@ -464,6 +548,320 @@ components:
           description: Target country code (ISO 3166-1 alpha-2)
         target_isp:
           type: string
+
+    CreateSessionIntentRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [rotating, sticky]
+          default: rotating
+        listing_id:
+          type: string
+          format: uuid
+        bandwidth_limit:
+          type: integer
+          description: Requested bandwidth limit in bytes. The server caps this to the user's trust-tier allowance.
+        target_geo:
+          type: string
+          description: Preferred target country code (ISO 3166-1 alpha-2)
+        target_isp:
+          type: string
+        routing_profile:
+          type: string
+        allowed_domains:
+          type: array
+          items:
+            type: string
+        blocked_domains:
+          type: array
+          items:
+            type: string
+        rotation_type:
+          type: string
+        rotation_interval_seconds:
+          type: integer
+        time_limit_minutes:
+          type: integer
+        preferred_tier:
+          type: string
+        max_price_per_gb:
+          type: number
+          format: float
+
+    SessionIntentResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        lifecycle_state:
+          type: string
+          enum: [authorized, routed, active, closing, ledger_committed, batched, chain_committed, archived, expired]
+        intent:
+          $ref: '#/components/schemas/SessionIntent'
+
+    SessionIntentStatusResponse:
+      type: object
+      properties:
+        lifecycle_state:
+          type: string
+          enum: [authorized, routed, active, closing, ledger_committed, batched, chain_committed, archived, expired]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        routed_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: string
+          format: date-time
+        closing_at:
+          type: string
+          format: date-time
+        ledger_committed_at:
+          type: string
+          format: date-time
+        batched_at:
+          type: string
+          format: date-time
+        chain_committed_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+        expired_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        last_metered_at:
+          type: string
+          format: date-time
+        usage_snapshot:
+          $ref: '#/components/schemas/SessionIntentUsageSnapshot'
+        billing_snapshot:
+          $ref: '#/components/schemas/SessionIntentBillingSnapshot'
+        intent:
+          $ref: '#/components/schemas/SessionIntent'
+
+    SessionIntentUsageSnapshot:
+      type: object
+      properties:
+        total_bytes:
+          type: integer
+          format: int64
+        total_bytes_up:
+          type: integer
+          format: int64
+        total_bytes_down:
+          type: integer
+          format: int64
+        last_bytes_up_delta:
+          type: integer
+          format: int64
+        last_bytes_down_delta:
+          type: integer
+          format: int64
+        total_gb:
+          type: number
+          format: float
+        percent_used:
+          type: number
+          format: float
+        bytes_remaining:
+          type: integer
+          format: int64
+        unlimited:
+          type: boolean
+
+    SessionIntentBillingSnapshot:
+      type: object
+      properties:
+        currency:
+          type: string
+        price_source:
+          type: string
+        unit_price_usd_per_gb:
+          type: number
+          format: float
+        unit_price_sol_per_gb:
+          type: number
+          format: float
+        estimated_cost_usd:
+          type: number
+          format: float
+        estimated_cost_sol:
+          type: number
+          format: float
+        projected_full_limit_cost_usd:
+          type: number
+          format: float
+        projected_full_limit_cost_sol:
+          type: number
+          format: float
+
+    SessionIntent:
+      type: object
+      properties:
+        intent_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        session_type:
+          type: string
+          enum: [rotating, sticky]
+        trust_tier:
+          type: string
+        bandwidth_limit:
+          type: integer
+        target_geo:
+          type: string
+        target_isp:
+          type: string
+        routing_profile:
+          type: string
+        allowed_domains:
+          type: array
+          items:
+            type: string
+        blocked_domains:
+          type: array
+          items:
+            type: string
+        rotation_type:
+          type: string
+        rotation_interval_seconds:
+          type: integer
+        time_limit_minutes:
+          type: integer
+        preferred_tier:
+          type: string
+        requests_per_minute:
+          type: integer
+        max_concurrency:
+          type: integer
+        max_price_per_gb:
+          type: number
+          format: float
+        billing_price_per_gb_usd:
+          type: number
+          format: float
+        billing_price_source:
+          type: string
+        provider_node_id:
+          type: string
+        target_host:
+          type: string
+        total_bytes_up:
+          type: integer
+          format: int64
+        total_bytes_down:
+          type: integer
+          format: int64
+        last_bytes_up_delta:
+          type: integer
+          format: int64
+        last_bytes_down_delta:
+          type: integer
+          format: int64
+        usage_update_count:
+          type: integer
+
+    IssueProviderLeaseRequest:
+      type: object
+      required: [connection_type, max_connections, max_bandwidth_mbps]
+      properties:
+        connection_type:
+          type: string
+        available_ports:
+          type: array
+          items:
+            type: integer
+        max_connections:
+          type: integer
+        max_bandwidth_mbps:
+          type: integer
+        uplink_speed_kbps:
+          type: integer
+        downlink_speed_kbps:
+          type: integer
+        cpu_cores:
+          type: integer
+        memory_mb:
+          type: integer
+        os:
+          type: string
+        client_version:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+
+    ProviderLeaseResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        expires_in:
+          type: integer
+        renew_after_secs:
+          type: integer
+        lease:
+          $ref: '#/components/schemas/ProviderLease'
+
+    ProviderLease:
+      type: object
+      properties:
+        lease_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        connection_type:
+          type: string
+        available_ports:
+          type: array
+          items:
+            type: integer
+        max_connections:
+          type: integer
+        max_bandwidth_mbps:
+          type: integer
+        uplink_speed_kbps:
+          type: integer
+        downlink_speed_kbps:
+          type: integer
+        cpu_cores:
+          type: integer
+        memory_mb:
+          type: integer
+        os:
+          type: string
+        client_version:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
 
     Wallet:
       type: object

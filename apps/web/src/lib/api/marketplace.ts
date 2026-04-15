@@ -247,10 +247,19 @@ export function getOrder(id: string) {
 }
 
 /**
- * Get reputation telemetry fragments for ZK-proof generation
+ * Get reputation telemetry summary for reputation-gated UX
  */
 export async function getReputationTelemetry() {
-    return apiGet<{ fragments: any[]; trust_root: string }>('/v1/reputation/telemetry');
+    return apiGet<{
+        user_id: string;
+        settled_proof_count: number;
+        total_bytes_settled: number;
+        proofs: Array<{
+            id?: string;
+            session_id?: string;
+            created_at?: string;
+        }>;
+    }>('/v1/reputation/telemetry');
 }
 
 /**

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { applyForProvider } from '@/lib/api/provider';
 import { getWallet } from '@/lib/api/wallet';
+import { ApiError } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { GlassCard } from './ui/glass-card';
 import { Input } from './ui/input';
@@ -21,15 +22,33 @@ export function ProviderApplicationForm() {
     });
 
     const minBalance = 0.05;
-    const hasEnoughSol = (wallet?.balance_sol ?? 0) >= minBalance;
     const hasLinkedWallet = !!user?.wallet_address;
+    const rawSolanaNetwork = wallet?.solana_network || process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+    const solanaNetwork = rawSolanaNetwork === 'mainnet' ? 'mainnet-beta' : rawSolanaNetwork;
+    const balanceTokenLabel = solanaNetwork === 'mainnet-beta' ? 'SOL' : `${solanaNetwork} SOL`;
+    const minBalanceLabel = `${minBalance} ${balanceTokenLabel}`;
+    const linkedWalletBalance = typeof wallet?.on_chain_sol === 'number' ? wallet.on_chain_sol : undefined;
+    const hasOnChainBalance = typeof linkedWalletBalance === 'number';
+    const hasEnoughSol = hasOnChainBalance ? linkedWalletBalance >= minBalance : true;
 
     const mutation = useMutation({
         mutationFn: () => applyForProvider({ bandwidth }),
-        onSuccess: () => {
+        onSuccess: async () => {
+            await qc.invalidateQueries({ queryKey: ['provider-status'] });
+        },
+        onError: async (error) => {
+            if (error instanceof ApiError && error.status === 409) {
+                await qc.invalidateQueries({ queryKey: ['provider-status'] });
+            }
+        },
+        onSettled: () => {
             qc.invalidateQueries({ queryKey: ['provider-status'] });
         },
     });
+
+    const errorMessage = mutation.error instanceof ApiError && mutation.error.status === 409
+        ? 'An application already exists for this account. Loading its current status.'
+        : (mutation.error as { message?: string } | null)?.message || 'Submission failed';
 
     if (mutation.isSuccess) {
         return (
@@ -40,12 +59,9 @@ export function ProviderApplicationForm() {
                 <div>
                     <h2 className="text-xl font-bold font-mono uppercase tracking-tighter">Application Received</h2>
                     <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-2">
-                        Your infrastructure is being vetted. ISP and Location detection complete. You will be upgraded to Provider shortly.
+                        Your application was submitted successfully and is now pending review. Approval is still manual at the moment, so the system will not upgrade the account automatically just because the wallet balance is above the minimum.
                     </p>
                 </div>
-                <Button variant="outline" onClick={() => window.location.reload()} className="rounded-xl border-white/10 hover:bg-white/5">
-                    Check Status
-                </Button>
             </GlassCard>
         );
     }
@@ -61,6 +77,9 @@ export function ProviderApplicationForm() {
                     <h2 className="text-2xl font-black font-sans uppercase italic tracking-tight">Become a Provider</h2>
                     <p className="text-sm text-muted-foreground mt-1">
                         Submit your bandwidth capacity to join the decentralized network.
+                    </p>
+                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-3">
+                        Active Solana network: {solanaNetwork}
                     </p>
                 </div>
 
@@ -81,19 +100,29 @@ export function ProviderApplicationForm() {
                             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <Wallet size={40} />
                             </div>
-                            <span className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Wallet Balance</span>
+                            <span className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Linked Wallet Balance</span>
                             <div className="flex items-center gap-2">
                                 {walletLoading ? (
                                     <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                                ) : !hasLinkedWallet ? (
+                                    <>
+                                        <AlertCircle size={12} className="text-amber-500" />
+                                        <span className="text-xs font-bold text-amber-500">Link wallet first</span>
+                                    </>
+                                ) : !hasOnChainBalance ? (
+                                    <>
+                                        <AlertCircle size={12} className="text-amber-500" />
+                                        <span className="text-xs font-bold text-amber-500">Awaiting {solanaNetwork} check</span>
+                                    </>
                                 ) : hasEnoughSol ? (
                                     <>
                                         <CheckCircle2 size={12} className="text-emerald-500" />
-                                        <span className="text-xs font-bold text-emerald-500">{wallet?.balance_sol.toFixed(3)} SOL</span>
+                                        <span className="text-xs font-bold text-emerald-500">{linkedWalletBalance?.toFixed(3)} {balanceTokenLabel}</span>
                                     </>
                                 ) : (
                                     <>
                                         <AlertCircle size={12} className="text-red-400" />
-                                        <span className="text-xs font-bold text-red-500">{wallet?.balance_sol.toFixed(3)} / {minBalance} SOL</span>
+                                        <span className="text-xs font-bold text-red-500">{linkedWalletBalance?.toFixed(3)} / {minBalanceLabel}</span>
                                     </>
                                 )}
                             </div>
@@ -123,12 +152,22 @@ export function ProviderApplicationForm() {
                         </div>
                     )}
 
-                    {hasLinkedWallet && !hasEnoughSol && !walletLoading && (
+                    {hasLinkedWallet && hasOnChainBalance && !hasEnoughSol && !walletLoading && (
                         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex gap-3 items-start">
                             <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
                             <div className="space-y-1">
                                 <p className="text-xs font-bold text-red-500 uppercase font-mono">Insufficient Funds</p>
-                                <p className="text-[11px] text-muted-foreground">A minimum of {minBalance} SOL is required to verify your provider infrastructure.</p>
+                                <p className="text-[11px] text-muted-foreground">A minimum of {minBalanceLabel} is required in your linked wallet before provider submission. Development stacks use devnet SOL by default.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {hasLinkedWallet && !walletLoading && !hasOnChainBalance && (
+                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
+                            <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                                <p className="text-xs font-bold text-amber-500 uppercase font-mono">Balance Check Pending</p>
+                                <p className="text-[11px] text-muted-foreground">The linked wallet is required for provider verification. The backend will validate your {balanceTokenLabel} balance when you submit.</p>
                             </div>
                         </div>
                     )}
@@ -137,13 +176,13 @@ export function ProviderApplicationForm() {
                 {mutation.isError && (
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-mono">
                         <AlertCircle size={14} />
-                        {(mutation.error as any)?.message || 'Submission failed'}
+                        {errorMessage}
                     </div>
                 )}
 
                 <Button 
                     className="w-full h-14 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black uppercase italic tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.2)] disabled:opacity-50 disabled:grayscale transition-all"
-                    disabled={!bandwidth || !hasEnoughSol || !hasLinkedWallet || mutation.isPending}
+                    disabled={!bandwidth || !hasLinkedWallet || !hasEnoughSol || mutation.isPending}
                     onClick={() => mutation.mutate()}
                 >
                     {mutation.isPending ? (

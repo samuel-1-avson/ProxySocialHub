@@ -25,6 +25,10 @@ export function useZKReputation() {
     });
 
     const proveReputation = useCallback(async () => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
         // 1. Check Cache
         const cachedToken = localStorage.getItem(REPUTATION_CACHE_KEY);
         const cachedExpiry = localStorage.getItem(REPUTATION_EXPIRY_KEY);
@@ -34,40 +38,47 @@ export function useZKReputation() {
             return;
         }
 
+        const authToken = localStorage.getItem('proxyhubb_token');
+        if (!authToken) {
+            setState({ isVerified: false, token: null, loading: false, error: null });
+            return;
+        }
+
         setState(prev => ({ ...prev, loading: true, error: null }));
 
         try {
-            // 2. Fetch Telemetry Fragments (Poseidon Fingerprints)
-            const { fragments, trust_root } = await getReputationTelemetry();
+            const telemetry = await getReputationTelemetry();
+            const proofCount = telemetry.settled_proof_count ?? 0;
+            const proofs = Array.isArray(telemetry.proofs) ? telemetry.proofs : [];
 
-            // 3. Generate Reputation Proof
-            // This triggers the halo2-wasm worker integration
-            console.log("Generating Reputation Proof for Root:", trust_root);
+            if (proofCount <= 0 || proofs.length === 0) {
+                setState({ isVerified: false, token: null, loading: false, error: null });
+                return;
+            }
 
             const repProof = {
-                proof: "0x" + trust_root.substring(2) + fragments.length.toString(16).padStart(8, '0'), // Deterministic proof structure
-                public_signals: [trust_root, fragments.length.toString()]
+                settled_proof_count: proofCount,
+                total_bytes_settled: telemetry.total_bytes_settled ?? 0,
+                proof_refs: proofs.slice(0, 8).map((proof) => proof.id ?? proof.session_id ?? proof.created_at ?? 'unknown')
             };
 
-            // 4. Submit Proof to Control API
             const { token, expires_at } = await verifyReputationProof(repProof);
 
-            // 5. Persist Reputation Session
             localStorage.setItem(REPUTATION_CACHE_KEY, token);
             localStorage.setItem(REPUTATION_EXPIRY_KEY, expires_at);
 
             setState({ isVerified: true, token, loading: false, error: null });
-            console.log("Protocol Reputation Sync Complete.");
         } catch (err) {
             const status = (err as any)?.status;
-            // 501 = endpoint not yet implemented — silently ignore, treat as unverified
-            if (status !== 501) {
-                console.error("ZK-Reputation Proof Failed:", err);
+            if (status === 401 || status === 403 || status === 404 || status === 501) {
+                setState({ isVerified: false, token: null, loading: false, error: null });
+                return;
             }
+
             setState(prev => ({
                 ...prev,
                 loading: false,
-                error: status === 501 ? null : (err as Error).message
+                error: (err as Error).message
             }));
         }
     }, []);

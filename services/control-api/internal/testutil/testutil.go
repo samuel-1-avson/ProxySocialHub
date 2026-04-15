@@ -1,7 +1,9 @@
 package testutil
 
 import (
+	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"sync"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisInternal "github.com/proxyhubb/control-api/internal/redis"
@@ -51,10 +54,15 @@ func SetupTestDB(t *testing.T) {
 	t.Helper()
 
 	testDBOnce.Do(func() {
-		dsn := os.Getenv("TEST_DATABASE_URL")
+		dsn := resolveTestDatabaseDSN()
 		if dsn == "" {
-			// Default to local test database (aligned with docker-compose)
-			dsn = "host=localhost user=proxyhubb password=proxyhubb dbname=proxyhubb_test port=5432 sslmode=disable"
+			t.Skip("Skipping test: TEST_DATABASE_URL could not be resolved")
+			return
+		}
+
+		if err := ensureTestDatabaseExists(dsn); err != nil {
+			t.Skipf("Skipping test: Could not prepare test database: %v", err)
+			return
 		}
 
 		var err error
@@ -118,6 +126,217 @@ func SetupTestDB(t *testing.T) {
 
 	// Set the global DB for the api package to use
 	db.DB = testDB
+}
+
+func resolveTestDatabaseDSN() string {
+	if dsn := os.Getenv("TEST_DATABASE_URL"); dsn != "" {
+		return dsn
+	}
+
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		if rewritten, ok := rewriteDatabaseName(dsn, os.Getenv("TEST_DATABASE_NAME"), resolveTestDatabaseName("")); ok {
+			return rewritten
+		}
+	}
+
+	host := getenvDefault("TEST_DATABASE_HOST", getenvDefault("POSTGRES_HOST", "127.0.0.1"))
+	port := getenvDefault("TEST_DATABASE_PORT", getenvDefault("POSTGRES_HOST_PORT", "55432"))
+	user := getenvDefault("TEST_DATABASE_USER", getenvDefault("POSTGRES_USER", "proxyhubb"))
+	password := getenvDefault("TEST_DATABASE_PASSWORD", getenvDefault("POSTGRES_PASSWORD", "proxyhubb"))
+	sslMode := getenvDefault("TEST_DATABASE_SSLMODE", "disable")
+	name := resolveTestDatabaseName(getenvDefault("POSTGRES_DB", "proxyhubb"))
+
+	return fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		host,
+		user,
+		password,
+		name,
+		port,
+		sslMode,
+	)
+}
+
+func resolveTestDatabaseName(base string) string {
+	if explicit := os.Getenv("TEST_DATABASE_NAME"); explicit != "" {
+		return explicit
+	}
+	if base == "" {
+		base = "proxyhubb"
+	}
+	if base == "postgres" {
+		base = "proxyhubb"
+	}
+	return base + "_test"
+}
+
+func rewriteDatabaseName(dsn, explicitTestName, fallbackTestName string) (string, bool) {
+	parsedURL, err := url.Parse(dsn)
+	if err == nil && parsedURL.Scheme != "" {
+		testName := fallbackTestName
+		if explicitTestName != "" {
+			testName = explicitTestName
+		}
+		parsedURL.Path = "/" + testName
+		query := parsedURL.Query()
+		if query.Get("sslmode") == "" {
+			query.Set("sslmode", getenvDefault("TEST_DATABASE_SSLMODE", "disable"))
+		}
+		parsedURL.RawQuery = query.Encode()
+		return parsedURL.String(), true
+	}
+
+	parts := map[string]string{}
+	for _, token := range splitDSNTokens(dsn) {
+		key, value, ok := splitDSNToken(token)
+		if !ok {
+			continue
+		}
+		parts[key] = value
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	parts["dbname"] = resolveTestDatabaseName(parts["dbname"])
+	if explicitTestName != "" {
+		parts["dbname"] = explicitTestName
+	}
+	if _, ok := parts["sslmode"]; !ok {
+		parts["sslmode"] = getenvDefault("TEST_DATABASE_SSLMODE", "disable")
+	}
+
+	orderedKeys := []string{"host", "user", "password", "dbname", "port", "sslmode"}
+	ordered := make([]string, 0, len(parts))
+	for _, key := range orderedKeys {
+		if value, ok := parts[key]; ok {
+			ordered = append(ordered, fmt.Sprintf("%s=%s", key, value))
+			delete(parts, key)
+		}
+	}
+	for key, value := range parts {
+		ordered = append(ordered, fmt.Sprintf("%s=%s", key, value))
+		_ = key
+		_ = value
+	}
+	return joinDSNTokens(ordered), true
+}
+
+func splitDSNTokens(dsn string) []string {
+	result := make([]string, 0)
+	current := ""
+	inQuote := false
+	for _, ch := range dsn {
+		switch ch {
+		case '\'':
+			inQuote = !inQuote
+			current += string(ch)
+		case ' ':
+			if inQuote {
+				current += string(ch)
+			} else if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		default:
+			current += string(ch)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+func splitDSNToken(token string) (string, string, bool) {
+	for index := 0; index < len(token); index++ {
+		if token[index] != '=' {
+			continue
+		}
+		return token[:index], token[index+1:], true
+	}
+	return "", "", false
+}
+
+func joinDSNTokens(tokens []string) string {
+	joined := ""
+	for index, token := range tokens {
+		if index > 0 {
+			joined += " "
+		}
+		joined += token
+	}
+	return joined
+}
+
+func ensureTestDatabaseExists(dsn string) error {
+	adminDSN, testDBName, err := buildAdminConnection(dsn)
+	if err != nil {
+		return err
+	}
+
+	adminDB, err := sql.Open("postgres", adminDSN)
+	if err != nil {
+		return err
+	}
+	defer adminDB.Close()
+
+	if err := adminDB.Ping(); err != nil {
+		return err
+	}
+
+	var exists int
+	if err := adminDB.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", testDBName).Scan(&exists); err == sql.ErrNoRows {
+		if _, createErr := adminDB.Exec(`CREATE DATABASE "` + testDBName + `"`); createErr != nil {
+			return createErr
+		}
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func buildAdminConnection(dsn string) (string, string, error) {
+	parsedURL, err := url.Parse(dsn)
+	if err == nil && parsedURL.Scheme != "" {
+		testDBName := parsedURL.Path
+		if len(testDBName) > 0 && testDBName[0] == '/' {
+			testDBName = testDBName[1:]
+		}
+		adminURL := *parsedURL
+		adminURL.Path = "/postgres"
+		return adminURL.String(), testDBName, nil
+	}
+
+	parts := map[string]string{}
+	for _, token := range splitDSNTokens(dsn) {
+		key, value, ok := splitDSNToken(token)
+		if ok {
+			parts[key] = value
+		}
+	}
+	testDBName := parts["dbname"]
+	if testDBName == "" {
+		return "", "", fmt.Errorf("dsn missing dbname")
+	}
+	parts["dbname"] = getenvDefault("TEST_DATABASE_ADMIN_DB", "postgres")
+	ordered := []string{
+		fmt.Sprintf("host=%s", parts["host"]),
+		fmt.Sprintf("user=%s", parts["user"]),
+		fmt.Sprintf("password=%s", parts["password"]),
+		fmt.Sprintf("dbname=%s", parts["dbname"]),
+		fmt.Sprintf("port=%s", parts["port"]),
+		fmt.Sprintf("sslmode=%s", parts["sslmode"]),
+	}
+	return joinDSNTokens(ordered), testDBName, nil
+}
+
+func getenvDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // CleanupTestData cleans up test data after a test.

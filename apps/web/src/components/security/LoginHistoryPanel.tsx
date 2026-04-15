@@ -5,7 +5,7 @@ import { fetchWithAuth } from '@/lib/auth';
 import { Clock, Check, X, AlertTriangle, Loader2, RefreshCw, Filter } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface AuditLog {
     id: string;

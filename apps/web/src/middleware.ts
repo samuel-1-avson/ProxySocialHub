@@ -3,9 +3,14 @@ import { type NextRequest, NextResponse } from 'next/server'
 
 const accessTokenCookieName = 'proxyhubb_token'
 const refreshTokenCookieName = 'proxyhubb_refresh_token'
+const e2eAuthBypassCookieName = 'proxyhubb_e2e_auth'
 const issuer = 'proxyhubb-control-api'
 
 export async function middleware(request: NextRequest) {
+    if (isLocalE2EBypassRequest(request)) {
+        return NextResponse.next({ request })
+    }
+
     const token = request.cookies.get(accessTokenCookieName)?.value?.trim()
     if (!token) {
         return redirectToLogin(request)
@@ -29,6 +34,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request })
 }
 
+function isLocalE2EBypassRequest(request: NextRequest) {
+    if (process.env.NODE_ENV === 'production') {
+        return false
+    }
+
+    const hostname = request.nextUrl.hostname.trim().toLowerCase()
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        return false
+    }
+
+    return request.cookies.get(e2eAuthBypassCookieName)?.value === '1'
+}
+
 function redirectToLogin(request: NextRequest, clearCookies = false) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
@@ -45,7 +63,7 @@ function redirectToLogin(request: NextRequest, clearCookies = false) {
 
 async function validateViaBackend(request: NextRequest, token: string) {
     try {
-        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.trim()
+        const apiBaseUrl = process.env.API_URL?.trim()
         const authUrl = apiBaseUrl
             ? new URL('/v1/auth/me', apiBaseUrl)
             : new URL('/v1/auth/me', request.url)

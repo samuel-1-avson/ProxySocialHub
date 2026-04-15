@@ -71,6 +71,21 @@ pub struct StatusUpdateRequest {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SessionIntentStateRequest {
+    pub lifecycle_state: String,
+    pub provider_node_id: Option<String>,
+    pub target_host: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionIntentUsageRequest {
+    pub provider_node_id: Option<String>,
+    pub target_host: Option<String>,
+    pub bytes_up_delta: i64,
+    pub bytes_down_delta: i64,
+}
+
 impl ControlApiClient {
     /// Create a new Control API client
     pub fn new(base_url: &str, gateway_auth_secret: &str) -> Self {
@@ -219,6 +234,111 @@ impl ControlApiClient {
             let text = response.text().await.unwrap_or_default();
             error!("Status update failed: {}", text);
             Err(Error::Internal(format!("Status update failed: {}", text)))
+        }
+    }
+
+    pub async fn update_session_intent_state(
+        &self,
+        intent_id: &str,
+        lifecycle_state: &str,
+        provider_node_id: Option<&str>,
+        target_host: Option<&str>,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/v1/gateway/session-intents/{}/state",
+            self.base_url, intent_id
+        );
+
+        let req = SessionIntentStateRequest {
+            lifecycle_state: lifecycle_state.to_string(),
+            provider_node_id: provider_node_id.map(|value| value.to_string()),
+            target_host: target_host.map(|value| value.to_string()),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Failed to update session intent state: {}", e);
+                Error::Internal(format!("HTTP error: {}", e))
+            })?;
+
+        if response.status().is_success() {
+            debug!(
+                "Session intent {} transitioned to {} via control API",
+                intent_id, lifecycle_state
+            );
+            Ok(())
+        } else {
+            let text = response.text().await.unwrap_or_default();
+            warn!(
+                "Session intent state update failed for {} ({}): {}",
+                intent_id,
+                lifecycle_state,
+                text
+            );
+            Err(Error::Internal(format!(
+                "Session intent state update failed: {}",
+                text
+            )))
+        }
+    }
+
+    pub async fn update_session_intent_usage(
+        &self,
+        intent_id: &str,
+        provider_node_id: Option<&str>,
+        target_host: Option<&str>,
+        bytes_up_delta: i64,
+        bytes_down_delta: i64,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/v1/gateway/session-intents/{}/usage",
+            self.base_url, intent_id
+        );
+
+        let req = SessionIntentUsageRequest {
+            provider_node_id: provider_node_id.map(|value| value.to_string()),
+            target_host: target_host.map(|value| value.to_string()),
+            bytes_up_delta,
+            bytes_down_delta,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Failed to update session intent usage: {}", e);
+                Error::Internal(format!("HTTP error: {}", e))
+            })?;
+
+        if response.status().is_success() {
+            debug!(
+                "Session intent {} usage delta synced: +{} up / +{} down",
+                intent_id, bytes_up_delta, bytes_down_delta
+            );
+            Ok(())
+        } else {
+            let text = response.text().await.unwrap_or_default();
+            warn!(
+                "Session intent usage update failed for {}: {}",
+                intent_id,
+                text
+            );
+            Err(Error::Internal(format!(
+                "Session intent usage update failed: {}",
+                text
+            )))
         }
     }
 }

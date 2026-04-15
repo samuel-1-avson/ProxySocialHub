@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
 
 if (!walletConnectProjectId && process.env.NODE_ENV !== "test") {
-  console.warn("NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect will be unavailable in the web app.");
+  console.warn("NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect-backed EVM wallets will be unavailable in the web app, but Solana wallet login still works.");
 }
 
 const nextConfig: NextConfig = {
@@ -45,7 +45,7 @@ const nextConfig: NextConfig = {
   // needs to reach the backend directly. API_URL is a server-only env var
   // (not NEXT_PUBLIC_*) so it is never baked into the browser JS bundle.
   async rewrites() {
-    const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+    const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18080';
     return {
       // /api is reserved by Next internals; keep legacy alias in beforeFiles
       // so compatibility rewrites run before filesystem/API route checks.

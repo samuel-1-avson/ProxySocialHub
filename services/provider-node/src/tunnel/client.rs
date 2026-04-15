@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 use yamux::{Control, Stream};
 
 /// Capabilities the provider declares to the gateway.
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct CapabilityInfo {
     pub max_connections: u32,
     pub max_bandwidth_mbps: u32,
@@ -23,10 +23,12 @@ pub struct CapabilityInfo {
     pub uplink_speed_kbps: u32,
     pub downlink_speed_kbps: u32,
     pub cpu_cores: u32,
-    pub memory_mb: u64,
+    pub memory_mb: u32,
     pub os: String,
     pub client_version: String,
     pub features: Vec<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub provider_lease: String,
 }
 
 pub struct TunnelClient {
@@ -85,7 +87,13 @@ impl TunnelClient {
         let token = if !self.config.jwt_token.is_empty() {
             self.config.jwt_token.clone()
         } else {
-            self.config.api_key.clone()
+            let (_user_id, jwt) = crate::ip::validate_api_key(
+                &self.config.control_api_url,
+                &self.config.api_key,
+            )
+            .await?;
+            self.config.jwt_token = jwt.clone();
+            jwt
         };
 
         match self.perform_handshake(&mut ctrl, token, config_clone).await {
@@ -151,19 +159,18 @@ impl TunnelClient {
         // CAPABILITY
         debug!("Handshake: Sending CAPABILITIES...");
         let mut cap_stream = ctrl.open_stream().await.context("failed to open capability stream")?;
-        let caps = CapabilityInfo {
-            max_connections: config.max_connections,
-            max_bandwidth_mbps: config.bandwidth_limit_mbps,
-            available_ports: config.allowed_ports.clone(),
-            connection_type: config.connection_type.clone(),
-            uplink_speed_kbps: config.bandwidth_limit_mbps * 1000 / 2,
-            downlink_speed_kbps: config.bandwidth_limit_mbps * 1000,
-            cpu_cores: 4, 
-            memory_mb: 8192, 
-            os: std::env::consts::OS.to_string(),
-            client_version: "1.0.0".to_string(),
-            features: vec!["ipv4".into(), "http_connect".into()],
-        };
+        let (mut caps, lease_request) = build_provider_capability_payload(&config);
+
+        match crate::ip::fetch_provider_lease(&config.control_api_url, &token, &lease_request).await {
+            Ok(lease) => {
+                caps.provider_lease = lease.token;
+                info!("Handshake: provider lease acquired");
+            }
+            Err(err) => {
+                warn!("Handshake: provider lease unavailable, continuing without lease: {}", err);
+            }
+        }
+
         let caps_json = serde_json::to_string(&caps)?;
         cap_stream.write_all(format!("CAPABILITY {caps_json}\n").as_bytes()).await?;
         cap_stream.flush().await?;
@@ -181,6 +188,18 @@ impl TunnelClient {
 
     pub fn session_handle(&self) -> Control {
         self.ctrl.clone().expect("not connected")
+    }
+
+    pub fn auth_token(&self) -> String {
+        self.config.jwt_token.clone()
+    }
+
+    pub fn control_api_url(&self) -> String {
+        self.config.control_api_url.clone()
+    }
+
+    pub fn provider_lease_request(&self) -> crate::ip::ProviderLeaseRequest {
+        build_provider_capability_payload(&self.config).1
     }
 
     pub async fn accept_streams(&mut self, handler: ProxyHandler) -> Result<()> {
@@ -210,7 +229,7 @@ impl TunnelClient {
     }
 }
 
-fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
+fn build_tls_connector(_config: &Config) -> Result<TlsConnector> {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let tls_config = rustls::ClientConfig::builder()
@@ -221,4 +240,45 @@ fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
 
 fn extract_host(addr: &str) -> String {
     addr.split(':').next().unwrap_or(addr).to_string()
+}
+
+fn build_provider_capability_payload(
+    config: &Config,
+) -> (CapabilityInfo, crate::ip::ProviderLeaseRequest) {
+    let system = crate::sys::collect();
+    let mut features = vec!["ipv4".to_string(), "http_connect".to_string()];
+    if config.use_tls {
+        features.push("tls_tunnel".to_string());
+    }
+
+    let caps = CapabilityInfo {
+        max_connections: config.max_connections,
+        max_bandwidth_mbps: config.bandwidth_limit_mbps,
+        available_ports: config.allowed_ports.clone(),
+        connection_type: config.connection_type.clone(),
+        uplink_speed_kbps: config.bandwidth_limit_mbps * 1000 / 2,
+        downlink_speed_kbps: config.bandwidth_limit_mbps * 1000,
+        cpu_cores: system.num_cpus.min(u32::MAX as usize) as u32,
+        memory_mb: system.total_memory_mb.min(u64::from(u32::MAX)) as u32,
+        os: std::env::consts::OS.to_string(),
+        client_version: env!("CARGO_PKG_VERSION").to_string(),
+        features: features.clone(),
+        provider_lease: String::new(),
+    };
+
+    let lease_request = crate::ip::ProviderLeaseRequest {
+        connection_type: caps.connection_type.clone(),
+        available_ports: caps.available_ports.clone(),
+        max_connections: caps.max_connections,
+        max_bandwidth_mbps: caps.max_bandwidth_mbps,
+        uplink_speed_kbps: caps.uplink_speed_kbps,
+        downlink_speed_kbps: caps.downlink_speed_kbps,
+        cpu_cores: caps.cpu_cores,
+        memory_mb: caps.memory_mb,
+        os: caps.os.clone(),
+        client_version: caps.client_version.clone(),
+        features,
+    };
+
+    (caps, lease_request)
 }

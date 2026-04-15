@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/settlement"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -62,6 +63,7 @@ func reportUsage(c *gin.Context) {
 	}
 
 	aggregator := billing.NewAggregator()
+	coordinator := settlement.NewCoordinator(aggregator)
 	processed := 0
 	for _, report := range req.Reports {
 		totalBytes := report.BytesUp + report.BytesDown
@@ -107,7 +109,37 @@ func reportUsage(c *gin.Context) {
 			}
 		}
 
-		// Update Redis real-time counter (Session based)
+		receipt, created, err := settlement.AppendUsageReceipt(
+			report.SessionUsername,
+			sessionData,
+			report.BytesUp,
+			report.BytesDown,
+			report.Signature,
+			report.Nonce,
+			"gateway_report",
+			time.Now().UTC(),
+		)
+		if err != nil {
+			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to append usage receipt")
+			continue
+		}
+		if !created {
+			logging.Debug().
+				Str("session_username", report.SessionUsername).
+				Uint64("nonce", report.Nonce).
+				Msg("Usage receipt already exists, skipping duplicate metering report")
+			continue
+		}
+
+		if err := settlement.PublishReceiptCreated(c.Request.Context(), receipt); err != nil {
+			if err := coordinator.ProcessReceipt(c.Request.Context(), receipt.ID); err != nil {
+				logging.Error(err).Str("receipt_id", receipt.ID.String()).Msg("Failed to coordinate usage receipt")
+				continue
+			}
+		}
+
+		// Update Redis real-time counter (Session based) after the durable receipt
+		// has been accepted into the settlement pipeline.
 		if err := redisClient.IncrementUsage(report.SessionUsername, totalBytes); err != nil {
 			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to increment session usage in Redis")
 		}
@@ -127,7 +159,8 @@ func reportUsage(c *gin.Context) {
 
 		// Publish Billing Event (Async)
 		// This decouples billing/analytics from the critical path
-		go func(data *redisClient.SessionData, up, down int64) {
+		sessionUsername := report.SessionUsername
+		go func(data *redisClient.SessionData, username string, up, down int64) {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.Error(fmt.Errorf("panic in billing event: %v", r)).Msg("Recovered from panic in billing goroutine")
@@ -163,7 +196,7 @@ func reportUsage(c *gin.Context) {
 					Timestamp: time.Now(),
 					Source:    "control-api",
 					Payload: map[string]interface{}{
-						"session_username": report.SessionUsername,
+						"session_username": username,
 						"user_id":          data.UserID,
 						"provider_id":      data.ProviderID,
 						"bytes_up":         up,
@@ -176,13 +209,7 @@ func reportUsage(c *gin.Context) {
 					},
 				})
 			}
-		}(sessionData, report.BytesUp, report.BytesDown)
-
-		// IaaS Billing (Aggregated) — signature already verified above; aggregator
-		// won't re-reject but will still update the billing pending counters.
-		if err := aggregator.AggregateUsage(report.SessionUsername, report.BytesUp, report.BytesDown, report.Signature, report.Nonce); err != nil {
-			logging.Error(err).Str("session", report.SessionUsername).Msg("Failed to aggregate usage")
-		}
+		}(sessionData, sessionUsername, report.BytesUp, report.BytesDown)
 
 		processed++
 	}

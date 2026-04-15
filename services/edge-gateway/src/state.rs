@@ -41,6 +41,8 @@ pub struct NodeInfo {
     pub current_tier: String,
     pub quality_score: f64,
     pub base_price_per_gb: f64,
+    #[serde(default)]
+    pub lease_expires_at: u64,
 }
 
 fn default_bronze() -> String {
@@ -78,6 +80,7 @@ impl NodeInfo {
             current_tier: "Bronze".to_string(),
             quality_score: 100.0,
             base_price_per_gb: 0.20,
+            lease_expires_at: 0,
         }
     }
 
@@ -471,8 +474,11 @@ impl AppState {
             config.max_rpm_per_session.unwrap_or(300),
         ));
         let zk_prover = Arc::new(crate::billing::zk::ZkProver::new());
+        let solana_program_id = env::var("SOLANA_PROGRAM_ID")
+            .or_else(|_| env::var("REPUTATION_PROGRAM_ID"))
+            .unwrap_or_default();
         let solana_relayer = Arc::new(crate::billing::solana::SolanaRelayer::new(
-             &env::var("SOLANA_PROGRAM_ID").unwrap_or_default(),
+             &solana_program_id,
              &env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
         ));
         let solana_batch_relayer = Arc::new(crate::billing::solana::BatchRelayer::new(solana_relayer.clone(), 10));
@@ -588,6 +594,10 @@ mod tests {
                 priority: 50,
             },
             qos_tier: "basic".to_string(),
+            current_tier: "Bronze".to_string(),
+            quality_score: 100.0,
+            base_price_per_gb: 0.20,
+            lease_expires_at: 0,
         }
     }
 

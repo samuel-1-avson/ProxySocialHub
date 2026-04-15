@@ -5,7 +5,7 @@ import { fetchWithAuth } from '@/lib/auth';
 import { AlertTriangle, MapPin, Clock, Check, Loader2, RefreshCw, Shield, Eye } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface Anomaly {
     id: string;

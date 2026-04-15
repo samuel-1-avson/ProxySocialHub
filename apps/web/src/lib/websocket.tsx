@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { getRealtimeWsUrl } from './ws-url';
 
 interface WebSocketMessage {
   type: string;
@@ -19,8 +20,7 @@ export function useWebSocket(url?: string) {
   const handlersRef = useRef<Map<string, MessageHandler[]>>(new Map());
   const lastMessageRef = useRef<WebSocketMessage | null>(null);
 
-  const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8081';
-  const wsUrl = url || `${baseWsUrl}/v1/ws`;
+  const wsUrl = url || getRealtimeWsUrl();
 
 
   const connect = useCallback(async () => {
@@ -39,7 +39,6 @@ export function useWebSocket(url?: string) {
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return; // stale instance
-        console.log('WebSocket connected');
         setIsConnected(true);
       };
 
@@ -67,7 +66,6 @@ export function useWebSocket(url?: string) {
 
       ws.onclose = () => {
         if (wsRef.current !== ws) return; // stale instance
-        console.log('WebSocket disconnected');
         wsRef.current = null;
         setIsConnected(false);
       };

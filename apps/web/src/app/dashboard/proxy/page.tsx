@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createSession, getSessions, getAnalyticsOverview } from '@/lib/api';
-import type { Session, AnalyticsOverview } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createSessionIntent, getSessionIntentStatus, getSessions, getAnalyticsOverview } from '@/lib/api';
+import type { Session, AnalyticsOverview, CreateSessionIntentResponse, SessionIntentLifecycle } from '@/lib/api';
 import {
     Globe,
     Shield,
@@ -33,14 +33,30 @@ import { GlassCard } from '@/components/ui/glass-card';
 
 // Get proxy endpoint from environment or default
 const PROXY_ENDPOINT = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhub.io:3128';
+const terminalIntentStates = new Set<SessionIntentLifecycle>([
+    'ledger_committed',
+    'batched',
+    'chain_committed',
+    'archived',
+    'expired',
+]);
+
+function formatIntentLifecycleLabel(state: SessionIntentLifecycle) {
+    return state.replace(/_/g, ' ');
+}
+
+function isTerminalIntentLifecycle(state: SessionIntentLifecycle | 'idle' | 'requesting') {
+    return terminalIntentStates.has(state as SessionIntentLifecycle);
+}
 
 export default function ProxyPage() {
-    const queryClient = useQueryClient();
     const [creating, setCreating] = useState(false);
     const [testing, setTesting] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'online' | 'offline'>('idle');
     const [copied, setCopied] = useState<string | null>(null);
     const [selectedTier, setSelectedTier] = useState<string>('any');
+    const [sessionIntent, setSessionIntent] = useState<CreateSessionIntentResponse | null>(null);
+    const [intentLifecycle, setIntentLifecycle] = useState<'idle' | 'requesting' | SessionIntentLifecycle>('idle');
 
     const tiers = [
         { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-white/5', bg: 'bg-white/5' },
@@ -63,29 +79,61 @@ export default function ProxyPage() {
         retry: 2,
     });
 
+    const { data: persistedIntentStatus } = useQuery({
+        queryKey: ['session-intent-status', sessionIntent?.intent.intent_id],
+        queryFn: () => getSessionIntentStatus(sessionIntent!.intent.intent_id),
+        enabled: !!sessionIntent?.intent.intent_id,
+        refetchInterval: sessionIntent && !isTerminalIntentLifecycle(intentLifecycle) ? 5000 : false,
+        retry: 1,
+    });
+
     const sessions = allSessions.filter((s: Session) => s.status === 'active');
 
     async function handleQuickStart(type: 'rotating' | 'sticky') {
         setCreating(true);
+        setIntentLifecycle('requesting');
         try {
-            const result = await createSession({ 
+            const intent = await createSessionIntent({
                 type,
-                preferred_tier: selectedTier === 'any' ? undefined : selectedTier
+                preferred_tier: selectedTier === 'any' ? undefined : selectedTier,
             });
-            await queryClient.invalidateQueries({ queryKey: ['sessions'] });
-            // Auto-copy credentials
-            if (result.proxy_credentials) {
-                const curlCmd = `curl -x ${result.proxy_credentials.username}:${result.proxy_credentials.password}@${PROXY_ENDPOINT} https://httpbin.org/ip`;
+            setSessionIntent(intent);
+            setIntentLifecycle(intent.lifecycle_state);
+
+            if (intent.token) {
+                const curlCmd = `curl -x session-intent:${encodeURIComponent(intent.token)}@${PROXY_ENDPOINT} https://httpbin.org/ip`;
                 navigator.clipboard.writeText(curlCmd);
-                setCopied('curl');
+                setCopied('intent-curl');
                 setTimeout(() => setCopied(null), 3000);
             }
         } catch (error) {
             console.error('Failed to create session:', error);
+            setIntentLifecycle('idle');
         } finally {
             setCreating(false);
         }
     }
+
+    useEffect(() => {
+        if (!persistedIntentStatus) {
+            return;
+        }
+        setIntentLifecycle(persistedIntentStatus.lifecycle_state);
+        setSessionIntent((current) => {
+            if (!current || current.intent.intent_id !== persistedIntentStatus.intent.intent_id) {
+                return current;
+            }
+            return {
+                ...current,
+                expires_at: persistedIntentStatus.expires_at,
+                lifecycle_state: persistedIntentStatus.lifecycle_state,
+                intent: {
+                    ...current.intent,
+                    ...persistedIntentStatus.intent,
+                },
+            };
+        });
+    }, [persistedIntentStatus]);
 
     async function testConnection() {
         setTesting(true);
@@ -111,6 +159,25 @@ export default function ProxyPage() {
     }
 
     const activeSession = sessions[0];
+    const activeIntent = sessionIntent && !terminalIntentStates.has(sessionIntent.lifecycle_state) ? sessionIntent : null;
+    const liveIdentifier = activeIntent
+        ? activeIntent.intent.intent_id
+        : activeSession?.id ?? '';
+    const liveProtocol = activeIntent
+        ? activeIntent.intent.session_type.toUpperCase()
+        : activeSession?.type.toUpperCase() ?? 'UNKNOWN';
+    const liveCurlCopy = activeIntent
+        ? `curl -x session-intent:${encodeURIComponent(activeIntent.token)}@${PROXY_ENDPOINT} https://httpbin.org/ip`
+        : `curl -x user:pass@${PROXY_ENDPOINT} https://httpbin.org/ip`;
+    const liveCurlDisplay = activeIntent
+        ? `curl -x session-intent:<intent-token>@${PROXY_ENDPOINT} https://httpbin.org/ip`
+        : `curl -x ${activeSession?.id.substring(0, 8) ?? 'user'}:********@${PROXY_ENDPOINT} https://httpbin.org/ip`;
+    const liveNodeCopy = activeIntent
+        ? `const axios = require('axios');\nconst proxy = 'http://session-intent:${activeIntent.token}@${PROXY_ENDPOINT}';\naxios.get('https://httpbin.org/ip', { proxy }).then(res => console.log(res.data));`
+        : `const axios = require('axios');\nconst proxy = 'http://user:pass@${PROXY_ENDPOINT}';\naxios.get('https://httpbin.org/ip', { proxy }).then(res => console.log(res.data));`;
+    const liveNodeDisplay = activeIntent
+        ? `const axios = require('axios');\nconst proxy = 'http://session-intent:<intent-token>@${PROXY_ENDPOINT}';\naxios.get('https://...', { proxy });`
+        : `const axios = require('axios');\nconst proxy = 'http://${activeSession?.id.substring(0, 8) ?? 'user'}:***@${PROXY_ENDPOINT}';\naxios.get('https://...', { proxy });`;
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -235,7 +302,7 @@ export default function ProxyPage() {
                     </div>
                     <label className="text-[9px] font-mono font-black uppercase text-muted-foreground/40 mb-3 block tracking-[0.2em]">Active Channels</label>
                     <div className="flex items-end justify-between">
-                        <div className="text-4xl font-mono font-black text-foreground tracking-tighter">{sessions.length}</div>
+                        <div className="text-4xl font-mono font-black text-foreground tracking-tighter">{sessions.length + (activeIntent ? 1 : 0)}</div>
                         <Link href="/dashboard/sessions" className="group flex items-center gap-2 p-2 px-4 glass-card border-white/10 hover:border-primary/50 text-[9px] font-black font-mono uppercase tracking-widest text-muted-foreground hover:text-primary transition-all rounded-xl shadow-lg">
                             Manage Streams <ChevronRight size={12} className="group-hover:translate-x-1 transition-transform" />
                         </Link>
@@ -243,8 +310,45 @@ export default function ProxyPage() {
                 </GlassCard>
             </motion.div>
 
+            {sessionIntent && (
+                <motion.div variants={itemVariants}>
+                    <GlassCard className="p-6 bg-emerald-500/5 border-emerald-500/20 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5">
+                            <ShieldCheck size={72} className="text-emerald-500" />
+                        </div>
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+                            <div className="space-y-3 min-w-0">
+                                <label className="text-[9px] font-mono font-black uppercase text-emerald-500/70 block tracking-[0.2em]">V2 Session Intent</label>
+                                <div className="bg-black/50 rounded-2xl border border-white/5 p-4 font-mono text-[11px] break-all text-white/70">
+                                    {sessionIntent.token}
+                                </div>
+                                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                                    State: {formatIntentLifecycleLabel(persistedIntentStatus?.lifecycle_state ?? sessionIntent.lifecycle_state).toUpperCase()} | Expires: {new Date((persistedIntentStatus?.expires_at ?? sessionIntent.expires_at)).toLocaleTimeString()}
+                                </p>
+                            </div>
+                            <div className="flex flex-col gap-3 lg:w-[360px]">
+                                <button
+                                    onClick={() => copyToClipboard(sessionIntent.token, 'intent-token')}
+                                    className="px-4 py-3 glass-card border-emerald-500/20 hover:border-emerald-500/50 text-[10px] font-black font-mono uppercase tracking-widest text-emerald-400 rounded-2xl flex items-center justify-center gap-2 transition-all"
+                                >
+                                    {copied === 'intent-token' ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                                    Copy Intent Token
+                                </button>
+                                <button
+                                    onClick={() => copyToClipboard(`curl -x session-intent:${encodeURIComponent(sessionIntent.token)}@${PROXY_ENDPOINT} https://httpbin.org/ip`, 'intent-curl')}
+                                    className="px-4 py-3 glass-card border-primary/20 hover:border-primary/50 text-[10px] font-black font-mono uppercase tracking-widest text-primary rounded-2xl flex items-center justify-center gap-2 transition-all"
+                                >
+                                    {copied === 'intent-curl' ? <CheckCircle size={14} className="text-emerald-500" /> : <Terminal size={14} />}
+                                    Copy V2 cURL
+                                </button>
+                            </div>
+                        </div>
+                    </GlassCard>
+                </motion.div>
+            )}
+
             {/* Tier Selection */}
-            {!activeSession && (
+            {!activeSession && !activeIntent && (
                 <motion.div variants={itemVariants} className="space-y-6">
                     <div className="flex items-center gap-3 px-4">
                         <Hexagon size={18} className="text-primary" />
@@ -320,7 +424,7 @@ export default function ProxyPage() {
                     </motion.div>
                 )}
 
-                {activeSession ? (
+                {activeIntent || activeSession ? (
                     <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
                         <GlassCard className="p-8 border-emerald-500/20 bg-emerald-500/5 relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.08] transition-all">
@@ -331,9 +435,11 @@ export default function ProxyPage() {
                                     <CheckCircle className="text-emerald-500 animate-pulse" size={20} />
                                 </div>
                                 <div>
-                                    <span className="text-emerald-500 font-mono text-lg font-black uppercase tracking-tighter">Session Authorized</span>
+                                    <span className="text-emerald-500 font-mono text-lg font-black uppercase tracking-tighter">
+                                        {activeIntent ? 'Intent Authorized' : 'Session Authorized'}
+                                    </span>
                                     <p className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
-                                        ID: {activeSession.id} | Protocol: {activeSession.type.toUpperCase()}
+                                        ID: {liveIdentifier} | Protocol: {liveProtocol}
                                     </p>
                                 </div>
                             </div>
@@ -346,16 +452,16 @@ export default function ProxyPage() {
                                         <motion.button
                                             whileHover={{ scale: 1.05 }}
                                             whileTap={{ scale: 0.95 }}
-                                            onClick={() => copyToClipboard(`curl -x user:pass@${PROXY_ENDPOINT} https://httpbin.org/ip`, 'curl')}
+                                            onClick={() => copyToClipboard(liveCurlCopy, activeIntent ? 'intent-curl' : 'curl')}
                                             className="text-muted-foreground hover:text-primary transition-all text-[9px] font-black font-mono uppercase flex items-center gap-2"
                                         >
-                                            {copied === 'curl' ? <CheckCircle size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                            {copied === 'curl' || copied === 'intent-curl' ? <CheckCircle size={12} className="text-emerald-500" /> : <Copy size={12} />}
                                             Copy Payload
                                         </motion.button>
                                     </div>
                                     <div className="bg-black/60 border border-white/5 rounded-2xl p-6 font-mono text-xs text-white/50 break-all leading-relaxed shadow-inner">
                                         <span className="text-emerald-500">$</span> curl -x
-                                        <span className="text-primary italic"> {activeSession.id.substring(0, 8)}:********</span>@{PROXY_ENDPOINT} https://httpbin.org/ip
+                                        <span className="text-primary italic"> {liveCurlDisplay.replace('curl -x ', '')}</span>
                                     </div>
                                 </div>
 
@@ -366,7 +472,7 @@ export default function ProxyPage() {
                                         <motion.button
                                             whileHover={{ scale: 1.05 }}
                                             whileTap={{ scale: 0.95 }}
-                                            onClick={() => copyToClipboard(`const axios = require('axios');\nconst proxy = 'http://user:pass@${PROXY_ENDPOINT}';\naxios.get('https://httpbin.org/ip', { proxy }).then(res => console.log(res.data));`, 'node')}
+                                            onClick={() => copyToClipboard(liveNodeCopy, 'node')}
                                             className="text-muted-foreground hover:text-primary transition-all text-[9px] font-black font-mono uppercase flex items-center gap-2"
                                         >
                                             {copied === 'node' ? <CheckCircle size={12} className="text-emerald-500" /> : <Copy size={12} />}
@@ -375,7 +481,7 @@ export default function ProxyPage() {
                                     </div>
                                     <div className="bg-black/60 border border-white/5 rounded-2xl p-6 font-mono text-[11px] text-white/50 overflow-x-auto shadow-inner">
                                         <code className="block whitespace-pre">
-                                            {`const axios = require('axios');\nconst proxy = 'http://${activeSession.id.substring(0, 8)}:***@${PROXY_ENDPOINT}';\naxios.get('https://...', { proxy });`}
+                                            {liveNodeDisplay}
                                         </code>
                                     </div>
                                 </div>

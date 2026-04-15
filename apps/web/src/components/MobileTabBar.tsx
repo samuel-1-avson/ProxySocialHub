@@ -36,6 +36,7 @@ export function MobileTabBar() {
                     <Link
                         key={tab.href}
                         href={tab.href}
+                        prefetch={false}
                         className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${
                             active ? "text-primary" : "text-muted-foreground hover:text-white"
                         }`}

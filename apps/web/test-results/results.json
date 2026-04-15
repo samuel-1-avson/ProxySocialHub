@@ -1,7 +1,7 @@
 {
   "config": {
-    "configFile": "C:\\Users\\samue\\Desktop\\project\\proxyhubb\\apps\\web\\playwright.config.ts",
-    "rootDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+    "configFile": "F:\\project\\proxyhubb\\apps\\web\\playwright.config.ts",
+    "rootDir": "F:/project/proxyhubb/apps/web/e2e",
     "forbidOnly": false,
     "fullyParallel": true,
     "globalSetup": null,
@@ -11,7 +11,7 @@
     "grepInvert": null,
     "maxFailures": 0,
     "metadata": {
-      "actualWorkers": 2
+      "actualWorkers": 1
     },
     "preserveOutput": "always",
     "reporter": [
@@ -35,84 +35,84 @@
     "quiet": false,
     "projects": [
       {
-        "outputDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/test-results",
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "chromium",
         "name": "chromium",
-        "testDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 120000
       },
       {
-        "outputDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/test-results",
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "firefox",
         "name": "firefox",
-        "testDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 120000
       },
       {
-        "outputDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/test-results",
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "webkit",
         "name": "webkit",
-        "testDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 120000
       },
       {
-        "outputDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/test-results",
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "Mobile Chrome",
         "name": "Mobile Chrome",
-        "testDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 120000
       },
       {
-        "outputDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/test-results",
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "Mobile Safari",
         "name": "Mobile Safari",
-        "testDir": "C:/Users/samue/Desktop/project/proxyhubb/apps/web/e2e",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 120000
       }
     ],
     "shard": null,
@@ -120,35 +120,30 @@
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.57.0",
-    "workers": 8,
-    "webServer": {
-      "command": "npm run dev",
-      "url": "http://localhost:4001",
-      "reuseExistingServer": true,
-      "timeout": 120000
-    }
+    "workers": 1,
+    "webServer": null
   },
   "suites": [
     {
-      "title": "auth.spec.ts",
-      "file": "auth.spec.ts",
+      "title": "provider-wallet-session.spec.ts",
+      "file": "provider-wallet-session.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Real Authentication Flow",
-          "file": "auth.spec.ts",
-          "line": 5,
+          "title": "Provider onboarding and wallet/session critical flows",
+          "file": "provider-wallet-session.spec.ts",
+          "line": 57,
           "column": 6,
           "specs": [
             {
-              "title": "should login successfully with seeded admin credentials",
+              "title": "shows provider application review state for pending applications",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 120000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -158,12 +153,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2126,
+                      "duration": 4171,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-01-16T22:41:51.775Z",
+                      "startTime": "2026-04-15T04:54:42.449Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -171,33 +166,33 @@
                   "status": "expected"
                 }
               ],
-              "id": "d748ac400d08b85935ef-ca0d3b05b356fa3799ff",
-              "file": "auth.spec.ts",
-              "line": 6,
-              "column": 9
+              "id": "44e923f2e96ba115fd65-02fc4104ddfed0030d09",
+              "file": "provider-wallet-session.spec.ts",
+              "line": 58,
+              "column": 7
             },
             {
-              "title": "should fail with incorrect password",
+              "title": "submits a provider application when linked wallet balance is sufficient",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 120000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1597,
+                      "duration": 11292,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-01-16T22:41:51.773Z",
+                      "startTime": "2026-04-15T04:54:46.733Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -205,10 +200,112 @@
                   "status": "expected"
                 }
               ],
-              "id": "d748ac400d08b85935ef-326511acc948efdd353d",
-              "file": "auth.spec.ts",
-              "line": 35,
-              "column": 9
+              "id": "44e923f2e96ba115fd65-356e6d01bdbaba889174",
+              "file": "provider-wallet-session.spec.ts",
+              "line": 109,
+              "column": 7
+            },
+            {
+              "title": "shows wallet-linking call to action when no linked wallet is present",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1831,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-15T04:54:58.035Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44e923f2e96ba115fd65-255475a15f3f44361feb",
+              "file": "provider-wallet-session.spec.ts",
+              "line": 183,
+              "column": 7
+            },
+            {
+              "title": "shows linked wallet identity when a verified wallet exists",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2513,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-15T04:54:59.877Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44e923f2e96ba115fd65-7998e0033ef2b5ad81bb",
+              "file": "provider-wallet-session.spec.ts",
+              "line": 217,
+              "column": 7
+            },
+            {
+              "title": "creates a V2 session intent from the proxy dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2084,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-15T04:55:02.401Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44e923f2e96ba115fd65-60101057084c59ecca9c",
+              "file": "provider-wallet-session.spec.ts",
+              "line": 256,
+              "column": 7
             }
           ]
         }
@@ -217,9 +314,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-01-16T22:41:45.271Z",
-    "duration": 9288.494999999999,
-    "expected": 2,
+    "startTime": "2026-04-15T04:54:41.724Z",
+    "duration": 22933.163,
+    "expected": 5,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

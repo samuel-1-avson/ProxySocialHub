@@ -4,6 +4,7 @@
  */
 
 import { apiGet, apiPost } from './client';
+import { getRealtimeWsUrl } from '../ws-url';
 
 // ============ Types ============
 
@@ -183,9 +184,7 @@ export function subscribeToPresenceUpdates(
 ): () => void {
     // Note: This is a placeholder. Actual implementation would use WebSocket
     // or Server-Sent Events connection to receive real-time updates
-    const ws = new WebSocket(
-        `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8081'}/v1/ws`
-    );
+    const ws = new WebSocket(getRealtimeWsUrl());
     
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
