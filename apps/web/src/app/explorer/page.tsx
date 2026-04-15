@@ -401,7 +401,7 @@ export default function ExplorerDashboard() {
                     { href: '/explorer/wallets', label: 'Wallets', icon: Database },
                     { href: '/explorer/contracts', label: 'Contracts', icon: Network },
                 ].map((nav) => (
-                    <Link key={nav.href} href={nav.href} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 hover:bg-primary/5 text-[9px] font-black uppercase tracking-widest transition-all">
+                    <Link key={nav.href} href={nav.href} prefetch={false} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 hover:bg-primary/5 text-[9px] font-black uppercase tracking-widest transition-all">
                         <nav.icon size={11} /> {nav.label}
                     </Link>
                 ))}
@@ -496,7 +496,7 @@ export default function ExplorerDashboard() {
                             </div>
                             <div className="w-px h-12 bg-white/5 hidden lg:block" />
                             <div className="text-right">
-                                <Link href="/explorer/analytics" className="flex items-center gap-2 text-[9px] font-black text-primary/60 hover:text-primary uppercase tracking-widest transition-colors">
+                                <Link href="/explorer/analytics" prefetch={false} className="flex items-center gap-2 text-[9px] font-black text-primary/60 hover:text-primary uppercase tracking-widest transition-colors">
                                     Analytics <ChevronRight size={12} />
                                 </Link>
                                 <div className="text-[8px] text-white/20 mt-0.5">View full charts</div>

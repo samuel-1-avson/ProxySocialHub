@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::debug;
 
@@ -82,18 +82,48 @@ struct RegisterResponse {
     id: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct ProviderLeaseRequest {
+    pub connection_type: String,
+    pub available_ports: Vec<u16>,
+    pub max_connections: u32,
+    pub max_bandwidth_mbps: u32,
+    pub uplink_speed_kbps: u32,
+    pub downlink_speed_kbps: u32,
+    pub cpu_cores: u32,
+    pub memory_mb: u32,
+    pub os: String,
+    pub client_version: String,
+    pub features: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ProviderLeaseResponse {
+    token: String,
+    expires_in: Option<u64>,
+    renew_after_secs: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProviderLeaseGrant {
+    pub token: String,
+    pub expires_in: u64,
+    pub renew_after_secs: u64,
+}
+
 /// Register a new node with the Control API and return the node ID.
 pub async fn register_node(
     api_url: &str,
     jwt: &str,
     name: &str,
     ip: &str,
+    connection_type: &str,
 ) -> Result<String> {
     let url = format!("{api_url}/v1/provider/nodes");
     let payload = serde_json::json!({
         "name": name,
         "ip_address": ip,
-        "connection_type": "residential",
+        "connection_type": connection_type,
     });
 
     let resp = Client::new()
@@ -113,4 +143,41 @@ pub async fn register_node(
 
     let body: RegisterResponse = resp.json().await?;
     Ok(body.id.unwrap_or_default())
+}
+
+pub async fn fetch_provider_lease(
+    api_url: &str,
+    jwt: &str,
+    payload: &ProviderLeaseRequest,
+) -> Result<ProviderLeaseGrant> {
+    let url = format!("{api_url}/v1/provider/lease");
+
+    let resp = Client::new()
+        .post(&url)
+        .header("Authorization", format!("Bearer {jwt}"))
+        .json(payload)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .context("Failed to request provider lease")?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Provider lease request failed (HTTP {status}): {body}");
+    }
+
+    let body: ProviderLeaseResponse = resp
+        .json()
+        .await
+        .context("Failed to parse provider lease response")?;
+    let expires_in = body.expires_in.unwrap_or(600);
+    let renew_after_secs = body
+        .renew_after_secs
+        .unwrap_or_else(|| expires_in.saturating_sub(60).max(30));
+    Ok(ProviderLeaseGrant {
+        token: body.token,
+        expires_in,
+        renew_after_secs,
+    })
 }

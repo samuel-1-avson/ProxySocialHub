@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -186,11 +187,23 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 	hasPremium := false
 	oracle := GetOracleClient() // Assuming a global getter exists or adding it
 	if oracle != nil {
-		buyerPub, _ := sol.PublicKeyFromBase58(event.Buyer)
-		premiumMint, _ := sol.PublicKeyFromBase58("NFT_MINT_ADDRESS_HERE") // Placeholder
-		if ok, _ := oracle.HasNFT(context.Background(), buyerPub, premiumMint); ok {
-			hasPremium = true
-			log.Printf("[SessionActivator] User %s holds Premium NFT pass!", event.Buyer)
+		premiumMintStr := os.Getenv("MINT_PREMIUM_PASS")
+		if premiumMintStr == "" {
+			premiumMintStr = os.Getenv("MINT_GOLD_PASS")
+		}
+
+		if premiumMintStr != "" {
+			buyerPub, err := sol.PublicKeyFromBase58(event.Buyer)
+			if err != nil {
+				log.Printf("[SessionActivator] Skipping premium NFT check for invalid buyer wallet %s: %v", event.Buyer, err)
+			} else if premiumMint, err := sol.PublicKeyFromBase58(premiumMintStr); err != nil {
+				log.Printf("[SessionActivator] Skipping premium NFT check due to invalid mint configuration: %v", err)
+			} else if ok, err := oracle.HasNFT(context.Background(), buyerPub, premiumMint); err != nil {
+				log.Printf("[SessionActivator] Premium NFT check failed for buyer %s: %v", event.Buyer, err)
+			} else if ok {
+				hasPremium = true
+				log.Printf("[SessionActivator] User %s holds Premium NFT pass!", event.Buyer)
+			}
 		}
 	}
 

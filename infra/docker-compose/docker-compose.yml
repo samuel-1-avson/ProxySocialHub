@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Supabase (Postgres) - simulated for local dev or use real remote
   # For v1 simplicity, we use a standard Postgres container

@@ -21,12 +21,16 @@ enum Commands {
     /// Register a new provider node with the Control API
     Register {
         /// Control API URL
-        #[arg(long, env = "PROXYHUB_API_URL", default_value = "http://localhost:4000")]
+        #[arg(long, env = "PROXYHUB_API_URL", default_value = "http://localhost:18080")]
         api_url: String,
 
         /// Provider API key / token
         #[arg(long, env = "PROXYHUB_API_KEY")]
         api_key: Option<String>,
+
+        /// Declared connection type for initial node registration.
+        #[arg(long, env = "PROXYHUB_CONNECTION_TYPE", default_value = "residential")]
+        connection_type: String,
     },
 
     /// Connect to the Edge Gateway and start serving proxy traffic
@@ -35,12 +39,16 @@ enum Commands {
         #[arg(short, long, default_value = "provider.toml")]
         config: String,
 
+        /// Control API URL used for auth bootstrap and provider lease issuance
+        #[arg(long, env = "PROXYHUB_API_URL")]
+        api_url: Option<String>,
+
         /// Primary Edge Gateway address (host:port)
         #[arg(long, env = "PROXYHUB_GATEWAY_ADDR")]
         gateway_addr: Option<String>,
 
         /// Comma-separated list of gateway addresses for multi-gateway failover.
-        /// e.g. "gw1.proxyhubb.io:4000,gw2.proxyhubb.io:4000"
+        /// e.g. "gw1.proxyhubb.io:3128,gw2.proxyhubb.io:3128"
         /// The node cycles through all addresses on reconnect.
         #[arg(long, env = "PROXYHUB_GATEWAY_ADDRS", value_delimiter = ',')]
         gateway_addrs: Option<Vec<String>>,
@@ -75,7 +83,11 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         // ── Register ────────────────────────────────────────────────
-        Commands::Register { api_url, api_key } => {
+        Commands::Register {
+            api_url,
+            api_key,
+            connection_type,
+        } => {
             init_logging(false);
             info!("Starting interactive node registration");
 
@@ -98,7 +110,14 @@ async fn main() -> anyhow::Result<()> {
 
             // Register node
             let node_name = format!("rust-node-{}", public_ip.replace('.', "-"));
-            let node_id = ip::register_node(&api_url, &jwt, &node_name, &public_ip).await?;
+            let node_id = ip::register_node(
+                &api_url,
+                &jwt,
+                &node_name,
+                &public_ip,
+                &connection_type,
+            )
+            .await?;
 
             println!();
             println!("╔══════════════════════════════════════════════════════════╗");
@@ -110,12 +129,13 @@ async fn main() -> anyhow::Result<()> {
             println!();
             println!("Next steps:");
             println!("  1. provider-node start --jwt-token {jwt}");
-            println!("  2. Visit: http://localhost:3000/explorer/map");
+            println!("  2. Visit: http://localhost:3009/explorer/map");
         }
 
         // ── Start ───────────────────────────────────────────────────
         Commands::Start {
             config: config_path,
+            api_url,
             gateway_addr,
             gateway_addrs,
             jwt_token,
@@ -126,6 +146,10 @@ async fn main() -> anyhow::Result<()> {
             info!("Starting ProxyHubb Provider Node v{}", env!("CARGO_PKG_VERSION"));
 
             let mut cfg = config::Config::load(&config_path).unwrap_or_default();
+
+            if let Some(url) = api_url {
+                cfg.control_api_url = url;
+            }
 
             // CLI overrides
             if let Some(addr) = gateway_addr {
@@ -157,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             if gateway_list.is_empty() {
-                gateway_list.push("localhost:4000".to_string());
+                gateway_list.push("localhost:3128".to_string());
             }
             info!(gateways = ?gateway_list, "Multi-gateway failover list built");
 
@@ -217,6 +241,9 @@ async fn main() -> anyhow::Result<()> {
                     cfg.node_id.clone(),
                     std::time::Duration::from_secs(30),
                     stats_collector.clone(),
+                    client.control_api_url(),
+                    client.auth_token(),
+                    client.provider_lease_request(),
                 );
                 let hb_handle = tokio::spawn(async move { hb.run().await });
 

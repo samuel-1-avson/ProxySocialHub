@@ -363,6 +363,8 @@ pub struct HeartbeatMessage {
     pub active_connections: u32,
     pub bandwidth_usage: BandwidthUsage,
     pub system_stats: SystemStats,
+    #[serde(default)]
+    pub provider_lease: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -409,6 +411,7 @@ mod tests {
                 uptime_seconds: 100,
                 goroutines: 0,
             },
+            provider_lease: String::new(),
         };
 
         // Record heartbeat
@@ -452,6 +455,7 @@ mod tests {
                 uptime_seconds: 100,
                 goroutines: 0,
             },
+            provider_lease: String::new(),
         };
 
         // Record heartbeat
@@ -485,6 +489,7 @@ mod tests {
                 uptime_seconds: 3600,
                 goroutines: 10,
             },
+            provider_lease: String::new(),
         };
 
         let json = serde_json::to_string(&msg).unwrap();

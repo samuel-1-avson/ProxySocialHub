@@ -313,6 +313,10 @@ mod tests {
             capabilities: crate::tunnel::ProviderCapabilities::default(),
             assigned_limits: crate::tunnel::AssignedLimits::default(),
             qos_tier: "basic".to_string(),
+            current_tier: "Bronze".to_string(),
+            quality_score: 100.0,
+            base_price_per_gb: 0.20,
+            lease_expires_at: 0,
         }
     }
 

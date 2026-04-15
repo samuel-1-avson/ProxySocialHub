@@ -4,13 +4,90 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	_ "github.com/lib/pq"
 )
+
+func resolvePrimaryFailoverDSN() string {
+	if dsn := os.Getenv("TEST_DATABASE_URL"); dsn != "" {
+		return dsn
+	}
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		return dsn
+	}
+
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		getenvDefault("TEST_DATABASE_USER", getenvDefault("POSTGRES_USER", "proxyhubb")),
+		getenvDefault("TEST_DATABASE_PASSWORD", getenvDefault("POSTGRES_PASSWORD", "proxyhubb")),
+		getenvDefault("TEST_DATABASE_HOST", "127.0.0.1"),
+		getenvDefault("TEST_DATABASE_PORT", getenvDefault("POSTGRES_HOST_PORT", "55432")),
+		getenvDefault("TEST_DATABASE_NAME", getenvDefault("POSTGRES_DB", "proxyhubb")),
+	)
+}
+
+func resolveReplicaFailoverDSN() string {
+	if dsn := os.Getenv("TEST_REPLICA_DATABASE_URL"); dsn != "" {
+		return dsn
+	}
+	if dsn := os.Getenv("READ_REPLICA_URL"); dsn != "" {
+		return dsn
+	}
+
+	replicaHost := os.Getenv("TEST_REPLICA_DATABASE_HOST")
+	replicaPort := os.Getenv("TEST_REPLICA_DATABASE_PORT")
+	if replicaHost == "" && replicaPort == "" && os.Getenv("POSTGRES_REPLICA_HOST_PORT") == "" {
+		return ""
+	}
+	if replicaHost == "" {
+		replicaHost = "127.0.0.1"
+	}
+	if replicaPort == "" {
+		replicaPort = getenvDefault("POSTGRES_REPLICA_HOST_PORT", "55433")
+	}
+
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		getenvDefault("TEST_REPLICA_DATABASE_USER", getenvDefault("TEST_DATABASE_USER", getenvDefault("POSTGRES_USER", "proxyhubb"))),
+		getenvDefault("TEST_REPLICA_DATABASE_PASSWORD", getenvDefault("TEST_DATABASE_PASSWORD", getenvDefault("POSTGRES_PASSWORD", "proxyhubb"))),
+		replicaHost,
+		replicaPort,
+		getenvDefault("TEST_REPLICA_DATABASE_NAME", getenvDefault("TEST_DATABASE_NAME", getenvDefault("POSTGRES_DB", "proxyhubb"))),
+	)
+}
+
+func openFailoverDatabase(t testing.TB, role, dsn string) *sql.DB {
+	t.Helper()
+	if dsn == "" {
+		t.Skipf("%s PostgreSQL DSN not configured", role)
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Skipf("%s PostgreSQL not available: %v", role, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		t.Skipf("%s PostgreSQL not reachable: %v", role, err)
+	}
+
+	return db
+}
+
+func getenvDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
 
 // TestPostgreSQLFailover tests PostgreSQL failover behavior
 // Property 1: High Availability Failover Timing
@@ -21,21 +98,18 @@ func TestPostgreSQLFailover(t *testing.T) {
 	}
 
 	// Connection strings for primary and replica
-	primaryDSN := "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb?sslmode=disable"
-	replicaDSN := "postgres://proxyhubb:proxyhubb@localhost:5433/proxyhubb?sslmode=disable"
+	primaryDSN := resolvePrimaryFailoverDSN()
+	replicaDSN := resolveReplicaFailoverDSN()
+	if replicaDSN == "" {
+		t.Skip("Replica PostgreSQL DSN not configured")
+	}
 
 	// Test primary connection
-	primaryDB, err := sql.Open("postgres", primaryDSN)
-	if err != nil {
-		t.Skipf("Primary PostgreSQL not available: %v", err)
-	}
+	primaryDB := openFailoverDatabase(t, "primary", primaryDSN)
 	defer primaryDB.Close()
 
 	// Test replica connection
-	replicaDB, err := sql.Open("postgres", replicaDSN)
-	if err != nil {
-		t.Skipf("Replica PostgreSQL not available: %v", err)
-	}
+	replicaDB := openFailoverDatabase(t, "replica", replicaDSN)
 	defer replicaDB.Close()
 
 	ctx := context.Background()
@@ -99,7 +173,7 @@ func TestPostgreSQLFailover(t *testing.T) {
 		// Insert data with timestamp
 		testData := fmt.Sprintf("timing_test_%d", time.Now().Unix())
 		insertTime := time.Now()
-		
+
 		insertSQL := "INSERT INTO replication_timing_test (data) VALUES ($1) RETURNING id"
 		var insertedID int
 		err = primaryDB.QueryRowContext(ctx, insertSQL, testData).Scan(&insertedID)
@@ -114,12 +188,12 @@ func TestPostgreSQLFailover(t *testing.T) {
 		for elapsed := time.Duration(0); elapsed < maxWait; elapsed += pollInterval {
 			querySQL := "SELECT data FROM replication_timing_test WHERE id = $1"
 			err = replicaDB.QueryRowContext(ctx, querySQL, insertedID).Scan(&replicatedData)
-			
+
 			if err == nil && replicatedData == testData {
 				replicationTime = time.Since(insertTime)
 				break
 			}
-			
+
 			time.Sleep(pollInterval)
 		}
 
@@ -182,9 +256,10 @@ func TestPostgreSQLFailover(t *testing.T) {
 		// Test connection retry logic
 		maxRetries := 3
 		retryDelay := 100 * time.Millisecond
+		var err error
 
 		for attempt := 1; attempt <= maxRetries; attempt++ {
-			err := primaryDB.PingContext(ctx)
+			err = primaryDB.PingContext(ctx)
 			if err == nil {
 				break
 			}
@@ -212,12 +287,9 @@ func TestPostgreSQLReplicationMonitoring(t *testing.T) {
 		t.Skip("Skipping PostgreSQL replication monitoring test in short mode")
 	}
 
-	primaryDSN := "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb?sslmode=disable"
-	
-	primaryDB, err := sql.Open("postgres", primaryDSN)
-	if err != nil {
-		t.Skipf("Primary PostgreSQL not available: %v", err)
-	}
+	primaryDSN := resolvePrimaryFailoverDSN()
+
+	primaryDB := openFailoverDatabase(t, "primary", primaryDSN)
 	defer primaryDB.Close()
 
 	ctx := context.Background()
@@ -237,7 +309,7 @@ func TestPostgreSQLReplicationMonitoring(t *testing.T) {
 				replay_lag
 			FROM pg_stat_replication
 		`
-		
+
 		rows, err := primaryDB.QueryContext(ctx, statusSQL)
 		if err != nil {
 			t.Skipf("Replication status query failed (no replicas?): %v", err)
@@ -253,10 +325,10 @@ func TestPostgreSQLReplicationMonitoring(t *testing.T) {
 			require.NoError(t, err, "Failed to scan replication status")
 
 			replicaCount++
-			
+
 			// Verify replica is in streaming state
 			assert.Equal(t, "streaming", state.String, "Replica should be in streaming state")
-			
+
 			// Log replication lag information
 			if replayLag.Valid {
 				t.Logf("Replica %s replay lag: %s", clientAddr.String, replayLag.String)
@@ -273,13 +345,13 @@ func TestPostgreSQLReplicationMonitoring(t *testing.T) {
 	t.Run("wal_archiving_status", func(t *testing.T) {
 		// Check WAL archiving status
 		archiveSQL := "SELECT archived_count, failed_count FROM pg_stat_archiver"
-		
+
 		var archivedCount, failedCount int64
 		err := primaryDB.QueryRowContext(ctx, archiveSQL).Scan(&archivedCount, &failedCount)
 		require.NoError(t, err, "Failed to query WAL archiving status")
 
 		t.Logf("WAL archiving - Archived: %d, Failed: %d", archivedCount, failedCount)
-		
+
 		// In a production setup, we'd want to ensure failed_count is low
 		// For testing, we just verify the query works
 		assert.GreaterOrEqual(t, archivedCount, int64(0), "Archived count should be non-negative")
@@ -289,19 +361,16 @@ func TestPostgreSQLReplicationMonitoring(t *testing.T) {
 
 // BenchmarkPostgreSQLOperations benchmarks database operations
 func BenchmarkPostgreSQLOperations(b *testing.B) {
-	primaryDSN := "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb?sslmode=disable"
-	replicaDSN := "postgres://proxyhubb:proxyhubb@localhost:5433/proxyhubb?sslmode=disable"
-
-	primaryDB, err := sql.Open("postgres", primaryDSN)
-	if err != nil {
-		b.Skipf("Primary PostgreSQL not available: %v", err)
+	primaryDSN := resolvePrimaryFailoverDSN()
+	replicaDSN := resolveReplicaFailoverDSN()
+	if replicaDSN == "" {
+		b.Skip("Replica PostgreSQL DSN not configured")
 	}
+
+	primaryDB := openFailoverDatabase(b, "primary", primaryDSN)
 	defer primaryDB.Close()
 
-	replicaDB, err := sql.Open("postgres", replicaDSN)
-	if err != nil {
-		b.Skipf("Replica PostgreSQL not available: %v", err)
-	}
+	replicaDB := openFailoverDatabase(b, "replica", replicaDSN)
 	defer replicaDB.Close()
 
 	ctx := context.Background()
@@ -314,7 +383,7 @@ func BenchmarkPostgreSQLOperations(b *testing.B) {
 			created_at TIMESTAMP DEFAULT NOW()
 		)
 	`
-	_, err = primaryDB.ExecContext(ctx, setupSQL)
+	_, err := primaryDB.ExecContext(ctx, setupSQL)
 	if err != nil {
 		b.Fatalf("Failed to create benchmark table: %v", err)
 	}

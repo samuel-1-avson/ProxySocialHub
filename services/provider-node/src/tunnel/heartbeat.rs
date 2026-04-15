@@ -1,9 +1,10 @@
 //! Heartbeat manager: sends periodic telemetry to the Edge Gateway.
 
+use crate::ip::{fetch_provider_lease, ProviderLeaseGrant, ProviderLeaseRequest};
 use crate::stats::Collector;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use serde::Serialize;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, error};
 
 /// Heartbeat payload sent to the gateway.
@@ -14,6 +15,8 @@ struct HeartbeatMessage {
     active_connections: i32,
     bandwidth_usage: BandwidthUsage,
     system_stats: SystemStatsPayload,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    provider_lease: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -43,6 +46,16 @@ pub struct HeartbeatManager {
     node_id: String,
     interval: Duration,
     stats: Collector,
+    control_api_url: String,
+    auth_token: String,
+    lease_request: ProviderLeaseRequest,
+    current_lease: Option<CachedLease>,
+}
+
+#[derive(Clone, Debug)]
+struct CachedLease {
+    grant: ProviderLeaseGrant,
+    fetched_at: Instant,
 }
 
 impl HeartbeatManager {
@@ -51,12 +64,19 @@ impl HeartbeatManager {
         node_id: String,
         interval: Duration,
         stats: Collector,
+        control_api_url: String,
+        auth_token: String,
+        lease_request: ProviderLeaseRequest,
     ) -> Self {
         Self {
             ctrl,
             node_id,
             interval,
             stats,
+            control_api_url,
+            auth_token,
+            lease_request,
+            current_lease: None,
         }
     }
 
@@ -77,13 +97,21 @@ impl HeartbeatManager {
     }
 
     async fn send(&mut self) -> anyhow::Result<()> {
+        let provider_lease = self.ensure_provider_lease().await.unwrap_or_else(|e| {
+            error!("Provider lease renewal failed: {e}");
+            self.current_lease
+                .as_ref()
+                .map(|lease| lease.grant.token.clone())
+                .unwrap_or_default()
+        });
+
         let mut stream = self
             .ctrl
             .open_stream()
             .await
             .map_err(|e| anyhow::anyhow!("failed to open heartbeat stream: {e}"))?;
 
-        let msg = self.build_message();
+        let msg = self.build_message(provider_lease);
         let data = serde_json::to_string(&msg)?;
 
         let frame = format!(
@@ -123,7 +151,7 @@ impl HeartbeatManager {
         Ok(())
     }
 
-    fn build_message(&self) -> HeartbeatMessage {
+    fn build_message(&self, provider_lease: String) -> HeartbeatMessage {
         let (rate_up, rate_down) = self.stats.compute_rate();
         let sys = crate::sys::collect();
 
@@ -143,7 +171,39 @@ impl HeartbeatManager {
                 uptime_seconds: self.stats.uptime().as_secs(),
                 goroutines: 0,
             },
+            provider_lease,
         }
+    }
+
+    async fn ensure_provider_lease(&mut self) -> anyhow::Result<String> {
+        let needs_renewal = match self.current_lease.as_ref() {
+            Some(lease) => {
+                lease.fetched_at.elapsed().as_secs() >= lease.grant.renew_after_secs
+                    || lease.fetched_at.elapsed().as_secs() >= lease.grant.expires_in
+            }
+            None => true,
+        };
+
+        if needs_renewal {
+            let grant = fetch_provider_lease(
+                &self.control_api_url,
+                &self.auth_token,
+                &self.lease_request,
+            )
+            .await?;
+            let token = grant.token.clone();
+            self.current_lease = Some(CachedLease {
+                grant,
+                fetched_at: Instant::now(),
+            });
+            return Ok(token);
+        }
+
+        Ok(self
+            .current_lease
+            .as_ref()
+            .map(|lease| lease.grant.token.clone())
+            .unwrap_or_default())
     }
 }
 

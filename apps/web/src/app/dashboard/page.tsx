@@ -302,14 +302,14 @@ export default function DashboardPage() {
                             </h3>
                             <span className="text-xs text-muted-foreground px-3 py-1 bg-white/5 rounded-full">Last 7 Days</span>
                         </div>
-                        <div className="flex-1 p-6 relative">
+                        <div className="flex-1 min-h-0 p-6 relative">
                             {chartData.length === 0 ? (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center mt-10">
                                     <Activity size={48} className="text-white/10 mb-4" />
                                     <p className="text-sm text-muted-foreground font-medium">No usage data recorded</p>
                                 </div>
                             ) : (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                         <defs>
                                             <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">

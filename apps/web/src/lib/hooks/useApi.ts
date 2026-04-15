@@ -76,10 +76,16 @@ export function useSessionUsage(id: string) {
 export function useCreateSession() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: sessionsApi.createSession,
+        mutationFn: sessionsApi.createSessionIntent,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: sessionsApi.sessionKeys.all });
+            queryClient.invalidateQueries({ queryKey: sessionsApi.sessionKeys.intents() });
         },
+    });
+}
+
+export function useCreateSessionIntent() {
+    return useMutation({
+        mutationFn: sessionsApi.createSessionIntent,
     });
 }
 

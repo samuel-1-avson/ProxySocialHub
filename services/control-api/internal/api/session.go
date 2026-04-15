@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
@@ -18,6 +19,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/sessionintent"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 )
@@ -27,6 +29,12 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 	{
 		sessions.POST("", createSession)
 		sessions.POST("/", createSession)
+		sessions.GET("/intents", listSessionIntents)
+		sessions.GET("/intents/", listSessionIntents)
+		sessions.GET("/intents/:id", getSessionIntent)
+		sessions.GET("/intents/:id/", getSessionIntent)
+		sessions.POST("/intent", createSessionIntent)
+		sessions.POST("/intent/", createSessionIntent)
 		sessions.POST("/instant", createInstantSession)
 		sessions.POST("/from-listing", createSessionFromListing) // P2P: buy from a specific provider listing
 
@@ -58,6 +66,12 @@ type createSessionRequestV4 struct {
 	RotationIntervalSeconds int      `json:"rotation_interval_seconds"` // 0 → profile/tier default
 	TimeLimitMinutes        int      `json:"time_limit_minutes"`        // 0 = unlimited
 	PreferredTier           string   `json:"preferred_tier"`            // "Gold", "Silver", "Bronze"
+}
+
+type createSessionIntentRequest struct {
+	createSessionRequestV4
+	ListingID     string  `json:"listing_id,omitempty"`
+	MaxPricePerGB float64 `json:"max_price_per_gb,omitempty"`
 }
 
 func generateCredentials() (string, string) {
@@ -121,6 +135,145 @@ func weightedRandomNode(nodes []models.ProviderNode) *models.ProviderNode {
 	return &nodes[len(nodes)-1]
 }
 
+func createSessionIntent(c *gin.Context) {
+	var req createSessionIntentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Type != "rotating" && req.Type != "sticky" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session type"})
+		return
+	}
+	if req.MaxPricePerGB < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "max_price_per_gb must be >= 0"})
+		return
+	}
+
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	var user models.User
+	if result := db.DB.First(&user, "id = ?", userUUID); result.Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	resolvedTier := resolveUserTrustTier(c.Request.Context(), userUUID.String(), user)
+	tierConfig := models.GetTierConfig(resolvedTier)
+	applyRoutingProfileDefaults(&req.createSessionRequestV4)
+
+	activeSessionCount := countActiveSessions(userUUID)
+	if int(activeSessionCount) >= tierConfig.MaxConcurrency {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error":      "Session limit reached",
+			"limit":      tierConfig.MaxConcurrency,
+			"current":    activeSessionCount,
+			"trust_tier": resolvedTier,
+		})
+		return
+	}
+
+	listingID := ""
+	if trimmedListingID := strings.TrimSpace(req.ListingID); trimmedListingID != "" {
+		listingUUID, err := uuid.Parse(trimmedListingID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing_id"})
+			return
+		}
+
+		var listing models.ProxyListing
+		if err := db.DB.Where("id = ? AND status = ?", listingUUID, models.ListingStatusActive).First(&listing).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Listing is not available"})
+			return
+		}
+
+		listingID = listing.ID.String()
+		if req.TargetGeo == "" {
+			req.TargetGeo = listing.Country
+		}
+		if req.TargetISP == "" {
+			req.TargetISP = listing.ISP
+		}
+		if req.MaxPricePerGB == 0 {
+			req.MaxPricePerGB = listing.PricePerGB
+		}
+		if req.PreferredTier == "" {
+			req.PreferredTier = listing.CurrentTier
+		}
+	}
+
+	bandwidthLimit := computeBandwidthLimit(req.BandwidthLimit, tierConfig)
+	rotationType, rotationInterval := normalizedRotationSettings(req.createSessionRequestV4)
+
+	secret, err := sessionintent.ResolveSigningSecret()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Session intent signing is not configured"})
+		return
+	}
+
+	tokenString, claims, err := sessionintent.Issue(secret, sessionintent.Params{
+		UserID:                  userUUID,
+		ListingID:               listingID,
+		SessionType:             req.Type,
+		TrustTier:               string(resolvedTier),
+		BandwidthLimit:          bandwidthLimit,
+		TargetGeo:               req.TargetGeo,
+		TargetISP:               req.TargetISP,
+		RoutingProfile:          req.RoutingProfile,
+		AllowedDomains:          req.AllowedDomains,
+		BlockedDomains:          req.BlockedDomains,
+		RotationType:            rotationType,
+		RotationIntervalSeconds: rotationInterval,
+		TimeLimitMinutes:        req.TimeLimitMinutes,
+		PreferredTier:           req.PreferredTier,
+		RequestsPerMinute:       tierConfig.RequestsPerMinute,
+		MaxConcurrency:          tierConfig.MaxConcurrency,
+		MaxPricePerGB:           req.MaxPricePerGB,
+	})
+	if err != nil {
+		logging.Error(err).Str("user_id", userUUID.String()).Msg("Failed to issue session intent")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to issue session intent"})
+		return
+	}
+
+	if _, err := persistIssuedSessionIntent(userUUID, claims); err != nil {
+		logging.Error(err).Str("user_id", userUUID.String()).Msg("Failed to persist session intent")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist session intent"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"token":           tokenString,
+		"expires_at":      claims.ExpiresAt.Time,
+		"lifecycle_state": string(models.SessionIntentAuthorized),
+		"intent": gin.H{
+			"intent_id":                 claims.ID,
+			"user_id":                   claims.UserID,
+			"listing_id":                claims.ListingID,
+			"session_type":              claims.SessionType,
+			"trust_tier":                claims.TrustTier,
+			"bandwidth_limit":           claims.BandwidthLimit,
+			"target_geo":                claims.TargetGeo,
+			"target_isp":                claims.TargetISP,
+			"routing_profile":           claims.RoutingProfile,
+			"allowed_domains":           claims.AllowedDomains,
+			"blocked_domains":           claims.BlockedDomains,
+			"rotation_type":             claims.RotationType,
+			"rotation_interval_seconds": claims.RotationIntervalSeconds,
+			"time_limit_minutes":        claims.TimeLimitMinutes,
+			"preferred_tier":            claims.PreferredTier,
+			"requests_per_minute":       claims.RequestsPerMinute,
+			"max_concurrency":           claims.MaxConcurrency,
+			"max_price_per_gb":          claims.MaxPricePerGB,
+		},
+	})
+}
+
 func createSession(c *gin.Context) {
 	var req createSessionRequestV4
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -149,59 +302,11 @@ func createSession(c *gin.Context) {
 		return
 	}
 
-	// AUTH-003: Resolve trust tier from on-chain KYCAttestation PDA when available.
-	// The on-chain value is authoritative — prevents DB row manipulation from
-	// silently elevating bandwidth limits.
-	resolvedTier := user.TrustTier
-	if user.WalletAddress != nil && *user.WalletAddress != "" {
-		if oracle := solana.GetOracleClient(); oracle != nil {
-			if pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err == nil {
-				if att, err := oracle.ReadKYCAttestation(c.Request.Context(), pubkey); err == nil {
-					switch att.TrustTier {
-					case solana.KYCTierNew:
-						resolvedTier = models.TrustTierNew
-					case solana.KYCTierVerified:
-						resolvedTier = models.TrustTierVerified
-					case solana.KYCTierPremium:
-						resolvedTier = models.TrustTierPremium
-					}
-					// If on-chain tier is lower than DB tier, chain wins.
-					if tierOrdinal(resolvedTier) < tierOrdinal(user.TrustTier) {
-						logging.Warn().
-							Str("user_id", userID).
-							Str("db_tier", string(user.TrustTier)).
-							Str("chain_tier", string(resolvedTier)).
-							Msg("createSession: on-chain trust tier lower than DB — using chain value")
-					}
-				}
-			}
-		}
-	}
+	resolvedTier := resolveUserTrustTier(c.Request.Context(), userID, user)
 	// Get tier configuration
 	tierConfig := models.GetTierConfig(resolvedTier)
 
-	// N-03: Look up routing profile and apply defaults if slug provided.
-	var routingProfile *models.RoutingProfile
-	if req.RoutingProfile != "" {
-		var rp models.RoutingProfile
-		if err := db.DB.Where("slug = ? AND is_active = true", req.RoutingProfile).First(&rp).Error; err == nil {
-			routingProfile = &rp
-			// Apply profile defaults only when request didn't override them.
-			if req.RotationType == "" {
-				if rp.AutoRotation {
-					req.RotationType = "time-based"
-				} else {
-					req.RotationType = "none"
-				}
-			}
-			if req.RotationIntervalSeconds == 0 {
-				req.RotationIntervalSeconds = rp.RotationInterval
-			}
-		} else {
-			logging.Warn().Str("slug", req.RoutingProfile).Msg("Routing profile not found — ignoring")
-		}
-	}
-	_ = routingProfile // may be used for future provider matching weight hints
+	applyRoutingProfileDefaults(&req)
 
 	// === Distributed Lock Start ===
 	// Prevent race conditions on concurrent session creation
@@ -220,10 +325,7 @@ func createSession(c *gin.Context) {
 	// === Distributed Lock End ===
 
 	// Check active session count against tier limit
-	var activeSessionCount int64
-	db.DB.Model(&models.Session{}).
-		Where("user_id = ? AND status = ?", userUUID, models.SessionActive).
-		Count(&activeSessionCount)
+	activeSessionCount := countActiveSessions(userUUID)
 
 	if int(activeSessionCount) >= tierConfig.MaxConcurrency {
 		c.JSON(http.StatusTooManyRequests, gin.H{
@@ -240,21 +342,7 @@ func createSession(c *gin.Context) {
 	credUser, credPass := generateCredentials()
 
 	// Apply tier-based bandwidth limit
-	bandwidthLimit := req.BandwidthLimit
-	if bandwidthLimit == 0 {
-		// Default based on tier
-		bandwidthLimit = int64(tierConfig.MaxBandwidthGB * 1024 * 1024 * 1024)
-		if tierConfig.MaxBandwidthGB < 0 {
-			// Unlimited - set to 100TB as practical limit
-			bandwidthLimit = 100 * 1024 * 1024 * 1024 * 1024
-		}
-	} else {
-		// Cap to tier maximum
-		maxTierBytes := int64(tierConfig.MaxBandwidthGB * 1024 * 1024 * 1024)
-		if tierConfig.MaxBandwidthGB > 0 && bandwidthLimit > maxTierBytes {
-			bandwidthLimit = maxTierBytes
-		}
-	}
+	bandwidthLimit := computeBandwidthLimit(req.BandwidthLimit, tierConfig)
 
 	// Pick the best available infrastructure node (nodes table) so the edge-gateway has a
 	// real IP/port to route traffic through. Use models.Node — not ProviderNode — because
@@ -343,14 +431,7 @@ func createSession(c *gin.Context) {
 	}
 
 	// N-02: Persist per-session configuration record.
-	rotationType := req.RotationType
-	if rotationType == "" {
-		rotationType = "none"
-	}
-	rotationInterval := req.RotationIntervalSeconds
-	if rotationInterval == 0 {
-		rotationInterval = 60
-	}
+	rotationType, rotationInterval := normalizedRotationSettings(req)
 	sessionCfg := models.SessionConfiguration{
 		SessionID:        session.ID,
 		UserID:           userUUID,
@@ -993,6 +1074,94 @@ func tierOrdinal(t models.TrustTier) int {
 	default: // TrustTierNew
 		return 0
 	}
+}
+
+func resolveUserTrustTier(ctx context.Context, userID string, user models.User) models.TrustTier {
+	resolvedTier := user.TrustTier
+	if user.WalletAddress != nil && *user.WalletAddress != "" {
+		if oracle := solana.GetOracleClient(); oracle != nil {
+			if pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err == nil {
+				if att, err := oracle.ReadKYCAttestation(ctx, pubkey); err == nil {
+					switch att.TrustTier {
+					case solana.KYCTierNew:
+						resolvedTier = models.TrustTierNew
+					case solana.KYCTierVerified:
+						resolvedTier = models.TrustTierVerified
+					case solana.KYCTierPremium:
+						resolvedTier = models.TrustTierPremium
+					}
+					if tierOrdinal(resolvedTier) < tierOrdinal(user.TrustTier) {
+						logging.Warn().
+							Str("user_id", userID).
+							Str("db_tier", string(user.TrustTier)).
+							Str("chain_tier", string(resolvedTier)).
+							Msg("session policy: on-chain trust tier lower than DB — using chain value")
+					}
+				}
+			}
+		}
+	}
+	return resolvedTier
+}
+
+func applyRoutingProfileDefaults(req *createSessionRequestV4) {
+	if req.RoutingProfile == "" {
+		return
+	}
+
+	var rp models.RoutingProfile
+	if err := db.DB.Where("slug = ? AND is_active = true", req.RoutingProfile).First(&rp).Error; err == nil {
+		if req.RotationType == "" {
+			if rp.AutoRotation {
+				req.RotationType = "time-based"
+			} else {
+				req.RotationType = "none"
+			}
+		}
+		if req.RotationIntervalSeconds == 0 {
+			req.RotationIntervalSeconds = rp.RotationInterval
+		}
+		return
+	}
+
+	logging.Warn().Str("slug", req.RoutingProfile).Msg("Routing profile not found — ignoring")
+}
+
+func countActiveSessions(userUUID uuid.UUID) int64 {
+	var activeSessionCount int64
+	db.DB.Model(&models.Session{}).
+		Where("user_id = ? AND status = ?", userUUID, models.SessionActive).
+		Count(&activeSessionCount)
+	return activeSessionCount
+}
+
+func computeBandwidthLimit(requestedLimit int64, tierConfig models.TierConfig) int64 {
+	bandwidthLimit := requestedLimit
+	if bandwidthLimit == 0 {
+		bandwidthLimit = int64(tierConfig.MaxBandwidthGB * 1024 * 1024 * 1024)
+		if tierConfig.MaxBandwidthGB < 0 {
+			bandwidthLimit = 100 * 1024 * 1024 * 1024 * 1024
+		}
+		return bandwidthLimit
+	}
+
+	maxTierBytes := int64(tierConfig.MaxBandwidthGB * 1024 * 1024 * 1024)
+	if tierConfig.MaxBandwidthGB > 0 && bandwidthLimit > maxTierBytes {
+		return maxTierBytes
+	}
+	return bandwidthLimit
+}
+
+func normalizedRotationSettings(req createSessionRequestV4) (string, int) {
+	rotationType := req.RotationType
+	if rotationType == "" {
+		rotationType = "none"
+	}
+	rotationInterval := req.RotationIntervalSeconds
+	if rotationInterval == 0 {
+		rotationInterval = 60
+	}
+	return rotationType, rotationInterval
 }
 
 // resolvePlatformFee returns the platform fee as a fraction (0.0–1.0).

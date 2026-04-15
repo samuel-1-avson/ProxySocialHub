@@ -46,9 +46,116 @@ export interface CreateSessionRequest {
     preferred_tier?: string;
 }
 
+export interface CreateSessionIntentRequest {
+    type: 'rotating' | 'sticky';
+    listing_id?: string;
+    bandwidth_limit?: number;
+    target_geo?: string;
+    target_isp?: string;
+    routing_profile?: string;
+    allowed_domains?: string[];
+    blocked_domains?: string[];
+    rotation_type?: string;
+    rotation_interval_seconds?: number;
+    time_limit_minutes?: number;
+    preferred_tier?: string;
+    max_price_per_gb?: number;
+}
+
 export interface CreateSessionResponse {
     session: Session;
     proxy_credentials: ProxyCredentials;
+}
+
+export interface SessionIntent {
+    intent_id: string;
+    user_id: string;
+    listing_id?: string;
+    session_type: 'rotating' | 'sticky';
+    trust_tier: string;
+    bandwidth_limit: number;
+    target_geo?: string;
+    target_isp?: string;
+    routing_profile?: string;
+    allowed_domains: string[];
+    blocked_domains: string[];
+    rotation_type?: string;
+    rotation_interval_seconds?: number;
+    time_limit_minutes?: number;
+    preferred_tier?: string;
+    requests_per_minute: number;
+    max_concurrency: number;
+    max_price_per_gb?: number;
+    billing_price_per_gb_usd?: number;
+    billing_price_source?: string;
+    provider_node_id?: string;
+    target_host?: string;
+    total_bytes_up?: number;
+    total_bytes_down?: number;
+    last_bytes_up_delta?: number;
+    last_bytes_down_delta?: number;
+    usage_update_count?: number;
+}
+
+export interface SessionIntentUsageSnapshot {
+    total_bytes: number;
+    total_bytes_up: number;
+    total_bytes_down: number;
+    last_bytes_up_delta: number;
+    last_bytes_down_delta: number;
+    total_gb: number;
+    percent_used: number;
+    bytes_remaining: number;
+    unlimited: boolean;
+}
+
+export interface SessionIntentBillingSnapshot {
+    currency: string;
+    price_source: string;
+    unit_price_usd_per_gb: number;
+    unit_price_sol_per_gb: number;
+    estimated_cost_usd: number;
+    estimated_cost_sol: number;
+    projected_full_limit_cost_usd: number;
+    projected_full_limit_cost_sol: number;
+}
+
+export type SessionIntentLifecycle =
+    | 'authorized'
+    | 'routed'
+    | 'active'
+    | 'closing'
+    | 'ledger_committed'
+    | 'batched'
+    | 'chain_committed'
+    | 'archived'
+    | 'expired';
+
+export interface CreateSessionIntentResponse {
+    token: string;
+    expires_at: string;
+    lifecycle_state: SessionIntentLifecycle;
+    intent: SessionIntent;
+}
+
+export interface SessionIntentStatusResponse {
+    lifecycle_state: SessionIntentLifecycle;
+    expires_at: string;
+    created_at: string;
+    updated_at: string;
+    routed_at?: string;
+    activated_at?: string;
+    closing_at?: string;
+    ledger_committed_at?: string;
+    batched_at?: string;
+    chain_committed_at?: string;
+    archived_at?: string;
+    expired_at?: string;
+    last_seen_at?: string;
+    last_metered_at?: string;
+    usage_snapshot: SessionIntentUsageSnapshot;
+    billing_snapshot: SessionIntentBillingSnapshot;
+    intent: SessionIntent;
 }
 
 export interface UsageStats {
@@ -88,6 +195,22 @@ export function createSession(data: CreateSessionRequest) {
 }
 
 /**
+ * Issue a short-lived V2 session intent token for gateway admission.
+ */
+export function createSessionIntent(data: CreateSessionIntentRequest) {
+    return apiPost<CreateSessionIntentResponse>('/v1/sessions/intent', data);
+}
+
+export function getSessionIntentStatus(id: string) {
+    return apiGet<SessionIntentStatusResponse>(`/v1/sessions/intents/${id}`);
+}
+
+export async function listSessionIntents() {
+    const data = await apiGet<{ intents: SessionIntentStatusResponse[] }>('/v1/sessions/intents');
+    return Array.isArray(data?.intents) ? data.intents : [];
+}
+
+/**
  * Terminate a session
  */
 export function terminateSession(id: string) {
@@ -100,6 +223,8 @@ export const sessionKeys = {
     all: ['sessions'] as const,
     lists: () => [...sessionKeys.all, 'list'] as const,
     detail: (id: string) => [...sessionKeys.all, 'detail', id] as const,
+    intents: () => [...sessionKeys.all, 'intents'] as const,
+    intentDetail: (id: string) => [...sessionKeys.all, 'intent', id] as const,
     usage: (id: string) => [...sessionKeys.all, 'usage', id] as const,
     totalUsage: () => [...sessionKeys.all, 'totalUsage'] as const,
 };

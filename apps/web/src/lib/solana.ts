@@ -4,8 +4,9 @@ import idl from './idl/proxyhub.json';
 
 // Constants
 const PROGRAM_ID = new PublicKey('2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7');
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
-const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
+const RAW_SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+const SOLANA_NETWORK = RAW_SOLANA_NETWORK === 'mainnet' ? 'mainnet-beta' : RAW_SOLANA_NETWORK;
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
@@ -224,7 +225,7 @@ export const requestSettlement = async (
     sellerPubkey: string,
     bandwidthUsedGb: number
 ) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
     const response = await fetch(`${apiUrl}/v1/solana/escrow/settle`, {
         method: 'POST',
@@ -566,7 +567,7 @@ export const requestDisputeResolution = async (
     buyerPercentage: number,
     resolution: string
 ) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
     const response = await fetch(`${apiUrl}/v1/solana/dispute/resolve`, {
         method: 'POST',
