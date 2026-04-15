@@ -27,16 +27,25 @@ function getWsBaseFromEnv(): string {
     return '';
 }
 
-export function getExplorerWsUrl(): string {
+function getWsUrl(path: string): string {
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     const envBase = getWsBaseFromEnv();
     if (envBase) {
-        return `${envBase}/v1/explorer/ws`;
+        return `${envBase}${normalizedPath}`;
     }
 
     if (typeof window !== 'undefined') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/v1/explorer/ws`;
+        return `${protocol}//${window.location.host}${normalizedPath}`;
     }
 
-    return '/v1/explorer/ws';
+    return normalizedPath;
+}
+
+export function getExplorerWsUrl(): string {
+    return getWsUrl('/v1/explorer/ws');
+}
+
+export function getRealtimeWsUrl(): string {
+    return getWsUrl('/v1/ws');
 }

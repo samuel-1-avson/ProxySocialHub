@@ -141,21 +141,23 @@ export default function EarningsPage() {
                             <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">No payout data yet</p>
                         </div>
                     ) : (
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                            <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-                                <defs>
-                                    <linearGradient id="earningsGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
-                                <XAxis dataKey="t" tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                                <YAxis tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ background: 'rgba(0,0,0,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontFamily: 'monospace', fontSize: 10 }} />
-                                <Area type="monotone" dataKey="value" name="SOL Paid" stroke="#10b981" strokeWidth={2} fill="url(#earningsGrad)" dot={false} />
-                            </AreaChart>
-                        </ResponsiveContainer>
+                        <div className="h-[180px] min-h-[180px]">
+                            <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={180}>
+                                <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                                    <defs>
+                                        <linearGradient id="earningsGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                                    <XAxis dataKey="t" tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                                    <YAxis tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} />
+                                    <Tooltip contentStyle={{ background: 'rgba(0,0,0,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontFamily: 'monospace', fontSize: 10 }} />
+                                    <Area type="monotone" dataKey="value" name="SOL Paid" stroke="#10b981" strokeWidth={2} fill="url(#earningsGrad)" dot={false} />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
                     )}
                 </GlassCard>
             </motion.section>

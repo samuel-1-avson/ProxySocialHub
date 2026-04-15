@@ -8,6 +8,7 @@ describe("session", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.Session as Program;
+  const programAccounts = program.account as any;
 
   const buyer = Keypair.generate();
   const providerNode = Keypair.generate();
@@ -70,7 +71,7 @@ describe("session", () => {
         .signers([gatewayOperator])
         .rpc();
 
-      const gw = await program.account.gatewayNode.fetch(gatewayPda);
+      const gw = await programAccounts.gatewayNode.fetch(gatewayPda);
       expect(gw.operator.toBase58()).to.equal(gatewayOperator.publicKey.toBase58());
       expect(gw.stake.toNumber()).to.equal(LAMPORTS_PER_SOL);
       expect(gw.isActive).to.be.true;
@@ -88,7 +89,7 @@ describe("session", () => {
         .signers([gatewayOperator])
         .rpc();
 
-      const gw = await program.account.gatewayNode.fetch(gatewayPda);
+      const gw = await programAccounts.gatewayNode.fetch(gatewayPda);
       expect(gw.latencyMs).to.equal(25);
     });
 
@@ -141,7 +142,7 @@ describe("session", () => {
         .signers([buyer])
         .rpc();
 
-      const session = await program.account.session.fetch(sessionPda);
+      const session = await programAccounts.session.fetch(sessionPda);
       expect(session.buyer.toBase58()).to.equal(buyer.publicKey.toBase58());
       expect(session.provider.toBase58()).to.equal(providerNode.publicKey.toBase58());
       expect(session.bytesUsed.toNumber()).to.equal(0);
@@ -160,7 +161,7 @@ describe("session", () => {
         .signers([gatewayOperator])
         .rpc();
 
-      const session = await program.account.session.fetch(sessionPda);
+      const session = await programAccounts.session.fetch(sessionPda);
       expect(session.status).to.deep.include({ active: {} });
     });
 
@@ -177,7 +178,7 @@ describe("session", () => {
         .signers([gatewayOperator])
         .rpc();
 
-      const session = await program.account.session.fetch(sessionPda);
+      const session = await programAccounts.session.fetch(sessionPda);
       expect(session.bytesUsed.toNumber()).to.equal(100_000_000);
       expect(session.requestsCount.toNumber()).to.equal(500);
     });
@@ -202,7 +203,7 @@ describe("session", () => {
         })
         .rpc();
 
-      const session = await program.account.session.fetch(sessionPda);
+      const session = await programAccounts.session.fetch(sessionPda);
       expect(session.qualityScore).to.equal(85);
       expect(session.status).to.deep.include({ completed: {} });
     });

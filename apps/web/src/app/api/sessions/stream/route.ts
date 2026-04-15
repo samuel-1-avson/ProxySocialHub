@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
 // events in real-time without buffering.
 export async function GET(req: NextRequest) {
     const token = req.nextUrl.searchParams.get('token') ?? '';
-    const backendUrl = process.env.API_URL || 'http://localhost:8081';
+    const backendUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18080';
     const upstream = `${backendUrl}/v1/sessions/stream?token=${encodeURIComponent(token)}`;
 
     const backendRes = await fetch(upstream, {

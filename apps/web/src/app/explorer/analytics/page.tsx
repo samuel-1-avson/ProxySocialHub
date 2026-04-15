@@ -404,7 +404,7 @@ export default function AnalyticsPage() {
                         ) : !mounted || nodeData.length === 0 ? (
                             <EmptyChart height={160} label="Awaiting indexed data" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={160}>
+                            <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
                                 <BarChart data={nodeData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                                     <XAxis dataKey="t" tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 8, fontFamily: 'monospace' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />

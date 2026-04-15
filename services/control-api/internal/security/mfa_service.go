@@ -144,14 +144,32 @@ type SessionService struct {
 
 // NewSessionService creates a new session service
 func NewSessionService() *SessionService {
-	return &SessionService{db: db.DB}
+	return &SessionService{}
+}
+
+func (s *SessionService) dbHandle() (*gorm.DB, error) {
+	if s.db != nil {
+		return s.db, nil
+	}
+
+	if db.DB == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	s.db = db.DB
+	return s.db, nil
 }
 
 // CreateSession creates a new user session
 func (s *SessionService) CreateSession(userID uuid.UUID, ip, userAgent string, expiresIn time.Duration) (*models.UserSession, string, error) {
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return nil, "", err
+	}
+
 	// Generate refresh token
 	tokenBytes := make([]byte, 32)
-	_, err := rand.Read(tokenBytes)
+	_, err = rand.Read(tokenBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -185,7 +203,7 @@ func (s *SessionService) CreateSession(userID uuid.UUID, ip, userAgent string, e
 		ExpiresAt:    time.Now().Add(expiresIn),
 	}
 
-	if err := s.db.Create(session).Error; err != nil {
+	if err := dbHandle.Create(session).Error; err != nil {
 		return nil, "", err
 	}
 
@@ -197,11 +215,16 @@ func (s *SessionService) CreateSession(userID uuid.UUID, ip, userAgent string, e
 
 // ValidateRefreshToken validates a refresh token and returns the session
 func (s *SessionService) ValidateRefreshToken(refreshToken string) (*models.UserSession, error) {
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return nil, err
+	}
+
 	tokenHash := sha256.Sum256([]byte(refreshToken))
 	tokenHashStr := hex.EncodeToString(tokenHash[:])
 
 	var session models.UserSession
-	if err := s.db.Where("refresh_token = ? AND is_active = true AND expires_at > ?",
+	if err := dbHandle.Where("refresh_token = ? AND is_active = true AND expires_at > ?",
 		tokenHashStr, time.Now()).First(&session).Error; err != nil {
 		return nil, err
 	}
@@ -211,9 +234,14 @@ func (s *SessionService) ValidateRefreshToken(refreshToken string) (*models.User
 
 // RotateRefreshToken rotates a refresh token (invalidates old, creates new)
 func (s *SessionService) RotateRefreshToken(session *models.UserSession) (string, error) {
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return "", err
+	}
+
 	// Generate new refresh token
 	tokenBytes := make([]byte, 32)
-	_, err := rand.Read(tokenBytes)
+	_, err = rand.Read(tokenBytes)
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +254,7 @@ func (s *SessionService) RotateRefreshToken(session *models.UserSession) (string
 	session.RefreshToken = hex.EncodeToString(tokenHash[:])
 	session.LastActiveAt = time.Now()
 
-	if err := s.db.Save(session).Error; err != nil {
+	if err := dbHandle.Save(session).Error; err != nil {
 		return "", err
 	}
 
@@ -235,7 +263,12 @@ func (s *SessionService) RotateRefreshToken(session *models.UserSession) (string
 
 // RevokeSession revokes a specific session
 func (s *SessionService) RevokeSession(sessionID uuid.UUID, reason string) error {
-	return s.db.Model(&models.UserSession{}).Where("id = ?", sessionID).Updates(map[string]interface{}{
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return err
+	}
+
+	return dbHandle.Model(&models.UserSession{}).Where("id = ?", sessionID).Updates(map[string]interface{}{
 		"is_active":     false,
 		"revoked_at":    time.Now(),
 		"revoke_reason": reason,
@@ -244,7 +277,12 @@ func (s *SessionService) RevokeSession(sessionID uuid.UUID, reason string) error
 
 // RevokeAllSessions revokes all sessions for a user
 func (s *SessionService) RevokeAllSessions(userID uuid.UUID, reason string) error {
-	return s.db.Model(&models.UserSession{}).Where("user_id = ? AND is_active = true", userID).Updates(map[string]interface{}{
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return err
+	}
+
+	return dbHandle.Model(&models.UserSession{}).Where("user_id = ? AND is_active = true", userID).Updates(map[string]interface{}{
 		"is_active":     false,
 		"revoked_at":    time.Now(),
 		"revoke_reason": reason,
@@ -254,7 +292,12 @@ func (s *SessionService) RevokeAllSessions(userID uuid.UUID, reason string) erro
 // RevokeTokenFamily revokes all tokens in a family (use when token reuse detected)
 func (s *SessionService) RevokeTokenFamily(tokenFamily string) error {
 	log.Printf("[SECURITY] Token family revoked due to potential theft: %s", tokenFamily[:8])
-	return s.db.Model(&models.UserSession{}).Where("token_family = ?", tokenFamily).Updates(map[string]interface{}{
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return err
+	}
+
+	return dbHandle.Model(&models.UserSession{}).Where("token_family = ?", tokenFamily).Updates(map[string]interface{}{
 		"is_active":     false,
 		"revoked_at":    time.Now(),
 		"revoke_reason": "Token reuse detected - potential theft",
@@ -263,28 +306,39 @@ func (s *SessionService) RevokeTokenFamily(tokenFamily string) error {
 
 // GetActiveSessions returns all active sessions for a user
 func (s *SessionService) GetActiveSessions(userID uuid.UUID) ([]models.UserSession, error) {
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		return nil, err
+	}
+
 	var sessions []models.UserSession
-	err := s.db.Where("user_id = ? AND is_active = true AND expires_at > ?", userID, time.Now()).
+	err = dbHandle.Where("user_id = ? AND is_active = true AND expires_at > ?", userID, time.Now()).
 		Order("last_active_at DESC").Find(&sessions).Error
 	return sessions, err
 }
 
 // enforceSessionLimit removes oldest sessions if limit exceeded
 func (s *SessionService) enforceSessionLimit(userID uuid.UUID) {
+	dbHandle, err := s.dbHandle()
+	if err != nil {
+		log.Printf("[SECURITY] unable to enforce session limit: %v", err)
+		return
+	}
+
 	// Get user settings for max sessions
 	var settings models.UserSettings
-	if err := s.db.Where("user_id = ?", userID).First(&settings).Error; err != nil {
+	if err := dbHandle.Where("user_id = ?", userID).First(&settings).Error; err != nil {
 		settings.MaxConcurrentSessions = 5 // Default
 	}
 
 	// Count active sessions
 	var count int64
-	s.db.Model(&models.UserSession{}).Where("user_id = ? AND is_active = true", userID).Count(&count)
+	dbHandle.Model(&models.UserSession{}).Where("user_id = ? AND is_active = true", userID).Count(&count)
 
 	if count > int64(settings.MaxConcurrentSessions) {
 		// Revoke oldest sessions
 		var oldestSessions []models.UserSession
-		s.db.Where("user_id = ? AND is_active = true", userID).
+		dbHandle.Where("user_id = ? AND is_active = true", userID).
 			Order("last_active_at ASC").
 			Limit(int(count) - settings.MaxConcurrentSessions).
 			Find(&oldestSessions)

@@ -22,14 +22,16 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         setMounted(true);
     }, []);
 
-    // Use devnet for development, mainnet-beta for production
-    const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet'
+    const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+    const network = rawNetwork === 'mainnet' || rawNetwork === 'mainnet-beta'
         ? 'mainnet-beta'
-        : 'devnet';
+        : rawNetwork === 'testnet'
+            ? 'testnet'
+            : 'devnet';
 
     const endpoint = useMemo(() => {
         // Allow custom RPC endpoint via environment variable
-        return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl(network);
+        return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || clusterApiUrl(network);
     }, [network]);
 
     const wallets = useMemo(

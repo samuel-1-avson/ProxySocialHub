@@ -17,6 +17,85 @@ import { useAuth } from '@/lib/auth';
 import { ProviderApplicationForm } from '@/components/ProviderApplicationForm';
 import { getProviderStatus } from '@/lib/api/provider';
 
+function ProviderApplicationStatusCard({
+    status,
+    createdAt,
+}: {
+    status: 'pending' | 'approved' | 'rejected';
+    createdAt?: string;
+}) {
+    const submittedAt = createdAt
+        ? new Date(createdAt).toLocaleString()
+        : null;
+
+    if (status === 'pending') {
+        return (
+            <div className="max-w-xl mx-auto py-20 px-4">
+                <div className="glass-card border-purple-500/20 bg-purple-500/5 p-8 space-y-6 text-center">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                        <Activity className="w-8 h-8 text-amber-400" />
+                    </div>
+                    <div className="space-y-2">
+                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-amber-400">Provider Application</div>
+                        <h1 className="text-2xl font-black uppercase tracking-tight">Application Under Review</h1>
+                        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                            Your provider application was submitted successfully and is waiting for manual approval. The current system does not auto-approve applications just because the linked wallet has enough SOL.
+                        </p>
+                    </div>
+                    {submittedAt && (
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-mono text-muted-foreground">
+                            Submitted: {submittedAt}
+                        </div>
+                    )}
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-left">
+                        <p className="text-[11px] font-mono uppercase text-amber-400 mb-2">What Happens Next</p>
+                        <p className="text-sm text-muted-foreground">
+                            An admin must approve the application through the provider applications workflow. Once approved, your role is upgraded to provider and this page will switch to the provider workspace automatically.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (status === 'approved') {
+        return (
+            <div className="max-w-xl mx-auto py-20 px-4">
+                <div className="glass-card border-emerald-500/20 bg-emerald-500/5 p-8 space-y-6 text-center">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
+                        <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                    </div>
+                    <div className="space-y-2">
+                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-400">Provider Application</div>
+                        <h1 className="text-2xl font-black uppercase tracking-tight">Application Approved</h1>
+                        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                            The application is approved. If you are still seeing this page, your session likely has stale user role data. Reload once or sign in again to enter the full provider workspace.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="max-w-xl mx-auto py-20 px-4 space-y-6">
+            <div className="glass-card border-red-500/20 bg-red-500/5 p-8 space-y-6 text-center">
+                <div className="w-16 h-16 mx-auto rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center">
+                    <AlertCircle className="w-8 h-8 text-red-400" />
+                </div>
+                <div className="space-y-2">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-red-400">Provider Application</div>
+                    <h1 className="text-2xl font-black uppercase tracking-tight">Application Rejected</h1>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                        The last provider application was rejected. You can correct the issue and submit a new application below.
+                    </p>
+                </div>
+            </div>
+            <ProviderApplicationForm />
+        </div>
+    );
+}
+
 export default function ProviderDashboard() {
     const { data: summary, isLoading: summaryLoading } = useQuery({
         queryKey: ['provider-earnings-summary'],
@@ -47,14 +126,16 @@ export default function ProviderDashboard() {
 
     // Role-based access control
     if (user?.role !== 'provider' && user?.role !== 'admin') {
-        // If they have a pending application, show a simplified status view
-        if (statusData?.application?.status === 'pending') {
+        const applicationStatus = statusData?.application?.status;
+        if (applicationStatus === 'pending' || applicationStatus === 'approved' || applicationStatus === 'rejected') {
             return (
-                <div className="max-w-xl mx-auto py-20 px-4">
-                    <ProviderApplicationForm />
-                </div>
+                <ProviderApplicationStatusCard
+                    status={applicationStatus}
+                    createdAt={statusData?.application?.created_at}
+                />
             );
         }
+
         return (
             <div className="max-w-xl mx-auto py-20 px-4">
                 <ProviderApplicationForm />

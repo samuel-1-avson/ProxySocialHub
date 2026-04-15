@@ -32,7 +32,7 @@ impl BridgeStats {
 /// Bridge two async streams bidirectionally with byte tracking.
 ///
 /// - Uses 64 KB buffers (vs the old 16 KB) to reduce syscall overhead.
-/// - Calls `should_continue(total_bytes)` every `revalidate_every` bytes.
+/// - Calls `should_continue(stats)` every `revalidate_every` bytes.
 ///   Return `false` from the callback to terminate the bridge early
 ///   (e.g., bandwidth limit reached).
 /// - `idle_timeout`: if `Some(d)`, the bridge is closed when neither direction
@@ -48,7 +48,7 @@ pub async fn bridge_tracked<A, B, F, Fut>(
 where
     A: AsyncRead + AsyncWrite + Unpin,
     B: AsyncRead + AsyncWrite + Unpin,
-    F: FnMut(u64) -> Fut,
+    F: FnMut(BridgeStats) -> Fut,
     Fut: Future<Output = bool>,
 {
     // 64 KB — keeps pipe buffers full on Linux, reduces select! iterations
@@ -119,7 +119,7 @@ where
         let total = stats.total();
         if total - last_reval_total >= revalidate_every {
             last_reval_total = total;
-            if !should_continue(total).await {
+            if !should_continue(stats).await {
                 warn!(
                     "Bridge terminated by revalidation callback at {} bytes",
                     total
@@ -291,7 +291,7 @@ mod tests {
         drop(p2);
 
         // Revalidate every 128 bytes, always return false → should terminate early
-        let stats = bridge_tracked(&mut c2, &mut p1, 128, None, |_total| async { false }).await;
+        let stats = bridge_tracked(&mut c2, &mut p1, 128, None, |_stats| async { false }).await;
 
         // Bridge terminated — bytes_from_client will be ≤ 256
         assert!(stats.bytes_from_client <= 256);

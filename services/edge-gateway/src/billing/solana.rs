@@ -2,18 +2,19 @@
 //!
 //! Submits ZK-proofs of usage to the on-chain verifier contract (Solana).
 
-use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::instruction::{AccountMeta, Instruction};
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{Keypair, Signer};
-use solana_sdk::system_program;
-use solana_sdk::transaction::Transaction;
+use solana_commitment_config::CommitmentConfig;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::{keypair_from_seed, read_keypair_file, Keypair};
+use solana_pubkey::Pubkey;
+use solana_sdk_ids::system_program;
+use solana_signer::Signer;
+use solana_transaction::Transaction;
+use std::convert::TryFrom;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
 use super::zk::{PublicInputs, UsageProof};
-use ark_serialize::CanonicalSerialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
@@ -64,10 +65,10 @@ impl SolanaRelayer {
             system_program::ID
         });
 
-        // Load keypair from SOLANA_PRIVATE_KEY env (base58-encoded secret key)
+        // Load keypair from SOLANA_PRIVATE_KEY / ORACLE_PRIVATE_KEY (base58-encoded secret key)
         // or SOLANA_KEYPAIR_PATH (JSON file path).
         let keypair = Self::load_keypair().unwrap_or_else(|| {
-            warn!("No SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH set — generating ephemeral keypair (devnet only)");
+            warn!("No SOLANA_PRIVATE_KEY, ORACLE_PRIVATE_KEY, or SOLANA_KEYPAIR_PATH set — generating ephemeral keypair (devnet only)");
             Keypair::new()
         });
 
@@ -89,18 +90,98 @@ impl SolanaRelayer {
     }
 
     fn load_keypair() -> Option<Keypair> {
-        // Try base58 secret key first
-        if let Ok(key_b58) = std::env::var("SOLANA_PRIVATE_KEY") {
-            let bytes = bs58::decode(key_b58.trim()).into_vec().ok()?;
-            return Keypair::from_bytes(&bytes).ok();
+        let signer_sources = [
+            ("SOLANA_PRIVATE_KEY", std::env::var("SOLANA_PRIVATE_KEY").ok()),
+            ("ORACLE_PRIVATE_KEY", std::env::var("ORACLE_PRIVATE_KEY").ok()),
+        ];
+        let path_sources = [
+            ("SOLANA_KEYPAIR_PATH", std::env::var("SOLANA_KEYPAIR_PATH").ok()),
+            ("ORACLE_KEYPAIR_PATH", std::env::var("ORACLE_KEYPAIR_PATH").ok()),
+        ];
+
+        Self::load_keypair_from_inputs(&signer_sources, &path_sources)
+    }
+
+    fn load_keypair_from_inputs(
+        signer_sources: &[(impl AsRef<str>, Option<String>)],
+        path_sources: &[(impl AsRef<str>, Option<String>)],
+    ) -> Option<Keypair> {
+        for (source_name, candidate) in signer_sources {
+            let Some(raw_value) = candidate.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+                continue;
+            };
+
+            if let Some(keypair) = Self::parse_keypair_value(raw_value) {
+                info!(source = source_name.as_ref(), signer = %keypair.pubkey(), "Loaded Solana signer from environment input");
+                return Some(keypair);
+            }
+
+            warn!(source = source_name.as_ref(), "Ignoring invalid Solana signer value and falling back to other inputs");
         }
-        // Try JSON keypair file (Solana CLI format: array of 64 u8 values)
-        if let Ok(path) = std::env::var("SOLANA_KEYPAIR_PATH") {
-            let data = std::fs::read_to_string(path).ok()?;
-            let nums: Vec<u8> = serde_json::from_str(&data).ok()?;
-            return Keypair::from_bytes(&nums).ok();
+
+        for (source_name, candidate) in path_sources {
+            let Some(path) = candidate.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+                continue;
+            };
+
+            match read_keypair_file(path) {
+                Ok(keypair) => {
+                    info!(source = source_name.as_ref(), path, signer = %keypair.pubkey(), "Loaded Solana signer from keypair file");
+                    return Some(keypair);
+                }
+                Err(err) => {
+                    warn!(source = source_name.as_ref(), path, error = %err, "Failed to load Solana signer file");
+                }
+            }
         }
+
         None
+    }
+
+    fn parse_keypair_value(raw_value: &str) -> Option<Keypair> {
+        Self::parse_base58_keypair(raw_value)
+            .or_else(|| Self::parse_hex_keypair(raw_value))
+            .or_else(|| Self::parse_json_keypair(raw_value))
+            .or_else(|| Self::parse_keypair_path(raw_value))
+    }
+
+    fn parse_base58_keypair(raw_value: &str) -> Option<Keypair> {
+        let bytes = bs58::decode(raw_value).into_vec().ok()?;
+        Self::keypair_from_bytes(&bytes)
+    }
+
+    fn parse_hex_keypair(raw_value: &str) -> Option<Keypair> {
+        let normalized = raw_value.strip_prefix("0x").unwrap_or(raw_value);
+        if normalized.is_empty()
+            || normalized.len() % 2 != 0
+            || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return None;
+        }
+
+        let bytes = hex::decode(normalized).ok()?;
+        Self::keypair_from_bytes(&bytes)
+    }
+
+    fn parse_json_keypair(raw_value: &str) -> Option<Keypair> {
+        let bytes: Vec<u8> = serde_json::from_str(raw_value).ok()?;
+        Self::keypair_from_bytes(&bytes)
+    }
+
+    fn parse_keypair_path(raw_value: &str) -> Option<Keypair> {
+        if !std::path::Path::new(raw_value).exists() {
+            return None;
+        }
+
+        read_keypair_file(raw_value).ok()
+    }
+
+    fn keypair_from_bytes(bytes: &[u8]) -> Option<Keypair> {
+        match bytes.len() {
+            64 => Keypair::try_from(bytes).ok(),
+            32 => keypair_from_seed(bytes).ok(),
+            _ => None,
+        }
     }
 
     /// Derive the PDA for a ZK batch on-chain account.
@@ -311,5 +392,62 @@ impl SolanaRelayer {
         let sig_str = signature.to_string();
         info!("Slash transaction confirmed: {}", sig_str);
         Ok(sig_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn seeded_keypair(seed_byte: u8) -> Keypair {
+        keypair_from_seed(&[seed_byte; 32]).expect("seeded keypair")
+    }
+
+    fn write_keypair_file(keypair: &Keypair) -> String {
+        let path = std::env::temp_dir().join(format!(
+            "edge-gateway-keypair-{}.json",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let serialized = format!(
+            "[{}]",
+            keypair
+                .to_bytes()
+                .iter()
+                .map(|byte| byte.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        fs::write(&path, serialized).expect("write keypair file");
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn parses_hex_seed_keypairs() {
+        let expected = seeded_keypair(7);
+        let parsed = SolanaRelayer::parse_keypair_value(&hex::encode([7u8; 32]))
+            .expect("hex seed should parse");
+
+        assert_eq!(parsed.pubkey(), expected.pubkey());
+    }
+
+    #[test]
+    fn falls_back_to_keypair_file_when_env_value_is_blank() {
+        let expected = seeded_keypair(9);
+        let path = write_keypair_file(&expected);
+
+        let parsed = SolanaRelayer::load_keypair_from_inputs(
+            &[("ORACLE_PRIVATE_KEY", Some(String::new()))],
+            &[("SOLANA_KEYPAIR_PATH", Some(path.clone()))],
+        )
+        .expect("keypair file should be used");
+
+        assert_eq!(parsed.pubkey(), expected.pubkey());
+
+        let _ = fs::remove_file(path);
     }
 }

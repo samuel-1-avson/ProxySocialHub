@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
 import { Loader2, Activity, Zap, Server, Globe, ArrowRight, BarChart3, TrendingUp } from 'lucide-react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
  
 interface NetworkStatus {
     total_nodes: number;

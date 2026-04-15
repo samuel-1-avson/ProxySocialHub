@@ -45,6 +45,7 @@ func Init() error {
 		subjects []string
 	}{
 		{name: "SESSIONS", subjects: []string{"proxy.sessions.v1.>"}},
+		{name: "SETTLEMENT", subjects: []string{"proxy.settlement.v1.>"}},
 		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}},
 		{name: "MESSAGING", subjects: []string{"proxy.messaging.v1.>"}},
 	}

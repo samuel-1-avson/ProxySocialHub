@@ -161,13 +161,19 @@ func refreshSession(c *gin.Context) {
 		walletAddress = *user.WalletAddress
 	}
 
+	jwtSecret, err := requireJWTSecret()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
+		return
+	}
+
 	accessTTL := authAccessTokenTTL()
 	accessToken, err := crypto.GenerateToken(
 		user.ID,
 		user.Role,
 		user.Email,
 		walletAddress,
-		mustJWTSecret(),
+		jwtSecret,
 		accessTTL,
 	)
 	if err != nil {
@@ -278,10 +284,10 @@ func randomHex(numBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func mustJWTSecret() string {
+func requireJWTSecret() (string, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if secret == "" {
-		return "proxyhubb-dev-secret-change-in-production"
+		return "", errors.New("JWT_SECRET is not configured")
 	}
-	return secret
+	return secret, nil
 }

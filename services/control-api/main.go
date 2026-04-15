@@ -38,9 +38,10 @@ import (
 )
 
 func main() {
-	// Load environment variables from .env file
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: .env file not found or failed to load: %v", err)
+	// Load environment variables from ignored local overrides first, then the tracked template.
+	// godotenv does not override existing values, so .env.local wins over .env.
+	if err := godotenv.Load(".env.local", ".env"); err != nil {
+		log.Printf("Warning: env files not found or failed to load: %v", err)
 	}
 
 	// Initialise alert channels (Slack / email) — must be first so all downstream code can call alerts.Send()
@@ -427,6 +428,7 @@ func main() {
 	{
 		api.RegisterProviderNodeRoutes(protected)
 		api.RegisterProviderTokenRoutes(protected)
+		api.RegisterProviderLeaseRoutes(protected)
 		api.RegisterProviderEarningsRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
 		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
@@ -722,6 +724,14 @@ func main() {
 	zkWorker := worker.NewZKSettlementWorker()
 	zkWorker.Start(context.Background())
 	log.Println("ZK-Settlement Worker started")
+
+	// Start receipt-to-manifest coordinator worker for durable metering ingestion.
+	settlementCoordinator := worker.NewSettlementCoordinatorWorker()
+	if err := settlementCoordinator.Start(context.Background()); err != nil {
+		log.Printf("Failed to start Settlement Coordinator Worker: %v", err)
+	} else {
+		log.Println("Settlement Coordinator Worker started")
+	}
 
 	// Start Marketplace Watcher (Phase 9.1 Real-time Telemetry)
 	mw := worker.NewMarketplaceWatcher()

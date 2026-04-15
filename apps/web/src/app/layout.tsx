@@ -8,6 +8,7 @@ import { QueryProvider } from "@/providers/QueryProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastContainer } from "@/components/Toast";
 import { SkipLink } from "@/components/Accessibility";
+import { OptionalEvmWalletProvider } from "@/lib/optional-evm-wallet-provider";
 
 // Replaced Google Fonts with a standard system stack to fix Docker build errors (Network/DNS issues)
 // const geistSans = Geist({
@@ -24,8 +25,6 @@ export const metadata: Metadata = {
   title: "ProxyHub - Ghana's Premium Proxy Marketplace",
   description: "Access reliable Ghana residential proxies or earn by sharing your bandwidth.",
 };
-
-import { Web3Provider } from "@/lib/web3-provider";
 
 export default function RootLayout({
   children,
@@ -46,14 +45,14 @@ export default function RootLayout({
         >
           <QueryProvider>
             <SolanaWalletProvider>
-              <Web3Provider>
+              <OptionalEvmWalletProvider>
                 <AuthProvider>
                   <ErrorBoundary level="page">
                     {children}
                   </ErrorBoundary>
                   <ToastContainer />
                 </AuthProvider>
-              </Web3Provider>
+              </OptionalEvmWalletProvider>
             </SolanaWalletProvider>
           </QueryProvider>
         </ThemeProvider>

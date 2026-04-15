@@ -200,19 +200,28 @@ func getAnalyticsOverview(c *gin.Context) {
 	var totalNodes int64
 	var avgQuality float64
 	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Count(&totalNodes)
-	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Select("AVG(quality_score)").Scan(&avgQuality)
+	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Select("COALESCE(AVG(quality_score), 0)").Scan(&avgQuality)
 
-	// Fetch wallet balance and pending payouts from ledger
+	// Fetch wallet balance as a compatibility fallback for older records.
 	var wallet models.Wallet
 	db.DB.Where("user_id = ?", userID).First(&wallet)
 
-	// Count active (unclaimed) payouts from circle revenue
-	var activePayouts int64
-	db.DB.Table("circle_revenues").Where("provider_id = ? AND claimed = false", userID).Count(&activePayouts)
+	// Provider earnings is the migrated source of truth for provider payout state.
+	type ProviderEarningsStats struct {
+		ActivePayouts int64
+		TotalEarnings float64
+	}
+	var earningsStats ProviderEarningsStats
+	db.DB.Model(&models.ProviderEarning{}).
+		Where("provider_user_id = ? AND deleted_at IS NULL", userID).
+		Select(`
+			COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS active_payouts,
+			COALESCE(SUM(net_amount_sol), 0) AS total_earnings
+		`).
+		Scan(&earningsStats)
 
-	// Sum total earnings from circle revenue history
-	var totalEarnings float64
-	db.DB.Table("circle_revenues").Where("provider_id = ?", userID).Select("COALESCE(SUM(amount), 0)").Scan(&totalEarnings)
+	activePayouts := earningsStats.ActivePayouts
+	totalEarnings := earningsStats.TotalEarnings
 	if totalEarnings == 0 {
 		totalEarnings = wallet.BalanceSOL
 	}
@@ -542,7 +551,7 @@ func getAvailableRegions(c *gin.Context) {
 	}
 
 	if len(regions) == 0 {
-		// P2: In a live system with zero nodes, we return an empty list 
+		// P2: In a live system with zero nodes, we return an empty list
 		// to allow the UI to show an appropriate "No regions available" state.
 		regions = []RegionInfo{}
 	}
