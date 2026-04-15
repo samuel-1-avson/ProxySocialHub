@@ -1,4 +1,5 @@
 import { API_BASE_URL, fetchWithAuth } from './client';
+import type { CreateSessionIntentResponse } from '../api/sessions';
 
 export interface Session {
     id: string;
@@ -18,13 +19,13 @@ export interface Session {
     bytes_limit?: number;
 }
 
-export async function createSession(type: 'rotating' | 'sticky', nodeId?: string): Promise<{ session: Session; proxy_credentials: { username: string; password: string; endpoint: string } }> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/sessions/`, {
+export async function createSession(type: 'rotating' | 'sticky', nodeId?: string): Promise<CreateSessionIntentResponse> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/sessions/intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, preferred_node_id: nodeId }),
+        body: JSON.stringify({ type, listing_id: nodeId }),
     });
-    if (!response.ok) throw new Error('Failed to create session');
+    if (!response.ok) throw new Error('Failed to issue session intent');
     return response.json();
 }
 

@@ -7,7 +7,7 @@ import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, Refres
 import { getErrorMessage } from '@/lib/utils';
 import { SessionsPanel, AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 type TabType = '2fa' | 'sessions' | 'alerts' | 'history';
 

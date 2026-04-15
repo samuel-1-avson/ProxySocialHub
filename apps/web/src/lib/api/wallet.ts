@@ -10,6 +10,9 @@ import { apiGet, apiPost, apiDeleteWithBody } from './client';
 export interface Wallet {
     id: string;
     balance_sol: number;
+    on_chain_sol?: number;
+    available_sol?: number;
+    solana_network?: string;
     transactions?: WalletTransaction[];
     linked_solana_address?: string;
     created_at: string;

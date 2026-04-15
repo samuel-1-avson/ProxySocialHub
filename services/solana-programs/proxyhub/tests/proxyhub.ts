@@ -10,6 +10,7 @@ describe("proxyhub", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.Proxyhub as Program;
+  const programAccounts = program.account as any;
   const admin = provider.wallet as anchor.Wallet;
 
   // Reusable keypairs
@@ -128,7 +129,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const state = await program.account.programState.fetch(programStatePda);
+      const state = await programAccounts.programState.fetch(programStatePda);
       expect(state.admin.toBase58()).to.equal(admin.publicKey.toBase58());
       expect(state.paused).to.be.false;
       expect(state.minOracleSignatures).to.equal(3);
@@ -170,7 +171,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const state = await program.account.programState.fetch(programStatePda);
+      const state = await programAccounts.programState.fetch(programStatePda);
       expect(state.paused).to.be.true;
       expect(state.pausedAt.toNumber()).to.be.greaterThan(0);
     });
@@ -186,7 +187,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const state = await program.account.programState.fetch(programStatePda);
+      const state = await programAccounts.programState.fetch(programStatePda);
       expect(state.paused).to.be.false;
     });
 
@@ -231,7 +232,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const state = await program.account.programState.fetch(programStatePda);
+      const state = await programAccounts.programState.fetch(programStatePda);
       expect(state.pendingAdmin.toBase58()).to.equal(newAdmin.publicKey.toBase58());
     });
 
@@ -247,7 +248,7 @@ describe("proxyhub", () => {
         .signers([newAdmin])
         .rpc();
 
-      const state = await program.account.programState.fetch(programStatePda);
+      const state = await programAccounts.programState.fetch(programStatePda);
       expect(state.admin.toBase58()).to.equal(newAdmin.publicKey.toBase58());
     });
 
@@ -294,7 +295,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const mso = await program.account.multiSigOracle.fetch(msoPda);
+      const mso = await programAccounts.multiSigOracle.fetch(msoPda);
       expect(mso.signers.length).to.equal(3);
       expect(mso.threshold).to.equal(3);
       expect(mso.nonce.toNumber()).to.equal(0);
@@ -312,7 +313,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const mso = await program.account.multiSigOracle.fetch(msoPda);
+      const mso = await programAccounts.multiSigOracle.fetch(msoPda);
       expect(mso.threshold).to.equal(2);
     });
   });
@@ -352,7 +353,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const proposal = await program.account.governanceProposal.fetch(proposalPda);
+      const proposal = await programAccounts.governanceProposal.fetch(proposalPda);
       expect(proposal.status).to.equal(0); // active
       expect(proposal.voteYes.toNumber()).to.equal(0);
       expect(proposal.voteNo.toNumber()).to.equal(0);
@@ -374,11 +375,11 @@ describe("proxyhub", () => {
         .signers([buyer])
         .rpc();
 
-      const proposal = await program.account.governanceProposal.fetch(proposalPda);
+      const proposal = await programAccounts.governanceProposal.fetch(proposalPda);
       expect(proposal.voteYes.toNumber()).to.equal(1000);
       expect(proposal.voteNo.toNumber()).to.equal(0);
 
-      const vote = await program.account.governanceVote.fetch(votePda);
+      const vote = await programAccounts.governanceVote.fetch(votePda);
       expect(vote.voteYes).to.be.true;
       expect(vote.votingPower.toNumber()).to.equal(1000);
     });
@@ -399,7 +400,7 @@ describe("proxyhub", () => {
         .signers([seller])
         .rpc();
 
-      const proposal = await program.account.governanceProposal.fetch(proposalPda);
+      const proposal = await programAccounts.governanceProposal.fetch(proposalPda);
       expect(proposal.voteYes.toNumber()).to.equal(1000);
       expect(proposal.voteNo.toNumber()).to.equal(500);
     });
@@ -458,7 +459,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const batch = await program.account.zkbatchPda.fetch(batchPda);
+      const batch = await programAccounts.zkbatchPda.fetch(batchPda);
       expect(batch.sessionCount).to.equal(10);
       expect(batch.totalBytes.toNumber()).to.equal(1_000_000_000);
     });
@@ -512,7 +513,7 @@ describe("proxyhub", () => {
         })
         .rpc();
 
-      const attest = await program.account.kycAttestation.fetch(attestPda);
+      const attest = await programAccounts.kycAttestation.fetch(attestPda);
       expect(attest.trustTier).to.equal(1);
       expect(attest.kycStatus).to.equal(2);
     });
@@ -545,7 +546,7 @@ describe("proxyhub", () => {
         .signers([buyer])
         .rpc();
 
-      const channel = await program.account.channelPda.fetch(channelPda);
+      const channel = await programAccounts.channelPda.fetch(channelPda);
       expect(channel.buyer.toBase58()).to.equal(buyer.publicKey.toBase58());
       expect(channel.provider.toBase58()).to.equal(seller.publicKey.toBase58());
       expect(channel.depositLamports.toNumber()).to.equal(LAMPORTS_PER_SOL);
@@ -582,7 +583,7 @@ describe("proxyhub", () => {
           })
           .rpc();
 
-        const proof = await program.account.usageProofRecord.fetch(proofPda);
+        const proof = await programAccounts.usageProofRecord.fetch(proofPda);
         expect(proof.totalBytes.toNumber()).to.equal(500_000_000);
       } catch (err: any) {
         // May fail if escrow validation is strict; that's valid behavior

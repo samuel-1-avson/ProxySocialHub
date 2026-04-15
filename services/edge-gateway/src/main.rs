@@ -48,8 +48,9 @@ use crate::state::AppState;
 
 // ... (existing imports and code)
 
-/// Extract username from Proxy-Authorization header
-/// Format: "Basic base64(username:password)"
+/// Extract proxy auth credentials from `Proxy-Authorization`.
+/// Legacy mode uses `username:password` session credentials.
+/// V2 intent mode uses `session-intent:<jwt>` or `intent:<jwt>`.
 pub(crate) fn extract_proxy_auth(header: Option<&HeaderValue>) -> Option<(String, String)> {
     let header = header?;
     let value = header.to_str().ok()?;
@@ -70,6 +71,111 @@ pub(crate) fn extract_proxy_auth(header: Option<&HeaderValue>) -> Option<(String
     }
 
     Some((parts[0].to_string(), parts[1].to_string()))
+}
+
+pub(crate) async fn sync_session_intent_lifecycle(
+    state: Arc<AppState>,
+    session: &crate::auth::SessionData,
+    lifecycle_state: &str,
+    provider_node_id: Option<&str>,
+    target_host: Option<&str>,
+) {
+    if !session.is_session_intent() {
+        return;
+    }
+
+    if let Err(err) = state
+        .control_api
+        .update_session_intent_state(
+            &session.session_id,
+            lifecycle_state,
+            provider_node_id,
+            target_host,
+        )
+        .await
+    {
+        warn!(
+            intent_id = %session.session_id,
+            lifecycle_state = %lifecycle_state,
+            error = %err,
+            "Failed to sync session intent lifecycle"
+        );
+    }
+}
+
+pub(crate) async fn sync_session_intent_usage(
+    state: Arc<AppState>,
+    session: &crate::auth::SessionData,
+    provider_node_id: Option<&str>,
+    target_host: Option<&str>,
+    bytes_up_delta: u64,
+    bytes_down_delta: u64,
+) {
+    if !session.is_session_intent() || (bytes_up_delta == 0 && bytes_down_delta == 0) {
+        return;
+    }
+
+    let up_delta = bytes_up_delta.min(i64::MAX as u64) as i64;
+    let down_delta = bytes_down_delta.min(i64::MAX as u64) as i64;
+
+    if let Err(err) = state
+        .control_api
+        .update_session_intent_usage(
+            &session.session_id,
+            provider_node_id,
+            target_host,
+            up_delta,
+            down_delta,
+        )
+        .await
+    {
+        warn!(
+            intent_id = %session.session_id,
+            bytes_up_delta = up_delta,
+            bytes_down_delta = down_delta,
+            error = %err,
+            "Failed to sync session intent usage"
+        );
+    }
+}
+
+pub(crate) async fn finalize_session_intent_ledger(
+    state: Arc<AppState>,
+    session: &crate::auth::SessionData,
+    provider_node_id: Option<&str>,
+    target_host: Option<&str>,
+    bytes_up_delta: u64,
+    bytes_down_delta: u64,
+) {
+    if !session.is_session_intent() {
+        return;
+    }
+
+    sync_session_intent_lifecycle(
+        state.clone(),
+        session,
+        "closing",
+        provider_node_id,
+        target_host,
+    )
+    .await;
+    sync_session_intent_usage(
+        state.clone(),
+        session,
+        provider_node_id,
+        target_host,
+        bytes_up_delta,
+        bytes_down_delta,
+    )
+    .await;
+    sync_session_intent_lifecycle(
+        state,
+        session,
+        "ledger_committed",
+        provider_node_id,
+        target_host,
+    )
+    .await;
 }
 
 fn full_decentralization_enabled() -> bool {
@@ -337,24 +443,29 @@ async fn proxy(
 
         // Extract session data for routing decisions
         let (session_username, session_data) = match credentials {
-            Some((username, _password)) => {
-                // Validate session in Redis
-                match authenticator.validate_session(&username, false).await {
-                    Ok(Some(session)) => {
+            Some((username, password)) => {
+                match authenticator
+                    .resolve_proxy_auth(&username, &password, &state.config.gateway_shared_secret)
+                    .await
+                {
+                    Ok(Some(resolved)) => {
                         info!(
                             "✅ Authenticated session: {} (Role: {}, Tier: {}, Type: {})",
-                            username, session.user_id, session.trust_tier, session.session_type
+                            resolved.username,
+                            resolved.session.user_id,
+                            resolved.session.trust_tier,
+                            resolved.session.session_type
                         );
 
                         // Update active sessions metric
                         metrics::ACTIVE_SESSIONS.inc();
 
                         // Record geographic connection if available
-                        if !session.target_geo.is_empty() {
-                            metrics::record_connection_by_country(&session.target_geo);
+                        if !resolved.session.target_geo.is_empty() {
+                            metrics::record_connection_by_country(&resolved.session.target_geo);
                         }
 
-                        (Some(username), Some(session))
+                        (Some(resolved.username), Some(resolved.session))
                     }
                     Ok(None) => {
                         warn!("❌ Invalid or expired session attempt: {}", username);
@@ -589,6 +700,13 @@ async fn proxy(
                 &session_id,
                 is_sticky,
                 authenticator.clone(),
+                session_data.as_ref().and_then(|session| {
+                    if session.target_geo.is_empty() {
+                        None
+                    } else {
+                        Some(session.target_geo.as_str())
+                    }
+                }),
                 Some(&dest_host),
             )
             .await
@@ -744,6 +862,7 @@ async fn proxy(
                             tunnel_state,
                             auth_clone.clone(),
                             username.clone(),
+                            session_data.clone(),
                             bandwidth_cap,
                             Some(dest_host),
                         )
@@ -902,6 +1021,7 @@ async fn select_best_provider(
     session_id: &str,
     is_sticky: bool,
     authenticator: Arc<SessionAuthenticator>,
+    target_geo: Option<&str>,
     target_domain: Option<&str>,
 ) -> std::io::Result<Option<(yamux::Control, String)>> {
     // Use configured TTL
@@ -961,8 +1081,14 @@ async fn select_best_provider(
             Some((control, bound_node_id.clone()))
         } else {
             warn!("📍 Sticky miss: Bound node {} is unavailable for session {}, selecting best candidate", bound_node_id, session_id);
-            state.registry.get_best()
+            state.registry.get_best_for(target_geo, None)
         }
+    } else if let Some((control, node_id)) = state.registry.get_best_for(target_geo, None) {
+        info!(
+            "🧩 Shard-routed to node {} for session {}",
+            node_id, session_id
+        );
+        Some((control, node_id))
     } else if let Some((control, node_id)) = state.select_provider_ml(target_domain) {
         info!(
             "🎯 ML-routed to node {} for session {}",
@@ -1012,6 +1138,7 @@ async fn bridge_to_provider(
     state: Arc<AppState>,
     auth_clone: Arc<SessionAuthenticator>,
     username: String,
+    session_data: Option<crate::auth::SessionData>,
     bandwidth_cap: u32, // bytes/sec — tier-specific (B-05)
     target_domain: Option<String>,
 ) -> std::io::Result<(u64, u64)> {
@@ -1096,6 +1223,24 @@ async fn bridge_to_provider(
     {
         Ok(stream) => {
             info!("🔗 Connected to provider {} for {}", node_id, addr_for_log);
+            if let Some(ref session) = session_data {
+                sync_session_intent_lifecycle(
+                    state.clone(),
+                    session,
+                    "routed",
+                    Some(&node_id),
+                    target_domain.as_deref(),
+                )
+                .await;
+                sync_session_intent_lifecycle(
+                    state.clone(),
+                    session,
+                    "active",
+                    Some(&node_id),
+                    target_domain.as_deref(),
+                )
+                .await;
+            }
             // Record success in ML feature cache (P3-W12)
             state
                 .feature_cache
@@ -1118,6 +1263,12 @@ async fn bridge_to_provider(
 
             let auth_for_reval = auth_clone.clone();
             let username_for_reval = username.clone();
+            let session_for_reval = session_data.clone();
+            let state_for_reval = state.clone();
+            let node_id_for_reval = node_id.clone();
+            let target_host_for_reval = target_domain.clone();
+            let last_usage_synced = Arc::new(std::sync::Mutex::new(proxy::zerocopy::BridgeStats::default()));
+            let last_usage_synced_for_reval = last_usage_synced.clone();
             let idle_timeout = Some(std::time::Duration::from_secs(
                 state.config.proxy_idle_timeout_secs,
             ));
@@ -1126,17 +1277,53 @@ async fn bridge_to_provider(
                 &mut stream,
                 100 * 1024 * 1024, // revalidate every 100 MB
                 idle_timeout,
-                move |_total| {
+                move |current_stats| {
                     let auth = auth_for_reval.clone();
                     let u = username_for_reval.clone();
+                    let session = session_for_reval.clone();
+                    let state = state_for_reval.clone();
+                    let node_id = node_id_for_reval.clone();
+                    let target_host = target_host_for_reval.clone();
+                    let (delta_up, delta_down) = {
+                        let mut last = last_usage_synced_for_reval
+                            .lock()
+                            .expect("usage sync mutex poisoned");
+                        let delta_up = current_stats
+                            .bytes_from_client
+                            .saturating_sub(last.bytes_from_client);
+                        let delta_down = current_stats
+                            .bytes_from_provider
+                            .saturating_sub(last.bytes_from_provider);
+                        *last = current_stats;
+                        (delta_up, delta_down)
+                    };
                     async move {
-                        match auth.validate_session(&u, true).await {
-                            Ok(Some(_)) => true,
-                            _ => {
-                                warn!("🛑 Session {} limit reached. Terminating.", u);
-                                false
+                        if let Some(session) = session.as_ref() {
+                            crate::sync_session_intent_usage(
+                                state.clone(),
+                                session,
+                                Some(&node_id),
+                                target_host.as_deref(),
+                                delta_up,
+                                delta_down,
+                            )
+                            .await;
+                            if crate::auth::revalidate_live_session(&auth, &u, session).await {
+                                return true;
+                            }
+                            if session.is_session_intent() {
+                                crate::sync_session_intent_lifecycle(
+                                    state,
+                                    session,
+                                    "closing",
+                                    Some(&node_id),
+                                    target_host.as_deref(),
+                                )
+                                .await;
                             }
                         }
+                        warn!("🛑 Session {} limit reached. Terminating.", u);
+                        false
                     }
                 },
             )
@@ -1144,6 +1331,21 @@ async fn bridge_to_provider(
 
             let from_client = stats.bytes_from_client;
             let from_provider = stats.bytes_from_provider;
+
+            if let Some(ref session) = session_data {
+                let last_synced = *last_usage_synced
+                    .lock()
+                    .expect("usage sync mutex poisoned");
+                crate::finalize_session_intent_ledger(
+                    state.clone(),
+                    session,
+                    Some(&node_id),
+                    target_domain.as_deref(),
+                    from_client.saturating_sub(last_synced.bytes_from_client),
+                    from_provider.saturating_sub(last_synced.bytes_from_provider),
+                )
+                .await;
+            }
 
             // Report final usage
             let total_bytes = from_client + from_provider;

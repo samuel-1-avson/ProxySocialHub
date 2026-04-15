@@ -1,5 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const localDevURL = 'http://localhost:4001';
+const baseURL = process.env.TEST_BASE_URL || localDevURL;
+const webServer = process.env.TEST_BASE_URL
+  ? undefined
+  : {
+      command: 'npm run dev -- --webpack',
+      env: {
+        ...process.env,
+        PLAYWRIGHT_E2E_AUTH_BYPASS: '1',
+      },
+      url: localDevURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+    };
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -11,7 +26,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
-    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3006',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -38,10 +53,5 @@ export default defineConfig({
       use: { ...devices['iPhone 12'] },
     },
   ],
-  webServer: {
-    command: 'npm run start',
-    url: 'http://localhost:3006',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
+  webServer,
 });

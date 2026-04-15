@@ -43,7 +43,7 @@ export default function CreateListingPage() {
         setError("");
 
         try {
-            const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+            const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
             const response = await fetchWithAuth(`${apiBase}/v1/listings`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

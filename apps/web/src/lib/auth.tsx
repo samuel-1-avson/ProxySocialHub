@@ -5,7 +5,10 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+// Browser auth calls should stay same-origin and flow through the Next.js
+// /v1 rewrite layer. That keeps Docker/internal backend origins out of the
+// client bundle and avoids direct browser calls to localhost-style API hosts.
+const API_BASE_URL = '';
 const ACCESS_TOKEN_STORAGE_KEY = 'proxyhubb_token';
 const REFRESH_TOKEN_STORAGE_KEY = 'proxyhubb_refresh_token';
 const ACCESS_TOKEN_REFRESH_LEEWAY_MS = 60_000;

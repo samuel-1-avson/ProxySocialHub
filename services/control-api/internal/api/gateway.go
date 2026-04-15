@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
 // RegisterGatewayRoutes registers gateway-specific routes (called by Edge Gateway)
@@ -25,16 +26,163 @@ func RegisterGatewayRoutes(rg *gin.RouterGroup, cfg *config.Config) {
 		gateway.POST("/nodes/register", registerGatewayNode)
 		gateway.POST("/nodes/:id/heartbeat", updateGatewayNodeHeartbeat)
 		gateway.POST("/nodes/:id/status", updateGatewayNodeStatus)
+		gateway.POST("/session-intents/:id/state", updateGatewaySessionIntentState)
+		gateway.POST("/session-intents/:id/usage", updateGatewaySessionIntentUsage)
 	}
+}
+
+type GatewaySessionIntentStateRequest struct {
+	LifecycleState string `json:"lifecycle_state" binding:"required"`
+	ProviderNodeID string `json:"provider_node_id"`
+	TargetHost     string `json:"target_host"`
+}
+
+type GatewaySessionIntentUsageRequest struct {
+	ProviderNodeID string `json:"provider_node_id"`
+	TargetHost     string `json:"target_host"`
+	BytesUpDelta   int64  `json:"bytes_up_delta"`
+	BytesDownDelta int64  `json:"bytes_down_delta"`
+}
+
+func updateGatewaySessionIntentState(c *gin.Context) {
+	intentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session intent ID"})
+		return
+	}
+
+	var req GatewaySessionIntentStateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var record models.SessionIntentRecord
+	if err := db.DB.Where("id = ? AND deleted_at IS NULL", intentID).First(&record).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session intent not found"})
+		return
+	}
+	if err := syncSessionIntentExpiration(&record); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session intent state"})
+		return
+	}
+
+	now := time.Now().UTC()
+	updates := map[string]interface{}{
+		"last_seen_at": now,
+	}
+	if providerNodeID := strings.TrimSpace(req.ProviderNodeID); providerNodeID != "" {
+		updates["provider_node_id"] = providerNodeID
+	}
+	if targetHost := strings.TrimSpace(req.TargetHost); targetHost != "" {
+		updates["target_host"] = targetHost
+	}
+
+	nextState := models.SessionIntentLifecycle(strings.TrimSpace(req.LifecycleState))
+	if !isSupportedGatewaySessionIntentLifecycle(nextState) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported lifecycle_state"})
+		return
+	}
+	if !canAdvanceGatewaySessionIntentLifecycle(record.LifecycleState, nextState) {
+		c.JSON(http.StatusConflict, gin.H{"error": "Invalid lifecycle transition"})
+		return
+	}
+
+	if nextState.IsPreActivation() && now.After(record.ExpiresAt) {
+		nextState = models.SessionIntentExpired
+	}
+	if nextState == models.SessionIntentActive && record.ExpiresAt.Before(now) && record.LifecycleState.IsPreActivation() {
+		nextState = models.SessionIntentExpired
+	}
+	applySessionIntentLifecycleTransition(&record, updates, nextState, now)
+
+	if err := db.DB.Model(&record).Updates(updates).Error; err != nil {
+		logging.Error(err).Str("intent_id", intentID.String()).Msg("Failed to update session intent state")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session intent state"})
+		return
+	}
+
+	if err := db.DB.Where("id = ?", intentID).First(&record).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload session intent state"})
+		return
+	}
+
+	c.JSON(http.StatusOK, buildSessionIntentStatusResponse(&record))
+}
+
+func updateGatewaySessionIntentUsage(c *gin.Context) {
+	intentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session intent ID"})
+		return
+	}
+
+	var req GatewaySessionIntentUsageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var record models.SessionIntentRecord
+	if err := db.DB.Where("id = ? AND deleted_at IS NULL", intentID).First(&record).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session intent not found"})
+		return
+	}
+
+	if err := syncSessionIntentExpiration(&record); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session intent state"})
+		return
+	}
+
+	now := time.Now().UTC()
+	updates := map[string]interface{}{
+		"last_seen_at":          now,
+		"last_metered_at":       now,
+		"last_bytes_up_delta":   req.BytesUpDelta,
+		"last_bytes_down_delta": req.BytesDownDelta,
+	}
+	if providerNodeID := strings.TrimSpace(req.ProviderNodeID); providerNodeID != "" {
+		updates["provider_node_id"] = providerNodeID
+	}
+	if targetHost := strings.TrimSpace(req.TargetHost); targetHost != "" {
+		updates["target_host"] = targetHost
+	}
+	if req.BytesUpDelta != 0 {
+		updates["total_bytes_up"] = gorm.Expr("COALESCE(total_bytes_up, 0) + ?", req.BytesUpDelta)
+	}
+	if req.BytesDownDelta != 0 {
+		updates["total_bytes_down"] = gorm.Expr("COALESCE(total_bytes_down, 0) + ?", req.BytesDownDelta)
+	}
+	if req.BytesUpDelta != 0 || req.BytesDownDelta != 0 {
+		updates["usage_update_count"] = gorm.Expr("COALESCE(usage_update_count, 0) + 1")
+	}
+	switch record.LifecycleState {
+	case models.SessionIntentAuthorized, models.SessionIntentRouted:
+		applySessionIntentLifecycleTransition(&record, updates, models.SessionIntentActive, now)
+	case models.SessionIntentActive:
+		if record.ActivatedAt == nil {
+			updates["activated_at"] = now
+		}
+	}
+
+	if err := db.DB.Model(&record).Updates(updates).Error; err != nil {
+		logging.Error(err).Str("intent_id", intentID.String()).Msg("Failed to update session intent usage")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session intent usage"})
+		return
+	}
+
+	if err := db.DB.Where("id = ?", intentID).First(&record).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload session intent usage"})
+		return
+	}
+
+	c.JSON(http.StatusOK, buildSessionIntentStatusResponse(&record))
 }
 
 // requireGatewayAuth restricts gateway control-plane endpoints to trusted
 // edge-gateway callers using a shared secret header.
-func requireGatewayAuth(cfg *config.Config) gin.HandlerFunc {
+func requireGatewayAuth(_ *config.Config) gin.HandlerFunc {
 	sharedSecret := strings.TrimSpace(os.Getenv("GATEWAY_SHARED_SECRET"))
-	if sharedSecret == "" && cfg != nil {
-		sharedSecret = strings.TrimSpace(cfg.Auth.JWTSecret)
-	}
 
 	return func(c *gin.Context) {
 		if sharedSecret == "" {

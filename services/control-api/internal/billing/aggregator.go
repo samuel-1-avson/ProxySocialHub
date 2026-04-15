@@ -69,19 +69,59 @@ func (a *Aggregator) AggregateUsage(sessionUsername string, bytesUp, bytesDown i
 		}
 	}
 
-	// 3. Atomically Increment Pending Balance in Redis
-	totalBytes := bytesUp + bytesDown
+	return a.aggregatePendingUsage(sessionData.SessionID, sessionData.ProviderID, bytesUp+bytesDown)
+}
 
-	// Increment pending bytes for session
-	pendingKey := fmt.Sprintf("billing:session:%s:pending", sessionData.SessionID)
+// AggregateReceipt applies a durable usage receipt to the Redis pending ledger.
+// A receipt-level SetNX guard makes retries safe after partial failures.
+func (a *Aggregator) AggregateReceipt(receipt *models.UsageReceipt) (bool, error) {
+	if receipt == nil {
+		return false, fmt.Errorf("usage receipt is required")
+	}
+	if receipt.SessionID.String() == "" {
+		return false, fmt.Errorf("usage receipt has no session id")
+	}
+	if redis.Client == nil {
+		return false, fmt.Errorf("redis client not initialized")
+	}
+
+	totalBytes := receipt.TotalBytes
+	if totalBytes == 0 {
+		totalBytes = receipt.BytesUp + receipt.BytesDown
+	}
+
+	applyKey := fmt.Sprintf("billing:receipt:%s:applied", receipt.ID.String())
+	applied, err := redis.Client.SetNX(context.Background(), applyKey, time.Now().Unix(), 7*24*time.Hour).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to reserve receipt idempotency key: %w", err)
+	}
+	if !applied {
+		return false, nil
+	}
+
+	if err := a.aggregatePendingUsage(receipt.SessionID.String(), receipt.ProviderRef, totalBytes); err != nil {
+		_ = redis.Client.Del(context.Background(), applyKey).Err()
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (a *Aggregator) aggregatePendingUsage(sessionID, providerID string, totalBytes int64) error {
+	if redis.Client == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+
+	pendingKey := fmt.Sprintf("billing:session:%s:pending", sessionID)
 	if err := redis.Client.IncrBy(context.Background(), pendingKey, totalBytes).Err(); err != nil {
 		return fmt.Errorf("failed to update pending bytes: %w", err)
 	}
 
-	// Track provider earnings (for later settlement)
-	providerKey := fmt.Sprintf("billing:provider:%s:pending", sessionData.ProviderID)
-	if err := redis.Client.IncrBy(context.Background(), providerKey, totalBytes).Err(); err != nil {
-		logging.Warn().Str("provider", sessionData.ProviderID).Msg("Failed to track provider earnings")
+	if providerID != "" {
+		providerKey := fmt.Sprintf("billing:provider:%s:pending", providerID)
+		if err := redis.Client.IncrBy(context.Background(), providerKey, totalBytes).Err(); err != nil {
+			logging.Warn().Str("provider", providerID).Msg("Failed to track provider earnings")
+		}
 	}
 
 	return nil

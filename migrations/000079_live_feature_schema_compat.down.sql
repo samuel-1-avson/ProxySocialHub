@@ -1,0 +1,2 @@
+-- Compatibility migration is intentionally non-destructive.
+-- Existing live feature tables are left in place on rollback.

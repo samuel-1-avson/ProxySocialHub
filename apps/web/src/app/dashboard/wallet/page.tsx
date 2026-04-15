@@ -69,7 +69,8 @@ export default function UnifiedWalletPage() {
     const [mounted, setMounted] = useState(false);
 
     // Network Config
-    const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet';
+    const rawSolanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+    const solanaNetwork = rawSolanaNetwork === 'mainnet' ? 'mainnet-beta' : rawSolanaNetwork;
     const isDevnet = solanaNetwork.toLowerCase().includes('devnet');
 
     const { data: wallet, isLoading: loading } = useQuery({

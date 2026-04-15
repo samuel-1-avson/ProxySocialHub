@@ -267,9 +267,15 @@ func getWallet(c *gin.Context) {
 	// holdings; the DB balance (balance_sol) is an internal ledger that tracks
 	// funds already escrowed or locked inside the platform.
 	var onChainSOL *float64
+	var solanaNetwork string
 	if user.WalletAddress != nil && *user.WalletAddress != "" {
 		oracle := solana.GetOracleClient()
 		if oracle != nil {
+			solanaNetwork = oracle.GetNetwork()
+			if solanaNetwork == "" {
+				solanaNetwork = "devnet"
+			}
+
 			if pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err == nil {
 				if lamports, err := oracle.GetBalance(c.Request.Context(), pubkey); err == nil {
 					bal := solana.LamportsToSOL(lamports)
@@ -290,6 +296,9 @@ func getWallet(c *gin.Context) {
 		walletResp["on_chain_sol"] = *onChainSOL
 		// available_sol: the smaller of on-chain + platform balance for spending
 		walletResp["available_sol"] = wallet.BalanceSOL
+	}
+	if solanaNetwork != "" {
+		walletResp["solana_network"] = solanaNetwork
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -467,12 +476,12 @@ func transferP2P(c *gin.Context) {
 		tx.Rollback()
 		if spendingErr, ok := err.(*models.SpendingLimitError); ok {
 			c.JSON(http.StatusForbidden, gin.H{
-				"error":     "Spending limit exceeded",
+				"error":      "Spending limit exceeded",
 				"limit_type": spendingErr.LimitType,
-				"limit":     spendingErr.Limit,
-				"spent":     spendingErr.CurrentSpend,
-				"attempted": spendingErr.Attempted,
-				"remaining": spendingErr.Remaining(),
+				"limit":      spendingErr.Limit,
+				"spent":      spendingErr.CurrentSpend,
+				"attempted":  spendingErr.Attempted,
+				"remaining":  spendingErr.Remaining(),
 			})
 			return
 		}
@@ -770,7 +779,7 @@ func getSpendingLimits(c *gin.Context) {
 	response.Monthly.Spent = spending.MonthlySpent
 
 	c.JSON(http.StatusOK, gin.H{
-		"limits":    response,
+		"limits":       response,
 		"window_start": wallet.LimitWindowStart,
 	})
 }

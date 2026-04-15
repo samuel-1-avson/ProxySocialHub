@@ -14,8 +14,6 @@
 # - Network segmentation
 # - Resource limits
 
-version: '3.8'
-
 services:
   # ==================== CONTROL API ====================
   control-api:

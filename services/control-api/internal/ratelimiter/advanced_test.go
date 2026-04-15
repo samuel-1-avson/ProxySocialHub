@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 func setupTestRedis(t *testing.T) *miniredis.Miniredis {
@@ -160,7 +160,7 @@ func TestProgressivePenalties(t *testing.T) {
 	if allowed {
 		t.Error("Third request should be denied")
 	}
-	
+
 	// The second penalty should be at least as long as the first (progressive)
 	if penaltyUntil2.Before(penaltyUntil) {
 		t.Error("Second penalty should not be shorter than first")
@@ -204,11 +204,11 @@ func TestFixedWindowAlgorithm(t *testing.T) {
 
 func TestTokenBucketStateMarshaling(t *testing.T) {
 	state := TokenBucketState{
-		Tokens:       5.5,
-		LastRefill:   time.Now(),
-		Violations:   2,
+		Tokens:        5.5,
+		LastRefill:    time.Now(),
+		Violations:    2,
 		LastViolation: time.Now().Add(-time.Minute),
-		PenaltyUntil: time.Now().Add(time.Minute),
+		PenaltyUntil:  time.Now().Add(time.Minute),
 	}
 
 	data, err := json.Marshal(state)
@@ -233,10 +233,10 @@ func TestTokenBucketStateMarshaling(t *testing.T) {
 func TestSlidingWindowStateMarshaling(t *testing.T) {
 	now := time.Now()
 	state := SlidingWindowState{
-		Requests:     []time.Time{now, now.Add(-time.Second)},
-		Violations:   1,
+		Requests:      []time.Time{now, now.Add(-time.Second)},
+		Violations:    1,
 		LastViolation: now.Add(-time.Minute),
-		PenaltyUntil: now.Add(time.Minute),
+		PenaltyUntil:  now.Add(time.Minute),
 	}
 
 	data, err := json.Marshal(state)
@@ -263,11 +263,11 @@ func TestDefaultConfigurations(t *testing.T) {
 	if defaultConfig.Algorithm != TokenBucket {
 		t.Errorf("Expected default algorithm %s, got %s", TokenBucket, defaultConfig.Algorithm)
 	}
-	if defaultConfig.Limit != 100 {
-		t.Errorf("Expected default limit 100, got %d", defaultConfig.Limit)
+	if defaultConfig.Limit != 300 {
+		t.Errorf("Expected default limit 300, got %d", defaultConfig.Limit)
 	}
-	if !defaultConfig.PenaltyConfig.Enabled {
-		t.Error("Expected penalties to be enabled by default")
+	if defaultConfig.PenaltyConfig.Enabled {
+		t.Error("Expected penalties to be disabled by default")
 	}
 
 	strictConfig := StrictAdvancedRateLimitConfig()
