@@ -1,6 +1,7 @@
 import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
+import BN from 'bn.js';
 import { expect } from 'chai';
 
 describe('proxyhub critical escrow and governance coverage', () => {
@@ -41,13 +42,19 @@ describe('proxyhub critical escrow and governance coverage', () => {
     await provider.connection.confirmTransaction(sig, 'confirmed');
   }
 
+  async function waitForSlot(targetSlot: number) {
+    while ((await provider.connection.getSlot()) <= targetSlot) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
   async function ensureProgramState() {
     const [programStatePda] = findProgramState();
     try {
       await programAccounts.programState.fetch(programStatePda);
     } catch {
       await program.methods
-        .initializeProgram(1)
+        .initializeProgram(3)
         .accounts({
           admin: admin.publicKey,
           programState: programStatePda,
@@ -78,9 +85,9 @@ describe('proxyhub critical escrow and governance coverage', () => {
 
       await program.methods
         .initializeEscrow(
-          new anchor.BN(LAMPORTS_PER_SOL / 10),
-          new anchor.BN(10),
-          new anchor.BN(expiresAt),
+          new BN(LAMPORTS_PER_SOL / 10),
+          new BN(10),
+          new BN(expiresAt),
         )
         .accounts({
           escrow: escrowPda,
@@ -101,7 +108,7 @@ describe('proxyhub critical escrow and governance coverage', () => {
 
     it('settles the legacy escrow and records used bandwidth', async () => {
       await program.methods
-        .settleEscrow(new anchor.BN(4))
+        .settleEscrow(new BN(4))
         .accounts({
           escrow: escrowPda,
           buyer: buyer.publicKey,
@@ -116,8 +123,10 @@ describe('proxyhub critical escrow and governance coverage', () => {
   });
 
   describe('governance finalization and execution guardrails', () => {
-    const passedProposalId = Buffer.from('proposal-final-01');
-    const rejectedProposalId = Buffer.from('proposal-final-02');
+    const passedProposalId = Buffer.alloc(16);
+    const rejectedProposalId = Buffer.alloc(16);
+    Buffer.from('proposal-fin-01').copy(passedProposalId);
+    Buffer.from('proposal-fin-02').copy(rejectedProposalId);
     const passedTitleHash = Buffer.alloc(32, 0x11);
     const rejectedTitleHash = Buffer.alloc(32, 0x22);
     const yesVoter = Keypair.generate();
@@ -133,10 +142,10 @@ describe('proxyhub critical escrow and governance coverage', () => {
 
     it('finalizes a passed proposal once its voting window is already closed', async () => {
       const [programStatePda] = findProgramState();
-      const pastEndSlot = Math.max(1, (await provider.connection.getSlot()) - 1);
+      const endSlot = (await provider.connection.getSlot()) + 2;
 
       await program.methods
-        .createProposal(Array.from(passedProposalId), yesVoter.publicKey, Array.from(passedTitleHash), new anchor.BN(pastEndSlot))
+        .createProposal(Array.from(passedProposalId), yesVoter.publicKey, Array.from(passedTitleHash), new BN(endSlot))
         .accounts({
           oracle: admin.publicKey,
           proposal: passedProposalPda,
@@ -148,7 +157,7 @@ describe('proxyhub critical escrow and governance coverage', () => {
       const [yesVotePda] = findGovernanceVote(passedProposalPda, yesVoter.publicKey);
 
       await program.methods
-        .castGovernanceVote(true, new anchor.BN(1500))
+        .castGovernanceVote(true, new BN(1500))
         .accounts({
           voter: yesVoter.publicKey,
           proposal: passedProposalPda,
@@ -158,6 +167,8 @@ describe('proxyhub critical escrow and governance coverage', () => {
         })
         .signers([yesVoter])
         .rpc();
+
+      await waitForSlot(endSlot);
 
       await program.methods
         .finalizeProposal()
@@ -193,10 +204,10 @@ describe('proxyhub critical escrow and governance coverage', () => {
 
     it('finalizes a rejected proposal when no votes win', async () => {
       const [programStatePda] = findProgramState();
-      const pastEndSlot = Math.max(1, (await provider.connection.getSlot()) - 1);
+      const endSlot = (await provider.connection.getSlot()) + 2;
 
       await program.methods
-        .createProposal(Array.from(rejectedProposalId), noVoter.publicKey, Array.from(rejectedTitleHash), new anchor.BN(pastEndSlot))
+        .createProposal(Array.from(rejectedProposalId), noVoter.publicKey, Array.from(rejectedTitleHash), new BN(endSlot))
         .accounts({
           oracle: admin.publicKey,
           proposal: rejectedProposalPda,
@@ -208,7 +219,7 @@ describe('proxyhub critical escrow and governance coverage', () => {
       const [noVotePda] = findGovernanceVote(rejectedProposalPda, noVoter.publicKey);
 
       await program.methods
-        .castGovernanceVote(false, new anchor.BN(900))
+        .castGovernanceVote(false, new BN(900))
         .accounts({
           voter: noVoter.publicKey,
           proposal: rejectedProposalPda,
@@ -218,6 +229,8 @@ describe('proxyhub critical escrow and governance coverage', () => {
         })
         .signers([noVoter])
         .rpc();
+
+      await waitForSlot(endSlot);
 
       await program.methods
         .finalizeProposal()

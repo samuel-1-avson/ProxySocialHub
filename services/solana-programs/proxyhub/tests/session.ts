@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import BN from "bn.js";
 import { expect } from "chai";
 
 describe("session", () => {
@@ -22,9 +23,9 @@ describe("session", () => {
     );
   }
 
-  function findSession(buyerKey: PublicKey, providerKey: PublicKey, createdAt: number): [PublicKey, number] {
+  function findSession(buyerKey: PublicKey, providerKey: PublicKey, expiresAt: number): [PublicKey, number] {
     const tsBuffer = Buffer.alloc(8);
-    tsBuffer.writeBigInt64LE(BigInt(createdAt));
+    tsBuffer.writeBigInt64LE(BigInt(expiresAt));
     return PublicKey.findProgramAddressSync(
       [Buffer.from("session"), buyerKey.toBuffer(), providerKey.toBuffer(), tsBuffer],
       program.programId
@@ -61,7 +62,7 @@ describe("session", () => {
         .registerGateway(
           Array.from(region),
           Array.from(endpoint),
-          new anchor.BN(LAMPORTS_PER_SOL) // 1 SOL stake
+          new BN(LAMPORTS_PER_SOL) // 1 SOL stake
         )
         .accounts({
           gateway: gatewayPda,
@@ -117,26 +118,26 @@ describe("session", () => {
   // =========================================================================
 
   describe("session lifecycle", () => {
-    const createdAt = Math.floor(Date.now() / 1000);
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
     let sessionPda: PublicKey;
 
     it("creates a session", async () => {
-      const [pda] = findSession(buyer.publicKey, providerNode.publicKey, createdAt);
+      const [pda] = findSession(buyer.publicKey, providerNode.publicKey, expiresAt);
       sessionPda = pda;
       const [gatewayPda] = findGateway(gatewayOperator.publicKey);
 
       await program.methods
         .createSession(
-          new anchor.BN(1_073_741_824),   // 1 GB bytes_limit
-          new anchor.BN(50_000),           // rate_per_gb (lamports)
-          new anchor.BN(3600),             // duration_seconds
-          new anchor.BN(LAMPORTS_PER_SOL)  // escrow_amount
+          new BN(1_073_741_824),   // 1 GB bytes_limit
+          new BN(50_000),           // rate_per_gb (lamports)
+          new BN(expiresAt),        // expires_at
+          new BN(LAMPORTS_PER_SOL)  // escrow_amount
         )
         .accounts({
           session: sessionPda,
           buyer: buyer.publicKey,
           provider: providerNode.publicKey,
-          gateway: gatewayPda,
+          gateway: gatewayOperator.publicKey,
           systemProgram: SystemProgram.programId,
         })
         .signers([buyer])
@@ -150,13 +151,11 @@ describe("session", () => {
     });
 
     it("activates the session via gateway", async () => {
-      const [gatewayPda] = findGateway(gatewayOperator.publicKey);
-
       await program.methods
         .activateSession()
         .accounts({
           session: sessionPda,
-          gateway: gatewayPda,
+          gateway: gatewayOperator.publicKey,
         })
         .signers([gatewayOperator])
         .rpc();
@@ -168,8 +167,8 @@ describe("session", () => {
     it("reports usage", async () => {
       await program.methods
         .reportUsage(
-          new anchor.BN(100_000_000), // 100 MB bytes_delta
-          new anchor.BN(500)          // 500 requests_delta
+          new BN(100_000_000), // 100 MB bytes_delta
+          new BN(500)          // 500 requests_delta
         )
         .accounts({
           session: sessionPda,
