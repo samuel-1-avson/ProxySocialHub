@@ -26,5 +26,5 @@ test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
 initialize = "yarn ts-node scripts/initialize.ts"
 upgrade = "yarn ts-node scripts/upgrade.ts"
 
-[test.validator]
-url = "https://api.devnet.solana.com"
+[test]
+startup_wait = 30000
