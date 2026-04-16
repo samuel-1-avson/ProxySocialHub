@@ -21,8 +21,7 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "0.32.1"
-anchor-spl = { version = "0.32.1", default-features = false, features = ["associated_token", "token"] }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 
 
 [lints.rust]

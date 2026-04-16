@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer as TokenTransfer};
 
 declare_id!("2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7");
 
@@ -1007,7 +1005,7 @@ pub struct DisputeOpened {
 }
 
 #[event]
-pub struct JuryVoteCast {
+pub struct DisputeJuryVoteCast {
     pub dispute_pda: Pubkey,
     pub juror: Pubkey,
     pub vote_buyer: bool,
@@ -1765,6 +1763,9 @@ pub mod proxyhub {
         require!(amount > 0, EscrowError::InsufficientFunds);
 
         let clock = Clock::get()?;
+        let oracle_info = ctx.accounts.oracle.to_account_info();
+        let stake_account_info = ctx.accounts.stake_account.to_account_info();
+        let system_program_info = ctx.accounts.system_program.to_account_info();
         let stake = &mut ctx.accounts.stake_account;
 
         if stake.owner == Pubkey::default() {
@@ -1776,10 +1777,10 @@ pub mod proxyhub {
 
         // Transfer lamports from oracle treasury to stake PDA.
         let cpi_ctx = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            system_program_info,
             system_program::Transfer {
-                from: ctx.accounts.oracle.to_account_info(),
-                to: ctx.accounts.stake_account.to_account_info(),
+                from: oracle_info,
+                to: stake_account_info,
             },
         );
         system_program::transfer(cpi_ctx, amount)?;
@@ -2465,7 +2466,7 @@ pub mod proxyhub {
         vote.voted_at = clock.unix_timestamp;
         vote.bump = ctx.bumps.jury_vote;
 
-        emit!(JuryVoteCast {
+        emit!(DisputeJuryVoteCast {
             dispute_pda: vote.dispute,
             juror: vote.juror,
             vote_buyer,
@@ -2650,14 +2651,8 @@ pub mod proxyhub {
         batch.bump          = ctx.bumps.zk_batch;
 
         msg!("submit_zk_batch: root={:?} sessions={} bytes={} proof_hash={:?} window=[{},{}]",
-            batch_root, session_count, total_bytes, proof_hash
-        batch.period_start  = period_start;
-        batch.period_end    = period_end;
-        batch.submitted_at  = clock.unix_timestamp;
-        batch.bump          = ctx.bumps.zk_batch;
-
-        msg!("submit_zk_batch: root={:?} sessions={} bytes={} window=[{},{}]",
-            batch_root, session_count, total_bytes, period_start, period_end);
+            batch_root, session_count, total_bytes, proof_hash, period_start, period_end
+        );
         Ok(())
     }
 
@@ -2681,12 +2676,17 @@ pub mod proxyhub {
         require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
         require!(deposit_lamports > 0, EscrowError::InsufficientFunds);
 
+        let buyer_key = ctx.accounts.buyer.key();
+        let provider_key = ctx.accounts.provider_wallet.key();
+        let buyer_info = ctx.accounts.buyer.to_account_info();
+        let channel_info = ctx.accounts.channel.to_account_info();
+        let system_program_info = ctx.accounts.system_program.to_account_info();
         let ch = &mut ctx.accounts.channel;
         let clock = Clock::get()?;
 
         ch.session_id      = session_id;
-        ch.buyer           = ctx.accounts.buyer.key();
-        ch.provider        = ctx.accounts.provider_wallet.key();
+        ch.buyer           = buyer_key;
+        ch.provider        = provider_key;
         ch.deposit_lamports = deposit_lamports;
         ch.spent_lamports  = 0;
         ch.nonce           = 0;
@@ -2698,10 +2698,10 @@ pub mod proxyhub {
 
         // Transfer deposit from buyer to the channel PDA (rent-exempt vault).
         let cpi_ctx = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            system_program_info,
             system_program::Transfer {
-                from: ctx.accounts.buyer.to_account_info(),
-                to:   ctx.accounts.channel.to_account_info(),
+                from: buyer_info,
+                to:   channel_info,
             },
         );
         system_program::transfer(cpi_ctx, deposit_lamports)?;
@@ -2924,7 +2924,7 @@ pub struct InitializeEscrowMultiSig<'info> {
         init,
         payer = buyer,
         space = Escrow::LEN,
-        seeds = [b"escrow_multisig", buyer.key().as_ref(), seller.key().as_ref(), &Clock::get()?.unix_timestamp.to_le_bytes()],
+        seeds = [b"escrow_multisig", buyer.key().as_ref(), seller.key().as_ref(), &expires_at.to_le_bytes()],
         bump
     )]
     pub escrow: Account<'info, Escrow>,
@@ -2942,7 +2942,7 @@ pub struct InitializeEscrowMultiSig<'info> {
 #[derive(Accounts)]
 #[instruction(bandwidth_used_gb: u64, oracle_signers: Vec<Pubkey>)]
 pub struct SettleEscrowMultiSig<'info> {
-    #[account(mut, seeds = [b"escrow_multisig", escrow.buyer.as_ref(), escrow.seller.as_ref(), &escrow.created_at.to_le_bytes()], bump = escrow.bump)]
+    #[account(mut, seeds = [b"escrow_multisig", escrow.buyer.as_ref(), escrow.seller.as_ref(), &escrow.expires_at.to_le_bytes()], bump = escrow.bump)]
     pub escrow: Account<'info, Escrow>,
     #[account(mut)]
     /// CHECK: Buyer account
@@ -2962,6 +2962,8 @@ pub struct SettleEscrowMultiSig<'info> {
     pub oracle_signature: Account<'info, OracleSignature>,
     #[account(mut)]
     pub payer: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
     pub system_program: Program<'info, System>,
 }
 
@@ -2988,6 +2990,8 @@ pub struct InitiateJuryDispute<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(mut)]
     pub initiator: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
     pub system_program: Program<'info, System>,
 }
 
@@ -2996,6 +3000,8 @@ pub struct CastVote<'info> {
     #[account(mut, seeds = [b"jury", jury.escrow.as_ref()], bump = jury.bump)]
     pub jury: Account<'info, Jury>,
     pub juror: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }
 
 #[derive(Accounts)]
@@ -3010,6 +3016,8 @@ pub struct ExecuteJuryVerdict<'info> {
     #[account(mut)]
     /// CHECK: Seller account
     pub seller: AccountInfo<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }
 
 #[derive(Accounts)]
@@ -3203,7 +3211,7 @@ pub struct LockSessionCommitment<'info> {
     #[account(
         init, payer = oracle,
         space = SessionCommitment::LEN,
-        seeds = [b"session_commitment", &session_id],
+        seeds = [b"session_commitment", session_id.as_ref()],
         bump
     )]
     pub session_commitment: Account<'info, SessionCommitment>,
@@ -3218,7 +3226,18 @@ pub struct LockSessionCommitment<'info> {
 #[instruction(proposal_id: [u8; 16])]
 pub struct CreateProposal<'info> {
     #[account(mut)]
- 
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = GovernanceProposal::LEN,
+        seeds = [b"gov_proposal", proposal_id.as_ref()],
+        bump
+    )]
+    pub proposal: Account<'info, GovernanceProposal>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
 
 #[derive(Accounts)]
 pub struct ExecuteProposal<'info> {
@@ -3231,17 +3250,6 @@ pub struct ExecuteProposal<'info> {
     )]
     pub program_state: Account<'info, ProgramState>,
     pub admin: Signer<'info>,
-}   pub oracle: Signer<'info>,
-    #[account(
-        init, payer = oracle,
-        space = GovernanceProposal::LEN,
-        seeds = [b"gov_proposal", &proposal_id],
-        bump
-    )]
-    pub proposal: Account<'info, GovernanceProposal>,
-    pub system_program: Program<'info, System>,
-    #[account(seeds = [b"program_state"], bump = program_state.bump)]
-    pub program_state: Account<'info, ProgramState>,
 }
 
 #[derive(Accounts)]
@@ -3387,19 +3395,6 @@ pub struct LogSpendingEvent<'info> {
 //
 // ZKBatchPDA stores an immutable Merkle root commitment for N session proofs.
 // PDA seeds: [b"zk_batch", batch_root (32 bytes)]
-//proof_hash:    [u8; 32],
-    pub bump:          u8,
-}
-
-impl ZKBatchPDA {
-    pub const LEN: usize = 8 + 32 + 4 + 8 + 8 + 8 + 8 + 32 + 1; // = 109
-//   period_start    i64       — batch window start (Unix)
-//   period_end      i64       — batch window end (Unix)
-//   submitted_at    i64       — on-chain timestamp
-//   bump            u8
-//
-// Total: 8 + 32 + 4 + 8 + 8 + 8 + 8 + 1 = 77 bytes
-
 #[account]
 pub struct ZKBatchPDA {
     pub batch_root:    [u8; 32],
@@ -3408,11 +3403,12 @@ pub struct ZKBatchPDA {
     pub period_start:  i64,
     pub period_end:    i64,
     pub submitted_at:  i64,
+    pub proof_hash:    [u8; 32],
     pub bump:          u8,
 }
 
 impl ZKBatchPDA {
-    pub const LEN: usize = 8 + 32 + 4 + 8 + 8 + 8 + 8 + 1; // = 77
+    pub const LEN: usize = 8 + 32 + 4 + 8 + 8 + 8 + 8 + 32 + 1; // = 109
 }
 
 #[derive(Accounts)]
