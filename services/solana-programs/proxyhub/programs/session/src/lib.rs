@@ -21,7 +21,6 @@ impl Default for SessionStatus {
 
 /// On-chain Session Account - tracks proxy sessions with full accountability
 #[account]
-#[derive(Default)]
 pub struct Session {
     pub buyer: Pubkey,              // Consumer wallet
     pub provider: Pubkey,           // Provider wallet
@@ -53,6 +52,30 @@ pub struct Session {
     pub bump: u8,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            buyer: Pubkey::default(),
+            provider: Pubkey::default(),
+            gateway: Pubkey::default(),
+            bytes_used: 0,
+            bytes_limit: 0,
+            requests_count: 0,
+            escrow_amount: 0,
+            rate_per_gb: 0,
+            status: SessionStatus::default(),
+            quality_score: 0,
+            created_at: 0,
+            activated_at: 0,
+            completed_at: 0,
+            expires_at: 0,
+            usage_proof_cid: [0; 46],
+            arweave_tx: [0; 43],
+            bump: 0,
+        }
+    }
+}
+
 impl Session {
     pub const LEN: usize = 8 +      // discriminator
         32 +                         // buyer
@@ -76,7 +99,6 @@ impl Session {
 
 /// Gateway Node - community-operated proxy gateway
 #[account]
-#[derive(Default)]
 pub struct GatewayNode {
     pub operator: Pubkey,           // Gateway operator wallet
     pub stake: u64,                 // Staked amount for slashing
@@ -99,6 +121,27 @@ pub struct GatewayNode {
     pub slashed_amount: u64,        // Total slashed
     
     pub bump: u8,
+}
+
+impl Default for GatewayNode {
+    fn default() -> Self {
+        Self {
+            operator: Pubkey::default(),
+            stake: 0,
+            region: [0; 8],
+            endpoint: [0; 64],
+            uptime_score: 0,
+            latency_ms: 0,
+            sessions_served: 0,
+            bytes_routed: 0,
+            is_active: false,
+            registered_at: 0,
+            last_heartbeat: 0,
+            slash_count: 0,
+            slashed_amount: 0,
+            bump: 0,
+        }
+    }
 }
 
 impl GatewayNode {
@@ -132,35 +175,44 @@ pub mod session {
         ctx: Context<CreateSession>,
         bytes_limit: u64,
         rate_per_gb: u64,
-        duration_seconds: i64,
+        expires_at: i64,
         escrow_amount: u64,
     ) -> Result<()> {
+        let buyer_key = ctx.accounts.buyer.key();
+        let provider_key = ctx.accounts.provider.key();
+        let gateway_key = ctx.accounts.gateway.key();
+        let session_key = ctx.accounts.session.key();
+        let buyer_info = ctx.accounts.buyer.to_account_info();
+        let session_info = ctx.accounts.session.to_account_info();
+        let system_program_info = ctx.accounts.system_program.to_account_info();
         let session = &mut ctx.accounts.session;
         let clock = Clock::get()?;
 
-        session.buyer = ctx.accounts.buyer.key();
-        session.provider = ctx.accounts.provider.key();
-        session.gateway = ctx.accounts.gateway.key();
+        require!(expires_at > clock.unix_timestamp, SessionError::InvalidStatus);
+
+        session.buyer = buyer_key;
+        session.provider = provider_key;
+        session.gateway = gateway_key;
         session.bytes_limit = bytes_limit;
         session.rate_per_gb = rate_per_gb;
         session.escrow_amount = escrow_amount;
         session.status = SessionStatus::Created;
         session.created_at = clock.unix_timestamp;
-        session.expires_at = clock.unix_timestamp + duration_seconds;
+        session.expires_at = expires_at;
         session.bump = ctx.bumps.session;
 
         // Transfer escrow from buyer to session PDA
         let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            system_program_info,
             system_program::Transfer {
-                from: ctx.accounts.buyer.to_account_info(),
-                to: ctx.accounts.session.to_account_info(),
+                from: buyer_info,
+                to: session_info,
             },
         );
         system_program::transfer(cpi_context, escrow_amount)?;
 
         emit!(SessionCreated {
-            session: ctx.accounts.session.key(),
+            session: session_key,
             buyer: session.buyer,
             provider: session.provider,
             gateway: session.gateway,
@@ -168,7 +220,7 @@ pub mod session {
             timestamp: clock.unix_timestamp,
         });
 
-        msg!("Session created: {} with {} lamports escrow", ctx.accounts.session.key(), escrow_amount);
+        msg!("Session created: {} with {} lamports escrow", session_key, escrow_amount);
         Ok(())
     }
 
@@ -197,6 +249,7 @@ pub mod session {
         bytes_delta: u64,
         requests_delta: u64,
     ) -> Result<()> {
+        let session_key = ctx.accounts.session.key();
         let session = &mut ctx.accounts.session;
 
         require!(
@@ -213,7 +266,7 @@ pub mod session {
         }
 
         emit!(UsageReported {
-            session: ctx.accounts.session.key(),
+            session: session_key,
             bytes_used: session.bytes_used,
             requests_count: session.requests_count,
             timestamp: Clock::get()?.unix_timestamp,
@@ -291,12 +344,17 @@ pub mod session {
         endpoint: [u8; 64],
         stake_amount: u64,
     ) -> Result<()> {
+        let operator_key = ctx.accounts.operator.key();
+        let gateway_key = ctx.accounts.gateway.key();
+        let operator_info = ctx.accounts.operator.to_account_info();
+        let gateway_info = ctx.accounts.gateway.to_account_info();
+        let system_program_info = ctx.accounts.system_program.to_account_info();
         let gateway = &mut ctx.accounts.gateway;
         let clock = Clock::get()?;
 
         require!(stake_amount >= GatewayNode::MIN_STAKE, GatewayError::InsufficientStake);
 
-        gateway.operator = ctx.accounts.operator.key();
+        gateway.operator = operator_key;
         gateway.stake = stake_amount;
         gateway.region = region;
         gateway.endpoint = endpoint;
@@ -308,16 +366,16 @@ pub mod session {
 
         // Transfer stake to gateway PDA
         let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            system_program_info,
             system_program::Transfer {
-                from: ctx.accounts.operator.to_account_info(),
-                to: ctx.accounts.gateway.to_account_info(),
+                from: operator_info,
+                to: gateway_info,
             },
         );
         system_program::transfer(cpi_context, stake_amount)?;
 
         emit!(GatewayRegistered {
-            gateway: ctx.accounts.gateway.key(),
+            gateway: gateway_key,
             operator: gateway.operator,
             stake: stake_amount,
             region,
@@ -395,6 +453,7 @@ pub mod session {
 // ============== ACCOUNT CONTEXTS ==============
 
 #[derive(Accounts)]
+#[instruction(bytes_limit: u64, rate_per_gb: u64, expires_at: i64, escrow_amount: u64)]
 pub struct CreateSession<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -409,7 +468,7 @@ pub struct CreateSession<'info> {
         init,
         payer = buyer,
         space = Session::LEN,
-        seeds = [b"session", buyer.key().as_ref(), provider.key().as_ref(), &Clock::get()?.unix_timestamp.to_le_bytes()],
+        seeds = [b"session", buyer.key().as_ref(), provider.key().as_ref(), &expires_at.to_le_bytes()],
         bump
     )]
     pub session: Account<'info, Session>,
@@ -424,7 +483,7 @@ pub struct ActivateSession<'info> {
 
     #[account(
         mut,
-        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.created_at.to_le_bytes()],
+        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.expires_at.to_le_bytes()],
         bump = session.bump,
     )]
     pub session: Account<'info, Session>,
@@ -437,7 +496,7 @@ pub struct ReportUsage<'info> {
 
     #[account(
         mut,
-        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.created_at.to_le_bytes()],
+        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.expires_at.to_le_bytes()],
         bump = session.bump,
         constraint = reporter.key() == session.gateway || reporter.key() == session.provider
     )]
@@ -451,7 +510,7 @@ pub struct CompleteSession<'info> {
 
     #[account(
         mut,
-        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.created_at.to_le_bytes()],
+        seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.expires_at.to_le_bytes()],
         bump = session.bump,
     )]
     pub session: Account<'info, Session>,
