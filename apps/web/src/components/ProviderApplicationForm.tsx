@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 import { AlertCircle, CheckCircle2, Loader2, Send, ShieldCheck, Globe, Zap, Wallet } from 'lucide-react';
 
 export function ProviderApplicationForm() {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const qc = useQueryClient();
     const [bandwidth, setBandwidth] = useState('');
 
@@ -33,8 +33,14 @@ export function ProviderApplicationForm() {
 
     const mutation = useMutation({
         mutationFn: () => applyForProvider({ bandwidth }),
-        onSuccess: async () => {
+        onSuccess: async (result) => {
             await qc.invalidateQueries({ queryKey: ['provider-status'] });
+
+            if (result.application.status === 'approved') {
+                await refreshUser();
+                await qc.invalidateQueries({ queryKey: ['provider-earnings-summary'] });
+                await qc.invalidateQueries({ queryKey: ['my-nodes'] });
+            }
         },
         onError: async (error) => {
             if (error instanceof ApiError && error.status === 409) {
@@ -51,15 +57,41 @@ export function ProviderApplicationForm() {
         : (mutation.error as { message?: string } | null)?.message || 'Submission failed';
 
     if (mutation.isSuccess) {
+        const applicationStatus = mutation.data.application.status;
+        const title = applicationStatus === 'approved'
+            ? 'Application Auto-Approved'
+            : applicationStatus === 'pending'
+                ? 'Automatic Verification Pending'
+                : 'Requirements Not Met Yet';
+        const description = mutation.data.eligibility?.reason || (
+            applicationStatus === 'approved'
+                ? 'Your account has been promoted to provider automatically. The dashboard will switch into provider mode as soon as the refreshed session finishes loading.'
+                : applicationStatus === 'pending'
+                    ? 'Your application is stored and will be rechecked automatically as soon as on-chain verification is available again.'
+                    : 'The application was evaluated immediately, but one or more provider constraints still are not satisfied.'
+        );
+
+        const accentClass = applicationStatus === 'approved'
+            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+            : applicationStatus === 'pending'
+                ? 'bg-amber-500/20 border-amber-500/30 text-amber-400'
+                : 'bg-red-500/20 border-red-500/30 text-red-400';
+
         return (
             <GlassCard className="text-center py-10 space-y-4 animate-in fade-in zoom-in duration-500">
-                <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
-                    <CheckCircle2 size={32} className="text-emerald-400" />
+                <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center border ${accentClass}`}>
+                    {applicationStatus === 'approved' ? (
+                        <CheckCircle2 size={32} className="text-emerald-400" />
+                    ) : applicationStatus === 'pending' ? (
+                        <Loader2 size={32} className="text-amber-400 animate-spin" />
+                    ) : (
+                        <AlertCircle size={32} className="text-red-400" />
+                    )}
                 </div>
                 <div>
-                    <h2 className="text-xl font-bold font-mono uppercase tracking-tighter">Application Received</h2>
+                    <h2 className="text-xl font-bold font-mono uppercase tracking-tighter">{title}</h2>
                     <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-2">
-                        Your application was submitted successfully and is now pending review. Approval is still manual at the moment, so the system will not upgrade the account automatically just because the wallet balance is above the minimum.
+                        {description}
                     </p>
                 </div>
             </GlassCard>
@@ -76,7 +108,7 @@ export function ProviderApplicationForm() {
                     </div>
                     <h2 className="text-2xl font-black font-sans uppercase italic tracking-tight">Become a Provider</h2>
                     <p className="text-sm text-muted-foreground mt-1">
-                        Submit your bandwidth capacity to join the decentralized network.
+                        Submit your bandwidth capacity and the system will decide automatically from objective on-chain constraints.
                     </p>
                     <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-3">
                         Active Solana network: {solanaNetwork}
@@ -157,7 +189,7 @@ export function ProviderApplicationForm() {
                             <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
                             <div className="space-y-1">
                                 <p className="text-xs font-bold text-red-500 uppercase font-mono">Insufficient Funds</p>
-                                <p className="text-[11px] text-muted-foreground">A minimum of {minBalanceLabel} is required in your linked wallet before provider submission. Development stacks use devnet SOL by default.</p>
+                                <p className="text-[11px] text-muted-foreground">A minimum of {minBalanceLabel} is required in your linked wallet before automatic provider approval can succeed. Development stacks use devnet SOL by default.</p>
                             </div>
                         </div>
                     )}
@@ -167,7 +199,7 @@ export function ProviderApplicationForm() {
                             <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
                             <div className="space-y-1">
                                 <p className="text-xs font-bold text-amber-500 uppercase font-mono">Balance Check Pending</p>
-                                <p className="text-[11px] text-muted-foreground">The linked wallet is required for provider verification. The backend will validate your {balanceTokenLabel} balance when you submit.</p>
+                                <p className="text-[11px] text-muted-foreground">The linked wallet is required for provider verification. The backend will validate your {balanceTokenLabel} balance when you submit and recheck automatically if verification is temporarily unavailable.</p>
                             </div>
                         </div>
                     )}

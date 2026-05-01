@@ -207,11 +207,12 @@ func SupportsInstructionsFromCachedIDL(ctx context.Context, programID string, in
 }
 
 func supportsInstructionsFromSource(ctx context.Context, programID string, instructionNames ...string) (supported bool, determined bool, missing []string, source string) {
-	if redis.Client == nil {
+	cacheClient := redis.Client
+	if cacheClient == nil {
 		return supportsInstructionsFromCompiled(instructionNames...), true, supportsMissingFromCompiled(instructionNames...), "compiled_allowlist"
 	}
 
-	raw, err := redis.Client.Get(ctx, idlCacheKey(programID)).Bytes()
+	raw, err := cacheClient.Get(ctx, idlCacheKey(programID)).Bytes()
 	if err != nil || len(raw) == 0 {
 		return supportsInstructionsFromCompiled(instructionNames...), true, supportsMissingFromCompiled(instructionNames...), "compiled_allowlist"
 	}

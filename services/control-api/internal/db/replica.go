@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -16,7 +17,7 @@ var ReplicaDB *gorm.DB
 // InitReadReplica initializes a connection to the read replica
 // This is optional and only used when READ_REPLICA_URL is set
 func InitReadReplica() error {
-	replicaURL := os.Getenv("READ_REPLICA_URL")
+	replicaURL := strings.TrimSpace(os.Getenv("READ_REPLICA_URL"))
 	if replicaURL == "" {
 		log.Println("READ_REPLICA_URL not set, using primary DB for reads")
 		ReplicaDB = DB // Fallback to primary
