@@ -1,6 +1,9 @@
 # docker-compose.web-dev.yml
 # Web App development environment with hot reload
 # Usage: docker-compose -f docker-compose.web-dev.yml up -d
+# Host port 4001 is reserved for the Next.js dev server.
+# If a local IPFS container is running alongside it, remap the container's
+# internal 4001 swarm port to a different host port such as 4401.
 
 services:
   web-dev:
