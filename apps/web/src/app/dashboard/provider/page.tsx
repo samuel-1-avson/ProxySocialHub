@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
@@ -20,9 +21,11 @@ import { getProviderStatus } from '@/lib/api/provider';
 function ProviderApplicationStatusCard({
     status,
     createdAt,
+    statusReason,
 }: {
     status: 'pending' | 'approved' | 'rejected';
     createdAt?: string;
+    statusReason?: string;
 }) {
     const submittedAt = createdAt
         ? new Date(createdAt).toLocaleString()
@@ -37,9 +40,9 @@ function ProviderApplicationStatusCard({
                     </div>
                     <div className="space-y-2">
                         <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-amber-400">Provider Application</div>
-                        <h1 className="text-2xl font-black uppercase tracking-tight">Application Under Review</h1>
+                        <h1 className="text-2xl font-black uppercase tracking-tight">Automatic Verification In Progress</h1>
                         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                            Your provider application was submitted successfully and is waiting for manual approval. The current system does not auto-approve applications just because the linked wallet has enough SOL.
+                            {statusReason || 'Your provider application is queued for decentralized verification. The system will keep rechecking objective constraints until it can make a final decision automatically.'}
                         </p>
                     </div>
                     {submittedAt && (
@@ -50,7 +53,7 @@ function ProviderApplicationStatusCard({
                     <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-left">
                         <p className="text-[11px] font-mono uppercase text-amber-400 mb-2">What Happens Next</p>
                         <p className="text-sm text-muted-foreground">
-                            An admin must approve the application through the provider applications workflow. Once approved, your role is upgraded to provider and this page will switch to the provider workspace automatically.
+                            No human review is required. Once the linked wallet and on-chain balance checks satisfy the provider rules, the account is promoted automatically and this page will switch into the provider workspace.
                         </p>
                     </div>
                 </div>
@@ -69,7 +72,7 @@ function ProviderApplicationStatusCard({
                         <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-400">Provider Application</div>
                         <h1 className="text-2xl font-black uppercase tracking-tight">Application Approved</h1>
                         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                            The application is approved. If you are still seeing this page, your session likely has stale user role data. Reload once or sign in again to enter the full provider workspace.
+                            The application has been approved automatically. The dashboard is refreshing your session so the provider workspace can unlock without a fresh login.
                         </p>
                     </div>
                 </div>
@@ -87,7 +90,7 @@ function ProviderApplicationStatusCard({
                     <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-red-400">Provider Application</div>
                     <h1 className="text-2xl font-black uppercase tracking-tight">Application Rejected</h1>
                     <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                        The last provider application was rejected. You can correct the issue and submit a new application below.
+                        {statusReason || 'The latest automatic evaluation found that one or more provider constraints are not satisfied yet. Correct the issue and submit again below.'}
                     </p>
                 </div>
             </div>
@@ -112,13 +115,19 @@ export default function ProviderDashboard() {
     const onlineNodes = nodes.filter((n) => n.status === 'online').length;
     const offlineNodes = nodes.filter((n) => n.status === 'offline').length;
 
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     
     const { data: statusData, isLoading: statusLoading } = useQuery({
         queryKey: ['provider-status'],
         queryFn: getProviderStatus,
         enabled: !!user && user.role !== 'provider' && user.role !== 'admin',
     });
+
+    useEffect(() => {
+        if (statusData?.application?.status === 'approved' && user?.role !== 'provider' && user?.role !== 'admin') {
+            void refreshUser();
+        }
+    }, [refreshUser, statusData?.application?.status, user?.role]);
 
     if (summaryLoading || nodesLoading || statusLoading) {
         return <SkeletonDashboard />;
@@ -132,6 +141,7 @@ export default function ProviderDashboard() {
                 <ProviderApplicationStatusCard
                     status={applicationStatus}
                     createdAt={statusData?.application?.created_at}
+                    statusReason={statusData?.eligibility?.reason}
                 />
             );
         }
