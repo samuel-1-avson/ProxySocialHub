@@ -1,6 +1,7 @@
-//! Solana Relayer (Phase 5).
+//! Legacy edge-side Solana settlement relayer.
 //!
-//! Submits ZK-proofs of usage to the on-chain verifier contract (Solana).
+//! Public-testnet settlement is coordinated by control-api batching. This module
+//! remains available only for explicitly enabled legacy experiments.
 
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::{AccountMeta, Instruction};
@@ -18,6 +19,13 @@ use super::zk::{PublicInputs, UsageProof};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
+fn legacy_edge_submission_enabled() -> bool {
+    std::env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED")
+        .ok()
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 pub struct BatchRelayer {
     pub proofs: Mutex<Vec<(UsageProof, PublicInputs)>>,
     pub max_batch_size: usize,
@@ -34,6 +42,11 @@ impl BatchRelayer {
     }
 
     pub async fn add_proof(&self, proof: UsageProof, inputs: PublicInputs) {
+        if !legacy_edge_submission_enabled() {
+            warn!("Ignoring legacy edge-side proof because LEGACY_EDGE_ZK_SUBMISSION_ENABLED is false");
+            return;
+        }
+
         let mut proofs = self.proofs.lock().await;
         proofs.push((proof, inputs));
 
@@ -208,13 +221,18 @@ impl SolanaRelayer {
     }
 
     /// Submit a single usage proof on-chain via `submit_zk_batch`.
+    /// Deprecated for the public-testnet default path.
     pub async fn submit_proof(
         &self,
         _proof: &UsageProof,
         inputs: &PublicInputs,
     ) -> Result<String, String> {
+        if !legacy_edge_submission_enabled() {
+            return Err("legacy edge-side proof submission is disabled; control-api batch settlement is canonical".to_string());
+        }
+
         info!(
-            "Submitting ZK-proof for session {:?} to Solana...",
+            "Submitting legacy edge-side ZK-proof for session {:?} to Solana...",
             inputs.session_id_hash
         );
 
@@ -231,12 +249,17 @@ impl SolanaRelayer {
     }
 
     /// Submit a batch of proofs on-chain as a single Merkle-root commitment.
+    /// Deprecated for the public-testnet default path.
     pub async fn submit_batch(
         &self,
         batch: Vec<(UsageProof, PublicInputs)>,
     ) -> Result<String, String> {
+        if !legacy_edge_submission_enabled() {
+            return Err("legacy edge-side batch submission is disabled; control-api batch settlement is canonical".to_string());
+        }
+
         info!(
-            "Submitting BATCH of {} ZK-proofs to Solana...",
+            "Submitting legacy edge-side BATCH of {} ZK-proofs to Solana...",
             batch.len()
         );
 
@@ -318,7 +341,7 @@ impl SolanaRelayer {
             .map_err(|e| format!("Transaction failed: {}", e))?;
 
         let sig_str = signature.to_string();
-        info!("ZK batch committed on-chain: {}", sig_str);
+        info!("Legacy edge-side ZK batch committed on-chain: {}", sig_str);
         Ok(sig_str)
     }
 
@@ -399,7 +422,10 @@ impl SolanaRelayer {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn seeded_keypair(seed_byte: u8) -> Keypair {
         keypair_from_seed(&[seed_byte; 32]).expect("seeded keypair")
@@ -449,5 +475,23 @@ mod tests {
         assert_eq!(parsed.pubkey(), expected.pubkey());
 
         let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn submit_batch_is_disabled_by_default() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous = std::env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED").ok();
+        std::env::remove_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED");
+
+        let relayer = SolanaRelayer::new("11111111111111111111111111111111", "http://127.0.0.1:65535");
+        let result = relayer.submit_batch(Vec::new()).await;
+
+        match previous {
+            Some(value) => std::env::set_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", value),
+            None => std::env::remove_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED"),
+        }
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("disabled"));
     }
 }

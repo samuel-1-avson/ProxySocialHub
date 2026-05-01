@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const localDevURL = 'http://localhost:4001';
+const localDevURL = 'http://localhost:4011';
 const baseURL = process.env.TEST_BASE_URL || localDevURL;
 const webServer = process.env.TEST_BASE_URL
   ? undefined

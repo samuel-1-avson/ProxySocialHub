@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { getAccessTokenSilently } from './auth';
 import { getRealtimeWsUrl } from './ws-url';
 
 interface WebSocketMessage {
@@ -24,8 +25,7 @@ export function useWebSocket(url?: string) {
 
 
   const connect = useCallback(async () => {
-    // Read JWT from local storage — issued by the self-hosted backend on login.
-    const token = typeof window !== 'undefined' ? localStorage.getItem('proxyhubb_token') : null;
+    const token = await getAccessTokenSilently();
 
     if (!token) return;
 
@@ -35,7 +35,7 @@ export function useWebSocket(url?: string) {
     }
 
     try {
-      const ws = new WebSocket(`${wsUrl}?token=${token}`);
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return; // stale instance

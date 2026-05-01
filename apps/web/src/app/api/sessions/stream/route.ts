@@ -5,12 +5,16 @@ import { NextRequest } from 'next/server';
 // the response incrementally using ReadableStream so the browser receives
 // events in real-time without buffering.
 export async function GET(req: NextRequest) {
-    const token = req.nextUrl.searchParams.get('token') ?? '';
     const backendUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:18080';
-    const upstream = `${backendUrl}/v1/sessions/stream?token=${encodeURIComponent(token)}`;
+    const upstream = `${backendUrl}/v1/sessions/stream`;
+    const cookieHeader = req.headers.get('cookie');
 
     const backendRes = await fetch(upstream, {
-        headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+        headers: {
+            Accept: 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+        },
         // @ts-expect-error — Node.js fetch supports duplex
         duplex: 'half',
     });
