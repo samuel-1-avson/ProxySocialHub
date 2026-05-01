@@ -71,7 +71,6 @@ services:
       - POSTGRES_DB=proxyhubb_test
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
-      - ./services/control-api/migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "5433:5432"  # Different port to avoid conflicts
     networks:

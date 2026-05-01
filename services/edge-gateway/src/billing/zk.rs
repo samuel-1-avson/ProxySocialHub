@@ -1,10 +1,8 @@
-//! ZK Usage Proofs (Phase 5).
+//! Legacy edge-side ZK usage proofs.
 //!
-//! Generates a zero-knowledge proof that a session's total usage (BytesUp, BytesDown)
-//! is accurate relative to the sequence of signed metering events.
-//!
-//! The prover uses Groth16 over BN254 with a proving key loaded from disk or
-//! fetched from the configured `ZK_PROVING_KEY_PATH` env var.
+//! Public-testnet settlement is coordinated by control-api batching with an
+//! external Halo2 prover path. This Groth16 prover remains available only for
+//! explicitly enabled legacy gateway experiments.
 
 use ark_bn254::{Bn254, Fr};
 use ark_ff::PrimeField;
@@ -18,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-/// The public inputs for the ZK-verify on-chain (Solana).
+/// Public inputs for the legacy gateway-side proof flow.
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PublicInputs {
     pub session_id_hash: [u8; 32],
@@ -27,7 +25,7 @@ pub struct PublicInputs {
     pub provider_pubkey: [u8; 32],
 }
 
-/// A proof that usage is valid.
+/// A legacy gateway-side proof that usage is valid.
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct UsageProof {
     pub proof: ark_groth16::Proof<Bn254>,
@@ -78,9 +76,10 @@ pub struct ZkProver {
 }
 
 impl ZkProver {
-    /// Create a new ZkProver.  If `ZK_PROVING_KEY_PATH` is set and the file
-    /// exists, the key is loaded at startup.  Otherwise the prover performs a
-    /// one-time trusted setup on first call (suitable for devnet only).
+    /// Create a new legacy edge-side ZkProver. If `ZK_PROVING_KEY_PATH` is set
+    /// and the file exists, the key is loaded at startup. Otherwise the prover
+    /// performs a one-time trusted setup on first call (suitable for dev/test
+    /// experiments only).
     pub fn new() -> Self {
         let key_path = std::env::var("ZK_PROVING_KEY_PATH").ok().map(PathBuf::from);
 
@@ -148,7 +147,7 @@ impl ZkProver {
         Fr::from_le_bytes_mod_order(&scalar_bytes)
     }
 
-    /// Generate a proof for a completed session.
+    /// Generate a proof for a completed session in the legacy edge-side flow.
     pub async fn prove_usage(
         &self,
         session_id: &str,
@@ -192,7 +191,7 @@ impl ZkProver {
         }
     }
 
-    /// Verify a proof locally (for testing / pre-submission checks).
+    /// Verify a proof locally for testing or legacy pre-submission checks.
     pub fn verify(
         &self,
         proof: &UsageProof,

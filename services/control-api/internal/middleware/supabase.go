@@ -13,27 +13,28 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
+func authTokenFromRequest(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" {
+		return strings.Replace(authHeader, "Bearer ", "", 1)
+	}
+
+	if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
+		return cookieToken
+	}
+
+	return ""
+}
+
 // SupabaseAuthMiddleware authenticates requests using the self-hosted JWT or
 // provider CLI token. Supabase Auth is no longer used — all tokens are issued
 // by this backend.
 func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenString := ""
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" {
-			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
-		} else {
-			// Fallback to query parameter (e.g. for WebSockets)
-			tokenString = c.Query("token")
-			if tokenString == "" {
-				if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
-					tokenString = cookieToken
-				}
-			}
-		}
+		tokenString := authTokenFromRequest(c)
 
 		if tokenString == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header or token parameter required"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header or auth cookie required"})
 			return
 		}
 
@@ -74,18 +75,7 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 // but does not abort if missing — the request proceeds as a guest.
 func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenString := ""
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" {
-			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
-		} else {
-			tokenString = c.Query("token")
-			if tokenString == "" {
-				if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
-					tokenString = cookieToken
-				}
-			}
-		}
+		tokenString := authTokenFromRequest(c)
 
 		if tokenString == "" {
 			c.Next()

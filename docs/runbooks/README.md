@@ -5,10 +5,12 @@ This directory contains operational runbooks for common procedures and incident 
 ## Index
 
 | Runbook | Description | Priority |
-|---------|-------------|----------|
+| ------- | ----------- | -------- |
 | [Database Backup & Restore](database-backup-restore.md) | Database backup procedures | Critical |
 | [Deployment](deployment.md) | Deployment procedures | Critical |
+| [Gateway And Session Secret Rotation](gateway-session-secret-rotation.md) | RC-04 secret rotation for gateway auth and session-intent signing | High |
 | [Incident Response](incident-response.md) | Incident handling process | Critical |
+| [Public Testnet Settlement Validation](public-testnet-settlement-validation.md) | RC-03 settlement lifecycle validation path | High |
 | [Scaling](scaling.md) | Horizontal/vertical scaling | High |
 | [Security Incident](security-incident.md) | Security breach response | Critical |
 | [Solana Oracle Recovery](solana-oracle-recovery.md) | Oracle wallet recovery | Critical |
@@ -26,7 +28,7 @@ This directory contains operational runbooks for common procedures and incident 
 ### Emergency Contacts
 
 | Role | Name | Phone | Slack |
-|------|------|-------|-------|
+| ---- | ---- | ----- | ----- |
 | On-Call Engineer | - | PagerDuty | #incidents |
 | Tech Lead | - | - | @tech-lead |
 | Security Team | - | - | @security |
@@ -63,7 +65,7 @@ solana balance $ORACLE_ADDRESS --url $SOLANA_RPC_ENDPOINT
 ## Severity Levels
 
 | Level | Description | Response Time | Examples |
-|-------|-------------|---------------|----------|
+| ----- | ----------- | ------------- | -------- |
 | SEV1 | Critical - Complete outage | 15 minutes | All services down, data loss |
 | SEV2 | High - Major functionality impaired | 1 hour | High error rate, performance degraded |
 | SEV3 | Medium - Minor functionality impaired | 4 hours | Single feature not working |
@@ -71,7 +73,7 @@ solana balance $ORACLE_ADDRESS --url $SOLANA_RPC_ENDPOINT
 
 ## Escalation Path
 
-```
+```text
 On-Call Engineer (15 min)
     ↓
 Tech Lead (30 min)
@@ -85,7 +87,7 @@ CTO (2 hours)
 
 - **Incidents**: #incidents (Slack)
 - **War Room**: Meet link posted in #incidents
-- **Status Page**: https://status.proxyhubb.com
+- **Status Page**: <https://status.proxyhubb.com>
 - **Post-Mortems**: #post-mortems
 
 ---

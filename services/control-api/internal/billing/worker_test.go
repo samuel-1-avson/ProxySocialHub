@@ -18,20 +18,25 @@ func TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle(t *testing
 	}
 
 	userID := uuid.New()
+	now := time.Now().UTC()
 	session := models.Session{
-		UserID: userID,
-		Type:   models.SessionRotating,
-		Status: models.SessionActive,
+		UserID:    userID,
+		Type:      models.SessionRotating,
+		Status:    models.SessionActive,
+		Config:    "{}",
+		StartTime: now.Add(-10 * time.Minute),
+		EndTime:   now.Add(50 * time.Minute),
 	}
 	if err := db.DB.Create(&session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
+	sessionUsername := "settlement-session-user-" + session.ID.String()
 
 	manifest := models.SettlementManifest{
 		SessionID:       session.ID,
-		SessionUsername: "settlement-session-user",
+		SessionUsername: sessionUsername,
 		UserRef:         userID.String(),
-		WindowKey:       "window-1",
+		WindowKey:       "window-" + session.ID.String(),
 		WindowStartedAt: time.Now().Add(-5 * time.Minute).UTC(),
 		WindowEndedAt:   time.Now().Add(-1 * time.Minute).UTC(),
 		LastReceiptAt:   time.Now().Add(-1 * time.Minute).UTC(),
@@ -44,7 +49,7 @@ func TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle(t *testing
 	receipt := models.UsageReceipt{
 		ManifestID:      &manifest.ID,
 		SessionID:       session.ID,
-		SessionUsername: manifest.SessionUsername,
+		SessionUsername: sessionUsername,
 		UserRef:         userID.String(),
 		BytesUp:         512,
 		BytesDown:       1024,

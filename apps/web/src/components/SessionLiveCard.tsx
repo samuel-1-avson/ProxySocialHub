@@ -172,15 +172,10 @@ export function SessionLiveCard() {
       return;
     }
 
-    // EventSource does not support custom headers, so we pass the token as a
-    // query parameter. The backend middleware should accept ?token= as a
-    // fallback, or we rely on cookie-based auth. If the backend only accepts
-    // the Authorization header, a fetch-based SSE reader would be needed.
-    // We build the URL with a token query param here as a pragmatic approach
-    // that works with most proxy setups.
     // Use /api/sessions/stream (a streaming Next.js API route) instead of
     // going through the /v1 rewrite — rewrites buffer SSE and break streaming.
-    const url = `/api/sessions/stream?token=${encodeURIComponent(token)}`;
+    // The auth helper above refreshes and syncs the access-token cookie first.
+    const url = "/api/sessions/stream";
 
     const es = new EventSource(url);
     esRef.current = es;

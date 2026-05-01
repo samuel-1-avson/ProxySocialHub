@@ -11,9 +11,11 @@ import bs58 from 'bs58';
 const API_BASE_URL = '';
 const ACCESS_TOKEN_STORAGE_KEY = 'proxyhubb_token';
 const REFRESH_TOKEN_STORAGE_KEY = 'proxyhubb_refresh_token';
+const LEGACY_ACCESS_TOKEN_STORAGE_KEY = 'token';
 const ACCESS_TOKEN_REFRESH_LEEWAY_MS = 60_000;
 
 let refreshPromise: Promise<string | null> | null = null;
+let accessTokenCache: string | null = null;
 
 function apiUrl(path: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
@@ -92,6 +94,109 @@ function clearCookie(name: string) {
   document.cookie = `${name}=; path=/; max-age=0; samesite=lax${secure}`;
 }
 
+function readCookie(name: string): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split(';')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+
+  if (!cookie) {
+    return null;
+  }
+
+  return decodeURIComponent(cookie.slice(prefix.length));
+}
+
+function hasCookie(name: string): boolean {
+  return readCookie(name) !== null;
+}
+
+function removeLegacyLocalStorageAuth() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+}
+
+function rememberAccessToken(token: string) {
+  if (typeof window === 'undefined') {
+    accessTokenCache = token;
+    return;
+  }
+
+  accessTokenCache = token;
+  sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+  syncAccessTokenCookie(token);
+  localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+}
+
+function migrateLegacyAccessToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const legacyToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || localStorage.getItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+  if (!legacyToken) {
+    return null;
+  }
+
+  rememberAccessToken(legacyToken);
+  return legacyToken;
+}
+
+function migrateLegacyRefreshToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const legacyRefreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+  if (!legacyRefreshToken) {
+    return null;
+  }
+
+  writeCookie(REFRESH_TOKEN_STORAGE_KEY, legacyRefreshToken, 30 * 24 * 60 * 60);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  return legacyRefreshToken;
+}
+
+export function getStoredAccessTokenSync(): string | null {
+  if (accessTokenCache) {
+    return accessTokenCache;
+  }
+
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const sessionToken = sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  if (sessionToken) {
+    accessTokenCache = sessionToken;
+    return sessionToken;
+  }
+
+  const cookieToken = readCookie(ACCESS_TOKEN_STORAGE_KEY);
+  if (cookieToken) {
+    accessTokenCache = cookieToken;
+    sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, cookieToken);
+    return cookieToken;
+  }
+
+  return migrateLegacyAccessToken();
+}
+
+export async function getAccessTokenSilently(): Promise<string | null> {
+  return refreshAccessToken();
+}
+
 function syncAccessTokenCookie(token: string) {
   const expiryMs = getTokenExpiryMs(token);
   const maxAgeSeconds = expiryMs
@@ -106,22 +211,24 @@ function persistAuthTokens(token: string, refreshToken?: string) {
     return;
   }
 
-  localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-  syncAccessTokenCookie(token);
+  rememberAccessToken(token);
 
   if (refreshToken) {
-    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
     writeCookie(REFRESH_TOKEN_STORAGE_KEY, refreshToken, 30 * 24 * 60 * 60);
   }
+
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
 }
 
 function clearStoredAuth() {
   if (typeof window === 'undefined') {
+    accessTokenCache = null;
     return;
   }
 
-  localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  accessTokenCache = null;
+  sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  removeLegacyLocalStorageAuth();
   clearCookie(ACCESS_TOKEN_STORAGE_KEY);
   clearCookie(REFRESH_TOKEN_STORAGE_KEY);
 }
@@ -131,16 +238,17 @@ async function refreshAccessToken(force = false): Promise<string | null> {
     return null;
   }
 
-  const existingToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  const existingToken = getStoredAccessTokenSync();
   if (!force && existingToken && !isTokenExpired(existingToken, ACCESS_TOKEN_REFRESH_LEEWAY_MS)) {
-    syncAccessTokenCookie(existingToken);
+    rememberAccessToken(existingToken);
     return existingToken;
   }
 
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-  if (!refreshToken) {
+  const migratedRefreshToken = migrateLegacyRefreshToken();
+  const hasRefreshToken = hasCookie(REFRESH_TOKEN_STORAGE_KEY) || !!migratedRefreshToken;
+  if (!hasRefreshToken) {
     if (existingToken && !isTokenExpired(existingToken)) {
-      syncAccessTokenCookie(existingToken);
+      rememberAccessToken(existingToken);
       return existingToken;
     }
 
@@ -154,12 +262,17 @@ async function refreshAccessToken(force = false): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      const response = await fetch(apiUrl('/v1/auth/refresh'), {
+      const requestInit: RequestInit = {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
         credentials: 'include',
-      });
+      };
+
+      if (migratedRefreshToken) {
+        requestInit.headers = { 'Content-Type': 'application/json' };
+        requestInit.body = JSON.stringify({ refresh_token: migratedRefreshToken });
+      }
+
+      const response = await fetch(apiUrl('/v1/auth/refresh'), requestInit);
 
       const data = await parseJsonResponse<AuthRefreshResponse>(response, 'Token refresh');
       if (!response.ok || !data.token) {
@@ -167,7 +280,7 @@ async function refreshAccessToken(force = false): Promise<string | null> {
         return null;
       }
 
-      persistAuthTokens(data.token, data.refresh_token ?? refreshToken);
+      persistAuthTokens(data.token, data.refresh_token);
       return data.token;
     } catch (error) {
       console.error('Token refresh error:', error);
@@ -375,7 +488,7 @@ export function useAuth() {
 // Simple check for authentication status (synchronous)
 export function isAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
-  return !!localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  return !!getStoredAccessTokenSync();
 }
 
 // Helper to make authenticated API calls

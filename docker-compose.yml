@@ -202,6 +202,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       # Dedicated control-plane secret for edge-gateway -> control-api gateway routes.
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
       - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
@@ -222,6 +223,8 @@ services:
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
       - SOLANA_KEYPAIR_PATH=/run/secrets/oracle-keypair.json
       - REPUTATION_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
+      # Deprecated edge-side Groth16 settlement path. Keep disabled unless explicitly testing the legacy gateway flow.
+      - LEGACY_EDGE_ZK_SUBMISSION_ENABLED=${LEGACY_EDGE_ZK_SUBMISSION_ENABLED:-false}
       - PHUBB_TOKEN_MINT=${PHB_TOKEN_MINT}
       - ORACLE_PRIVATE_KEY=${ORACLE_PRIVATE_KEY}
       # --- D-O1: Multi-source price oracle (CoinGecko + Binance + CoinMarketCap) ---
