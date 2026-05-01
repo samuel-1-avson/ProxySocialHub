@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getAccessTokenSilently } from "@/lib/auth";
 import { GlassPanel } from "../components/GlassPanel";
 
 interface ActivityEvent {
@@ -138,10 +139,9 @@ export function ActivityFeed({
   /** Fetch recent sessions from the backend and convert to events. */
   const fetchEvents = useCallback(async () => {
     try {
+      const token = await getAccessTokenSilently();
       const res = await fetch("/api/v1/sessions?limit=20&sort=created_at:desc", {
-        headers: {
-          Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("proxyhubb_token") || "" : ""}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -278,13 +278,12 @@ export function ActivityFeedCompact({
   useEffect(() => {
     const fetchCompactEvents = async () => {
       try {
+        const token = await getAccessTokenSilently();
         const url = nodeId
           ? `/api/v1/sessions?limit=${maxItems}&sort=created_at:desc&node_id=${nodeId}`
           : `/api/v1/sessions?limit=${maxItems}&sort=created_at:desc`;
         const res = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("proxyhubb_token") || "" : ""}`,
-          },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) return;
         const data = await res.json();

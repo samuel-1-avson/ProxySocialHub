@@ -11,13 +11,11 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifest and source
+# Copy manifest files first so dependency fetch stays cached across source-only changes.
 COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
-COPY proto ./proto
-COPY src ./src
-# Bench sources declared in Cargo.toml — must be present for manifest parsing.
-COPY benches ./benches
+RUN mkdir -p src benches \
+    && printf 'fn main() {}\n' > src/main.rs \
+    && printf 'fn main() {}\n' > benches/registry_bench.rs
 
 # Improve resilience against transient crates.io and CDN failures during image builds.
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
@@ -26,6 +24,12 @@ ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
     CARGO_HTTP_TIMEOUT=600
 
 RUN cargo fetch --locked || cargo fetch --locked || cargo fetch --locked
+
+COPY build.rs ./
+COPY proto ./proto
+COPY src ./src
+# Bench sources declared in Cargo.toml — must be present for manifest parsing.
+COPY benches ./benches
 
 # Build in release mode with ONNX (ml) and ZK features enabled.
 RUN cargo build --release --locked --features ml

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Star, X, Send, Clock, Database, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { getAccessTokenSilently } from '@/lib/auth';
 import { useNotificationStore } from '@/stores';
 
 interface UsageReviewModalProps {
@@ -50,7 +51,7 @@ export function UsageReviewModal({ isOpen, onClose, sessionId, listingTitle, pro
     const fetchEligibility = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const token = await getAccessTokenSilently();
             const response = await fetch(`/v1/sessions/${sessionId}/review-eligibility`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             });
@@ -82,12 +83,12 @@ export function UsageReviewModal({ isOpen, onClose, sessionId, listingTitle, pro
 
         setSubmitting(true);
         try {
-            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const token = await getAccessTokenSilently();
             const response = await fetch(`/v1/sessions/${sessionId}/review`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({
                     rating,

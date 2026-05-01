@@ -381,12 +381,12 @@ pub struct AppState {
     pub honeytoken: Arc<crate::security::honeytoken::HoneytokenRegistry>,
     /// Anomaly tracker for session monitoring (Phase 4).
     pub anomaly: Arc<crate::security::anomaly::AnomalyTracker>,
-    /// ZK-SNARK usage prover (Phase 5).
-    pub zk_prover: Arc<crate::billing::zk::ZkProver>,
+    /// Legacy edge-side ZK-SNARK usage prover. Disabled by default in favor of control-api batching.
+    pub zk_prover: Option<Arc<crate::billing::zk::ZkProver>>,
     /// Solana transaction relayer for decentralized payouts (Phase 5).
     pub solana_relayer: Arc<crate::billing::solana::SolanaRelayer>,
-    /// Batch relayer for optimized settlement (Phase 9).
-    pub solana_batch_relayer: Arc<crate::billing::solana::BatchRelayer>,
+    /// Legacy batch relayer for edge-side settlement experiments.
+    pub solana_batch_relayer: Option<Arc<crate::billing::solana::BatchRelayer>>,
 }
 
 impl AppState {
@@ -473,7 +473,11 @@ impl AppState {
         let anomaly = Arc::new(crate::security::anomaly::AnomalyTracker::new(
             config.max_rpm_per_session.unwrap_or(300),
         ));
-        let zk_prover = Arc::new(crate::billing::zk::ZkProver::new());
+        let zk_prover = if config.legacy_edge_zk_submission_enabled {
+            Some(Arc::new(crate::billing::zk::ZkProver::new()))
+        } else {
+            None
+        };
         let solana_program_id = env::var("SOLANA_PROGRAM_ID")
             .or_else(|_| env::var("REPUTATION_PROGRAM_ID"))
             .unwrap_or_default();
@@ -481,7 +485,14 @@ impl AppState {
              &solana_program_id,
              &env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
         ));
-        let solana_batch_relayer = Arc::new(crate::billing::solana::BatchRelayer::new(solana_relayer.clone(), 10));
+        let solana_batch_relayer = if config.legacy_edge_zk_submission_enabled {
+            Some(Arc::new(crate::billing::solana::BatchRelayer::new(
+                solana_relayer.clone(),
+                10,
+            )))
+        } else {
+            None
+        };
 
         Self {
             registry: Arc::new(LockFreeNodeRegistry::new()),

@@ -57,13 +57,13 @@ type Params struct {
 }
 
 func ResolveSigningSecret() (string, error) {
-	if secret := strings.TrimSpace(os.Getenv("GATEWAY_SHARED_SECRET")); secret != "" {
+	// Session-intent JWTs are signed with the dedicated session secret so
+	// gateway route auth and end-user session delegation do not share the same
+	// secret boundary.
+	if secret := strings.TrimSpace(os.Getenv("SESSION_SECRET")); secret != "" {
 		return secret, nil
 	}
-	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET")); secret != "" {
-		return secret, nil
-	}
-	return "", errors.New("neither GATEWAY_SHARED_SECRET nor JWT_SECRET is configured")
+	return "", errors.New("SESSION_SECRET is not configured")
 }
 
 func ResolveTTL() time.Duration {

@@ -84,12 +84,18 @@ impl Circuit<Fp> for BatchDigestCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        let digest = self.digest.ok_or(Error::Synthesis)?;
+        // During key generation Halo2 calls synthesize() on a circuit returned
+        // by without_witnesses(). That circuit has no witnesses, so we must not
+        // error. Instead we assign an unknown value and still emit constraints.
+        let digest = match self.digest {
+            Some(value) => Value::known(value),
+            None => Value::unknown(),
+        };
 
         let assigned = layouter.assign_region(
             || "assign digest witness",
             |mut region| {
-                region.assign_advice(|| "digest", config.advice, 0, || Value::known(digest))
+                region.assign_advice(|| "digest", config.advice, 0, || digest)
             },
         )?;
 

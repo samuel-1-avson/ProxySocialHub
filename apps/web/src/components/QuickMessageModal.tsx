@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { MessageSquare, Send, X, Loader2, Globe, Zap } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { getAccessTokenSilently, useAuth } from '@/lib/auth';
 import { useNotificationStore } from '@/stores';
 import { useRouter } from 'next/navigation';
 
@@ -85,7 +85,7 @@ export function QuickMessageModal({
         setIsSending(true);
 
         try {
-            const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+            const token = await getAccessTokenSilently();
             const response = await fetch(`/v1/listings/${listingId}/inquire`, {
                 method: 'POST',
                 headers: {

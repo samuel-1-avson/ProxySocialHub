@@ -146,10 +146,21 @@ func (z *ZKAggregator) SubmitBatchDirect(ctx context.Context, batch *zk.BatchPro
 		return err
 	}
 
+	// Persist proof bytes as soon as they are available so failures after this
+	// point (e.g., missing Solana program in a simulation environment) still
+	// leave operator-visible evidence behind.
+	if len(batch.Proof) > 0 {
+		db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
+			Updates(map[string]interface{}{"proof_bytes": batch.Proof})
+	}
+
 	txSig, err := z.submitBatchOnChain(ctx, batch, rootHex)
 	if err != nil {
 		db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
-			Updates(map[string]interface{}{"status": models.ZKBatchFailed})
+			Updates(map[string]interface{}{
+				"status":      models.ZKBatchFailed,
+				"proof_bytes": batch.Proof,
+			})
 		return err
 	}
 	db.DB.Model(&models.ZKBatch{}).Where("batch_root = ?", rootHex).
