@@ -48,6 +48,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
       - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS must be set}
@@ -151,6 +152,8 @@ services:
       - NATS_URL=nats://nats:4222
       - CONTROL_API_URL=http://control-api:8080
       - JWT_SECRET=${JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
       - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY}

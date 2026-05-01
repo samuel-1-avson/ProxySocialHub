@@ -8,33 +8,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/config"
-	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
 // RegisterAdminSessionStreamRoute adds the admin SSE session stream endpoint.
-// It uses a separate token-via-query-param approach because EventSource cannot
-// send custom headers, and the admin JWT is distinct from the user Supabase JWT.
-func RegisterAdminSessionStreamRoute(adminProtected *gin.RouterGroup, cfg *config.Config) {
-	adminProtected.GET("/sessions/stream", adminStreamSessions(cfg))
+// It relies on the protected admin route group and existing admin auth middleware.
+func RegisterAdminSessionStreamRoute(adminProtected *gin.RouterGroup, _ *config.Config) {
+	adminProtected.GET("/sessions/stream", adminStreamSessions())
 }
 
-func adminStreamSessions(cfg *config.Config) gin.HandlerFunc {
+func adminStreamSessions() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// EventSource cannot set headers — read token from query param.
-		token := c.Query("token")
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin token required"})
+		adminRole, exists := c.Get("adminRole")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin authorization required"})
 			return
 		}
 
-		claims, err := crypto.ValidateToken(token, cfg.Admin.JWTSecret)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired admin token"})
-			return
-		}
-		if claims.Role != "admin" && claims.Role != "superadmin" && claims.Role != "sysops" && claims.Role != "support" {
+		role, _ := adminRole.(string)
+		if role != "admin" && role != "superadmin" && role != "sysops" && role != "support" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient admin privileges"})
 			return
 		}
@@ -64,14 +57,14 @@ func adminStreamSessions(cfg *config.Config) gin.HandlerFunc {
 }
 
 type adminSessionItem struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	NodeID     string    `json:"node_id"`
-	Status     string    `json:"status"`
-	BytesUp    int64     `json:"bytes_up"`
-	BytesDown  int64     `json:"bytes_down"`
-	StartedAt  time.Time `json:"started_at"`
-	DurationS  int64     `json:"duration_s"`
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	NodeID    string    `json:"node_id"`
+	Status    string    `json:"status"`
+	BytesUp   int64     `json:"bytes_up"`
+	BytesDown int64     `json:"bytes_down"`
+	StartedAt time.Time `json:"started_at"`
+	DurationS int64     `json:"duration_s"`
 }
 
 type adminSessionPayload struct {

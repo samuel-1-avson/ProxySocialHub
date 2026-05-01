@@ -15,7 +15,7 @@ import {
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
 import { QuickMessageModal } from './QuickMessageModal';
-import { useAuth } from '@/lib/auth';
+import { getAccessTokenSilently, useAuth } from '@/lib/auth';
 
 interface ListingCardEnhancedProps {
     listing: Listing;
@@ -58,7 +58,7 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
             if (!listing.id) return;
             
             try {
-                const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+                const token = await getAccessTokenSilently();
                 const headers: HeadersInit = {};
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;

@@ -445,7 +445,7 @@ async fn proxy(
         let (session_username, session_data) = match credentials {
             Some((username, password)) => {
                 match authenticator
-                    .resolve_proxy_auth(&username, &password, &state.config.gateway_shared_secret)
+                    .resolve_proxy_auth(&username, &password, &state.config.session_intent_signing_secret)
                     .await
                 {
                     Ok(Some(resolved)) => {
@@ -895,11 +895,24 @@ async fn proxy(
                                         user = %username_zk,
                                         "FULL_DECENTRALIZATION enabled: skipping legacy edge-side ZK/Solana submission path"
                                     );
-                                } else {
+                                } else if !state_zk.config.legacy_edge_zk_submission_enabled {
+                                    info!(
+                                        session_id = %session_id_zk,
+                                        user = %username_zk,
+                                        "Legacy edge-side ZK/Solana submission path disabled: control-api batch settlement is canonical"
+                                    );
+                                } else if let (Some(zk_prover), Some(batch_relayer)) = (
+                                    state_zk.zk_prover.clone(),
+                                    state_zk.solana_batch_relayer.clone(),
+                                ) {
+                                    warn!(
+                                        session_id = %session_id_zk,
+                                        user = %username_zk,
+                                        "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated edge-side Groth16 batch submission path"
+                                    );
                                     tokio::spawn(async move {
                                         let provider_pubkey = state_zk.solana_relayer.provider_pubkey();
-                                        if let Some(proof) = state_zk
-                                            .zk_prover
+                                        if let Some(proof) = zk_prover
                                             .prove_usage(
                                                 &session_id_zk,
                                                 bytes_up,
@@ -924,12 +937,15 @@ async fn proxy(
                                                 total_bytes_down: bytes_down,
                                                 provider_pubkey,
                                             };
-                                            state_zk
-                                                .solana_batch_relayer
-                                                .add_proof(proof, inputs)
-                                                .await;
+                                            batch_relayer.add_proof(proof, inputs).await;
                                         }
                                     });
+                                } else {
+                                    warn!(
+                                        session_id = %session_id_zk,
+                                        user = %username_zk,
+                                        "Legacy edge-side ZK/Solana submission path requested but runtime is unavailable"
+                                    );
                                 }
 
                                 // Decrement active sessions
@@ -1358,19 +1374,25 @@ async fn bridge_to_provider(
             let session_id = username.clone();
             let up = from_client;
             let down = from_provider;
-            let provider_pk = state_zk.solana_relayer.provider_pubkey();
 
             if full_decentralization_enabled() {
                 info!(
                     session_id = %session_id,
                     "FULL_DECENTRALIZATION enabled: skipping legacy direct edge proof submission"
                 );
-            } else {
+            } else if !state_zk.config.legacy_edge_zk_submission_enabled {
+                info!(
+                    session_id = %session_id,
+                    "Legacy direct edge proof submission disabled: control-api settlement remains canonical"
+                );
+            } else if let Some(zk_prover) = state_zk.zk_prover.clone() {
+                warn!(
+                    session_id = %session_id,
+                    "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated direct edge proof submission path"
+                );
                 tokio::spawn(async move {
-                    if let Some(proof) = state_zk
-                        .zk_prover
-                        .prove_usage(&session_id, up, down, &provider_pk)
-                        .await
+                    let provider_pk = state_zk.solana_relayer.provider_pubkey();
+                    if let Some(proof) = zk_prover.prove_usage(&session_id, up, down, &provider_pk).await
                     {
                         let session_hash = {
                             use sha2::{Sha256, Digest};
@@ -1398,6 +1420,11 @@ async fn bridge_to_provider(
                         }
                     }
                 });
+            } else {
+                warn!(
+                    session_id = %session_id,
+                    "Legacy direct edge proof submission path requested but prover runtime is unavailable"
+                );
             }
 
             info!(
@@ -1453,6 +1480,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Load configuration
     let config = config::Config::from_env();
+    if config.legacy_edge_zk_submission_enabled {
+        warn!(
+            "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: deprecated edge-side Groth16/Solana settlement remains enabled"
+        );
+    } else {
+        info!(
+            "Legacy edge-side ZK/Solana settlement path disabled; control-api batching remains canonical"
+        );
+    }
     let addr = config.socket_addr();
     let addr_tunnel = config.tunnel_port;
     let redis_url = config.redis_url.clone();

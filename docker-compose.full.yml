@@ -12,6 +12,7 @@ services:
       - DATABASE_URL=postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -101,6 +102,8 @@ services:
       - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-750cb0f0d0b7dce54567b0394513cd19a2ab6d21d4691696179061c20da297d1}
       - STICKY_TTL_SECS=3600
       - JWT_SECRET=${JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
       # S-07 / Geo filtering — comma-separated ISO-3166-1 alpha-2 country codes

@@ -3,6 +3,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+fn env_bool(key: &str, default: bool) -> bool {
+    env::var(key)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub host: String,
@@ -12,9 +23,13 @@ pub struct Config {
     pub sticky_ttl_secs: u64,
     pub jwt_secret: String,
     pub gateway_shared_secret: String,
+    pub session_intent_signing_secret: String,
     pub provider_private_key: String,
     pub geoip_db_path: Option<String>,
     pub control_api_url: String,
+    /// Explicit opt-in for the deprecated edge-side Groth16 proving/submission path.
+    /// Disabled by default because public-testnet settlement is coordinated by control-api batching.
+    pub legacy_edge_zk_submission_enabled: bool,
     // Phase 4: Security
     /// ISO 3166-1 alpha-2 codes to block (comma-separated env var GEO_DENY_LIST).
     pub geo_deny_list: Vec<String>,
@@ -66,11 +81,17 @@ impl Config {
         let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
         // Dedicated shared secret for edge-gateway -> control-api control-plane calls.
-        // Falls back to JWT_SECRET for backward compatibility in existing deployments.
         let gateway_shared_secret = env::var("GATEWAY_SHARED_SECRET")
             .ok()
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| jwt_secret.clone());
+            .expect("GATEWAY_SHARED_SECRET must be set");
+
+        // Session-intent delegation tokens are a separate auth surface from
+        // gateway control-plane calls and must use the session secret boundary.
+        let session_intent_signing_secret = env::var("SESSION_SECRET")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .expect("SESSION_SECRET must be set");
 
         let provider_private_key = env::var("PROVIDER_PRIVATE_KEY")
             .expect("PROVIDER_PRIVATE_KEY must be set");
@@ -110,6 +131,9 @@ impl Config {
         let control_api_url = env::var("CONTROL_API_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        let legacy_edge_zk_submission_enabled =
+            env_bool("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", false);
+
         // P2-12: Per-operation timeouts (all configurable via env vars).
         let proxy_connect_timeout_secs = env::var("PROXY_CONNECT_TIMEOUT_SECS")
             .unwrap_or_else(|_| "10".to_string())
@@ -138,11 +162,13 @@ impl Config {
             sticky_ttl_secs,
             jwt_secret,
             gateway_shared_secret,
+            session_intent_signing_secret,
             provider_private_key,
             geoip_db_path,
             geo_deny_list,
             geo_allow_list,
             region,
+            legacy_edge_zk_submission_enabled,
             session_cache_size,
             session_cache_ttl_secs,
             control_api_url,
@@ -186,5 +212,95 @@ impl DynamicConfig {
             global_bw_limit_mb: limit,
             maintenance_mode: maintenance,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn restore_var(key: &str, previous: Option<String>) {
+        match previous {
+            Some(value) => env::set_var(key, value),
+            None => env::remove_var(key),
+        }
+    }
+
+    #[test]
+    fn legacy_edge_zk_submission_defaults_to_disabled() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous_jwt = env::var("JWT_SECRET").ok();
+        let previous_gateway = env::var("GATEWAY_SHARED_SECRET").ok();
+        let previous_session = env::var("SESSION_SECRET").ok();
+        let previous_provider = env::var("PROVIDER_PRIVATE_KEY").ok();
+        let previous_legacy = env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED").ok();
+
+        env::set_var("JWT_SECRET", "test-jwt-secret");
+        env::set_var("GATEWAY_SHARED_SECRET", "test-gateway-secret");
+        env::set_var("SESSION_SECRET", "test-session-secret");
+        env::set_var("PROVIDER_PRIVATE_KEY", "test-provider-key");
+        env::remove_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED");
+
+        let config = Config::from_env();
+
+        restore_var("JWT_SECRET", previous_jwt);
+        restore_var("GATEWAY_SHARED_SECRET", previous_gateway);
+        restore_var("SESSION_SECRET", previous_session);
+        restore_var("PROVIDER_PRIVATE_KEY", previous_provider);
+        restore_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", previous_legacy);
+
+        assert!(!config.legacy_edge_zk_submission_enabled);
+    }
+
+    #[test]
+    fn legacy_edge_zk_submission_can_be_enabled_explicitly() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous_jwt = env::var("JWT_SECRET").ok();
+        let previous_gateway = env::var("GATEWAY_SHARED_SECRET").ok();
+        let previous_session = env::var("SESSION_SECRET").ok();
+        let previous_provider = env::var("PROVIDER_PRIVATE_KEY").ok();
+        let previous_legacy = env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED").ok();
+
+        env::set_var("JWT_SECRET", "test-jwt-secret");
+        env::set_var("GATEWAY_SHARED_SECRET", "test-gateway-secret");
+        env::set_var("SESSION_SECRET", "test-session-secret");
+        env::set_var("PROVIDER_PRIVATE_KEY", "test-provider-key");
+        env::set_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", "true");
+
+        let config = Config::from_env();
+
+        restore_var("JWT_SECRET", previous_jwt);
+        restore_var("GATEWAY_SHARED_SECRET", previous_gateway);
+        restore_var("SESSION_SECRET", previous_session);
+        restore_var("PROVIDER_PRIVATE_KEY", previous_provider);
+        restore_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", previous_legacy);
+
+        assert!(config.legacy_edge_zk_submission_enabled);
+    }
+
+    #[test]
+    fn session_intent_signing_secret_uses_session_secret() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous_jwt = env::var("JWT_SECRET").ok();
+        let previous_gateway = env::var("GATEWAY_SHARED_SECRET").ok();
+        let previous_session = env::var("SESSION_SECRET").ok();
+        let previous_provider = env::var("PROVIDER_PRIVATE_KEY").ok();
+
+        env::set_var("JWT_SECRET", "test-jwt-secret");
+        env::set_var("GATEWAY_SHARED_SECRET", "test-gateway-secret");
+        env::set_var("SESSION_SECRET", "test-session-secret");
+        env::set_var("PROVIDER_PRIVATE_KEY", "test-provider-key");
+
+        let config = Config::from_env();
+
+        restore_var("JWT_SECRET", previous_jwt);
+        restore_var("GATEWAY_SHARED_SECRET", previous_gateway);
+        restore_var("SESSION_SECRET", previous_session);
+        restore_var("PROVIDER_PRIVATE_KEY", previous_provider);
+
+        assert_eq!(config.session_intent_signing_secret, "test-session-secret");
     }
 }

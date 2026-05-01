@@ -1,7 +1,6 @@
 package sessionintent
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -55,22 +54,24 @@ func TestIssueAndValidateSessionIntent(t *testing.T) {
 	}
 }
 
-func TestResolveSigningSecretPrefersGatewaySecret(t *testing.T) {
+func TestResolveSigningSecretUsesSessionSecret(t *testing.T) {
 	t.Setenv("JWT_SECRET", "jwt-secret")
 	t.Setenv("GATEWAY_SHARED_SECRET", "gateway-secret")
+	t.Setenv("SESSION_SECRET", "session-secret")
 
 	secret, err := ResolveSigningSecret()
 	if err != nil {
 		t.Fatalf("ResolveSigningSecret returned error: %v", err)
 	}
-	if secret != "gateway-secret" {
-		t.Fatalf("expected gateway secret, got %s", secret)
+	if secret != "session-secret" {
+		t.Fatalf("expected session secret, got %s", secret)
 	}
 }
 
 func TestResolveSigningSecretErrorsWhenMissing(t *testing.T) {
-	os.Unsetenv("JWT_SECRET")
-	os.Unsetenv("GATEWAY_SHARED_SECRET")
+	t.Setenv("JWT_SECRET", "")
+	t.Setenv("GATEWAY_SHARED_SECRET", "")
+	t.Setenv("SESSION_SECRET", "")
 
 	if _, err := ResolveSigningSecret(); err == nil {
 		t.Fatal("expected error when no signing secret is configured")
