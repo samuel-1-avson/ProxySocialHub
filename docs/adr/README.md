@@ -9,13 +9,15 @@ An Architecture Decision Record (ADR) captures an important architectural decisi
 ## Index
 
 | # | Title | Status | Date |
-|---|-------|--------|------|
+| --- | --- | --- | --- |
 | 0001 | [Record Architecture Decisions](0001-record-architecture-decisions.md) | Accepted | 2026-03-09 |
 | 0002 | [Use Multi-Language Architecture](0002-use-multi-language-architecture.md) | Accepted | 2026-03-09 |
 | 0003 | [Use Solana for Blockchain Layer](0003-use-solana-for-blockchain.md) | Accepted | 2026-03-09 |
 | 0004 | [Use Hexagonal Architecture for Control API](0004-use-hexagonal-architecture.md) | Accepted | 2026-03-09 |
 | 0005 | [Use NATS JetStream for Event Streaming](0005-use-nats-for-messaging.md) | Accepted | 2026-03-09 |
 | 0006 | [Use Event-Driven Background Workers](0006-use-event-driven-workers.md) | Accepted | 2026-03-09 |
+| 0007 | [Use Canonical Public Testnet Settlement Path](0007-use-canonical-public-testnet-settlement-path.md) | Proposed | 2026-05-01 |
+| 0008 | [Use OpenAPI As Public API Contract Source](0008-use-openapi-as-public-api-contract-source.md) | Proposed | 2026-05-01 |
 
 ## Status Key
 

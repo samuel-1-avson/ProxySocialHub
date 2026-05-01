@@ -5,6 +5,13 @@ use serde::{Deserialize, Serialize};
 const ISSUER: &str = "proxyhubb-control-api";
 const AUDIENCE: &str = "proxyhubb-edge-gateway";
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum AudienceClaim {
+    One(String),
+    Many(Vec<String>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionIntentClaims {
     pub sub: String,
@@ -35,7 +42,7 @@ pub struct SessionIntentClaims {
     pub max_concurrency: i32,
     #[serde(default)]
     pub max_price_per_gb: f64,
-    pub aud: String,
+    pub aud: AudienceClaim,
     pub exp: usize,
     pub iat: usize,
     pub iss: String,
@@ -104,13 +111,32 @@ mod tests {
             requests_per_minute: 1000,
             max_concurrency: 100,
             max_price_per_gb: 0.25,
-            aud: AUDIENCE.to_string(),
+            aud: AudienceClaim::One(AUDIENCE.to_string()),
             exp,
             iat: now(),
             iss: ISSUER.to_string(),
             jti: "intent-123".to_string(),
             nbf: now(),
         }
+    }
+
+    #[test]
+    fn validates_token_with_array_audience_claim() {
+        let mut claims = sample_claims(now() + 60);
+        claims.aud = AudienceClaim::Many(vec![AUDIENCE.to_string()]);
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(b"shared-secret"),
+        )
+        .unwrap();
+
+        let validator = SessionIntentValidator::new("shared-secret");
+        let parsed = validator.validate(&token).unwrap();
+
+        assert_eq!(parsed.sub, claims.sub);
+        assert_eq!(parsed.aud, claims.aud);
     }
 
     #[test]

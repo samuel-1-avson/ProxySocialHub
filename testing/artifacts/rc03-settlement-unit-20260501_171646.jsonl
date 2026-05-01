@@ -1,0 +1,9 @@
+{"Time":"2026-05-01T17:17:02.9170733Z","Action":"start","Package":"github.com/proxyhubb/control-api/internal/billing"}
+{"Time":"2026-05-01T17:17:03.1383207Z","Action":"run","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle"}
+{"Time":"2026-05-01T17:17:03.1405599Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Output":"=== RUN   TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle\n"}
+{"Time":"2026-05-01T17:17:03.1494613Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Output":"    testutil.go:64: Skipping test: Could not prepare test database: pq: password authentication failed for user \"proxyhubb\" (28P01)\n"}
+{"Time":"2026-05-01T17:17:03.1494613Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Output":"--- SKIP: TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle (0.01s)\n"}
+{"Time":"2026-05-01T17:17:03.1494613Z","Action":"skip","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Elapsed":0.01}
+{"Time":"2026-05-01T17:17:03.1505641Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"PASS\n"}
+{"Time":"2026-05-01T17:17:03.1561678Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"ok  \tgithub.com/proxyhubb/control-api/internal/billing\t0.237s\n"}
+{"Time":"2026-05-01T17:17:03.1561678Z","Action":"pass","Package":"github.com/proxyhubb/control-api/internal/billing","Elapsed":0.24}

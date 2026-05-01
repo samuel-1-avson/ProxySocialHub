@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Trophy, Zap, Crown, Footprints, Hammer, ChevronRight } from 'lucide-react';
+import { getAccessTokenSilently } from '@/lib/auth';
 
 interface MilestoneProgressProps {
     className?: string;
@@ -43,7 +44,7 @@ export function MilestoneProgress({ className }: MilestoneProgressProps) {
     useEffect(() => {
         const fetchNextMilestone = async () => {
             try {
-                const token = localStorage.getItem('proxyhubb_token') || localStorage.getItem('token');
+                const token = await getAccessTokenSilently();
                 const response = await fetch('/v1/milestones/next', {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {},
                 });

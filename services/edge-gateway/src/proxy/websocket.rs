@@ -106,7 +106,7 @@ pub async fn handle_ws_upgrade(
     let auth_header = req.headers().get(PROXY_AUTHORIZATION);
     let (username, session_data) = match crate::extract_proxy_auth(auth_header) {
         Some((u, p)) => match authenticator
-            .resolve_proxy_auth(&u, &p, &state.config.gateway_shared_secret)
+            .resolve_proxy_auth(&u, &p, &state.config.session_intent_signing_secret)
             .await
         {
             Ok(Some(resolved)) => {

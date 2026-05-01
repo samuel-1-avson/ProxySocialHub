@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { getAccessTokenSilently } from '@/lib/auth';
 import { getReputationTelemetry, verifyReputationProof } from '@/lib/api/marketplace';
 
 export interface ReputationState {
@@ -38,7 +39,7 @@ export function useZKReputation() {
             return;
         }
 
-        const authToken = localStorage.getItem('proxyhubb_token');
+        const authToken = await getAccessTokenSilently();
         if (!authToken) {
             setState({ isVerified: false, token: null, loading: false, error: null });
             return;
