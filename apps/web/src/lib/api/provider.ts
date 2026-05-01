@@ -54,6 +54,32 @@ export interface ProviderApplication {
     bandwidth: string;
     status: 'pending' | 'approved' | 'rejected';
     created_at: string;
+    updated_at?: string;
+    reviewer_id?: string | null;
+}
+
+export interface ProviderApplicationEligibility {
+    status: 'pending' | 'approved' | 'rejected';
+    auto_approved: boolean;
+    reason_code?: string;
+    reason?: string;
+    solana_network?: string;
+    required_sol?: number;
+    current_sol?: number;
+}
+
+export interface ProviderApplicationResponse {
+    message: string;
+    application: ProviderApplication;
+    auto_approved?: boolean;
+    eligibility?: ProviderApplicationEligibility;
+}
+
+export interface ProviderStatusResponse {
+    status: 'none' | 'pending' | 'approved' | 'rejected';
+    application?: ProviderApplication;
+    auto_approved?: boolean;
+    eligibility?: ProviderApplicationEligibility;
 }
 
 export interface KYCStatusResponse {
@@ -154,16 +180,16 @@ export async function revokeProviderToken(tokenId: string): Promise<{ message: s
  */
 export async function applyForProvider(data: {
     bandwidth: string;
-}): Promise<{ message: string; application: ProviderApplication }> {
-    return apiPost<{ message: string; application: ProviderApplication }>('/v1/provider/apply', data);
+}): Promise<ProviderApplicationResponse> {
+    return apiPost<ProviderApplicationResponse>('/v1/provider/apply', data);
 }
 
 /**
  * Get current provider application status
  */
-export async function getProviderStatus(): Promise<{ status: string; application?: ProviderApplication }> {
+export async function getProviderStatus(): Promise<ProviderStatusResponse> {
     try {
-        return await apiGet<{ status: string; application?: ProviderApplication }>('/v1/provider/status');
+        return await apiGet<ProviderStatusResponse>('/v1/provider/status');
     } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
             return { status: 'none' };

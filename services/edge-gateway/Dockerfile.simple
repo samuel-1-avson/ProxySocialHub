@@ -2,7 +2,7 @@
 # Multi-stage build for production
 
 # Stage 1: Build
-FROM rust:1.84-alpine AS builder
+FROM rust:1.94-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev protoc protobuf-dev openssl-dev openssl-libs-static pkgconfig perl git make gcc g++
@@ -15,9 +15,8 @@ COPY build.rs ./
 
 # Copy source code
 COPY src ./src
-# Note: proto files should be copied from root context
-# For now, we'll skip proto compilation and use pre-generated code
-# COPY proto ./proto
+COPY benches ./benches
+COPY proto ./proto
 
 # Build release binary
 RUN cargo build --release
