@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/geoip"
+	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
@@ -26,15 +28,31 @@ func RegisterOnboardingRoutes(rg *gin.RouterGroup) {
 
 // RegisterAdminOnboardingRoutes registers admin onboarding routes
 func RegisterAdminOnboardingRoutes(rg *gin.RouterGroup) {
-	rg.GET("/provider/applications", getPendingProviderApplications)
-	rg.POST("/provider/applications/:id/approve", approveProviderApplication)
-	rg.POST("/provider/applications/:id/reject", rejectProviderApplication)
+	admin := rg.Group("/provider")
+	admin.Use(middleware.RequireAdmin())
+	{
+		admin.GET("/applications", getPendingProviderApplications)
+		admin.POST("/applications/:id/approve", approveProviderApplication)
+		admin.POST("/applications/:id/reject", rejectProviderApplication)
+	}
 }
 
 // ApplyProviderRequest is the request body
 type ApplyProviderRequest struct {
 	Bandwidth string `json:"bandwidth" binding:"required"`
 }
+
+type ProviderAutoApprovalResult struct {
+	Status        string   `json:"status"`
+	AutoApproved  bool     `json:"auto_approved"`
+	ReasonCode    string   `json:"reason_code,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	SolanaNetwork string   `json:"solana_network,omitempty"`
+	RequiredSOL   float64  `json:"required_sol,omitempty"`
+	CurrentSOL    *float64 `json:"current_sol,omitempty"`
+}
+
+var evaluateProviderAutoApproval = defaultProviderAutoApproval
 
 func providerMinimumBalanceSOL(ctx context.Context, oracle *solana.OracleClient) float64 {
 	minBalanceSOL := 0.05
@@ -67,6 +85,141 @@ func solanaTokenLabel(network string) string {
 	}
 }
 
+func defaultProviderAutoApproval(ctx context.Context, user *models.User) ProviderAutoApprovalResult {
+	oracle := solana.GetOracleClient()
+	network := "devnet"
+	if oracle != nil {
+		if oracleNetwork := oracle.GetNetwork(); oracleNetwork != "" {
+			network = oracleNetwork
+		}
+	}
+
+	result := ProviderAutoApprovalResult{
+		Status:        "pending",
+		SolanaNetwork: network,
+		RequiredSOL:   providerMinimumBalanceSOL(ctx, oracle),
+	}
+
+	if user == nil {
+		result.Status = "rejected"
+		result.ReasonCode = "user_not_found"
+		result.Reason = "User profile is unavailable for provider verification."
+		return result
+	}
+
+	if user.Status != models.UserStatusActive {
+		result.Status = "rejected"
+		result.ReasonCode = "account_not_active"
+		result.Reason = "Only active accounts can be promoted to provider automatically."
+		return result
+	}
+
+	if user.WalletAddress == nil || strings.TrimSpace(*user.WalletAddress) == "" {
+		result.Status = "rejected"
+		result.ReasonCode = "linked_wallet_required"
+		result.Reason = "A linked Solana wallet is required for decentralized provider approval."
+		return result
+	}
+
+	pubkey, err := solanaGo.PublicKeyFromBase58(strings.TrimSpace(*user.WalletAddress))
+	if err != nil {
+		result.Status = "rejected"
+		result.ReasonCode = "invalid_wallet_address"
+		result.Reason = "The linked wallet address is invalid and cannot be verified on-chain."
+		return result
+	}
+
+	if oracle == nil {
+		result.Status = "pending"
+		result.ReasonCode = "verification_unavailable"
+		result.Reason = "Automatic on-chain verification is temporarily unavailable. The application will be rechecked automatically."
+		return result
+	}
+
+	balanceLamports, err := oracle.GetBalance(ctx, pubkey)
+	if err != nil {
+		result.Status = "pending"
+		result.ReasonCode = "balance_check_failed"
+		result.Reason = "The network balance check could not be completed. The application will be rechecked automatically."
+		return result
+	}
+
+	currentSOL := solana.LamportsToSOL(balanceLamports)
+	result.CurrentSOL = &currentSOL
+
+	if currentSOL < result.RequiredSOL {
+		result.Status = "rejected"
+		result.ReasonCode = "insufficient_balance"
+		result.Reason = fmt.Sprintf("Automatic approval requires at least %.2f %s in the linked wallet.", result.RequiredSOL, solanaTokenLabel(network))
+		return result
+	}
+
+	result.Status = "approved"
+	result.AutoApproved = true
+	result.ReasonCode = "eligible"
+	result.Reason = "All decentralized provider auto-approval constraints are satisfied."
+	return result
+}
+
+func upsertProviderApplication(tx *gorm.DB, app *models.ProviderApplication, userID uuid.UUID, isp, location, bandwidth string, decision ProviderAutoApprovalResult, now time.Time) error {
+	app.UserID = userID
+	app.ISP = isp
+	app.Location = location
+	app.Bandwidth = bandwidth
+	app.Status = decision.Status
+	app.ReviewerID = nil
+	app.UpdatedAt = now
+
+	if app.ID == uuid.Nil {
+		app.CreatedAt = now
+		return tx.Create(app).Error
+	}
+
+	return tx.Save(app).Error
+}
+
+func ensureProviderRole(tx *gorm.DB, userID uuid.UUID) error {
+	return tx.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error
+}
+
+func autoDecisionMessage(decision ProviderAutoApprovalResult) string {
+	switch decision.Status {
+	case "approved":
+		return "Application approved automatically"
+	case "pending":
+		return "Application saved and is awaiting automatic verification"
+	default:
+		return "Application evaluated automatically"
+	}
+}
+
+func autoDecisionStatusCode(decision ProviderAutoApprovalResult, existed bool) int {
+	if decision.Status == "pending" {
+		return http.StatusAccepted
+	}
+	if existed {
+		return http.StatusOK
+	}
+	return http.StatusCreated
+}
+
+func syncApplicationDecision(user *models.User, app *models.ProviderApplication, decision ProviderAutoApprovalResult) error {
+	tx := db.DB.Begin()
+	if err := upsertProviderApplication(tx, app, user.ID, app.ISP, app.Location, app.Bandwidth, decision, time.Now()); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if decision.Status == "approved" {
+		if err := ensureProviderRole(tx, user.ID); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit().Error
+}
+
 // applyForProvider handles provider application submission
 func applyForProvider(c *gin.Context) {
 	userID, ok := GetUserID(c)
@@ -81,53 +234,14 @@ func applyForProvider(c *gin.Context) {
 		return
 	}
 
-	// 1. Check if already applied
-	var existing models.ProviderApplication
-	if err := db.DB.Where("user_id = ? AND status IN ('pending', 'approved')", userID).First(&existing).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "You already have a pending or approved application"})
-		return
-	}
-
-	// 2. SOL Balance Check (Minimum 0.05 SOL)
+	// Load the current user profile for deterministic automatic evaluation.
 	var user models.User
 	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User profile not found"})
 		return
 	}
 
-	if user.WalletAddress == nil || *user.WalletAddress == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet linked for verification"})
-		return
-	}
-
-	oracle := solana.GetOracleClient()
-	minBalanceSOL := providerMinimumBalanceSOL(c.Request.Context(), oracle)
-	if oracle != nil {
-		network := oracle.GetNetwork()
-		if network == "" {
-			network = "devnet"
-		}
-		tokenLabel := solanaTokenLabel(network)
-
-		pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress)
-		if err == nil {
-			balanceLamports, err := oracle.GetBalance(c.Request.Context(), pubkey)
-			if err == nil {
-				balanceSOL := float64(balanceLamports) / 1000000000.0
-				if balanceSOL < minBalanceSOL {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error":          fmt.Sprintf("Insufficient balance. Minimum %.2f %s required.", minBalanceSOL, tokenLabel),
-						"required_sol":   minBalanceSOL,
-						"current_sol":    balanceSOL,
-						"solana_network": network,
-					})
-					return
-				}
-			}
-		}
-	}
-
-	// 3. ISP & Location Auto-Detection
+	// ISP & Location Auto-Detection
 	clientIP := c.ClientIP()
 	geoResult, ok := geoip.Resolve(clientIP)
 
@@ -139,24 +253,62 @@ func applyForProvider(c *gin.Context) {
 		finalLocation = fmt.Sprintf("%s, %s", geoResult.City, geoResult.Country)
 	}
 
-	app := models.ProviderApplication{
-		UserID:    userID,
-		ISP:       finalISP,
-		Location:  finalLocation,
-		Bandwidth: req.Bandwidth,
-		Status:    "pending",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if err := db.DB.Create(&app).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit application"})
+	var app models.ProviderApplication
+	existingErr := db.DB.Where("user_id = ?", userID).First(&app).Error
+	exists := existingErr == nil
+	if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch existing application"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message":     "Application submitted successfully",
-		"application": app,
+	if exists && app.Status == "approved" {
+		if err := db.DB.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to synchronize provider role"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":       "Application already approved",
+			"application":   app,
+			"auto_approved": app.ReviewerID == nil,
+		})
+		return
+	}
+
+	decision := evaluateProviderAutoApproval(c.Request.Context(), &user)
+	now := time.Now()
+	app.ISP = finalISP
+	app.Location = finalLocation
+	app.Bandwidth = req.Bandwidth
+
+	tx := db.DB.Begin()
+	if !exists {
+		app = models.ProviderApplication{}
+	}
+	if err := upsertProviderApplication(tx, &app, userID, finalISP, finalLocation, req.Bandwidth, decision, now); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist provider application"})
+		return
+	}
+
+	if decision.Status == "approved" {
+		if err := ensureProviderRole(tx, userID); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user role"})
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize provider application"})
+		return
+	}
+
+	c.JSON(autoDecisionStatusCode(decision, exists), gin.H{
+		"message":       autoDecisionMessage(decision),
+		"application":   app,
+		"auto_approved": decision.AutoApproved,
+		"eligibility":   decision,
 	})
 }
 
@@ -169,7 +321,7 @@ func getProviderStatus(c *gin.Context) {
 	}
 
 	var app models.ProviderApplication
-	if err := db.DB.Where("user_id = ?", userID).Order("created_at DESC").First(&app).Error; err != nil {
+	if err := db.DB.Where("user_id = ?", userID).First(&app).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusOK, gin.H{"status": "none", "application": nil})
 			return
@@ -179,9 +331,39 @@ func getProviderStatus(c *gin.Context) {
 		return
 	}
 
+	if app.Status != "approved" {
+		var user models.User
+		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User profile not found"})
+			return
+		}
+
+		decision := evaluateProviderAutoApproval(c.Request.Context(), &user)
+		if decision.Status != app.Status || app.ReviewerID != nil {
+			if err := syncApplicationDecision(&user, &app, decision); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh provider application status"})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":        decision.Status,
+			"application":   app,
+			"auto_approved": decision.AutoApproved,
+			"eligibility":   decision,
+		})
+		return
+	}
+
+	if err := db.DB.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to synchronize provider role"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":      app.Status,
-		"application": app,
+		"status":        app.Status,
+		"application":   app,
+		"auto_approved": app.ReviewerID == nil,
 	})
 }
 
@@ -191,7 +373,7 @@ func getPendingProviderApplications(c *gin.Context) {
 	status := c.DefaultQuery("status", "pending")
 
 	var apps []models.ProviderApplication
-	if err := db.DB.Preload("User").Where("status = ?", status).Order("created_at asc").Find(&apps).Error; err != nil {
+	if err := db.DB.Preload("User").Preload("Reviewer").Where("status = ?", status).Order("created_at asc").Find(&apps).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch applications"})
 		return
 	}
@@ -204,6 +386,12 @@ func approveProviderApplication(c *gin.Context) {
 	id, err := uuid.Parse(appID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid application ID"})
+		return
+	}
+
+	reviewerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
@@ -225,6 +413,8 @@ func approveProviderApplication(c *gin.Context) {
 
 	// Update Application Status
 	app.Status = "approved"
+	app.ReviewerID = &reviewerID
+	app.UpdatedAt = time.Now()
 	if err := tx.Save(&app).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update application"})
@@ -239,7 +429,10 @@ func approveProviderApplication(c *gin.Context) {
 	}
 
 	tx.Commit()
-	c.JSON(http.StatusOK, gin.H{"message": "Application approved and user role updated"})
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Application approved and user role updated",
+		"application": app,
+	})
 }
 
 func rejectProviderApplication(c *gin.Context) {
@@ -250,22 +443,39 @@ func rejectProviderApplication(c *gin.Context) {
 		return
 	}
 
+	reviewerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	tx := db.DB.Begin()
+
 	var app models.ProviderApplication
-	if err := db.DB.First(&app, id).Error; err != nil {
+	if err := tx.First(&app, id).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Application not found"})
 		return
 	}
 
 	if app.Status != "pending" {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Application is not pending"})
 		return
 	}
 
 	app.Status = "rejected"
-	if err := db.DB.Save(&app).Error; err != nil {
+	app.ReviewerID = &reviewerID
+	app.UpdatedAt = time.Now()
+	if err := tx.Save(&app).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject application"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Application rejected"})
+	tx.Commit()
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Application rejected",
+		"application": app,
+	})
 }

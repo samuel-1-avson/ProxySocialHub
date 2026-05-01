@@ -29,9 +29,11 @@ func (m *ConfigManager) Get(key string) (string, error) {
 	ctx := context.Background()
 
 	// 1. Try Redis
-	val, err := m.redis.HGet(ctx, RedisConfigKey, key).Result()
-	if err == nil {
-		return val, nil
+	if m.redis != nil {
+		val, err := m.redis.HGet(ctx, RedisConfigKey, key).Result()
+		if err == nil {
+			return val, nil
+		}
 	}
 
 	// 2. Fallback to DB
@@ -41,7 +43,9 @@ func (m *ConfigManager) Get(key string) (string, error) {
 	}
 
 	// 3. Populate Redis for next time
-	_ = m.redis.HSet(ctx, RedisConfigKey, key, sysConfig.Value)
+	if m.redis != nil {
+		_ = m.redis.HSet(ctx, RedisConfigKey, key, sysConfig.Value)
+	}
 
 	return sysConfig.Value, nil
 }
@@ -78,10 +82,12 @@ func (m *ConfigManager) Set(key, value, description string) error {
 	}
 
 	// 2. Sync to Redis
-	_ = m.redis.HSet(ctx, RedisConfigKey, key, value)
+	if m.redis != nil {
+		_ = m.redis.HSet(ctx, RedisConfigKey, key, value)
 
-	// 3. Notify Hub (Pub/Sub for Live-Reload)
-	_ = m.redis.Publish(ctx, "sys:config:update", key)
+		// 3. Notify Hub (Pub/Sub for Live-Reload)
+		_ = m.redis.Publish(ctx, "sys:config:update", key)
+	}
 
 	log.Printf("[ConfigManager] Updated key=%s, notified subscribers", key)
 	return nil
@@ -89,6 +95,10 @@ func (m *ConfigManager) Set(key, value, description string) error {
 
 // RefreshAll syncs all DB configs to Redis
 func (m *ConfigManager) RefreshAll() error {
+	if m.redis == nil {
+		return nil
+	}
+
 	var configs []models.SystemConfiguration
 	if err := m.db.Find(&configs).Error; err != nil {
 		return err
