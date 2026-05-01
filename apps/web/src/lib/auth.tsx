@@ -1,7 +1,7 @@
 
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
 
@@ -196,6 +196,21 @@ export interface WalletUser {
   created_at?: string;
 }
 
+function mapApiUser(apiUser: any): WalletUser {
+  return {
+    id: apiUser.id,
+    email: apiUser.email,
+    role: apiUser.role,
+    username: apiUser.username,
+    avatar_url: apiUser.avatar_url,
+    wallet_address: apiUser.wallet_address,
+    trust_tier: apiUser.trust_tier,
+    verified: apiUser.verified,
+    display_name: apiUser.display_name,
+    created_at: apiUser.created_at,
+  };
+}
+
 // ---------- Auth Context ----------
 
 export interface AuthContextType {
@@ -205,6 +220,7 @@ export interface AuthContextType {
   walletLogin: (address: string, signer: any) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
+  refreshUser: () => Promise<WalletUser | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -214,39 +230,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  const refreshUser = useCallback(async (): Promise<WalletUser | null> => {
+    try {
+      if (typeof window === 'undefined') {
+        return null;
+      }
+
+      const token = await refreshAccessToken();
+      if (!token) {
+        setUser(null);
+        return null;
+      }
+
+      const res = await fetch(apiUrl('/v1/auth/me'), {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        clearStoredAuth();
+        setUser(null);
+        return null;
+      }
+
+      const apiUser = await parseJsonResponse<any>(res, 'Auth session check');
+      const nextUser = mapApiUser(apiUser);
+      setUser(nextUser);
+      return nextUser;
+    } catch (error) {
+      console.error('Error refreshing auth session:', error);
+      clearStoredAuth();
+      setUser(null);
+      return null;
+    }
+  }, []);
+
   // On mount, check for existing JWT token and validate it
   useEffect(() => {
     const checkUser = async () => {
       try {
-        if (typeof window !== 'undefined') {
-          const token = await refreshAccessToken();
-          if (token) {
-            const res = await fetch(apiUrl('/v1/auth/me'), {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              },
-              credentials: 'include',
-            });
-
-            if (res.ok) {
-              const apiUser = await parseJsonResponse<any>(res, 'Auth session check');
-              setUser({
-                id: apiUser.id,
-                email: apiUser.email,
-                role: apiUser.role,
-                username: apiUser.username,
-                avatar_url: apiUser.avatar_url,
-                wallet_address: apiUser.wallet_address,
-                trust_tier: apiUser.trust_tier,
-                verified: apiUser.verified,
-                display_name: apiUser.display_name,
-                created_at: apiUser.created_at,
-              });
-            } else {
-              clearStoredAuth();
-            }
-          }
-        }
+        await refreshUser();
       } catch (error) {
         console.error('Error checking auth session:', error);
         clearStoredAuth();
@@ -255,8 +280,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    checkUser();
-  }, []);
+    void checkUser();
+  }, [refreshUser]);
 
   const walletLogin = async (address: string, signer: any) => {
     try {
@@ -315,18 +340,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       persistAuthTokens(token, refreshToken);
 
       // 5. Update State
-      setUser({
-        id: apiUser.id,
-        email: apiUser.email,
-        role: apiUser.role,
-        username: apiUser.username,
-        avatar_url: apiUser.avatar_url,
-        wallet_address: apiUser.wallet_address,
-        trust_tier: apiUser.trust_tier,
-        verified: apiUser.verified,
-        display_name: apiUser.display_name,
-        created_at: apiUser.created_at,
-      });
+      setUser(mapApiUser(apiUser));
     } catch (err) {
       console.error("Wallet login error:", err);
       throw err;
@@ -344,7 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, walletLogin, logout, getAccessToken }}>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, walletLogin, logout, getAccessToken, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
