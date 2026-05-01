@@ -15,6 +15,14 @@ This directory contains operational runbooks for common procedures and incident 
 
 ## Quick Reference
 
+### Local Port Notes
+
+- Web app dev server: `http://127.0.0.1:4001`
+- Local IPFS swarm port: map container `4001/tcp` to host `4401/tcp` when it runs beside the web app
+- Local IPFS API: `http://127.0.0.1:5001`
+- Local IPFS gateway: `http://127.0.0.1:8081`
+- Recreate the local IPFS container with the remap: `docker run -d --name creg-testnet-ipfs --restart unless-stopped --network chain-registry_default -p 4401:4001 -p 5001:5001 -p 8081:8080 ipfs/kubo:v0.27.0 daemon --init --init-profile=server --routing=dhtclient`
+
 ### Emergency Contacts
 
 | Role | Name | Phone | Slack |
@@ -82,4 +90,4 @@ CTO (2 hours)
 
 ---
 
-Last updated: 2026-03-09
+Last updated: 2026-04-16

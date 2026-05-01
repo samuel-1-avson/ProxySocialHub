@@ -37,9 +37,17 @@ func idlCacheKey(programID string) string {
 // match.  Returns nil if the IDL cannot be fetched (non-fatal; local values are
 // used as the authoritative fallback).
 func LoadAndValidateIDL(ctx context.Context, rpcEndpoint, programID string) error {
+	cacheClient := redis.Client
+
 	// Check Redis cache first to avoid hammering the RPC on every restart.
-	cached, err := redis.Client.Get(ctx, idlCacheKey(programID)).Bytes()
-	if err != nil || len(cached) == 0 {
+	var (
+		cached []byte
+		err    error
+	)
+	if cacheClient != nil {
+		cached, err = cacheClient.Get(ctx, idlCacheKey(programID)).Bytes()
+	}
+	if cacheClient == nil || err != nil || len(cached) == 0 {
 		// Fetch from on-chain IDL account via the Anchor registry convention.
 		// The IDL account address = PDA(["anchor:idl", programID]).
 		// We call the JSON RPC getAccountInfo and decode the IDL data.
@@ -50,7 +58,9 @@ func LoadAndValidateIDL(ctx context.Context, rpcEndpoint, programID string) erro
 			return nil
 		}
 		cached = raw
-		redis.Client.Set(ctx, idlCacheKey(programID), raw, idlCacheTTL)
+		if cacheClient != nil {
+			cacheClient.Set(ctx, idlCacheKey(programID), raw, idlCacheTTL)
+		}
 	}
 
 	var idl anchorIDL
