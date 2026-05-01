@@ -28,7 +28,7 @@ async function seedAuth(page: Parameters<typeof test>[0]['page'], user: MockUser
   }, user);
 }
 
-async function mockAuthenticatedUser(page: Parameters<typeof test>[0]['page'], user: MockUser) {
+async function mockAuthenticatedUser(page: Parameters<typeof test>[0]['page'], user: MockUser, refreshedUser?: MockUser) {
   await seedAuth(page, user);
   await page.route('**/v1/auth/refresh', async (route) => {
     await route.fulfill({
@@ -40,11 +40,14 @@ async function mockAuthenticatedUser(page: Parameters<typeof test>[0]['page'], u
       }),
     });
   });
+  let authMeCalls = 0;
   await page.route('**/v1/auth/me', async (route) => {
+    const responseUser = authMeCalls === 0 ? user : (refreshedUser || user);
+    authMeCalls += 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(user),
+      body: JSON.stringify(responseUser),
     });
   });
 }
@@ -55,7 +58,7 @@ async function gotoDashboard(page: Parameters<typeof test>[0]['page'], path: str
 }
 
 test.describe('Provider onboarding and wallet/session critical flows', () => {
-  test('shows provider application review state for pending applications', async ({ page }) => {
+  test('shows automatic verification state for pending applications', async ({ page }) => {
     const user: MockUser = {
       id: 'buyer-pending-user',
       email: 'buyer@example.com',
@@ -102,11 +105,12 @@ test.describe('Provider onboarding and wallet/session critical flows', () => {
 
     await gotoDashboard(page, '/dashboard/provider');
 
-    await expect(page.getByText(/application under review/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/manual approval/i)).toBeVisible();
+    await expect(page.getByText(/automatic verification in progress/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/automatic verification/i)).toBeVisible();
+    await expect(page.getByText(/no human review is required/i)).toBeVisible();
   });
 
-  test('submits a provider application when linked wallet balance is sufficient', async ({ page }) => {
+  test('auto-approves a provider application and unlocks the provider workspace', async ({ page }) => {
     const user: MockUser = {
       id: 'buyer-submit-user',
       email: 'submit@example.com',
@@ -116,7 +120,12 @@ test.describe('Provider onboarding and wallet/session critical flows', () => {
       verified: true,
     };
 
-    await mockAuthenticatedUser(page, user);
+    const providerUser: MockUser = {
+      ...user,
+      role: 'provider',
+    };
+
+    await mockAuthenticatedUser(page, user, providerUser);
 
     await page.route('**/v1/provider/earnings/summary', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
@@ -155,18 +164,24 @@ test.describe('Provider onboarding and wallet/session critical flows', () => {
     });
     await page.route('**/v1/provider/apply', async (route) => {
       await route.fulfill({
-        status: 200,
+        status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          message: 'ok',
+          message: 'Application approved automatically',
+          auto_approved: true,
           application: {
             id: 'app-created-1',
             user_id: user.id,
             isp: 'FiberCo',
             location: 'Accra',
             bandwidth: '1Gbps Fiber',
-            status: 'pending',
+            status: 'approved',
             created_at: '2026-04-15T10:01:00Z',
+          },
+          eligibility: {
+            status: 'approved',
+            auto_approved: true,
+            reason: 'All decentralized provider auto-approval constraints are satisfied.',
           },
         }),
       });
@@ -177,7 +192,7 @@ test.describe('Provider onboarding and wallet/session critical flows', () => {
     await page.getByPlaceholder(/1Gbps Fiber/i).fill('1Gbps Fiber');
     await page.getByRole('button', { name: /submit application/i }).click();
 
-    await expect(page.getByText(/application received/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('link', { name: /deploy your first node/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('shows wallet-linking call to action when no linked wallet is present', async ({ page }) => {
