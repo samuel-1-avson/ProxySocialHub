@@ -1,0 +1,4 @@
+{"Time":"2026-05-02T04:48:19.2119279Z","Action":"start","Package":"github.com/proxyhubb/control-api/internal/billing"}
+{"Time":"2026-05-02T04:48:19.2979242Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"fork/exec C:\\Users\\samue\\AppData\\Local\\Temp\\go-build79827408\\b001\\billing.test: %1 is not a valid Win32 application.\n"}
+{"Time":"2026-05-02T04:48:19.2979242Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"FAIL\tgithub.com/proxyhubb/control-api/internal/billing\t0.084s\n"}
+{"Time":"2026-05-02T04:48:19.2979242Z","Action":"fail","Package":"github.com/proxyhubb/control-api/internal/billing","Elapsed":0.087}

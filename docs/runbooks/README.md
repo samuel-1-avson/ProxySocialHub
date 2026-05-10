@@ -10,6 +10,8 @@ This directory contains operational runbooks for common procedures and incident 
 | [Deployment](deployment.md) | Deployment procedures | Critical |
 | [Gateway And Session Secret Rotation](gateway-session-secret-rotation.md) | RC-04 secret rotation for gateway auth and session-intent signing | High |
 | [Incident Response](incident-response.md) | Incident handling process | Critical |
+| [Public Testnet Authority Matrix](public-testnet-authority-matrix.md) | RC-08 authority labels for release-critical public-testnet flows | High |
+| [Public Testnet Release Gate](public-testnet-release-gate.md) | RC-09 command set and artifacts for release promotion blocking | High |
 | [Public Testnet Settlement Validation](public-testnet-settlement-validation.md) | RC-03 settlement lifecycle validation path | High |
 | [Scaling](scaling.md) | Horizontal/vertical scaling | High |
 | [Security Incident](security-incident.md) | Security breach response | Critical |

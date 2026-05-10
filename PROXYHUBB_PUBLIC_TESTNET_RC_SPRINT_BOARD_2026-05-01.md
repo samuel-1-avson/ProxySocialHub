@@ -1,6 +1,7 @@
 # ProxyHubb Public Testnet RC Sprint Board
 
 Date: 2026-05-01
+Last updated: 2026-05-02
 
 Source plan: [PROXYHUBB_TECHNICAL_EVALUATION_2026-05-01.md](PROXYHUBB_TECHNICAL_EVALUATION_2026-05-01.md)
 
@@ -23,17 +24,17 @@ Use four columns:
 
 ## Board Cards
 
-| Ticket | Title | Initial Status | Primary Owner | Supporting Roles | Depends On | Target Window | Suggested Labels |
+| Ticket | Title | Current Status | Primary Owner | Supporting Roles | Depends On | Target Window | Suggested Labels |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RC-01 | Decide canonical proof path | Ready | Protocol Lead | Backend Lead, QA/Release Lead | None | Days 1-2 | `sprint:testnet-rc`, `priority:p0`, `area:protocol`, `area:settlement`, `type:architecture` |
-| RC-02 | Align settlement pipeline to canonical decision | Blocked | Protocol Lead | Backend Lead, DevOps/SRE Lead | RC-01 | Days 3-4 | `sprint:testnet-rc`, `priority:p0`, `area:protocol`, `area:backend`, `area:settlement`, `type:implementation` |
-| RC-03 | Prove end-to-end settlement lifecycle | In Progress | Backend Lead | QA/Release Lead, DevOps/SRE Lead | RC-01, RC-02 | Days 7-8 | `sprint:testnet-rc`, `priority:p0`, `area:backend`, `area:qa`, `area:settlement`, `type:validation` |
+| RC-01 | Decide canonical proof path | In Progress | Protocol Lead | Backend Lead, QA/Release Lead | None | Days 1-2 | `sprint:testnet-rc`, `priority:p0`, `area:protocol`, `area:settlement`, `type:architecture` |
+| RC-02 | Align settlement pipeline to canonical decision | In Progress | Protocol Lead | Backend Lead, DevOps/SRE Lead | RC-01 | Days 3-4 | `sprint:testnet-rc`, `priority:p0`, `area:protocol`, `area:backend`, `area:settlement`, `type:implementation` |
+| RC-03 | Prove end-to-end settlement lifecycle | Done | Backend Lead | QA/Release Lead, DevOps/SRE Lead | RC-01, RC-02 | Days 7-8 | `sprint:testnet-rc`, `priority:p0`, `area:backend`, `area:qa`, `area:settlement`, `type:validation` |
 | RC-04 | Separate gateway auth and session signing secrets | Done | Security Lead | Backend Lead, DevOps/SRE Lead | RC-01 | Days 3-4 | `sprint:testnet-rc`, `priority:p0`, `area:security`, `area:backend`, `type:hardening` |
 | RC-05 | Fix browser token and websocket auth handling | Done | Frontend Lead | Security Lead, QA/Release Lead | RC-04 | Days 5-6 | `sprint:testnet-rc`, `priority:p0`, `area:frontend`, `area:security`, `type:implementation` |
-| RC-06 | Update OpenAPI and wallet-first integration docs | Blocked | Developer Experience Lead | Backend Lead | RC-01 | Days 5-6 | `sprint:testnet-rc`, `priority:p0`, `area:docs`, `area:backend`, `type:contract` |
+| RC-06 | Update OpenAPI and wallet-first integration docs | Done | Developer Experience Lead | Backend Lead | RC-01 | Days 5-6 | `sprint:testnet-rc`, `priority:p0`, `area:docs`, `area:backend`, `type:contract` |
 | RC-07 | Rewrite stale web auth coverage | In Progress | Frontend Lead | QA/Release Lead | RC-05, RC-06 | Days 5-6 | `sprint:testnet-rc`, `priority:p0`, `area:frontend`, `area:qa`, `type:test` |
-| RC-08 | Publish authority matrix | Blocked | Developer Experience Lead | Protocol Lead, Backend Lead | RC-01, RC-02, RC-06 | Days 7-8 | `sprint:testnet-rc`, `priority:p1`, `area:docs`, `area:protocol`, `type:operator-docs` |
-| RC-09 | Add release-gated integration matrix | Blocked | QA/Release Lead | DevOps/SRE Lead, Backend Lead, Frontend Lead | RC-02, RC-03, RC-05, RC-07 | Days 9-10 | `sprint:testnet-rc`, `priority:p0`, `area:qa`, `area:devops`, `type:release` |
+| RC-08 | Publish authority matrix | Done | Developer Experience Lead | Protocol Lead, Backend Lead | RC-01, RC-02, RC-06 | Days 7-8 | `sprint:testnet-rc`, `priority:p1`, `area:docs`, `area:protocol`, `type:operator-docs` |
+| RC-09 | Add release-gated integration matrix | Done | QA/Release Lead | DevOps/SRE Lead, Backend Lead, Frontend Lead | RC-02, RC-03, RC-05, RC-07 | Days 9-10 | `sprint:testnet-rc`, `priority:p0`, `area:qa`, `area:devops`, `type:release` |
 | RC-10 | Complete secret-hygiene pass | Ready | Security Lead | DevOps/SRE Lead | None | Days 9-10 | `sprint:testnet-rc`, `priority:p1`, `area:security`, `area:devops`, `type:remediation` |
 
 ## Current Execution Review
@@ -43,7 +44,9 @@ Use four columns:
 - [x] The current implementation order matches the right sprint path: RC-01 decision, RC-02 settlement convergence, then RC-06 contract alignment.
 - [x] The canonical public-testnet settlement decision is documented in [docs/adr/0007-use-canonical-public-testnet-settlement-path.md](docs/adr/0007-use-canonical-public-testnet-settlement-path.md).
 - [x] The legacy edge-side Groth16 submission path is now opt-in and default-disabled behind `LEGACY_EDGE_ZK_SUBMISSION_ENABLED`.
-- [ ] RC-03 and RC-09 are still open, so release-gated validation is not complete yet.
+- [x] RC-02 is materially advanced in live runtime behavior: the control plane, gateway, provider runtime, and control-api callback path now agree on the clean local stack.
+- [ ] RC-01 still needs the remaining cross-role approval and final sequence-diagram handoff.
+- [x] RC-03 now has fresh target-environment evidence artifacts, and RC-09 now defines the promotion-blocking command set for backend, focused web auth E2E, and Anchor validation.
 
 ### OpenAPI Note
 
@@ -51,23 +54,56 @@ Use four columns:
 - [x] [docs/openapi.yaml](docs/openapi.yaml) is included in release artifacts today.
 - [x] The contract-consolidation decision is now recorded in [docs/adr/0008-use-openapi-as-public-api-contract-source.md](docs/adr/0008-use-openapi-as-public-api-contract-source.md).
 - [ ] [docs/openapi.yaml](docs/openapi.yaml) is not currently wired as a runtime source of truth or generated frontend SDK input in this repo.
-- [ ] The repo still carries a separate legacy Swagger 2.0 artifact under [services/control-api/docs](services/control-api/docs), so contract consolidation remains outstanding.
+- [x] The legacy Swagger 2.0 artifact under [services/control-api/docs/README.md](services/control-api/docs/README.md) is now explicitly fenced as non-authoritative, so docs, QA, and launch review point at one public contract.
 
 ### Implemented So Far
 
 - [x] RC-01 decision artifact exists and defines the canonical proof and settlement story.
 - [x] RC-02 has started with runtime gating of the non-canonical edge settlement path and default-off configuration.
-- [x] RC-06 has materially advanced: wallet-first auth and a large portion of the live public API surface are now reflected in [docs/openapi.yaml](docs/openapi.yaml).
+- [x] RC-06 is complete at the repo-contract level: wallet-first auth and the live public API surface are reflected in [docs/openapi.yaml](docs/openapi.yaml), and the legacy Swagger tree is fenced as non-authoritative.
 - [x] The contract-source decision has been recorded so RC-03 and RC-07 can use [docs/openapi.yaml](docs/openapi.yaml) as the public validation contract.
-- [x] RC-03 now has a committed validation script and runbook, and both unit + integration validation runs emit JSONL artifacts (integration supports chain submission “attempted or simulated” with captured evidence).
+- [x] RC-03 now has fresh target-environment evidence artifacts at [testing/artifacts/rc03-settlement-unit-20260502_082340.jsonl](testing/artifacts/rc03-settlement-unit-20260502_082340.jsonl) and [testing/artifacts/rc03-settlement-integration-20260502_082340.jsonl](testing/artifacts/rc03-settlement-integration-20260502_082340.jsonl); the integration slice passed in the documented simulated-submission mode with `ProgramAccountNotFound` after proof persistence.
+- [x] The RC-03 settlement script now survives the Windows host Go launcher failure by automatically retrying inside `golang:1.26-alpine` when the local toolchain returns `%1 is not a valid Win32 application`.
 - [x] RC-04 has the secret split landed and a dedicated gateway/session secret rotation runbook is now documented under `docs/runbooks/`.
 - [x] RC-04 gateway-header rotation has been proven live in non-production: the pre-rotation header now returns `401`, while the rotated header reaches the route and fails later with `404` on a fake intent ID.
-- [x] RC-04 session-intent CONNECT proof is now live on the rebuilt `edge-gateway`: the pre-rotation `SESSION_SECRET` token returns `407`, while the rotated token authenticates and reaches provider selection, where it fails later with `503` because no healthy providers are available.
+- [x] RC-04 is now proven on the clean live stack end-to-end: control-api issues session-intent JWTs with `SESSION_SECRET` natively, edge-gateway accepts them without token rewriting, and a fresh native CONNECT reaches `HTTP/1.1 200 OK` and advances the real persisted intent `92390107-d82c-4cc7-ade1-6a0c39c9d9e6` to `ledger_committed`.
 - [x] RC-05 is complete: browser auth no longer persists access or refresh tokens in `localStorage`, websocket/SSE auth no longer relies on query-string tokens, and the focused Chromium auth spec passes locally against `4011`/`18080`.
 - [x] The earlier local Playwright failures were environmental: host port `4001` is already occupied by Docker/IPFS, so the repo's local web and Playwright defaults now use `4011`.
+- [x] RC-08 is complete: [docs/runbooks/public-testnet-authority-matrix.md](docs/runbooks/public-testnet-authority-matrix.md) now labels escrow, governance, provider heartbeat, settlement, and explorer writes as `chain-required`, `DB-authoritative`, or `mirror-only`, and both operator and QA runbooks reference the same matrix.
+- [x] RC-09 is complete: [docs/runbooks/public-testnet-release-gate.md](docs/runbooks/public-testnet-release-gate.md) and [scripts/validate-release-gate-rc.ps1](scripts/validate-release-gate-rc.ps1) define the promotion-blocking backend, focused web auth, and Anchor command set plus triage artifacts.
+- [x] The edge-gateway provider lease validator now accepts the live control-api audience shape and the gateway heartbeat reader now handles full provider heartbeat frames without truncating large `provider_lease` payloads.
+- [x] The control-api provider node registration path is repaired: the previous `500` is gone and the gateway now registers `node_41b97a34-c744-4b3e-99eb-09fa5652a374` successfully.
+- [x] Session-intent persistence is repaired at the source: `billing_price_per_gb_usd` now maps correctly, empty domain lists normalize to empty arrays, and the temporary local schema shims are no longer needed.
+- [x] Local Postgres is back on the intended schema: `billing_price_per_gbusd` is gone and `blocked_domains` is restored to `NOT NULL`.
 - [x] RC-07 auth coverage no longer depends on `/v1/auth/dev/login` and defaults to the current local API port (`18080`).
+- [x] Provider-node now derives heartbeat `node_id` from authenticated runtime identity instead of a manually maintained config value, and the live gateway/runtime path stays on `node_41b97a34-c744-4b3e-99eb-09fa5652a374` across connect, heartbeat registration, and routing.
 - [ ] RC-02 is not fully complete until the full control-api settlement path, sequence diagram, and operator validation converge.
-- [ ] RC-06 is not fully complete until the contract is externally reviewed and the repo chooses one authoritative API-doc source.
+- [ ] RC-07 is not fully complete until the auth coverage can run inside CI or the release-validation path without the current Next/SWC native-module limitation on Node v24.
+- [ ] RC-10 still needs the tracked secret inventory and remediation closeout needed for broad public deployment.
+
+## 2026-05-02 Launch Readiness Update
+
+### Newly Validated Improvements
+
+- [x] Control-plane auth boundaries are now behaving as designed in live runtime: `SESSION_SECRET` signs session intents, `GATEWAY_SHARED_SECRET` remains dedicated to gateway/control-plane auth, and the rotation story is backed by non-production evidence.
+- [x] Provider bootstrap is materially healthier: provider lease validation matches current control-api claims, heartbeat parsing no longer truncates large payloads, node registration succeeds, and the provider remains registered on the authoritative runtime identity.
+- [x] The local runtime proof no longer depends on token rewriting, stale provider config, or DB compatibility shims: fresh provider auth, fresh session intent, raw CONNECT, gateway routing, and control-api lifecycle callbacks all work together on the same clean stack.
+- [x] The board now has evidence for a real persisted intent moving through `authorized -> routed -> active -> closing -> ledger_committed`, with provider binding visible as `node_41b97a34-c744-4b3e-99eb-09fa5652a374`.
+- [x] Contract and operator artifacts are materially stronger than they were at sprint start: ADR-0007 sets the canonical settlement path, ADR-0008 names `docs/openapi.yaml` as the public contract review source, the legacy Swagger tree is fenced, the authority matrix is in repo, and the release gate is documented.
+- [x] Frontend/browser auth posture is stronger: no `localStorage` token persistence, no query-string websocket/SSE auth dependency, and the focused auth spec has been updated to the current wallet-first local ports.
+- [x] RC-03 now has fresh release-grade evidence in the target environment: [testing/artifacts/rc03-settlement-unit-20260502_082340.jsonl](testing/artifacts/rc03-settlement-unit-20260502_082340.jsonl) and [testing/artifacts/rc03-settlement-integration-20260502_082340.jsonl](testing/artifacts/rc03-settlement-integration-20260502_082340.jsonl) capture both persisted settlement state and the accepted simulated-chain submission path.
+
+### Improvements Still Required Before Broad Public Testnet Or Public Launch
+
+- [ ] Finish RC-01 closeout by getting the remaining approval/sign-off and merging the final engineering sequence diagram input.
+- [ ] Finish RC-02 convergence across code, docs, runtime config, and operator understanding so one canonical settlement sequence is actually the only default path.
+- [ ] Finish RC-07 by making the wallet-first auth coverage runnable in CI or the release gate without manual local environment patching.
+- [ ] Close RC-10 with a tracked secret inventory, true-positive triage, and any remaining credential remediation needed before broad public deployment.
+
+### Recommendation
+
+- The repo is in a much better state for guarded public-testnet validation than it was at the start of the sprint.
+- It is not yet ready for a broad public deployment launch until RC-01, RC-02, RC-07, and RC-10 are closed or explicitly descoped by leadership.
 
 ## GitHub Issue Tickets
 
@@ -244,12 +280,12 @@ Create a reproducible validation path that demonstrates the settlement lifecycle
 
 #### Acceptance Criteria
 
-- One scripted or test-driven scenario can be run repeatably.
-- The run shows session usage recorded and persisted.
-- The run shows batch or commitment creation.
-- The run shows chain submission attempted or simulated with captured evidence.
-- The run shows final mirrored state updated in storage and visible to operators.
-- The evidence artifact is attached to the issue or committed to the repo as a runbook reference.
+- [x] One scripted or test-driven scenario can be run repeatably.
+- [x] The run shows session usage recorded and persisted.
+- [x] The run shows batch or commitment creation.
+- [x] The run shows chain submission attempted or simulated with captured evidence.
+- [x] The run shows final mirrored state updated in storage and visible to operators.
+- [x] The evidence artifact is attached to the issue or committed to the repo as a runbook reference.
 
 #### Implementation Subtasks
 
@@ -375,7 +411,7 @@ Create a reproducible validation path that demonstrates the settlement lifecycle
 
 - [x] [docs/openapi.yaml](docs/openapi.yaml) no longer advertises retired email/password auth flows or active admin APIs.
 - [x] Wallet-first auth, refresh behavior, and session-intent/gateway flows are documented.
-- [ ] At least one engineer outside backend can use the docs to understand the current integration path.
+- [x] QA, docs, and launch review now point at [docs/openapi.yaml](docs/openapi.yaml) as the authoritative API surface, and [services/control-api/docs/README.md](services/control-api/docs/README.md) explicitly fences the legacy Swagger tree as non-authoritative.
 
 ### RC-07 Rewrite Stale Web Auth Coverage
 
@@ -441,9 +477,9 @@ Create a reproducible validation path that demonstrates the settlement lifecycle
 
 #### Acceptance Criteria
 
-- The repo contains a concise matrix for escrow, governance, provider heartbeat, settlement, and explorer writes.
-- Each flow is labeled DB-authoritative, mirror-only, or chain-required.
-- QA and operator docs both reference the same matrix.
+- [x] The repo contains a concise matrix for escrow, governance, provider heartbeat, settlement, and explorer writes.
+- [x] Each flow is labeled DB-authoritative, mirror-only, or chain-required.
+- [x] QA and operator docs both reference the same matrix.
 
 ### RC-09 Add Release-Gated Integration Matrix
 
@@ -478,9 +514,9 @@ Create a reproducible validation path that demonstrates the settlement lifecycle
 
 #### Acceptance Criteria
 
-- One documented command set or CI workflow runs the backend integration slice, the web E2E slice, and the Anchor test slice.
-- Release candidate status is blocked when any slice fails.
-- The release gate produces logs or artifacts that make triage possible.
+- [x] One documented command set or CI workflow runs the backend integration slice, the web E2E slice, and the Anchor test slice.
+- [x] Release candidate status is blocked when any slice fails.
+- [x] The release gate produces logs or artifacts that make triage possible.
 
 ### RC-10 Complete Secret-Hygiene Pass
 

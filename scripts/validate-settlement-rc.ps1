@@ -12,6 +12,127 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $unitTestName = "TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle"
 $integrationTestName = "TestZKAggregator_SubmitBatchDirect_PersistsProofBytesFromRealProver"
 $defaultTestDatabaseUrl = "postgresql://proxyhubb:proxyhubb@127.0.0.1:5433/proxyhubb_test?sslmode=disable"
+$runningOnWindows = $env:OS -eq "Windows_NT"
+
+function Convert-HostValueForDocker {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Value
+    }
+
+    $rewritten = $Value -replace '://localhost(?=[:/]|$)', '://host.docker.internal'
+    $rewritten = $rewritten -replace '://127\.0\.0\.1(?=[:/]|$)', '://host.docker.internal'
+    $rewritten = $rewritten -replace '@localhost(?=[:/]|$)', '@host.docker.internal'
+    $rewritten = $rewritten -replace '@127\.0\.0\.1(?=[:/]|$)', '@host.docker.internal'
+    $rewritten = $rewritten -replace 'host=localhost(?=\s|$)', 'host=host.docker.internal'
+    $rewritten = $rewritten -replace 'host=127\.0\.0\.1(?=\s|$)', 'host=host.docker.internal'
+    return $rewritten
+}
+
+function Invoke-GoTestInDocker {
+    param(
+        [string[]]$GoTestArgs,
+        [string]$ArtifactPath,
+        [string]$TestDatabaseUrl,
+        [string]$DatabaseUrl,
+        [string]$Halo2ProverUrl,
+        [string]$OracleKeypairPath
+    )
+
+    $dockerArgs = @(
+        'run',
+        '--rm',
+        '--entrypoint', '/bin/sh',
+        '-v', "${repoRoot}:/workspace",
+        '-w', '/workspace/services/control-api'
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($TestDatabaseUrl)) {
+        $dockerArgs += @('-e', "TEST_DATABASE_URL=$(Convert-HostValueForDocker $TestDatabaseUrl)")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($DatabaseUrl)) {
+        $dockerArgs += @('-e', "DATABASE_URL=$(Convert-HostValueForDocker $DatabaseUrl)")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Halo2ProverUrl)) {
+        $dockerArgs += @('-e', "HALO2_PROVER_URL=$(Convert-HostValueForDocker $Halo2ProverUrl)")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OracleKeypairPath)) {
+        $dockerOracleKeypair = '/run/secrets/rc03-oracle-keypair.json'
+        $dockerArgs += @('-v', "${OracleKeypairPath}:$dockerOracleKeypair:ro")
+        $dockerArgs += @('-e', "SOLANA_ORACLE_KEYPAIR=$dockerOracleKeypair")
+    }
+
+    $dockerCommandParts = @('/usr/local/go/bin/go', 'test')
+    foreach ($goArg in $GoTestArgs) {
+        $dockerCommandParts += ('"' + ($goArg -replace '"', '\\"') + '"')
+    }
+
+    $dockerArgs += @(
+        'golang:1.26-alpine',
+        '-lc',
+        [string]::Join(' ', $dockerCommandParts)
+    )
+
+    & docker @dockerArgs 2>&1 | Tee-Object -FilePath $ArtifactPath
+    return $LASTEXITCODE
+}
+
+function Invoke-GoTestWithWindowsFallback {
+    param(
+        [string[]]$GoTestArgs,
+        [string]$ArtifactPath,
+        [string]$FailureMessage,
+        [string]$TestDatabaseUrl,
+        [string]$DatabaseUrl,
+        [string]$Halo2ProverUrl,
+        [string]$OracleKeypairPath
+    )
+
+    $hostAttemptArtifact = "$ArtifactPath.host-attempt"
+    Remove-Item $hostAttemptArtifact -ErrorAction SilentlyContinue
+
+    & go @GoTestArgs 2>&1 | Tee-Object -FilePath $hostAttemptArtifact
+    $hostExitCode = $LASTEXITCODE
+
+    if ($hostExitCode -eq 0) {
+        Move-Item -Force $hostAttemptArtifact $ArtifactPath
+        return
+    }
+
+    $hostOutput = if (Test-Path $hostAttemptArtifact) {
+        Get-Content $hostAttemptArtifact -Raw
+    }
+    else {
+        ""
+    }
+
+    $canRetryInDocker = $runningOnWindows -and
+        $hostOutput -match '%1 is not a valid Win32 application' -and
+        (Get-Command docker -ErrorAction SilentlyContinue)
+
+    if (-not $canRetryInDocker) {
+        Move-Item -Force $hostAttemptArtifact $ArtifactPath
+        throw $FailureMessage
+    }
+
+    Write-Host "Host go test hit a Windows launcher failure; retrying inside golang:1.26-alpine..."
+    $dockerArgs = @{
+        GoTestArgs       = $GoTestArgs
+        ArtifactPath     = $ArtifactPath
+        TestDatabaseUrl  = $TestDatabaseUrl
+        DatabaseUrl      = $DatabaseUrl
+        Halo2ProverUrl   = $Halo2ProverUrl
+        OracleKeypairPath = $OracleKeypairPath
+    }
+    $dockerExitCode = Invoke-GoTestInDocker @dockerArgs
+
+    Remove-Item $hostAttemptArtifact -ErrorAction SilentlyContinue
+
+    if ($dockerExitCode -ne 0) {
+        throw $FailureMessage
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
 
@@ -29,11 +150,16 @@ try {
     }
 
     try {
-        & go test ./internal/billing -run $unitTestName -count=1 -json 2>&1 |
-            Tee-Object -FilePath $unitArtifact
-        if ($LASTEXITCODE -ne 0) {
-            throw "Settlement lifecycle unit validation failed."
+        $unitArgs = @{
+            GoTestArgs        = @('test', './internal/billing', '-run', $unitTestName, '-count=1', '-json')
+            ArtifactPath      = $unitArtifact
+            FailureMessage    = 'Settlement lifecycle unit validation failed.'
+            TestDatabaseUrl   = $env:TEST_DATABASE_URL
+            DatabaseUrl       = $env:DATABASE_URL
+            Halo2ProverUrl    = $null
+            OracleKeypairPath = $null
         }
+        Invoke-GoTestWithWindowsFallback @unitArgs
     }
     finally {
         if ($null -ne $previousDatabaseUrl) {
@@ -88,11 +214,16 @@ try {
     }
 
     Write-Host "Running RC-03 batch proof integration validation..."
-    & go test -tags=integration ./internal/billing -run $integrationTestName -count=1 -json 2>&1 |
-        Tee-Object -FilePath $integrationArtifact
-    if ($LASTEXITCODE -ne 0) {
-        throw "Settlement integration validation failed."
+    $integrationArgs = @{
+        GoTestArgs        = @('test', '-tags=integration', './internal/billing', '-run', $integrationTestName, '-count=1', '-json')
+        ArtifactPath      = $integrationArtifact
+        FailureMessage    = 'Settlement integration validation failed.'
+        TestDatabaseUrl   = $env:TEST_DATABASE_URL
+        DatabaseUrl       = $env:DATABASE_URL
+        Halo2ProverUrl    = $env:HALO2_PROVER_URL
+        OracleKeypairPath = $env:SOLANA_ORACLE_KEYPAIR
     }
+    Invoke-GoTestWithWindowsFallback @integrationArgs
 
     $integrationEvents = Get-Content $integrationArtifact | ForEach-Object { $_ | ConvertFrom-Json }
     if ($integrationEvents | Where-Object { $_.Test -eq $integrationTestName -and $_.Action -eq "skip" }) {

@@ -1,0 +1,510 @@
+{
+  "config": {
+    "configFile": "F:\\project\\proxyhubb\\apps\\web\\playwright.config.ts",
+    "rootDir": "F:/project/proxyhubb/apps/web/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "F:/project/proxyhubb/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "F:/project/proxyhubb/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 8,
+    "webServer": {
+      "command": "npm run dev -- --webpack",
+      "env": {
+        "ALLUSERSPROFILE": "C:\\ProgramData",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_AUTH_TOKEN": "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",
+        "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+        "APPDATA": "C:\\Users\\samue\\AppData\\Roaming",
+        "BLACKBOX_INSTALL_DIR": "C:\\Users\\samue\\.blackbox-cli-v2",
+        "BUNDLED_DEBUGPY_PATH": "c:\\Users\\samue\\.vscode-insiders\\extensions\\ms-python.debugpy-2026.7.11211011-win32-x64\\bundled\\libs\\debugpy",
+        "CHROME_CRASHPAD_PIPE_NAME": "\\\\.\\pipe\\crashpad_21936_DFREAMRXXFPNSROF",
+        "CLAUDE_CODE_SSE_PORT": "50586",
+        "COLOR": "0",
+        "COLORTERM": "truecolor",
+        "CommonProgramFiles": "C:\\Program Files\\Common Files",
+        "CommonProgramFiles(x86)": "C:\\Program Files (x86)\\Common Files",
+        "CommonProgramW6432": "C:\\Program Files\\Common Files",
+        "COMPUTERNAME": "HALLDEAN",
+        "ComSpec": "C:\\WINDOWS\\system32\\cmd.exe",
+        "DATABASE_URL": "postgresql://proxyhubb:9d38049b0e612041e886dc7ec441ea6e@127.0.0.1:55432/proxyhubb_test?sslmode=disable",
+        "DriverData": "C:\\Windows\\System32\\Drivers\\DriverData",
+        "EDITOR": "C:\\WINDOWS\\notepad.exe",
+        "EFC_10264_1592913036": "1",
+        "EFC_10264_4126798990": "1",
+        "GEMINI_CLI_IDE_AUTH_TOKEN": "4f5b209a-1424-4d24-894f-8617e542a04f",
+        "GEMINI_CLI_IDE_SERVER_PORT": "63237",
+        "GEMINI_CLI_IDE_WORKSPACE_PATH": "f:\\project\\proxyhubb",
+        "GIT_ASKPASS": "c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\globalStorage\\vscode.git\\askpass\\493597c785d4c5cb\\askpass.sh",
+        "GIT_EDITOR": ":",
+        "GIT_MERGE_AUTOEDIT": "no",
+        "GIT_PAGER": "cat",
+        "GK_GL_ADDR": "http://127.0.0.1:50859",
+        "GK_GL_PATH": "C:\\Users\\samue\\AppData\\Local\\Temp\\gitkraken\\gitlens\\gitlens-ipc-server-21936-50859.json",
+        "GOPATH": "C:\\Users\\samue\\go",
+        "HALO2_PROVER_URL": "http://127.0.0.1:8095",
+        "HOME": "C:\\Users\\samue",
+        "HOMEDRIVE": "C:",
+        "HOMEPATH": "\\Users\\samue",
+        "INIT_CWD": "F:\\project\\proxyhubb\\apps\\web",
+        "LANG": "en_US.UTF-8",
+        "LOCALAPPDATA": "C:\\Users\\samue\\AppData\\Local",
+        "LOGONSERVER": "\\\\HALLDEAN",
+        "NODE": "C:\\Program Files\\nodejs\\node.exe",
+        "npm_command": "exec",
+        "npm_config_cache": "C:\\Users\\samue\\AppData\\Local\\npm-cache",
+        "npm_config_globalconfig": "C:\\Users\\samue\\AppData\\Roaming\\npm\\etc\\npmrc",
+        "npm_config_global_prefix": "C:\\Users\\samue\\AppData\\Roaming\\npm",
+        "npm_config_init_module": "C:\\Users\\samue\\.npm-init.js",
+        "npm_config_local_prefix": "F:\\project\\proxyhubb\\apps\\web",
+        "npm_config_node_gyp": "C:\\Program Files\\nodejs\\node_modules\\npm\\node_modules\\node-gyp\\bin\\node-gyp.js",
+        "npm_config_noproxy": "",
+        "npm_config_npm_version": "11.9.0",
+        "npm_config_prefix": "C:\\Users\\samue\\AppData\\Roaming\\npm",
+        "npm_config_userconfig": "C:\\Users\\samue\\.npmrc",
+        "npm_config_user_agent": "npm/11.9.0 node/v24.14.0 win32 x64 workspaces/false",
+        "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "npm_lifecycle_event": "npx",
+        "npm_lifecycle_script": "playwright",
+        "npm_node_execpath": "C:\\Program Files\\nodejs\\node.exe",
+        "npm_package_json": "F:\\project\\proxyhubb\\apps\\web\\package.json",
+        "npm_package_name": "web",
+        "npm_package_version": "0.1.0",
+        "NUMBER_OF_PROCESSORS": "16",
+        "OneDrive": "C:\\Users\\samue\\OneDrive",
+        "OPENROUTER_API_KEY": "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",
+        "OS": "Windows_NT",
+        "Path": "F:\\project\\proxyhubb\\apps\\web\\node_modules\\.bin;F:\\project\\proxyhubb\\apps\\web\\node_modules\\.bin;F:\\project\\proxyhubb\\apps\\node_modules\\.bin;F:\\project\\proxyhubb\\node_modules\\.bin;F:\\project\\node_modules\\.bin;F:\\node_modules\\.bin;C:\\Program Files\\nodejs\\node_modules\\npm\\node_modules\\@npmcli\\run-script\\lib\\node-gyp-bin;C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe;c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\globalStorage\\github.copilot-chat\\debugCommand;c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\globalStorage\\github.copilot-chat\\copilotCli;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\Microsoft SQL Server\\170\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR;C:\\Program Files\\Go\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\cloudflared\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\GitHub CLI\\;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Users\\samue\\.local\\bin;C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.5.5.0_x64__8wekyb3d8bbwe;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\Microsoft SQL Server\\170\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR;C:\\Program Files\\Go\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs\\;C:\\Program Files (x86)\\cloudflared\\;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Users\\samue\\AppData\\Local\\protoc\\bin;C:\\Users\\samue\\AppData\\Local\\protoc\\bin;c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\globalStorage\\moonshot-ai.kimi-code\\bin\\kimi\\_internal\\pywin32_system32;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Microsoft SQL Server\\170\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files\\dotnet\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR;C:\\Program Files\\Go\\bin;C:\\Program Files\\Git\\cmd;C:\\Users\\samue\\.cargo\\bin;C:\\Users\\samue\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\samue\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\bin;C:\\Users\\samue\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\samue\\AppData\\Local\\Programs\\Antigravity\\bin;C:\\Users\\samue\\.dotnet\\tools;C:\\Users\\samue\\go\\bin;C:\\Users\\samue\\AppData\\Local\\Python\\bin;C:\\Users\\samue\\AppData\\Roaming\\npm;C:\\Users\\samue\\AppData\\Local\\Programs\\Ollama;f:\\project\\proxyhubb\\cli-dist\\1.0.0;C:\\Users\\samue\\AppData\\Local\\Programs\\Kiro\\bin;F:\\project\\chain-registry\\chain-registry\\target\\debug;C:\\Users\\samue\\AppData\\Local\\cursor-agent;C:\\Users\\samue\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\samue\\.vscode-insiders\\extensions\\ms-python.debugpy-2026.7.11211011-win32-x64\\bundled\\scripts\\noConfigScripts",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
+        "PLAYWRIGHT_HTML_OPEN": "never",
+        "PROCESSOR_ARCHITECTURE": "AMD64",
+        "PROCESSOR_IDENTIFIER": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+        "PROCESSOR_LEVEL": "25",
+        "PROCESSOR_REVISION": "7502",
+        "ProgramData": "C:\\ProgramData",
+        "ProgramFiles": "C:\\Program Files",
+        "ProgramFiles(x86)": "C:\\Program Files (x86)",
+        "ProgramW6432": "C:\\Program Files",
+        "PROMPT": "$P$G",
+        "PSModulePath": "C:\\Users\\samue\\OneDrive\\Documents\\PowerShell\\Modules;C:\\Program Files\\PowerShell\\Modules;c:\\program files\\windowsapps\\microsoft.powershell_7.6.1.0_x64__8wekyb3d8bbwe\\Modules;C:\\Program Files\\WindowsPowerShell\\Modules;C:\\WINDOWS\\system32\\WindowsPowerShell\\v1.0\\Modules",
+        "PUBLIC": "C:\\Users\\Public",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "PYTHONSTARTUP": "c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\workspaceStorage\\95b7da82e7388791b5bbb863f40d40ae\\ms-python.python\\pythonrc.py",
+        "PYTHON_BASIC_REPL": "1",
+        "SESSIONNAME": "Console",
+        "SOLANA_ORACLE_KEYPAIR": "f:\\project\\proxyhubb\\infra\\oracle-keypair.json",
+        "SystemDrive": "C:",
+        "SystemRoot": "C:\\WINDOWS",
+        "TEMP": "C:\\Users\\samue\\AppData\\Local\\Temp",
+        "TERM_PROGRAM": "vscode",
+        "TERM_PROGRAM_VERSION": "1.119.0-insider",
+        "TESTNET_STAKING_ADDR": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+        "TEST_API_URL": "http://localhost:18080",
+        "TEST_DATABASE_URL": "postgresql://proxyhubb:9d38049b0e612041e886dc7ec441ea6e@127.0.0.1:55432/proxyhubb_test?sslmode=disable",
+        "TMP": "C:\\Users\\samue\\AppData\\Local\\Temp",
+        "USERDOMAIN": "HALLDEAN",
+        "USERDOMAIN_ROAMINGPROFILE": "HALLDEAN",
+        "USERNAME": "samue",
+        "USERPROFILE": "C:\\Users\\samue",
+        "VBOX_HWVIRTEX_IGNORE_SVM_IN_USE": "1",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "c:\\Users\\samue\\.vscode-insiders\\extensions\\ms-python.debugpy-2026.7.11211011-win32-x64\\.noConfigDebugAdapterEndpoints\\endpoint-71f2fbc22a37b696.txt",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "VSCODE_GIT_ASKPASS_MAIN": "c:\\Users\\samue\\AppData\\Roaming\\Code - Insiders\\User\\globalStorage\\vscode.git\\askpass\\493597c785d4c5cb\\askpass-main.js",
+        "VSCODE_GIT_ASKPASS_NODE": "C:\\Users\\samue\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe",
+        "VSCODE_GIT_IPC_HANDLE": "\\\\.\\pipe\\vscode-git-fd46df9066-sock",
+        "VSCODE_INJECTION": "1",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "windir": "C:\\WINDOWS",
+        "PLAYWRIGHT_E2E_AUTH_BYPASS": "1"
+      },
+      "url": "http://localhost:4011",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Wallet Authentication Flow",
+          "file": "auth.spec.ts",
+          "line": 77,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should show wallet connect button on login page",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 38925,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 79
+                          },
+                          "message": "Error: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:4011/login\", waiting until \"load\"\u001b[22m\n\n\n  77 | test.describe('Wallet Authentication Flow', () => {\n  78 |     test('should show wallet connect button on login page', async ({ page }) => {\n> 79 |         await page.goto(`${BASE_URL}/login`);\n     |                    ^\n  80 |\n  81 |         // Verify the page title / heading\n  82 |         await expect(page.getByText(/connect wallet/i).first()).toBeVisible({ timeout: 10000 });\n    at F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts:79:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-02T08:52:47.844Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-a7bf4-onnect-button-on-login-page-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-a7bf4-onnect-button-on-login-page-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-0c4dd1a4f0fb6f1abf98",
+              "file": "auth.spec.ts",
+              "line": 78,
+              "column": 9
+            },
+            {
+              "title": "should show wallet connect button on register page",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "timedOut",
+                      "duration": 39768,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 97
+                          },
+                          "message": "Error: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:4011/register\", waiting until \"load\"\u001b[22m\n\n\n   95 |\n   96 |     test('should show wallet connect button on register page', async ({ page }) => {\n>  97 |         await page.goto(`${BASE_URL}/register`);\n      |                    ^\n   98 |\n   99 |         // Verify the register page heading\n  100 |         await expect(page.getByText(/initialize account/i).first()).toBeVisible({ timeout: 10000 });\n    at F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts:97:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-02T08:52:47.843Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-f6796-ect-button-on-register-page-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-f6796-ect-button-on-register-page-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-957dacf8295a213bad9e",
+              "file": "auth.spec.ts",
+              "line": 96,
+              "column": 9
+            },
+            {
+              "title": "should redirect unauthenticated dashboard access to login",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "timedOut",
+                      "duration": 38899,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 111
+                          },
+                          "message": "Error: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:4011/dashboard\", waiting until \"load\"\u001b[22m\n\n\n  109 |\n  110 |     test('should redirect unauthenticated dashboard access to login', async ({ page }) => {\n> 111 |         await page.goto(`${BASE_URL}/dashboard`);\n      |                    ^\n  112 |\n  113 |         await page.waitForURL(/\\/login/);\n  114 |         await expect(page.getByText(/connect wallet/i).first()).toBeVisible({ timeout: 10000 });\n    at F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts:111:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-02T08:52:47.844Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-a1455-d-dashboard-access-to-login-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-a1455-d-dashboard-access-to-login-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-feaf3b8b6931278ffcf2",
+              "file": "auth.spec.ts",
+              "line": 110,
+              "column": 9
+            },
+            {
+              "title": "should authenticate via wallet challenge and access dashboard",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "timedOut",
+                      "duration": 40677,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts",
+                            "column": 20,
+                            "line": 138
+                          },
+                          "message": "Error: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:4011/dashboard\", waiting until \"load\"\u001b[22m\n\n\n  136 |         ]);\n  137 |\n> 138 |         await page.goto(`${BASE_URL}/dashboard`);\n      |                    ^\n  139 |         await expect(page).toHaveURL(/\\/dashboard/);\n  140 |         await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible({ timeout: 15000 });\n  141 |     });\n    at F:\\project\\proxyhubb\\apps\\web\\e2e\\auth.spec.ts:138:20"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-02T08:52:47.844Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-d39c0-llenge-and-access-dashboard-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "F:\\project\\proxyhubb\\apps\\web\\test-results\\auth-Wallet-Authentication-d39c0-llenge-and-access-dashboard-chromium\\error-context.md"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-941d72444b83d16596a8",
+              "file": "auth.spec.ts",
+              "line": 117,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-05-02T08:51:10.575Z",
+    "duration": 139966.357,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 4,
+    "flaky": 0
+  }
+}

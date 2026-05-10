@@ -6,6 +6,8 @@ This runbook defines the current repeatable RC-03 validation path for the public
 
 It uses the existing settlement-focused billing tests in [services/control-api/internal/billing](../../services/control-api/internal/billing) as the executable validation anchor and treats [docs/openapi.yaml](../openapi.yaml) as the public contract reference under [docs/adr/0008-use-openapi-as-public-api-contract-source.md](../adr/0008-use-openapi-as-public-api-contract-source.md).
 
+When interpreting the resulting evidence, use [public-testnet-authority-matrix.md](public-testnet-authority-matrix.md) so settlement artifacts are judged against the current authoritative source instead of explorer mirrors.
+
 ## What This Validates
 
 The current validation path covers two layers:
@@ -20,6 +22,7 @@ The current validation path covers two layers:
 - Go toolchain available in the shell.
 - Local repo checkout with dependencies resolved.
 - reachable local test database using either `TEST_DATABASE_URL` or the repo test-profile default `postgresql://proxyhubb:proxyhubb@127.0.0.1:5433/proxyhubb_test?sslmode=disable`
+- Docker available only for Windows hosts where the local Go runner hits the invalid Win32 test-binary launcher failure.
 
 ### Required For Integration Mode
 
@@ -88,14 +91,16 @@ If the unit test is skipped, the script now fails intentionally. That prevents a
 
 The script seeds the repo test-profile database URL automatically when `TEST_DATABASE_URL` is unset, so the default local path matches [docker-compose.test.yml](../../docker-compose.test.yml).
 
+On Windows hosts, the script first tries the local `go test` path. If the host toolchain returns `%1 is not a valid Win32 application` while launching the generated test binary, the script automatically retries the same billing test inside `golang:1.26-alpine`, rewrites local host dependencies to `host.docker.internal`, and keeps the JSONL artifact format unchanged.
+
 ## Current Limits
 
-- This runbook does not replace the full RC-09 release-gated integration matrix.
+- This runbook is the backend settlement slice inside the broader RC-09 gate documented in [public-testnet-release-gate.md](public-testnet-release-gate.md).
 - Integration mode still depends on external prover and chain-facing environment readiness.
 - This path validates the current control-api settlement lane; it does not certify every downstream explorer or frontend surface.
 
 ## Next Follow-Up
 
-- Extend this runbook with a single environment bring-up profile once RC-09 work starts.
-- Add a frontend-visible smoke check once RC-07 wallet-first auth coverage is rewritten.
-- Promote this script into CI only after the integration environment is stable enough to avoid noisy failures.
+- Expand the RC-09 gate from the focused auth slice to broader browser coverage once the wider suite is stable enough for release promotion.
+- Add a single environment bring-up profile once target-environment dependencies are stable enough to remove manual preflight.
+- Promote the release gate into CI only after the integration environment is stable enough to avoid noisy failures.

@@ -16,6 +16,13 @@ This directory contains import-ready planning artifacts for the public testnet r
 - Confirmed assignee username for all currently mapped lead roles: `samuel-1-avson`.
 - Team handles found in repo docs are preserved in the assignment map as reviewer or escalation fallbacks.
 
+## Current RC Reference Set
+
+- [docs/openapi.yaml](../../openapi.yaml) is the only authoritative public API contract for RC review.
+- [docs/runbooks/public-testnet-authority-matrix.md](../../runbooks/public-testnet-authority-matrix.md) is the shared RC-08 authority reference for operators, QA, and launch review.
+- [docs/runbooks/public-testnet-release-gate.md](../../runbooks/public-testnet-release-gate.md) defines the RC-09 promotion-blocking command set and artifact layout.
+- [services/control-api/docs/README.md](../../../services/control-api/docs/README.md) fences the legacy generated Swagger 2.0 tree as non-authoritative.
+
 ## Suggested GitHub CLI Flow
 
 Example:
