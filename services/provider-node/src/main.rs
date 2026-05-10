@@ -238,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
                 // Start heartbeats
                 let hb = tunnel::heartbeat::HeartbeatManager::new(
                     client.session_handle(),
-                    cfg.node_id.clone(),
+                    client.runtime_node_id(),
                     std::time::Duration::from_secs(30),
                     stats_collector.clone(),
                     client.control_api_url(),
