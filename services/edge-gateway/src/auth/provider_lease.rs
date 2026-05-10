@@ -7,6 +7,13 @@ use std::env;
 const ISSUER: &str = "proxyhubb-control-api";
 const AUDIENCE: &str = "proxyhubb-edge-gateway-provider";
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum AudienceClaim {
+    One(String),
+    Many(Vec<String>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProviderLeaseClaims {
     pub sub: String,
@@ -22,7 +29,7 @@ pub struct ProviderLeaseClaims {
     pub os: String,
     pub client_version: String,
     pub features: Vec<String>,
-    pub aud: String,
+    pub aud: AudienceClaim,
     pub exp: usize,
     pub iat: usize,
     pub iss: String,
@@ -128,7 +135,7 @@ mod tests {
             os: caps.os,
             client_version: caps.client_version,
             features: caps.features,
-            aud: AUDIENCE.to_string(),
+            aud: AudienceClaim::One(AUDIENCE.to_string()),
             exp,
             iat: now(),
             iss: ISSUER.to_string(),
@@ -151,6 +158,25 @@ mod tests {
         let parsed = validator.validate(&token, "provider-123", &sample_caps()).unwrap();
 
         assert_eq!(parsed.user_id, "provider-123");
+    }
+
+    #[test]
+    fn validates_matching_provider_lease_with_array_audience() {
+        let mut claims = sample_claims(now() + 60);
+        claims.aud = AudienceClaim::Many(vec![AUDIENCE.to_string()]);
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(b"gateway-secret"),
+        )
+        .unwrap();
+
+        let validator = ProviderLeaseValidator::new("gateway-secret");
+        let parsed = validator.validate(&token, "provider-123", &sample_caps()).unwrap();
+
+        assert_eq!(parsed.user_id, "provider-123");
+        assert_eq!(parsed.aud, claims.aud);
     }
 }
 

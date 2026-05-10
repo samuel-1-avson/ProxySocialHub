@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-05-02T08:30:34.9616563+00:00",
+  "release_command": ".\\\\scripts\\\\validate-release-gate-rc.ps1 -RunSettlementIntegration",
+  "contract_reference": "docs/openapi.yaml",
+  "authority_reference": "docs/runbooks/public-testnet-authority-matrix.md",
+  "slices": {
+    "backend": {
+      "status": "passed",
+      "started_at": "2026-05-02T08:30:34.9757557+00:00",
+      "command": ".\\\\scripts\\\\validate-settlement-rc.ps1 -RunIntegration",
+      "log": "testing/artifacts/release-gate-20260502_083034/backend/settlement.log",
+      "artifacts": "testing/artifacts/release-gate-20260502_083034/backend/settlement.log",
+      "finished_at": "2026-05-02T08:30:52.9972868+00:00"
+    },
+    "web": {
+      "status": "running",
+      "started_at": "2026-05-02T08:30:53.0014996+00:00"
+    }
+  },
+  "updated_at": "2026-05-02T08:30:53.0015771+00:00"
+}
