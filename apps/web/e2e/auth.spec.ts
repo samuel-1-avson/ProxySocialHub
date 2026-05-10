@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { generateKeyPairSync, sign as cryptoSign } from 'crypto';
 import bs58 from 'bs58';
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4001';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
 const API_URL = process.env.TEST_API_URL || 'http://localhost:18080';
 
 async function expectWalletEntryState(page: Parameters<typeof test>[0]['page']) {

@@ -29,7 +29,8 @@ pub struct Config {
     #[serde(default)]
     pub api_key: String,
 
-    /// Unique node identifier (assigned during registration).
+    /// Legacy fallback node identifier.
+    /// Heartbeats now derive their node identity from the authenticated runtime user.
     #[serde(default)]
     pub node_id: String,
 

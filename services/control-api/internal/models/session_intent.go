@@ -60,7 +60,7 @@ type SessionIntentRecord struct {
 	RequestsPerMinute       int                    `gorm:"default:0" json:"requests_per_minute"`
 	MaxConcurrency          int                    `gorm:"default:0" json:"max_concurrency"`
 	MaxPricePerGB           float64                `gorm:"default:0" json:"max_price_per_gb"`
-	BillingPricePerGBUSD    float64                `gorm:"default:0" json:"billing_price_per_gb_usd"`
+	BillingPricePerGBUSD    float64                `gorm:"column:billing_price_per_gb_usd;default:0" json:"billing_price_per_gb_usd"`
 	BillingPriceSource      string                 `gorm:"type:varchar(32);default:'unknown'" json:"billing_price_source"`
 	ProviderNodeID          string                 `gorm:"type:varchar(120);index:idx_session_intent_provider_node" json:"provider_node_id,omitempty"`
 	TargetHost              string                 `gorm:"type:varchar(255)" json:"target_host,omitempty"`

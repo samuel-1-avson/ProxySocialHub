@@ -2,14 +2,16 @@ use crate::state::{AppState, NodeInfo};
 use crate::tls::{create_tls_acceptor, is_tls_enabled, TlsConfig};
 use crate::auth::provider_lease::{lease_is_fresh, provider_leases_required, ProviderLeaseValidator};
 use anyhow::Context;
+use futures_util::io::AsyncRead as FuturesAsyncRead;
 use futures_util::{AsyncReadExt, AsyncWriteExt, StreamExt};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead as TokioAsyncRead, AsyncWrite as TokioAsyncWrite};
 use tokio::net::TcpListener;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing::{debug, error, info, trace, warn};
 use yamux::{Config, Connection, Mode, WindowUpdateMode};
 
@@ -80,6 +82,44 @@ impl Default for AssignedLimits {
     }
 }
 
+const MAX_HEARTBEAT_FRAME_BYTES: usize = 16 * 1024;
+
+async fn read_line_frame<R: FuturesAsyncRead + Unpin>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>> {
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 1024];
+
+    loop {
+        let bytes_read = reader.read(&mut chunk).await?;
+        if bytes_read == 0 {
+            if buffer.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk[..bytes_read]);
+        if buffer.len() > max_bytes {
+            return Err(IoError::new(
+                IoErrorKind::InvalidData,
+                format!("frame exceeds {} bytes", max_bytes),
+            ));
+        }
+
+        if let Some(newline_pos) = buffer.iter().position(|byte| *byte == b'\n') {
+            buffer.truncate(newline_pos);
+            break;
+        }
+    }
+
+    let message = String::from_utf8_lossy(&buffer)
+        .trim_end_matches('\r')
+        .to_string();
+    Ok(Some(message))
+}
+
 pub async fn run_tunnel_server(
     port: u16,
     state: Arc<AppState>,
@@ -130,7 +170,7 @@ pub async fn run_tunnel_server(
 
 async fn handle_provider_connection<S>(stream: S, peer_addr: SocketAddr, state: Arc<AppState>)
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: TokioAsyncRead + TokioAsyncWrite + Unpin + Send + 'static,
 {
     let mut cfg = Config::default();
     cfg.set_window_update_mode(WindowUpdateMode::OnRead);
@@ -376,10 +416,8 @@ where
         let state = state.clone();
         let node_id = node_id.clone();
         tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
-            match stream.read(&mut buf).await {
-                Ok(n) if n > 0 => {
-                    let msg = String::from_utf8_lossy(&buf[..n]);
+            match read_line_frame(&mut stream, MAX_HEARTBEAT_FRAME_BYTES).await {
+                Ok(Some(msg)) => {
                     if msg.starts_with("HEARTBEAT:") {
                         debug!("Incoming raw heartbeat: {:?}", msg);
                         let parts: Vec<&str> = msg.splitn(4, ':').collect();
@@ -517,7 +555,10 @@ where
                         }
                     }
                 }
-                _ => {}
+                Ok(None) => {}
+                Err(err) => {
+                    warn!(node_id = %node_id, error = %err, "Failed to read heartbeat frame");
+                }
             }
         });
     }
@@ -535,5 +576,65 @@ fn calculate_assigned_limits(caps: &ProviderCapabilities) -> AssignedLimits {
         allowed_ports: caps.available_ports.clone(),
         qos_tier: "standard".into(),
         priority: 50,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::duplex;
+
+    #[tokio::test]
+    async fn reads_large_heartbeat_frame_across_multiple_reads() {
+        let (writer, reader) = duplex(8 * 1024);
+        let mut writer = writer.compat_write();
+        let mut reader = reader.compat();
+        let heartbeat = crate::heartbeat::HeartbeatMessage {
+            node_id: "node_provider-large-heartbeat".to_string(),
+            timestamp: 1_777_675_904,
+            active_connections: 1,
+            bandwidth_usage: crate::heartbeat::BandwidthUsage {
+                bytes_up: 0,
+                bytes_down: 0,
+                rate_up_kbps: 0,
+                rate_down_kbps: 0,
+            },
+            system_stats: crate::heartbeat::SystemStats {
+                cpu_percent: 12.5,
+                memory_percent: 34.5,
+                uptime_seconds: 60,
+                goroutines: 0,
+            },
+            provider_lease: "lease".repeat(400),
+        };
+        let heartbeat_json = serde_json::to_string(&heartbeat).unwrap();
+        let frame = format!(
+            "HEARTBEAT:{}:{}:{}\n",
+            heartbeat.node_id, heartbeat.timestamp, heartbeat_json
+        );
+        let split_at = 700;
+
+        tokio::spawn(async move {
+            writer
+                .write_all(frame[..split_at].as_bytes())
+                .await
+                .unwrap();
+            tokio::task::yield_now().await;
+            writer
+                .write_all(frame[split_at..].as_bytes())
+                .await
+                .unwrap();
+        });
+
+        let frame = read_line_frame(&mut reader, MAX_HEARTBEAT_FRAME_BYTES)
+            .await
+            .unwrap()
+            .unwrap();
+        let parts: Vec<&str> = frame.splitn(4, ':').collect();
+
+        assert_eq!(parts.len(), 4);
+        let parsed: crate::heartbeat::HeartbeatMessage = serde_json::from_str(parts[3]).unwrap();
+        assert_eq!(parsed.node_id, "node_provider-large-heartbeat");
+        assert_eq!(parsed.provider_lease.len(), "lease".len() * 400);
     }
 }

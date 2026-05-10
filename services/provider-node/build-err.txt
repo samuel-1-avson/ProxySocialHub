@@ -1,0 +1,17 @@
+   Compiling provider-node v1.0.0 (F:\project\proxyhubb\services\provider-node)
+warning: unused import: `AsyncReadExt as _`
+   --> src\proxy\handler.rs:127:25
+    |
+127 |         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    |                         ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `tokio_util::compat::TokioAsyncReadCompatExt`
+ --> src\proxy\handler.rs:9:5
+  |
+9 | use tokio_util::compat::TokioAsyncReadCompatExt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `provider-node` (bin "provider-node") generated 2 warnings (run `cargo fix --bin "provider-node" -p provider-node` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.28s

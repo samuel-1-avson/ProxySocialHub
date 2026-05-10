@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const APP_ORIGIN = process.env.TEST_BASE_URL || 'http://localhost:4001';
+const APP_ORIGIN = process.env.TEST_BASE_URL || 'http://localhost:4011';
 
 type MockUser = {
   id: string;

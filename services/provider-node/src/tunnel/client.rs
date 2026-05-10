@@ -5,6 +5,7 @@ use crate::proxy::handler::ProxyHandler;
 use crate::stats::Collector;
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use futures_util::{AsyncReadExt as _, AsyncWriteExt as _, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -37,6 +38,7 @@ pub struct TunnelClient {
     ctrl: Option<Control>,
     incoming_rx: Option<tokio::sync::mpsc::Receiver<yamux::Stream>>,
     _conn_task: Option<tokio::task::JoinHandle<()>>,
+    runtime_node_id: Option<String>,
 }
 
 impl TunnelClient {
@@ -47,6 +49,7 @@ impl TunnelClient {
             ctrl: None,
             incoming_rx: None,
             _conn_task: None,
+            runtime_node_id: None,
         }
     }
 
@@ -84,17 +87,23 @@ impl TunnelClient {
         };
 
         // NOW perform the handshake on the main task
-        let token = if !self.config.jwt_token.is_empty() {
-            self.config.jwt_token.clone()
+        let (token, provider_user_id) = if !self.config.jwt_token.is_empty() {
+            let token = self.config.jwt_token.clone();
+            let provider_user_id = resolve_runtime_provider_user_id(&token);
+            (token, provider_user_id)
         } else {
-            let (_user_id, jwt) = crate::ip::validate_api_key(
+            let (user_id, jwt) = crate::ip::validate_api_key(
                 &self.config.control_api_url,
                 &self.config.api_key,
             )
             .await?;
             self.config.jwt_token = jwt.clone();
-            jwt
+            let provider_user_id = normalize_user_id(&user_id)
+                .or_else(|| resolve_runtime_provider_user_id(&jwt));
+            (jwt, provider_user_id)
         };
+
+        self.runtime_node_id = Some(resolve_runtime_node_id(&self.config, provider_user_id)?);
 
         match self.perform_handshake(&mut ctrl, token, config_clone).await {
             Ok(_) => {
@@ -198,6 +207,10 @@ impl TunnelClient {
         self.config.control_api_url.clone()
     }
 
+    pub fn runtime_node_id(&self) -> String {
+        self.runtime_node_id.clone().expect("not connected")
+    }
+
     pub fn provider_lease_request(&self) -> crate::ip::ProviderLeaseRequest {
         build_provider_capability_payload(&self.config).1
     }
@@ -242,6 +255,61 @@ fn extract_host(addr: &str) -> String {
     addr.split(':').next().unwrap_or(addr).to_string()
 }
 
+fn resolve_runtime_node_id(config: &Config, provider_user_id: Option<String>) -> Result<String> {
+    if let Some(user_id) = provider_user_id {
+        let runtime_node_id = format!("node_{}", user_id);
+        let configured_node_id = config.node_id.trim();
+        if !configured_node_id.is_empty() && configured_node_id != runtime_node_id {
+            warn!(
+                configured_node_id = configured_node_id,
+                runtime_node_id = %runtime_node_id,
+                "Ignoring configured node_id in favor of runtime-authenticated provider identity"
+            );
+        }
+        return Ok(runtime_node_id);
+    }
+
+    let configured_node_id = config.node_id.trim();
+    if configured_node_id.is_empty() {
+        anyhow::bail!("unable to derive provider node_id from authenticated runtime identity");
+    }
+
+    warn!(
+        fallback_node_id = configured_node_id,
+        "Falling back to configured node_id because the runtime auth token did not expose a provider identity"
+    );
+    Ok(configured_node_id.to_string())
+}
+
+fn resolve_runtime_provider_user_id(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    let claims: RuntimeIdentityClaims = serde_json::from_slice(&decoded).ok()?;
+    claims
+        .user_id
+        .or(claims.sub)
+        .and_then(|value| normalize_user_id(&value))
+}
+
+fn normalize_user_id(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeIdentityClaims {
+    #[serde(default)]
+    sub: Option<String>,
+    #[serde(default)]
+    user_id: Option<String>,
+}
+
 fn build_provider_capability_payload(
     config: &Config,
 ) -> (CapabilityInfo, crate::ip::ProviderLeaseRequest) {
@@ -281,4 +349,44 @@ fn build_provider_capability_payload(
     };
 
     (caps, lease_request)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_segment(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn build_token(payload: serde_json::Value) -> String {
+        let header = encode_segment(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let payload = encode_segment(payload.to_string().as_bytes());
+        format!("{header}.{payload}.signature")
+    }
+
+    #[test]
+    fn resolves_runtime_node_id_from_user_id_claim() {
+        let token = build_token(serde_json::json!({
+            "user_id": "41b97a34-c744-4b3e-99eb-09fa5652a374",
+            "sub": "ignored-sub"
+        }));
+
+        let provider_user_id = resolve_runtime_provider_user_id(&token);
+        let node_id = resolve_runtime_node_id(&Config::default(), provider_user_id).unwrap();
+
+        assert_eq!(node_id, "node_41b97a34-c744-4b3e-99eb-09fa5652a374");
+    }
+
+    #[test]
+    fn falls_back_to_sub_when_user_id_missing() {
+        let token = build_token(serde_json::json!({
+            "sub": "41b97a34-c744-4b3e-99eb-09fa5652a374"
+        }));
+
+        assert_eq!(
+            resolve_runtime_provider_user_id(&token).as_deref(),
+            Some("41b97a34-c744-4b3e-99eb-09fa5652a374")
+        );
+    }
 }
