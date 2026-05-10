@@ -77,6 +77,15 @@ func persistIssuedSessionIntent(
 		listingID = &parsed
 	}
 
+	allowedDomains := pq.StringArray(claims.AllowedDomains)
+	if len(allowedDomains) == 0 {
+		allowedDomains = pq.StringArray{}
+	}
+	blockedDomains := pq.StringArray(claims.BlockedDomains)
+	if len(blockedDomains) == 0 {
+		blockedDomains = pq.StringArray{}
+	}
+
 	record := models.SessionIntentRecord{
 		ID:                      intentID,
 		UserID:                  userID,
@@ -88,8 +97,8 @@ func persistIssuedSessionIntent(
 		TargetGeo:               claims.TargetGeo,
 		TargetISP:               claims.TargetISP,
 		RoutingProfile:          claims.RoutingProfile,
-		AllowedDomains:          pq.StringArray(claims.AllowedDomains),
-		BlockedDomains:          pq.StringArray(claims.BlockedDomains),
+		AllowedDomains:          allowedDomains,
+		BlockedDomains:          blockedDomains,
 		RotationType:            claims.RotationType,
 		RotationIntervalSeconds: claims.RotationIntervalSeconds,
 		TimeLimitMinutes:        claims.TimeLimitMinutes,
