@@ -145,7 +145,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, source string, params S
 	tx, err := sol.NewTransaction(
 		[]sol.Instruction{instruction},
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(c.oracleKey.PublicKey()),
+		sol.TransactionPayer(c.GetOraclePublicKey()),
 	)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
@@ -153,12 +153,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, source string, params S
 	}
 
 	// Sign transaction with oracle key
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
+	err = c.SignTransaction(ctx, tx)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to sign transaction: %w", err)
@@ -227,7 +222,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, source string, ba
 	tx, err := sol.NewTransaction(
 		instructions,
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(c.oracleKey.PublicKey()),
+		sol.TransactionPayer(c.GetOraclePublicKey()),
 	)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
@@ -235,12 +230,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, source string, ba
 	}
 
 	// Sign transaction
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
+	err = c.SignTransaction(ctx, tx)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to sign batch transaction: %w", err)
@@ -280,7 +270,7 @@ func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Ins
 	return &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false}, // oracle
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false}, // oracle
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},        // escrow
 			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},            // buyer
 			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},           // seller
@@ -334,9 +324,9 @@ func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) 
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false}, // admin
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false}, // admin
 			{PublicKey: stakePDA, IsSigner: false, IsWritable: true},
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: false, IsWritable: true}, // oracle_wallet (payout)
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: false, IsWritable: true}, // oracle_wallet (payout)
 			{PublicKey: adminConfigPDA, IsSigner: false, IsWritable: false},
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 		},
@@ -376,7 +366,7 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true}, // submitter
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true}, // submitter
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false},
@@ -400,17 +390,12 @@ func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Inst
 		return "", err
 	}
 
-	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(c.oracleKey.PublicKey()))
+	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(c.GetOraclePublicKey()))
 	if err != nil {
 		return "", err
 	}
 
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
+	err = c.SignTransaction(ctx, tx)
 	if err != nil {
 		return "", err
 	}
@@ -535,7 +520,7 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 		instructions[i] = &GenericInstruction{
 			programID: sol.SystemProgramID,
 			accounts: []*sol.AccountMeta{
-				{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+				{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 				{PublicKey: t.Recipient, IsSigner: false, IsWritable: true},
 			},
 			data: data,
@@ -551,19 +536,14 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 	tx, err := sol.NewTransaction(
 		instructions,
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(c.oracleKey.PublicKey()),
+		sol.TransactionPayer(c.GetOraclePublicKey()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to build transaction: %w", err)
 	}
 
 	// Sign transaction
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
+	err = c.SignTransaction(ctx, tx)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign transaction: %w", err)
 	}

@@ -97,34 +97,9 @@ func Resolve(ip string) (Result, bool) {
 	return result, true
 }
 
-// StartBackfillWorker launches a background goroutine that periodically
-// resolves coordinates for explorer_nodes rows that still have lat=0/lon=0.
-// It processes up to 45 nodes per minute to stay within ip-api.com's free
-// rate limit of 45 requests/minute.
-//
-// Set GEOIP_ENABLED=false to disable the worker (e.g. in air-gapped Docker
-// environments or when coordinates are already populated via another source).
-func StartBackfillWorker() {
-	if os.Getenv("GEOIP_ENABLED") == "false" {
-		log.Println("[GeoIP] Backfill worker disabled (GEOIP_ENABLED=false)")
-		return
-	}
-	go func() {
-		log.Println("[GeoIP] Backfill worker started")
-		// Initial delay — let DB connections settle
-		time.Sleep(10 * time.Second)
-
-		for {
-			resolveNextBatch()
-			// ip-api.com free tier: 45 req/min → process one batch per minute
-			time.Sleep(60 * time.Second)
-		}
-	}()
-}
-
-// resolveNextBatch fetches up to 45 nodes with missing coordinates and
+// ResolveNextBatch fetches up to 45 nodes with missing coordinates and
 // updates them in the database.
-func resolveNextBatch() {
+func ResolveNextBatch() {
 	if db.DB == nil {
 		return
 	}

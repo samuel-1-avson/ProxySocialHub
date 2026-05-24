@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
