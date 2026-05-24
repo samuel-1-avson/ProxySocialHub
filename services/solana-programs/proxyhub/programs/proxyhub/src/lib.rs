@@ -45,6 +45,18 @@ pub enum EscrowError {
     StalePriceData,
     #[msg("Slippage tolerance exceeded")]
     SlippageExceeded,
+    #[msg("Missing signature verification instruction")]
+    MissingSignatureVerification,
+    #[msg("Invalid signature verification data")]
+    InvalidSignatureVerification,
+    #[msg("Proposal not passed")]
+    ProposalNotPassed,
+    #[msg("Timelock has not expired yet")]
+    TimelockNotExpired,
+    #[msg("Invalid proposal payload or hash mismatch")]
+    InvalidProposalPayload,
+    #[msg("Signer not found in the oracle signer list")]
+    SignerNotFound,
 }
 
 // =============================================================================
@@ -2638,6 +2650,65 @@ pub mod proxyhub {
         require!(session_count > 0, EscrowError::InsufficientFunds);
         require!(total_bytes > 0, EscrowError::InsufficientFunds);
 
+        if proof_hash != [0u8; 32] {
+            let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
+                &ctx.accounts.instructions,
+            ).map_err(|_| error!(EscrowError::InvalidSignatureVerification))?;
+
+            if current_index == 0 {
+                return err!(EscrowError::MissingSignatureVerification);
+            }
+
+            let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
+                (current_index - 1) as usize,
+                &ctx.accounts.instructions,
+            ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+
+            if preceding_ix.program_id != anchor_lang::solana_program::ed25519_program::ID {
+                return err!(EscrowError::MissingSignatureVerification);
+            }
+
+            let data = preceding_ix.data;
+            if data.len() < 16 {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+
+            let num_sigs = data[0];
+            if num_sigs < 1 {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+
+            let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
+            let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
+            let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
+            let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
+            let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
+            let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
+            let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
+
+            if signature_inst_idx != 0xffff || public_key_inst_idx != 0xffff || message_inst_idx != 0xffff {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+
+            if public_key_offset + 32 > data.len() || signature_offset + 64 > data.len() || message_data_offset + message_data_size > data.len() {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+
+            let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
+            let oracle_key = ctx.accounts.oracle.key().to_bytes();
+            if pubkey_bytes != oracle_key {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+
+            if message_data_size != 32 {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+            let msg_bytes = &data[message_data_offset..message_data_offset + 32];
+            if msg_bytes != batch_root {
+                return err!(EscrowError::InvalidSignatureVerification);
+            }
+        }
+
         let batch = &mut ctx.accounts.zk_batch;
         let clock = Clock::get()?;
 
@@ -2766,6 +2837,48 @@ pub mod proxyhub {
 
         msg!("close_channel: session={:?} earned={} refund={} nonce={}",
             session_id, earned_lamports, refund, final_nonce);
+        Ok(())
+    }
+
+    /// Execute a passed proposal to rotate a multisig oracle signer.
+    pub fn execute_signer_rotation_proposal(
+        ctx: Context<ExecuteSignerRotationProposal>,
+        old_signer: Pubkey,
+        new_signer: Pubkey,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let proposal = &mut ctx.accounts.proposal;
+        require!(proposal.status == 1, EscrowError::ProposalNotPassed);
+
+        let clock = Clock::get()?;
+        let timelock_slots: u64 = 172_800; // ~24 hours
+        require!(
+            clock.slot >= proposal.end_slot.saturating_add(timelock_slots),
+            EscrowError::TimelockNotExpired
+        );
+
+        let mut payload = Vec::with_capacity(13 + 32 + 32);
+        payload.extend_from_slice(b"rotate_signer");
+        payload.extend_from_slice(old_signer.as_ref());
+        payload.extend_from_slice(new_signer.as_ref());
+
+        let hash_result = anchor_lang::solana_program::hash::hash(&payload).to_bytes();
+        require!(hash_result == proposal.title_hash, EscrowError::InvalidProposalPayload);
+
+        let multisig_oracle = &mut ctx.accounts.multisig_oracle;
+        let position = multisig_oracle.signers.iter().position(|&x| x == old_signer);
+        require!(position.is_some(), EscrowError::SignerNotFound);
+        let idx = position.unwrap();
+
+        require!(!multisig_oracle.signers.contains(&new_signer), EscrowError::DuplicateSignature);
+
+        multisig_oracle.signers[idx] = new_signer;
+        multisig_oracle.nonce = multisig_oracle.nonce.checked_add(1).ok_or(EscrowError::InvalidStatus)?;
+        multisig_oracle.last_update = clock.unix_timestamp;
+        proposal.status = 3; // executed
+
+        msg!("Signer rotation proposal executed: old={} new={}", old_signer, new_signer);
         Ok(())
     }
 }
@@ -3426,6 +3539,22 @@ pub struct SubmitZKBatch<'info> {
     pub system_program: Program<'info, System>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
+    /// CHECK: Instructions sysvar account for precompile verification
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteSignerRotationProposal<'info> {
+    #[account(mut, seeds = [b"gov_proposal", proposal.proposal_id.as_ref()], bump = proposal.bump)]
+    pub proposal: Account<'info, GovernanceProposal>,
+    #[account(mut, seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
+    pub multisig_oracle: Account<'info, MultiSigOracle>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
 }
 
 // ── State Channel ─────────────────────────────────────────────────────────────

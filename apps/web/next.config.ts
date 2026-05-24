@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   trailingSlash: false,
   reactCompiler: true,
+  experimental: {
+    useWasmBinary: true,
+  },
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   images: {
     remotePatterns: [
