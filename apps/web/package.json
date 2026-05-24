@@ -60,6 +60,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@next/swc-wasm-nodejs": "^16.2.2",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
     "@tanstack/react-query-devtools": "^5.91.2",

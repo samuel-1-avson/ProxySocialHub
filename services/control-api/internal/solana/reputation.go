@@ -60,25 +60,20 @@ func (c *OracleClient) AnchorReputation(ctx context.Context, userWallet string, 
 		[]sol.Instruction{
 			system.NewTransferInstruction(
 				1000000, // Minimal rent for the PDA account
-				c.oracleKey.PublicKey(),
+				c.GetOraclePublicKey(),
 				pda,
 			).Build(),
 			// NOTE: In a full implementation, we'd use sol.NewInstruction for the specific program call.
 		},
 		recent.Value.Blockhash,
-		sol.TransactionPayer(c.oracleKey.PublicKey()),
+		sol.TransactionPayer(c.GetOraclePublicKey()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create reputation tx: %w", err)
 	}
 
 	// 4. Sign & Broadcast
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
+	err = c.SignTransaction(ctx, tx)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign reputation tx: %w", err)
 	}
