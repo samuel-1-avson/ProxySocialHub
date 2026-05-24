@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -82,6 +83,7 @@ type OracleClient struct {
 	currentIdx int
 	programID  sol.PublicKey
 	oracleKey  sol.PrivateKey
+	hsm        HSMSigner
 	network    string
 	velocity   *VelocityGuard // nil until SetVelocityGuard is called
 }
@@ -116,10 +118,52 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		return nil, fmt.Errorf("invalid program ID: %w", err)
 	}
 
-	// Load oracle keypair
-	oracleKey, err := loadKeypair(cfg.OracleKeypairPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load oracle keypair: %w", err)
+	var hsm HSMSigner
+	var oracleKey sol.PrivateKey
+
+	if os.Getenv("USE_AWS_KMS") == "true" {
+		kmsKeyID := os.Getenv("AWS_KMS_KEY_ID")
+		kmsPubKeyStr := os.Getenv("AWS_KMS_PUBLIC_KEY")
+
+		var pubKey sol.PublicKey
+		if kmsPubKeyStr != "" {
+			var err error
+			pubKey, err = sol.PublicKeyFromBase58(kmsPubKeyStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid AWS_KMS_PUBLIC_KEY: %w", err)
+			}
+		} else {
+			// Fallback: load public key from keypair path if possible
+			k, err := loadKeypair(cfg.OracleKeypairPath)
+			if err == nil {
+				pubKey = k.PublicKey()
+			}
+		}
+
+		// Attempt to create AWS KMSSigner
+		signer, err := NewAWSKMSSigner(kmsKeyID, pubKey)
+		if err != nil {
+			// Fallback to MockHSMSigner using keypair if AWS credentials are not set (e.g. dev/testing)
+			fmt.Printf("[SolanaClient] KMS initialization failed (%v). Falling back to mock HSM signer.\n", err)
+			k, keyErr := loadKeypair(cfg.OracleKeypairPath)
+			if keyErr != nil {
+				// Create a random mock key to prevent startup failure
+				fmt.Printf("[SolanaClient] Keypair file missing. Generating random key for mock HSM.\n")
+				k, _ = GenerateRandomKeypair()
+			}
+			hsm = NewMockHSMSigner(k)
+		} else {
+			hsm = signer
+			fmt.Printf("[SolanaClient] Initialized AWS KMS HSM signer with key: %s\n", kmsKeyID)
+		}
+	} else {
+		// Standard local keypair flow
+		k, err := loadKeypair(cfg.OracleKeypairPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load oracle keypair: %w", err)
+		}
+		oracleKey = k
+		hsm = NewMockHSMSigner(k)
 	}
 
 	if len(cfg.RPCEndpoints) == 0 {
@@ -137,6 +181,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		currentIdx: 0,
 		programID:  programID,
 		oracleKey:  oracleKey,
+		hsm:        hsm,
 		network:    cfg.Network,
 	}, nil
 }
@@ -305,7 +350,63 @@ func trimSpace(s string) string {
 
 // GetOraclePublicKey returns the oracle's public key
 func (c *OracleClient) GetOraclePublicKey() sol.PublicKey {
+	if c.hsm != nil {
+		return c.hsm.PublicKey()
+	}
 	return c.oracleKey.PublicKey()
+}
+
+// SignMessage signs arbitrary message bytes using the oracle's HSM or private key.
+func (c *OracleClient) SignMessage(ctx context.Context, message []byte) ([]byte, error) {
+	if c.hsm != nil {
+		return c.hsm.Sign(ctx, message)
+	}
+	return ed25519.Sign(ed25519.PrivateKey(c.oracleKey), message), nil
+}
+
+// SignTransaction signs a Solana transaction using the oracle's HSM or private key.
+func (c *OracleClient) SignTransaction(ctx context.Context, tx *sol.Transaction) error {
+	if c.hsm != nil {
+		msgBytes, err := tx.Message.MarshalBinary()
+		if err != nil {
+			return fmt.Errorf("failed to marshal transaction message: %w", err)
+		}
+		sigBytes, err := c.hsm.Sign(ctx, msgBytes)
+		if err != nil {
+			return fmt.Errorf("failed to sign with HSM: %w", err)
+		}
+
+		var signature sol.Signature
+		copy(signature[:], sigBytes)
+
+		oraclePubkey := c.hsm.PublicKey()
+		signerIndex := -1
+		for i, key := range tx.Message.AccountKeys {
+			if key.Equals(oraclePubkey) {
+				signerIndex = i
+				break
+			}
+		}
+		if signerIndex == -1 || signerIndex >= int(tx.Message.Header.NumRequiredSignatures) {
+			return fmt.Errorf("oracle public key not found as signer in transaction")
+		}
+
+		if len(tx.Signatures) <= signerIndex {
+			newSigs := make([]sol.Signature, tx.Message.Header.NumRequiredSignatures)
+			copy(newSigs, tx.Signatures)
+			tx.Signatures = newSigs
+		}
+		tx.Signatures[signerIndex] = signature
+		return nil
+	}
+
+	_, err := tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
+		if key.Equals(c.oracleKey.PublicKey()) {
+			return &c.oracleKey
+		}
+		return nil
+	})
+	return err
 }
 
 // GetNetwork returns the current network (devnet, mainnet-beta, etc)

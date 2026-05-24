@@ -46,7 +46,10 @@ func (s *ProofService) CreateUsageStatement(escrow sol.PublicKey, bytes uint64, 
 	binary.LittleEndian.PutUint64(msg[48:56], uint64(end))
 
 	// 2. Sign with Oracle/Provider key
-	sig := ed25519.Sign(ed25519.PrivateKey(s.client.oracleKey), msg) // Correct type conversion
+	sig, err := s.client.SignMessage(context.Background(), msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign usage statement: %w", err)
+	}
 
 	return &UsageStatement{
 		EscrowPDA:   escrow,
@@ -54,7 +57,7 @@ func (s *ProofService) CreateUsageStatement(escrow sol.PublicKey, bytes uint64, 
 		PeriodStart: start,
 		PeriodEnd:   end,
 		Signature:   sig,
-		Signer:      s.client.oracleKey.PublicKey(),
+		Signer:      s.client.GetOraclePublicKey(),
 	}, nil
 }
 

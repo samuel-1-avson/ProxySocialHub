@@ -74,18 +74,13 @@ func (c *OracleClient) buildAndSendInstruction(
 	tx, err := sol.NewTransaction(
 		[]sol.Instruction{instr},
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(c.oracleKey.PublicKey()),
+		sol.TransactionPayer(c.GetOraclePublicKey()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("buildAndSendInstruction: build tx: %w", err)
 	}
 
-	if _, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	}); err != nil {
+	if err = c.SignTransaction(ctx, tx); err != nil {
 		return "", fmt.Errorf("buildAndSendInstruction: sign: %w", err)
 	}
 
