@@ -198,7 +198,7 @@ func settleEscrowHandler(c *gin.Context) {
 	}
 
 	// Execute settlement
-	txSig, err := oracleClient.SettleEscrow(context.Background(), SettleEscrowParams{
+	txSig, err := oracleClient.SettleEscrow(context.Background(), "solana.handlers.settle", SettleEscrowParams{
 		Buyer:           buyer,
 		Seller:          seller,
 		EscrowPDA:       escrowPDA,

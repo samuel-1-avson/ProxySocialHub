@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -149,8 +149,36 @@ func createSession(c *gin.Context) {
 		return
 	}
 
+	// AUTH-003: Resolve trust tier from on-chain KYCAttestation PDA when available.
+	// The on-chain value is authoritative — prevents DB row manipulation from
+	// silently elevating bandwidth limits.
+	resolvedTier := user.TrustTier
+	if user.WalletAddress != nil && *user.WalletAddress != "" {
+		if oracle := solana.GetOracleClient(); oracle != nil {
+			if pubkey, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err == nil {
+				if att, err := oracle.ReadKYCAttestation(c.Request.Context(), pubkey); err == nil {
+					switch att.TrustTier {
+					case solana.KYCTierNew:
+						resolvedTier = models.TrustTierNew
+					case solana.KYCTierVerified:
+						resolvedTier = models.TrustTierVerified
+					case solana.KYCTierPremium:
+						resolvedTier = models.TrustTierPremium
+					}
+					// If on-chain tier is lower than DB tier, chain wins.
+					if tierOrdinal(resolvedTier) < tierOrdinal(user.TrustTier) {
+						logging.Warn().
+							Str("user_id", userID).
+							Str("db_tier", string(user.TrustTier)).
+							Str("chain_tier", string(resolvedTier)).
+							Msg("createSession: on-chain trust tier lower than DB — using chain value")
+					}
+				}
+			}
+		}
+	}
 	// Get tier configuration
-	tierConfig := models.GetTierConfig(user.TrustTier)
+	tierConfig := models.GetTierConfig(resolvedTier)
 
 	// N-03: Look up routing profile and apply defaults if slug provided.
 	var routingProfile *models.RoutingProfile
@@ -275,6 +303,38 @@ func createSession(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
+
+	// METER-002: Lock session parameters on-chain so the edge gateway can
+	// verify bandwidth_limit against an immutable PDA rather than trusting Redis.
+	go func(sess models.Session) {
+		oracle := solana.GetOracleClient()
+		if oracle == nil {
+			return
+		}
+		var sidBytes [16]byte
+		copy(sidBytes[:], sess.ID[:])
+		var buyerWallet, sellerWallet solanaGo.PublicKey
+		if user.WalletAddress != nil && *user.WalletAddress != "" {
+			buyerWallet, _ = solanaGo.PublicKeyFromBase58(*user.WalletAddress)
+		}
+		if node.Hotkey != "" {
+			sellerWallet, _ = solanaGo.PublicKeyFromBase58(node.Hotkey)
+		}
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		sig, err := oracle.LockSessionCommitment(ctx2, solana.LockSessionCommitmentParams{
+			SessionID:           sidBytes,
+			BuyerWallet:         buyerWallet,
+			SellerWallet:        sellerWallet,
+			BandwidthLimitBytes: uint64(sess.BandwidthLimit),
+			PricePerGBLamports:  uint64(node.BasePricePerGB * 1e9),
+		})
+		if err != nil {
+			logging.Error(err).Str("session_id", sess.ID.String()).Msg("createSession: LockSessionCommitment failed (non-fatal)")
+			return
+		}
+		logging.Info().Str("sig", sig).Str("session_id", sess.ID.String()).Msg("createSession: session commitment anchored on-chain")
+	}(session)
 
 	// N-05: Store encrypted credential backup (non-fatal if it fails).
 	credSvc := crypto.NewCredentialService()
@@ -484,8 +544,10 @@ func terminateSession(c *gin.Context) {
 			Where("id = ?", session.NodeID).
 			UpdateColumn("total_sessions_served", gorm.Expr("total_sessions_served + 1"))
 
-		// Record provider earning asynchronously (10% platform fee, 0.002 SOL/GB fallback price)
-		go recordProviderEarning(session, session.BytesUsed, 0.002, 0.10)
+		// Record provider earning asynchronously.
+		// CONFIG-001: Platform fee read from on-chain ProgramConfig (falls back to 10%).
+		platformFee := resolvePlatformFee()
+		go recordProviderEarning(session, session.BytesUsed, 0.002, platformFee)
 	}
 
 	// Trigger on-chain escrow settlement asynchronously so the API response is not blocked.
@@ -650,7 +712,7 @@ func settleSessionOnChain(session models.Session) {
 
 	bandwidthUsedGB := uint64(fullSession.BytesUsed) / (1024 * 1024 * 1024)
 
-	txHash, err := oracle.SettleEscrow(ctx, solana.SettleEscrowParams{
+	txHash, err := oracle.SettleEscrow(ctx, "api.session.complete", solana.SettleEscrowParams{
 		Buyer:           buyerPubkey,
 		Seller:          sellerPubkey,
 		EscrowPDA:       escrowPDA,
@@ -677,7 +739,7 @@ func settleSessionOnChain(session models.Session) {
 
 type createSessionFromListingRequest struct {
 	ListingID      string `json:"listing_id" binding:"required"`
-	Type           string `json:"type"`           // "rotating" | "sticky" — defaults to listing's rotation_type
+	Type           string `json:"type"`            // "rotating" | "sticky" — defaults to listing's rotation_type
 	BandwidthLimit int64  `json:"bandwidth_limit"` // bytes; 0 = listing minimum
 }
 
@@ -735,9 +797,9 @@ func createSessionFromListing(c *gin.Context) {
 		Count(&activeSessions)
 	if int(activeSessions) >= listing.MaxConcurrency {
 		c.JSON(http.StatusConflict, gin.H{
-			"error":       "This listing has reached its maximum concurrent sessions",
-			"limit":       listing.MaxConcurrency,
-			"active":      activeSessions,
+			"error":  "This listing has reached its maximum concurrent sessions",
+			"limit":  listing.MaxConcurrency,
+			"active": activeSessions,
 		})
 		return
 	}
@@ -912,10 +974,34 @@ func createSessionFromListing(c *gin.Context) {
 			"quality_score": node.QualityScore,
 		},
 		"session_info": gin.H{
-			"type":            sessionType,
+			"type":               sessionType,
 			"bandwidth_limit_gb": float64(bandwidthLimit) / (1024 * 1024 * 1024),
-			"min_cost_sol":    minCostSOL,
-			"node_latency_ms": node.LatencyMs,
+			"min_cost_sol":       minCostSOL,
+			"node_latency_ms":    node.LatencyMs,
 		},
 	})
+}
+
+// tierOrdinal returns a comparable integer for a TrustTier so that the
+// lower of two tiers can be determined.  new=0, verified=1, premium=2.
+func tierOrdinal(t models.TrustTier) int {
+	switch t {
+	case models.TrustTierVerified:
+		return 1
+	case models.TrustTierPremium:
+		return 2
+	default: // TrustTierNew
+		return 0
+	}
+}
+
+// resolvePlatformFee returns the platform fee as a fraction (0.0–1.0).
+// Reads the on-chain ProgramConfig PDA first; falls back to 10% if not set.
+func resolvePlatformFee() float64 {
+	if oracle := solana.GetOracleClient(); oracle != nil {
+		if cfg, err := oracle.ReadProgramConfig(context.Background()); err == nil && cfg.PlatformFeeBPS > 0 {
+			return float64(cfg.PlatformFeeBPS) / 10000.0
+		}
+	}
+	return 0.10
 }

@@ -33,7 +33,9 @@ type StateChannel struct {
 	Status     ChannelStatus `gorm:"type:varchar(20);default:'open'" json:"status"`
 
 	// On-Chain References
-	EscrowPubkey string `gorm:"type:varchar(44)" json:"escrow_pubkey"` // Solana Address
+	EscrowPubkey  string `gorm:"type:varchar(44)" json:"escrow_pubkey"`   // Solana Address
+	OnchainPDA    string `gorm:"type:varchar(44)" json:"onchain_pda"`     // State channel PDA (set after open_channel tx)
+	OnchainTxSig  string `gorm:"type:varchar(88)" json:"onchain_tx_sig"`  // open_channel tx signature
 
 	// State Snapshot (JSONB)
 	LastState ChannelState `gorm:"type:jsonb;serializer:json" json:"last_state"`

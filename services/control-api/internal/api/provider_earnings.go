@@ -116,6 +116,13 @@ func getProviderPayoutHistory(c *gin.Context) {
 
 // recordProviderEarning is called after a session ends to create an earning record
 // and queue a payout for the provider. platformFeePercent is a value 0.0–1.0.
+//
+// For sessions backed by an on-chain escrow (order.EscrowPDA != ""), the SOL
+// transfer is executed by anchorUsageProofAndSettle via SettleEscrow — the
+// chain settlement IS the payout.  In that case we create the earning row as
+// "pending" (it will be updated to "paid" by anchorUsageProofAndSettle once the
+// settle tx confirms) but intentionally skip the DB batch-payout queue so the
+// provider is not paid twice.
 func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pricePerGB float64, platformFeePercent float64) {
 	if session.NodeID == nil {
 		return
@@ -153,8 +160,16 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 		return
 	}
 
-	// Queue for batch payout if provider has a wallet configured
-	if node.WalletAddress != "" {
+	// Determine whether this session is backed by an on-chain escrow.
+	// If it is, anchorUsageProofAndSettle handles the SOL transfer — skip the
+	// batch-payout queue to avoid paying the provider twice.
+	var linkedOrder models.Order
+	escrowBacked := false
+	if err := db.DB.Select("escrow_pda").Where("session_id = ?", session.ID).First(&linkedOrder).Error; err == nil {
+		escrowBacked = linkedOrder.EscrowPDA != ""
+	}
+
+	if !escrowBacked && node.WalletAddress != "" {
 		if bp := GetBatchPayoutProcessor(); bp != nil {
 			_ = bp.QueuePayout(node.UserID, node.WalletAddress, netSOL, []string{session.ID.String()})
 		}

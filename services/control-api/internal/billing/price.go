@@ -80,7 +80,29 @@ func GetSOLPriceUSD() float64 {
 	}
 
 	// --- Tier 3: Emergency env var fallback ---
+	// ORACLE-002: Bounds-check the emergency price against the stale in-process
+	// cache (if present). A ±20% deviation from the last seen live price indicates
+	// the env var may be stale or manipulated — refuse it and return 0 so callers
+	// circuit-break rather than transact at a bad price.
 	emergency := getEmergencyFallback()
+	if emergency <= 0 {
+		logging.Warn().Msg("CRITICAL: All SOL price sources unavailable and EMERGENCY_SOL_PRICE_USD not set — returning 0 (callers must handle)")
+		return 0
+	}
+	priceMu.RLock()
+	staleCache := cachedSOLPrice
+	priceMu.RUnlock()
+	if staleCache > 0 {
+		deviation := abs64(emergency-staleCache) / staleCache
+		if deviation > 0.20 {
+			logging.Warn().
+				Float64("emergency_price", emergency).
+				Float64("stale_cache", staleCache).
+				Float64("deviation_pct", deviation*100).
+				Msg("CRITICAL: Emergency SOL price deviates >20% from last in-process cached price — refusing emergency fallback, returning 0")
+			return 0
+		}
+	}
 	logging.Warn().
 		Float64("emergency_price", emergency).
 		Msg("CRITICAL: All SOL price sources unavailable and no Redis cache — using EMERGENCY_SOL_PRICE_USD")
