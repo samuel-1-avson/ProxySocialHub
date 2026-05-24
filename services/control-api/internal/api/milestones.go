@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"net/http"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterMilestoneRoutes registers milestone-related routes
@@ -127,6 +130,47 @@ func claimMilestoneReward(c *gin.Context) {
 	if milestone.RewardAmount <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No reward available for this milestone"})
 		return
+	}
+
+	// REP-004: Gate reward on on-chain usage proofs to prevent DB inflation attacks.
+	// Query the user's escrow-backed orders and sum their on-chain proof bytes.
+	// If the oracle is unavailable we degrade gracefully (allow claim with a warning).
+	if oracle := solana.GetOracleClient(); oracle != nil {
+		var orders []models.Order
+		db.DB.
+			Select("escrow_pda").
+			Where("buyer_id = ? AND escrow_pda != ''", userID).
+			Limit(20).
+			Find(&orders)
+
+		if len(orders) > 0 {
+			thresholdBytes := uint64(milestone.ThresholdGB * 1024 * 1024 * 1024)
+			var onChainBytes uint64
+			for _, ord := range orders {
+				pda, err := sol.PublicKeyFromBase58(ord.EscrowPDA)
+				if err != nil {
+					continue
+				}
+				n, err := oracle.SumUsageProofBytes(c.Request.Context(), pda)
+				if err != nil {
+					logging.Warn().Str("escrow", ord.EscrowPDA).Msg("claimMilestoneReward: SumUsageProofBytes failed, skipping escrow")
+					continue
+				}
+				onChainBytes += n
+				if onChainBytes >= thresholdBytes {
+					break
+				}
+			}
+			if onChainBytes < thresholdBytes {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error":              "On-chain usage proofs do not yet meet milestone threshold",
+					"threshold_bytes":    thresholdBytes,
+					"on_chain_bytes":     onChainBytes,
+					"threshold_gb":       milestone.ThresholdGB,
+				})
+				return
+			}
+		}
 	}
 
 	// Claim the reward

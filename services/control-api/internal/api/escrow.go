@@ -158,7 +158,7 @@ func releaseEscrow(c *gin.Context) {
 		}
 
 		var txErr error
-		settleTxHash, txErr = oracle.SettleEscrow(c.Request.Context(), solanaClient.SettleEscrowParams{
+		settleTxHash, txErr = oracle.SettleEscrow(c.Request.Context(), "api.escrow.release", solanaClient.SettleEscrowParams{
 			EscrowPDA:       escrowPDA,
 			Seller:          sellerKey,
 			Buyer:           buyerKey,

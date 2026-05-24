@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/ipfs"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -69,8 +73,35 @@ func createProposal(c *gin.Context) {
 		return
 	}
 
-	// Check if user has minimum balance to propose (e.g. 10 TAO)
-	// For MVP, we skip this check or check if they are "verified"
+	// PHB-GOV: Require a minimum on-chain PHB balance to create a proposal.
+	// When PHB_TOKEN_MINT is set, the proposer must hold ≥ 100 PHB (raw units,
+	// assuming 9 decimals → 100_000_000_000 = 100 PHB).
+	// This is a soft Sybil guard — anyone with real stake can propose.
+	if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
+		oracle := solana.GetOracleClient()
+		if oracle != nil {
+			mintKey, mintErr := solana.PublicKeyFromBase58String(mintStr)
+			if mintErr == nil {
+				// Resolve proposer wallet.
+				var proposerUser models.User
+				if dbErr := db.DB.Select("wallet_address").First(&proposerUser, "id = ?", userID).Error; dbErr == nil &&
+					proposerUser.WalletAddress != nil && *proposerUser.WalletAddress != "" {
+					if walletPK, pkErr := solana.PublicKeyFromBase58String(*proposerUser.WalletAddress); pkErr == nil {
+						ctx100, cancel100 := context.WithTimeout(c.Request.Context(), 5*time.Second)
+						defer cancel100()
+						const minPHBRaw = uint64(100_000_000_000) // 100 PHB @ 9 decimals
+						phbBal, balErr := oracle.GetTokenBalance(ctx100, walletPK, mintKey)
+						if balErr == nil && phbBal < minPHBRaw {
+							c.JSON(http.StatusForbidden, gin.H{
+								"error": fmt.Sprintf("insufficient PHB: need ≥100 PHB to create a proposal, have %d raw units", phbBal),
+							})
+							return
+						}
+					}
+				}
+			}
+		}
+	}
 
 	var req CreateProposalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -129,6 +160,52 @@ func createProposal(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proposal"})
 		return
 	}
+
+	// GOV-001: Anchor proposal on-chain — title_hash + end_slot commit to content
+	// that cannot be silently altered after creation.
+	go func(prop models.Proposal, proposerID uuid.UUID) {
+		oracle := solana.GetOracleClient()
+		if oracle == nil {
+			return
+		}
+		var pidBytes [16]byte
+		copy(pidBytes[:], prop.ID[:])
+
+		// title_hash = SHA-256(title + "|" + ipfs_cid)
+		h := sha256.Sum256([]byte(prop.Title + "|" + prop.IPFSHash))
+
+		// Convert end_time to an approximate Solana slot (1 slot ≈ 400ms)
+		duration := time.Until(prop.EndTime)
+		endSlot := uint64(duration.Milliseconds() / 400)
+
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		proposerPubkey := solana.ZeroPublicKey() // fallback; ideally fetched from user's linked wallet
+		var proposerUser models.User
+		if err := db.DB.Select("wallet_address").First(&proposerUser, "id = ?", proposerID).Error; err == nil {
+			if proposerUser.WalletAddress != nil && *proposerUser.WalletAddress != "" {
+				if pk, err := solana.PublicKeyFromBase58String(*proposerUser.WalletAddress); err == nil {
+					proposerPubkey = pk
+				}
+			}
+		}
+
+		proposalPDA, sig, err := oracle.CreateProposalOnChain(ctx2, solana.CreateProposalParams{
+			ProposalID: pidBytes,
+			Proposer:   proposerPubkey,
+			TitleHash:  h,
+			EndSlot:    endSlot,
+		})
+		if err != nil {
+			logging.Error(err).Str("proposal_id", prop.ID.String()).Msg("createProposal: CreateProposalOnChain failed (non-fatal)")
+			return
+		}
+		// Persist the on-chain PDA in the DB for future verification.
+		db.Social().Model(&models.Proposal{}).Where("id = ?", prop.ID).
+			Update("onchain_pda", proposalPDA.String())
+		logging.Info().Str("sig", sig).Str("pda", proposalPDA.String()).Msg("createProposal: anchored on-chain")
+	}(proposal, userID)
 
 	c.JSON(http.StatusCreated, gin.H{"proposal": proposal, "thread_slug": thread.Slug})
 }
@@ -255,6 +332,31 @@ func castVote(c *gin.Context) {
 		totalStaked = maxStakeVotingPower
 	}
 	votingPower += totalStaked
+
+	// PHB-GOV: Add on-chain PHB balance to voting power.
+	// 1 PHB (raw: 1_000_000_000 units at 9 decimals) = 1 voting weight unit.
+	// Capped at 10 000 PHB to prevent token whale capture.
+	// Falls back silently if PHB_TOKEN_MINT is not configured or RPC fails.
+	if mintStr := os.Getenv("PHB_TOKEN_MINT"); mintStr != "" {
+		oracle := solana.GetOracleClient()
+		if oracle != nil {
+			mintKey, mintErr := solana.PublicKeyFromBase58String(mintStr)
+			walletPK, walletErr := solana.PublicKeyFromBase58String(req.WalletAddress)
+			if mintErr == nil && walletErr == nil {
+				ctxPhb, cancelPhb := context.WithTimeout(c.Request.Context(), 3*time.Second)
+				defer cancelPhb()
+				const phbDecimals = 1_000_000_000.0
+				const maxPHBVotingPower = 10_000.0
+				if phbRaw, phbErr := oracle.GetTokenBalance(ctxPhb, walletPK, mintKey); phbErr == nil {
+					phbUnits := float64(phbRaw) / phbDecimals
+					if phbUnits > maxPHBVotingPower {
+						phbUnits = maxPHBVotingPower
+					}
+					votingPower += phbUnits
+				}
+			}
+		}
+	}
 
 	// 4. Record Vote
 	vote := models.Vote{

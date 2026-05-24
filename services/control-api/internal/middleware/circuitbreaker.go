@@ -188,12 +188,6 @@ var DefaultCircuitBreakerConfigs = map[string]circuitbreaker.Config{
 		SuccessThreshold: 2,
 		RequestTimeout:   10 * time.Second,
 	},
-	"supabase": {
-		MaxFailures:      5,
-		ResetTimeout:     30 * time.Second,
-		SuccessThreshold: 3,
-		RequestTimeout:   8 * time.Second,
-	},
 	"external_api": {
 		MaxFailures:      5,
 		ResetTimeout:     45 * time.Second,

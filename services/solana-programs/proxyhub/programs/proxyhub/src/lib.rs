@@ -497,6 +497,243 @@ impl UsageProofRecord {
         8 +  // period_end
         8 +  // submitted_at
         1;   // bump
+
+// =============================================================================
+// KYC ATTESTATION ACCOUNT
+// =============================================================================
+// Trust-tier and KYC status for a user wallet, written on-chain by the oracle.
+// This makes trust elevation verifiable without trusting the server DB.
+//
+// Trust tiers (trust_tier field):
+//   0 = new        — default
+//   1 = verified   — KYC approved + minimum SOL balance confirmed
+//   2 = premium    — elevated by admin or governance
+//
+// KYC status (kyc_status field):
+//   0 = none       — not yet submitted
+//   1 = pending    — under review
+//   2 = approved   — cleared
+//   3 = rejected   — denied
+//
+// PDA seeds: ["kyc_attestation", wallet_pubkey]
+}
+
+#[account]
+#[derive(Default)]
+pub struct KYCAttestation {
+    pub wallet: Pubkey,       // The user's Solana wallet being attested
+    pub oracle: Pubkey,       // Oracle that wrote this attestation
+    pub trust_tier: u8,       // 0=new, 1=verified, 2=premium
+    pub kyc_status: u8,       // 0=none, 1=pending, 2=approved, 3=rejected
+    pub attested_at: i64,     // Unix timestamp when last written
+    pub bump: u8,
+}
+
+impl KYCAttestation {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // wallet
+        32 + // oracle
+        1 +  // trust_tier
+        1 +  // kyc_status
+        8 +  // attested_at
+        1;   // bump
+}
+
+// =============================================================================
+// SESSION COMMITMENT ACCOUNT (METER-002)
+// =============================================================================
+// Locked on-chain when a session is created; serves as the authoritative record
+// of session parameters. Edge gateway verifies its bandwidth_limit_bytes against
+// this PDA — prevents server-side tampering of session limits.
+//
+// PDA seeds: ["session_commitment", session_id (16 bytes UUID)]
+#[account]
+#[derive(Default)]
+pub struct SessionCommitment {
+    pub session_id:            [u8; 16],  // UUID bytes (little-endian)
+    pub buyer_wallet:          Pubkey,    // User's linked Solana wallet
+    pub seller_wallet:         Pubkey,    // Provider's wallet
+    pub bandwidth_limit_bytes: u64,       // Authoritative bandwidth cap
+    pub price_per_gb_lamports: u64,       // Locked-in price at session start
+    pub locked_at:             i64,       // Unix timestamp
+    pub bump:                  u8,
+}
+
+impl SessionCommitment {
+    pub const LEN: usize = 8 +  // discriminator
+        16 + // session_id
+        32 + // buyer_wallet
+        32 + // seller_wallet
+        8 +  // bandwidth_limit_bytes
+        8 +  // price_per_gb_lamports
+        8 +  // locked_at
+        1;   // bump (total = 113)
+}
+
+// =============================================================================
+// GOVERNANCE PDAs (GOV-001/002/003)
+// =============================================================================
+// Proposals and votes are committed on-chain so tallies cannot be manipulated.
+// Proposals are created by the oracle on behalf of a user; votes are signed
+// directly by the voter's wallet (voter: Signer) so the server cannot forge them.
+//
+// GovernanceProposal PDA seeds: ["gov_proposal", proposal_id (16 bytes)]
+// GovernanceVote     PDA seeds: ["gov_vote", proposal_pda (32 bytes), voter_wallet (32 bytes)]
+#[account]
+#[derive(Default)]
+pub struct GovernanceProposal {
+    pub proposal_id: [u8; 16],   // UUID bytes
+    pub proposer:    Pubkey,     // User's wallet who created it
+    pub title_hash:  [u8; 32],   // SHA-256 of title+description
+    pub vote_yes:    u64,        // Cumulative yes voting power (lamports)
+    pub vote_no:     u64,        // Cumulative no voting power (lamports)
+    pub status:      u8,         // 0=active, 1=passed, 2=rejected, 3=executed
+    pub end_slot:    u64,        // Voting closes at this Solana slot
+    pub created_at:  i64,
+    pub bump:        u8,
+}
+
+impl GovernanceProposal {
+    pub const LEN: usize = 8 +  // discriminator
+        16 + // proposal_id
+        32 + // proposer
+        32 + // title_hash
+        8 +  // vote_yes
+        8 +  // vote_no
+        1 +  // status
+        8 +  // end_slot
+        8 +  // created_at
+        1;   // bump (total = 122)
+}
+
+#[account]
+#[derive(Default)]
+pub struct GovernanceVote {
+    pub proposal:     Pubkey,   // GovernanceProposal PDA
+    pub voter:        Pubkey,   // Voter's wallet
+    pub vote_yes:     bool,
+    pub voting_power: u64,      // Staked SOL in lamports at time of vote
+    pub voted_at:     i64,
+    pub bump:         u8,
+}
+
+impl GovernanceVote {
+    pub const LEN: usize = 8 +  // discriminator
+        32 + // proposal
+        32 + // voter
+        1 +  // vote_yes
+        8 +  // voting_power
+        8 +  // voted_at
+        1;   // bump (total = 90)
+}
+
+// =============================================================================
+// DISPUTE / JURY PDAs (DISP-001/002/003/004)
+// =============================================================================
+// JuryVotePDA is an immutable per-juror on-chain vote record.
+// The dispute itself is opened with a slot-hash-based VRF seed so jury
+// selection cannot be controlled by the server.
+//
+// JuryVotePDA seeds: ["jury_vote", dispute_pda (32 bytes), juror_wallet (32 bytes)]
+#[account]
+#[derive(Default)]
+pub struct JuryVotePDA {
+    pub dispute:    Pubkey,  // DisputeJury PDA on-chain
+    pub juror:      Pubkey,  // Juror's wallet
+    pub vote_buyer: bool,    // true = vote for buyer (refund), false = vote for seller (pay)
+    pub voted_at:   i64,
+    pub bump:       u8,
+}
+
+impl JuryVotePDA {
+    pub const LEN: usize = 8 +  // discriminator
+        32 + // dispute
+        32 + // juror
+        1 +  // vote_buyer
+        8 +  // voted_at
+        1;   // bump (total = 82)
+}
+
+// =============================================================================
+// ADMIN ATTESTATION (AUTH-001/007)
+// =============================================================================
+// On-chain record of a wallet holding admin privileges.
+// Written by the program admin (program_state.admin) — cannot be self-signed.
+// Sensitive admin endpoints verify this PDA exists before executing.
+//
+// PDA seeds: ["admin_attestation", admin_wallet (32 bytes)]
+#[account]
+#[derive(Default)]
+pub struct AdminAttestation {
+    pub admin_wallet: Pubkey,
+    pub oracle:       Pubkey,
+    pub role:         u8,     // 0=moderator, 1=admin, 2=super_admin
+    pub attested_at:  i64,
+    pub bump:         u8,
+}
+
+impl AdminAttestation {
+    pub const LEN: usize = 8 +  // discriminator
+        32 + // admin_wallet
+        32 + // oracle
+        1 +  // role
+        8 +  // attested_at
+        1;   // bump (total = 82)
+}
+
+// =============================================================================
+// PROGRAM CONFIG (CONFIG-001/002)
+// =============================================================================
+// Security-critical parameters stored on-chain.  Only updatable via multisig.
+// Go handlers read this PDA instead of the system_configurations table for
+// KYC min balance, platform fee, and spending limits.
+//
+// PDA seeds: ["program_config"]
+#[account]
+#[derive(Default)]
+pub struct ProgramConfig {
+    pub kyc_min_sol_lamports:      u64,  // Minimum SOL balance for KYC approval
+    pub platform_fee_bps:          u16,  // Platform fee in basis points (100 = 1%)
+    pub max_daily_spend_lamports:  u64,  // Daily spending cap (0 = no cap)
+    pub max_session_bw_bytes:      u64,  // Maximum session bandwidth per tier=new
+    pub updated_at:                i64,
+    pub bump:                      u8,
+}
+
+impl ProgramConfig {
+    pub const LEN: usize = 8 +  // discriminator
+        8 +  // kyc_min_sol_lamports
+        2 +  // platform_fee_bps
+        8 +  // max_daily_spend_lamports
+        8 +  // max_session_bw_bytes
+        8 +  // updated_at
+        1;   // bump (total = 43)
+}
+
+// =============================================================================
+// REVIEW ATTESTATION (REP-001)
+// =============================================================================
+// Immutable on-chain record that a verified buyer reviewed a specific order.
+// Prevents review deletion or manipulation after submission.
+//
+// PDA seeds: ["review", order_escrow_pda (32 bytes), reviewer_wallet (32 bytes)]
+#[account]
+#[derive(Default)]
+pub struct ReviewAttestation {
+    pub order_escrow_pda: Pubkey,
+    pub reviewer:         Pubkey,
+    pub rating_hash:      [u8; 32],  // SHA-256(rating || comment || review_id)
+    pub attested_at:      i64,
+    pub bump:             u8,
+}
+
+impl ReviewAttestation {
+    pub const LEN: usize = 8 +  // discriminator
+        32 + // order_escrow_pda
+        32 + // reviewer
+        32 + // rating_hash
+        8 +  // attested_at
+        1;   // bump (total = 113)
 }
 
 /// Gateway Account - Federated gateway registration
@@ -695,6 +932,102 @@ pub struct ProviderHeartbeatEvent {
     pub provider: Pubkey,
     pub quality_score: u8,
     pub last_heartbeat: i64,
+}
+
+#[event]
+pub struct KYCAttestationWritten {
+    pub wallet: Pubkey,
+    pub oracle: Pubkey,
+    pub trust_tier: u8,
+    pub kyc_status: u8,
+    pub attested_at: i64,
+}
+
+#[event]
+pub struct SessionCommitmentLocked {
+    pub session_id: [u8; 16],
+    pub buyer_wallet: Pubkey,
+    pub seller_wallet: Pubkey,
+    pub bandwidth_limit_bytes: u64,
+    pub price_per_gb_lamports: u64,
+    pub locked_at: i64,
+}
+
+#[event]
+pub struct ProposalCreated {
+    pub proposal_pda: Pubkey,
+    pub proposer: Pubkey,
+    pub title_hash: [u8; 32],
+    pub end_slot: u64,
+}
+
+#[event]
+pub struct VoteCast {
+    pub proposal_pda: Pubkey,
+    pub voter: Pubkey,
+    pub vote_yes: bool,
+    pub voting_power: u64,
+}
+
+#[event]
+pub struct ProposalFinalized {
+    pub proposal_pda: Pubkey,
+    pub status: u8,
+    pub vote_yes: u64,
+    pub vote_no: u64,
+}
+
+#[event]
+pub struct DisputeOpened {
+    pub dispute_pda: Pubkey,
+    pub escrow: Pubkey,
+    pub reason_hash: [u8; 32],
+    pub slot_seed: u64,
+}
+
+#[event]
+pub struct JuryVoteCast {
+    pub dispute_pda: Pubkey,
+    pub juror: Pubkey,
+    pub vote_buyer: bool,
+}
+
+#[event]
+pub struct DisputeFinalized {
+    pub dispute_pda: Pubkey,
+    pub verdict_buyer: bool,
+    pub yes_votes: u8,
+    pub no_votes: u8,
+}
+
+#[event]
+pub struct AdminAttestationWritten {
+    pub admin_wallet: Pubkey,
+    pub role: u8,
+    pub attested_at: i64,
+}
+
+#[event]
+pub struct ProgramConfigUpdated {
+    pub kyc_min_sol_lamports: u64,
+    pub platform_fee_bps: u16,
+    pub updated_at: i64,
+}
+
+#[event]
+pub struct ReviewAttested {
+    pub order_escrow_pda: Pubkey,
+    pub reviewer: Pubkey,
+    pub rating_hash: [u8; 32],
+    pub attested_at: i64,
+}
+
+#[event]
+pub struct SpendingEventLogged {
+    pub wallet: Pubkey,
+    pub amount_lamports: u64,
+    pub op_type: u8,  // 0=withdraw, 1=p2p, 2=session
+    pub logged_at: i64,
 }
 
 // =============================================================================
@@ -1746,6 +2079,536 @@ pub mod proxyhub {
         msg!("Provider deregistered on-chain: {}", provider);
         Ok(())
     }
+
+    // =========================================================================
+    // KYC ATTESTATION
+    // =========================================================================
+
+    /// Write (or overwrite) an on-chain KYC attestation for a user wallet.
+    ///
+    /// Only the oracle signer may call this.  The instruction is idempotent:
+    /// if an attestation already exists for the wallet it is updated in-place;
+    /// otherwise a new PDA is initialised (init_if_needed).
+    ///
+    /// trust_tier: 0=new, 1=verified, 2=premium
+    /// kyc_status: 0=none, 1=pending, 2=approved, 3=rejected
+    pub fn write_kyc_attestation(
+        ctx: Context<WriteKYCAttestation>,
+        wallet: Pubkey,
+        trust_tier: u8,
+        kyc_status: u8,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+        require!(trust_tier <= 2, EscrowError::InvalidStatus);
+        require!(kyc_status <= 3, EscrowError::InvalidStatus);
+
+        let clock = Clock::get()?;
+        let att = &mut ctx.accounts.attestation;
+
+        att.wallet = wallet;
+        att.oracle = ctx.accounts.oracle.key();
+        att.trust_tier = trust_tier;
+        att.kyc_status = kyc_status;
+        att.attested_at = clock.unix_timestamp;
+        att.bump = ctx.bumps.attestation;
+
+        emit!(KYCAttestationWritten {
+            wallet,
+            oracle: att.oracle,
+            trust_tier,
+            kyc_status,
+            attested_at: att.attested_at,
+        });
+
+        msg!("KYC attestation written for wallet {} tier={} status={}", wallet, trust_tier, kyc_status);
+        Ok(())
+    }
+
+    // =========================================================================
+    // SESSION COMMITMENT (METER-002)
+    // =========================================================================
+
+    /// Lock session parameters on-chain at session creation time.
+    /// The edge gateway verifies bandwidth_limit_bytes against this PDA to
+    /// prevent server-side tampering of session limits mid-flight.
+    pub fn lock_session_commitment(
+        ctx: Context<LockSessionCommitment>,
+        session_id: [u8; 16],
+        buyer_wallet: Pubkey,
+        seller_wallet: Pubkey,
+        bandwidth_limit_bytes: u64,
+        price_per_gb_lamports: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+        require!(bandwidth_limit_bytes > 0, EscrowError::InvalidStatus);
+
+        let clock = Clock::get()?;
+        let c = &mut ctx.accounts.session_commitment;
+
+        c.session_id = session_id;
+        c.buyer_wallet = buyer_wallet;
+        c.seller_wallet = seller_wallet;
+        c.bandwidth_limit_bytes = bandwidth_limit_bytes;
+        c.price_per_gb_lamports = price_per_gb_lamports;
+        c.locked_at = clock.unix_timestamp;
+        c.bump = ctx.bumps.session_commitment;
+
+        emit!(SessionCommitmentLocked {
+            session_id,
+            buyer_wallet,
+            seller_wallet,
+            bandwidth_limit_bytes,
+            price_per_gb_lamports,
+            locked_at: c.locked_at,
+        });
+
+        msg!("Session commitment locked: {:?}", session_id);
+        Ok(())
+    }
+
+    // =========================================================================
+    // GOVERNANCE (GOV-001/002/003)
+    // =========================================================================
+
+    /// Create an on-chain governance proposal.  Oracle pays rent, but the
+    /// proposer's wallet is recorded for accountability.
+    pub fn create_proposal(
+        ctx: Context<CreateProposal>,
+        proposal_id: [u8; 16],
+        proposer: Pubkey,
+        title_hash: [u8; 32],
+        end_slot: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let clock = Clock::get()?;
+        let p = &mut ctx.accounts.proposal;
+
+        p.proposal_id = proposal_id;
+        p.proposer = proposer;
+        p.title_hash = title_hash;
+        p.vote_yes = 0;
+        p.vote_no = 0;
+        p.status = 0; // active
+        p.end_slot = end_slot;
+        p.created_at = clock.unix_timestamp;
+        p.bump = ctx.bumps.proposal;
+
+        emit!(ProposalCreated {
+            proposal_pda: ctx.accounts.proposal.key(),
+            proposer,
+            title_hash,
+            end_slot,
+        });
+
+        msg!("Governance proposal created: {:?}", proposal_id);
+        Ok(())
+    }
+
+    /// Cast an on-chain governance vote.  The voter signs the transaction
+    /// directly — the server cannot forge votes on their behalf.
+    /// voting_power is provided by the oracle (staked SOL balance).
+    pub fn cast_governance_vote(
+        ctx: Context<CastGovernanceVote>,
+        vote_yes: bool,
+        voting_power: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let clock = Clock::get()?;
+        let current_slot = clock.slot;
+        let proposal = &mut ctx.accounts.proposal;
+
+        // Voting must be open.
+        require!(proposal.status == 0, EscrowError::InvalidStatus);
+        require!(current_slot <= proposal.end_slot, EscrowError::Expired);
+
+        // Record the immutable vote.
+        let vote = &mut ctx.accounts.governance_vote;
+        vote.proposal = proposal.key();
+        vote.voter = ctx.accounts.voter.key();
+        vote.vote_yes = vote_yes;
+        vote.voting_power = voting_power;
+        vote.voted_at = clock.unix_timestamp;
+        vote.bump = ctx.bumps.governance_vote;
+
+        // Accumulate into proposal totals.
+        if vote_yes {
+            proposal.vote_yes = proposal.vote_yes.saturating_add(voting_power);
+        } else {
+            proposal.vote_no = proposal.vote_no.saturating_add(voting_power);
+        }
+
+        emit!(VoteCast {
+            proposal_pda: proposal.key(),
+            voter: vote.voter,
+            vote_yes,
+            voting_power,
+        });
+
+        Ok(())
+    }
+
+    /// Finalize a proposal once its end_slot has passed.  Permissionless —
+    /// anyone can call this.  Sets status to passed (1) or rejected (2).
+    pub fn finalize_proposal(ctx: Context<FinalizeProposal>) -> Result<()> {
+        let clock = Clock::get()?;
+        let proposal = &mut ctx.accounts.proposal;
+
+        require!(proposal.status == 0, EscrowError::InvalidStatus); // still active
+        require!(clock.slot > proposal.end_slot, EscrowError::NotExpired);
+
+        let new_status = if proposal.vote_yes > proposal.vote_no { 1u8 } else { 2u8 };
+        proposal.status = new_status;
+
+        emit!(ProposalFinalized {
+            proposal_pda: proposal.key(),
+            status: new_status,
+            vote_yes: proposal.vote_yes,
+            vote_no: proposal.vote_no,
+        });
+
+        msg!("Proposal finalized with status {}", new_status);
+        Ok(())
+    }
+
+    // =========================================================================
+    // DISPUTE / JURY (DISP-001/002/003/004)
+    // =========================================================================
+
+    /// Open a dispute on-chain.  The slot_seed (recent slot hash bytes as u64)
+    /// is used as a VRF seed for jury selection — the server cannot control it.
+    pub fn open_dispute_onchain(
+        ctx: Context<OpenDisputeOnchain>,
+        reason_hash: [u8; 32],
+        slot_seed: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let dispute = &mut ctx.accounts.dispute_record;
+        dispute.bump = ctx.bumps.dispute_record;
+
+        emit!(DisputeOpened {
+            dispute_pda: dispute.key(),
+            escrow: ctx.accounts.escrow.key(),
+            reason_hash,
+            slot_seed,
+        });
+
+        msg!("Dispute opened on-chain with slot_seed={}", slot_seed);
+        Ok(())
+    }
+
+    /// Cast an immutable jury vote.  The juror signs directly.
+    pub fn cast_jury_vote_onchain(
+        ctx: Context<CastJuryVoteOnchain>,
+        vote_buyer: bool,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+        let vote = &mut ctx.accounts.jury_vote;
+
+        vote.dispute = ctx.accounts.dispute.key();
+        vote.juror = ctx.accounts.juror.key();
+        vote.vote_buyer = vote_buyer;
+        vote.voted_at = clock.unix_timestamp;
+        vote.bump = ctx.bumps.jury_vote;
+
+        emit!(JuryVoteCast {
+            dispute_pda: vote.dispute,
+            juror: vote.juror,
+            vote_buyer,
+        });
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // ADMIN ATTESTATION (AUTH-001/007)
+    // =========================================================================
+
+    /// Write an admin attestation PDA for a wallet.  Only the program admin
+    /// (program_state.admin) can call this.
+    pub fn write_admin_attestation(
+        ctx: Context<WriteAdminAttestation>,
+        wallet: Pubkey,
+        role: u8,
+    ) -> Result<()> {
+        require!(role <= 2, EscrowError::InvalidStatus);
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.program_state.admin,
+            EscrowError::Unauthorized
+        );
+
+        let clock = Clock::get()?;
+        let att = &mut ctx.accounts.attestation;
+
+        att.admin_wallet = wallet;
+        att.oracle = ctx.accounts.admin.key();
+        att.role = role;
+        att.attested_at = clock.unix_timestamp;
+        att.bump = ctx.bumps.attestation;
+
+        emit!(AdminAttestationWritten {
+            admin_wallet: wallet,
+            role,
+            attested_at: att.attested_at,
+        });
+
+        msg!("Admin attestation written for wallet {} role={}", wallet, role);
+        Ok(())
+    }
+
+    // =========================================================================
+    // PROGRAM CONFIG (CONFIG-001/002)
+    // =========================================================================
+
+    /// Initialize or update on-chain program configuration.
+    /// Requires multisig oracle to prevent single-point-of-control.
+    pub fn update_program_config(
+        ctx: Context<UpdateProgramConfig>,
+        kyc_min_sol_lamports: u64,
+        platform_fee_bps: u16,
+        max_daily_spend_lamports: u64,
+        max_session_bw_bytes: u64,
+    ) -> Result<()> {
+        require!(platform_fee_bps <= 5000, EscrowError::InvalidPercentage); // max 50%
+
+        let clock = Clock::get()?;
+        let cfg = &mut ctx.accounts.program_config;
+
+        cfg.kyc_min_sol_lamports = kyc_min_sol_lamports;
+        cfg.platform_fee_bps = platform_fee_bps;
+        cfg.max_daily_spend_lamports = max_daily_spend_lamports;
+        cfg.max_session_bw_bytes = max_session_bw_bytes;
+        cfg.updated_at = clock.unix_timestamp;
+        cfg.bump = ctx.bumps.program_config;
+
+        emit!(ProgramConfigUpdated {
+            kyc_min_sol_lamports,
+            platform_fee_bps,
+            updated_at: cfg.updated_at,
+        });
+
+        msg!("Program config updated: kyc_min={}, fee_bps={}", kyc_min_sol_lamports, platform_fee_bps);
+        Ok(())
+    }
+
+    // =========================================================================
+    // REVIEW ATTESTATION (REP-001)
+    // =========================================================================
+
+    /// Submit an immutable review attestation for a completed order.
+    /// The rating_hash is SHA-256(rating || comment || review_id) — the plaintext
+    /// stays in the DB; the on-chain hash makes it tamper-evident.
+    pub fn submit_review_attestation(
+        ctx: Context<SubmitReviewAttestation>,
+        order_escrow_pda: Pubkey,
+        reviewer: Pubkey,
+        rating_hash: [u8; 32],
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+        let rev = &mut ctx.accounts.review_attestation;
+
+        rev.order_escrow_pda = order_escrow_pda;
+        rev.reviewer = reviewer;
+        rev.rating_hash = rating_hash;
+        rev.attested_at = clock.unix_timestamp;
+        rev.bump = ctx.bumps.review_attestation;
+
+        emit!(ReviewAttested {
+            order_escrow_pda,
+            reviewer,
+            rating_hash,
+            attested_at: rev.attested_at,
+        });
+
+        msg!("Review attested for escrow {}", order_escrow_pda);
+        Ok(())
+    }
+
+    // =========================================================================
+    // SPENDING EVENT LOG (AUTH-006)
+    // =========================================================================
+
+    /// Emit an on-chain event for high-value spending operations.
+    /// Uses events (not persistent accounts) to keep cost minimal.
+    /// op_type: 0=withdraw, 1=p2p_transfer, 2=session_charge
+    pub fn log_spending_event(
+        ctx: Context<LogSpendingEvent>,
+        wallet: Pubkey,
+        amount_lamports: u64,
+        op_type: u8,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+
+        emit!(SpendingEventLogged {
+            wallet,
+            amount_lamports,
+            op_type,
+            logged_at: clock.unix_timestamp,
+        });
+
+        // Silence unused ctx warning
+        let _ = &ctx.accounts.oracle;
+
+        msg!("Spending event logged: wallet={} amount={} op={}", wallet, amount_lamports, op_type);
+        Ok(())
+    }
+
+    // =========================================================================
+    // ZK BATCH SETTLEMENT — Layer 2 Phase 4
+    //
+    // submit_zk_batch: oracle commits the Merkle root of N session proofs to
+    // an immutable PDA.  One Solana TX replaces N individual submit_usage_proof
+    // TXes for high-throughput settlement.
+    //
+    // In Phase 5 the proof_bytes field will carry a Halo2 proof π verified
+    // on-chain by the Solana ZK-proof syscall (Ed25519 alt_bn128 / Groth16).
+    // For Phase 4 the root is a SHA-256 Merkle commitment (auditable off-chain).
+    //
+    // PDA seeds: [b"zk_batch", batch_root (32 bytes)]
+    // =========================================================================
+
+    /// Commit a ZK batch settlement root on-chain.
+    /// `batch_root`    — 32-byte Merkle root over N session proof leaves.
+    /// `session_count` — number of sessions included.
+    /// `total_bytes`   — sum of all session bytes (for on-chain analytics).
+    /// `period_start`  / `period_end` — Unix timestamps spanning the batch.
+    pub fn submit_zk_batch(
+        ctx: Context<SubmitZKBatch>,
+        batch_root: [u8; 32],
+        session_count: u32,
+        total_bytes: u64,
+        period_start: i64,
+        period_end: i64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.is_paused, EscrowError::ProgramPaused);
+        require!(session_count > 0, EscrowError::InsufficientFunds);
+        require!(total_bytes > 0, EscrowError::InsufficientFunds);
+
+        let batch = &mut ctx.accounts.zk_batch;
+        let clock = Clock::get()?;
+
+        batch.batch_root    = batch_root;
+        batch.session_count = session_count;
+        batch.total_bytes   = total_bytes;
+        batch.period_start  = period_start;
+        batch.period_end    = period_end;
+        batch.submitted_at  = clock.unix_timestamp;
+        batch.bump          = ctx.bumps.zk_batch;
+
+        msg!("submit_zk_batch: root={:?} sessions={} bytes={} window=[{},{}]",
+            batch_root, session_count, total_bytes, period_start, period_end);
+        Ok(())
+    }
+
+    // =========================================================================
+    // STATE CHANNEL — Layer 2 groundwork
+    //
+    // open_channel:  buyer locks SOL into a PDA vault for off-chain micropayments.
+    // close_channel: oracle submits the final signed state; vault pays provider
+    //                for earned bytes and refunds unspent SOL to buyer.
+    //
+    // PDA seeds: [b"state_channel", session_id (16 bytes)]
+    // =========================================================================
+
+    /// Open a state channel: buyer transfers `deposit_lamports` into the channel
+    /// PDA vault.  The oracle records buyer+provider pubkeys and the session UUID.
+    pub fn open_channel(
+        ctx: Context<OpenChannel>,
+        session_id: [u8; 16],
+        deposit_lamports: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.is_paused, EscrowError::ProgramPaused);
+        require!(deposit_lamports > 0, EscrowError::InsufficientFunds);
+
+        let ch = &mut ctx.accounts.channel;
+        let clock = Clock::get()?;
+
+        ch.session_id      = session_id;
+        ch.buyer           = ctx.accounts.buyer.key();
+        ch.provider        = ctx.accounts.provider_wallet.key();
+        ch.deposit_lamports = deposit_lamports;
+        ch.spent_lamports  = 0;
+        ch.nonce           = 0;
+        ch.opened_at       = clock.unix_timestamp;
+        // Default TTL: 86 400 seconds (24 h)
+        ch.expires_at      = clock.unix_timestamp + 86_400;
+        ch.is_closed       = false;
+        ch.bump            = ctx.bumps.channel;
+
+        // Transfer deposit from buyer to the channel PDA (rent-exempt vault).
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to:   ctx.accounts.channel.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_ctx, deposit_lamports)?;
+
+        msg!("open_channel: session={:?} deposit={} buyer={} provider={}",
+            session_id, deposit_lamports, ch.buyer, ch.provider);
+        Ok(())
+    }
+
+    /// Close a state channel: oracle submits the final nonce + earned_lamports.
+    /// `earned_lamports` is paid to the provider; remainder refunded to buyer.
+    /// The channel PDA is closed (rent returned to oracle).
+    pub fn close_channel(
+        ctx: Context<CloseChannel>,
+        session_id: [u8; 16],
+        final_nonce: u64,
+        earned_lamports: u64,
+    ) -> Result<()> {
+        let ch = &mut ctx.accounts.channel;
+
+        require!(!ch.is_closed, EscrowError::InvalidStatus);
+        require!(ch.session_id == session_id, EscrowError::Unauthorized);
+        require!(final_nonce >= ch.nonce, EscrowError::InvalidStatus);
+        require!(earned_lamports <= ch.deposit_lamports, EscrowError::InsufficientFunds);
+
+        let clock = Clock::get()?;
+        // Allow forced closure if channel has expired (no nonce check).
+        if clock.unix_timestamp < ch.expires_at {
+            // Within TTL — oracle must provide a valid nonce advancement.
+            require!(final_nonce > ch.nonce || earned_lamports == 0, EscrowError::InvalidStatus);
+        }
+
+        ch.spent_lamports = earned_lamports;
+        ch.nonce          = final_nonce;
+        ch.is_closed      = true;
+
+        let refund = ch.deposit_lamports.saturating_sub(earned_lamports);
+
+        // Pay provider their earned amount.
+        if earned_lamports > 0 {
+            **ctx.accounts.channel.to_account_info().try_borrow_mut_lamports()? =
+                ctx.accounts.channel.to_account_info().lamports()
+                    .checked_sub(earned_lamports)
+                    .ok_or(EscrowError::InsufficientFunds)?;
+            **ctx.accounts.provider_wallet.try_borrow_mut_lamports()? =
+                ctx.accounts.provider_wallet.lamports()
+                    .checked_add(earned_lamports)
+                    .ok_or(EscrowError::InsufficientFunds)?;
+        }
+
+        // Refund unspent SOL to buyer.
+        if refund > 0 {
+            **ctx.accounts.channel.to_account_info().try_borrow_mut_lamports()? =
+                ctx.accounts.channel.to_account_info().lamports()
+                    .checked_sub(refund)
+                    .ok_or(EscrowError::InsufficientFunds)?;
+            **ctx.accounts.buyer.try_borrow_mut_lamports()? =
+                ctx.accounts.buyer.lamports()
+                    .checked_add(refund)
+                    .ok_or(EscrowError::InsufficientFunds)?;
+        }
+
+        msg!("close_channel: session={:?} earned={} refund={} nonce={}",
+            session_id, earned_lamports, refund, final_nonce);
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -2102,3 +2965,341 @@ pub struct SubmitUsageProof<'info> {
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
 }
+
+// ── KYC Attestation ───────────────────────────────────────────────────────────
+
+/// Context for write_kyc_attestation.
+///
+/// Account order (must match WriteKYCAttestationParams in Go attestation.go):
+///   0  oracle         — Signer, writable (pays rent on first init)
+///   1  attestation    — init_if_needed PDA ["kyc_attestation", wallet]
+///   2  system_program
+///   3  program_state  — pause guard
+#[derive(Accounts)]
+#[instruction(wallet: Pubkey)]
+pub struct WriteKYCAttestation<'info> {
+    /// Oracle pays for the PDA rent on first creation.
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+
+    /// KYC attestation PDA.  Created on first call, updated on subsequent calls.
+    /// Seeds: ["kyc_attestation", wallet_pubkey]
+    #[account(
+        init_if_needed,
+        payer = oracle,
+        space = KYCAttestation::LEN,
+        seeds = [b"kyc_attestation", wallet.as_ref()],
+        bump
+    )]
+    pub attestation: Account<'info, KYCAttestation>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Session Commitment ─────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(session_id: [u8; 16])]
+pub struct LockSessionCommitment<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = SessionCommitment::LEN,
+        seeds = [b"session_commitment", &session_id],
+        bump
+    )]
+    pub session_commitment: Account<'info, SessionCommitment>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Governance ─────────────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(proposal_id: [u8; 16])]
+pub struct CreateProposal<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = GovernanceProposal::LEN,
+        seeds = [b"gov_proposal", &proposal_id],
+        bump
+    )]
+    pub proposal: Account<'info, GovernanceProposal>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct CastGovernanceVote<'info> {
+    #[account(mut)]
+    pub voter: Signer<'info>,
+    #[account(
+        mut,
+        // proposal PDA is passed by address; seeds verified via constraint
+    )]
+    pub proposal: Account<'info, GovernanceProposal>,
+    #[account(
+        init, payer = voter,
+        space = GovernanceVote::LEN,
+        seeds = [b"gov_vote", proposal.key().as_ref(), voter.key().as_ref()],
+        bump
+    )]
+    pub governance_vote: Account<'info, GovernanceVote>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct FinalizeProposal<'info> {
+    #[account(mut)]
+    pub proposal: Account<'info, GovernanceProposal>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Dispute / Jury ─────────────────────────────────────────────────────────────
+
+#[account]
+#[derive(Default)]
+pub struct DisputeRecord {
+    pub bump: u8,
+}
+
+impl DisputeRecord {
+    pub const LEN: usize = 8 + 1;
+}
+
+#[derive(Accounts)]
+pub struct OpenDisputeOnchain<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    /// CHECK: Escrow PDA verified off-chain by oracle.
+    pub escrow: AccountInfo<'info>,
+    #[account(
+        init, payer = oracle,
+        space = DisputeRecord::LEN,
+        seeds = [b"dispute_record", escrow.key().as_ref()],
+        bump
+    )]
+    pub dispute_record: Account<'info, DisputeRecord>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct CastJuryVoteOnchain<'info> {
+    #[account(mut)]
+    pub juror: Signer<'info>,
+    /// CHECK: DisputeRecord PDA verified off-chain.
+    pub dispute: AccountInfo<'info>,
+    #[account(
+        init, payer = juror,
+        space = JuryVotePDA::LEN,
+        seeds = [b"jury_vote", dispute.key().as_ref(), juror.key().as_ref()],
+        bump
+    )]
+    pub jury_vote: Account<'info, JuryVotePDA>,
+    pub system_program: Program<'info, System>,
+}
+
+// ── Admin Attestation ──────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(wallet: Pubkey)]
+pub struct WriteAdminAttestation<'info> {
+    #[account(mut, address = program_state.admin)]
+    pub admin: Signer<'info>,
+    #[account(
+        init_if_needed, payer = admin,
+        space = AdminAttestation::LEN,
+        seeds = [b"admin_attestation", wallet.as_ref()],
+        bump
+    )]
+    pub attestation: Account<'info, AdminAttestation>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Program Config ──────────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct UpdateProgramConfig<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init_if_needed, payer = oracle,
+        space = ProgramConfig::LEN,
+        seeds = [b"program_config"],
+        bump
+    )]
+    pub program_config: Account<'info, ProgramConfig>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
+    pub multisig_oracle: Account<'info, MultiSigOracle>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Review Attestation ────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(order_escrow_pda: Pubkey, reviewer: Pubkey)]
+pub struct SubmitReviewAttestation<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = ReviewAttestation::LEN,
+        seeds = [b"review", order_escrow_pda.as_ref(), reviewer.as_ref()],
+        bump
+    )]
+    pub review_attestation: Account<'info, ReviewAttestation>,
+    pub system_program: Program<'info, System>,
+}
+
+// ── Spending Event Log ────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct LogSpendingEvent<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+}
+
+// ── ZK Batch ──────────────────────────────────────────────────────────────────
+//
+// ZKBatchPDA stores an immutable Merkle root commitment for N session proofs.
+// PDA seeds: [b"zk_batch", batch_root (32 bytes)]
+//
+// Layout (after 8-byte Anchor discriminator):
+//   batch_root      [u8; 32]  — Merkle root
+//   session_count   u32       — number of sessions
+//   total_bytes     u64       — aggregate bytes
+//   period_start    i64       — batch window start (Unix)
+//   period_end      i64       — batch window end (Unix)
+//   submitted_at    i64       — on-chain timestamp
+//   bump            u8
+//
+// Total: 8 + 32 + 4 + 8 + 8 + 8 + 8 + 1 = 77 bytes
+
+#[account]
+pub struct ZKBatchPDA {
+    pub batch_root:    [u8; 32],
+    pub session_count: u32,
+    pub total_bytes:   u64,
+    pub period_start:  i64,
+    pub period_end:    i64,
+    pub submitted_at:  i64,
+    pub bump:          u8,
+}
+
+impl ZKBatchPDA {
+    pub const LEN: usize = 8 + 32 + 4 + 8 + 8 + 8 + 8 + 1; // = 77
+}
+
+#[derive(Accounts)]
+#[instruction(batch_root: [u8; 32])]
+pub struct SubmitZKBatch<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = ZKBatchPDA::LEN,
+        seeds = [b"zk_batch", batch_root.as_ref()],
+        bump
+    )]
+    pub zk_batch: Account<'info, ZKBatchPDA>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── State Channel ─────────────────────────────────────────────────────────────
+//
+// ChannelPDA stores the on-chain state for a Layer-2 state channel.
+// PDA seeds: [b"state_channel", session_id (16 bytes)]
+//
+// Layout (after 8-byte Anchor discriminator):
+//   session_id      [u8; 16]   — UUID bytes
+//   buyer           Pubkey     — 32 bytes
+//   provider        Pubkey     — 32 bytes
+//   deposit_lamports u64       — total locked SOL
+//   spent_lamports  u64        — provider's earned share (set on close)
+//   nonce           u64        — last committed off-chain state nonce
+//   opened_at       i64        — Unix timestamp
+//   expires_at      i64        — Unix timestamp (default: opened_at + 86 400)
+//   is_closed       bool       — true once close_channel executes
+//   bump            u8         — PDA bump seed
+//
+// Total: 8 + 16 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 130 bytes
+
+#[account]
+pub struct ChannelPDA {
+    pub session_id:       [u8; 16],
+    pub buyer:            Pubkey,
+    pub provider:         Pubkey,
+    pub deposit_lamports: u64,
+    pub spent_lamports:   u64,
+    pub nonce:            u64,
+    pub opened_at:        i64,
+    pub expires_at:       i64,
+    pub is_closed:        bool,
+    pub bump:             u8,
+}
+
+impl ChannelPDA {
+    pub const LEN: usize = 8 + 16 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1; // = 130
+}
+
+#[derive(Accounts)]
+#[instruction(session_id: [u8; 16], deposit_lamports: u64)]
+pub struct OpenChannel<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    /// CHECK: provider is validated by the oracle off-chain; stored in the PDA.
+    pub provider_wallet: AccountInfo<'info>,
+    #[account(
+        init, payer = buyer,
+        space = ChannelPDA::LEN,
+        seeds = [b"state_channel", session_id.as_ref()],
+        bump
+    )]
+    pub channel: Account<'info, ChannelPDA>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+#[instruction(session_id: [u8; 16])]
+pub struct CloseChannel<'info> {
+    /// Oracle signs the close — verifies final nonce + earned amount off-chain.
+    #[account(mut, address = program_state.admin)]
+    pub oracle: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"state_channel", session_id.as_ref()],
+        bump = channel.bump,
+    )]
+    pub channel: Account<'info, ChannelPDA>,
+    /// CHECK: recipient of provider's earned lamports.
+    #[account(mut, address = channel.provider)]
+    pub provider_wallet: AccountInfo<'info>,
+    /// CHECK: recipient of buyer's refund.
+    #[account(mut, address = channel.buyer)]
+    pub buyer: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+

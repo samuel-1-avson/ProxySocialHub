@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-contrib/secure"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/api"
 	"github.com/proxyhubb/control-api/internal/billing"
@@ -21,17 +21,17 @@ import (
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
-	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/middleware"
+	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
-	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/treasury"
 	"github.com/proxyhubb/control-api/internal/worker"
 )
@@ -131,15 +131,11 @@ func main() {
 		log.Println("Credential encryption check passed — all active sessions encrypted")
 	}
 
-	// Initialize Supabase social DB in background — AutoMigrate against a remote
-	// Supabase instance runs 25+ DDL round-trips (~200–400 ms each), which would
-	// block server startup for 10–30 s. Running it asynchronously lets the HTTP
-	// server start immediately; Social() falls back to local DB until SocialDB is set.
-	go func() {
-		if err := db.InitSocial(os.Getenv("SUPABASE_DATABASE_URL")); err != nil {
-			log.Printf("Warning: Supabase social DB init failed: %v", err)
-		}
-	}()
+	// Social tables use the same local PostgreSQL instance as the main DB.
+	// InitSocial is a no-op when the DSN is empty (Supabase removed).
+	if err := db.InitSocial(""); err != nil {
+		log.Printf("Warning: social DB init failed: %v", err)
+	}
 
 	// Initialize Redis
 	if err := redisClient.Init(); err != nil {
@@ -385,7 +381,6 @@ func main() {
 	r.Use(middleware.CircuitBreakerMiddleware("database", middleware.DefaultCircuitBreakerConfigs["database"]))
 	r.Use(middleware.CircuitBreakerMiddleware("redis", middleware.DefaultCircuitBreakerConfigs["redis"]))
 	r.Use(middleware.CircuitBreakerMiddleware("solana", middleware.DefaultCircuitBreakerConfigs["solana"]))
-	r.Use(middleware.CircuitBreakerMiddleware("supabase", middleware.DefaultCircuitBreakerConfigs["supabase"]))
 
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
@@ -406,15 +401,15 @@ func main() {
 		api.RegisterUsageReviewRoutes(v1)   // Usage-based reviews
 		api.RegisterCirclePoolRoutes(v1)    // Circle bandwidth pooling
 		api.RegisterFeedRoutes(v1)          // Mix of public/private (Discover)
-		api.RegisterProfileRoutes(v1) // Public profiles
+		api.RegisterProfileRoutes(v1)       // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterKYCRoutes(v1)
 		api.RegisterReputationRoutes(v1) // Phase 9.2 Trust Layer
-		api.RegisterExplorerRoutes(v1)      // System Explorer (Public blockchain explorer)
-		api.RegisterExplorerWSRoutes(v1)    // Explorer WebSocket for real-time updates
-		api.RegisterSDKRoutes(v1)           // P1-A5: SDK Examples API
-		api.RegisterGatewayRoutes(v1)       // Gateway node registration and heartbeat
+		api.RegisterExplorerRoutes(v1)   // System Explorer (Public blockchain explorer)
+		api.RegisterExplorerWSRoutes(v1) // Explorer WebSocket for real-time updates
+		api.RegisterSDKRoutes(v1)        // P1-A5: SDK Examples API
+		api.RegisterGatewayRoutes(v1)    // Gateway node registration and heartbeat
 	}
 
 	// Public Routes (No Authentication Required)
@@ -428,8 +423,8 @@ func main() {
 		api.RegisterProviderTokenRoutes(protected)
 		api.RegisterProviderEarningsRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
-		api.RegisterCLIDistributionRoutes(v1)  // Public CLI downloads
-		api.RegisterGatewayTokenRoute(v1)       // Public: exchange provider token → gateway JWT
+		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
+		api.RegisterGatewayTokenRoute(v1)     // Public: exchange provider token → gateway JWT
 		api.RegisterSessionRoutes(protected)
 		api.RegisterWalletRoutes(protected)
 		api.RegisterOrderRoutes(protected)
@@ -638,7 +633,7 @@ func main() {
 		singleTransferFunc := func(ctx context.Context, recipient string, amountSOL float64) error {
 			// Get treasury manager for monitoring
 			tm := treasury.NewTreasuryManager()
-			
+
 			// Record outgoing transfer for velocity monitoring
 			if err := tm.RecordOutgoingTransfer(ctx, amountSOL); err != nil {
 				logging.Warn().Err(err).Msg("Failed to record outflow, continuing with transfer")
@@ -658,7 +653,7 @@ func main() {
 						Float64("amount_sol", amountSOL).
 						Str("recipient", recipient).
 						Msg("Using multi-sig for large payout")
-					
+
 					// For multi-sig, we need to collect signatures from other oracles
 					// This is a simplified version - in production, this would coordinate
 					// with other oracle instances to collect threshold signatures
@@ -767,6 +762,10 @@ func main() {
 	worker.OnNodeOffline = api.NotifyNodeUpdate
 	worker.StartHeartbeatMonitor()
 	log.Println("Heartbeat Monitor started")
+
+	// Start settlement telemetry alert monitor (Phase 0 hardening).
+	go monitoring.StartSettlementTelemetryAlerts(context.Background())
+	log.Println("Settlement telemetry alert monitor started")
 
 	// Start GeoIP backfill — resolves lat/lon for explorer nodes that have an IP
 	// but no coordinates yet (runs as a low-rate background worker)

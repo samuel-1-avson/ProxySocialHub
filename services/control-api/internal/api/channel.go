@@ -106,6 +106,66 @@ func (h *ChannelHandler) UpdateState(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+type CloseChannelRequest struct {
+	ChannelID   string `json:"channel_id" binding:"required"`
+	Nonce       uint64 `json:"nonce" binding:"required"`
+	TotalAmount uint64 `json:"total_amount" binding:"required"`
+	TotalBytes  uint64 `json:"total_bytes" binding:"required"`
+	Signature   string `json:"signature" binding:"required"` // Ed25519 buyer signature over final state
+}
+
+// CloseChannel settles the channel: provider is paid for earned bytes,
+// buyer receives the unspent refund.  Only the buyer or the provider may trigger this.
+func (h *ChannelHandler) CloseChannel(c *gin.Context) {
+	var req CloseChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	channelID, err := uuid.Parse(req.ChannelID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
+		return
+	}
+
+	callerID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Authorization: only buyer or provider of this channel may close it.
+	var channel models.StateChannel
+	if err := db.DB.First(&channel, "id = ?", channelID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return
+	}
+	if callerID != channel.BuyerID && callerID != channel.ProviderID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only the buyer or provider may close this channel"})
+		return
+	}
+
+	finalState := models.ChannelState{
+		Nonce:       req.Nonce,
+		TotalAmount: req.TotalAmount,
+		TotalBytes:  req.TotalBytes,
+		Signature:   req.Signature,
+	}
+
+	if err := h.service.CloseChannel(channelID, finalState); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "Channel closed. On-chain settlement dispatched.",
+		"channel_id":   channelID,
+		"earned_bytes": req.TotalBytes,
+		"earned_sol":   req.TotalAmount,
+	})
+}
+
 // RegisterChannelRoutes registers the channel endpoints
 func RegisterChannelRoutes(r *gin.RouterGroup) {
 	h := NewChannelHandler()
@@ -113,5 +173,6 @@ func RegisterChannelRoutes(r *gin.RouterGroup) {
 	{
 		channels.POST("/open", h.OpenChannel)
 		channels.POST("/update", h.UpdateState)
+		channels.POST("/close", h.CloseChannel)
 	}
 }
