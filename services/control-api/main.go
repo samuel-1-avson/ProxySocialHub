@@ -781,7 +781,7 @@ func main() {
 
 	// Start GeoIP backfill — resolves lat/lon for explorer nodes that have an IP
 	// but no coordinates yet (runs as a low-rate background worker)
-	geoip.StartBackfillWorker()
+	worker.StartGeoIPWorker()
 	log.Println("GeoIP backfill worker started")
 
 	port := os.Getenv("PORT")

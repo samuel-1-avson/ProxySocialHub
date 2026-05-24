@@ -76,7 +76,7 @@ func (c *OracleClient) SubmitZKBatch(ctx context.Context, params ZKBatchParams) 
 	binary.LittleEndian.PutUint64(data[60:68], uint64(params.PeriodEnd))
 
 	accounts := []*sol.AccountMeta{
-		{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+		{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 		{PublicKey: batchPDA, IsSigner: false, IsWritable: true},
 		{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 		{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},
