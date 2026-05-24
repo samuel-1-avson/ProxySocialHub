@@ -12,6 +12,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $gateRelativeDir = Join-Path $ArtifactDir "release-gate-$timestamp"
 $gateRoot = Join-Path $repoRoot $gateRelativeDir
+$isWindowsHost = $env:OS -eq "Windows_NT"
 
 New-Item -ItemType Directory -Force -Path $gateRoot | Out-Null
 
@@ -180,20 +181,59 @@ Invoke-GateSlice "anchor" {
     New-Item -ItemType Directory -Force -Path $sliceRoot | Out-Null
 
     $logPath = Join-Path $sliceRoot "anchor.log"
-    $sliceEntry.command = "anchor test"
+    $anchorWorkspace = Join-Path $repoRoot "services/solana-programs/proxyhub"
+    $defaultAnchorWallet = Join-Path $HOME ".config/solana/id.json"
+    $repoAnchorWallet = Join-Path $repoRoot "infra/oracle-keypair.json"
+    $anchorSmokeCommand = "node .\node_modules\ts-mocha\bin\ts-mocha -p .\tsconfig.json -t 1000000 .\tests\session.ts"
+    $sliceEntry.command = if ($isWindowsHost) { $anchorSmokeCommand } else { "anchor test" }
     $sliceEntry.log = Get-RepoRelativePath $logPath
+
+    $previousAnchorProviderUrl = if (Test-Path Env:ANCHOR_PROVIDER_URL) { $env:ANCHOR_PROVIDER_URL } else { $null }
+    $previousAnchorWallet = if (Test-Path Env:ANCHOR_WALLET) { $env:ANCHOR_WALLET } else { $null }
 
     Write-Host "Running RC-09 Anchor validation slice..."
 
-    Push-Location (Join-Path $repoRoot "services/solana-programs/proxyhub")
     try {
-        & anchor test 2>&1 | Tee-Object -FilePath $logPath | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Anchor validation failed."
+        if (-not (Test-Path Env:ANCHOR_PROVIDER_URL)) {
+            Set-Item -Path Env:ANCHOR_PROVIDER_URL -Value "https://api.devnet.solana.com"
+        }
+
+        $resolvedAnchorWallet = if ((Test-Path Env:ANCHOR_WALLET) -and (Test-Path $env:ANCHOR_WALLET)) {
+            $env:ANCHOR_WALLET
+        }
+        elseif (Test-Path $defaultAnchorWallet) {
+            $defaultAnchorWallet
+        }
+        elseif (Test-Path $repoAnchorWallet) {
+            $repoAnchorWallet
+        }
+        else {
+            throw "No Anchor wallet found. Set ANCHOR_WALLET or provide infra/oracle-keypair.json."
+        }
+
+        Set-Item -Path Env:ANCHOR_WALLET -Value $resolvedAnchorWallet
+
+        Push-Location $anchorWorkspace
+        try {
+            if ($isWindowsHost) {
+                & node .\node_modules\ts-mocha\bin\ts-mocha -p .\tsconfig.json -t 1000000 .\tests\session.ts 2>&1 |
+                    Tee-Object -FilePath $logPath | Out-Null
+            }
+            else {
+                & anchor test 2>&1 | Tee-Object -FilePath $logPath | Out-Null
+            }
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "Anchor validation failed."
+            }
+        }
+        finally {
+            Pop-Location
         }
     }
     finally {
-        Pop-Location
+        Restore-EnvVar -Name "ANCHOR_PROVIDER_URL" -PreviousValue $previousAnchorProviderUrl
+        Restore-EnvVar -Name "ANCHOR_WALLET" -PreviousValue $previousAnchorWallet
     }
 }
 

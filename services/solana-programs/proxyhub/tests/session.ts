@@ -32,16 +32,35 @@ describe("session", () => {
     );
   }
 
-  async function airdrop(pubkey: PublicKey, sol: number = 10) {
-    const sig = await provider.connection.requestAirdrop(pubkey, sol * LAMPORTS_PER_SOL);
-    await provider.connection.confirmTransaction(sig, "confirmed");
+  async function fundAccount(pubkey: PublicKey, sol: number = 2) {
+    const lamports = sol * LAMPORTS_PER_SOL;
+
+    try {
+      const sig = await provider.connection.requestAirdrop(pubkey, lamports);
+      await provider.connection.confirmTransaction(sig, "confirmed");
+      return;
+    } catch (err) {
+      if (!(err instanceof Error) || !err.message.includes("429")) {
+        throw err;
+      }
+    }
+
+    const tx = new anchor.web3.Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: provider.wallet.publicKey,
+        toPubkey: pubkey,
+        lamports,
+      })
+    );
+
+    await provider.sendAndConfirm(tx, []);
   }
 
   before(async () => {
     await Promise.all([
-      airdrop(buyer.publicKey),
-      airdrop(providerNode.publicKey),
-      airdrop(gatewayOperator.publicKey),
+      fundAccount(buyer.publicKey),
+      fundAccount(providerNode.publicKey),
+      fundAccount(gatewayOperator.publicKey),
     ]);
   });
 

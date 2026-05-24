@@ -314,19 +314,14 @@ func (m *MultiSigOracleClient) SettleEscrowMultiSig(
 	tx, err := sol.NewTransaction(
 		[]sol.Instruction{instruction},
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(m.oracleKey.PublicKey()),
+		sol.TransactionPayer(m.GetOraclePublicKey()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to build transaction: %w", err)
 	}
 
 	// Sign with oracle key
-	_, err = tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(m.oracleKey.PublicKey()) {
-			return &m.oracleKey
-		}
-		return nil
-	})
+	err = m.SignTransaction(ctx, tx)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign transaction: %w", err)
 	}
@@ -380,7 +375,7 @@ func (m *MultiSigOracleClient) buildMultiSigSettleInstruction(
 	return &GenericInstruction{
 		programID: m.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: m.oracleKey.PublicKey(), IsSigner: true, IsWritable: false},
+			{PublicKey: m.GetOraclePublicKey(), IsSigner: true, IsWritable: false},
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},
