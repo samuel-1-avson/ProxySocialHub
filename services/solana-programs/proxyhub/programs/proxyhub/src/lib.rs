@@ -2664,7 +2664,8 @@ pub mod proxyhub {
                 &ctx.accounts.instructions,
             ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
 
-            if preceding_ix.program_id != anchor_lang::solana_program::ed25519_program::ID {
+            let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
+            if preceding_ix.program_id != ed25519_program_id {
                 return err!(EscrowError::MissingSignatureVerification);
             }
 
@@ -2863,7 +2864,7 @@ pub mod proxyhub {
         payload.extend_from_slice(old_signer.as_ref());
         payload.extend_from_slice(new_signer.as_ref());
 
-        let hash_result = anchor_lang::solana_program::hash::hash(&payload).to_bytes();
+        let hash_result = solana_program::hash::hash(&payload).to_bytes();
         require!(hash_result == proposal.title_hash, EscrowError::InvalidProposalPayload);
 
         let multisig_oracle = &mut ctx.accounts.multisig_oracle;

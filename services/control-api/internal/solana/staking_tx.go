@@ -74,7 +74,7 @@ func (c *OracleClient) StakeProvider(ctx context.Context, params StakeProviderPa
 	ix := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 			{PublicKey: stakePDA, IsSigner: false, IsWritable: true},
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 			{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},
@@ -124,7 +124,7 @@ func (c *OracleClient) UnstakeProvider(ctx context.Context, params UnstakeProvid
 	ix := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 			{PublicKey: stakePDA, IsSigner: false, IsWritable: true},
 			{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},
 		},
