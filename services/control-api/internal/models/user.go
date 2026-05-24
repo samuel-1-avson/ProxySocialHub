@@ -135,9 +135,10 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
-// IsActive returns true (Legacy check, assume always active or check ban list)
+// IsActive returns true only when the user's status is active or pending.
+// Banned and suspended users are rejected by auth middleware.
 func (u *User) IsActive() bool {
-	return true // TODO: Check Supabase ban status if possible
+	return u.Status != UserStatusBanned && u.Status != UserStatusSuspended
 }
 
 // TierConfig holds the rate limits for each trust tier

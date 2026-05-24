@@ -1,12 +1,16 @@
 package monitoring
 
 import (
+	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // Metrics holds all application metrics
@@ -172,26 +176,43 @@ func (m *Metrics) GetSnapshot() MetricsSnapshot {
 		snapshot.TotalRequests += count
 	}
 
+	// Settlement telemetry aggregates
+	settlementTelemetry := solana.GetSettlementTelemetrySnapshot()
+	snapshot.SettlementSources = len(settlementTelemetry)
+	for _, item := range settlementTelemetry {
+		snapshot.SettlementAttempts += item.Attempts
+		snapshot.SettlementSuccesses += item.Successes
+		snapshot.SettlementFailures += item.Failures
+		if item.Source == "missing_source" {
+			snapshot.SettlementMissingSourceAttempts += item.Attempts
+		}
+	}
+
 	return snapshot
 }
 
 // MetricsSnapshot is a point-in-time view of metrics
 type MetricsSnapshot struct {
-	Uptime            float64          `json:"uptime_seconds"`
-	TotalRequests     int64            `json:"total_requests"`
-	LoginAttempts     int64            `json:"login_attempts"`
-	LoginSuccesses    int64            `json:"login_successes"`
-	LoginFailures     int64            `json:"login_failures"`
-	MFAVerifications  int64            `json:"mfa_verifications"`
-	SessionsCreated   int64            `json:"sessions_created"`
-	SessionsRevoked   int64            `json:"sessions_revoked"`
-	RateLimitHits     int64            `json:"rate_limit_hits"`
-	LockoutEvents     int64            `json:"lockout_events"`
-	AnomaliesDetected int64            `json:"anomalies_detected"`
-	AnomaliesResolved int64            `json:"anomalies_resolved"`
-	AuditEventsLogged int64            `json:"audit_events_logged"`
-	RequestsByStatus  map[int]int64    `json:"requests_by_status"`
-	RequestsByMethod  map[string]int64 `json:"requests_by_method"`
+	Uptime                          float64          `json:"uptime_seconds"`
+	TotalRequests                   int64            `json:"total_requests"`
+	LoginAttempts                   int64            `json:"login_attempts"`
+	LoginSuccesses                  int64            `json:"login_successes"`
+	LoginFailures                   int64            `json:"login_failures"`
+	MFAVerifications                int64            `json:"mfa_verifications"`
+	SessionsCreated                 int64            `json:"sessions_created"`
+	SessionsRevoked                 int64            `json:"sessions_revoked"`
+	RateLimitHits                   int64            `json:"rate_limit_hits"`
+	LockoutEvents                   int64            `json:"lockout_events"`
+	AnomaliesDetected               int64            `json:"anomalies_detected"`
+	AnomaliesResolved               int64            `json:"anomalies_resolved"`
+	AuditEventsLogged               int64            `json:"audit_events_logged"`
+	SettlementSources               int              `json:"settlement_sources"`
+	SettlementAttempts              uint64           `json:"settlement_attempts"`
+	SettlementSuccesses             uint64           `json:"settlement_successes"`
+	SettlementFailures              uint64           `json:"settlement_failures"`
+	SettlementMissingSourceAttempts uint64           `json:"settlement_missing_source_attempts"`
+	RequestsByStatus                map[int]int64    `json:"requests_by_status"`
+	RequestsByMethod                map[string]int64 `json:"requests_by_method"`
 }
 
 // PrometheusMetrics returns Prometheus-formatted metrics
@@ -247,7 +268,59 @@ func (m *Metrics) PrometheusFormat() string {
 		output += "proxyhubb_http_requests_by_status{code=\"" + strconv.Itoa(status) + "\"} " + strconv.FormatInt(count, 10) + "\n"
 	}
 
+	output += "\n# HELP proxyhubb_settlement_sources Number of settlement sources observed\n"
+	output += "# TYPE proxyhubb_settlement_sources gauge\n"
+	output += "proxyhubb_settlement_sources " + strconv.Itoa(snapshot.SettlementSources) + "\n\n"
+
+	output += "# HELP proxyhubb_settlement_attempts_all_total Total settlement attempts across all sources\n"
+	output += "# TYPE proxyhubb_settlement_attempts_all_total counter\n"
+	output += "proxyhubb_settlement_attempts_all_total " + strconv.FormatUint(snapshot.SettlementAttempts, 10) + "\n\n"
+
+	output += "# HELP proxyhubb_settlement_successes_all_total Total settlement successes across all sources\n"
+	output += "# TYPE proxyhubb_settlement_successes_all_total counter\n"
+	output += "proxyhubb_settlement_successes_all_total " + strconv.FormatUint(snapshot.SettlementSuccesses, 10) + "\n\n"
+
+	output += "# HELP proxyhubb_settlement_failures_all_total Total settlement failures across all sources\n"
+	output += "# TYPE proxyhubb_settlement_failures_all_total counter\n"
+	output += "proxyhubb_settlement_failures_all_total " + strconv.FormatUint(snapshot.SettlementFailures, 10) + "\n\n"
+
+	output += "# HELP proxyhubb_settlement_missing_source_attempts_total Total settlement attempts blocked for missing source labels\n"
+	output += "# TYPE proxyhubb_settlement_missing_source_attempts_total counter\n"
+	output += "proxyhubb_settlement_missing_source_attempts_total " + strconv.FormatUint(snapshot.SettlementMissingSourceAttempts, 10) + "\n\n"
+
+	output += "# HELP proxyhubb_settlement_attempts_total Settlement attempts by source\n"
+	output += "# TYPE proxyhubb_settlement_attempts_total counter\n"
+	output += "# HELP proxyhubb_settlement_successes_total Settlement successes by source\n"
+	output += "# TYPE proxyhubb_settlement_successes_total counter\n"
+	output += "# HELP proxyhubb_settlement_failures_total Settlement failures by source\n"
+	output += "# TYPE proxyhubb_settlement_failures_total counter\n"
+	output += "# HELP proxyhubb_settlement_last_seen_unix_seconds Last observed settlement activity timestamp by source\n"
+	output += "# TYPE proxyhubb_settlement_last_seen_unix_seconds gauge\n"
+
+	settlementTelemetry := solana.GetSettlementTelemetrySnapshot()
+	sort.Slice(settlementTelemetry, func(i, j int) bool {
+		return settlementTelemetry[i].Source < settlementTelemetry[j].Source
+	})
+	for _, item := range settlementTelemetry {
+		source := escapePromLabelValue(item.Source)
+		output += fmt.Sprintf("proxyhubb_settlement_attempts_total{source=\"%s\"} %d\n", source, item.Attempts)
+		output += fmt.Sprintf("proxyhubb_settlement_successes_total{source=\"%s\"} %d\n", source, item.Successes)
+		output += fmt.Sprintf("proxyhubb_settlement_failures_total{source=\"%s\"} %d\n", source, item.Failures)
+		if !item.LastSeenAt.IsZero() {
+			output += fmt.Sprintf("proxyhubb_settlement_last_seen_unix_seconds{source=\"%s\"} %d\n", source, item.LastSeenAt.Unix())
+		}
+	}
+
 	return output
+}
+
+func escapePromLabelValue(v string) string {
+	replacer := strings.NewReplacer(
+		"\\", "\\\\",
+		"\n", "\\n",
+		"\"", "\\\"",
+	)
+	return replacer.Replace(v)
 }
 
 // MetricsMiddleware records request metrics

@@ -123,12 +123,12 @@ func linkWallet(c *gin.Context) {
 		}
 
 		user.WalletAddress = &req.WalletAddress
-		
+
 		logging.Info().
 			Str("user_id", userID).
 			Str("wallet", req.WalletAddress).
 			Msg("Solana wallet linked with Ed25519 verification")
-			
+
 	} else if req.Chain == "ethereum" {
 		// Ethereum linking with ECDSA verification
 		if req.Signature == "" || req.Message == "" {
@@ -161,12 +161,12 @@ func linkWallet(c *gin.Context) {
 		}
 
 		user.WalletAddress = &req.WalletAddress
-		
+
 		logging.Info().
 			Str("user_id", userID).
 			Str("wallet", req.WalletAddress).
 			Msg("Ethereum wallet linked with ECDSA verification")
-			
+
 	} else {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
@@ -453,7 +453,7 @@ func settleBatchEscrows(c *gin.Context) {
 
 	// Execute batch settlement
 	ctx := context.Background()
-	txHash, err := multisig.BatchSettleEscrows(ctx, params)
+	txHash, err := multisig.BatchSettleEscrows(ctx, "api.crypto.batch_settle", params)
 	if err != nil {
 		logging.Error(err).Msg("Batch settlement failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Settlement failed: " + err.Error()})
@@ -531,8 +531,8 @@ func getTreasuryAddress(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"treasury_address": address,
-		"chain":           "solana",
-		"network":         "devnet",
+		"chain":            "solana",
+		"network":          "devnet",
 	})
 }
 
@@ -558,10 +558,20 @@ func getMultiSigStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threshold":       multisig.GetThreshold(),
-		"total_signers":   len(signers),
-		"signers":         signerStrs,
-		"is_authority":    multisig.IsAuthorizedSigner(),
+		"threshold":     multisig.GetThreshold(),
+		"total_signers": len(signers),
+		"signers":       signerStrs,
+		"is_authority":  multisig.IsAuthorizedSigner(),
+	})
+}
+
+// getSettlementTelemetry returns in-memory settlement path telemetry.
+func getSettlementTelemetry(c *gin.Context) {
+	telemetry := solana.GetSettlementTelemetrySnapshot()
+	c.JSON(http.StatusOK, gin.H{
+		"settlement_paths": telemetry,
+		"count":            len(telemetry),
+		"captured_at":      time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -574,5 +584,6 @@ func RegisterCryptoRoutes(r *gin.RouterGroup) {
 		crypto.POST("/emergency-pause", emergencyPause)
 		crypto.GET("/treasury", getTreasuryAddress)
 		crypto.GET("/multisig-status", getMultiSigStatus)
+		crypto.GET("/settlement-telemetry", getSettlementTelemetry)
 	}
 }

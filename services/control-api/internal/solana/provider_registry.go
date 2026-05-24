@@ -9,9 +9,11 @@ package solana
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	sol "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 )
 
 // provider registry instruction discriminators
@@ -177,6 +179,84 @@ func (c *OracleClient) DeregisterProviderOnChain(ctx context.Context, provider s
 	}
 
 	return c.sendInstruction(ctx, instruction)
+}
+
+// ProviderRegistryData holds the on-chain state of a registered provider.
+type ProviderRegistryData struct {
+	Provider             [32]byte
+	QualityScore         uint8
+	TotalBandwidthServed uint64 // cumulative bytes served
+	SuccessfulSessions   uint32
+	FailedSessions       uint32
+	IsActive             bool
+	RegisteredAt         int64
+	LastHeartbeat        int64
+}
+
+// ReadProviderRegistry fetches and parses the on-chain ProviderRegistry PDA for the
+// given provider wallet.
+//
+// Layout (after 8-byte Anchor discriminator):
+//   provider(32) endpoint(4+128) location(4+32) stake_account(32)
+//   quality_score(1) total_bw(8) successful(4) failed(4) is_active(1)
+//   registered_at(8) last_heartbeat(8) bump(1)
+func (c *OracleClient) ReadProviderRegistry(ctx context.Context, provider sol.PublicKey) (*ProviderRegistryData, error) {
+	pda, _, err := c.GetProviderRegistryPDA(provider)
+	if err != nil {
+		return nil, fmt.Errorf("GetProviderRegistryPDA: %w", err)
+	}
+
+	var accountInfo *rpc.GetAccountInfoResult
+	if err := c.withFailover(ctx, func(client *rpc.Client) error {
+		var e error
+		accountInfo, e = client.GetAccountInfo(ctx, pda)
+		return e
+	}); err != nil {
+		return nil, fmt.Errorf("GetAccountInfo: %w", err)
+	}
+	if accountInfo == nil || accountInfo.Value == nil {
+		return nil, fmt.Errorf("provider registry not found for %s", provider.String())
+	}
+
+	raw := accountInfo.Value.Data.GetBinary()
+	// Minimum length check:
+	// disc(8) + provider(32) + endpoint_len(4)+endpoint(128) + loc_len(4)+loc(32)
+	// + stake(32) + quality(1) + bw(8) + succ(4) + fail(4) + active(1) + reg(8) + hb(8) + bump(1)
+	const minLen = 8 + 32 + 132 + 36 + 32 + 1 + 8 + 4 + 4 + 1 + 8 + 8 + 1
+	if len(raw) < minLen {
+		return nil, fmt.Errorf("provider registry data too short: %d bytes", len(raw))
+	}
+
+	off := 8 // skip discriminator
+	var d ProviderRegistryData
+	copy(d.Provider[:], raw[off:off+32])
+	off += 32
+
+	// endpoint (4-byte length prefix + up to 128 bytes)
+	epLen := int(binary.LittleEndian.Uint32(raw[off : off+4]))
+	off += 4 + epLen
+
+	// location (4-byte length prefix + up to 32 bytes)
+	locLen := int(binary.LittleEndian.Uint32(raw[off : off+4]))
+	off += 4 + locLen
+
+	off += 32 // stake_account
+
+	d.QualityScore = raw[off]
+	off++
+	d.TotalBandwidthServed = binary.LittleEndian.Uint64(raw[off : off+8])
+	off += 8
+	d.SuccessfulSessions = binary.LittleEndian.Uint32(raw[off : off+4])
+	off += 4
+	d.FailedSessions = binary.LittleEndian.Uint32(raw[off : off+4])
+	off += 4
+	d.IsActive = raw[off] != 0
+	off++
+	d.RegisteredAt = int64(binary.LittleEndian.Uint64(raw[off : off+8]))
+	off += 8
+	d.LastHeartbeat = int64(binary.LittleEndian.Uint64(raw[off : off+8]))
+
+	return &d, nil
 }
 
 // putU32LE writes a uint32 into buf in little-endian order.

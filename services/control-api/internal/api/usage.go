@@ -312,7 +312,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		bandwidthUsedGB = 1 // round up to 1 GB minimum so partial usage still credits provider
 	}
 
-	settleSig, err := oracle.SettleEscrow(ctx, solanaClient.SettleEscrowParams{
+	settleSig, err := oracle.SettleEscrow(ctx, "api.usage.anchor_and_settle", solanaClient.SettleEscrowParams{
 		Buyer:           mustPubkey(order.BuyerWallet),
 		Seller:          mustPubkey(order.SellerWallet),
 		EscrowPDA:       escrowPDA,
@@ -326,18 +326,59 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		return
 	}
 
-	// 6. Mark order completed in DB.
+	// 6. Mark order completed in DB (tx_hash = settlement signature).
 	db.DB.Model(&models.Order{}).Where("id = ?", order.ID).Updates(map[string]interface{}{
-		"status":          "completed",
-		"settlement_tx":   settleSig,
-		"completed_at":    terminatedAt,
+		"status":  "completed",
+		"tx_hash": settleSig,
 	})
+
+	// 7. Mark provider earning as paid — on-chain escrow settlement is the
+	// authoritative payout. Update any pending row created by recordProviderEarning;
+	// if none exists yet (race), create one directly as paid.
+	now := terminatedAt
+	updated := db.DB.Model(&models.ProviderEarning{}).
+		Where("session_id = ? AND status = 'pending'", session.ID).
+		Updates(map[string]interface{}{
+			"status":  "paid",
+			"tx_hash": settleSig,
+			"paid_at": now,
+		})
+	if updated.RowsAffected == 0 {
+		// recordProviderEarning hasn't fired yet (or session had no node).
+		// Try to insert a fully-formed paid earning from order pricing.
+		if session.NodeID != nil {
+			var node models.ProviderNode
+			if err := db.DB.First(&node, "id = ? AND deleted_at IS NULL", session.NodeID).Error; err == nil {
+				const platformFee = 0.10
+				bandwidthGBf := float64(bandwidthUsedGB)
+				gross := bandwidthGBf * order.PricePerGB
+				fee := gross * platformFee
+				net := (gross - fee) * node.GetEarningsMultiplier()
+				earning := models.ProviderEarning{
+					ProviderUserID:     node.UserID,
+					NodeID:             node.ID,
+					SessionID:          session.ID,
+					BandwidthGB:        bandwidthGBf,
+					GrossAmountSOL:     gross,
+					PlatformFeeSOL:     fee,
+					NetAmountSOL:       net,
+					EarningsMultiplier: node.GetEarningsMultiplier(),
+					PricePerGB:         order.PricePerGB,
+					Status:             "paid",
+					TxHash:             settleSig,
+					PaidAt:             &now,
+				}
+				// Ignore duplicate — unique index on (provider_user_id, session_id) prevents double row.
+				_ = db.DB.Create(&earning)
+			}
+		}
+	}
 
 	logging.Info().
 		Str("settle_sig", settleSig).
 		Str("order_id", order.ID.String()).
 		Uint64("bandwidth_used_gb", bandwidthUsedGB).
-		Msg("anchorUsageProofAndSettle: escrow settled on-chain")
+		Msg("anchorUsageProofAndSettle: escrow settled on-chain, provider earning recorded as paid")
 }
 
 // mustPubkey converts a base58 wallet string to a PublicKey, returning a zero

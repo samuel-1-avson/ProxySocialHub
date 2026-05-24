@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"strconv"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 // RegisterAdminPayoutRoutes registers admin payout management routes.
@@ -193,6 +195,43 @@ func retryFailedPayout(c *gin.Context) {
 	if err := db.DB.Where("id = ? AND status = 'failed'", payoutID).First(&item).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Failed payout not found"})
 		return
+	}
+
+	// FIN-002: Verify the underlying escrow is settled on-chain before queuing a
+	// retry. Look up the provider's pending earnings → orders to find escrow PDAs,
+	// then call IsEscrowSettled. Block the retry if any linked escrow is unsettled.
+	if oracle := solana.GetOracleClient(); oracle != nil {
+		var earnings []models.ProviderEarning
+		db.DB.
+			Select("session_id").
+			Where("provider_user_id = ? AND status = 'pending'", item.ProviderID).
+			Limit(20).
+			Find(&earnings)
+
+		for _, earning := range earnings {
+			var order models.Order
+			if err := db.DB.Select("escrow_pda").
+				Where("session_id = ? AND escrow_pda != ''", earning.SessionID).
+				First(&order).Error; err != nil {
+				continue
+			}
+			pda, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+			if err != nil {
+				continue
+			}
+			settled, err := oracle.IsEscrowSettled(c.Request.Context(), pda)
+			if err != nil {
+				logging.Warn().Str("escrow", order.EscrowPDA).Msg("retryFailedPayout: IsEscrowSettled check failed, proceeding cautiously")
+				continue
+			}
+			if !settled {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":      "Payout blocked: linked escrow has not been settled on-chain yet",
+					"escrow_pda": order.EscrowPDA,
+				})
+				return
+			}
+		}
 	}
 
 	// Add to retry queue
