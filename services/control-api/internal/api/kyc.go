@@ -2,8 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -12,6 +19,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -31,9 +39,85 @@ type KYCWebhookPayload struct {
 	Reason string `json:"reason"`
 }
 
-// handleKYCWebhook processes notifications from external KYC providers (stub)
+// verifyKYCHmac validates the webhook HMAC signature
+func verifyKYCHmac(body []byte, signature string, secret string) bool {
+	if secret == "" || signature == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expected))
+}
+
+// isAllowedKYCIP checks if the request IP is in the allowlist
+func isAllowedKYCIP(clientIP string) bool {
+	allowlist := os.Getenv("KYC_WEBHOOK_IP_ALLOWLIST")
+	if allowlist == "" {
+		return false // Deny by default if not configured
+	}
+	allowed := strings.Split(allowlist, ",")
+	for _, ip := range allowed {
+		if strings.TrimSpace(ip) == clientIP {
+			return true
+		}
+	}
+	return false
+}
+
+// isWithinTolerance checks if the webhook timestamp is within acceptable window
+func isWithinTolerance(timestampStr string, tolerance time.Duration) bool {
+	ts, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	t := time.Unix(ts, 0)
+	return time.Since(t) <= tolerance
+}
+
+// handleKYCWebhook processes notifications from external KYC providers
+// Secured with: IP allowlist + HMAC signature + timestamp tolerance + idempotency
 func handleKYCWebhook(c *gin.Context) {
-	// P0: In production, verify webhook signature/source IP here.
+	// 1. IP allowlist check
+	if !isAllowedKYCIP(c.ClientIP()) {
+		logging.Warn().Str("ip", c.ClientIP()).Msg("KYC webhook rejected: IP not in allowlist")
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+
+	// 2. Read body for HMAC verification
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read body"})
+		return
+	}
+
+	// 3. HMAC signature verification
+	signature := c.GetHeader("X-Webhook-Signature")
+	webhookSecret := os.Getenv("KYC_WEBHOOK_SECRET")
+	if !verifyKYCHmac(body, signature, webhookSecret) {
+		logging.Warn().Str("ip", c.ClientIP()).Msg("KYC webhook rejected: invalid HMAC signature")
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+
+	// 4. Timestamp tolerance check
+	timestamp := c.GetHeader("X-Webhook-Timestamp")
+	if !isWithinTolerance(timestamp, 5*time.Minute) {
+		logging.Warn().Str("timestamp", timestamp).Msg("KYC webhook rejected: timestamp outside tolerance")
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+
+	// 5. Idempotency check
+	webhookID := c.GetHeader("X-Webhook-ID")
+	if webhookID != "" {
+		key := fmt.Sprintf("kyc:webhook:%s", webhookID)
+		if !redis.Client.SetNX(c.Request.Context(), key, "1", 24*time.Hour).Val() {
+			c.JSON(http.StatusOK, gin.H{"status": "already processed"})
+			return
+		}
+	}
 	
 	var payload KYCWebhookPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -230,10 +314,24 @@ func recheckKYC(c *gin.Context) {
 }
 
 func getKYCStatus(c *gin.Context) {
+	// Authorization: users can only query their own KYC status, or admins can query anyone
+	currentUserID, authErr := getCurrentUserID(c)
+	if authErr != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
 	userID := c.Param("user_id")
 	uid, err := uuid.Parse(userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Enforce self-access or admin role
+	role, _ := c.Get("role")
+	if currentUserID != uid && role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You can only view your own KYC status"})
 		return
 	}
 

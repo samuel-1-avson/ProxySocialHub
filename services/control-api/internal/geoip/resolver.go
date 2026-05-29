@@ -13,7 +13,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -66,7 +65,7 @@ func Resolve(ip string) (Result, bool) {
 	}
 	cacheMu.RUnlock()
 
-	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,isp,message", ip)
+	url := fmt.Sprintf("https://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,isp,message", ip)
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return Result{}, false

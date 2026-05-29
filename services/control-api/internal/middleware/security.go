@@ -149,9 +149,11 @@ func SecurityHeaders() gin.HandlerFunc {
 		}
 		
 		// Content Security Policy
+		// NOTE: If the frontend requires inline scripts/styles, implement nonce-based
+		// CSP generation tied to the SSR render cycle instead of 'unsafe-inline'.
 		csp := "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-			"style-src 'self' 'unsafe-inline'; " +
+			"script-src 'self'; " +
+			"style-src 'self'; " +
 			"img-src 'self' data: https:; " +
 			"font-src 'self'; " +
 			"connect-src 'self'; " +

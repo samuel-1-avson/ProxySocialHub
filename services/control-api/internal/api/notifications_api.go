@@ -24,8 +24,8 @@ func RegisterNotificationRoutes(rg *gin.RouterGroup) {
 }
 
 func getNotifications(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -58,8 +58,8 @@ func getNotifications(c *gin.Context) {
 }
 
 func getUnreadCount(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -71,8 +71,8 @@ func getUnreadCount(c *gin.Context) {
 }
 
 func markNotificationRead(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -96,8 +96,8 @@ func markNotificationRead(c *gin.Context) {
 }
 
 func markAllNotificationsRead(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -115,8 +115,8 @@ func markAllNotificationsRead(c *gin.Context) {
 }
 
 func deleteNotification(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -137,28 +137,8 @@ func deleteNotification(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "notification deleted"})
 }
 
-// parseNotifUserID safely extracts and parses the userID from context,
-// handling both uuid.UUID and string types set by different middleware paths.
-func parseNotifUserID(c *gin.Context) (uuid.UUID, bool) {
-	raw, exists := c.Get("userID")
-	if !exists {
-		return uuid.Nil, false
-	}
-	switch v := raw.(type) {
-	case uuid.UUID:
-		return v, true
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			return uuid.Nil, false
-		}
-		return parsed, true
-	}
-	return uuid.Nil, false
-}
-
 func getNotificationPreferences(c *gin.Context) {
-	uid, ok := parseNotifUserID(c)
+	uid, ok := GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -191,7 +171,7 @@ func getNotificationPreferences(c *gin.Context) {
 }
 
 func updateNotificationPreferences(c *gin.Context) {
-	uid, ok := parseNotifUserID(c)
+	uid, ok := GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return

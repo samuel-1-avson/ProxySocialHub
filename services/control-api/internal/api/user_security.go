@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +48,16 @@ func RegisterSecurityRoutes(r *gin.RouterGroup) {
 		// Login Attempts
 		sec.GET("/attempts", getLoginAttempts)
 	}
+
+	// Aligned 2FA endpoints for frontend compatibility
+	twoFA := r.Group("/2fa")
+	{
+		twoFA.GET("/backup-codes", getBackupCodes)
+		twoFA.POST("/setup", setupMFA)
+		twoFA.POST("/enable", verifyMFASetup)
+		twoFA.POST("/disable", disableMFA)
+		twoFA.POST("/backup-codes/regenerate", regenerateBackupCodes)
+	}
 }
 
 // ==================== MFA Endpoints ====================
@@ -80,8 +92,10 @@ func getMFAStatus(c *gin.Context) {
 // MFASetupResponse for setup endpoint
 type MFASetupResponse struct {
 	Secret      string   `json:"secret"`
-	QRCodeURL   string   `json:"qr_code_url"`
-	BackupCodes []string `json:"backup_codes"`
+	QRCodeURL   string   `json:"qr_code_url"` // Keep for compatibility
+	QRCode      string   `json:"qr_code"`     // Added for frontend (Google Chart API URL)
+	OTPAuthURL  string   `json:"otpauth_url"` // Added for frontend
+	BackupCodes []string `json:"backup_codes,omitempty"`
 }
 
 // @Summary Setup MFA
@@ -110,24 +124,16 @@ func setupMFA(c *gin.Context) {
 		return
 	}
 
-	// Generate backup codes
-	codes, hashedCodes, err := mfaService.GenerateBackupCodes(8)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate backup codes"})
-		return
-	}
-
-	// Save to settings (not yet enabled)
-	hashedJSON, _ := json.Marshal(hashedCodes)
-
 	var settings models.UserSettings
 	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
 		settings = models.UserSettings{UserID: userID}
 	}
 
 	settings.TwoFactorSecret = secret
-	settings.TwoFactorBackupCodes = string(hashedJSON)
-	// Don't enable yet - must verify first
+	// Clear backup codes count during setup (regenerate on verify confirmation)
+	settings.TwoFactorBackupCodes = ""
+	settings.TwoFactorEnabled = false
+	settings.TwoFactorVerifiedAt = nil
 
 	if settings.ID == uuid.Nil {
 		db.DB.Create(&settings)
@@ -135,13 +141,15 @@ func setupMFA(c *gin.Context) {
 		db.DB.Save(&settings)
 	}
 
-	// Generate QR code URL
+	// Generate QR code URL and Google Chart API fallback
 	qrURL := mfaService.GenerateQRCodeURL(user.Email, secret)
+	googleChartURL := fmt.Sprintf("https://chart.googleapis.com/chart?chs=200x200&chld=M|0&cht=qr&chl=%s", url.QueryEscape(qrURL))
 
 	c.JSON(http.StatusOK, MFASetupResponse{
 		Secret:      secret,
-		QRCodeURL:   qrURL,
-		BackupCodes: codes,
+		QRCodeURL:   googleChartURL,
+		QRCode:      googleChartURL,
+		OTPAuthURL:  qrURL,
 	})
 }
 
@@ -184,16 +192,88 @@ func verifyMFASetup(c *gin.Context) {
 		return
 	}
 
+	// Generate backup codes upon successful verification
+	codes, hashedCodes, err := mfaService.GenerateBackupCodes(8)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate backup codes"})
+		return
+	}
+
+	hashedJSON, _ := json.Marshal(hashedCodes)
+	settings.TwoFactorBackupCodes = string(hashedJSON)
+
 	// Enable MFA
 	now := time.Now()
 	settings.TwoFactorEnabled = true
 	settings.TwoFactorVerifiedAt = &now
-	db.DB.Save(&settings)
+	
+	if err := db.DB.Save(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable MFA settings"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "MFA enabled successfully",
-		"enabled":     true,
-		"verified_at": now,
+		"message":      "MFA enabled successfully",
+		"enabled":      true,
+		"verified_at":  now,
+		"backup_codes": codes,
+	})
+}
+
+// getBackupCodes returns the remaining backup codes count
+func getBackupCodes(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var settings models.UserSettings
+	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil || !settings.TwoFactorEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not enabled"})
+		return
+	}
+
+	var codes []string
+	if settings.TwoFactorBackupCodes != "" {
+		json.Unmarshal([]byte(settings.TwoFactorBackupCodes), &codes)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"remaining_codes": len(codes),
+	})
+}
+
+// regenerateBackupCodes regenerates fresh backup codes for the user
+func regenerateBackupCodes(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var settings models.UserSettings
+	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil || !settings.TwoFactorEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not enabled"})
+		return
+	}
+
+	codes, hashedCodes, err := mfaService.GenerateBackupCodes(8)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate backup codes"})
+		return
+	}
+
+	hashedJSON, _ := json.Marshal(hashedCodes)
+	settings.TwoFactorBackupCodes = string(hashedJSON)
+
+	if err := db.DB.Save(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save backup codes"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"backup_codes": codes,
 	})
 }
 

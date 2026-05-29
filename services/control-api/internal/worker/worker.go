@@ -16,6 +16,7 @@ func StartAll(queue events.EventQueue) {
 	StartSessionReaper()
 	StartTelemetryWorker()
 	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine
+	StartGDPRDeletionWorker()
 
 	log.Printf("[Worker] All background services initialized")
 }

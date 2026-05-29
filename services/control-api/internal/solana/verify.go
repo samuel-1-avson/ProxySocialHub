@@ -17,6 +17,11 @@ import (
 // RPC Endpoint (default to devnet, override with env)
 var rpcEndpoint = getEnvOrDefault("SOLANA_RPC_ENDPOINT", "https://api.devnet.solana.com")
 
+// SetRPCEndpoint overrides the Solana RPC endpoint (mainly for unit tests).
+func SetRPCEndpoint(url string) {
+	rpcEndpoint = url
+}
+
 func getEnvOrDefault(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
