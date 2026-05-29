@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { getMyProfile, updateProfile } from "@/lib/services/profile";
+import { getMyProfile, updateProfile, deleteAccount } from "@/lib/services/profile";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { signDeleteAccountMessage } from "@/lib/solana-message-sign";
+import { getErrorMessage } from "@/lib/utils";
 import Link from "next/link";
 import {
     User, Bell, Shield, Smartphone, Save, Globe,
@@ -16,8 +19,14 @@ import {
     getMFAStatus, setupMFA, verifyMFA, disableMFA, 
     listAPIKeys, createAPIKey, revokeAPIKey, 
     getSessions, revokeSession, revokeAllSessions,
+    getBackupCodesCount, regenerateBackupCodes,
     type APIKey, type UserSession, type MFAStatus, type MFASetup 
 } from "@/lib/services/security";
+import {
+    getNotificationPreferences,
+    updateNotificationPreferences,
+    type NotificationPreference
+} from "@/lib/notifications-api";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
@@ -28,10 +37,30 @@ import { QRCodeSVG } from 'qrcode.react';
 type Tab = "General" | "Notifications" | "Security" | "Devices";
 
 export default function SettingsPage() {
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
+    const { signMessage, publicKey, connected } = useWallet();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>("General");
+
+    // Notification State
+    const [notifPrefs, setNotifPrefs] = useState<NotificationPreference | null>(null);
+    const [notifSaving, setNotifSaving] = useState(false);
+
+    // 2FA Backup Codes & Disable States
+    const [backupCodesCount, setBackupCodesCount] = useState<number>(0);
+    const [backupCodes, setBackupCodes] = useState<string[]>([]);
+    const [showBackupCodesModal, setShowBackupCodesModal] = useState(false);
+    const [showDisableMfaModal, setShowDisableMfaModal] = useState(false);
+    const [disableMfaCode, setDisableMfaCode] = useState("");
+    const [isDisablingMfa, setIsDisablingMfa] = useState(false);
+    const [copiedCodes, setCopiedCodes] = useState(false);
+
+    // Delete Account States
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+    const [deletingAccount, setDeletingAccount] = useState(false);
+    const [deleteError, setDeleteError] = useState("");
 
     // Profile State
     const [displayName, setDisplayName] = useState("");
@@ -101,8 +130,21 @@ export default function SettingsPage() {
             const [status, keys] = await Promise.all([getMFAStatus(), listAPIKeys()]);
             setMfaStatus(status);
             setApiKeys(keys);
+            if (status.enabled) {
+                const codesStatus = await getBackupCodesCount();
+                setBackupCodesCount(codesStatus.remaining_codes);
+            }
         } catch (err) {
             console.error("Failed to load security data", err);
+        }
+    }
+
+    async function loadNotificationPrefs() {
+        try {
+            const prefs = await getNotificationPreferences();
+            setNotifPrefs(prefs);
+        } catch (err) {
+            console.error("Failed to load notification preferences", err);
         }
     }
 
@@ -121,6 +163,8 @@ export default function SettingsPage() {
             loadSecurityData();
         } else if (activeTab === "Devices") {
             loadSessionData();
+        } else if (activeTab === "Notifications") {
+            loadNotificationPrefs();
         }
     }, [activeTab]);
     // Security Handlers
@@ -158,14 +202,129 @@ export default function SettingsPage() {
         if (!mfaCode) return;
         setIsVerifyingMfa(true);
         try {
-            await verifyMFA(mfaCode);
+            const res = await verifyMFA(mfaCode);
             setMfaStatus({ enabled: true, verified_at: new Date().toISOString() });
             setMfaSetupData(null);
             setMfaCode("");
+            if (res.backup_codes && res.backup_codes.length > 0) {
+                setBackupCodes(res.backup_codes);
+                setBackupCodesCount(res.backup_codes.length);
+                setShowBackupCodesModal(true);
+            }
         } catch (err) {
             console.error("MFA Verification failed", err);
         } finally {
             setIsVerifyingMfa(false);
+        }
+    };
+
+    const handleDisableMfa = async () => {
+        if (!disableMfaCode) return;
+        setIsDisablingMfa(true);
+        try {
+            await disableMFA(disableMfaCode);
+            setMfaStatus({ enabled: false, verified_at: undefined });
+            setShowDisableMfaModal(false);
+            setDisableMfaCode("");
+            setBackupCodesCount(0);
+        } catch (err) {
+            console.error("Failed to disable MFA", err);
+        } finally {
+            setIsDisablingMfa(false);
+        }
+    };
+
+    const handleRegenerateBackupCodes = async () => {
+        try {
+            const res = await regenerateBackupCodes();
+            if (res.backup_codes && res.backup_codes.length > 0) {
+                setBackupCodes(res.backup_codes);
+                setBackupCodesCount(res.backup_codes.length);
+                setShowBackupCodesModal(true);
+            }
+        } catch (err) {
+            console.error("Failed to regenerate backup codes", err);
+        }
+    };
+
+    const handleCopyBackupCodes = () => {
+        navigator.clipboard.writeText(backupCodes.join("\n"));
+        setCopiedCodes(true);
+        setTimeout(() => setCopiedCodes(false), 2000);
+    };
+
+    const handleNotifToggle = async (
+        category: "social" | "business" | "community" | "system",
+        channel: "in_app" | "email" | "push"
+    ) => {
+        if (!notifPrefs || notifSaving) return;
+
+        const key = `${category}_${channel}` as keyof NotificationPreference;
+        const newValue = !notifPrefs[key];
+
+        const updatedPrefs = { ...notifPrefs, [key]: newValue };
+        setNotifPrefs(updatedPrefs);
+
+        try {
+            setNotifSaving(true);
+            await updateNotificationPreferences({ [key]: newValue });
+        } catch (err) {
+            console.error("Failed to save preferences", err);
+            // Revert on error
+            setNotifPrefs(notifPrefs);
+        } finally {
+            setNotifSaving(false);
+        }
+    };
+
+    const handleDigestChange = async (field: string, value: string | number) => {
+        if (!notifPrefs || notifSaving) return;
+
+        const updatedPrefs = { ...notifPrefs, [field]: value };
+        setNotifPrefs(updatedPrefs);
+
+        try {
+            setNotifSaving(true);
+            await updateNotificationPreferences({ [field]: value });
+        } catch (err) {
+            console.error("Failed to save preferences", err);
+            // Revert
+            setNotifPrefs(notifPrefs);
+        } finally {
+            setNotifSaving(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (deleteConfirmationText !== "DELETE MY ACCOUNT") return;
+        setDeletingAccount(true);
+        setDeleteError("");
+        try {
+            let nonce: string | undefined;
+            let signature: string | undefined;
+
+            if (user?.wallet_address) {
+                if (!signMessage || !connected || !publicKey) {
+                    setDeleteError("Connect the Solana wallet linked to your account to sign the deletion request.");
+                    return;
+                }
+                if (publicKey.toBase58() !== user.wallet_address) {
+                    setDeleteError("Connected wallet does not match your linked account address.");
+                    return;
+                }
+                const signed = await signDeleteAccountMessage(signMessage);
+                nonce = signed.nonce;
+                signature = signed.signature;
+            }
+
+            await deleteAccount("DELETE MY ACCOUNT", { nonce, signature });
+            setShowDeleteModal(false);
+            await logout();
+            window.location.href = "/";
+        } catch (err) {
+            setDeleteError(getErrorMessage(err) || "Failed to schedule account deletion");
+        } finally {
+            setDeletingAccount(false);
         }
     };
 
@@ -657,46 +816,145 @@ export default function SettingsPage() {
                                                     <p className="text-[10px] font-mono text-rose-500/60 uppercase">DANGEROUS: Wipes all local nodes and active credentials</p>
                                                 </div>
                                             </div>
-                                            <button className="h-12 px-8 rounded-xl border border-rose-500/30 text-[10px] font-black font-mono text-rose-500 hover:bg-rose-500 hover:text-white transition-all uppercase tracking-widest">
+                                            <button 
+                                                onClick={() => {
+                                                    setDeleteConfirmationText("");
+                                                    setShowDeleteModal(true);
+                                                }}
+                                                className="h-12 px-8 rounded-xl border border-rose-500/30 text-[10px] font-black font-mono text-rose-500 hover:bg-rose-500 hover:text-white transition-all uppercase tracking-widest"
+                                            >
                                                 Self-Destruct
                                             </button>
                                         </div>
                                     </GlassCard>
                                 </>
                             )}
-
                             {activeTab === "Notifications" && (
-                                <GlassCard className="p-0 border-white/10 overflow-hidden">
-                                     <div className="px-8 py-6 border-b border-white/5 bg-white/2 flex items-center gap-3">
-                                        <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500">
-                                            <Bell size={20} />
-                                        </div>
-                                        <h2 className="font-black font-sans italic uppercase text-sm tracking-tight">Transmission Filters</h2>
-                                    </div>
-                                    <div className="p-8 space-y-4">
-                                        {[
-                                            { id: "email_security", title: "Security Protocols", desc: "Critical alerts for auth & node breaches.", icon: Lock, color: 'text-rose-400' },
-                                            { id: "email_marketing", title: "Protocol Updates", desc: "New feature logs & network status.", icon: Zap, color: 'text-amber-400' },
-                                            { id: "push_nodes", title: "Runtime Diagnostics", desc: "Node health & shared bandwidth reports.", icon: Monitor, color: 'text-blue-400' },
-                                        ].map((opt) => (
-                                            <div key={opt.id} className="group flex items-center justify-between p-6 bg-black/40 border border-white/5 rounded-2xl hover:border-emerald-500/30 transition-all hover:bg-black/60 shadow-inner">
-                                                <div className="flex items-center gap-5">
-                                                    <div className={cn("p-2.5 rounded-xl bg-white/5 group-hover:bg-white/10 transition-colors", opt.color)}>
-                                                        <opt.icon size={20} />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <p className="font-black font-mono text-xs uppercase tracking-wider">{opt.title}</p>
-                                                        <p className="text-[10px] font-mono text-muted-foreground uppercase opacity-40">{opt.desc}</p>
-                                                    </div>
-                                                </div>
-                                                <label className="relative inline-flex items-center cursor-pointer group/toggle">
-                                                    <input type="checkbox" className="sr-only peer" defaultChecked={opt.id === "email_security"} />
-                                                    <div className="w-14 h-7 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-emerald-500 after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500 shadow-xl border border-white/5"></div>
-                                                </label>
+                                <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+                                    <GlassCard className="p-0 border-white/10 overflow-hidden">
+                                         <div className="px-8 py-6 border-b border-white/5 bg-white/2 flex items-center gap-3">
+                                            <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500">
+                                                <Bell size={20} />
                                             </div>
-                                        ))}
-                                    </div>
-                                </GlassCard>
+                                            <h2 className="font-black font-sans italic uppercase text-sm tracking-tight">Transmission Filters</h2>
+                                        </div>
+                                        <div className="p-8 space-y-6">
+                                            {notifPrefs ? (
+                                                ([
+                                                    { id: "social", label: "Social Notifications", desc: "Follows, messages, mentions, and friend requests.", icon: User, color: 'text-blue-400' },
+                                                    { id: "business", label: "Business Activity", desc: "Orders, payments, and listing activity.", icon: Briefcase, color: 'text-amber-400' },
+                                                    { id: "community", label: "Community Interactions", desc: "Replies, upvotes, badges, and forum activity.", icon: Globe, color: 'text-purple-400' },
+                                                    { id: "system", label: "Security & System Alerts", desc: "Security alerts, maintenance, and account updates.", icon: Lock, color: 'text-rose-400' },
+                                                ] as const).map((category) => (
+                                                    <div key={category.id} className="p-6 bg-black/40 border border-white/5 rounded-2xl space-y-4">
+                                                        <div className="flex items-start gap-4">
+                                                            <div className={cn("p-2.5 rounded-xl bg-white/5", category.color)}>
+                                                                <category.icon size={20} />
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-black font-mono text-xs uppercase tracking-wider">{category.label}</p>
+                                                                <p className="text-[10px] font-mono text-muted-foreground uppercase opacity-60 mt-1">{category.desc}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                                                            {[
+                                                                { id: "in_app", label: "In-App", icon: Monitor },
+                                                                { id: "email", label: "Email", icon: Mail },
+                                                                { id: "push", label: "Push", icon: Smartphone },
+                                                            ].map((channel) => {
+                                                                const prefKey = `${category.id}_${channel.id}` as keyof NotificationPreference;
+                                                                const isEnabled = notifPrefs[prefKey] as boolean;
+                                                                return (
+                                                                    <div key={channel.id} className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <channel.icon size={14} className={isEnabled ? "text-emerald-400" : "text-muted-foreground"} />
+                                                                            <span className="text-[10px] font-mono uppercase tracking-wider font-bold">{channel.label}</span>
+                                                                        </div>
+                                                                        <label className="relative inline-flex items-center cursor-pointer group/toggle">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                className="sr-only peer"
+                                                                                checked={isEnabled}
+                                                                                onChange={() => handleNotifToggle(category.id, channel.id as any)}
+                                                                            />
+                                                                            <div className="w-10 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-[20px] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 shadow-xl border border-white/5"></div>
+                                                                        </label>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="flex justify-center py-10">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </GlassCard>
+
+                                    {notifPrefs && (
+                                        <GlassCard className="p-0 border-white/10 overflow-hidden">
+                                            <div className="px-8 py-6 border-b border-white/5 bg-white/2 flex items-center gap-3">
+                                                <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400">
+                                                    <Mail size={20} />
+                                                </div>
+                                                <h2 className="font-black font-sans italic uppercase text-sm tracking-tight">Email Digest Frequency</h2>
+                                            </div>
+                                            <div className="p-8 space-y-6">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                    <div className="space-y-3">
+                                                        <label className="text-[10px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground/60">Frequency Option</label>
+                                                        <select
+                                                            value={notifPrefs.email_digest_frequency}
+                                                            onChange={(e) => handleDigestChange("email_digest_frequency", e.target.value)}
+                                                            className="w-full h-14 bg-black/40 border border-white/10 rounded-2xl px-5 text-sm font-mono focus:border-emerald-500/50 outline-none text-white appearance-none cursor-pointer"
+                                                        >
+                                                            <option value="immediate">Immediate Delivery</option>
+                                                            <option value="hourly">Hourly Summary</option>
+                                                            <option value="daily">Daily Digest Summary</option>
+                                                        </select>
+                                                    </div>
+
+                                                    {notifPrefs.email_digest_frequency === "daily" && (
+                                                        <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
+                                                            <div className="space-y-3">
+                                                                <label className="text-[10px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground/60">Digest Day</label>
+                                                                <select
+                                                                    value={notifPrefs.digest_day}
+                                                                    onChange={(e) => handleDigestChange("digest_day", e.target.value)}
+                                                                    className="w-full h-14 bg-black/40 border border-white/10 rounded-2xl px-5 text-sm font-mono focus:border-emerald-500/50 outline-none text-white"
+                                                                >
+                                                                    <option value="monday">Monday</option>
+                                                                    <option value="tuesday">Tuesday</option>
+                                                                    <option value="wednesday">Wednesday</option>
+                                                                    <option value="thursday">Thursday</option>
+                                                                    <option value="friday">Friday</option>
+                                                                    <option value="saturday">Saturday</option>
+                                                                    <option value="sunday">Sunday</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                <label className="text-[10px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground/60">Digest Hour</label>
+                                                                <select
+                                                                    value={notifPrefs.digest_hour}
+                                                                    onChange={(e) => handleDigestChange("digest_hour", parseInt(e.target.value))}
+                                                                    className="w-full h-14 bg-black/40 border border-white/10 rounded-2xl px-5 text-sm font-mono focus:border-emerald-500/50 outline-none text-white"
+                                                                >
+                                                                    {Array.from({ length: 24 }, (_, i) => (
+                                                                        <option key={i} value={i}>
+                                                                            {i.toString().padStart(2, "0")}:00 UTC
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </GlassCard>
+                                    )}
+                                </div>
                             )}
 
                             {activeTab === "Security" && (
@@ -834,6 +1092,34 @@ export default function SettingsPage() {
                                             )}
                                         </div>
 
+                                        {mfaStatus?.enabled && (
+                                            <div className="mt-8 pt-8 border-t border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10 animate-in fade-in duration-300">
+                                                <div>
+                                                    <p className="font-black font-mono text-xs uppercase tracking-wider text-white">Shield Active & Secure</p>
+                                                    <p className="text-[10px] font-mono text-muted-foreground uppercase opacity-60 mt-1">
+                                                        Backup codes remaining: <span className="text-emerald-400 font-black font-mono">{backupCodesCount}</span>
+                                                    </p>
+                                                </div>
+                                                <div className="flex gap-4 w-full md:w-auto">
+                                                    <Button
+                                                        onClick={handleRegenerateBackupCodes}
+                                                        className="flex-1 md:flex-none h-12 px-6 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                                                    >
+                                                        Regenerate codes
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() => {
+                                                            setDisableMfaCode("");
+                                                            setShowDisableMfaModal(true);
+                                                        }}
+                                                        className="flex-1 md:flex-none h-12 px-6 rounded-xl bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-400 font-black font-mono text-[10px] uppercase tracking-widest"
+                                                    >
+                                                        Disable 2FA
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* MFA Setup Flow */}
                                         {mfaSetupData && (
                                             <motion.div 
@@ -925,6 +1211,163 @@ export default function SettingsPage() {
                     </AnimatePresence>
                 </div>
             </div>
+
+            {/* 2FA Backup Codes Modal */}
+            {showBackupCodesModal && backupCodes.length > 0 && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div className="bg-neutral-950 w-full max-w-md border border-white/10 p-8 rounded-3xl space-y-6 shadow-2xl">
+                        <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                            <h3 className="text-lg font-black font-mono uppercase tracking-tight text-white flex items-center gap-2">
+                                <Key className="text-emerald-400" size={20} /> Backup Codes
+                            </h3>
+                            <button 
+                                onClick={() => { setShowBackupCodesModal(false); setBackupCodes([]); }}
+                                className="text-muted-foreground hover:text-white transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex gap-3 text-amber-500 text-[10px] font-mono uppercase font-black">
+                            <AlertTriangle size={16} className="shrink-0" />
+                            <span>Save these recovery codes immediately. They are single-use only.</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            {backupCodes.map((code, index) => (
+                                <div key={index} className="p-3 bg-black/60 border border-white/5 rounded-xl font-mono text-sm text-center text-emerald-400 tracking-wider">
+                                    {code}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-4 pt-2">
+                            <Button
+                                onClick={handleCopyBackupCodes}
+                                className="flex-1 h-12 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                            >
+                                {copiedCodes ? "COPIED" : "COPY CODES"}
+                            </Button>
+                            <Button
+                                onClick={() => { setShowBackupCodesModal(false); setBackupCodes([]); }}
+                                className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                            >
+                                ACKNOWLEDGED
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Disable MFA Modal */}
+            {showDisableMfaModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div className="bg-neutral-950 w-full max-w-md border border-rose-500/20 p-8 rounded-3xl space-y-6 shadow-2xl">
+                        <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                            <h3 className="text-lg font-black font-mono uppercase tracking-tight text-rose-500 flex items-center gap-2">
+                                <AlertTriangle size={20} /> Deactivate Shield
+                            </h3>
+                            <button 
+                                onClick={() => setShowDisableMfaModal(false)}
+                                className="text-muted-foreground hover:text-white transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <label className="block text-[10px] font-black font-mono uppercase tracking-wider text-muted-foreground">Enter 2FA Code to Confirm</label>
+                            <Input
+                                value={disableMfaCode}
+                                onChange={(e) => setDisableMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                placeholder="000 000"
+                                className="h-14 bg-black/60 border-rose-500/30 rounded-xl text-center font-mono text-xl tracking-[0.5em] focus:ring-rose-500/20 focus:border-rose-500/50"
+                                maxLength={6}
+                            />
+                        </div>
+
+                        <div className="flex gap-4 pt-2">
+                            <Button
+                                onClick={() => setShowDisableMfaModal(false)}
+                                className="flex-1 h-12 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleDisableMfa}
+                                disabled={disableMfaCode.length !== 6 || isDisablingMfa}
+                                className="flex-1 h-12 bg-rose-600 hover:bg-rose-500 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                            >
+                                {isDisablingMfa ? "DEACTIVATING..." : "CONFIRM DISABLE"}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Account Deletion (Self-Destruct) Modal */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div className="bg-neutral-950 w-full max-w-md border border-rose-500/30 p-8 rounded-3xl space-y-6 shadow-2xl">
+                        <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                            <h3 className="text-lg font-black font-mono uppercase tracking-tight text-rose-500 flex items-center gap-2">
+                                <AlertTriangle size={20} /> Terminal Termination
+                            </h3>
+                            <button 
+                                onClick={() => setShowDeleteModal(false)}
+                                className="text-muted-foreground hover:text-white transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex gap-3 text-rose-500 text-[10px] font-mono uppercase font-black">
+                            <AlertTriangle size={16} className="shrink-0" />
+                            <span>This action deletes all active node configurations, wallet credentials, and schedules profile deletion.</span>
+                        </div>
+
+                        {user?.wallet_address && (
+                            <p className="text-[10px] font-mono text-muted-foreground uppercase">
+                                A wallet signature is required. Connect Phantom (or your linked wallet) before confirming.
+                            </p>
+                        )}
+
+                        {deleteError && (
+                            <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-[10px] font-mono rounded-xl">
+                                {deleteError}
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            <label className="block text-[10px] font-black font-mono uppercase tracking-wider text-muted-foreground leading-relaxed">
+                                Type <span className="text-rose-500 font-bold font-mono">DELETE MY ACCOUNT</span> below to confirm.
+                            </label>
+                            <Input
+                                value={deleteConfirmationText}
+                                onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                                placeholder="DELETE MY ACCOUNT"
+                                className="h-14 bg-black/60 border-rose-500/30 rounded-xl font-mono text-xs text-rose-500 focus:ring-rose-500/20 focus:border-rose-500/50"
+                            />
+                        </div>
+
+                        <div className="flex gap-4 pt-2">
+                            <Button
+                                onClick={() => setShowDeleteModal(false)}
+                                className="flex-1 h-12 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-black font-mono text-[10px] uppercase tracking-widest"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleDeleteAccount}
+                                disabled={deleteConfirmationText !== "DELETE MY ACCOUNT" || deletingAccount}
+                                className="flex-1 h-12 bg-rose-600 hover:bg-rose-500 text-white font-black font-mono text-[10px] uppercase tracking-widest shadow-[0_5px_20px_rgba(239,68,68,0.2)]"
+                            >
+                                {deletingAccount ? "TERMINATING..." : "CONFIRM TERMINATE"}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

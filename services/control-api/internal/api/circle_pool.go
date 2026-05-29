@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,8 +15,10 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
+	"gorm.io/gorm"
 )
 
 // RegisterCirclePoolRoutes registers circle bandwidth pooling routes
@@ -655,33 +659,65 @@ func claimRevenue(c *gin.Context) {
 		return
 	}
 
-	var totalAmount float64
-	for _, r := range revenues {
-		r.Claimed = true
-		r.ClaimedAt = &[]time.Time{time.Now()}[0]
-		db.Social().Save(&r)
-		totalAmount += r.Amount
+	// Extract revenue IDs for atomic operations
+	revenueIDs := make([]uuid.UUID, len(revenues))
+	for i, r := range revenues {
+		revenueIDs[i] = r.ID
 	}
 
-	// Credit provider's internal wallet with the claimed revenue amount.
+	// Atomic revenue claim with idempotency and compensating rollback
+	idempotencyKey := fmt.Sprintf("revenue_claim:%s:%s", userID, hashRevenueIDs(revenueIDs))
+	if !redis.Client.SetNX(c.Request.Context(), idempotencyKey, "processing", 10*time.Minute).Val() {
+		c.JSON(http.StatusConflict, gin.H{"error": "Revenue claim already in progress or completed"})
+		return
+	}
+	defer redis.Client.Del(c.Request.Context(), idempotencyKey)
+
+	// Atomic update: mark revenues claimed ONLY if all are unclaimed
+	result := db.Social().Exec(`
+		UPDATE circle_revenues 
+		SET claimed = true, claimed_at = NOW()
+		WHERE id IN ? AND claimed = false AND provider_id = ?
+	`, revenueIDs, userID)
+	
+	if result.RowsAffected != int64(len(revenues)) {
+		c.JSON(http.StatusConflict, gin.H{"error": "Some revenues were already claimed or do not belong to you"})
+		return
+	}
+	
+	var totalAmount float64
+	db.Social().Model(&models.CircleRevenue{}).Where("id IN ?", revenueIDs).Select("SUM(amount)").Scan(&totalAmount)
+	
 	if totalAmount > 0 {
-		var wallet models.Wallet
-		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
-			wallet.BalanceSOL += totalAmount
-			if saveErr := db.DB.Save(&wallet).Error; saveErr == nil {
-				ledger := models.WalletLedgerEntry{
-					WalletID:    wallet.ID,
-					Amount:      totalAmount,
-					BalanceAfter: wallet.BalanceSOL,
-					Type:        models.TransactionEarning,
-					Description: fmt.Sprintf("Circle pool revenue claim (%d records)", len(revenues)),
-				}
-				db.DB.Create(&ledger)
-			} else {
-				log.Printf("[claimRevenue] Failed to save wallet for user %s: %v", userID, saveErr)
+		err := db.DB.Transaction(func(tx *gorm.DB) error {
+			var wallet models.Wallet
+			if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+				return fmt.Errorf("wallet not found: %w", err)
 			}
-		} else {
-			log.Printf("[claimRevenue] Failed to find wallet for user %s: %v", userID, err)
+			
+			wallet.BalanceSOL += totalAmount
+			if err := tx.Save(&wallet).Error; err != nil {
+				return fmt.Errorf("failed to update wallet: %w", err)
+			}
+			
+			if err := tx.Create(&models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       totalAmount,
+				BalanceAfter: wallet.BalanceSOL,
+				Type:         models.TransactionEarning,
+				Description:  fmt.Sprintf("Circle pool revenue claim (%d records)", len(revenues)),
+			}).Error; err != nil {
+				return fmt.Errorf("failed to create ledger: %w", err)
+			}
+			return nil
+		})
+		
+		if err != nil {
+			// Compensating: unmark revenues as claimed
+			db.Social().Exec(`UPDATE circle_revenues SET claimed = false WHERE id IN ?`, revenueIDs)
+			logging.Error(err).Str("user_id", userID.String()).Msg("Revenue claim failed, rolled back")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet, claim rolled back"})
+			return
 		}
 	}
 
@@ -693,6 +729,14 @@ func claimRevenue(c *gin.Context) {
 }
 
 // Helper functions
+
+func hashRevenueIDs(ids []uuid.UUID) string {
+	h := sha256.New()
+	for _, id := range ids {
+		h.Write(id[:])
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 func selectProviderFromPool(circleID uuid.UUID) *uuid.UUID {
 	// Get available providers from circle

@@ -3,7 +3,7 @@
  * All wallet-related API calls and types
  */
 
-import { apiGet, apiPost, apiDeleteWithBody } from './client';
+import { apiGet, apiPost, apiPut, apiDeleteWithBody } from './client';
 
 // ============ Types ============
 
@@ -17,6 +17,23 @@ export interface Wallet {
     linked_solana_address?: string;
     created_at: string;
     updated_at?: string;
+}
+
+export interface WithdrawalSecurity {
+    primary_withdrawal_address?: string | null;
+    withdrawal_whitelist: string[];
+    withdrawal_cooldown_active: boolean;
+    withdrawal_cooldown_until?: string | null;
+    withdrawal_address_changed_at?: string | null;
+}
+
+export interface UserSecurityFlag {
+    id: string;
+    flag_type: string;
+    reason: string;
+    resolved: boolean;
+    resolved_at?: string | null;
+    created_at: string;
 }
 
 export interface WalletTransaction {
@@ -120,12 +137,22 @@ export function verifyDeposit(reference: string) {
 /**
  * Initiate a withdrawal (Mobile Money - Providers only)
  */
-export async function withdrawWallet(amount: number, phone: string, network: string) {
+export interface WithdrawSolOptions {
+    nonce?: string;
+    signature?: string;
+}
+
+export async function withdrawWallet(
+    amount: number,
+    phone: string,
+    network: string,
+    opts?: WithdrawSolOptions
+) {
     void phone;
     void network;
     const data = await apiPost<{ status: string; tx_hash?: string; new_balance: number }>(
         '/v1/wallet/withdraw/sol',
-        { amount }
+        { amount, nonce: opts?.nonce, signature: opts?.signature }
     );
     return {
         status: data.status,
@@ -172,6 +199,20 @@ export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 
  */
 export function transferFunds(recipient: string, amount: number) {
     return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount });
+}
+
+export function getWithdrawalSecurity() {
+    return apiGet<WithdrawalSecurity>('/v1/wallet/withdrawal-security');
+}
+
+export function updateWithdrawalWhitelist(addresses: string[]) {
+    return apiPut<{ withdrawal_whitelist: string[]; message: string }>('/v1/wallet/withdrawal-security/whitelist', {
+        addresses,
+    });
+}
+
+export function getMySecurityFlags() {
+    return apiGet<{ flags: UserSecurityFlag[]; count: number }>('/v1/wallet/security-flags');
 }
 
 // ============ Query Keys ============

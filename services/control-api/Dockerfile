@@ -1,32 +1,21 @@
 # services/control-api/Dockerfile
-# Production-ready Dockerfile for Control API
+# Build from repository root:
+#   docker build -f services/control-api/Dockerfile .
 
 # Build stage
 FROM golang:1.26-alpine AS builder
 
-# Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
-# Create non-root user for building
-RUN adduser -D -g '' appuser
-
-# Set working directory
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
+COPY services/control-api/go.mod services/control-api/go.sum ./
+RUN go mod download
 
-# Copy source code
-COPY . .
-
-# Remove vendor directory if present (use module mode)
+COPY services/control-api/ .
 RUN rm -rf vendor
 
-# Download dependencies and build
-# -ldflags='-w -s' reduces binary size
-# CGO_ENABLED=0 creates static binary
-RUN go mod download && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -tags '!dev' \
@@ -39,22 +28,16 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget && \
     adduser -D -g '' appuser
 
-# Copy binary
 COPY --from=builder /app/server /server
+COPY migrations /app/migrations
 
-# Use non-root user
 USER appuser
 
-# Default migrations path — override with MIGRATIONS_DIR env var.
-# In docker-compose the ./migrations directory is mounted at this path.
 ENV MIGRATIONS_DIR=/app/migrations
 
-# Expose port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 -O /dev/null http://localhost:8080/health || exit 1
 
-# Run
 ENTRYPOINT ["/server"]
