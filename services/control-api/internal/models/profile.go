@@ -131,15 +131,15 @@ type UpdateProfileRequest struct {
 	Website       *string                `json:"website" binding:"omitempty,max=255"`
 	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,url"`
 	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,url"`
-	Skills        []string               `json:"skills"`
-	SocialLinks   map[string]interface{} `json:"social_links"`
+	Skills        []string               `json:"skills" binding:"omitempty,max=50,dive,max=50"`
+	SocialLinks   map[string]interface{} `json:"social_links" binding:"omitempty,max=10"`
 	BusinessName  *string                `json:"business_name" binding:"omitempty,max=100"`
 	TaxID         *string                `json:"tax_id" binding:"omitempty,max=50"`
 
 	// New Professional fields
 	ProfessionalTitle     *string  `json:"professional_title" binding:"omitempty,max=100"`
 	ExperienceYears       *int     `json:"experience_years" binding:"omitempty,gte=0"`
-	Languages             []string `json:"languages"`
+	Languages             []string `json:"languages" binding:"omitempty,max=10,dive,max=50"`
 	PrimarySpecialization *string  `json:"primary_specialization" binding:"omitempty,max=100"`
 
 	Role *string `json:"role" binding:"omitempty,oneof=buyer provider admin"`

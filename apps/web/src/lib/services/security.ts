@@ -47,7 +47,7 @@ export async function setupMFA(): Promise<MFASetup> {
     return res.json();
 }
 
-export async function verifyMFA(code: string): Promise<void> {
+export async function verifyMFA(code: string): Promise<{ backup_codes?: string[] }> {
     const res = await fetchWithAuth(`${API_BASE_URL}/v1/security/mfa/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,6 +57,7 @@ export async function verifyMFA(code: string): Promise<void> {
         const err = await res.json();
         throw new Error(err.error || 'Invalid code');
     }
+    return res.json();
 }
 
 export async function disableMFA(code: string): Promise<void> {
@@ -69,6 +70,20 @@ export async function disableMFA(code: string): Promise<void> {
         const err = await res.json();
         throw new Error(err.error || 'Failed to disable MFA');
     }
+}
+
+export async function getBackupCodesCount(): Promise<{ remaining_codes: number }> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/v1/2fa/backup-codes`);
+    if (!res.ok) throw new Error('Failed to fetch backup codes status');
+    return res.json();
+}
+
+export async function regenerateBackupCodes(): Promise<{ backup_codes: string[] }> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/v1/2fa/backup-codes/regenerate`, {
+        method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to regenerate backup codes');
+    return res.json();
 }
 
 // --- API Key (Identity Token) Actions ---

@@ -1,58 +1,44 @@
-# Dockerfile.simple
-# Simple working Dockerfile for Control API
+# Dockerfile.simple — legacy name; same build as Dockerfile.
+# Build from repository root:
+#   docker build -f services/control-api/Dockerfile.simple .
 
-# Build stage
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
-# Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
-# Set working directory
 WORKDIR /app
 
-# Copy go mod files first (for layer caching)
-COPY go.mod go.sum ./
-
-# Download dependencies
+COPY services/control-api/go.mod services/control-api/go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY . .
+COPY services/control-api/ .
+RUN rm -rf vendor
 
-# Build the application using main.go
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -o server \
-    .
+    main.go
 
-# Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates curl
+RUN apk add --no-cache ca-certificates tzdata wget && \
+    adduser -D -u 1000 -g '' appuser
 
-# Create non-root user
-RUN adduser -D -u 1000 proxyuser
-
-# Set working directory
 WORKDIR /app
 
-# Copy binary
-COPY --from=builder /app/server .
+COPY --from=builder /app/server ./server
+COPY migrations /app/migrations
 
-# Change ownership
-RUN chown -R proxyuser:proxyuser /app
+RUN chown -R appuser:appuser /app
 
-# Use non-root user
-USER proxyuser
+USER appuser
 
-# Expose port
+ENV MIGRATIONS_DIR=/app/migrations
+
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Run
 CMD ["./server"]

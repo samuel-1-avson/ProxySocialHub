@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
@@ -184,15 +185,27 @@ func CreditReferralReward(rewardID uuid.UUID) {
 	}
 
 	// Update reward status
-	tx.Model(&reward).Update("status", models.RewardCredited)
+	if err := tx.Model(&reward).Update("status", models.RewardCredited).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Str("reward_id", rewardID.String()).Msg("Failed to update reward status")
+		return
+	}
 
 	// Update referral code earnings
 	var code models.ReferralCode
 	if tx.Where("code = ?", reward.ReferralCode).First(&code).Error == nil {
-		tx.Model(&code).Update("total_earnings", code.TotalEarnings+reward.RewardAmount)
+		if err := tx.Model(&code).Update("total_earnings", code.TotalEarnings+reward.RewardAmount).Error; err != nil {
+			tx.Rollback()
+			logging.Error(err).Str("code", reward.ReferralCode).Msg("Failed to update referral code earnings")
+			return
+		}
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Str("reward_id", rewardID.String()).Msg("Failed to commit referral reward")
+		return
+	}
 
 	// Notify referrer
 	ws.BroadcastToUser(reward.ReferrerID.String(), ws.MsgTypeNotification, gin.H{

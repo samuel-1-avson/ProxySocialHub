@@ -63,6 +63,72 @@ func getMyAuditLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"logs": logs, "count": len(logs)})
 }
 
+// anomalyListItem is the unified API shape for login/session anomalies and wallet user_flags.
+type anomalyListItem struct {
+	ID               string  `json:"id"`
+	AnomalyType      string  `json:"anomaly_type"`
+	Severity         string  `json:"severity"`
+	DetectedIP       string  `json:"detected_ip"`
+	DetectedCountry  string  `json:"detected_country"`
+	DetectedCity     string  `json:"detected_city"`
+	ExpectedCountry  string  `json:"expected_country"`
+	RiskScore        float64 `json:"risk_score"`
+	ActionTaken      string  `json:"action_taken"`
+	IsResolved       bool    `json:"is_resolved"`
+	ResolvedAt       *time.Time `json:"resolved_at"`
+	Resolution       string  `json:"resolution"`
+	CreatedAt        time.Time `json:"created_at"`
+	Source           string  `json:"source"` // security_anomaly | account_flag
+}
+
+func securityAnomalyToItem(a models.SecurityAnomaly) anomalyListItem {
+	return anomalyListItem{
+		ID:              a.ID.String(),
+		AnomalyType:     a.AnomalyType,
+		Severity:        a.Severity,
+		DetectedIP:      a.DetectedIP,
+		DetectedCountry: a.DetectedCountry,
+		DetectedCity:    a.DetectedCity,
+		ExpectedCountry: a.ExpectedCountry,
+		RiskScore:       a.RiskScore,
+		ActionTaken:     a.ActionTaken,
+		IsResolved:      a.IsResolved,
+		ResolvedAt:      a.ResolvedAt,
+		Resolution:      a.Resolution,
+		CreatedAt:       a.CreatedAt,
+		Source:          "security_anomaly",
+	}
+}
+
+func userFlagToAnomalyItem(f models.UserFlag) anomalyListItem {
+	severity := "high"
+	switch f.FlagType {
+	case "excessive_withdrawals", "large_withdrawal_deviation", "large_new_p2p_transfer":
+		severity = "critical"
+	case "excessive_usage_spend":
+		severity = "medium"
+	}
+	resolution := ""
+	if f.Resolved && f.Reason != "" {
+		resolution = f.Reason
+	}
+	return anomalyListItem{
+		ID:              f.ID.String(),
+		AnomalyType:     f.FlagType,
+		Severity:        severity,
+		DetectedIP:      "system",
+		DetectedCountry: "",
+		DetectedCity:    "",
+		RiskScore:       85,
+		ActionTaken:     "withdrawals_frozen",
+		IsResolved:      f.Resolved,
+		ResolvedAt:      f.ResolvedAt,
+		Resolution:      resolution,
+		CreatedAt:       f.CreatedAt,
+		Source:          "account_flag",
+	}
+}
+
 // @Summary Get my security anomalies
 // @Tags audit
 // @Produce json
@@ -73,13 +139,24 @@ func getMyAnomalies(c *gin.Context) {
 	userID := c.MustGet("user_id").(uuid.UUID)
 	limit := getIntParam(c, "limit", 20)
 
-	anomalies, err := anomalyDetector.GetUserAnomalies(userID, limit)
+	securityRows, err := anomalyDetector.GetUserAnomalies(userID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get anomalies"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"anomalies": anomalies, "count": len(anomalies)})
+	var flags []models.UserFlag
+	db.DB.Where("user_id = ?", userID).Order("created_at DESC").Limit(limit).Find(&flags)
+
+	combined := make([]anomalyListItem, 0, len(securityRows)+len(flags))
+	for _, a := range securityRows {
+		combined = append(combined, securityAnomalyToItem(a))
+	}
+	for _, f := range flags {
+		combined = append(combined, userFlagToAnomalyItem(f))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"anomalies": combined, "count": len(combined)})
 }
 
 // @Summary Resolve an anomaly
@@ -108,19 +185,32 @@ func resolveAnomaly(c *gin.Context) {
 		return
 	}
 
-	// Verify anomaly belongs to user
 	var anomaly models.SecurityAnomaly
-	if err := db.DB.Where("id = ? AND user_id = ?", anomalyID, userID).First(&anomaly).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ?", anomalyID, userID).First(&anomaly).Error; err == nil {
+		if err := anomalyDetector.ResolveAnomaly(anomalyID, userID, req.Resolution); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Anomaly resolved"})
+		return
+	}
+
+	var flag models.UserFlag
+	if err := db.DB.Where("id = ? AND user_id = ?", anomalyID, userID).First(&flag).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Anomaly not found"})
 		return
 	}
 
-	if err := anomalyDetector.ResolveAnomaly(anomalyID, userID, req.Resolution); err != nil {
+	now := time.Now()
+	if err := db.DB.Model(&flag).Updates(map[string]interface{}{
+		"resolved":    true,
+		"resolved_at": now,
+	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Anomaly resolved"})
+	c.JSON(http.StatusOK, gin.H{"message": "Security flag resolved"})
 }
 
 // ==================== Admin Endpoints ====================
