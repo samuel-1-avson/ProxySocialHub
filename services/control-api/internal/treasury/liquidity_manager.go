@@ -126,12 +126,8 @@ func (lm *LiquidityManager) getNetwork() string {
 }
 
 func (lm *LiquidityManager) getTreasuryAddress() sol.PublicKey {
-	addr := os.Getenv("SOLANA_TREASURY_ADDRESS")
-	if addr != "" {
-		pk, err := sol.PublicKeyFromBase58(addr)
-		if err == nil {
-			return pk
-		}
+	if pk := GetHotTreasuryPubkey(); !pk.IsZero() {
+		return pk
 	}
 	return lm.client.GetOraclePublicKey()
 }
