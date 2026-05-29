@@ -9,6 +9,7 @@ import (
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -67,6 +68,28 @@ func (rs *ReconciliationService) StartReconciliationWorker(ctx context.Context) 
 	if err := rs.RunReconciliation(ctx); err != nil {
 		logging.Error(err).Msg("Initial reconciliation failed")
 	}
+
+	// Start hourly user balance reconciliation
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		
+		// Run once on startup
+		if err := rs.ReconcileUserWallets(ctx); err != nil {
+			logging.Error(err).Msg("Hourly user balance reconciliation failed")
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := rs.ReconcileUserWallets(ctx); err != nil {
+					logging.Error(err).Msg("Hourly user balance reconciliation failed")
+				}
+			}
+		}
+	}()
 
 	// Schedule daily reconciliation at 00:00 UTC
 	now := time.Now().UTC()
@@ -390,4 +413,48 @@ func abs(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+type ReconciliationDiscrepancy struct {
+	ID            uuid.UUID `gorm:"column:id"`
+	UserID        uuid.UUID `gorm:"column:user_id"`
+	DBBalance     float64   `gorm:"column:db_balance"`
+	LedgerBalance float64   `gorm:"column:ledger_balance"`
+}
+
+// ReconcileUserWallets compares the wallet's SOL balance against the sum of all ledger entries.
+func (rs *ReconciliationService) ReconcileUserWallets(ctx context.Context) error {
+	var discrepancies []ReconciliationDiscrepancy
+	
+	err := db.DB.Raw(`
+		SELECT 
+			w.id,
+			w.user_id,
+			w.balance_sol as db_balance,
+			COALESCE(SUM(le.amount), 0) as ledger_balance
+		FROM wallets w
+		LEFT JOIN wallet_ledger_entries le ON w.id = le.wallet_id
+		GROUP BY w.id, w.user_id, w.balance_sol
+		HAVING w.balance_sol != COALESCE(SUM(le.amount), 0)
+	`).Scan(&discrepancies).Error
+	
+	if err != nil {
+		return err
+	}
+
+	for _, d := range discrepancies {
+		msg := fmt.Sprintf("User: %s | Wallet: %s | DB Balance: %.6f SOL | Ledger Balance: %.6f SOL | Diff: %.6f SOL",
+			d.UserID, d.ID, d.DBBalance, d.LedgerBalance, d.DBBalance-d.LedgerBalance)
+		
+		logging.Error(nil).
+			Str("user_id", d.UserID.String()).
+			Str("wallet_id", d.ID.String()).
+			Float64("db_balance", d.DBBalance).
+			Float64("ledger_balance", d.LedgerBalance).
+			Msg("WALLET RECONCILIATION DISCREPANCY DETECTED")
+		
+		alerts.Send(alerts.Critical, "Wallet Balance Discrepancy", msg)
+	}
+
+	return nil
 }
