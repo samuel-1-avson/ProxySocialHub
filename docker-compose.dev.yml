@@ -6,13 +6,13 @@ services:
   # ==================== DB MIGRATE (one-shot) ====================
   db-migrate:
     build:
-      context: ./services/control-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/control-api/Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
     container_name: proxyhubb-db-migrate
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:-proxyhubb}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
       - AUTO_MIGRATE=true
       - FORCE_MIGRATE=true
       - MIGRATE_ONLY=true
@@ -26,7 +26,7 @@ services:
       - PORT=8080
       - APP_ENV=migration
       - GIN_MODE=release
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - NATS_URL=nats://nats:4222
     volumes:
       - ./migrations:/app/migrations:ro
@@ -40,13 +40,13 @@ services:
   # ==================== CONTROL API ====================
   control-api:
     build:
-      context: ./services/control-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/control-api/Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
     container_name: proxyhubb-control-api
     ports:
-      - "8080:8080"
+      - "${CONTROL_API_PORT:-18080}:8080"
     environment:
       # Core secrets
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
@@ -55,7 +55,7 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
 
       # Database
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:-proxyhubb}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
       - FORCE_MIGRATE=${FORCE_MIGRATE:-false}
       - AUTO_MIGRATE=${AUTO_MIGRATE:-false}
       - DB_LOG_LEVEL=${DB_LOG_LEVEL:-warn}
@@ -67,8 +67,8 @@ services:
       - MV_LEADERBOARD_REFRESH_MINS=${MV_LEADERBOARD_REFRESH_MINS:-15}
 
       # Redis
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redispass}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
 
       # NATS
       - NATS_URL=nats://nats:4222
@@ -77,7 +77,7 @@ services:
       - PORT=8080
       - APP_ENV=${APP_ENV:-development}
       - GIN_MODE=${GIN_MODE:-debug}
-      - API_BASE_URL=http://localhost:8080
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:18080}
       - FRONTEND_URL=http://localhost:3000
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:4001,http://127.0.0.1:4001}
       # APP_URL: used for WebSocket CORS. Empty = allow all (dev mode).
@@ -206,20 +206,20 @@ services:
         - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
         - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
         - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
-        - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8080}
-        - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:8080}
+        - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
+        - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
     container_name: proxyhubb-web
     ports:
       - "3000:3000"
     environment:
       - API_URL=http://control-api:8080
-      - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:8080}
+      - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
       - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
       - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
       - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}
       - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
       # WebSocket URL for explorer real-time updates (useExplorerWS hook)
-      - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:8080}
+      - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
       - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
@@ -244,7 +244,7 @@ services:
     container_name: proxyhubb-postgres
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-proxyhubb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
@@ -266,7 +266,7 @@ services:
     container_name: proxyhubb-redis
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-redispass}
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       --appendonly yes
       --appendfsync everysec
       --auto-aof-rewrite-percentage 100
@@ -279,7 +279,7 @@ services:
     ports:
       - "6380:6379"
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispass}", "ping" ]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -318,13 +318,13 @@ services:
       - HOST=0.0.0.0
       - PORT=8090
       - TUNNEL_PORT=3128
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - NATS_URL=nats://nats:4222
       - CONTROL_API_URL=http://control-api:8080
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
-      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
       - GEO_DENY_LIST=${GEO_DENY_LIST:-}
       - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
       - REGION=${REGION:-default}
