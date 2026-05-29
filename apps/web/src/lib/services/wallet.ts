@@ -62,14 +62,19 @@ export async function verifyDeposit(reference: string): Promise<{ status: string
     throw new Error('Fiat deposit verification is disabled.');
 }
 
-export async function withdrawWallet(amount: number, phone: string, network: string): Promise<{ status: string; reference: string; new_balance: number }> {
+export async function withdrawWallet(
+    amount: number,
+    phone: string,
+    network: string,
+    opts?: { nonce?: string; signature?: string }
+): Promise<{ status: string; reference: string; new_balance: number }> {
     void phone;
     void network;
 
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/withdraw/sol`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, nonce: opts?.nonce, signature: opts?.signature }),
     });
     if (!response.ok) throw new Error('Failed to initiate withdrawal');
     const data = await response.json();

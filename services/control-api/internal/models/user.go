@@ -89,6 +89,7 @@ type User struct {
 	// Online presence
 	IsOnline     bool       `gorm:"default:false;index:idx_user_online" json:"is_online"`
 	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
+	ScheduledDeletionAt *time.Time `gorm:"index" json:"scheduled_deletion_at,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

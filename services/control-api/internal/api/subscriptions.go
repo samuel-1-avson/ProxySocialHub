@@ -9,7 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/prices"
+	"gorm.io/gorm"
 )
 
 // RegisterSubscriptionRoutes registers subscription-related routes
@@ -227,53 +229,65 @@ func changePlan(c *gin.Context) {
 	chargeSOL := (newPriceUSD * remainingFraction) / solPrice
 	netSOL := chargeSOL - creditSOL // positive = user pays more; negative = user gets credit
 
-	if netSOL > 0 {
-		// Upgrading: debit the difference
+	// Atomic subscription proration: wallet + ledger + plan update in one transaction
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
 		var wallet models.Wallet
-		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "wallet not found"})
-			return
+		if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+			return fmt.Errorf("wallet not found: %w", err)
 		}
-		if wallet.BalanceSOL < netSOL {
-			c.JSON(http.StatusPaymentRequired, gin.H{
-				"error":      "Insufficient balance for plan upgrade",
-				"required":   netSOL,
-				"available":  wallet.BalanceSOL,
-			})
-			return
-		}
-		newBal := wallet.BalanceSOL - netSOL
-		if err := db.DB.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to apply upgrade charge"})
-			return
-		}
-		db.DB.Create(&models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       -netSOL,
-			BalanceAfter: newBal,
-			Type:         "subscription_upgrade",
-			Description:  fmt.Sprintf("Prorated upgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, netSOL),
-		})
-	} else if netSOL < 0 {
-		// Downgrading: credit the difference
-		creditAmount := -netSOL
-		var wallet models.Wallet
-		if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
+
+		if netSOL > 0 {
+			// Upgrading: debit the difference
+			if wallet.BalanceSOL < netSOL {
+				return fmt.Errorf("insufficient balance: need %.6f SOL, have %.6f SOL", netSOL, wallet.BalanceSOL)
+			}
+			newBal := wallet.BalanceSOL - netSOL
+			if err := tx.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
+				return fmt.Errorf("failed to debit wallet: %w", err)
+			}
+			if err := tx.Create(&models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       -netSOL,
+				BalanceAfter: newBal,
+				Type:         "subscription_upgrade",
+				Description:  fmt.Sprintf("Prorated upgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, netSOL),
+			}).Error; err != nil {
+				return fmt.Errorf("failed to create ledger: %w", err)
+			}
+		} else if netSOL < 0 {
+			// Downgrading: credit the difference
+			creditAmount := -netSOL
 			newBal := wallet.BalanceSOL + creditAmount
-			db.DB.Model(&wallet).Update("balance_sol", newBal)
-			db.DB.Create(&models.WalletLedgerEntry{
+			if err := tx.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
+				return fmt.Errorf("failed to credit wallet: %w", err)
+			}
+			if err := tx.Create(&models.WalletLedgerEntry{
 				WalletID:     wallet.ID,
 				Amount:       creditAmount,
 				BalanceAfter: newBal,
 				Type:         "subscription_downgrade_credit",
 				Description:  fmt.Sprintf("Prorated credit for downgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, creditAmount),
-			})
+			}).Error; err != nil {
+				return fmt.Errorf("failed to create ledger: %w", err)
+			}
 		}
-	}
 
-	db.DB.Model(&subscription).Updates(map[string]interface{}{
-		"plan_id": newPlan.ID,
+		// Update subscription plan within the same transaction
+		if err := tx.Model(&subscription).Updates(map[string]interface{}{
+			"plan_id":    newPlan.ID,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		return nil
 	})
+
+	if err != nil {
+		logging.Error(err).Str("user_id", userID.String()).Msg("Subscription proration failed")
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":           fmt.Sprintf("Plan changed to %s with immediate effect", newPlan.Name),

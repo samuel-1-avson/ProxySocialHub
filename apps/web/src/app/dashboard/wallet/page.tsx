@@ -5,14 +5,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useWalletWS } from '@/lib/hooks/useWalletWS';
 import {
     getWallet,
-    depositWallet,
     depositCrypto,
     withdrawWallet,
     linkWallet,
-    transferFunds,
     getSystemConfig,
+    getWithdrawalSecurity,
+    updateWithdrawalWhitelist,
     Wallet as WalletType,
 } from '@/lib/api';
+import { signWithdrawalMessage } from '@/lib/solana-message-sign';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/lib/utils';
 
@@ -39,6 +40,7 @@ import {
     AlertCircle,
     Hammer,
     CheckCircle,
+    Copy,
     Link as LinkIcon,
     LayoutDashboard,
     ArrowLeftRight,
@@ -51,6 +53,8 @@ import { GlassCard } from '@/components/ui/glass-card';
 
 type TabType = 'OVERVIEW' | 'LINKED_WALLETS';
 
+const LARGE_WITHDRAW_SOL = 10;
+
 export default function UnifiedWalletPage() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -60,7 +64,11 @@ export default function UnifiedWalletPage() {
     // Common State
     const [processing, setProcessing] = useState(false);
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
-    const [amount, setAmount] = useState('');
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [depositAmount, setDepositAmount] = useState('');
+    const [depositTxHash, setDepositTxHash] = useState('');
+    const [whitelistDraft, setWhitelistDraft] = useState('');
+    const [whitelistSaving, setWhitelistSaving] = useState(false);
 
     // Solana Wallet
     const { connected, publicKey, signMessage, sendTransaction, disconnect } = useSolanaWallet();
@@ -100,6 +108,18 @@ export default function UnifiedWalletPage() {
         enabled: !!user,
         staleTime: 60000,
     });
+
+    const { data: withdrawalSecurity, refetch: refetchWithdrawalSecurity } = useQuery({
+        queryKey: ['withdrawal-security'],
+        queryFn: getWithdrawalSecurity,
+        enabled: !!user && activeTab === 'LINKED_WALLETS',
+    });
+
+    useEffect(() => {
+        if (withdrawalSecurity?.withdrawal_whitelist) {
+            setWhitelistDraft(withdrawalSecurity.withdrawal_whitelist.join('\n'));
+        }
+    }, [withdrawalSecurity?.withdrawal_whitelist]);
 
     useEffect(() => {
         if (treasuryConfig?.sol_price_usd && treasuryConfig.sol_price_usd > 0) {
@@ -155,6 +175,97 @@ export default function UnifiedWalletPage() {
         const id = setInterval(fetchLinkedBalance, 30000);
         return () => { cancelled = true; clearInterval(id); };
     }, [wallet?.linked_solana_address, connected]);
+
+    const handleDepositVerify = async () => {
+        const amt = parseFloat(depositAmount);
+        const txHash = depositTxHash.trim();
+        if (!amt || amt <= 0 || !txHash) {
+            setResult({ success: false, message: 'Enter deposit amount and transaction signature' });
+            return;
+        }
+        setProcessing(true);
+        setResult(null);
+        try {
+            const res = await depositCrypto(amt, txHash, 'solana');
+            setResult({
+                success: true,
+                message: res.message || `Deposit credited${res.credited_sol != null ? `: ${res.credited_sol} SOL` : ''}`,
+            });
+            setDepositAmount('');
+            setDepositTxHash('');
+            queryClient.invalidateQueries({ queryKey: ['wallet'] });
+        } catch (err: unknown) {
+            setResult({ success: false, message: getErrorMessage(err) || 'Deposit verification failed' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleWithdrawSol = async () => {
+        if (!wallet?.linked_solana_address) {
+            setResult({ success: false, message: 'Link a Solana wallet before withdrawing' });
+            return;
+        }
+        const amt = parseFloat(withdrawAmount);
+        if (!amt || amt <= 0) {
+            setResult({ success: false, message: 'Enter a valid withdrawal amount' });
+            return;
+        }
+        if (amt > Number(wallet.balance_sol || 0)) {
+            setResult({ success: false, message: 'Insufficient custodial balance' });
+            return;
+        }
+
+        setProcessing(true);
+        setResult(null);
+        try {
+            let opts: { nonce?: string; signature?: string } | undefined;
+            if (amt > LARGE_WITHDRAW_SOL) {
+                if (!signMessage) {
+                    throw new Error(`Withdrawals over ${LARGE_WITHDRAW_SOL} SOL require wallet signature — connect Phantom/Solflare`);
+                }
+                opts = await signWithdrawalMessage(signMessage, amt);
+            }
+            const res = await withdrawWallet(amt, '', '', opts);
+            setResult({
+                success: true,
+                message: res.reference
+                    ? `Withdrawal submitted (${res.reference.slice(0, 12)}…)`
+                    : 'Withdrawal submitted',
+            });
+            setWithdrawAmount('');
+            queryClient.invalidateQueries({ queryKey: ['wallet'] });
+        } catch (err: unknown) {
+            setResult({ success: false, message: getErrorMessage(err) || 'Withdrawal failed' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleSaveWhitelist = async () => {
+        const addresses = whitelistDraft
+            .split(/[\n,]+/)
+            .map((a) => a.trim())
+            .filter(Boolean);
+        setWhitelistSaving(true);
+        setResult(null);
+        try {
+            await updateWithdrawalWhitelist(addresses);
+            setResult({ success: true, message: 'Withdrawal whitelist updated' });
+            refetchWithdrawalSecurity();
+        } catch (err: unknown) {
+            setResult({ success: false, message: getErrorMessage(err) || 'Failed to update whitelist' });
+        } finally {
+            setWhitelistSaving(false);
+        }
+    };
+
+    const copyTreasuryAddress = async () => {
+        const addr = treasuryConfig?.treasury_solana;
+        if (!addr) return;
+        await navigator.clipboard.writeText(addr);
+        setResult({ success: true, message: 'Treasury address copied' });
+    };
 
     // Linking Logic
     const handleLinkSolana = async () => {
@@ -331,6 +442,128 @@ export default function UnifiedWalletPage() {
                                         </motion.div>
                                     )}
 
+                                    {/* Fund movement */}
+                                    <div className="glass-card p-8 border-white/5 bg-white/2 space-y-8">
+                                        <h3 className="text-xs font-black font-mono uppercase flex items-center gap-2 tracking-widest">
+                                            <ArrowLeftRight size={16} className="text-primary" /> Fund Movement
+                                        </h3>
+
+                                        {result && activeTab === 'OVERVIEW' && (
+                                            <div
+                                                className={`p-4 rounded-xl border text-[10px] font-mono uppercase font-black flex items-center gap-3 ${
+                                                    result.success
+                                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                                                        : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+                                                }`}
+                                            >
+                                                {result.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                                                {result.message}
+                                            </div>
+                                        )}
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="space-y-4 p-6 rounded-2xl border border-emerald-500/10 bg-emerald-500/5">
+                                                <p className="text-[10px] font-black font-mono uppercase text-emerald-500 tracking-widest flex items-center gap-2">
+                                                    <ArrowDownLeft size={14} /> Deposit SOL
+                                                </p>
+                                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
+                                                    Send SOL to the platform treasury, then paste the on-chain transaction signature to credit your balance.
+                                                </p>
+                                                {treasuryConfig?.treasury_solana ? (
+                                                    <div className="flex gap-2 items-stretch">
+                                                        <code className="flex-1 text-[9px] font-mono break-all bg-black/40 p-3 rounded-lg border border-white/5">
+                                                            {treasuryConfig.treasury_solana}
+                                                        </code>
+                                                        <button
+                                                            type="button"
+                                                            onClick={copyTreasuryAddress}
+                                                            className="px-3 rounded-lg border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors"
+                                                            title="Copy treasury address"
+                                                        >
+                                                            <Copy size={14} />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-[9px] font-mono text-amber-500/80 uppercase">Treasury address loading…</p>
+                                                )}
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.000001"
+                                                    placeholder="Amount (SOL)"
+                                                    value={depositAmount}
+                                                    onChange={(e) => setDepositAmount(e.target.value)}
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Transaction signature"
+                                                    value={depositTxHash}
+                                                    onChange={(e) => setDepositTxHash(e.target.value)}
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDepositVerify}
+                                                    disabled={processing || !wallet?.linked_solana_address}
+                                                    className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest disabled:opacity-40"
+                                                >
+                                                    {processing ? (
+                                                        <span className="flex items-center justify-center gap-2">
+                                                            <Loader2 size={14} className="animate-spin" /> Verifying…
+                                                        </span>
+                                                    ) : (
+                                                        'Verify deposit'
+                                                    )}
+                                                </button>
+                                                {!wallet?.linked_solana_address && (
+                                                    <p className="text-[9px] font-mono text-amber-500/80 uppercase">Link a wallet to verify deposits</p>
+                                                )}
+                                            </div>
+
+                                            <div className="space-y-4 p-6 rounded-2xl border border-rose-500/10 bg-rose-500/5">
+                                                <p className="text-[10px] font-black font-mono uppercase text-rose-400 tracking-widest flex items-center gap-2">
+                                                    <ArrowUpRight size={14} /> Withdraw SOL
+                                                </p>
+                                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
+                                                    Withdraw custodial balance to your linked primary address
+                                                    {wallet?.linked_solana_address
+                                                        ? ` (${wallet.linked_solana_address.slice(0, 4)}…${wallet.linked_solana_address.slice(-4)})`
+                                                        : ''}
+                                                    . Amounts over {LARGE_WITHDRAW_SOL} SOL require a wallet signature.
+                                                </p>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.000001"
+                                                    placeholder="Amount (SOL)"
+                                                    value={withdrawAmount}
+                                                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+                                                />
+                                                {parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL && (
+                                                    <p className="text-[9px] font-mono text-amber-500/90 uppercase flex items-center gap-2">
+                                                        <Shield size={12} /> Signature required — approve in your wallet when prompted
+                                                    </p>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={handleWithdrawSol}
+                                                    disabled={processing || !wallet?.linked_solana_address}
+                                                    className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest border-rose-500/30 hover:border-rose-500/50 disabled:opacity-40"
+                                                >
+                                                    {processing ? (
+                                                        <span className="flex items-center justify-center gap-2">
+                                                            <Loader2 size={14} className="animate-spin" /> Processing…
+                                                        </span>
+                                                    ) : (
+                                                        'Withdraw to linked wallet'
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {/* Transaction Ledger */}
                                     <div className="glass-card p-0 border-white/5 bg-white/2 overflow-hidden">
                                         <div className="p-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
@@ -481,6 +714,50 @@ export default function UnifiedWalletPage() {
                                                 )}
                                             </div>
                                         </div>
+                                    </GlassCard>
+
+                                    <GlassCard className="!p-8 bg-white/2 border-white/5">
+                                        <h3 className="text-xs font-black font-mono uppercase mb-4 flex items-center gap-3 tracking-[0.2em]">
+                                            <Shield size={18} className="text-primary" /> Withdrawal whitelist
+                                        </h3>
+                                        <p className="text-[10px] font-mono text-muted-foreground/70 mb-4 leading-relaxed">
+                                            When non-empty, withdrawals may only go to addresses listed below (must include your primary withdrawal address).
+                                            Leave empty to allow only your linked primary address.
+                                        </p>
+                                        {withdrawalSecurity?.withdrawal_cooldown_active && (
+                                            <p className="text-[9px] font-mono text-amber-500 mb-4 uppercase">
+                                                Cooldown active until{' '}
+                                                {withdrawalSecurity.withdrawal_cooldown_until
+                                                    ? new Date(withdrawalSecurity.withdrawal_cooldown_until).toLocaleString()
+                                                    : '24h after address change'}
+                                            </p>
+                                        )}
+                                        {withdrawalSecurity?.primary_withdrawal_address && (
+                                            <p className="text-[9px] font-mono text-primary/80 mb-3 break-all">
+                                                Primary: {withdrawalSecurity.primary_withdrawal_address}
+                                            </p>
+                                        )}
+                                        <textarea
+                                            value={whitelistDraft}
+                                            onChange={(e) => setWhitelistDraft(e.target.value)}
+                                            placeholder="One Solana address per line"
+                                            rows={5}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[11px] font-mono focus:border-primary/50 outline-none resize-y"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveWhitelist}
+                                            disabled={whitelistSaving}
+                                            className="mt-4 w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest"
+                                        >
+                                            {whitelistSaving ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <Loader2 size={14} className="animate-spin" /> Saving…
+                                                </span>
+                                            ) : (
+                                                'Save whitelist'
+                                            )}
+                                        </button>
                                     </GlassCard>
 
                                     {result && (
