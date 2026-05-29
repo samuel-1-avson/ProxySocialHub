@@ -416,6 +416,7 @@ func main() {
 		api.RegisterExplorerWSRoutes(v1)   // Explorer WebSocket for real-time updates
 		api.RegisterSDKRoutes(v1)          // P1-A5: SDK Examples API
 		api.RegisterGatewayRoutes(v1, cfg) // Gateway node registration and heartbeat
+		api.RegisterTreasuryPublicRoutes(v1) // Phase 4.3: public treasury transparency
 	}
 
 	// Public Routes (No Authentication Required)
@@ -429,6 +430,7 @@ func main() {
 		api.RegisterProviderTokenRoutes(protected)
 		api.RegisterProviderLeaseRoutes(protected)
 		api.RegisterProviderEarningsRoutes(protected)
+		api.RegisterProviderClaimRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
 		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
 		api.RegisterGatewayTokenRoute(v1)     // Public: exchange provider token → gateway JWT
@@ -483,6 +485,7 @@ func main() {
 
 		// Crypto ops (admin-only batch settle, treasury, telemetry)
 		api.RegisterCryptoRoutes(protected)
+		api.RegisterTreasuryMultisigRoutes(protected) // Phase 4.2: large treasury withdrawals
 
 		// State Channels (Phase 5)
 		api.RegisterChannelRoutes(protected)
