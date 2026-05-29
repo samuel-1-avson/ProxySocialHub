@@ -39,8 +39,14 @@ export function useDeposit() {
 export function useWithdraw() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ amount, phone, network }: walletApi.WithdrawRequest) =>
-            walletApi.withdrawWallet(amount, phone, network),
+        mutationFn: ({
+            amount,
+            phone,
+            network,
+            nonce,
+            signature,
+        }: walletApi.WithdrawRequest & walletApi.WithdrawSolOptions) =>
+            walletApi.withdrawWallet(amount, phone, network, { nonce, signature }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: walletApi.walletKeys.all });
         },

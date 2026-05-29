@@ -141,21 +141,30 @@ func updateProfile(c *gin.Context) {
 	if req.PrimarySpecialization != nil {
 		updates["primary_specialization"] = *req.PrimarySpecialization
 	}
-	// Auto-Detect Location & ISP based on current connection
+	// Auto-Detect Location & ISP based on current connection (only if manual location is not specified)
 	clientIP := c.ClientIP()
 	if geo, ok := geoip.Resolve(clientIP); ok {
-		if geo.City != "" && geo.Region != "" {
-			locStr := fmt.Sprintf("%s, %s", geo.City, geo.Region)
-			updates["location"] = locStr
-		} else if geo.Country != "" {
-			updates["location"] = geo.Country
+		if req.Location == nil || *req.Location == "" {
+			if geo.City != "" && geo.Region != "" {
+				locStr := fmt.Sprintf("%s, %s", geo.City, geo.Region)
+				updates["location"] = locStr
+			} else if geo.Country != "" {
+				updates["location"] = geo.Country
+			}
 		}
+
 		if geo.ISP != "" {
 			updates["isp"] = geo.ISP
 		}
 	}
 
 	if req.Role != nil {
+		roleVal, exists := c.Get("userRole")
+		isAdmin := exists && roleVal.(string) == "admin"
+		if *req.Role != user.Role && !isAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only administrators can modify roles"})
+			return
+		}
 		updates["role"] = *req.Role
 	}
 
@@ -204,10 +213,23 @@ func getPublicProfile(c *gin.Context) {
 
 	profile := user.ToPublicProfile()
 
-	// Check if current user is following this user
+	// Check if block or follow relationship exists
 	if currentUserID != nil {
+		currentUserUUID := currentUserID.(uuid.UUID)
+		var block models.Block
+		if err := db.DB.Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
+			currentUserUUID, user.ID, user.ID, currentUserUUID).First(&block).Error; err == nil {
+			if block.BlockerID == user.ID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You have been blocked by this user"})
+				return
+			}
+			if block.BlockerID == currentUserUUID {
+				profile.IsBlocked = true
+			}
+		}
+
 		var follow models.Follow
-		if err := db.DB.Where("follower_id = ? AND following_id = ?", currentUserID, user.ID).First(&follow).Error; err == nil {
+		if err := db.DB.Where("follower_id = ? AND following_id = ?", currentUserUUID, user.ID).First(&follow).Error; err == nil {
 			profile.IsFollowing = true
 		}
 	}
@@ -323,6 +345,14 @@ func followUser(c *gin.Context) {
 	var targetUser models.User
 	if err := db.DB.First(&targetUser, "id = ?", followingID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Check if a block relationship exists in either direction
+	var block models.Block
+	if err := db.DB.Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
+		followerID, followingID, followingID, followerID).First(&block).Error; err == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot follow a blocked user or be followed by a user you blocked"})
 		return
 	}
 
@@ -467,20 +497,54 @@ func blockUser(c *gin.Context) {
 		return
 	}
 
+	// Find any active follow relationships between these two users
+	var follows []models.Follow
+	db.DB.Where("(follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
+		blockerID, blockedID, blockedID, blockerID).Find(&follows)
+
 	block := models.Block{
 		BlockerID: blockerID,
 		BlockedID: blockedID,
 		Reason:    "User blocked",
 	}
 
-	if err := db.DB.Create(&block).Error; err != nil {
+	tx := db.DB.Begin()
+
+	if err := tx.Create(&block).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to block user"})
 		return
 	}
 
-	// Also unfollow if following
-	db.DB.Where("(follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
-		blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{})
+	if len(follows) > 0 {
+		// Delete follows
+		if err := tx.Where("(follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
+			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update follow relationships"})
+			return
+		}
+
+		// Decrement counters for affected users
+		for _, f := range follows {
+			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowerID).Update("following_count", db.DB.Raw("GREATEST(following_count - 1, 0)")).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update following count"})
+				return
+			}
+			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowingID).Update("followers_count", db.DB.Raw("GREATEST(followers_count - 1, 0)")).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update followers count"})
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction commit failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User blocked"})
 }

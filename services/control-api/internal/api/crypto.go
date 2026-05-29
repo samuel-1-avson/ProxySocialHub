@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
+	"gorm.io/gorm"
 )
 
 // LinkWalletRequest represents a request to link a wallet
@@ -123,6 +124,66 @@ func linkWallet(c *gin.Context) {
 		}
 
 		user.WalletAddress = &req.WalletAddress
+
+		// Setup/update primary withdrawal address and cooldown in user's Wallet
+		var wallet models.Wallet
+		if err := tx.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				now := time.Now()
+				wallet = models.Wallet{
+					UserID:                     user.ID,
+					PrimaryWithdrawalAddress:   &req.WalletAddress,
+					WithdrawalAddressChangedAt: &now,
+				}
+				wallet.InitializeWithDefaultLimits(user.TrustTier)
+				if err := tx.Create(&wallet).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet for user"})
+					return
+				}
+			} else {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking wallet"})
+				return
+			}
+		} else {
+			if wallet.PrimaryWithdrawalAddress == nil || *wallet.PrimaryWithdrawalAddress == "" {
+				// First linked wallet = automatic primary withdrawal address
+				wallet.PrimaryWithdrawalAddress = &req.WalletAddress
+				now := time.Now()
+				wallet.WithdrawalAddressChangedAt = &now
+				if len(wallet.WithdrawalWhitelist) == 0 {
+					wallet.WithdrawalWhitelist = []string{req.WalletAddress}
+				}
+				if err := tx.Save(&wallet).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update wallet primary address"})
+					return
+				}
+			} else if *wallet.PrimaryWithdrawalAddress != req.WalletAddress {
+				// Changing primary withdrawal address sets changed_at = NOW()
+				wallet.PrimaryWithdrawalAddress = &req.WalletAddress
+				now := time.Now()
+				wallet.WithdrawalAddressChangedAt = &now
+				if len(wallet.WithdrawalWhitelist) > 0 {
+					found := false
+					for _, a := range wallet.WithdrawalWhitelist {
+						if a == req.WalletAddress {
+							found = true
+							break
+						}
+					}
+					if !found {
+						wallet.WithdrawalWhitelist = append(wallet.WithdrawalWhitelist, req.WalletAddress)
+					}
+				}
+				if err := tx.Save(&wallet).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update wallet primary address"})
+					return
+				}
+			}
+		}
 
 		logging.Info().
 			Str("user_id", userID).
@@ -575,11 +636,12 @@ func getSettlementTelemetry(c *gin.Context) {
 	})
 }
 
-// RegisterCryptoRoutes registers crypto-related routes
+// RegisterCryptoRoutes registers admin-only crypto operations.
+// User deposits use POST /v1/wallet/deposit/crypto (RegisterWalletRoutes).
 func RegisterCryptoRoutes(r *gin.RouterGroup) {
 	crypto := r.Group("/crypto")
+	crypto.Use(RequireRole("admin"))
 	{
-		crypto.POST("/deposit/verify", verifyCryptoDeposit)
 		crypto.POST("/batch-settle", settleBatchEscrows)
 		crypto.POST("/emergency-pause", emergencyPause)
 		crypto.GET("/treasury", getTreasuryAddress)
