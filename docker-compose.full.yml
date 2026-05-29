@@ -3,19 +3,48 @@
 # Usage: docker-compose -f docker-compose.full.yml up -d
 
 services:
+  # ==================== DB MIGRATE (one-shot) ====================
+  db-migrate:
+    build:
+      context: .
+      dockerfile: services/control-api/Dockerfile
+    container_name: proxyhubb-db-migrate
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - AUTO_MIGRATE=true
+      - FORCE_MIGRATE=${FORCE_MIGRATE:-true}
+      - MIGRATE_ONLY=true
+      - MIGRATIONS_DIR=/app/migrations
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      - SKIP_CREDENTIAL_CHECK=true
+      - PORT=8080
+      - APP_ENV=migration
+      - GIN_MODE=release
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+    volumes:
+      - ./migrations:/app/migrations:ro
+    restart: "no"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ==================== CONTROL API ====================
   control-api:
     build:
-      context: ./services/control-api
-      dockerfile: Dockerfile.simple
+      context: .
+      dockerfile: services/control-api/Dockerfile
     environment:
-      - DATABASE_URL=postgresql://proxyhubb:proxyhubb@postgres:5432/proxyhubb?sslmode=disable
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
-      - SESSION_SECRET=${SESSION_SECRET}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       - PORT=8080
       - APP_ENV=${APP_ENV:-production}
       - API_BASE_URL=${API_BASE_URL:-http://localhost:8080}
@@ -81,6 +110,8 @@ services:
       - backend
     
     depends_on:
+      db-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:
@@ -96,14 +127,14 @@ services:
       - HOST=0.0.0.0
       - PORT=8090
       - TUNNEL_PORT=3128
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       - CONTROL_API_URL=http://control-api:8080
-      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:-750cb0f0d0b7dce54567b0394513cd19a2ab6d21d4691696179061c20da297d1}
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
       - STICKY_TTL_SECS=3600
-      - JWT_SECRET=${JWT_SECRET}
-      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
-      - SESSION_SECRET=${SESSION_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - TLS_CERT_PATH=/app/certs/server.crt
       - TLS_KEY_PATH=/app/certs/server.key
       # S-07 / Geo filtering — comma-separated ISO-3166-1 alpha-2 country codes
@@ -243,7 +274,7 @@ services:
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
-      - POSTGRES_PASSWORD=proxyhubb
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
     
     volumes:
@@ -299,7 +330,7 @@ services:
   grafana:
     image: grafana/grafana:10.2.0
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
       - GF_SECURITY_DISABLE_GRAVATAR=true
       - GF_SECURITY_ALLOW_EMBEDDING=false
     

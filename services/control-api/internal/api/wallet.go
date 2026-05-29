@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"runtime/debug"
+	
+	"crypto/ed25519"
 	"strings"
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mr-tron/base58"
+	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -47,10 +51,14 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		// General Wallet Info
 		wallet.GET("", getWallet)
 
-		// Spending Limits (Security)
+		// Spending Limits (Security) — rate-limited to prevent rapid reset attacks
 		wallet.GET("/limits", getSpendingLimits)
-		wallet.PUT("/limits", updateSpendingLimits)
-		wallet.POST("/limits/reset", resetSpendingLimits)
+		wallet.PUT("/limits", RateLimitWithConfig(10, time.Minute), updateSpendingLimits)
+		wallet.POST("/limits/reset", RateLimitWithConfig(5, time.Minute), resetSpendingLimits)
+
+		wallet.GET("/withdrawal-security", getWithdrawalSecurity)
+		wallet.PUT("/withdrawal-security/whitelist", RateLimitWithConfig(10, time.Minute), updateWithdrawalWhitelist)
+		wallet.GET("/security-flags", getMySecurityFlags)
 	}
 }
 
@@ -70,9 +78,10 @@ func getWallet(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Error(fmt.Errorf("panic in getWallet: %v", r)).Msg("Recovered from panic")
-			// Print stack trace for debugging
-			debug.PrintStack()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal Server Error (Panic): %v", r)})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Internal Server Error",
+				"code": "INTERNAL_ERROR",
+			})
 		}
 	}()
 
@@ -376,9 +385,11 @@ func refundWalletSOL(userID string, amount float64) {
 	}
 }
 
+const maxTransferSOL = 10000.0
+
 type p2pTransferRequest struct {
 	RecipientIdentifier string  `json:"recipient" binding:"required"` // Email or Username
-	Amount              float64 `json:"amount" binding:"required,gt=0"`
+	Amount              float64 `json:"amount" binding:"required,gt=0,lte=10000"`
 }
 
 func transferP2P(c *gin.Context) {
@@ -390,6 +401,12 @@ func transferP2P(c *gin.Context) {
 
 	senderUUID, _ := GetUserID(c)
 	senderID := senderUUID.String()
+
+	// Runtime check: prevent extremely large amounts that could cause float overflow
+	if req.Amount > maxTransferSOL {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Transfer amount exceeds maximum allowed", "max": maxTransferSOL})
+		return
+	}
 
 	// Wrap the entire transfer in a 30-second context timeout to prevent lock starvation.
 	txCtx, txCancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -532,13 +549,28 @@ func transferP2P(c *gin.Context) {
 		BalanceAfter: recipientWallet.BalanceSOL,
 		Type:         "p2p_received",
 		ReferenceID:  refID,
-		Description:  fmt.Sprintf("Received from %s", senderID), // Use username if available
+		Description:  fmt.Sprintf("Received from %s", senderID),
 	}
 
-	tx.Create(&senderLedger)
-	tx.Create(&recipientLedger)
+	if err := tx.Create(&senderLedger).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Str("ref", refID).Msg("Failed to create sender ledger entry")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not record sender ledger"})
+		return
+	}
 
-	tx.Commit()
+	if err := tx.Create(&recipientLedger).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).Str("ref", refID).Msg("Failed to create recipient ledger entry")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not record recipient ledger"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		logging.Error(err).Str("ref", refID).Msg("Failed to commit P2P transfer")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not commit transaction"})
+		return
+	}
 
 	// FIN-001: After the DB commits, fire an on-chain SOL transfer when both
 	// parties have linked Solana wallets. The DB balance adjustment is the
@@ -565,15 +597,19 @@ func transferP2P(c *gin.Context) {
 		txHash, err := oracle.SendSOL(ctx2, recipPubkey, lamports)
 		if err != nil {
 			// Compensating refund — restore the sender's DB balance.
-			db.DB.Model(&models.Wallet{}).Where("user_id = ?", sUUID).
-				Update("balance_sol", gorm.Expr("balance_sol + ?", amount))
-			db.DB.Create(&models.WalletLedgerEntry{
+			if dbErr := db.DB.Model(&models.Wallet{}).Where("user_id = ?", sUUID).
+				Update("balance_sol", gorm.Expr("balance_sol + ?", amount)).Error; dbErr != nil {
+				logging.Error(dbErr).Str("ref", ref).Msg("CRITICAL: Compensating refund failed for wallet balance")
+			}
+			if ledgerErr := db.DB.Create(&models.WalletLedgerEntry{
 				WalletID:    senderWallet.ID,
 				Amount:      amount,
 				Type:        "p2p_failed_refund",
 				ReferenceID: ref,
 				Description: "On-chain transfer failed — balance restored",
-			})
+			}).Error; ledgerErr != nil {
+				logging.Error(ledgerErr).Str("ref", ref).Msg("CRITICAL: Compensating refund ledger entry failed")
+			}
 			logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded")
 			return
 		}
@@ -588,7 +624,45 @@ func transferP2P(c *gin.Context) {
 }
 
 type withdrawSOLRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
+	Amount    float64 `json:"amount" binding:"required,gt=0,lte=10000"`
+	Nonce     string  `json:"nonce"`
+	Signature string  `json:"signature"`
+}
+
+func verifyWithdrawalSignature(c *gin.Context, walletAddress string, amount float64, nonce string, signature string) bool {
+	message := fmt.Sprintf("withdraw:%s:%.6f", nonce, amount)
+	return verifyWalletSignedMessage(c, walletAddress, nonce, signature, message, "withdrawal:nonce")
+}
+
+// verifyWalletSignedMessage checks an Ed25519 signature over message with a fresh nonce (replay-protected via Redis).
+func verifyWalletSignedMessage(c *gin.Context, walletAddress, nonce, signature, message, redisPrefix string) bool {
+	if signature == "" || nonce == "" {
+		return false
+	}
+	var nonceTime int64
+	if _, err := fmt.Sscanf(nonce, "%d", &nonceTime); err != nil {
+		return false
+	}
+	t := time.Unix(nonceTime, 0)
+	if time.Since(t).Abs() > 5*time.Minute {
+		return false
+	}
+
+	key := fmt.Sprintf("%s:%s:%s", redisPrefix, walletAddress, nonce)
+	if !redis.Client.SetNX(c.Request.Context(), key, "1", 5*time.Minute).Val() {
+		return false
+	}
+
+	pubKeyBytes, err := base58.Decode(walletAddress)
+	if err != nil || len(pubKeyBytes) != 32 {
+		return false
+	}
+	sigBytes, err := base58.Decode(signature)
+	if err != nil || len(sigBytes) != 64 {
+		return false
+	}
+
+	return ed25519.Verify(pubKeyBytes, []byte(message), sigBytes)
 }
 
 // withdrawSOL sends SOL from the user's internal balance to their linked Solana wallet.
@@ -619,9 +693,21 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Validate Solana address format before touching the balance
-	if _, err := solanaGo.PublicKeyFromBase58(*user.WalletAddress); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Linked wallet address is invalid. Please re-link your Solana wallet."})
+	// Load user's Wallet to check security (cooldown, whitelist, balance)
+	var walletRecord models.Wallet
+	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	destAddress, err := walletRecord.WithdrawalDestination(user.WalletAddress)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	if _, err := solanaGo.PublicKeyFromBase58(destAddress); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Withdrawal address is invalid. Please re-link your Solana wallet."})
 		return
 	}
 
@@ -632,9 +718,34 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
+	// Check if user is flagged/frozen
+	var flagCount int64
+	if err := db.DB.Model(&models.UserFlag{}).Where("user_id = ? AND resolved = ?", userUUID, false).Count(&flagCount).Error; err == nil && flagCount > 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and withdrawals are frozen pending security review."})
+		return
+	}
+
+	// Check withdrawal cooldown: withdrawals blocked for 24 hours after primary address change
+	if walletRecord.PrimaryWithdrawalAddress != nil &&
+		walletRecord.WithdrawalAddressChangedAt != nil &&
+		time.Since(*walletRecord.WithdrawalAddressChangedAt) < 24*time.Hour {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Withdrawal address changed recently. Please wait 24 hours.",
+		})
+		return
+	}
+
+	// Large withdrawal requires re-signature from the linked wallet
+	if req.Amount > 10.0 {
+		if !verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Signature verification required for large withdrawals (>10 SOL)"})
+			return
+		}
+	}
+
 	// Atomically deduct from internal balance
-	var walletRecord models.Wallet
-	err := db.DB.Transaction(func(tx *gorm.DB) error {
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		// Reload wallet for update locking
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
 			return fmt.Errorf("wallet not found")
 		}
@@ -666,7 +777,7 @@ func withdrawSOL(c *gin.Context) {
 			Amount:       -req.Amount,
 			BalanceAfter: walletRecord.BalanceSOL,
 			Type:         models.TransactionPayout,
-			Description:  fmt.Sprintf("SOL withdrawal to %s", *user.WalletAddress),
+			Description:  fmt.Sprintf("SOL withdrawal to %s", destAddress),
 			CreatedAt:    time.Now(),
 		}).Error
 	})
@@ -679,10 +790,10 @@ func withdrawSOL(c *gin.Context) {
 	// transfer fails we issue a compensating DB credit with a full ledger entry
 	// so the failure is auditable (not a silent UPDATE).
 	ctx := context.Background()
-	txHash, sendErr := sendSOLOnChain(ctx, oracle, *user.WalletAddress, req.Amount)
+	txHash, sendErr := sendSOLOnChain(ctx, oracle, destAddress, req.Amount)
 	if sendErr != nil {
 		// Compensating refund with proper audit trail.
-		_ = db.DB.Transaction(func(tx *gorm.DB) error {
+		refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.Wallet{}).Where("user_id = ?", userUUID).
 				Update("balance_sol", gorm.Expr("balance_sol + ?", req.Amount)).Error; err != nil {
 				return err
@@ -690,12 +801,19 @@ func withdrawSOL(c *gin.Context) {
 			return tx.Create(&models.WalletLedgerEntry{
 				WalletID:     walletRecord.ID,
 				Amount:       req.Amount,
-				BalanceAfter: walletRecord.BalanceSOL, // pre-deduct value; close enough for audit
+				BalanceAfter: walletRecord.BalanceSOL + req.Amount,
 				Type:         "withdrawal_failed_refund",
 				Description:  fmt.Sprintf("On-chain transfer failed: %v", sendErr),
 				CreatedAt:    time.Now(),
 			}).Error
 		})
+		if refundErr != nil {
+			logging.Error(refundErr).
+				Str("user_id", userUUID.String()).
+				Float64("amount", req.Amount).
+				Msg("CRITICAL: Compensating refund failed — user may have lost funds")
+			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Err: %v", userUUID, req.Amount, refundErr))
+		}
 		logging.Error(sendErr).
 			Str("user_id", userUUID.String()).
 			Float64("amount", req.Amount).
@@ -706,7 +824,7 @@ func withdrawSOL(c *gin.Context) {
 
 	logging.Info().
 		Str("user_id", userUUID.String()).
-		Str("wallet", *user.WalletAddress).
+		Str("wallet", destAddress).
 		Float64("amount_sol", req.Amount).
 		Str("tx_hash", txHash).
 		Msg("SOL withdrawal completed")
@@ -715,9 +833,123 @@ func withdrawSOL(c *gin.Context) {
 		"status":      "success",
 		"tx_hash":     txHash,
 		"amount_sol":  req.Amount,
-		"destination": *user.WalletAddress,
+		"destination": destAddress,
 		"new_balance": walletRecord.BalanceSOL,
 	})
+}
+
+// getWithdrawalSecurity returns withdrawal address, whitelist, and cooldown state.
+func getWithdrawalSecurity(c *gin.Context) {
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	var walletRecord models.Wallet
+	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	cooldownActive := false
+	var cooldownUntil *time.Time
+	if walletRecord.WithdrawalAddressChangedAt != nil &&
+		time.Since(*walletRecord.WithdrawalAddressChangedAt) < 24*time.Hour {
+		cooldownActive = true
+		until := walletRecord.WithdrawalAddressChangedAt.Add(24 * time.Hour)
+		cooldownUntil = &until
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"primary_withdrawal_address":    walletRecord.PrimaryWithdrawalAddress,
+		"withdrawal_whitelist":          walletRecord.WithdrawalWhitelist,
+		"withdrawal_cooldown_active":    cooldownActive,
+		"withdrawal_cooldown_until":     cooldownUntil,
+		"withdrawal_address_changed_at": walletRecord.WithdrawalAddressChangedAt,
+	})
+}
+
+type updateWithdrawalWhitelistRequest struct {
+	Addresses []string `json:"addresses" binding:"required,max=20,dive,required"`
+}
+
+// updateWithdrawalWhitelist replaces the user's withdrawal whitelist (empty = no whitelist restriction).
+func updateWithdrawalWhitelist(c *gin.Context) {
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	var req updateWithdrawalWhitelistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	seen := make(map[string]struct{}, len(req.Addresses))
+	normalized := make([]string, 0, len(req.Addresses))
+	for _, addr := range req.Addresses {
+		addr = strings.TrimSpace(addr)
+		if _, err := solanaGo.PublicKeyFromBase58(addr); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid Solana address: %s", addr)})
+			return
+		}
+		if _, dup := seen[addr]; dup {
+			continue
+		}
+		seen[addr] = struct{}{}
+		normalized = append(normalized, addr)
+	}
+
+	var walletRecord models.Wallet
+	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+		return
+	}
+
+	if walletRecord.PrimaryWithdrawalAddress != nil && *walletRecord.PrimaryWithdrawalAddress != "" && len(normalized) > 0 {
+		primaryInList := false
+		for _, addr := range normalized {
+			if addr == *walletRecord.PrimaryWithdrawalAddress {
+				primaryInList = true
+				break
+			}
+		}
+		if !primaryInList {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Whitelist must include your primary withdrawal address"})
+			return
+		}
+	}
+
+	walletRecord.WithdrawalWhitelist = normalized
+	if err := db.DB.Save(&walletRecord).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update whitelist"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"withdrawal_whitelist": walletRecord.WithdrawalWhitelist,
+		"message":              "Withdrawal whitelist updated",
+	})
+}
+
+// getMySecurityFlags lists unresolved and recent account security flags for the current user.
+func getMySecurityFlags(c *gin.Context) {
+	userUUID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	var flags []models.UserFlag
+	if err := db.DB.Where("user_id = ?", userUUID).Order("created_at DESC").Limit(50).Find(&flags).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load security flags"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"flags": flags, "count": len(flags)})
 }
 
 // sendSOLOnChain builds and submits a SOL transfer instruction from the treasury to recipient.

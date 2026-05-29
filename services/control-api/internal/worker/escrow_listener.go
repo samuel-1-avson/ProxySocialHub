@@ -3,6 +3,7 @@ package worker
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,12 +21,15 @@ import (
 func RegisterEscrowEventListener() {
 	watcher := solana.GetWatcher()
 	if watcher == nil {
-		log.Println("[Worker] Solana watcher not initialized, skipping escrow listener")
+		logging.Info().Msg("Solana watcher not initialized, skipping escrow listener")
 		return
 	}
 
 	watcher.OnEvent(func(event solana.EscrowEvent) {
-		log.Printf("[Worker] Processing Escrow Event: %s (PDA: %s)", event.Type, event.EscrowPDA)
+		logging.Info().
+			Str("event_type", event.Type).
+			Str("escrow_pda", event.EscrowPDA).
+			Msg("Processing escrow event")
 
 		if event.Type == "initialized" {
 			handleEscrowInitialized(event)
@@ -76,7 +80,10 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 			"tx_signature": event.TxSignature,
 			"updated_at":   time.Now(),
 		})
-		log.Printf("[Worker] Order %s activated via Solana Escrow (Tx: %s)", order.ID, event.TxSignature)
+		logging.Info().
+			Str("order_id", order.ID.String()).
+			Str("tx_signature", event.TxSignature).
+			Msg("Order activated via Solana Escrow")
 	}
 }
 
@@ -87,11 +94,26 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 			"status":     models.OrderStatusCompleted,
 			"updated_at": time.Now(),
 		})
-		log.Printf("[Worker] Order %s completed via Solana Settlement", order.ID)
+		logging.Info().
+			Str("order_id", order.ID.String()).
+			Msg("Order completed via Solana Settlement")
 	}
 }
 
+var treasuryAddress = os.Getenv("SOLANA_TREASURY_ADDRESS")
+
 func handleNativeDeposit(event solana.EscrowEvent) {
+	// 0. Verify deposit was sent TO the platform treasury
+	// For native_deposit events, Seller is set to the treasury address by the watcher.
+	if treasuryAddress != "" && event.Seller != treasuryAddress {
+		logging.Warn().
+			Str("sender", event.Buyer).
+			Str("recipient", event.Seller).
+			Str("expected_treasury", treasuryAddress).
+			Msg("Auto-Deposit ignored: recipient is not platform treasury")
+		return
+	}
+
 	// 1. Find user by linked wallet address (Global Search)
 	var userID uuid.UUID
 
@@ -99,20 +121,32 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	var linkedWallet models.LinkedWallet
 	if err := db.DB.Where("address = ?", event.Buyer).First(&linkedWallet).Error; err == nil {
 		userID = linkedWallet.UserID
-		log.Printf("[Worker] Auto-Deposit: Found user %s via linked_wallets for address %s", userID, event.Buyer)
+		logging.Info().
+			Str("user_id", userID.String()).
+			Str("wallet_address", event.Buyer).
+			Msg("Auto-Deposit: found user via linked_wallets")
 	} else {
 		// Fallback: Check primary profile field (Legacy/Initial)
 		var user models.User
 		if err := db.DB.Where("wallet_address = ?", event.Buyer).First(&user).Error; err == nil {
 			userID = user.ID
-			log.Printf("[Worker] Auto-Deposit: Found user %s via profile field for address %s", userID, event.Buyer)
+			logging.Info().
+				Str("user_id", userID.String()).
+				Str("wallet_address", event.Buyer).
+				Msg("Auto-Deposit: found user via profile field")
 		} else {
-			log.Printf("[Worker] Auto-Deposit: No linked user found for wallet %s. Skipping auto-credit.", event.Buyer)
+			logging.Warn().
+				Str("wallet_address", event.Buyer).
+				Msg("Auto-Deposit: no linked user found, skipping")
 			return
 		}
 	}
 
-	log.Printf("[Worker] Auto-Deposit: Identified user %s for wallet %s. Crediting %.6f SOL...", userID, event.Buyer, float64(event.Amount)/1e9)
+	logging.Info().
+		Str("user_id", userID.String()).
+		Str("wallet_address", event.Buyer).
+		Float64("amount_sol", float64(event.Amount)/1e9).
+		Msg("Auto-Deposit: identified user, crediting SOL")
 
 	// 2. Prevent Double Spending
 	var existingTx models.PendingTransaction
@@ -136,7 +170,9 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 			tx.Create(&wallet)
 		} else {
 			tx.Rollback()
-			log.Printf("[Worker] Auto-Deposit: Failed to retrieve or create wallet for user %s: %v", userID, err)
+			logging.Error(err).
+				Str("user_id", userID.String()).
+				Msg("Auto-Deposit: failed to retrieve or create wallet")
 			return
 		}
 	}
@@ -175,11 +211,19 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	tx.Create(&ledger)
 
 	if err := tx.Commit().Error; err != nil {
-		logging.Error(err).Msg("Failed to commit auto-deposit")
+		logging.Error(err).
+			Str("user_id", userID.String()).
+			Str("tx_signature", event.TxSignature).
+			Float64("amount_sol", solAmount).
+			Msg("CRITICAL: Failed to commit auto-deposit")
 		return
 	}
 
-	log.Printf("[Worker] Auto-Deposit SUCCESS: Credited %.6f SOL to user %s (Ref: %s)", solAmount, userID, event.TxSignature)
+	logging.Info().
+		Float64("amount_sol", solAmount).
+		Str("user_id", userID.String()).
+		Str("tx_signature", event.TxSignature).
+		Msg("Auto-Deposit: credited SOL successfully")
 
 	// P2-13: Financial audit trail.
 	audit.LogDirect(&userID, "", models.AuditFinancialAutoDeposit, "wallet", wallet.ID.String(),

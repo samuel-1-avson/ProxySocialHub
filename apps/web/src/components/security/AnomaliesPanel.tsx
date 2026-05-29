@@ -100,6 +100,10 @@ export default function AnomaliesPanel() {
             'device_change': 'New Device',
             'velocity': 'High Velocity',
             'impossible_travel': 'Impossible Travel',
+            'excessive_withdrawals': 'Excessive Withdrawals',
+            'large_withdrawal_deviation': 'Unusual Withdrawal Size',
+            'large_new_p2p_transfer': 'Large P2P To New Recipient',
+            'excessive_usage_spend': 'Unusual Session Spend',
         };
         return type.split(',').map(t => types[t] || t).join(', ');
     };
