@@ -1,6 +1,8 @@
 package models
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +37,11 @@ type Wallet struct {
 	WeeklyLimit      float64   `gorm:"column:weekly_limit;type:numeric(20,9);default:0" json:"weekly_limit"`
 	MonthlyLimit     float64   `gorm:"column:monthly_limit;type:numeric(20,9);default:0" json:"monthly_limit"`
 	LimitWindowStart time.Time `gorm:"column:limit_window_start" json:"limit_window_start"`
+
+	// Withdrawal Security (Cooldown and Whitelist)
+	WithdrawalWhitelist        []string   `gorm:"column:withdrawal_whitelist;serializer:json" json:"withdrawal_whitelist"`
+	PrimaryWithdrawalAddress   *string    `gorm:"column:primary_withdrawal_address" json:"primary_withdrawal_address"`
+	WithdrawalAddressChangedAt *time.Time `gorm:"column:withdrawal_address_changed_at" json:"withdrawal_address_changed_at"`
 }
 
 // WalletLedgerEntry tracks all wallet transactions
@@ -48,6 +55,41 @@ type WalletLedgerEntry struct {
 	TxHash       string    `gorm:"size:255" json:"tx_hash,omitempty"`
 	Description  string    `json:"description"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// WithdrawalDestination returns the on-chain address for payouts and enforces whitelist rules.
+// When withdrawal_whitelist is non-empty, the destination must appear in that list.
+func (w *Wallet) WithdrawalDestination(linkedAddress *string) (string, error) {
+	var dest string
+	if w.PrimaryWithdrawalAddress != nil && *w.PrimaryWithdrawalAddress != "" {
+		dest = *w.PrimaryWithdrawalAddress
+	} else if linkedAddress != nil && *linkedAddress != "" {
+		dest = *linkedAddress
+	} else {
+		return "", errors.New("no withdrawal destination configured")
+	}
+
+	if len(w.WithdrawalWhitelist) > 0 {
+		allowed := false
+		for _, addr := range w.WithdrawalWhitelist {
+			if addr == dest {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", fmt.Errorf("withdrawal address is not on your whitelist")
+		}
+	}
+
+	if linkedAddress == nil || *linkedAddress == "" {
+		return "", errors.New("link a Solana wallet before withdrawing")
+	}
+	if dest != *linkedAddress {
+		return "", fmt.Errorf("withdrawal destination must match your linked wallet; re-link or update primary address")
+	}
+
+	return dest, nil
 }
 
 // BeforeCreate generates UUID if not set

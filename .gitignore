@@ -160,6 +160,9 @@ build_errors.txt
 .vercel
 .env*.local
 
+# Local Go build scratch binaries
+services/control-api/tmp_build*
+
 # Generated analysis/probe artifacts
 *_method_paths*.csv
 *_probe_results_*.csv

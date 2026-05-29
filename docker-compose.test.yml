@@ -5,8 +5,8 @@ services:
   # ==================== Control API (Test Build) ====================
   control-api:
     build:
-      context: ./services/control-api
-      dockerfile: Dockerfile.simple
+      context: .
+      dockerfile: services/control-api/Dockerfile.simple
     container_name: proxyhubb-test-api
     ports:
       - "8080:8080"
@@ -101,8 +101,8 @@ services:
   # ==================== Test Runner ====================
   test-runner:
     build:
-      context: ./services/control-api
-      dockerfile: Dockerfile.simple
+      context: .
+      dockerfile: services/control-api/Dockerfile.simple
     container_name: proxyhubb-test-runner
     command: >
       sh -c "

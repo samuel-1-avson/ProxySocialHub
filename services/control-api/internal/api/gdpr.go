@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -21,8 +20,11 @@ func RegisterGDPRRoutes(rg *gin.RouterGroup) {
 
 // requestDataExport generates and returns user's data
 func requestDataExport(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	// Collect all user data
 	var user models.User
@@ -108,12 +110,16 @@ For questions, contact support@proxyhubb.com
 
 // deleteAccount schedules account for deletion
 func deleteAccount(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var req struct {
-		Password     string `json:"password" binding:"required"`
 		Confirmation string `json:"confirmation" binding:"required"`
+		Nonce        string `json:"nonce"`
+		Signature    string `json:"signature"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,18 +132,28 @@ func deleteAccount(c *gin.Context) {
 		return
 	}
 
-	// Verify password
 	var user models.User
 	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
+	// Wallet-linked accounts must prove control of the linked key
+	if user.WalletAddress != nil && *user.WalletAddress != "" {
+		message := "delete-account:" + req.Nonce
+		if !verifyWalletSignedMessage(c, *user.WalletAddress, req.Nonce, req.Signature, message, "gdpr:delete-account") {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Wallet signature required to schedule account deletion",
+				"message": "Sign message delete-account:<nonce> with your linked Solana wallet",
+			})
+			return
+		}
+	}
+
 	// Schedule deletion (30 days grace period)
 	deletionDate := time.Now().AddDate(0, 0, 30)
 	db.DB.Model(&user).Update("scheduled_deletion_at", deletionDate)
 
-	// Log account deletion scheduled
 	auditEntry := models.AuditLog{
 		EventType:   models.AuditUserDeleted,
 		Severity:    models.AuditSeverityCritical,
