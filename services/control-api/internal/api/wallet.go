@@ -711,6 +711,14 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
+	// Large withdrawal requires re-signature before balance/oracle work.
+	if req.Amount > 10.0 {
+		if !verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Signature verification required for large withdrawals (>10 SOL)"})
+			return
+		}
+	}
+
 	// Check oracle is available
 	oracle := solana.GetOracleClient()
 	if oracle == nil {
@@ -733,14 +741,6 @@ func withdrawSOL(c *gin.Context) {
 			"error": "Withdrawal address changed recently. Please wait 24 hours.",
 		})
 		return
-	}
-
-	// Large withdrawal requires re-signature from the linked wallet
-	if req.Amount > 10.0 {
-		if !verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Signature verification required for large withdrawals (>10 SOL)"})
-			return
-		}
 	}
 
 	// Atomically deduct from internal balance
