@@ -22,7 +22,6 @@ import (
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
-	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -479,6 +478,12 @@ func main() {
 		// Audit & Monitoring (Phase 22)
 		api.RegisterAuditRoutes(protected)
 
+		// GDPR (data export, account deletion scheduling)
+		api.RegisterGDPRRoutes(protected)
+
+		// Crypto ops (admin-only batch settle, treasury, telemetry)
+		api.RegisterCryptoRoutes(protected)
+
 		// State Channels (Phase 5)
 		api.RegisterChannelRoutes(protected)
 
@@ -697,6 +702,13 @@ func main() {
 		reconService := treasury.NewReconciliationService()
 		reconService.StartReconciliationWorker(context.Background())
 		log.Println("Ledger reconciliation service started (daily at 00:00 UTC)")
+
+		// Initialize Anomaly Detector Service
+		detector := worker.NewAnomalyDetector(5 * time.Minute)
+		worker.GoSupervised("AnomalyDetector", 5*time.Second, func() {
+			detector.Start(context.Background())
+		})
+		log.Println("Anomaly detector service started (interval: 5 minutes)")
 
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)

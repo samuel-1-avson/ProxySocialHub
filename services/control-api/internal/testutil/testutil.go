@@ -112,6 +112,11 @@ func SetupTestDB(t *testing.T) {
 			&models.MarketAgent{},
 			&models.AgentInstance{},
 			&models.AgentJob{},
+			&models.UserFlag{},
+			&models.SecurityAnomaly{},
+			&models.SpendingRecord{},
+			&models.UserSubscription{},
+			&models.LinkedWallet{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)

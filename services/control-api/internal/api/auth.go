@@ -278,6 +278,13 @@ func walletLogin(c *gin.Context) {
 		}
 
 		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
+	} else {
+		// User exists -> Check if account has scheduled deletion and cancel it
+		if user.ScheduledDeletionAt != nil {
+			db.DB.Model(&user).Update("scheduled_deletion_at", nil)
+			user.ScheduledDeletionAt = nil
+			log.Printf("[AUTH] Cancelled scheduled deletion for user %s on wallet login", user.ID)
+		}
 	}
 
 	// 4. Issue JWT
@@ -366,5 +373,83 @@ func getMe(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	type SanitizedUser struct {
+		ID                    uuid.UUID         `json:"id"`
+		Email                 string            `json:"email"`
+		Role                  string            `json:"role"`
+		Status                models.UserStatus `json:"status"`
+		TrustTier             models.TrustTier  `json:"trust_tier"`
+		KYCStatus             models.KYCStatus  `json:"kyc_status"`
+		DisplayName           *string           `json:"display_name,omitempty"`
+		Username              *string           `json:"username,omitempty"`
+		Bio                   *string           `json:"bio,omitempty"`
+		AvatarURL             *string           `json:"avatar_url,omitempty"`
+		CoverImageURL         *string           `json:"cover_image_url,omitempty"`
+		Location              *string           `json:"location,omitempty"`
+		ISP                   *string           `json:"isp,omitempty"`
+		Website               *string           `json:"website,omitempty"`
+		SocialLinks           models.JSONMap    `json:"social_links,omitempty"`
+		Skills                []string          `json:"skills,omitempty"`
+		ProfessionalTitle     *string           `json:"professional_title,omitempty"`
+		ExperienceYears       int               `json:"experience_years"`
+		Languages             []string          `json:"languages,omitempty"`
+		PrimarySpecialization *string           `json:"primary_specialization,omitempty"`
+		BusinessName          *string           `json:"business_name,omitempty"`
+		TaxID                 *string           `json:"tax_id,omitempty"`
+		FollowersCount        int               `json:"followers_count"`
+		FollowingCount        int               `json:"following_count"`
+		ReviewsCount          int               `json:"reviews_count"`
+		AvgRating             float64           `json:"avg_rating"`
+		Verified              bool              `json:"verified"`
+		ProviderSince         *time.Time        `json:"provider_since,omitempty"`
+		TotalBandwidthSold    float64           `json:"total_bandwidth_sold"`
+		WalletAddress         *string           `json:"wallet_address,omitempty"`
+		EmailVerified         bool              `json:"email_verified"`
+		IsOnline              bool              `json:"is_online"`
+		LastSeenAt            *time.Time        `json:"last_seen_at,omitempty"`
+		ScheduledDeletionAt   *time.Time        `json:"scheduled_deletion_at,omitempty"`
+		CreatedAt             time.Time         `json:"created_at"`
+		UpdatedAt             time.Time         `json:"updated_at"`
+	}
+
+	response := SanitizedUser{
+		ID:                    user.ID,
+		Email:                 user.Email,
+		Role:                  user.Role,
+		Status:                user.Status,
+		TrustTier:             user.TrustTier,
+		KYCStatus:             user.KYCStatus,
+		DisplayName:           user.DisplayName,
+		Username:              user.Username,
+		Bio:                   user.Bio,
+		AvatarURL:             user.AvatarURL,
+		CoverImageURL:         user.CoverImageURL,
+		Location:              user.Location,
+		ISP:                   user.ISP,
+		Website:               user.Website,
+		SocialLinks:           user.SocialLinks,
+		Skills:                user.Skills,
+		ProfessionalTitle:     user.ProfessionalTitle,
+		ExperienceYears:       user.ExperienceYears,
+		Languages:             user.Languages,
+		PrimarySpecialization: user.PrimarySpecialization,
+		BusinessName:          user.BusinessName,
+		TaxID:                 user.TaxID,
+		FollowersCount:        user.FollowersCount,
+		FollowingCount:        user.FollowingCount,
+		ReviewsCount:          user.ReviewsCount,
+		AvgRating:             user.AvgRating,
+		Verified:              user.Verified,
+		ProviderSince:         user.ProviderSince,
+		TotalBandwidthSold:    user.TotalBandwidthSold,
+		WalletAddress:         user.WalletAddress,
+		EmailVerified:         user.EmailVerified,
+		IsOnline:              user.IsOnline,
+		LastSeenAt:            user.LastSeenAt,
+		ScheduledDeletionAt:   user.ScheduledDeletionAt,
+		CreatedAt:             user.CreatedAt,
+		UpdatedAt:             user.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, response)
 }

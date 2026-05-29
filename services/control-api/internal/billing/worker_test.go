@@ -8,6 +8,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/testutil"
+	"gorm.io/gorm"
 )
 
 func TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle(t *testing.T) {
@@ -111,6 +112,43 @@ func TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle(t *testing
 			refreshedIntent.ChainCommittedAt,
 			refreshedIntent.ArchivedAt,
 		)
+	}
+}
+
+func TestDebitBuyerWallet_InsufficientBalance(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "sessions")
+
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-buyer"), "buyer")
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", buyer.ID).First(&wallet).Error; err != nil {
+		t.Fatalf("wallet: %v", err)
+	}
+	wallet.BalanceSOL = 0.001
+	wallet.LimitsEnabled = false
+	if err := db.DB.Save(&wallet).Error; err != nil {
+		t.Fatalf("save wallet: %v", err)
+	}
+
+	session := models.Session{
+		UserID:    buyer.ID,
+		Type:      models.SessionRotating,
+		Status:    models.SessionActive,
+		Config:    "{}",
+		StartTime: time.Now().Add(-5 * time.Minute),
+	}
+	if err := db.DB.Create(&session).Error; err != nil {
+		t.Fatalf("session: %v", err)
+	}
+
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		return debitBuyerWallet(tx, &session, 1_000_000, 1.0, 150.0)
+	})
+	if err == nil {
+		t.Fatal("expected insufficient balance error")
+	}
+	if err.Error() != "insufficient SOL balance" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

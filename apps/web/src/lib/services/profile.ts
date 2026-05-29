@@ -121,3 +121,23 @@ export async function getUserReviews(userId: string, page = 1): Promise<{ review
     if (!response.ok) throw new Error('Failed to fetch reviews');
     return response.json();
 }
+
+export async function deleteAccount(
+    confirmation: string,
+    opts?: { nonce?: string; signature?: string }
+): Promise<void> {
+    const response = await fetchWithAuth(`${API_BASE_URL}/v1/gdpr/delete-account`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            confirmation,
+            nonce: opts?.nonce,
+            signature: opts?.signature,
+        }),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to delete account');
+    }
+}
+
