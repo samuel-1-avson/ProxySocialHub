@@ -136,10 +136,28 @@ func (tm *TreasuryManager) checkAndTopup(ctx context.Context) {
 	}
 
 	balanceSOL := solana.LamportsToSOL(balance)
+	hotMinSOL := HotMinBalanceSOL()
 	logging.Debug().
 		Float64("balance_sol", balanceSOL).
+		Float64("hot_min_sol", hotMinSOL).
 		Float64("min_sol", float64(thresholds.MinSOLLamports)/1e9).
 		Msg("Treasury balance check")
+
+	if balanceSOL < hotMinSOL {
+		cold := GetColdTreasuryPubkey()
+		if !cold.IsZero() {
+			logging.Warn().
+				Float64("hot_balance_sol", balanceSOL).
+				Float64("hot_min_sol", hotMinSOL).
+				Float64("replenish_sol", HotReplenishAmountSOL()).
+				Str("cold_address", cold.String()).
+				Msg("Hot treasury below minimum — cold→hot replenish requires treasury multi-sig approval")
+			tm.watchtower.TriggerAlert(ctx, "WARNING",
+				"Hot treasury below minimum",
+				fmt.Sprintf("%.4f SOL hot (min %.4f). Propose %.4f SOL cold→hot transfer via admin multi-sig.",
+					balanceSOL, hotMinSOL, HotReplenishAmountSOL()))
+		}
+	}
 
 	// Check against thresholds
 	switch {
@@ -361,14 +379,10 @@ func (tm *TreasuryManager) notifyManualTopupNeeded(amountSOL float64) {
 		fmt.Sprintf("Auto-topup failed. Manual transfer of %.4f SOL required to treasury %s", amountSOL, addr))
 }
 
-// getTreasuryAddress returns the configured treasury address
+// getTreasuryAddress returns the hot operational treasury address.
 func (tm *TreasuryManager) getTreasuryAddress() sol.PublicKey {
-	addr := os.Getenv("SOLANA_TREASURY_ADDRESS")
-	if addr != "" {
-		pk, err := sol.PublicKeyFromBase58(addr)
-		if err == nil {
-			return pk
-		}
+	if pk := GetHotTreasuryPubkey(); !pk.IsZero() {
+		return pk
 	}
 	if tm.oracle != nil {
 		return tm.oracle.GetOraclePublicKey()
@@ -376,38 +390,82 @@ func (tm *TreasuryManager) getTreasuryAddress() sol.PublicKey {
 	return sol.PublicKey{}
 }
 
-// GetTreasuryStats returns current treasury statistics
+// GetTreasuryStats returns current treasury statistics (hot + optional cold).
 func (tm *TreasuryManager) GetTreasuryStats(ctx context.Context) (*TreasuryStats, error) {
 	if tm.oracle == nil {
 		return nil, fmt.Errorf("oracle not available")
 	}
 
-	treasuryAddr := tm.getTreasuryAddress()
-	balance, err := tm.oracle.GetBalance(ctx, treasuryAddr)
+	hotAddr := tm.getTreasuryAddress()
+	hotBalance, err := tm.oracle.GetBalance(ctx, hotAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	thresholds := tm.GetThresholds()
+	hotMinLamports := uint64(HotMinBalanceSOL() * float64(solana.LamportsPerSOL))
 
-	return &TreasuryStats{
-		Address:           treasuryAddr.String(),
-		BalanceLamports:   balance,
-		BalanceSOL:        solana.LamportsToSOL(balance),
-		Thresholds:        thresholds,
-		Status:            tm.getTreasuryStatus(balance, thresholds),
-		LastCheckedAt:     time.Now().UTC(),
-	}, nil
+	stats := &TreasuryStats{
+		Address:         hotAddr.String(),
+		BalanceLamports: hotBalance,
+		BalanceSOL:      solana.LamportsToSOL(hotBalance),
+		Hot: WalletBalanceView{
+			Address:         hotAddr.String(),
+			BalanceLamports: hotBalance,
+			BalanceSOL:      solana.LamportsToSOL(hotBalance),
+			MinBalanceSOL:   HotMinBalanceSOL(),
+			MaxBalanceSOL:   HotMaxBalanceSOL(),
+			ReplenishSOL:    HotReplenishAmountSOL(),
+			NeedsReplenish:  hotBalance < hotMinLamports,
+		},
+		Thresholds:    thresholds,
+		Status:        tm.getTreasuryStatus(hotBalance, thresholds),
+		LastCheckedAt: time.Now().UTC(),
+	}
+
+	coldAddr := GetColdTreasuryPubkey()
+	if !coldAddr.IsZero() {
+		coldBalance, coldErr := tm.oracle.GetBalance(ctx, coldAddr)
+		if coldErr == nil {
+			stats.Cold = &WalletBalanceView{
+				Address:         coldAddr.String(),
+				BalanceLamports: coldBalance,
+				BalanceSOL:      solana.LamportsToSOL(coldBalance),
+			}
+			stats.CombinedBalanceSOL = stats.Hot.BalanceSOL + stats.Cold.BalanceSOL
+			stats.CombinedBalanceLamports = hotBalance + coldBalance
+		}
+	} else {
+		stats.CombinedBalanceSOL = stats.Hot.BalanceSOL
+		stats.CombinedBalanceLamports = hotBalance
+	}
+
+	return stats, nil
+}
+
+// WalletBalanceView is a single treasury wallet balance snapshot.
+type WalletBalanceView struct {
+	Address         string  `json:"address"`
+	BalanceLamports uint64  `json:"balance_lamports"`
+	BalanceSOL      float64 `json:"balance_sol"`
+	MinBalanceSOL   float64 `json:"min_balance_sol,omitempty"`
+	MaxBalanceSOL   float64 `json:"max_balance_sol,omitempty"`
+	ReplenishSOL    float64 `json:"replenish_sol,omitempty"`
+	NeedsReplenish  bool    `json:"needs_replenish,omitempty"`
 }
 
 // TreasuryStats represents treasury statistics
 type TreasuryStats struct {
-	Address         string            `json:"address"`
-	BalanceLamports uint64            `json:"balance_lamports"`
-	BalanceSOL      float64           `json:"balance_sol"`
+	Address         string             `json:"address"`
+	BalanceLamports uint64             `json:"balance_lamports"`
+	BalanceSOL      float64            `json:"balance_sol"`
+	Hot             WalletBalanceView  `json:"hot"`
+	Cold            *WalletBalanceView `json:"cold,omitempty"`
+	CombinedBalanceLamports uint64     `json:"combined_balance_lamports"`
+	CombinedBalanceSOL      float64    `json:"combined_balance_sol"`
 	Thresholds      TreasuryThresholds `json:"thresholds"`
-	Status          string            `json:"status"`
-	LastCheckedAt   time.Time         `json:"last_checked_at"`
+	Status          string             `json:"status"`
+	LastCheckedAt   time.Time          `json:"last_checked_at"`
 }
 
 // getTreasuryStatus returns the status based on balance
