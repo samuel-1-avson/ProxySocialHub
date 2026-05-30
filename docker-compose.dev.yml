@@ -95,7 +95,7 @@ services:
       - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS}
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:-${SOLANA_TREASURY_ADDRESS}}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
-      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-100}
+      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-0.1}
       - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-500}
       - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-200}
       - TREASURY_MULTISIG_ADMIN_IDS=${TREASURY_MULTISIG_ADMIN_IDS:-}
@@ -138,7 +138,8 @@ services:
       - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
 
     volumes:
-      - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
+      # Use infra dev keypair (root ./oracle-keypair.json is often a placeholder "[]").
+      - ./infra/oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
       - ./cli-dist:/app/cli-dist:ro
 
     security_opt:
