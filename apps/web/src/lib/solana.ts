@@ -3,7 +3,9 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import idl from './idl/proxyhub.json';
 
 // Constants
-const PROGRAM_ID = new PublicKey('2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7');
+const PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_SOLANA_PROGRAM_ID || '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2'
+);
 const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
 const RAW_SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
 const SOLANA_NETWORK = RAW_SOLANA_NETWORK === 'mainnet' ? 'mainnet-beta' : RAW_SOLANA_NETWORK;
