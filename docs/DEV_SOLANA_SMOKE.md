@@ -33,10 +33,13 @@ Invoke-RestMethod http://localhost:18080/health
 Invoke-RestMethod http://localhost:18080/v1/solana/health
 ```
 
+(`/v1/solana/health` is public. The same path under the authenticated group still exists for logged-in clients.)
+
 | Check | Pass |
 |-------|------|
 | `/health` → ok | ☐ |
-| Solana health shows devnet + oracle configured | ☐ |
+| `/v1/solana/health` → `status` ok, `network` devnet, oracle pubkey + balance | ☐ |
+| Or skip Solana health if treasury shows `oracle_configured: true` (step 2) | ☐ |
 
 ## 2. Treasury transparency (2 min)
 
@@ -54,9 +57,10 @@ Invoke-RestMethod http://localhost:18080/v1/treasury/public | ConvertTo-Json -De
 
 ## 3. Deposit → wallet credit (10 min)
 
-1. Link Phantom (or test wallet) to a user on http://localhost:3000.
-2. Send **devnet SOL** to **`SOLANA_TREASURY_ADDRESS`** (not the program id unless they are the same in your `.env`).
-3. Submit deposit verification (UI or `POST /v1/wallet/crypto/deposit` with `tx_hash`, `amount`, `chain: solana`).
+1. Open http://localhost:3000/dashboard/wallet → **Linked Wallets**: connect Phantom (devnet), sign to **link** the wallet.
+2. **Overview** → **Deposit SOL**: enter amount, connect the **same** linked wallet if prompted, click **Deposit SOL**, approve in Phantom.
+3. The UI confirms on-chain, then calls `POST /v1/wallet/deposit/crypto` with the signature automatically.
+4. Fallback: expand “Already sent SOL? Paste signature” only if you transferred outside the app.
 
 | Check | Pass |
 |-------|------|

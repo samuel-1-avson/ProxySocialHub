@@ -376,17 +376,20 @@ func main() {
 	r.Use(middleware.CircuitBreakerMiddleware("redis", middleware.DefaultCircuitBreakerConfigs["redis"]))
 	r.Use(middleware.CircuitBreakerMiddleware("solana", middleware.DefaultCircuitBreakerConfigs["solana"]))
 
-	// Centralized admin API surface is intentionally disabled.
-	r.Use(func(c *gin.Context) {
-		if c.Request.URL.Path == "/v1/admin" || strings.HasPrefix(c.Request.URL.Path, "/v1/admin/") {
-			c.AbortWithStatusJSON(http.StatusGone, gin.H{
-				"error":   "admin_api_disabled",
-				"message": "Admin API routes have been removed from this deployment",
-			})
-			return
-		}
-		c.Next()
-	})
+	adminAPIEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("ADMIN_API_ENABLED")), "true")
+	if !adminAPIEnabled {
+		// Centralized admin API surface is disabled unless ADMIN_API_ENABLED=true.
+		r.Use(func(c *gin.Context) {
+			if c.Request.URL.Path == "/v1/admin" || strings.HasPrefix(c.Request.URL.Path, "/v1/admin/") {
+				c.AbortWithStatusJSON(http.StatusGone, gin.H{
+					"error":   "admin_api_disabled",
+					"message": "Set ADMIN_API_ENABLED=true to enable admin routes in this deployment",
+				})
+				return
+			}
+			c.Next()
+		})
+	}
 
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
@@ -401,7 +404,8 @@ func main() {
 		api.RegisterHealthRoutes(v1)
 		api.RegisterMonitoringRoutes(v1)
 		api.RegisterAuthRoutes(v1)
-		api.RegisterListingRoutes(v1)       // Mix of public/private
+		api.RegisterMarketplaceGeoRoutes(v1) // Before /listings/:id (map pins)
+		api.RegisterListingRoutes(v1)        // Mix of public/private
 		api.RegisterListingSocialRoutes(v1) // Social integration for listings
 		api.RegisterMilestoneRoutes(v1)     // Usage milestones
 		api.RegisterUsageReviewRoutes(v1)   // Usage-based reviews
@@ -417,6 +421,7 @@ func main() {
 		api.RegisterSDKRoutes(v1)          // P1-A5: SDK Examples API
 		api.RegisterGatewayRoutes(v1, cfg) // Gateway node registration and heartbeat
 		api.RegisterTreasuryPublicRoutes(v1) // Phase 4.3: public treasury transparency
+		solanaClient.RegisterPublicRoutes(v1) // Oracle/RPC health (no auth)
 	}
 
 	// Public Routes (No Authentication Required)
@@ -503,7 +508,20 @@ func main() {
 		api.RegisterTierRoutes(protected)
 	}
 
-	log.Println("Admin API routes disabled (all /v1/admin endpoints return 410)")
+	if adminAPIEnabled {
+		api.InitAdminConfig(&cfg.Admin)
+		admin := v1.Group("/admin")
+		api.RegisterAdminAuthRoutes(admin)
+		adminProtected := admin.Group("/")
+		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
+		api.RegisterAdminRoutes(adminProtected)
+		api.RegisterAdminOnboardingRoutes(adminProtected)
+		api.RegisterAdminPayoutRoutes(adminProtected)
+		api.RegisterAdminMeRoute(adminProtected)
+		log.Println("Admin API enabled (ADMIN_API_ENABLED=true)")
+	} else {
+		log.Println("Admin API disabled (set ADMIN_API_ENABLED=true to enable /v1/admin)")
+	}
 
 	// Start Chain Indexer
 	idx := indexer.NewIndexer()

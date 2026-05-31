@@ -1,0 +1,11 @@
+# Copy to ~/.config/proxyhubb/provider.toml (Linux/macOS)
+# or %USERPROFILE%\.proxyhubb\provider.toml (Windows).
+# Do NOT commit real keys to git — use Dashboard → My Nodes → Download provider.toml
+
+control_api_url = "http://localhost:18080"
+gateway_addr = "localhost:3128"
+api_key = "<from Dashboard → API Tokens>"
+node_id = "<from Dashboard → My Nodes>"
+connection_type = "residential"
+use_tls = false
+jwt_token = ""

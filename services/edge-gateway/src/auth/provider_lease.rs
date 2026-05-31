@@ -90,6 +90,31 @@ impl ProviderLeaseValidator {
 }
 
 #[cfg(test)]
+mod lease_policy_tests {
+    use super::provider_leases_required;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock")
+    }
+
+    #[test]
+    fn development_env_disables_required_lease() {
+        let _guard = env_lock();
+        let previous = std::env::var("APP_ENV").ok();
+        std::env::set_var("APP_ENV", "development");
+        assert!(!provider_leases_required());
+        match previous {
+            Some(value) => std::env::set_var("APP_ENV", value),
+            None => std::env::remove_var("APP_ENV"),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use jsonwebtoken::{encode, EncodingKey, Header};

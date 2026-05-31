@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
+import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 
 interface ListingCardProps {
     listing: Listing;
@@ -69,6 +70,11 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                                 }`}>
                                 {listing.proxy_type}
                             </div>
+                            <ListingSlaBadge
+                                uptimePercent={listing.uptime_percent}
+                                slaSource={listing.sla_source}
+                                compact
+                            />
                         </div>
                     </div>
                 </div>

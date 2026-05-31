@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,7 +44,7 @@ type ListingsResponse struct {
 // getListings returns marketplace listings with filters
 func getListings(c *gin.Context) {
 	// Try cache first
-	cacheKey := fmt.Sprintf("listings:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:c:%s:i:%s:r:%s:sort:%s",
+	cacheKey := fmt.Sprintf("listings:sla:v1:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:c:%s:i:%s:r:%s:sort:%s",
 		c.DefaultQuery("page", "1"),
 		c.DefaultQuery("limit", "20"),
 		c.Query("proxy_type"),
@@ -106,6 +107,8 @@ func getListings(c *gin.Context) {
 		apiListings[i] = listingModel
 	}
 
+	enrichListingsSLA(apiListings)
+
 	response := ListingsResponse{
 		Listings: apiListings,
 		Total:    total,
@@ -121,6 +124,22 @@ func getListings(c *gin.Context) {
 
 // getListing returns a single listing by ID
 func getListing(c *gin.Context) {
+	id := strings.ToLower(strings.TrimSpace(c.Param("id")))
+	switch id {
+	case "geo":
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "endpoint_not_found",
+			"message": "Use GET /v1/listings/geo or GET /v1/marketplace/geo",
+		})
+		return
+	case "featured", "search":
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "endpoint_not_found",
+			"message": "Use GET /v1/listings/" + id,
+		})
+		return
+	}
+
 	listingID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing ID"})
@@ -132,6 +151,8 @@ func getListing(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
 	}
+
+	enrichListingsSLA([]models.ProxyListing{listing})
 
 	// Increment view count
 	db.DB.Model(&listing).Update("views_count", listing.ViewsCount+1)
@@ -198,14 +219,45 @@ func createListing(c *gin.Context) {
 		return
 	}
 
-	// Modernized call to Core Service
+	providerNodeID, err := resolveListingProviderNode(userID, req.ProviderNodeID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	country := req.Country
+	isp := req.ISP
+	if providerNodeID != nil && (country == "" || isp == "") {
+		var pn models.ProviderNode
+		if db.DB.Select("country", "city").First(&pn, "id = ?", *providerNodeID).Error == nil {
+			if country == "" {
+				country = pn.Country
+			}
+		}
+	}
+
+	rotationType := req.RotationType
+	if rotationType == "" {
+		rotationType = "static"
+	}
+	maxConcurrency := req.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 5
+	}
+
 	entity := domain.ListingEntity{
+		ProviderNodeID:       providerNodeID,
 		Title:                req.Title,
 		Description:          req.Description,
 		PricePerGB:           req.PricePerGB,
+		MinPurchaseGB:        req.MinPurchaseGB,
 		AvailableBandwidthGB: req.AvailableBandwidthGB,
+		MaxConcurrency:       maxConcurrency,
 		ProxyType:            domain.ProxyType(req.ProxyType),
 		Protocol:             req.Protocol,
+		RotationType:         rotationType,
+		Country:              country,
+		ISP:                  isp,
 	}
 
 	published, err := GetMarketplaceService().PublishListing(c.Request.Context(), userID, entity)
@@ -215,6 +267,31 @@ func createListing(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, published)
+}
+
+// resolveListingProviderNode picks or validates the provider_nodes row for a listing.
+func resolveListingProviderNode(sellerID uuid.UUID, requested *uuid.UUID) (*uuid.UUID, error) {
+	if requested != nil && *requested != uuid.Nil {
+		var count int64
+		if err := db.DB.Model(&models.ProviderNode{}).
+			Where("id = ? AND user_id = ?", *requested, sellerID).
+			Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			return nil, fmt.Errorf("provider node not found or not owned by you")
+		}
+		return requested, nil
+	}
+
+	var pn models.ProviderNode
+	err := db.DB.Where("user_id = ?", sellerID).
+		Order("CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC NULLS LAST, created_at DESC").
+		First(&pn).Error
+	if err != nil {
+		return nil, nil
+	}
+	return &pn.ID, nil
 }
 
 // updateListing updates an existing listing

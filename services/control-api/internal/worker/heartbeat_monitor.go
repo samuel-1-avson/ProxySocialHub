@@ -13,13 +13,12 @@ import (
 // a circular import between the worker and api packages.
 var OnNodeOffline func(*models.ExplorerNode)
 
-const heartbeatTimeout = 5 * time.Minute
-
 // StartHeartbeatMonitor runs every minute and marks nodes offline
 // when their last heartbeat exceeds the timeout window.
 func StartHeartbeatMonitor() {
 	GoSupervised("HeartbeatMonitor", 5*time.Second, func() {
-		log.Println("Heartbeat Monitor started — checking every 60s, timeout after 5m")
+		stale := providerNodeStaleAfter()
+		log.Printf("Heartbeat Monitor started — checking every 60s, provider stale after %v", stale)
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -33,7 +32,8 @@ func runHeartbeatCheck() {
 		return
 	}
 
-	cutoff := time.Now().Add(-heartbeatTimeout)
+	stale := providerNodeStaleAfter()
+	cutoff := time.Now().Add(-stale)
 
 	result := db.DB.Model(&models.ProviderNode{}).
 		Where("status = ? AND last_seen_at < ? AND last_seen_at IS NOT NULL", models.NodeOnline, cutoff).
@@ -45,7 +45,7 @@ func runHeartbeatCheck() {
 	}
 
 	if result.RowsAffected > 0 {
-		log.Printf("Heartbeat Monitor: marked %d node(s) offline (no heartbeat in >%v)", result.RowsAffected, heartbeatTimeout)
+		log.Printf("Heartbeat Monitor: marked %d node(s) offline (no heartbeat in >%v)", result.RowsAffected, stale)
 
 		// Broadcast each newly-offline node to WebSocket clients (if wired)
 		if OnNodeOffline != nil {

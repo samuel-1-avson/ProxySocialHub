@@ -61,8 +61,6 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
-      - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY:-}
-      - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY:-}
       # --- Solana / Blockchain ---
       - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
@@ -279,7 +277,7 @@ services:
       dockerfile: Dockerfile
       args:
         - API_URL=http://control-api:8080
-        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:8090}
         - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
         - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
         - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}

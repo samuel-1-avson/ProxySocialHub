@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
@@ -138,6 +140,10 @@ func TestWithdrawSOL_CooldownActive(t *testing.T) {
 	now := time.Now()
 	wallet.WithdrawalAddressChangedAt = &now
 	db.DB.Save(&wallet)
+
+	withWithdrawSOLMocks(t, func(ctx context.Context, o *solana.OracleClient, dest string, amount float64) (string, error) {
+		return "unused", nil
+	})
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))

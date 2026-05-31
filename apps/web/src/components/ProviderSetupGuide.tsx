@@ -368,7 +368,7 @@ export function ProviderSetupGuide() {
                             <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">1. Initialize Configuration</span>
                                 <button 
-                                    onClick={() => copyToClipboard('provider-cli init', 'init')}
+                                    onClick={() => copyToClipboard('provider-node register', 'init')}
                                     className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1"
                                 >
                                     {copiedCommand === 'init' ? <CheckCircle size={10} /> : <Copy size={10} />}
@@ -376,7 +376,7 @@ export function ProviderSetupGuide() {
                                 </button>
                             </div>
                             <div className="bg-black/60 border border-white/5 rounded-xl p-4 font-mono text-xs text-white/70">
-                                <span className="text-emerald-500">$</span> provider-cli init
+                                <span className="text-emerald-500">$</span> provider-node register
                             </div>
                         </div>
 
@@ -384,7 +384,7 @@ export function ProviderSetupGuide() {
                             <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">2. Start Your Node</span>
                                 <button 
-                                    onClick={() => copyToClipboard('provider-cli node start --token YOUR_TOKEN_HERE', 'start')}
+                                    onClick={() => copyToClipboard('provider-node start --config provider.toml', 'start')}
                                     className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1"
                                 >
                                     {copiedCommand === 'start' ? <CheckCircle size={10} /> : <Copy size={10} />}
@@ -392,7 +392,7 @@ export function ProviderSetupGuide() {
                                 </button>
                             </div>
                             <div className="bg-black/60 border border-white/5 rounded-xl p-4 font-mono text-xs text-white/70">
-                                <span className="text-emerald-500">$</span> provider-cli node start --token <span className="text-primary">YOUR_TOKEN_HERE</span>
+                                <span className="text-emerald-500">$</span> provider-node start --config <span className="text-primary">provider.toml</span>
                             </div>
                         </div>
 
@@ -400,7 +400,7 @@ export function ProviderSetupGuide() {
                             <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">3. Run as Service (Optional)</span>
                                 <button 
-                                    onClick={() => copyToClipboard('provider-cli service install', 'service')}
+                                    onClick={() => copyToClipboard('proxyhubb-cli start --config provider.toml', 'service')}
                                     className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1"
                                 >
                                     {copiedCommand === 'service' ? <CheckCircle size={10} /> : <Copy size={10} />}
@@ -408,7 +408,7 @@ export function ProviderSetupGuide() {
                                 </button>
                             </div>
                             <div className="bg-black/60 border border-white/5 rounded-xl p-4 font-mono text-xs text-white/70">
-                                <span className="text-emerald-500">$</span> provider-cli service install
+                                <span className="text-emerald-500">$</span> proxyhubb-cli start --config provider.toml
                             </div>
                         </div>
                     </div>

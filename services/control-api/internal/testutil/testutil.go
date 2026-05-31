@@ -11,6 +11,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -117,6 +118,7 @@ func SetupTestDB(t *testing.T) {
 			&models.SpendingRecord{},
 			&models.UserSubscription{},
 			&models.LinkedWallet{},
+			&models.ProviderScore{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)
@@ -344,6 +346,16 @@ func getenvDefault(key, fallback string) string {
 	return fallback
 }
 
+// resolveCleanupTable maps legacy test table aliases to real Postgres names.
+func resolveCleanupTable(name string) string {
+	switch name {
+	case "users", "auth.users":
+		return "profiles"
+	default:
+		return name
+	}
+}
+
 // CleanupTestData cleans up test data after a test.
 // Call this in a defer at the start of each test.
 func CleanupTestData(t *testing.T, tables ...string) {
@@ -355,7 +367,7 @@ func CleanupTestData(t *testing.T, tables ...string) {
 		// Disable FK checks to allow deleting in any order
 		db.DB.Exec("SET session_replication_role = 'replica';")
 		for _, table := range tables {
-			db.DB.Exec(fmt.Sprintf("DELETE FROM %s WHERE 1=1", table))
+			db.DB.Exec(fmt.Sprintf("DELETE FROM %s WHERE 1=1", resolveCleanupTable(table)))
 		}
 		db.DB.Exec("SET session_replication_role = 'origin';")
 	})
@@ -367,6 +379,7 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 	t.Helper()
 
 	user := &models.User{
+		ID:        uuid.New(),
 		Email:     email,
 		Role:      role,
 		Status:    models.UserStatusActive,

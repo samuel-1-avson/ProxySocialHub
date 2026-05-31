@@ -119,6 +119,23 @@ impl Config {
         let cfg: Config = toml::from_str(&contents)?;
         Ok(cfg)
     }
+
+    /// Platform-specific path for operator config (outside git repos).
+    pub fn default_config_path() -> std::path::PathBuf {
+        if let Some(dir) = dirs::config_dir() {
+            return dir.join("proxyhubb").join("provider.toml");
+        }
+        std::path::PathBuf::from("provider.toml")
+    }
+
+    pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let body = toml::to_string_pretty(self)?;
+        std::fs::write(path, body)?;
+        Ok(())
+    }
 }
 
 // ── Defaults ────────────────────────────────────────────────────────

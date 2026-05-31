@@ -26,10 +26,10 @@ func StartGeoIPWorker() {
 		defer ticker.Stop()
 
 		// Run once initially
-		RunSafely("GeoIPUpdater.cycle", geoip.ResolveNextBatch)
+		RunSafely("GeoIPUpdater.cycle", func() { geoip.ResolveNextBatch() })
 
 		for range ticker.C {
-			RunSafely("GeoIPUpdater.cycle", geoip.ResolveNextBatch)
+			RunSafely("GeoIPUpdater.cycle", func() { geoip.ResolveNextBatch() })
 		}
 	})
 }

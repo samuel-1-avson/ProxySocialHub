@@ -12,6 +12,7 @@ import {
     getProviderTokens, createProviderToken, revokeProviderToken,
     type ProviderToken, type CreateTokenResponse,
 } from '@/lib/api/provider';
+import { saveProviderApiKey } from '@/lib/provider-config';
 
 export default function TokensPage() {
     const qc = useQueryClient();
@@ -31,6 +32,7 @@ export default function TokensPage() {
         mutationFn: () => createProviderToken({ name, expires_in: expiresIn }),
         onSuccess: (res) => {
             setNewToken(res);
+            saveProviderApiKey(res.token);
             setShowCreate(false);
             setName('');
             setExpiresIn(0);
@@ -103,7 +105,7 @@ export default function TokensPage() {
                                         </button>
                                     </div>
                                     <p className="text-[10px] text-muted-foreground mt-2 font-mono">
-                                        Use with CLI: <code className="text-emerald-400">provider-cli config set api_key &lt;token&gt;</code>
+                                        Use with CLI: <code className="text-emerald-400">PROXYHUB_API_KEY=&lt;token&gt; provider-node register</code>
                                     </p>
                                 </div>
                             </div>

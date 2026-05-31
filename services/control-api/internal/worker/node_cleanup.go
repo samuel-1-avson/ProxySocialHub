@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	staleNodeOfflineThreshold = 30 * time.Minute
-	staleNodeArchiveThreshold = 7 * 24 * time.Hour
+	staleExplorerOfflineThreshold = 30 * time.Minute
+	staleNodeArchiveThreshold      = 7 * 24 * time.Hour
 )
 
 // StartStaleNodeCleanupWorker runs hourly and:
-//   - marks ProviderNodes + ExplorerNodes offline when their last heartbeat is
-//     older than staleNodeOfflineThreshold (30 min)
+//   - marks ExplorerNodes inactive when heartbeat is older than staleExplorerOfflineThreshold (30 min)
+//   - ProviderNodes offline transitions are handled by HeartbeatMonitor (PROVIDER_NODE_STALE_AFTER, default 5m)
 //   - soft-deletes ExplorerNodes that have been offline for more than
 //     staleNodeArchiveThreshold (7 days)
 func StartStaleNodeCleanupWorker() {
@@ -35,31 +35,19 @@ func runStaleNodeCleanup() {
 	}
 
 	now := time.Now()
-	offlineCutoff := now.Add(-staleNodeOfflineThreshold)
+	explorerOfflineCutoff := now.Add(-staleExplorerOfflineThreshold)
 	archiveCutoff := now.Add(-staleNodeArchiveThreshold)
 
-	// 1. Mark ProviderNodes offline when heartbeat exceeds threshold.
-	providerResult := db.DB.Model(&models.ProviderNode{}).
-		Where("status = ? AND last_seen_at < ? AND last_seen_at IS NOT NULL",
-			models.NodeOnline, offlineCutoff).
-		Update("status", models.NodeOffline)
-	if providerResult.Error != nil {
-		log.Printf("Stale Node Cleanup: error marking ProviderNodes offline: %v", providerResult.Error)
-	} else if providerResult.RowsAffected > 0 {
-		log.Printf("Stale Node Cleanup: marked %d ProviderNode(s) offline (no heartbeat in >%v)",
-			providerResult.RowsAffected, staleNodeOfflineThreshold)
-	}
-
-	// 2. Mark ExplorerNodes inactive when heartbeat exceeds threshold.
+	// 1. Mark ExplorerNodes inactive when heartbeat exceeds threshold.
 	explorerResult := db.DB.Model(&models.ExplorerNode{}).
 		Where("is_active = ? AND last_heartbeat < ? AND last_heartbeat IS NOT NULL",
-			true, offlineCutoff).
+			true, explorerOfflineCutoff).
 		Update("is_active", false)
 	if explorerResult.Error != nil {
 		log.Printf("Stale Node Cleanup: error marking ExplorerNodes inactive: %v", explorerResult.Error)
 	} else if explorerResult.RowsAffected > 0 {
 		log.Printf("Stale Node Cleanup: marked %d ExplorerNode(s) inactive (no heartbeat in >%v)",
-			explorerResult.RowsAffected, staleNodeOfflineThreshold)
+			explorerResult.RowsAffected, staleExplorerOfflineThreshold)
 	}
 
 	// 3. Archive (soft-delete) ExplorerNodes offline for more than 7 days.

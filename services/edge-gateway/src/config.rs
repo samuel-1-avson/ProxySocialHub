@@ -57,6 +57,26 @@ pub struct Config {
     pub max_rpm_per_session: Option<u32>,
 }
 
+/// Expose debug/operator routes on the public proxy listener (default: off in release/prod).
+pub fn debug_routes_enabled() -> bool {
+    if let Ok(raw) = env::var("ENABLE_DEBUG_ROUTES") {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => return true,
+            "0" | "false" | "no" | "off" => return false,
+            _ => {}
+        }
+    }
+
+    for key in ["APP_ENV", "GO_ENV", "RUST_ENV", "ENVIRONMENT"] {
+        if let Ok(raw) = env::var(key) {
+            let value = raw.trim().to_ascii_lowercase();
+            return matches!(value.as_str(), "development" | "dev" | "local" | "test");
+        }
+    }
+
+    cfg!(debug_assertions)
+}
+
 impl Config {
     pub fn from_env() -> Self {
         let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -279,6 +299,18 @@ mod tests {
         restore_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", previous_legacy);
 
         assert!(config.legacy_edge_zk_submission_enabled);
+    }
+
+    #[test]
+    fn debug_routes_enabled_in_development_env() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous = env::var("APP_ENV").ok();
+        env::set_var("APP_ENV", "development");
+        assert!(debug_routes_enabled());
+        match previous {
+            Some(value) => env::set_var("APP_ENV", value),
+            None => env::remove_var("APP_ENV"),
+        }
     }
 
     #[test]
