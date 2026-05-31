@@ -1,0 +1,15 @@
+# Minimal workflow to test whether GitHub Actions can start any job on this repo.
+# Remove after CI is healthy.
+name: CI diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Actions runner OK"
