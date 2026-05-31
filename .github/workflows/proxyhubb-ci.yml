@@ -1,0 +1,400 @@
+name: ProxyHubb CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  GO_VERSION: '1.25'
+  NODE_VERSION: '20'
+  RUST_VERSION: 'stable'
+
+jobs:
+  # ==================== Changes Detection ====================
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      edge: ${{ steps.filter.outputs.edge }}
+      solana: ${{ steps.filter.outputs.solana }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'services/control-api/**'
+              - 'proto/**'
+            frontend:
+              - 'apps/web/**'
+            edge:
+              - 'services/edge-gateway/**'
+            solana:
+              - 'services/solana-programs/**'
+            contracts:
+              - 'packages/contracts/**'
+
+  # ==================== Backend (Go) ====================
+  backend-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/control-api
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: proxyhubb
+          POSTGRES_PASSWORD: proxyhubb
+          POSTGRES_DB: proxyhubb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:8222/varz"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        check-latest: true
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+    - name: Run staticcheck
+      run: staticcheck ./...
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Wallet production closure (Go)
+      env:
+        TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
+        REDIS_URL: "redis://localhost:6379"
+        EMERGENCY_SOL_PRICE_USD: "200"
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+      run: |
+        go test ./internal/billing/... -count=1
+        go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
+
+    - name: Test with coverage
+      env:
+        TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
+        REDIS_URL: "redis://localhost:6379"
+        NATS_URL: "nats://localhost:4222"
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+        SOLANA_RPC_ENDPOINT: "https://api.devnet.solana.com"
+        EMERGENCY_SOL_PRICE_USD: "200"
+      run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./services/control-api/coverage.out
+        flags: backend
+        name: backend-coverage
+        fail_ci_if_error: false
+
+  # ==================== Frontend (Next.js) ====================
+  frontend-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/web
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ./apps/web/package-lock.json
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run linter
+      run: npm run lint
+      
+    - name: Type check
+      run: npx tsc --noEmit
+      
+    - name: Build
+      run: npm run build
+      env:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+        NEXT_PUBLIC_SOLANA_NETWORK: devnet
+
+    - name: Run unit tests
+      run: npm test -- --coverage --watchAll=false
+
+  # ==================== Edge Gateway (Rust) ====================
+  edge-gateway-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.edge == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/edge-gateway
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "./services/edge-gateway"
+    
+    - name: Check formatting
+      run: cargo fmt -- --check
+    
+    - name: Run Clippy
+      run: cargo clippy -- -D warnings
+      
+    - name: Build
+      run: cargo build --verbose
+      
+    - name: Test
+      run: cargo test --verbose
+
+  # ==================== Solana Programs ====================
+  solana-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.solana == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/solana-programs/proxyhub
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Solana
+      run: |
+        sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
+        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+    
+    - name: Install Anchor
+      run: |
+        cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+        avm install latest
+        avm use latest
+    
+    - name: Install Node.js dependencies
+      run: npm ci
+    
+    - name: Build programs
+      run: anchor build
+    
+    - name: Run tests
+      run: anchor test
+
+  # ==================== Smart Contracts (Solidity) ====================
+  contracts-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.contracts == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./packages/contracts
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ./packages/contracts/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Compile contracts
+      run: npx hardhat compile
+    
+    - name: Run tests
+      run: npx hardhat test
+
+  # ==================== Docker Build Check ====================
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Control API Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./services/control-api
+        push: false
+        tags: control-api:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build Web Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./apps/web
+        push: false
+        tags: web:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ==================== DB Migration Smoke-Test ====================
+  # Applies every *.up.sql file in sequence via psql — matching exactly what
+  # the custom RunMigrations() runner does at runtime (P3-14).
+  # Runs on every push so a broken migration is caught before deploy.
+  db-migrate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: proxyhubb
+          POSTGRES_PASSWORD: proxyhubb
+          POSTGRES_DB: proxyhubb_migrate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run all up migrations (psql)
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        for f in $(ls migrations/*.up.sql | sort); do
+          echo "Applying $f ..."
+          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -f "$f" \
+            || { echo "FAILED: $f"; exit 1; }
+        done
+
+    - name: Verify key tables exist
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -c \
+          "SELECT table_name FROM information_schema.tables
+           WHERE table_schema = 'public'
+           ORDER BY table_name;" \
+          | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
+
+    - name: Verify wallet schema (migrations 080-088)
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        set -euo pipefail
+        DB=proxyhubb_migrate_test
+        cols=$(psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT column_name FROM information_schema.columns
+           WHERE table_name = 'wallets'
+             AND column_name IN ('withdrawal_whitelist','primary_withdrawal_address','withdrawal_address_changed_at','balance_usdt');")
+        echo "$cols" | grep -q withdrawal_whitelist
+        echo "$cols" | grep -q primary_withdrawal_address
+        echo "$cols" | grep -q withdrawal_address_changed_at
+        echo "$cols" | grep -q balance_usdt && { echo "balance_usdt should be dropped"; exit 1; } || true
+        psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_flags');" | grep -q t
+        psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wallet_ledger_entries' AND column_name = 'tx_hash');" | grep -q t
+        echo "Wallet schema closure checks passed"
+
+    - name: Run all down migrations (rollback smoke-test)
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        for f in $(ls migrations/*.down.sql | sort -r); do
+          echo "Rolling back $f ..."
+          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -f "$f"
+        done
+      continue-on-error: true   # Down migrations are best-effort in CI
+
+  # ==================== Lint & Format Check ====================
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check Markdown
+      uses: DavidAnson/markdownlint-cli2-action@v15
+      with:
+        globs: '**/*.md'
+      continue-on-error: true
+    
+    - name: Check YAML
+      run: |
+        pip install yamllint
+        yamllint -d relaxed .github/workflows/
+      continue-on-error: true
