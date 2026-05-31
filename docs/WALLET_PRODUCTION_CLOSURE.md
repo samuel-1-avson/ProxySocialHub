@@ -25,7 +25,7 @@ PGPASSWORD=proxyhubb ./scripts/wallet-production-closure.sh
 .\scripts\wallet-manual-e2e.ps1 -AccessToken $env:ACCESS_TOKEN
 ```
 
-**CI:** `.github/workflows/ci.yml` runs wallet schema checks in `db-migrate` and wallet/billing Go tests in `backend-test`.
+**CI:** `.github/workflows/proxyhubb-ci.yml` (**ProxyHubb CI**) runs wallet schema checks in `db-migrate` and wallet/billing Go tests in `backend-test`. See [CI_WALLET_STEPS.md](CI_WALLET_STEPS.md).
 
 Exit code `0` means automated checks passed. You still need **authenticated** steps in [WALLET_E2E_SMOKE.md](WALLET_E2E_SMOKE.md) and [DEV_SOLANA_SMOKE.md](DEV_SOLANA_SMOKE.md).
 
