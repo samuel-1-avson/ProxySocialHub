@@ -18,6 +18,8 @@ func SeedAll() {
 
 	log.Println("Seeding System Config...")
 	seedSystemConfig()
+	log.Println("Seeding CLI downloads...")
+	SeedCLIDownloads()
 	log.Println("Database seeding completed")
 }
 

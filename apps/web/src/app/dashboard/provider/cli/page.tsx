@@ -68,9 +68,9 @@ connection_type = "fiber"`;
                     <FileCode size={14} />
                     Provider Tools
                 </div>
-                <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">CLI & Tools</h1>
+                <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Provider Node CLI</h1>
                 <p className="text-muted-foreground font-mono text-xs max-w-lg">
-                    DOWNLOAD THE PROVIDER CLI TO JOIN THE NETWORK, START THE NODE DAEMON, AND VERIFY LIVE STATUS.
+                    DOWNLOAD provider-node (OR USE proxyhubb-cli) TO JOIN THE NETWORK, START THE DAEMON, AND VERIFY LIVE STATUS.
                 </p>
             </div>
 

@@ -11,6 +11,10 @@ geoip/*.mmdb
 # Env backups (may contain real credentials)
 .env.backup.*
 
+# Provider operator config with live API keys (use Dashboard download instead)
+cli/provider.local.toml
+**/provider.local.toml
+
 # Claude Code local config
 .claude/
 
@@ -162,6 +166,9 @@ build_errors.txt
 
 # Local Go build scratch binaries
 services/control-api/tmp_build*
+
+# Accidental build output directory named "..." (do not commit)
+services/control-api/.../
 
 # Generated analysis/probe artifacts
 *_method_paths*.csv

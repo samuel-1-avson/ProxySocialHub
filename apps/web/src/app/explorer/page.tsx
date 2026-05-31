@@ -388,6 +388,7 @@ export default function ExplorerDashboard() {
             {/* Quick Nav Links */}
             <motion.section variants={itemVariants} className="flex flex-wrap gap-3">
                 {[
+                    { href: '/treasury', label: 'Treasury', icon: ShieldCheck },
                     { href: '/explorer/transactions', label: 'Transactions', icon: ArrowRightLeft },
                     { href: '/explorer/nodes', label: 'Nodes', icon: Server },
                     { href: '/explorer/blocks', label: 'Blocks', icon: Box },

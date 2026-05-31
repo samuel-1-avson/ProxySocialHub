@@ -24,6 +24,8 @@ export interface Listing {
     city?: string;
     isp?: string;
     uptime_percent: number;
+    /** gateway | explorer | provider | listing — from linked node telemetry */
+    sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
     avg_latency_ms: number;
     success_rate: number;
     quality_score: number;
@@ -162,6 +164,48 @@ export interface ProviderNode {
 /**
  * Get marketplace listings with filters
  */
+export interface MarketplaceGeoPin {
+    listing_id: string;
+    title: string;
+    seller_id: string;
+    proxy_type: string;
+    protocol: string;
+    country: string;
+    isp?: string;
+    city?: string;
+    price_per_gb: number;
+    available_bandwidth_gb: number;
+    lat: number;
+    lon: number;
+    node_id?: string;
+    node_active: boolean;
+    uptime_percent: number;
+    latency_ms?: number;
+    sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
+    geo_resolved: boolean;
+    purchasable: boolean;
+}
+
+export interface MarketplaceGeoResponse {
+    pins: MarketplaceGeoPin[];
+    total: number;
+}
+
+export interface MarketplaceGeoFilters {
+    country?: string;
+    proxy_type?: string;
+    /** west,south,east,north — filters listings with precise explorer coordinates */
+    bbox?: string;
+}
+
+export function getMarketplaceGeo(filters?: MarketplaceGeoFilters) {
+    const params: Record<string, string> = {};
+    if (filters?.country) params.country = filters.country;
+    if (filters?.proxy_type) params.proxy_type = filters.proxy_type;
+    if (filters?.bbox) params.bbox = filters.bbox;
+    return apiGet<MarketplaceGeoResponse>('/v1/listings/geo', params);
+}
+
 export function getListings(filters?: ListingFilters) {
     const params: Record<string, string> = {};
     if (filters) {

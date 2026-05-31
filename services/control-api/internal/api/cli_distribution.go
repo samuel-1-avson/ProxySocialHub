@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -16,9 +17,31 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// CLIDownloadPath is the directory where CLI binaries are stored
-// This should be configured via environment variable in production
-const CLIDownloadPath = "/app/cli-dist"
+// cliDistRoot returns the directory where CLI binaries are stored (CLI_DIST_PATH or /app/cli-dist).
+func cliDistRoot() string {
+	if p := strings.TrimSpace(os.Getenv("CLI_DIST_PATH")); p != "" {
+		return p
+	}
+	return "/app/cli-dist"
+}
+
+func normalizeCLIPlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "darwin":
+		return "macos"
+	default:
+		return strings.ToLower(strings.TrimSpace(platform))
+	}
+}
+
+func normalizeCLIArch(arch string) string {
+	switch strings.ToLower(strings.TrimSpace(arch)) {
+	case "x64":
+		return "amd64"
+	default:
+		return strings.ToLower(strings.TrimSpace(arch))
+	}
+}
 
 // RegisterCLIDistributionRoutes registers CLI download routes
 func RegisterCLIDistributionRoutes(rg *gin.RouterGroup) {
@@ -76,9 +99,9 @@ func listCLIDownloads(c *gin.Context) {
 
 // getLatestCLI returns the latest CLI download for the current platform
 func getLatestCLI(c *gin.Context) {
-	platform := c.Query("platform")
-	arch := c.Query("arch")
-	
+	platform := normalizeCLIPlatform(c.Query("platform"))
+	arch := normalizeCLIArch(c.Query("arch"))
+
 	// Auto-detect if not provided
 	if platform == "" {
 		platform = detectPlatform()
@@ -111,10 +134,10 @@ func getLatestCLI(c *gin.Context) {
 
 // getCLIDownload serves the CLI binary file
 func getCLIDownload(c *gin.Context) {
-	platform := c.Query("platform")
-	arch := c.Query("arch")
+	platform := normalizeCLIPlatform(c.Query("platform"))
+	arch := normalizeCLIArch(c.Query("arch"))
 	version := c.Query("version")
-	
+
 	// Validate platform to prevent path traversal
 	if !isValidPlatform(platform) || !isValidArch(arch) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid platform or architecture"})
@@ -136,7 +159,7 @@ func getCLIDownload(c *gin.Context) {
 	}
 	
 	// Check if file exists on disk
-	filePath := filepath.Join(CLIDownloadPath, download.FilePath)
+	filePath := filepath.Join(cliDistRoot(), download.FilePath)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Binary not found on server"})
 		return
@@ -172,7 +195,7 @@ func uploadCLIBinary(c *gin.Context) {
 	}
 	
 	// Create directory structure
-	dirPath := filepath.Join(CLIDownloadPath, version)
+	dirPath := filepath.Join(cliDistRoot(), version)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
 		return

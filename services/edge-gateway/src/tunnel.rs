@@ -23,6 +23,16 @@ struct Claims {
     exp: usize,
 }
 
+fn validate_tunnel_claims(claims: &Claims) -> Result<(), String> {
+    if claims.role != "provider" {
+        return Err(format!("unexpected role: {}", claims.role));
+    }
+    if claims.user_id.trim().is_empty() {
+        return Err("missing user id".into());
+    }
+    Ok(())
+}
+
 /// P1-A6: Provider capability declaration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderCapabilities {
@@ -224,8 +234,15 @@ where
                     token,
                     &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
                     &validation,
-                ) {
+                )                 {
                     Ok(token_data) => {
+                        if let Err(reason) = validate_tunnel_claims(&token_data.claims) {
+                            error!(
+                                "Handshake: AUTH rejected for {}: {}",
+                                peer_addr, reason
+                            );
+                            return;
+                        }
                         let _ = auth_stream.write_all(b"OK\n").await;
                         let _ = auth_stream.flush().await;
                         token_data.claims.user_id
@@ -395,8 +412,12 @@ where
             version: reg_version,
         };
         if let Ok(resp) = control_api.register_node(&req).await {
-            info!("✅ Node registered with Control API: {}", reg_node_id);
+            info!(
+                "✅ Node registered with Control API: {} (db_id: {})",
+                reg_node_id, resp.id
+            );
             reg_state.registry.update_node_info(&reg_node_id, |info| {
+                info.control_api_db_id = Some(resp.id.clone());
                 info.quality_score = resp.quality_score;
                 info.current_tier = resp.current_tier;
                 info.base_price_per_gb = resp.base_price_per_gb;
@@ -563,9 +584,30 @@ where
         });
     }
 
+    let db_id = state
+        .registry
+        .get_node_info(&node_id)
+        .and_then(|info| info.control_api_db_id.clone());
+
     warn!("Provider disconnected: {}", node_id);
     let _ = state.heartbeat_monitor.unregister_provider(&node_id).await;
     state.registry.remove(&node_id);
+
+    if let Some(db_id) = db_id {
+        let control_api = state.control_api.clone();
+        tokio::spawn(async move {
+            if let Err(err) = control_api
+                .update_status(&db_id, false, "offline", Some("tunnel_closed"))
+                .await
+            {
+                warn!(
+                    db_node_id = %db_id,
+                    error = %err,
+                    "Failed to mark node offline in control-api"
+                );
+            }
+        });
+    }
 }
 
 fn calculate_assigned_limits(caps: &ProviderCapabilities) -> AssignedLimits {
@@ -583,6 +625,23 @@ fn calculate_assigned_limits(caps: &ProviderCapabilities) -> AssignedLimits {
 mod tests {
     use super::*;
     use tokio::io::duplex;
+
+    #[test]
+    fn validate_tunnel_claims_requires_provider_role() {
+        let ok = Claims {
+            user_id: "user-1".into(),
+            role: "provider".into(),
+            exp: 0,
+        };
+        assert!(validate_tunnel_claims(&ok).is_ok());
+
+        let bad = Claims {
+            user_id: "user-1".into(),
+            role: "buyer".into(),
+            exp: 0,
+        };
+        assert!(validate_tunnel_claims(&bad).is_err());
+    }
 
     #[tokio::test]
     async fn reads_large_heartbeat_frame_across_multiple_reads() {

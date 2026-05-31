@@ -115,6 +115,13 @@ export default function MarketplacePage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-10">
+                    <Link
+                        href="/marketplace/map"
+                        className="px-8 py-5 rounded-[1.8rem] border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-black text-xs uppercase tracking-[0.3em] flex items-center gap-3 hover:bg-emerald-500/20 transition-all"
+                    >
+                        <Globe size={18} />
+                        Map view
+                    </Link>
                     <div className="flex items-center gap-10 p-6 px-10 glass-card border-white/5 bg-white/[0.02] rounded-[2.5rem] shadow-2xl backdrop-blur-3xl">
                         <div className="space-y-1">
                             <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Global Liquidity</div>

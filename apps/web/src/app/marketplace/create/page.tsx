@@ -1,17 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { ArrowLeft, Save, Shield, Globe, Server, User } from "lucide-react";
 import Link from "next/link";
 import { fetchWithAuth } from "@/lib/auth";
+import { getMyNodes, type NodeRegistration } from "@/lib/api/provider";
 
 export default function CreateListingPage() {
     const { user, isAuthenticated } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [providerNodes, setProviderNodes] = useState<NodeRegistration[]>([]);
 
     const [formData, setFormData] = useState({
         title: "",
@@ -24,8 +26,22 @@ export default function CreateListingPage() {
         price_per_gb: 5,
         min_purchase_gb: 1,
         available_bandwidth_gb: 100,
-        max_concurrency: 10
+        max_concurrency: 10,
+        provider_node_id: "" as string,
     });
+
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        getMyNodes()
+            .then(res => {
+                const nodes = res.nodes ?? [];
+                setProviderNodes(nodes);
+                if (nodes.length === 1 && !formData.provider_node_id) {
+                    setFormData(prev => ({ ...prev, provider_node_id: nodes[0].id }));
+                }
+            })
+            .catch(() => setProviderNodes([]));
+    }, [isAuthenticated]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -44,10 +60,14 @@ export default function CreateListingPage() {
 
         try {
             const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+            const payload = { ...formData };
+            if (!payload.provider_node_id) {
+                delete (payload as { provider_node_id?: string }).provider_node_id;
+            }
             const response = await fetchWithAuth(`${apiBase}/v1/listings`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
@@ -123,6 +143,28 @@ export default function CreateListingPage() {
                     <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2 border-b border-border/50 pb-2">
                         <Server size={14} className="text-primary" /> Technical Specs
                     </h3>
+
+                    {providerNodes.length > 0 && (
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-mono font-bold uppercase">Provider node (for map placement)</label>
+                            <select
+                                name="provider_node_id"
+                                value={formData.provider_node_id}
+                                onChange={handleChange}
+                                className="w-full bg-secondary/10 border border-border p-2 text-sm font-mono rounded-sm focus:border-primary outline-none"
+                            >
+                                <option value="">Auto-select best node</option>
+                                {providerNodes.map(n => (
+                                    <option key={n.id} value={n.id}>
+                                        {n.name} ({n.status}){n.country ? ` — ${n.country}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="text-[10px] text-muted-foreground font-mono">
+                                Links this listing to infrastructure shown on the marketplace map.
+                            </p>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">

@@ -143,11 +143,21 @@ function ListingDetailContent() {
                                     </div>
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Uptime</div>
+                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1 flex items-center justify-between gap-2">
+                                        <span>Uptime</span>
+                                        {listing.sla_source === 'gateway' && (
+                                            <span className="text-emerald-500 text-[9px]">live</span>
+                                        )}
+                                    </div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Activity size={16} className="text-blue-500" />
                                         {listing.uptime_percent}%
                                     </div>
+                                    {listing.sla_source && (
+                                        <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
+                                            Source: {listing.sla_source}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
                                     <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Success Rate</div>

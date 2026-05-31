@@ -176,6 +176,9 @@ impl TunnelClient {
                 info!("Handshake: provider lease acquired");
             }
             Err(err) => {
+                if crate::lease_policy::provider_leases_required() {
+                    anyhow::bail!("provider lease required but unavailable: {err}");
+                }
                 warn!("Handshake: provider lease unavailable, continuing without lease: {}", err);
             }
         }

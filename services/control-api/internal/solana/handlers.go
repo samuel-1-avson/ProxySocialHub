@@ -74,11 +74,15 @@ func GetOracle() *OracleClient {
 	return oracleClient
 }
 
-// RegisterRoutes registers Solana-related API routes
+// RegisterPublicRoutes registers read-only Solana routes that do not require auth.
+func RegisterPublicRoutes(r *gin.RouterGroup) {
+	r.GET("/solana/health", healthHandler)
+}
+
+// RegisterRoutes registers Solana-related API routes (authenticated).
 func RegisterRoutes(r *gin.RouterGroup) {
 	solanaGroup := r.Group("/solana")
 	{
-		solanaGroup.GET("/health", healthHandler)
 		solanaGroup.GET("/escrow/:buyer/:seller", getEscrowHandler)
 		solanaGroup.POST("/escrow/settle", settleEscrowHandler)
 	}

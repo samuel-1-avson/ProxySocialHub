@@ -290,10 +290,10 @@ export default function HealthPage() {
                     </h2>
                     <div className="space-y-2 text-xs font-mono text-muted-foreground">
                         {nodes.length === 0 && (
-                            <p>• Run <code className="text-primary">provider-cli wizard</code> to register your first node.</p>
+                            <p>• Run <code className="text-primary">provider-node register</code> to register your first node.</p>
                         )}
                         {offlineNodes.length > 0 && (
-                            <p>• {offlineNodes.length} node(s) offline — check that <code className="text-primary">provider-cli node start</code> is running.</p>
+                            <p>• {offlineNodes.length} node(s) offline — check that <code className="text-primary">provider-node start</code> is running.</p>
                         )}
                         {avgLatency !== null && avgLatency > 200 && (
                             <p>• High latency detected. Check your network connection or move the node closer to users.</p>
