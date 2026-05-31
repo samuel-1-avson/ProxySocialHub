@@ -47,6 +47,7 @@ func linkWallet(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			recoverHandlerPanic(c, "linkWallet", userID, r)
 		}
 	}()
 
@@ -350,12 +351,28 @@ func verifyCryptoDeposit(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			recoverHandlerPanic(c, "verifyCryptoDeposit", userID, r)
 		}
 	}()
 
 	var existingTx models.PendingTransaction
 	if err := tx.Where("reference = ?", req.TxHash).First(&existingTx).Error; err == nil {
 		tx.Rollback()
+		if existingTx.Status == "completed" {
+			var wallet models.Wallet
+			if db.DB.Where("user_id = ?", userID).First(&wallet).Error == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"status":      "success",
+					"message":     "Deposit already credited",
+					"tx_hash":     req.TxHash,
+					"solscan_url": SolscanTxURL(req.TxHash),
+					"credited":    verifiedAmount,
+					"currency":    "SOL",
+					"new_balance": wallet.BalanceSOL,
+				})
+				return
+			}
+		}
 		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed"})
 		return
 	}
@@ -405,14 +422,15 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	// 4. Log Transaction
 	pendingTx := models.PendingTransaction{
-		UserID:      userUUID, // P2-16: uuid.UUID (was string)
-		Reference:   req.TxHash,
-		Type:        "crypto_deposit",
-		Amount:      req.Amount,
-		Currency:    currency,
-		Provider:    "blockchain",
-		Status:      "completed",
-		ExternalRef: req.TxHash,
+		UserID:         userUUID,
+		Reference:      req.TxHash,
+		IdempotencyKey: req.TxHash,
+		Type:           "crypto_deposit",
+		Amount:         req.Amount,
+		Currency:       currency,
+		Provider:       "blockchain",
+		Status:         "completed",
+		ExternalRef:    req.TxHash,
 	}
 	if err := tx.Create(&pendingTx).Error; err != nil {
 		tx.Rollback()
@@ -433,11 +451,13 @@ func verifyCryptoDeposit(c *gin.Context) {
 		BalanceAfter: wallet.BalanceSOL,
 		Type:         "deposit",
 		ReferenceID:  req.TxHash,
+		TxHash:       req.TxHash,
 		Description:  fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
 	}
 	if err := tx.Create(&ledger).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ledger error"})
+		logging.Error(err).Str("tx_hash", req.TxHash).Str("user_id", userID).Msg("Failed to create wallet ledger entry")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record deposit in ledger"})
 		return
 	}
 
@@ -445,6 +465,8 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "success",
+		"tx_hash":     req.TxHash,
+		"solscan_url": SolscanTxURL(req.TxHash),
 		"credited":    creditedAmount,
 		"currency":    currency,
 		"new_balance": wallet.BalanceSOL,

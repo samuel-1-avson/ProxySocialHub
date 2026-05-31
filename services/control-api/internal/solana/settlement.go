@@ -431,9 +431,15 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 	return c.FetchEscrow(ctx, pda)
 }
 
+// SendSOLTestHook, when set, replaces SendSOL (used by api package tests).
+var SendSOLTestHook func(ctx context.Context, c *OracleClient, recipient sol.PublicKey, lamports uint64) (string, error)
+
 // SendSOL transfers lamports from the oracle (treasury) wallet to a recipient
 // using a System Program transfer instruction.
 func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lamports uint64) (string, error) {
+	if SendSOLTestHook != nil {
+		return SendSOLTestHook(ctx, c, recipient, lamports)
+	}
 	// Velocity guard: enforce per-transfer cap and hourly outflow limit.
 	amountSOL := LamportsToSOL(lamports)
 	// P0-07: VelocityGuard is mandatory. Block the transfer if it was never attached

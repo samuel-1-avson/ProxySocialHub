@@ -13,6 +13,8 @@ import {
     createProviderToken, createNode,
     type CreateTokenResponse,
 } from '@/lib/api/provider';
+import { ProviderNodeConnectPanel } from '@/components/provider/ProviderNodeConnectPanel';
+import { saveProviderApiKey } from '@/lib/provider-config';
 import Link from 'next/link';
 
 const STEPS = [
@@ -37,11 +39,13 @@ export default function SetupPage() {
     const [nodeCountry, setNodeCountry] = useState('');
     const [nodeCity, setNodeCity] = useState('');
     const [nodeCreated, setNodeCreated] = useState(false);
+    const [registeredNodeId, setRegisteredNodeId] = useState<string | null>(null);
 
     const tokenMutation = useMutation({
         mutationFn: () => createProviderToken({ name: tokenName }),
         onSuccess: (res) => {
             setCreatedToken(res);
+            saveProviderApiKey(res.token);
             qc.invalidateQueries({ queryKey: ['provider-tokens'] });
             setStep(2);
         },
@@ -49,8 +53,9 @@ export default function SetupPage() {
 
     const nodeMutation = useMutation({
         mutationFn: () => createNode({ name: nodeName, country: nodeCountry || undefined, city: nodeCity || undefined }),
-        onSuccess: () => {
+        onSuccess: (node) => {
             setNodeCreated(true);
+            setRegisteredNodeId(node.id);
             qc.invalidateQueries({ queryKey: ['my-nodes'] });
             setStep(3);
         },
@@ -138,6 +143,7 @@ export default function SetupPage() {
                     {step === 3 && (
                         <InstallStep
                             token={createdToken}
+                            nodeId={registeredNodeId}
                             onNext={next}
                             onBack={prev}
                         />
@@ -373,69 +379,57 @@ function NodeStep({
 
 // ─────────────── Step 3: Install CLI ───────────────
 function InstallStep({
-    token, onNext, onBack,
+    token, nodeId, onNext, onBack,
 }: {
     token: CreateTokenResponse | null;
+    nodeId: string | null;
     onNext: () => void;
     onBack: () => void;
 }) {
-    const configLines = token
-        ? `api_key: "${token.token}"\ngateway_addr: "gateway.proxyhubb.com:443"\nuse_tls: true`
-        : `api_key: "YOUR_TOKEN_HERE"\ngateway_addr: "gateway.proxyhubb.com:443"\nuse_tls: true`;
-
     return (
         <GlassCard hoverEffect={false}>
             <div className="space-y-5">
                 <div>
                     <h2 className="text-lg font-bold font-mono mb-1">Install the CLI</h2>
                     <p className="text-xs text-muted-foreground font-mono">
-                        Download and configure the provider CLI to connect your machine to the ProxyHub network.
+                        Download the binary, save config on your machine (not in this git repo), then start the node.
                     </p>
                 </div>
 
                 <div className="space-y-3">
-                    {[
-                        {
-                            n: 1,
-                            title: 'Download the CLI',
-                            content: (
-                                <Link
-                                    href="/dashboard/provider/cli"
-                                    className="text-xs text-primary font-mono hover:underline flex items-center gap-1"
-                                >
-                                    Go to CLI & Tools page <ChevronRight size={10} />
-                                </Link>
-                            ),
-                        },
-                        {
-                            n: 2,
-                            title: 'Create config file',
-                            content: (
-                                <pre className="text-[10px] font-mono text-muted-foreground bg-black/20 rounded-xl px-4 py-3 whitespace-pre-wrap">
-                                    {`# Save to ~/.proxyhubb/provider.yaml\n${configLines}`}
-                                </pre>
-                            ),
-                        },
-                        {
-                            n: 3,
-                            title: 'Start your node',
-                            content: (
-                                <pre className="text-[10px] font-mono text-primary bg-black/20 rounded-xl px-4 py-3">
-                                    {'provider-cli node start'}
-                                </pre>
-                            ),
-                        },
-                    ].map(({ n, title, content }) => (
-                        <div key={n} className="flex gap-3">
+                    <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-xs font-black shrink-0 mt-0.5">
+                            1
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-xs font-bold font-mono mb-1">Download the CLI</p>
+                            <Link
+                                href="/dashboard/provider/cli"
+                                className="text-xs text-primary font-mono hover:underline flex items-center gap-1"
+                            >
+                                Go to CLI & Tools page <ChevronRight size={10} />
+                            </Link>
+                        </div>
+                    </div>
+
+                    {nodeId ? (
+                        <div className="flex gap-3">
                             <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-xs font-black shrink-0 mt-0.5">
-                                {n}
+                                2
                             </div>
-                            <div className="flex-1 space-y-2">
-                                <p className="text-xs font-bold font-mono">{title}</p>
-                                {content}
+                            <div className="flex-1">
+                                <p className="text-xs font-bold font-mono mb-2">Download config & run</p>
+                                <ProviderNodeConnectPanel
+                                    nodeId={nodeId}
+                                    apiKey={token?.token ?? null}
+                                />
                             </div>
                         </div>
-                    ))}
+                    ) : (
+                        <p className="text-[10px] font-mono text-amber-400/90 px-9">
+                            Register a node in the previous step to generate a ready-to-run config.
+                        </p>
+                    )}
                 </div>
 
                 <div className="flex items-center justify-between gap-3 pt-2">
@@ -467,8 +461,8 @@ function DoneStep({ nodeCreated, onFinish }: { nodeCreated: boolean; onFinish: (
                     <h2 className="text-xl font-bold font-mono mb-2">You're all set!</h2>
                     <p className="text-sm text-muted-foreground max-w-sm mx-auto">
                         {nodeCreated
-                            ? 'Your node is registered. Start the CLI and it will appear online within seconds.'
-                            : 'Run provider-cli wizard on your machine to complete the setup.'}
+                            ? 'Download provider.toml from the install step, save it on your machine, then run provider-node start — no repo edits needed.'
+                            : 'Register a node and download provider.toml from the install step.'}
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">

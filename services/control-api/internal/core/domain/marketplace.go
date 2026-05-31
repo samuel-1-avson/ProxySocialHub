@@ -29,15 +29,18 @@ const (
 type ListingEntity struct {
 	ID                   uuid.UUID
 	SellerID             uuid.UUID
+	ProviderNodeID       *uuid.UUID
 	Title                string
 	Description          string
 	ProxyType            ProxyType
 	Protocol             string
+	RotationType         string
 	Country              string
 	ISP                  string
 	PricePerGB           float64
 	MinPurchaseGB        float64
 	AvailableBandwidthGB float64
+	MaxConcurrency       int
 	Status               ListingStatus
 	QualityScore         float64
 	AvgLatencyMs         int

@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -24,6 +26,7 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.PUT("/provider/nodes/:id", updateNode)
 	rg.DELETE("/provider/nodes/:id", deleteNode)
 	rg.GET("/provider/nodes/:id/uptime", getNodeUptime)
+	rg.GET("/provider/nodes/:id/connect", getNodeConnectInfo)
 	rg.POST("/provider/nodes/:id/heartbeat", nodeHeartbeat)
 }
 
@@ -93,6 +96,9 @@ func createNode(c *gin.Context) {
 		return
 	}
 
+	gatewayID := providerGatewayNodeID(userID)
+	_ = db.DB.Model(&node).Update("gateway_node_id", gatewayID).Error
+
 	// Auto-publish a marketplace listing so the node is immediately discoverable.
 	// The provider can update pricing/description later from their dashboard.
 	go autoPublishListing(userID, node, req.ConnectionType)
@@ -150,11 +156,16 @@ func createNode(c *gin.Context) {
 				updates["city"] = req.City
 			}
 			db.DB.Model(&existingNode).Updates(updates)
-			
+			linkGatewayNodeToProviderNode(existingNode.ID, &node, gatewayID)
+
 			// Trigger geo lookup via NodeSync
 			if ns := indexer.GetNodeSync(); ns != nil {
 				go ns.TriggerSync()
 			}
+		} else if err := db.DB.Where("provider_user_id = ? AND gateway_node_id = ?", userID, gatewayID).
+			Order("created_at DESC").
+			First(&existingNode).Error; err == nil {
+			linkGatewayNodeToProviderNode(existingNode.ID, &node, gatewayID)
 		}
 	}
 
@@ -191,13 +202,16 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 		title = node.Name + " — " + loc
 	}
 
+	nodeID := node.ID
 	listing := domain.ListingEntity{
+		ProviderNodeID:       &nodeID,
 		Title:                title,
 		Description:          "High-quality " + string(proxyType) + " proxy node. Auto-listed on registration.",
 		PricePerGB:           0.50, // default $0.50/GB — provider can adjust
 		AvailableBandwidthGB: 100,  // default 100 GB — provider can adjust
 		ProxyType:            proxyType,
 		Protocol:             "http",
+		Country:              node.Country,
 	}
 
 	if _, err := svc.PublishListing(context.Background(), userID, listing); err != nil {
@@ -333,7 +347,64 @@ func getNodeUptime(c *gin.Context) {
 	})
 }
 
-// nodeHeartbeat is called by the CLI daemon every 2 minutes to keep the node marked online.
+// getNodeConnectInfo returns public connection metadata for provider-node (no API keys).
+// GET /v1/provider/nodes/:id/connect
+func getNodeConnectInfo(c *gin.Context) {
+	currentUserID, _ := c.Get("user_id")
+	userID := currentUserID.(uuid.UUID)
+
+	nodeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	var node models.ProviderNode
+	if err := db.DB.Where("id = ? AND user_id = ?", nodeID, userID).First(&node).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+
+	controlURL := strings.TrimRight(providerPublicControlAPIURL(), "/")
+	tunnelAddr := providerPublicTunnelAddr()
+	useTLS := strings.Contains(tunnelAddr, "proxyhubb.com") ||
+		strings.HasPrefix(controlURL, "https://")
+	configHint := "~/.config/proxyhubb/provider.toml"
+	startCmd := "provider-node start --config " + configHint
+
+	c.JSON(http.StatusOK, gin.H{
+		"node_id":              node.ID.String(),
+		"control_api_url":      controlURL,
+		"gateway_tunnel_addr":  tunnelAddr,
+		"use_tls":              useTLS,
+		"connection_type":      "residential",
+		"config_path_hint":     configHint,
+		"start_command":        startCmd,
+	})
+}
+
+func providerPublicControlAPIURL() string {
+	if u := os.Getenv("PROVIDER_PUBLIC_CONTROL_API_URL"); u != "" {
+		return u
+	}
+	if u := os.Getenv("API_BASE_URL"); u != "" {
+		return u
+	}
+	if u := os.Getenv("PUBLIC_API_URL"); u != "" {
+		return u
+	}
+	return "http://localhost:18080"
+}
+
+func providerPublicTunnelAddr() string {
+	if a := os.Getenv("PROVIDER_TUNNEL_PUBLIC_ADDR"); a != "" {
+		return strings.TrimPrefix(strings.TrimPrefix(a, "https://"), "http://")
+	}
+	return "localhost:3128"
+}
+
+// nodeHeartbeat is called by provider-node about every 120s (see provider.toml) to keep the node online.
+// Rows go offline after PROVIDER_NODE_STALE_AFTER (default 5m) without a heartbeat.
 // POST /v1/provider/nodes/:id/heartbeat
 func nodeHeartbeat(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")

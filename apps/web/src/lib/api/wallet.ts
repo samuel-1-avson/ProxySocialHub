@@ -40,11 +40,12 @@ export interface WalletTransaction {
     id: string;
     wallet_id?: string;
     amount: number;
-    balance_after: number;
+    balance_after?: number;
     type: 'deposit' | 'withdrawal' | 'purchase' | 'earning' | 'refund' | string;
     description: string;
     reference?: string;
     tx_hash?: string;
+    solscan_url?: string;
     status?: 'pending' | 'completed' | 'failed' | string;
     created_at: string;
 }
@@ -70,6 +71,8 @@ export interface WithdrawRequest {
 export interface WithdrawResponse {
     status: string;
     reference: string;
+    tx_hash?: string;
+    solscan_url?: string;
     new_balance: number;
 }
 
@@ -88,9 +91,12 @@ export interface CryptoDepositRequest {
 
 export interface CryptoDepositResponse {
     status: string;
-    credited_sol: number;
+    credited?: number;
+    credited_sol?: number;
     new_balance: number;
     message?: string;
+    tx_hash?: string;
+    solscan_url?: string;
 }
 
 // ============ API Functions ============
@@ -150,15 +156,17 @@ export async function withdrawWallet(
 ) {
     void phone;
     void network;
-    const data = await apiPost<{ status: string; tx_hash?: string; new_balance: number }>(
+    const data = await apiPost<{ status: string; tx_hash?: string; solscan_url?: string; new_balance: number }>(
         '/v1/wallet/withdraw/sol',
         { amount, nonce: opts?.nonce, signature: opts?.signature }
     );
     return {
         status: data.status,
         reference: data.tx_hash || '',
+        tx_hash: data.tx_hash,
+        solscan_url: data.solscan_url,
         new_balance: data.new_balance,
-    } as WithdrawResponse;
+    };
 }
 
 /**

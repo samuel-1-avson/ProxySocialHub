@@ -213,6 +213,11 @@ func handleKYCWebhook(c *gin.Context) {
 		return
 	}
 
+	if internalStatus == models.KYCStatusApproved {
+		_ = db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", user.ID).Update("kyc_verified", true).Error
+		go PromoteProviderApplicationAfterKYC(context.Background(), user.ID)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "KYC status updated",
 		"user_id": payload.UserID,
@@ -305,6 +310,9 @@ func recheckKYC(c *gin.Context) {
 
 	// Anchor the trust-tier elevation on-chain for verifiability.
 	writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
+
+	_ = db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", user.ID).Update("kyc_verified", true).Error
+	go PromoteProviderApplicationAfterKYC(context.Background(), user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "KYC approved",

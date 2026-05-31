@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { getProviderEarnings, getProviderEarningsSummary } from '@/lib/api/provider';
 import { GlassCard } from '@/components/ui/glass-card';
+import { ProviderClaimPanel } from '@/components/ProviderClaimPanel';
 import { format } from 'date-fns';
 
 export default function ProviderEarningsPage() {
@@ -137,6 +138,8 @@ export default function ProviderEarningsPage() {
                     <p className="text-[10px] text-muted-foreground mt-2 italic">Total bandwidth relayed through nodes</p>
                 </GlassCard>
             </div>
+
+            <ProviderClaimPanel />
 
             {/* Earnings History */}
             <div className="space-y-4">

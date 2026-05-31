@@ -1,5 +1,6 @@
 mod config;
 mod ip;
+mod lease_policy;
 mod proxy;
 mod stats;
 mod sys;
@@ -35,9 +36,9 @@ enum Commands {
 
     /// Connect to the Edge Gateway and start serving proxy traffic
     Start {
-        /// Path to configuration file
-        #[arg(short, long, default_value = "provider.toml")]
-        config: String,
+        /// Path to configuration file (default: ~/.config/proxyhubb/provider.toml or %USERPROFILE%\\.proxyhubb\\provider.toml)
+        #[arg(short, long)]
+        config: Option<String>,
 
         /// Control API URL used for auth bootstrap and provider lease issuance
         #[arg(long, env = "PROXYHUB_API_URL")]
@@ -124,17 +125,26 @@ async fn main() -> anyhow::Result<()> {
             println!("║              ✓ NODE REGISTERED SUCCESSFULLY              ║");
             println!("╚══════════════════════════════════════════════════════════╝");
             println!();
+            let mut cfg = config::Config::default();
+            cfg.control_api_url = api_url.clone();
+            cfg.api_key = key.clone();
+            cfg.node_id = node_id.clone();
+            cfg.connection_type = connection_type.clone();
+
+            let config_path = config::Config::default_config_path();
+            cfg.save(&config_path)?;
+
             println!("Node ID: {node_id}");
-            println!("JWT Token: {jwt}");
+            println!();
+            println!("Config written to: {}", config_path.display());
             println!();
             println!("Next steps:");
-            println!("  1. provider-node start --jwt-token {jwt}");
-            println!("  2. Visit: http://localhost:3009/explorer/map");
+            println!("  provider-node start --config {}", config_path.display());
         }
 
         // ── Start ───────────────────────────────────────────────────
         Commands::Start {
-            config: config_path,
+            config,
             api_url,
             gateway_addr,
             gateway_addrs,
@@ -144,6 +154,12 @@ async fn main() -> anyhow::Result<()> {
         } => {
             init_logging(debug);
             info!("Starting ProxyHubb Provider Node v{}", env!("CARGO_PKG_VERSION"));
+
+            let config_path = config.unwrap_or_else(|| {
+                config::Config::default_config_path()
+                    .to_string_lossy()
+                    .into_owned()
+            });
 
             let mut cfg = config::Config::load(&config_path).unwrap_or_default();
 
@@ -244,6 +260,7 @@ async fn main() -> anyhow::Result<()> {
                     client.control_api_url(),
                     client.auth_token(),
                     client.provider_lease_request(),
+                    cfg.node_id.clone(),
                 );
                 let hb_handle = tokio::spawn(async move { hb.run().await });
 

@@ -74,12 +74,18 @@ func (r *marketplaceRepository) CreateListing(ctx context.Context, entity *domai
 	m := models.ProxyListing{
 		ID:                   entity.ID,
 		SellerID:             entity.SellerID,
+		ProviderNodeID:       entity.ProviderNodeID,
 		Title:                entity.Title,
 		Description:          entity.Description,
 		PricePerGB:           entity.PricePerGB,
+		MinPurchaseGB:        entity.MinPurchaseGB,
 		AvailableBandwidthGB: entity.AvailableBandwidthGB,
+		MaxConcurrency:       entity.MaxConcurrency,
 		ProxyType:            models.ProxyType(entity.ProxyType),
 		Protocol:             entity.Protocol,
+		RotationType:         entity.RotationType,
+		Country:              entity.Country,
+		ISP:                  entity.ISP,
 		Status:               models.ListingStatus(entity.Status),
 	}
 	return DB.Create(&m).Error

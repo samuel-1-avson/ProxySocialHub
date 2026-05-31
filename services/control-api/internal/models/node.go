@@ -38,6 +38,9 @@ type Node struct {
 	// Gateway identity — stable across IP changes; used for deduplication on re-registration
 	GatewayNodeID string `gorm:"type:varchar(128);index" json:"gateway_node_id,omitempty"`
 
+	// Dashboard registration row (provider_nodes.id)
+	ProviderNodeID *uuid.UUID `gorm:"type:uuid;index" json:"provider_node_id,omitempty"`
+
 	// On-Chain Registry
 	IsRegisteredOnChain bool   `gorm:"default:false" json:"is_registered_on_chain"`
 	NetUID              int    `json:"net_uid"`

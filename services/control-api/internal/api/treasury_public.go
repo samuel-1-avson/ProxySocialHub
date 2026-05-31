@@ -73,7 +73,6 @@ func getPublicTreasury(c *gin.Context) {
 		Limit(15).
 		Find(&batches)
 
-	cluster := solanaClusterQuery()
 	for _, b := range batches {
 		item := publicBatchPayout{
 			ID:           b.ID.String(),
@@ -84,7 +83,7 @@ func getPublicTreasury(c *gin.Context) {
 		}
 		if b.TxHash != nil && *b.TxHash != "" {
 			item.TxHash = *b.TxHash
-			item.SolscanURL = solscanTxURL(*b.TxHash, cluster)
+			item.SolscanURL = SolscanTxURL(*b.TxHash)
 		}
 		if b.ProcessedAt != nil {
 			item.ProcessedAt = b.ProcessedAt.UTC().Format(time.RFC3339)
@@ -101,19 +100,4 @@ func solanaNetworkLabel() string {
 		return "devnet"
 	}
 	return n
-}
-
-func solanaClusterQuery() string {
-	n := solanaNetworkLabel()
-	if n == "mainnet-beta" || n == "mainnet" {
-		return "mainnet"
-	}
-	return n
-}
-
-func solscanTxURL(signature, cluster string) string {
-	if cluster == "" || cluster == "mainnet" {
-		return "https://solscan.io/tx/" + signature
-	}
-	return "https://solscan.io/tx/" + signature + "?cluster=" + cluster
 }

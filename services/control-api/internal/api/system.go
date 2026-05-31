@@ -1,10 +1,13 @@
 package api
 
 import (
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
@@ -13,6 +16,23 @@ func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/config/public", getPublicSystemConfig)
 	r.GET("/network/gateways", getFederatedGateways)
 	r.GET("/system/watchtower/status", getWatchtowerStatus)
+	if env := os.Getenv("APP_ENV"); env == "" || env == "development" {
+		r.POST("/system/geoip/backfill", triggerGeoIPBackfill)
+	}
+}
+
+func triggerGeoIPBackfill(c *gin.Context) {
+	// Respond immediately so clients never see an empty reply during long ip-api batches.
+	c.JSON(http.StatusAccepted, gin.H{
+		"status":  "accepted",
+		"message": "GeoIP backfill started in background (up to 45 nodes, ~1.4s each)",
+	})
+	go func() {
+		n := geoip.ResolveNextBatch()
+		if n > 0 {
+			log.Printf("[GeoIP] Manual backfill updated %d node(s)", n)
+		}
+	}()
 }
 
 // RegisterSystemAdminRoutes registers admin-only system routes

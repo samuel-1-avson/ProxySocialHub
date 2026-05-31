@@ -187,15 +187,16 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 
 	// Log Transaction
 	pendingTx := models.PendingTransaction{
-		ID:          uuid.New(),
-		UserID:      userID,
-		Reference:   event.TxSignature,
-		Type:        "crypto_deposit",
-		Amount:      solAmount,
-		Currency:    "SOL",
-		Provider:    "blockchain_auto",
-		Status:      "completed",
-		ExternalRef: event.TxSignature,
+		ID:             uuid.New(),
+		UserID:         userID,
+		Reference:      event.TxSignature,
+		IdempotencyKey: event.TxSignature,
+		Type:           "crypto_deposit",
+		Amount:         solAmount,
+		Currency:       "SOL",
+		Provider:       "blockchain_auto",
+		Status:         "completed",
+		ExternalRef:    event.TxSignature,
 	}
 	tx.Create(&pendingTx)
 

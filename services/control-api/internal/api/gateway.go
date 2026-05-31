@@ -280,6 +280,10 @@ func registerGatewayNode(c *gin.Context) {
 			}
 		}(node.ID.String())
 
+		pn := resolveProviderNodeForGateway(providerID, req.NodeID)
+		linkGatewayNodeToProviderNode(node.ID, pn, req.NodeID)
+		syncProviderNodeFromGateway(providerID, req.NodeID, 0)
+
 		logging.Info().
 			Str("node_id", node.ID.String()).
 			Str("provider_id", providerID.String()).
@@ -327,6 +331,10 @@ func registerGatewayNode(c *gin.Context) {
 				}
 			}
 		}(existingNode.ID.String())
+
+		pn := resolveProviderNodeForGateway(providerID, req.NodeID)
+		linkGatewayNodeToProviderNode(existingNode.ID, pn, req.NodeID)
+		syncProviderNodeFromGateway(providerID, req.NodeID, 0)
 
 		logging.Info().
 			Str("node_id", existingNode.ID.String()).
@@ -395,6 +403,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 		if err := db.DB.Model(&node).Update("quality_score", newScore).Error; err != nil {
 			logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on heartbeat")
 		}
+		syncProviderNodeFromGateway(node.ProviderUserID, node.GatewayNodeID, req.LatencyMs)
 	}
 
 	// Trigger immediate sync to update explorer with latest heartbeat data

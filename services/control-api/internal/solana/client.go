@@ -846,6 +846,11 @@ func GetOracleClient() *OracleClient {
 	return globalOracleClient
 }
 
+// SetOracleClientForTest installs a stub oracle for integration tests.
+func SetOracleClientForTest(c *OracleClient) {
+	globalOracleClient = c
+}
+
 // GetTreasuryAddress returns the configured treasury address from environment
 func GetTreasuryAddress() string {
 	return os.Getenv("SOLANA_TREASURY_ADDRESS")
