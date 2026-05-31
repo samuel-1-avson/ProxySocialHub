@@ -17,7 +17,9 @@ import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getNodeGeo, type NodeGeoPoint } from '@/lib/services/explorer';
 import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
-import type { MapNodeUpdate } from './LeafletMap';
+import type { ExplorerListingPin, MapNodeUpdate } from './LeafletMap';
+import { getMarketplaceGeo, type MarketplaceGeoPin } from '@/lib/api/marketplace';
+import { resolveListingCoords } from '@/lib/geo/country-coords';
 import type { MapStyle } from './GlobeMap';
 import {
     ArrowLeft, Globe, MapPin, Server, Shield,
@@ -132,6 +134,8 @@ const item = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
 export default function NodeMapPage() {
     const [mounted, setMounted] = useState(false);
     const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
+    const [selectedListing, setSelectedListing] = useState<ExplorerListingPin | null>(null);
+    const [showListingsLayer, setShowListingsLayer] = useState(true);
     const [showValidatorsOnly, setShowValidatorsOnly] = useState(false);
     const [showActiveOnly, setShowActiveOnly] = useState(false);
     const [selectedRegion, setSelectedRegion] = useState<string>('all');
@@ -156,6 +160,30 @@ export default function NodeMapPage() {
         staleTime: 15_000,
         retry: 3,
     });
+
+    const { data: marketplaceGeo } = useQuery({
+        queryKey: ['marketplace-geo-explorer'],
+        queryFn: () => getMarketplaceGeo(),
+        enabled: showListingsLayer && mapMode === 'map',
+        staleTime: 30_000,
+        refetchInterval: 60_000,
+    });
+
+    const listingPins = useMemo((): ExplorerListingPin[] => {
+        const raw = marketplaceGeo?.pins ?? [];
+        return raw.map((p: MarketplaceGeoPin, i: number) => {
+            const { lat, lon, estimated } = resolveListingCoords(p, i);
+            return {
+                listing_id: p.listing_id,
+                title: p.title,
+                lat,
+                lon,
+                price_per_gb: p.price_per_gb,
+                country: p.country,
+                estimated,
+            };
+        }).filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
+    }, [marketplaceGeo?.pins]);
 
     useEffect(() => {
         if (geoData && !isLoading) setLastUpdated(new Date());
@@ -231,16 +259,29 @@ export default function NodeMapPage() {
         return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 12);
     }, [geoData?.nodes]);
 
-    const handleSelectNode = useCallback((node: NodeGeoPoint) => setSelectedNode(node), []);
+    const handleSelectNode = useCallback((node: NodeGeoPoint) => {
+        setSelectedNode(node);
+        setSelectedListing(null);
+    }, []);
+
+    const handleSelectListing = useCallback((pin: ExplorerListingPin) => {
+        setSelectedListing(pin);
+        setSelectedNode(null);
+    }, []);
 
     return (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 font-mono">
 
             {/* ── Header ── */}
             <motion.header variants={item} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
-                    <ArrowLeft size={14} /> Back to Grid
-                </Link>
+                <div className="flex flex-wrap items-center gap-4">
+                    <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+                        <ArrowLeft size={14} /> Back to Grid
+                    </Link>
+                    <Link href="/marketplace/map" className="flex items-center gap-2 text-[10px] font-black text-emerald-400/80 hover:text-emerald-400 transition-colors uppercase tracking-[0.3em] w-fit">
+                        Buy on map →
+                    </Link>
+                </div>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // {mapMode === 'globe' ? '3D Globe' : '2D Map'}</div>
@@ -261,6 +302,9 @@ export default function NodeMapPage() {
                             { label: 'Active', value: totalActive, color: 'text-emerald-400' },
                             { label: 'Validators', value: totalValidator, color: 'text-purple-400' },
                             { label: 'Plotted', value: mappedCount, color: 'text-primary' },
+                            ...(showListingsLayer
+                                ? [{ label: 'Listings', value: listingPins.length, color: 'text-emerald-400' }]
+                                : []),
                         ].map(s => (
                             <GlassCard key={s.label} className="!p-4 border-white/5 bg-white/[0.01] rounded-2xl text-center min-w-[72px]">
                                 <div className={`text-xl font-black ${s.color}`}>{s.value}</div>
@@ -332,6 +376,7 @@ export default function NodeMapPage() {
                                     { color: 'bg-emerald-500', label: 'Active' },
                                     { color: 'bg-purple-500', label: 'Validator' },
                                     { color: 'bg-rose-500', label: 'Offline' },
+                                    ...(showListingsLayer ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
                                 ].map(l => (
                                     <div key={l.label} className="flex items-center gap-1.5">
                                         <div className={`w-2 h-2 rounded-full ${l.color}`} />
@@ -363,6 +408,9 @@ export default function NodeMapPage() {
                                             showHeatmap={showHeatmap}
                                             focusBounds={focusBounds}
                                             liveUpdates={liveUpdates}
+                                            listingPins={showListingsLayer ? listingPins : []}
+                                            onSelectListing={handleSelectListing}
+                                            selectedListingId={selectedListing?.listing_id}
                                         />
                                     )}
                                 </div>
@@ -459,8 +507,33 @@ export default function NodeMapPage() {
                         </div>
                     </GlassCard>
 
-                    {/* Selected node card */}
-                    {selectedNode ? (
+                    {selectedListing ? (
+                        <GlassCard className="border-emerald-500/20 bg-emerald-500/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Market listing</span>
+                                <button onClick={() => setSelectedListing(null)} className="text-white/20 hover:text-white text-xs">✕</button>
+                            </div>
+                            <h2 className="text-sm font-black text-white leading-tight">{selectedListing.title}</h2>
+                            <p className="text-[9px] text-white/40 uppercase tracking-widest">
+                                {selectedListing.country || '—'} · ${selectedListing.price_per_gb.toFixed(2)}/GB
+                                {selectedListing.estimated && (
+                                    <span className="text-amber-400/80"> · est. location</span>
+                                )}
+                            </p>
+                            <Link
+                                href={`/marketplace/${selectedListing.listing_id}`}
+                                className="block w-full text-center py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/25 transition-all"
+                            >
+                                View & buy →
+                            </Link>
+                            <Link
+                                href="/marketplace/map"
+                                className="block text-center text-[8px] font-black text-white/30 uppercase tracking-widest hover:text-emerald-400"
+                            >
+                                Open buy-on-map
+                            </Link>
+                        </GlassCard>
+                    ) : selectedNode ? (
                         <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
                             <div className="flex items-center justify-between">
                                 <span className="text-[9px] font-black text-primary uppercase tracking-widest">Selected Node</span>
@@ -536,6 +609,14 @@ export default function NodeMapPage() {
                                 ))}
                             </div>
                         </div>
+
+                        <button
+                            onClick={() => setShowListingsLayer(v => !v)}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${showListingsLayer ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70'}`}
+                        >
+                            <span>Marketplace listings</span>
+                            <span className="text-[8px] opacity-60">{showListingsLayer ? 'ON' : 'OFF'}</span>
+                        </button>
 
                         {/* Hex-bin heatmap toggle */}
                         <button

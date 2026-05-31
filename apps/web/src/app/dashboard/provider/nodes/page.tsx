@@ -6,8 +6,9 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { motion } from 'framer-motion';
 import {
     Server, Plus, Trash2, RefreshCw, Wifi, WifiOff, Clock,
-    BarChart3, MapPin, Loader2, AlertCircle, CheckCircle2, Copy
+    BarChart3, MapPin, Loader2, AlertCircle, CheckCircle2, Copy, Download
 } from 'lucide-react';
+import { ProviderNodeConnectPanel } from '@/components/provider/ProviderNodeConnectPanel';
 import {
     getMyNodes, deleteNode, sendNodeHeartbeat,
     type NodeRegistration,
@@ -18,6 +19,7 @@ export default function NodesPage() {
     const qc = useQueryClient();
     const [pinging, setPinging] = useState<string | null>(null);
     const [copied, setCopied] = useState<string | null>(null);
+    const [connectNodeId, setConnectNodeId] = useState<string | null>(null);
 
     const { data, isLoading, error } = useQuery({
         queryKey: ['my-nodes'],
@@ -156,8 +158,12 @@ export default function NodesPage() {
                             index={i}
                             pinging={pinging === node.id}
                             copied={copied === node.id}
+                            connectOpen={connectNodeId === node.id}
                             onPing={() => pingNode(node.id)}
                             onCopy={() => copyId(node.id)}
+                            onConnect={() =>
+                                setConnectNodeId((id) => (id === node.id ? null : node.id))
+                            }
                             onDelete={() => {
                                 if (confirm(`Delete node "${node.name}"?`)) {
                                     deleteMutation.mutate(node.id);
@@ -180,14 +186,16 @@ export default function NodesPage() {
 }
 
 function NodeCard({
-    node, index, pinging, copied, onPing, onCopy, onDelete, deleting,
+    node, index, pinging, copied, connectOpen, onPing, onCopy, onConnect, onDelete, deleting,
 }: {
     node: NodeRegistration;
     index: number;
     pinging: boolean;
     copied: boolean;
+    connectOpen: boolean;
     onPing: () => void;
     onCopy: () => void;
+    onConnect: () => void;
     onDelete: () => void;
     deleting: boolean;
 }) {
@@ -262,6 +270,17 @@ function NodeCard({
                 {/* Actions */}
                 <div className="flex items-center gap-2">
                     <button
+                        onClick={onConnect}
+                        title="Download connection config"
+                        className={`p-2 rounded-lg transition-colors ${
+                            connectOpen
+                                ? 'bg-primary/20 text-primary'
+                                : 'hover:bg-white/10 text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <Download size={14} />
+                    </button>
+                    <button
                         onClick={onCopy}
                         title="Copy node ID"
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
@@ -297,6 +316,12 @@ function NodeCard({
                     </p>
                 )}
             </div>
+
+            {connectOpen && (
+                <div className="mt-3">
+                    <ProviderNodeConnectPanel nodeId={node.id} nodeName={node.name} compact />
+                </div>
+            )}
         </motion.div>
     );
 }

@@ -65,8 +65,6 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
-      - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY}
-      - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY}
       # Solana
       - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
       - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:?SOLANA_RPC_ENDPOINT must be set}

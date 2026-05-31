@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
+import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 import { QuickMessageModal } from './QuickMessageModal';
 import { getAccessTokenSilently, useAuth } from '@/lib/auth';
 
@@ -138,6 +139,11 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                                         {activeSessions} active
                                     </div>
                                 )}
+                                <ListingSlaBadge
+                                    uptimePercent={listing.uptime_percent}
+                                    slaSource={listing.sla_source}
+                                    compact
+                                />
                             </div>
                         </div>
                     </div>
@@ -174,15 +180,15 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                     </div>
                     <div className="space-y-1.5">
                         <div className="text-[8px] font-black text-white/10 uppercase tracking-[0.3em] flex items-center gap-2">
-                            <Activity size={10} className="text-primary/40" /> Capacity
+                            <Activity size={10} className="text-primary/40" /> Uptime SLA
                         </div>
                         <div className="text-sm font-black text-white flex items-baseline gap-1">
-                            {Number(listing.quality_score || 95).toFixed(0)}<span className="text-[10px] text-white/20">%</span>
+                            {Number(listing.uptime_percent || 0).toFixed(1)}<span className="text-[10px] text-white/20">%</span>
                         </div>
                         <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                             <motion.div
                                 initial={{ width: 0 }}
-                                animate={{ width: `${listing.quality_score || 95}%` }}
+                                animate={{ width: `${Math.min(100, listing.uptime_percent || 0)}%` }}
                                 className="h-full bg-primary/40"
                             />
                         </div>

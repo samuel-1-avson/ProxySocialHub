@@ -80,7 +80,6 @@ type User struct {
 	ProviderSince         *time.Time `json:"provider_since,omitempty"`
 	TotalBandwidthSold    float64    `gorm:"default:0" json:"total_bandwidth_sold"`
 	WalletAddress         *string    `gorm:"size:64;index" json:"wallet_address,omitempty"`    // Solana wallet address (base58)
-	PaystackRecipientCode *string    `gorm:"size:50" json:"paystack_recipient_code,omitempty"` // Cached Paystack recipient
 
 	// Auth / Verification
 	VerificationToken *string `gorm:"size:255" json:"verification_token,omitempty"`

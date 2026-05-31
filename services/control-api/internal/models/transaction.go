@@ -29,5 +29,9 @@ func (p *PendingTransaction) BeforeCreate(tx *gorm.DB) (err error) {
 	if p.ID == uuid.Nil {
 		p.ID = uuid.New()
 	}
+	// Empty string violates UNIQUE on idempotency_key (only one '' allowed). Use on-chain ref when unset.
+	if p.IdempotencyKey == "" && p.Reference != "" {
+		p.IdempotencyKey = p.Reference
+	}
 	return
 }

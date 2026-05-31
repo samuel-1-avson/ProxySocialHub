@@ -2,9 +2,22 @@ import { Program, AnchorProvider, web3, BN, Idl } from '@project-serum/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import idl from './idl/proxyhub.json';
 
+const DEFAULT_PROGRAM_ID = '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2';
+
+/** Avoid build/runtime crashes when .env has placeholders or invalid base58. */
+function parseSolanaPubkey(raw: string | undefined, fallback: string): PublicKey {
+  const candidate = (raw?.trim().split(/[\s#,]/)[0] || '').trim() || fallback;
+  try {
+    return new PublicKey(candidate);
+  } catch {
+    return new PublicKey(fallback);
+  }
+}
+
 // Constants
-const PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_SOLANA_PROGRAM_ID || '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2'
+const PROGRAM_ID = parseSolanaPubkey(
+  process.env.NEXT_PUBLIC_SOLANA_PROGRAM_ID,
+  DEFAULT_PROGRAM_ID,
 );
 const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
 const RAW_SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';

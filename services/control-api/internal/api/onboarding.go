@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/geoip"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -87,17 +88,16 @@ func solanaTokenLabel(network string) string {
 
 func defaultProviderAutoApproval(ctx context.Context, user *models.User) ProviderAutoApprovalResult {
 	oracle := solana.GetOracleClient()
-	network := "devnet"
-	if oracle != nil {
-		if oracleNetwork := oracle.GetNetwork(); oracleNetwork != "" {
-			network = oracleNetwork
-		}
-	}
+	network := solana.EffectiveSolanaNetwork()
 
 	result := ProviderAutoApprovalResult{
 		Status:        "pending",
 		SolanaNetwork: network,
 		RequiredSOL:   providerMinimumBalanceSOL(ctx, oracle),
+	}
+
+	if solana.IsMainnetNetwork(network) {
+		return mainnetProviderAutoApproval(user, network, result)
 	}
 
 	if user == nil {
@@ -161,6 +161,49 @@ func defaultProviderAutoApproval(ctx context.Context, user *models.User) Provide
 	return result
 }
 
+// mainnetProviderAutoApproval requires completed identity KYC — no balance-only auto-approve.
+func mainnetProviderAutoApproval(user *models.User, network string, result ProviderAutoApprovalResult) ProviderAutoApprovalResult {
+	if user == nil {
+		result.Status = "rejected"
+		result.ReasonCode = "user_not_found"
+		result.Reason = "User profile is unavailable for provider verification."
+		return result
+	}
+
+	if user.Status != models.UserStatusActive {
+		result.Status = "rejected"
+		result.ReasonCode = "account_not_active"
+		result.Reason = "Only active accounts can become providers on mainnet."
+		return result
+	}
+
+	if user.WalletAddress == nil || strings.TrimSpace(*user.WalletAddress) == "" {
+		result.Status = "rejected"
+		result.ReasonCode = "linked_wallet_required"
+		result.Reason = "Link a Solana payout wallet before applying as a provider on mainnet."
+		return result
+	}
+
+	switch user.KYCStatus {
+	case models.KYCStatusApproved:
+		result.Status = "approved"
+		result.AutoApproved = true
+		result.ReasonCode = "kyc_verified"
+		result.Reason = "Identity verification (KYC) is approved for mainnet provider access."
+		return result
+	case models.KYCStatusRejected:
+		result.Status = "rejected"
+		result.ReasonCode = "kyc_rejected"
+		result.Reason = "Identity verification was rejected. Contact support to appeal."
+		return result
+	default:
+		result.Status = "pending"
+		result.ReasonCode = "kyc_required"
+		result.Reason = "Complete identity verification (KYC) before mainnet provider approval. Balance-only auto-approval is disabled on mainnet."
+		return result
+	}
+}
+
 func upsertProviderApplication(tx *gorm.DB, app *models.ProviderApplication, userID uuid.UUID, isp, location, bandwidth string, decision ProviderAutoApprovalResult, now time.Time) error {
 	app.UserID = userID
 	app.ISP = isp
@@ -180,6 +223,57 @@ func upsertProviderApplication(tx *gorm.DB, app *models.ProviderApplication, use
 
 func ensureProviderRole(tx *gorm.DB, userID uuid.UUID) error {
 	return tx.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error
+}
+
+// PromoteProviderApplicationAfterKYC re-evaluates a pending provider application after KYC approval (mainnet).
+func PromoteProviderApplicationAfterKYC(ctx context.Context, userID uuid.UUID) {
+	if !solana.IsMainnetNetwork(solana.EffectiveSolanaNetwork()) {
+		return
+	}
+
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+		return
+	}
+	if user.KYCStatus != models.KYCStatusApproved {
+		return
+	}
+
+	var app models.ProviderApplication
+	if err := db.DB.Where("user_id = ?", userID).First(&app).Error; err != nil {
+		return
+	}
+	if app.Status == "approved" {
+		_ = ensureProviderRole(db.DB, userID)
+		return
+	}
+	if app.Status != "pending" {
+		return
+	}
+
+	decision := mainnetProviderAutoApproval(&user, solana.EffectiveSolanaNetwork(), ProviderAutoApprovalResult{
+		SolanaNetwork: solana.EffectiveSolanaNetwork(),
+	})
+	if decision.Status != "approved" {
+		return
+	}
+
+	now := time.Now()
+	tx := db.DB.Begin()
+	if err := upsertProviderApplication(tx, &app, userID, app.ISP, app.Location, app.Bandwidth, decision, now); err != nil {
+		tx.Rollback()
+		return
+	}
+	if err := ensureProviderRole(tx, userID); err != nil {
+		tx.Rollback()
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		return
+	}
+
+	_ = db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", userID).Update("kyc_verified", true).Error
+	logging.Info().Str("user_id", userID.String()).Msg("Provider application auto-approved after KYC")
 }
 
 func autoDecisionMessage(decision ProviderAutoApprovalResult) string {

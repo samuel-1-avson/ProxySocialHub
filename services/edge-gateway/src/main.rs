@@ -239,7 +239,7 @@ async fn proxy(
     }
 
     // Handle ML stats export endpoint (Debug only)
-    if path == "/debug/ml/stats" && method == "GET" {
+    if config::debug_routes_enabled() && path == "/debug/ml/stats" && method == "GET" {
         info!("Serving ML stats export endpoint");
         let csv = state.feature_cache.to_csv(&state.registry);
         let mut resp = Response::new(Full::new(Bytes::from(csv)));
@@ -251,7 +251,7 @@ async fn proxy(
     }
 
     // Handle node list export endpoint (Debug only)
-    if path == "/debug/nodes" && method == "GET" {
+    if config::debug_routes_enabled() && path == "/debug/nodes" && method == "GET" {
         info!("Serving node list debug endpoint");
         let nodes = state.registry.list_nodes();
         let json = serde_json::to_string(&nodes).unwrap_or_default();
@@ -264,7 +264,7 @@ async fn proxy(
     }
 
     // --- Phase 6: Network Status API (Observability) ---
-    if path == "/api/v1/network/status" && req.method() == Method::GET {
+    if config::debug_routes_enabled() && path == "/api/v1/network/status" && req.method() == Method::GET {
         info!("Serving Network Status API");
 
         #[derive(serde::Serialize)]

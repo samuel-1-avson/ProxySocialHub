@@ -20,7 +20,9 @@ import { getErrorMessage } from '@/lib/utils';
 import { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
 import { API_BASE_URL, fetchWithAuth } from '@/lib/services/client';
-import { Connection, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { formatSolanaWalletError, sendSolTransfer } from '@/lib/solana-transfer';
+import { getSolscanTxUrl } from '@/lib/solscan';
 import bs58 from 'bs58';
 import {
     Wallet as WalletIcon,
@@ -32,6 +34,7 @@ import {
     Info,
     ShieldCheck,
     ArrowRight,
+    ExternalLink,
     Coins,
     Shield,
     Activity,
@@ -63,15 +66,16 @@ export default function UnifiedWalletPage() {
 
     // Common State
     const [processing, setProcessing] = useState(false);
-    const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [result, setResult] = useState<{ success: boolean; message: string; solscanUrl?: string } | null>(null);
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [depositAmount, setDepositAmount] = useState('');
     const [depositTxHash, setDepositTxHash] = useState('');
+    const [showManualDeposit, setShowManualDeposit] = useState(false);
     const [whitelistDraft, setWhitelistDraft] = useState('');
     const [whitelistSaving, setWhitelistSaving] = useState(false);
 
     // Solana Wallet
-    const { connected, publicKey, signMessage, sendTransaction, disconnect } = useSolanaWallet();
+    const { connected, publicKey, signMessage, signTransaction, sendTransaction, disconnect } = useSolanaWallet();
     const [externalSolBalance, setExternalSolBalance] = useState<number | null>(null);
     const [linkedWalletBalance, setLinkedWalletBalance] = useState<number | null>(null);
     const [mounted, setMounted] = useState(false);
@@ -176,6 +180,21 @@ export default function UnifiedWalletPage() {
         return () => { cancelled = true; clearInterval(id); };
     }, [wallet?.linked_solana_address, connected]);
 
+    const creditDepositOnServer = async (amt: number, signature: string) => {
+        const res = await depositCrypto(amt, signature, 'solana');
+        const solscan = res.solscan_url || getSolscanTxUrl(signature);
+        setResult({
+            success: true,
+            message:
+                res.message ||
+                `Deposit credited${res.credited_sol != null ? `: ${res.credited_sol} SOL` : ''}`,
+            solscanUrl: solscan,
+        });
+        setDepositAmount('');
+        setDepositTxHash('');
+        queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    };
+
     const handleDepositVerify = async () => {
         const amt = parseFloat(depositAmount);
         const txHash = depositTxHash.trim();
@@ -183,19 +202,84 @@ export default function UnifiedWalletPage() {
             setResult({ success: false, message: 'Enter deposit amount and transaction signature' });
             return;
         }
+        if (!wallet?.linked_solana_address) {
+            setResult({ success: false, message: 'Link a Solana wallet before verifying a deposit' });
+            return;
+        }
         setProcessing(true);
         setResult(null);
         try {
-            const res = await depositCrypto(amt, txHash, 'solana');
-            setResult({
-                success: true,
-                message: res.message || `Deposit credited${res.credited_sol != null ? `: ${res.credited_sol} SOL` : ''}`,
-            });
-            setDepositAmount('');
-            setDepositTxHash('');
-            queryClient.invalidateQueries({ queryKey: ['wallet'] });
+            await creditDepositOnServer(amt, txHash);
         } catch (err: unknown) {
             setResult({ success: false, message: getErrorMessage(err) || 'Deposit verification failed' });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleDepositSol = async () => {
+        const amt = parseFloat(depositAmount);
+        if (!amt || amt <= 0) {
+            setResult({ success: false, message: 'Enter a valid deposit amount' });
+            return;
+        }
+        const treasury = treasuryConfig?.treasury_solana;
+        if (!treasury) {
+            setResult({ success: false, message: 'Treasury address is still loading — try again in a moment' });
+            return;
+        }
+        if (!wallet?.linked_solana_address) {
+            setResult({ success: false, message: 'Link a Solana wallet first (Linked Wallets tab)' });
+            return;
+        }
+        if (!connected || !publicKey || (!signTransaction && !sendTransaction)) {
+            setResult({
+                success: false,
+                message: 'Connect your linked Solana wallet below, then deposit again',
+            });
+            return;
+        }
+        const linked = wallet.linked_solana_address;
+        if (publicKey.toBase58() !== linked) {
+            setResult({
+                success: false,
+                message: `Connected wallet must match your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
+            });
+            return;
+        }
+
+        setProcessing(true);
+        setResult(null);
+        try {
+            const { getConnection } = await import('@/lib/solana');
+            const connection = getConnection();
+            const treasuryPk = new PublicKey(treasury);
+            const lamports = Math.round(amt * LAMPORTS_PER_SOL);
+            if (lamports <= 0) {
+                throw new Error('Amount is too small');
+            }
+
+            const balance = await connection.getBalance(publicKey);
+            const feeBuffer = 10_000;
+            if (balance < lamports + feeBuffer) {
+                setResult({
+                    success: false,
+                    message: `Not enough SOL in your wallet (need ~${amt} SOL plus network fee)`,
+                });
+                return;
+            }
+
+            setResult({ success: true, message: 'Approve the transfer in your wallet…' });
+            const signature = await sendSolTransfer(connection, {
+                publicKey,
+                signTransaction,
+                sendTransaction,
+            }, treasuryPk, lamports);
+
+            setResult({ success: true, message: 'Transaction confirmed — crediting balance…' });
+            await creditDepositOnServer(amt, signature);
+        } catch (err: unknown) {
+            setResult({ success: false, message: formatSolanaWalletError(err) });
         } finally {
             setProcessing(false);
         }
@@ -227,11 +311,13 @@ export default function UnifiedWalletPage() {
                 opts = await signWithdrawalMessage(signMessage, amt);
             }
             const res = await withdrawWallet(amt, '', '', opts);
+            const txRef = res.tx_hash || res.reference;
             setResult({
                 success: true,
-                message: res.reference
-                    ? `Withdrawal submitted (${res.reference.slice(0, 12)}…)`
+                message: txRef
+                    ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
                     : 'Withdrawal submitted',
+                solscanUrl: res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
             });
             setWithdrawAmount('');
             queryClient.invalidateQueries({ queryKey: ['wallet'] });
@@ -450,14 +536,24 @@ export default function UnifiedWalletPage() {
 
                                         {result && activeTab === 'OVERVIEW' && (
                                             <div
-                                                className={`p-4 rounded-xl border text-[10px] font-mono uppercase font-black flex items-center gap-3 ${
+                                                className={`p-4 rounded-xl border text-[10px] font-mono uppercase font-black flex flex-wrap items-center gap-3 ${
                                                     result.success
                                                         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
                                                         : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
                                                 }`}
                                             >
                                                 {result.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-                                                {result.message}
+                                                <span>{result.message}</span>
+                                                {result.solscanUrl && (
+                                                    <a
+                                                        href={result.solscanUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1 text-primary hover:underline normal-case tracking-normal"
+                                                    >
+                                                        View on Solscan <ExternalLink size={12} />
+                                                    </a>
+                                                )}
                                             </div>
                                         )}
 
@@ -467,8 +563,13 @@ export default function UnifiedWalletPage() {
                                                     <ArrowDownLeft size={14} /> Deposit SOL
                                                 </p>
                                                 <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
-                                                    Send SOL to the platform treasury, then paste the on-chain transaction signature to credit your balance.
+                                                    Enter an amount and approve one transfer in your linked wallet. We send SOL to the platform treasury and credit your balance automatically — no signature to copy.
                                                 </p>
+                                                {isDevnet && (
+                                                    <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
+                                                        Devnet: use Phantom on devnet, or Ledger with the Solana app set to Devnet and blind signing enabled.
+                                                    </p>
+                                                )}
                                                 {treasuryConfig?.treasury_solana ? (
                                                     <div className="flex gap-2 items-stretch">
                                                         <code className="flex-1 text-[9px] font-mono break-all bg-black/40 p-3 rounded-lg border border-white/5">
@@ -495,29 +596,58 @@ export default function UnifiedWalletPage() {
                                                     onChange={(e) => setDepositAmount(e.target.value)}
                                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
                                                 />
-                                                <input
-                                                    type="text"
-                                                    placeholder="Transaction signature"
-                                                    value={depositTxHash}
-                                                    onChange={(e) => setDepositTxHash(e.target.value)}
-                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
-                                                />
+                                                {wallet?.linked_solana_address && !connected && (
+                                                    <div className="space-y-2">
+                                                        <p className="text-[9px] font-mono text-amber-500/80 uppercase">
+                                                            Connect the wallet you linked to sign the transfer
+                                                        </p>
+                                                        <SolanaWalletButton />
+                                                    </div>
+                                                )}
                                                 <button
                                                     type="button"
-                                                    onClick={handleDepositVerify}
+                                                    onClick={handleDepositSol}
                                                     disabled={processing || !wallet?.linked_solana_address}
                                                     className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest disabled:opacity-40"
                                                 >
                                                     {processing ? (
                                                         <span className="flex items-center justify-center gap-2">
-                                                            <Loader2 size={14} className="animate-spin" /> Verifying…
+                                                            <Loader2 size={14} className="animate-spin" /> Processing…
                                                         </span>
                                                     ) : (
-                                                        'Verify deposit'
+                                                        'Deposit SOL'
                                                     )}
                                                 </button>
                                                 {!wallet?.linked_solana_address && (
-                                                    <p className="text-[9px] font-mono text-amber-500/80 uppercase">Link a wallet to verify deposits</p>
+                                                    <p className="text-[9px] font-mono text-amber-500/80 uppercase">
+                                                        Link a wallet on the Linked Wallets tab first
+                                                    </p>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowManualDeposit((v) => !v)}
+                                                    className="text-[9px] font-mono text-muted-foreground/60 hover:text-primary uppercase tracking-widest"
+                                                >
+                                                    {showManualDeposit ? 'Hide manual verification' : 'Already sent SOL? Paste signature'}
+                                                </button>
+                                                {showManualDeposit && (
+                                                    <div className="space-y-3 pt-2 border-t border-white/5">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Transaction signature"
+                                                            value={depositTxHash}
+                                                            onChange={(e) => setDepositTxHash(e.target.value)}
+                                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleDepositVerify}
+                                                            disabled={processing || !wallet?.linked_solana_address}
+                                                            className="w-full py-2 text-[10px] uppercase font-black tracking-widest border border-white/10 rounded-xl hover:border-primary/40 disabled:opacity-40"
+                                                        >
+                                                            Verify pasted signature
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
 
@@ -596,6 +726,16 @@ export default function UnifiedWalletPage() {
                                                             <td className="px-8 py-5">
                                                                 <div className="font-black uppercase text-[11px] group-hover:text-primary transition-colors">{tx.description}</div>
                                                                 <div className="text-[9px] opacity-30 uppercase font-bold tracking-tighter mt-1">{tx.id}</div>
+                                                                {(tx.solscan_url || tx.tx_hash) && (
+                                                                    <a
+                                                                        href={tx.solscan_url || getSolscanTxUrl(tx.tx_hash!)}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-flex items-center gap-1 text-[9px] text-primary/80 hover:text-primary mt-2 normal-case"
+                                                                    >
+                                                                        On-chain <ExternalLink size={10} />
+                                                                    </a>
+                                                                )}
                                                             </td>
                                                             <td className={`px-8 py-5 font-black text-base tracking-tighter ${(tx.amount ?? 0) > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                                                 {(Number(tx.amount || 0) > 0 ? '+' : '')}{Number(tx.amount || 0).toFixed(2)}

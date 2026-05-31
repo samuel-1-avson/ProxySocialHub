@@ -50,6 +50,9 @@ pub struct HeartbeatManager {
     auth_token: String,
     lease_request: ProviderLeaseRequest,
     current_lease: Option<CachedLease>,
+    /// UUID from `provider.toml` `node_id` (POST /v1/provider/nodes); gateway uses `node_id` above.
+    api_node_id: String,
+    api_heartbeat_ticks: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +70,7 @@ impl HeartbeatManager {
         control_api_url: String,
         auth_token: String,
         lease_request: ProviderLeaseRequest,
+        api_node_id: String,
     ) -> Self {
         Self {
             ctrl,
@@ -77,6 +81,8 @@ impl HeartbeatManager {
             auth_token,
             lease_request,
             current_lease: None,
+            api_node_id,
+            api_heartbeat_ticks: 0,
         }
     }
 
@@ -139,6 +145,8 @@ impl HeartbeatManager {
 
         self.stats.update_heartbeat();
 
+        self.maybe_send_api_heartbeat().await;
+
         debug!(
             active = msg.active_connections,
             up = msg.bandwidth_usage.bytes_up,
@@ -172,6 +180,34 @@ impl HeartbeatManager {
                 goroutines: 0,
             },
             provider_lease,
+        }
+    }
+
+    /// Control API expects a heartbeat about every 2 minutes; gateway ticks are 30s.
+    async fn maybe_send_api_heartbeat(&mut self) {
+        if self.api_node_id.is_empty() {
+            return;
+        }
+        self.api_heartbeat_ticks += 1;
+        if self.api_heartbeat_ticks % 4 != 0 {
+            return;
+        }
+
+        let snap = self.stats.snapshot();
+        let latency_ms = snap.latency_ms.min(i32::MAX as u64) as i32;
+        let uptime_percent = 100.0_f64;
+
+        if let Err(e) = crate::ip::send_provider_node_heartbeat(
+            &self.control_api_url,
+            &self.auth_token,
+            &self.api_node_id,
+            latency_ms,
+            snap.active_connections,
+            uptime_percent,
+        )
+        .await
+        {
+            error!("Control API heartbeat failed: {e}");
         }
     }
 

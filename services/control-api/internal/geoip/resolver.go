@@ -1,5 +1,5 @@
 // Package geoip provides a lightweight IP-to-coordinates resolver that uses
-// the free ip-api.com JSON endpoint. Results are cached in memory to avoid
+// the ip-api.com JSON endpoint over HTTPS. Results are cached in memory to avoid
 // hammering the upstream service.
 //
 // Usage:
@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,9 +53,19 @@ var (
 // Resolve looks up geographic data for the given IP address.
 // It returns (Result, true) on success, or (zero, false) on failure.
 // Results are cached for the process lifetime.
+func isLANIP(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4[0] == 10 ||
+		(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
+		(ip4[0] == 192 && ip4[1] == 168)
+}
+
 func Resolve(ip string) (Result, bool) {
-	// Skip private / loopback addresses — they have no geo meaning
-	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || parsed.IsPrivate() {
+	// Skip loopback and LAN only (allow RFC 5737 documentation/test nets used in dev).
+	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || isLANIP(parsed) {
 		return Result{}, false
 	}
 
@@ -96,11 +107,25 @@ func Resolve(ip string) (Result, bool) {
 	return result, true
 }
 
+func normalizeCountryCode(country string) string {
+	switch country {
+	case "United States", "United States of America":
+		return "US"
+	case "United Kingdom":
+		return "GB"
+	default:
+		if len(country) == 2 {
+			return strings.ToUpper(country)
+		}
+		return country
+	}
+}
+
 // ResolveNextBatch fetches up to 45 nodes with missing coordinates and
-// updates them in the database.
-func ResolveNextBatch() {
+// updates them in the database. Returns how many nodes were updated.
+func ResolveNextBatch() int {
 	if db.DB == nil {
-		return
+		return 0
 	}
 
 	var nodes []models.ExplorerNode
@@ -110,15 +135,16 @@ func ResolveNextBatch() {
 		Limit(45).
 		Find(&nodes).Error; err != nil {
 		log.Printf("[GeoIP] Backfill query error: %v", err)
-		return
+		return 0
 	}
 
 	if len(nodes) == 0 {
-		return
+		return 0
 	}
 
 	log.Printf("[GeoIP] Resolving coordinates for %d node(s)", len(nodes))
 
+	updated := 0
 	for _, node := range nodes {
 		result, ok := Resolve(node.IP)
 		if !ok {
@@ -146,9 +172,22 @@ func ResolveNextBatch() {
 			Where("id = ?", node.ID).
 			Updates(updates).Error; err != nil {
 			log.Printf("[GeoIP] Failed to update node %s: %v", node.NodeID, err)
+			continue
+		}
+		updated++
+
+		if countryCode := normalizeCountryCode(result.Country); countryCode != "" && node.ProviderUserID != "" {
+			db.DB.Exec(
+				`UPDATE proxy_listings SET country = $1 WHERE seller_id = $2::uuid AND (country IS NULL OR country = '' OR country = 'verify-smoke')`,
+				countryCode, node.ProviderUserID,
+			)
+			if node.Country == "" || node.Country == "verify-smoke" {
+				db.DB.Model(&models.ExplorerNode{}).Where("id = ?", node.ID).Update("country", countryCode)
+			}
 		}
 
 		// Small delay between requests to be polite to the free API
 		time.Sleep(1400 * time.Millisecond)
 	}
+	return updated
 }

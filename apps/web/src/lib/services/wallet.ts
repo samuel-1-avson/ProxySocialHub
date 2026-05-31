@@ -13,10 +13,11 @@ export interface Wallet {
 export interface WalletTransaction {
     id: string;
     amount: number;
-    balance_after: number;
+    balance_after?: number;
     type: string;
     description: string;
     tx_hash?: string;
+    solscan_url?: string;
     status?: string;
     created_at: string;
 }
@@ -44,7 +45,7 @@ export async function linkWallet(address: string, chain: 'solana', signature?: s
     return response.json();
 }
 
-export async function depositCrypto(amount: number, txHash: string, chain: 'solana', destinationAddress?: string): Promise<{ status: string; message: string; credited_sol?: number }> {
+export async function depositCrypto(amount: number, txHash: string, chain: 'solana', destinationAddress?: string): Promise<{ status: string; message: string; credited_sol?: number; tx_hash?: string; solscan_url?: string; new_balance?: number }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/deposit/crypto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,7 +68,7 @@ export async function withdrawWallet(
     phone: string,
     network: string,
     opts?: { nonce?: string; signature?: string }
-): Promise<{ status: string; reference: string; new_balance: number }> {
+): Promise<{ status: string; reference: string; tx_hash?: string; solscan_url?: string; new_balance: number }> {
     void phone;
     void network;
 
@@ -81,6 +82,8 @@ export async function withdrawWallet(
     return {
         status: data.status,
         reference: data.tx_hash || '',
+        tx_hash: data.tx_hash,
+        solscan_url: data.solscan_url,
         new_balance: data.new_balance,
     };
 }

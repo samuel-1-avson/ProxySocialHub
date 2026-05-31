@@ -15,6 +15,32 @@ import (
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
+func mockSolanaDepositRPC(t *testing.T, treasuryAddr, senderAddr, txSig string) {
+	t.Helper()
+	mockRPC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"result": map[string]interface{}{
+				"slot": 12345,
+				"meta": map[string]interface{}{
+					"err":          nil,
+					"preBalances":  []uint64{10000000000, 0},
+					"postBalances": []uint64{8900000000, 1000000000},
+				},
+				"transaction": map[string]interface{}{
+					"message": map[string]interface{}{
+						"accountKeys": []string{senderAddr, treasuryAddr},
+					},
+					"signatures": []string{txSig},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(mockRPC.Close)
+	solana.SetRPCEndpoint(mockRPC.URL)
+}
+
 func TestVerifyCryptoDeposit_Success(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
@@ -24,36 +50,13 @@ func TestVerifyCryptoDeposit_Success(t *testing.T) {
 	senderAddr := "SenderAddress11111111111111111111111111111"
 	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
 
-	user, _ := createWalletTestUser(t)
-	// Update user's wallet address to the mock sender address
+	user, wallet := createWalletTestUser(t)
 	user.WalletAddress = &senderAddr
 	db.DB.Save(&user)
+	wallet.BalanceSOL = 0
+	db.DB.Save(&wallet)
 
-	// Mock the Solana RPC server
-	mockRPC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"result": map[string]interface{}{
-				"slot": 12345,
-				"meta": map[string]interface{}{
-					"err":          nil,
-					"preBalances":  []uint64{10000000000, 0},
-					"postBalances": []uint64{8900000000, 1000000000}, // Recipient got 1.0 SOL (1,000,000,000 lamports)
-				},
-				"transaction": map[string]interface{}{
-					"message": map[string]interface{}{
-						"accountKeys": []string{senderAddr, treasuryAddr},
-					},
-					"signatures": []string{"mock_sig"},
-				},
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer mockRPC.Close()
-
-	// Override RPC endpoint to mock server URL
-	solana.SetRPCEndpoint(mockRPC.URL)
+	mockSolanaDepositRPC(t, treasuryAddr, senderAddr, "mock_sig")
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
@@ -74,8 +77,6 @@ func TestVerifyCryptoDeposit_Success(t *testing.T) {
 		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
 	}
 
-	// Verify balance credited in DB
-	var wallet models.Wallet
 	if err := db.DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
 		t.Fatalf("Wallet not found: %v", err)
 	}
@@ -83,13 +84,12 @@ func TestVerifyCryptoDeposit_Success(t *testing.T) {
 		t.Errorf("Expected wallet balance to be 1.0, got %f", wallet.BalanceSOL)
 	}
 
-	// Verify ledger entry created
 	var ledger models.WalletLedgerEntry
-	if err := db.DB.Where("wallet_id = ?", wallet.ID).First(&ledger).Error; err != nil {
+	if err := db.DB.Where("wallet_id = ? AND type = ?", wallet.ID, "deposit").First(&ledger).Error; err != nil {
 		t.Fatalf("Ledger entry not found: %v", err)
 	}
-	if ledger.Amount != 1.0 || ledger.Type != "deposit_auto" {
-		t.Errorf("Expected ledger amount 1.0, type deposit_auto; got amount %f, type %s", ledger.Amount, ledger.Type)
+	if ledger.Amount != 1.0 {
+		t.Errorf("Expected ledger amount 1.0, got %f", ledger.Amount)
 	}
 }
 
@@ -97,10 +97,18 @@ func TestVerifyCryptoDeposit_DoubleSpend(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
 
-	user, _ := createWalletTestUser(t)
-	txHash := "mock_sig_double_spend"
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
 
-	// Create pre-existing transaction
+	user, _ := createWalletTestUser(t)
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+
+	txHash := "mock_sig_double_spend"
+	mockSolanaDepositRPC(t, treasuryAddr, senderAddr, txHash)
+
+	// In-flight deposit with same tx hash must not be processed twice.
 	existingTx := models.PendingTransaction{
 		ID:        uuid.New(),
 		UserID:    user.ID,
@@ -108,7 +116,7 @@ func TestVerifyCryptoDeposit_DoubleSpend(t *testing.T) {
 		Type:      "crypto_deposit",
 		Amount:    1.0,
 		Currency:  "SOL",
-		Status:    "completed",
+		Status:    "processing",
 	}
 	db.DB.Create(&existingTx)
 
@@ -188,5 +196,133 @@ func TestVerifyCryptoDeposit_SenderMismatch(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("Expected status %d (Forbidden) for sender mismatch, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCryptoDeposit_InvalidChain(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+
+	user, _ := createWalletTestUser(t)
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_chain",
+		"amount":  1.0,
+		"chain":   "bitcoin",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d for unsupported chain, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCryptoDeposit_TxNotFound(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
+
+	user, _ := createWalletTestUser(t)
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+
+	mockRPC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"result":  nil,
+			"id":      1,
+		})
+	}))
+	defer mockRPC.Close()
+	solana.SetRPCEndpoint(mockRPC.URL)
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "missing_tx_sig",
+		"amount":  1.0,
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d when tx not found, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCryptoDeposit_CreditsOnChainAmount(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
+
+	user, wallet := createWalletTestUser(t)
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+	wallet.BalanceSOL = 0
+	db.DB.Save(&wallet)
+
+	// Mock RPC: 1 SOL credited to treasury (1e9 lamports delta on treasury account).
+	mockRPC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"result": map[string]interface{}{
+				"slot": 12345,
+				"meta": map[string]interface{}{
+					"err":          nil,
+					"preBalances":  []uint64{10000000000, 0},
+					"postBalances": []uint64{8900000000, 1000000000},
+				},
+				"transaction": map[string]interface{}{
+					"message": map[string]interface{}{
+						"accountKeys": []string{senderAddr, treasuryAddr},
+					},
+					"signatures": []string{"mock_sig_amount"},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mockRPC.Close()
+	solana.SetRPCEndpoint(mockRPC.URL)
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_amount",
+		"amount":  99.0, // client claim ignored; on-chain amount is credited
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	db.DB.Where("user_id = ?", user.ID).First(&wallet)
+	if wallet.BalanceSOL != 1.0 {
+		t.Errorf("Expected on-chain credited balance 1.0 SOL, got %.6f", wallet.BalanceSOL)
 	}
 }

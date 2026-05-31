@@ -40,6 +40,9 @@ type ProxyListing struct {
 	RotationType string     `gorm:"size:20;default:'static';index:idx_listing_rotation" json:"rotation_type"` // "static", "rotating", "sticky"
 	CircleID     *uuid.UUID `gorm:"type:uuid;index:idx_listing_circle" json:"circle_id,omitempty"`            // Clan link
 
+	// Infrastructure link (dashboard provider node → gateway / explorer geo)
+	ProviderNodeID *uuid.UUID `gorm:"type:uuid;index:idx_listing_provider_node" json:"provider_node_id,omitempty"`
+
 	// Targeting & Location
 	Country string `gorm:"size:50;index:idx_listing_country" json:"country"`
 	ISP     string `gorm:"size:100;index:idx_listing_isp" json:"isp"`
@@ -53,9 +56,10 @@ type ProxyListing struct {
 	AvailableBandwidthGB float64 `gorm:"not null" json:"available_bandwidth_gb"`
 	MaxConcurrency       int     `gorm:"default:5" json:"max_concurrency"`
 
-	// Performance metrics (auto-calculated)
+	// Performance metrics (auto-calculated; SLA fields enriched from gateway/explorer when served)
 	AvgLatencyMs  int     `gorm:"default:0" json:"avg_latency_ms"`
 	UptimePercent float64 `gorm:"default:100" json:"uptime_percent"`
+	SLASource     string  `gorm:"-" json:"sla_source,omitempty"` // gateway | explorer | provider | listing
 	SuccessRate   float64 `gorm:"default:100" json:"success_rate"`
 	QualityScore  float64 `gorm:"default:100" json:"quality_score"`
 	CurrentTier   string  `gorm:"size:20;default:'Bronze'" json:"current_tier"`
@@ -109,6 +113,7 @@ type SavedListing struct {
 type CreateListingRequest struct {
 	Title                string         `json:"title" binding:"required,min=5,max=200"`
 	Description          string         `json:"description" binding:"max=2000"`
+	ProviderNodeID       *uuid.UUID     `json:"provider_node_id"`
 	ProxyType            ProxyType      `json:"proxy_type" binding:"required"`
 	Protocol             string         `json:"protocol" binding:"required"`
 	RotationType         string         `json:"rotation_type"`

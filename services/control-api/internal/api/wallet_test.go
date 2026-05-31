@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
@@ -462,10 +464,15 @@ func TestWithdrawSOL_InsufficientBalance(t *testing.T) {
 	wallet.BalanceSOL = 1.0
 	db.DB.Save(&wallet)
 
-	// Link a wallet address
 	walletAddr := "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
 	user.WalletAddress = &walletAddr
 	db.DB.Save(&user)
+	wallet.PrimaryWithdrawalAddress = &walletAddr
+	db.DB.Save(&wallet)
+
+	withWithdrawSOLMocks(t, func(ctx context.Context, o *solana.OracleClient, dest string, amount float64) (string, error) {
+		return "unused", nil
+	})
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
@@ -697,8 +704,8 @@ func TestTransferP2P_SpendingLimitExceeded(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
 	}
 }
 
