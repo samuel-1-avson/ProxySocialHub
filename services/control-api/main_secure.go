@@ -156,6 +156,7 @@ func setupRoutes(r *gin.Engine, cfg *config.SecureConfig) {
 		api.RegisterAuthRoutes(v1)
 
 		// Public listings
+		api.RegisterMarketplaceGeoRoutes(v1)
 		api.RegisterListingRoutes(v1)
 	}
 

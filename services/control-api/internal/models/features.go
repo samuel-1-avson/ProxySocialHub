@@ -198,6 +198,10 @@ type ProviderNode struct {
 	AvgLatencyMs        int        `gorm:"default:0" json:"avg_latency_ms"`
 	DisputeCount        int        `gorm:"default:0" json:"dispute_count"`
 	DemotionWarnings    int        `gorm:"default:0" json:"demotion_warnings"` // Grace counter before tier demotion
+
+	// Gateway tunnel identity (e.g. node_<user_uuid>) — links to nodes.gateway_node_id
+	GatewayNodeID string `gorm:"type:varchar(128);index" json:"gateway_node_id,omitempty"`
+	KycVerified   bool   `gorm:"default:false" json:"kyc_verified"`
 }
 
 func (ProviderNode) TableName() string {

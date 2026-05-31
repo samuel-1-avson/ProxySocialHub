@@ -43,6 +43,9 @@ pub struct NodeInfo {
     pub base_price_per_gb: f64,
     #[serde(default)]
     pub lease_expires_at: u64,
+    /// control-api `nodes.id` (UUID) returned from gateway register; used for offline status updates.
+    #[serde(default)]
+    pub control_api_db_id: Option<String>,
 }
 
 fn default_bronze() -> String {
@@ -81,6 +84,7 @@ impl NodeInfo {
             quality_score: 100.0,
             base_price_per_gb: 0.20,
             lease_expires_at: 0,
+            control_api_db_id: None,
         }
     }
 
@@ -609,6 +613,7 @@ mod tests {
             quality_score: 100.0,
             base_price_per_gb: 0.20,
             lease_expires_at: 0,
+            control_api_db_id: None,
         }
     }
 

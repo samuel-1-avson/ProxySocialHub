@@ -136,6 +136,12 @@ services:
       # Resolves lat/lon for explorer nodes via ip-api.com (free, 45 req/min).
       # Set to "false" in air-gapped environments or when coordinates are pre-populated.
       - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
+      - CLI_DIST_PATH=/app/cli-dist
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.0}
+      - PROVIDER_NODE_STALE_AFTER=${PROVIDER_NODE_STALE_AFTER:-5m}
+      - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
+      - PROVIDER_PUBLIC_CONTROL_API_URL=${API_BASE_URL:-http://localhost:18080}
+      - ADMIN_API_ENABLED=${ADMIN_API_ENABLED:-false}
 
     volumes:
       # Use infra dev keypair (root ./oracle-keypair.json is often a placeholder "[]").
@@ -206,7 +212,7 @@ services:
       dockerfile: Dockerfile
       args:
         - API_URL=http://control-api:8080
-        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:3128}
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:8090}
         - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
         - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
         - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}
@@ -214,6 +220,7 @@ services:
         - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
         - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2}
         - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
+        - NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
         - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
     container_name: proxyhubb-web
     ports:
@@ -221,6 +228,7 @@ services:
     environment:
       - API_URL=http://control-api:8080
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
+      - NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
       - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
       - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
       - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}
@@ -315,12 +323,13 @@ services:
   edge-gateway:
     build:
       context: ./services/edge-gateway
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: proxyhubb-edge-gateway
     ports:
       - "3128:3128"
       - "8090:8090"
     environment:
+      - APP_ENV=development
       - RUST_LOG=debug
       - HOST=0.0.0.0
       - PORT=8090

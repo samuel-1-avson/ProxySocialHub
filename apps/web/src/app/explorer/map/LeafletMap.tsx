@@ -30,6 +30,16 @@ export interface MapNodeUpdate {
     lon?: number;
 }
 
+export interface ExplorerListingPin {
+    listing_id: string;
+    title: string;
+    lat: number;
+    lon: number;
+    price_per_gb: number;
+    country?: string;
+    estimated?: boolean;
+}
+
 interface Props {
     nodes: NodeGeoPoint[];
     onSelectNode: (node: NodeGeoPoint) => void;
@@ -37,6 +47,9 @@ interface Props {
     showHeatmap?: boolean;
     focusBounds?: [[number, number], [number, number]] | null;
     liveUpdates?: MapNodeUpdate[];
+    listingPins?: ExplorerListingPin[];
+    onSelectListing?: (pin: ExplorerListingPin) => void;
+    selectedListingId?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -101,6 +114,24 @@ function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     </div>`;
 }
 
+function listingMarkerHtml(price: number, selected: boolean, estimated: boolean): string {
+    const color = selected ? '#f59e0b' : estimated ? '#d97706' : '#10b981';
+    const border = estimated ? '2px dashed rgba(251,191,36,.85)' : '2px solid rgba(255,255,255,.35)';
+    return `<div style="width:24px;height:24px;border-radius:6px;background:${color};border:${border};box-shadow:0 0 14px ${color}88;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+        <span style="font-size:7px;font-weight:900;color:#fff;">$${price.toFixed(0)}</span>
+    </div>`;
+}
+
+function listingPopup(pin: ExplorerListingPin): string {
+    const loc = esc(pin.country || '—');
+    return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:200px;font-family:monospace;color:#fff;">
+        <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
+        <div style="font-size:11px;font-weight:700;margin-bottom:6px;">${esc(pin.title)}</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · $${pin.price_per_gb.toFixed(2)}/GB</div>
+        <a href="/marketplace/${esc(pin.listing_id)}" style="display:block;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;text-transform:uppercase;text-decoration:none;">Buy →</a>
+    </div>`;
+}
+
 function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
     const location = [nodes[0].city, nodes[0].country || nodes[0].region].filter(Boolean).map(esc).join(', ') || '—';
     const rows = nodes.map(n => {
@@ -149,10 +180,14 @@ export default function LeafletMapComponent({
     showHeatmap = false,
     focusBounds,
     liveUpdates = [],
+    listingPins = [],
+    onSelectListing,
+    selectedListingId,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<LeafletMap | null>(null);
     const markersRef = useRef<Marker[]>([]);
+    const listingMarkersRef = useRef<Marker[]>([]);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const scRef = useRef<Supercluster | null>(null);
 
@@ -293,6 +328,33 @@ export default function LeafletMapComponent({
         });
     }, [onSelectNode]);
 
+    const renderListingMarkers = useCallback(async () => {
+        const map = mapRef.current;
+        if (!map) return;
+        const L = (await import('leaflet')).default;
+
+        listingMarkersRef.current.forEach(m => m.remove());
+        listingMarkersRef.current = [];
+
+        if (!listingPins.length) return;
+
+        for (const pin of listingPins) {
+            if (Math.abs(pin.lat) < 0.01 && Math.abs(pin.lon) < 0.01) continue;
+            const selected = pin.listing_id === selectedListingId;
+            const icon = L.divIcon({
+                html: listingMarkerHtml(pin.price_per_gb, selected, !!pin.estimated),
+                className: '',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+            });
+            const marker = L.marker([pin.lat, pin.lon], { icon, zIndexOffset: 500 });
+            marker.bindPopup(listingPopup(pin), { className: 'leaflet-custom-popup', maxWidth: 260 });
+            marker.on('click', () => onSelectListing?.(pin));
+            marker.addTo(map);
+            listingMarkersRef.current.push(marker);
+        }
+    }, [listingPins, onSelectListing, selectedListingId]);
+
     // Re-render markers on zoom/pan so clusters update to the new zoom level
     useEffect(() => {
         const map = mapRef.current;
@@ -301,18 +363,24 @@ export default function LeafletMapComponent({
         const refresh = () => {
             const allNodes = Array.from(nodeMapRef.current.values());
             renderMarkers(allNodes, selectedNodeId);
+            renderListingMarkers();
             if (showHeatmap) drawHeatmap(allNodes);
         };
 
         map.on('zoomend moveend', refresh);
         return () => { map.off('zoomend moveend', refresh); };
-    }, [selectedNodeId, showHeatmap, renderMarkers]);
+    }, [selectedNodeId, showHeatmap, renderMarkers, renderListingMarkers]);
 
     // ── Sync node map ref + render when `nodes` prop changes ──
     useEffect(() => {
         nodeMapRef.current = new Map(nodes.map(n => [n.node_id, n]));
         renderMarkers(nodes, selectedNodeId);
-    }, [nodes, selectedNodeId, renderMarkers]);
+        renderListingMarkers();
+    }, [nodes, selectedNodeId, renderMarkers, renderListingMarkers]);
+
+    useEffect(() => {
+        renderListingMarkers();
+    }, [listingPins, selectedListingId, renderListingMarkers]);
 
     // ── Apply live WS updates to the node map without a full re-render ──
     useEffect(() => {

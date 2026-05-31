@@ -259,6 +259,21 @@ export async function deleteNode(nodeId: string): Promise<{ message: string }> {
     return apiDelete<{ message: string }>(`/v1/provider/nodes/${nodeId}`);
 }
 
+/** Server-published URLs for provider-node (no secrets). */
+export interface NodeConnectInfo {
+    node_id: string;
+    control_api_url: string;
+    gateway_tunnel_addr: string;
+    use_tls: boolean;
+    connection_type: string;
+    config_path_hint: string;
+    start_command: string;
+}
+
+export async function getNodeConnectInfo(nodeId: string): Promise<NodeConnectInfo> {
+    return apiGet<NodeConnectInfo>(`/v1/provider/nodes/${nodeId}/connect`);
+}
+
 export interface NodeHistory {
     uptime: any[];
     bandwidth: {
@@ -329,6 +344,41 @@ export async function getProviderEarnings(params?: { page?: number; limit?: numb
 /** Completed payout history with on-chain tx_hash. */
 export async function getProviderPayoutHistory(): Promise<{ payouts: EarningRecord[] }> {
     return apiGet('/v1/provider/earnings/history');
+}
+
+// ============ On-chain claim (manual payout) ============
+
+export interface ProviderClaimSummary {
+    pending_sol: number;
+    pending_count: number;
+    payout_wallet: string;
+    min_claim_sol: number;
+    oracle_ready: boolean;
+}
+
+export interface ProviderClaimPrepareResponse {
+    claim_id: string;
+    message: string;
+    amount_sol: number;
+    wallet: string;
+    expires_at: string;
+    instructions?: string;
+}
+
+export async function getProviderClaimSummary(): Promise<ProviderClaimSummary> {
+    return apiGet<ProviderClaimSummary>('/v1/provider/claim/summary');
+}
+
+export async function prepareProviderClaim(): Promise<ProviderClaimPrepareResponse> {
+    return apiPost<ProviderClaimPrepareResponse>('/v1/provider/claim/prepare', {});
+}
+
+export async function confirmProviderClaim(payload: {
+    claim_id: string;
+    message: string;
+    signature: string;
+}): Promise<{ status: string; tx_hash?: string; amount_sol?: number }> {
+    return apiPost('/v1/provider/claim/confirm', payload);
 }
 
 /** Send a heartbeat for a node (keeps it marked online). */

@@ -364,7 +364,7 @@ func processPayout(c *gin.Context) {
 		return
 	}
 
-	// Create payout transaction (would integrate with MoMo API)
+	// Create payout transaction record (on-chain settlement handled elsewhere)
 	reference := "payout-" + time.Now().Format("20060102150405")
 
 	// Deduct from wallet

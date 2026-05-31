@@ -115,6 +115,19 @@ jobs:
     - name: Build
       run: go build -v ./...
 
+    - name: Wallet production closure (Go)
+      env:
+        TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
+        REDIS_URL: "redis://localhost:6379"
+        EMERGENCY_SOL_PRICE_USD: "200"
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+      run: |
+        go test ./internal/billing/... -count=1
+        go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
+
     - name: Test with coverage
       env:
         TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
@@ -332,6 +345,26 @@ jobs:
            WHERE table_schema = 'public'
            ORDER BY table_name;" \
           | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
+
+    - name: Verify wallet schema (migrations 080-088)
+      env:
+        PGPASSWORD: proxyhubb
+      run: |
+        set -euo pipefail
+        DB=proxyhubb_migrate_test
+        cols=$(psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT column_name FROM information_schema.columns
+           WHERE table_name = 'wallets'
+             AND column_name IN ('withdrawal_whitelist','primary_withdrawal_address','withdrawal_address_changed_at','balance_usdt');")
+        echo "$cols" | grep -q withdrawal_whitelist
+        echo "$cols" | grep -q primary_withdrawal_address
+        echo "$cols" | grep -q withdrawal_address_changed_at
+        echo "$cols" | grep -q balance_usdt && { echo "balance_usdt should be dropped"; exit 1; } || true
+        psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_flags');" | grep -q t
+        psql -h localhost -U proxyhubb -d "$DB" -t -A -c \
+          "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wallet_ledger_entries' AND column_name = 'tx_hash');" | grep -q t
+        echo "Wallet schema closure checks passed"
 
     - name: Run all down migrations (rollback smoke-test)
       env:

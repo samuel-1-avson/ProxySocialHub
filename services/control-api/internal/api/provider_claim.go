@@ -182,11 +182,10 @@ func confirmProviderClaim(c *gin.Context) {
 		return
 	}
 
-	cluster := solanaClusterQuery()
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "completed",
 		"tx_hash":     txHash,
-		"solscan_url": solscanTxURL(txHash, cluster),
+		"solscan_url": SolscanTxURL(txHash),
 		"amount_sol":  paidSOL,
 	})
 }

@@ -9,13 +9,26 @@ Migrations live in repo root [`migrations/`](../migrations/):
 | `000080` | `withdrawal_whitelist`, `primary_withdrawal_address`, `withdrawal_address_changed_at` on `wallets` |
 | `000081` | `user_flags` table |
 | `000082` | Widen explorer numeric columns |
+| `000083` | `wallet_ledger_entries.tx_hash` |
+| `000084` | Pending tx idempotency key fix |
+| `000085`–`000087` | Provider registry / listing / node links |
+| `000088` | Drop fiat wallet artifacts (`balance_usdt`, Paystack profile field) |
+
+Full closure checklist: [WALLET_PRODUCTION_CLOSURE.md](./WALLET_PRODUCTION_CLOSURE.md).
 
 **Docker (recommended):**
 
-Rebuild so the image includes migrations `000080`–`000082` and the latest API (see [DOCKER_REBUILD.md](./DOCKER_REBUILD.md)):
+Rebuild so the image includes migrations `000080`–`000088` and the latest API (see [DOCKER_REBUILD.md](./DOCKER_REBUILD.md)):
+
+```powershell
+.\scripts\wallet-production-closure.ps1 -ApplyMigrations
+```
+
+Or manually:
 
 ```bash
 docker compose -f docker-compose.dev.yml build db-migrate control-api web
+docker compose -f docker-compose.dev.yml up -d postgres
 docker compose -f docker-compose.dev.yml up db-migrate
 docker compose -f docker-compose.dev.yml up -d
 ```

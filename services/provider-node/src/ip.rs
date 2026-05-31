@@ -145,6 +145,51 @@ pub async fn register_node(
     Ok(body.id.unwrap_or_default())
 }
 
+/// POST /v1/provider/nodes/:id/heartbeat — keeps dashboard `provider_nodes` online.
+pub async fn send_provider_node_heartbeat(
+    api_url: &str,
+    jwt: &str,
+    node_id: &str,
+    latency_ms: i32,
+    active_connections: i32,
+    uptime_percent: f64,
+) -> Result<()> {
+    let node_id = node_id.trim();
+    if node_id.is_empty() || !looks_like_uuid(node_id) {
+        return Ok(());
+    }
+
+    let url = format!("{api_url}/v1/provider/nodes/{node_id}/heartbeat");
+    let payload = serde_json::json!({
+        "latency_ms": latency_ms,
+        "active_connections": active_connections,
+        "uptime_percent": uptime_percent,
+    });
+
+    let resp = Client::new()
+        .post(&url)
+        .header("Authorization", format!("Bearer {jwt}"))
+        .json(&payload)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .context("Failed to send provider node heartbeat")?;
+
+    if resp.status().is_success() {
+        debug!(node_id = %node_id, "Control API provider heartbeat OK");
+        return Ok(());
+    }
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    anyhow::bail!("Provider heartbeat failed (HTTP {status}): {body}");
+}
+
+fn looks_like_uuid(s: &str) -> bool {
+    let s = s.trim();
+    s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
+}
+
 pub async fn fetch_provider_lease(
     api_url: &str,
     jwt: &str,

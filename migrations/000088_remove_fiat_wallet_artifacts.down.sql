@@ -1,0 +1,3 @@
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS paystack_recipient_code VARCHAR(50);
+
+ALTER TABLE wallets ADD COLUMN IF NOT EXISTS balance_usdt NUMERIC(20, 4) NOT NULL DEFAULT 0;

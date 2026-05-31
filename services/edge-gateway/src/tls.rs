@@ -16,10 +16,21 @@ pub struct TlsConfig {
     pub require_client_cert: bool,
 }
 
+fn tls_env_path(primary: &str, legacy: &str) -> Option<String> {
+    std::env::var(primary)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var(legacy)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
 impl TlsConfig {
     pub fn from_env() -> Option<Self> {
-        let cert_path = std::env::var("TLS_CERT_FILE").ok()?;
-        let key_path = std::env::var("TLS_KEY_FILE").ok()?;
+        let cert_path = tls_env_path("TLS_CERT_FILE", "TLS_CERT_PATH")?;
+        let key_path = tls_env_path("TLS_KEY_FILE", "TLS_KEY_PATH")?;
         let ca_path = std::env::var("TLS_CA_FILE").ok();
         let require_client_cert = std::env::var("TLS_REQUIRE_CLIENT_CERT")
             .map(|v| v == "true" || v == "1")
@@ -105,5 +116,48 @@ pub fn create_tls_acceptor(
 
 /// Check if TLS is enabled
 pub fn is_tls_enabled() -> bool {
-    std::env::var("TLS_CERT_FILE").is_ok() && std::env::var("TLS_KEY_FILE").is_ok()
+    TlsConfig::from_env().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock")
+    }
+
+    #[test]
+    fn tls_from_env_accepts_legacy_cert_path_names() {
+        let _guard = env_lock();
+        let keys = [
+            "TLS_CERT_FILE",
+            "TLS_KEY_FILE",
+            "TLS_CERT_PATH",
+            "TLS_KEY_PATH",
+            "TLS_CA_FILE",
+        ];
+        let previous: Vec<_> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        for key in &keys {
+            std::env::remove_var(key);
+        }
+
+        std::env::set_var("TLS_CERT_PATH", "/tmp/cert.pem");
+        std::env::set_var("TLS_KEY_PATH", "/tmp/key.pem");
+        let cfg = TlsConfig::from_env().expect("legacy TLS env names should enable TLS");
+        assert_eq!(cfg.cert_path, "/tmp/cert.pem");
+        assert_eq!(cfg.key_path, "/tmp/key.pem");
+        assert!(is_tls_enabled());
+
+        for (key, value) in keys.iter().zip(previous.iter()) {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
 }

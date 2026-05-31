@@ -11,9 +11,8 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	OAuth    OAuthConfig
-	Email    EmailConfig
-	Payments PaymentsConfig
-	Crypto   CryptoConfig
+	Email  EmailConfig
+	Crypto CryptoConfig
 
 	Blockchain BlockchainConfig
 	Gateway    GatewayConfig
@@ -72,15 +71,6 @@ type EmailConfig struct {
 	FromName  string
 	AppURL    string
 	Enabled   bool
-}
-
-type PaymentsConfig struct {
-	MTNBaseURL         string
-	MTNSubscriptionKey string
-	MTNAPIUser         string
-	MTNAPIKey          string
-	MTNEnvironment     string
-	CallbackURL        string
 }
 
 type CryptoConfig struct {
@@ -149,14 +139,6 @@ func Load() (*Config, error) {
 	cfg.Email.FromName = getEnv("FROM_NAME", "ProxyHubb")
 	cfg.Email.AppURL = getEnv("APP_URL", "http://localhost:3000")
 	cfg.Email.Enabled = cfg.Email.SMTPHost != ""
-
-	// Payments
-	cfg.Payments.MTNBaseURL = getEnv("MTN_MOMO_BASE_URL", "https://sandbox.momodeveloper.mtn.com")
-	cfg.Payments.MTNSubscriptionKey = os.Getenv("MTN_MOMO_SUBSCRIPTION_KEY")
-	cfg.Payments.MTNAPIUser = os.Getenv("MTN_MOMO_API_USER")
-	cfg.Payments.MTNAPIKey = os.Getenv("MTN_MOMO_API_KEY")
-	cfg.Payments.MTNEnvironment = getEnv("MTN_MOMO_ENVIRONMENT", "sandbox")
-	cfg.Payments.CallbackURL = os.Getenv("MOMO_CALLBACK_URL")
 
 	// Crypto
 	cfg.Crypto.OraclePrivateKey = os.Getenv("ORACLE_PRIVATE_KEY")
