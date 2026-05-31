@@ -65,7 +65,7 @@ Or: `.\scripts\wallet-production-closure.ps1`
 
 ## Manual CI run
 
-After the workflow rename (see below), trigger from the Actions tab:
+When account/billing allows runners (see troubleshooting B), trigger from the Actions tab:
 
 **Actions → ProxyHubb CI → Run workflow** (`workflow_dispatch` on `main`).
 
@@ -80,37 +80,59 @@ git push origin main
 
 ## Troubleshooting: `startup_failure` / `BuildFailed`
 
-### Symptom
+There are **two separate issues** on this repo (May 2026). Fix both.
 
-- Run ends in **`startup_failure`** in under a second
-- **0 jobs** in the run
-- API may show `"path": "BuildFailed"` and a **deleted** workflow id
+### A. Push runs hit a ghost `BuildFailed` workflow
 
-### Cause (this repo)
+**Symptom:** Push events create a run with `"path": "BuildFailed"`, empty name, **workflow_id `243457783`**, `state: deleted`, **0 jobs**.
 
-GitHub had registered a **ghost workflow** for an old broken `.github/workflows/ci.yml` (`state: deleted`, `path: BuildFailed`). Pushes kept targeting that id instead of the active workflow file, so the real **ProxyHubb CI** workflow never started.
+**Cause:** An old invalid `.github/workflows/ci.yml` left a deleted workflow registration. GitHub still queued **push** events against that id.
 
-### Fix applied
+**Fix applied in repo:**
 
-- Renamed workflow file to **`proxyhubb-ci.yml`**
-- Changed workflow **`name:`** to **`ProxyHubb CI`**
-- Added `workflow_dispatch`, top-level **`permissions`**, and **`GO_VERSION: '1.25'`** (matches `go.mod`)
+- Renamed CI workflow to **`proxyhubb-ci.yml`**, display name **`ProxyHubb CI`**
+- Active workflow id is now **`286491384`** (verify with CLI below)
 
-### If Actions still does not run
+Push may still show a **BuildFailed** run in the list until GitHub drops the ghost subscription. Ignore those runs; look for **ProxyHubb CI** or use **workflow_dispatch**.
 
-1. **Settings → Actions → General** — Actions enabled; workflow permissions allowed.
-2. **Settings → Billing** — private repos need Actions minutes (free tier includes a monthly allowance).
-3. Confirm the new workflow appears under **Actions** as **ProxyHubb CI** (not an empty **BuildFailed** entry).
-4. Check [GitHub Status](https://www.githubstatus.com/) for platform incidents.
-5. Optional: **Settings → Actions → General** — disable Actions, save, re-enable (clears stuck queue on some repos).
+### B. All workflows fail before any job starts (account / billing)
 
-### Verify registration (CLI)
+**Symptom:** Even **CI diagnostic** (single `echo` step) or **ProxyHubb CI** via **Run workflow** ends in **`startup_failure`** with **0 jobs**, but the run correctly shows `path: .github/workflows/proxyhubb-ci.yml` and name **ProxyHubb CI**.
+
+**Cause:** This is **not** the wallet YAML steps — GitHub never assigns a runner. Common causes for **private** repos:
+
+| Check | Where |
+|--------|--------|
+| Actions minutes exhausted / spending limit | [Settings → Billing](https://github.com/settings/billing) → Plans and usage → Actions |
+| Actions disabled for private repos | Settings → Actions → General (user or org) |
+| Org policy blocks GitHub-hosted runners | Org → Settings → Actions → Policies |
+| New workflow needs approval (rare) | Actions tab yellow banner “Approve workflow” |
+
+**Verify:**
 
 ```bash
-gh api repos/OWNER/REPO/actions/workflows --jq '.workflows[] | {id,name,path,state}'
+# Active workflows (expect ProxyHubb CI, Security Scan, Deploy, CI diagnostic)
+gh api repos/samuel-1-avson/ProxySocialHub/actions/workflows \
+  --jq '.workflows[] | {id,name,path,state}'
+
+# Manual run (fails at startup until billing/policy is fixed)
+gh workflow run proxyhubb-ci.yml --repo samuel-1-avson/ProxySocialHub --ref main
+gh run list --repo samuel-1-avson/ProxySocialHub --workflow proxyhubb-ci.yml --limit 3
 ```
 
-Expect **`proxyhubb-ci.yml`** with `state: active`. A `BuildFailed` / `deleted` entry may remain in history but should no longer receive new pushes.
+When healthy, a run shows **jobs** (`changes`, `db-migrate`, `backend-test`, …) within a few seconds — not instant `startup_failure`.
+
+### Repo settings checklist
+
+1. **Settings → Actions → General** — Allow all actions (or allow listed); workflow read/approve as needed.
+2. **Settings → Actions → General → Workflow permissions** — Read and write or read-only (either is fine for CI).
+3. **Settings → Billing** — Confirm Actions minutes remaining for private repositories.
+4. [GitHub Status](https://www.githubstatus.com/) — platform outage.
+5. Optional: disable Actions, save, re-enable (clears stuck queues on some repos).
+
+### Temporary diagnostic workflow
+
+[`.github/workflows/ci-diagnostic.yml`](../.github/workflows/ci-diagnostic.yml) — minimal `workflow_dispatch` + `echo`. Use it to confirm Actions can start jobs; delete the file once **ProxyHubb CI** is green.
 
 ---
 
