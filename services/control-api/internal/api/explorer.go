@@ -97,9 +97,12 @@ type ExplorerMetricsResponse struct {
 	BlockHeight        uint64         `json:"block_height"`
 	AvgBlockTime       float64        `json:"avg_block_time_ms"`
 	TotalBandwidthGB   float64        `json:"total_bandwidth_gb"`
-	TPS                float64        `json:"transactions_per_second"`
-	RegionDistribution map[string]int `json:"region_distribution,omitempty"`
-	LastUpdated        time.Time      `json:"last_updated"`
+	TPS                 float64        `json:"transactions_per_second"`
+	TpsWindowHours      int            `json:"tps_window_hours"` // hours used for transactions_per_second (live path)
+	RegionDistribution  map[string]int `json:"region_distribution,omitempty"`
+	LastUpdated         time.Time      `json:"last_updated"`
+	DataSource          string         `json:"data_source"`           // "aggregated" | "live"
+	TimeSeriesAvailable bool           `json:"time_series_available"` // hourly/daily explorer_metrics rows exist
 }
 
 type TransactionListResponse struct {
@@ -150,7 +153,7 @@ type WalletDetailsResponse struct {
 	FirstActivity    time.Time `json:"first_activity"`
 	LastActivity     time.Time `json:"last_activity"`
 	IsContract       bool      `json:"is_contract"`
-	LinkedUserID     string    `json:"linked_user_id,omitempty"` // Only if registered
+	// LinkedUserID is intentionally omitted from public explorer responses (EXP-P0-04).
 }
 
 type BlockListResponse struct {
@@ -390,7 +393,7 @@ func shouldBypassExplorerDecentralizationGate(c *gin.Context) bool {
 		strings.HasSuffix(path, "/network/health")
 }
 
-func loadExplorerDecentralizationStatusCached(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
+func loadExplorerDecentralizationStatusCachedMemory(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
 	if windowSlots == 0 {
 		windowSlots = 256
 	}
@@ -417,7 +420,68 @@ func loadExplorerDecentralizationStatusCached(windowSlots uint64) (ExplorerDecen
 	explorerDecentralizationStatusCache.fetchedAt = now
 	explorerDecentralizationStatusCache.mu.Unlock()
 
+	if redisClient.Client != nil {
+		redisKey := fmt.Sprintf("explorer:decentralization:status:%d", windowSlots)
+		if jsonData, err := json.Marshal(status); err == nil {
+			_ = redisClient.Client.Set(context.Background(), redisKey, jsonData, 15*time.Second).Err()
+		}
+	}
+
 	return status, nil
+}
+
+func loadExplorerDecentralizationStatusCached(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
+	if windowSlots == 0 {
+		windowSlots = 256
+	}
+
+	redisKey := fmt.Sprintf("explorer:decentralization:status:%d", windowSlots)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(context.Background(), redisKey).Result(); err == nil && cached != "" {
+			var response ExplorerDecentralizationStatusResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				return response, nil
+			}
+		}
+	}
+
+	return loadExplorerDecentralizationStatusCachedMemory(windowSlots)
+}
+
+// allowExplorerWebSocket applies the same full-decentralization gate as HTTP routes.
+func allowExplorerWebSocket(c *gin.Context) bool {
+	if !decentralization.FullModeEnabled() || shouldBypassExplorerDecentralizationGate(c) {
+		return true
+	}
+
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "indexed_reads_with_quorum_attestation", "mirror")
+
+	status, err := loadExplorerDecentralizationStatusCached(256)
+	if err != nil {
+		logging.Error(err).Msg("[ProxyExplorer] WebSocket gate failed to evaluate quorum status")
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error": "explorer full decentralization gate active; decentralization status unavailable",
+		})
+		return false
+	}
+
+	setExplorerTrustHeaders(c, status)
+
+	if !status.FullyDecentralized {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error":                 "explorer full decentralization gate active; quorum requirements not satisfied",
+			"explorer_mode":         status.ExplorerMode,
+			"min_writers_required":  status.MinWritersRequired,
+			"unique_writers":        status.UniqueWriters,
+			"recent_slots_analyzed": status.RecentSlotsAnalyzed,
+			"slots_meeting_quorum":  status.SlotsMeetingQuorum,
+			"conflicting_slots":     status.ConflictingSlots,
+			"quorum_ratio":          status.QuorumRatio,
+		})
+		return false
+	}
+
+	return true
 }
 
 func enforceExplorerFullDecentralization() gin.HandlerFunc {
@@ -462,6 +526,22 @@ func enforceExplorerFullDecentralization() gin.HandlerFunc {
 // Handler Implementations
 // ============================================================
 
+// explorerDistinctActiveWallets counts unique from/to addresses on non-orphaned txs in [since, now).
+func explorerDistinctActiveWallets(chain string, since time.Time) uint64 {
+	var count int64
+	now := time.Now()
+	db.DB.Raw(`
+		SELECT COUNT(DISTINCT addr) FROM (
+			SELECT from_address AS addr FROM explorer_transactions
+			WHERE chain = ? AND is_orphaned = ? AND timestamp >= ? AND timestamp < ?
+			UNION
+			SELECT to_address AS addr FROM explorer_transactions
+			WHERE chain = ? AND is_orphaned = ? AND timestamp >= ? AND timestamp < ?
+		) AS wallets
+	`, chain, false, since, now, chain, false, since, now).Scan(&count)
+	return uint64(count)
+}
+
 func getExplorerMetrics(c *gin.Context) {
 	chain := c.DefaultQuery("chain", "all")
 
@@ -490,14 +570,17 @@ func getExplorerMetrics(c *gin.Context) {
 		Order("period_start DESC").First(&metrics).Error; err == nil {
 		// Cache hit, return cached data
 		response := ExplorerMetricsResponse{
-			Chain:             metrics.Chain,
-			TotalTransactions: metrics.TotalTransactions,
-			TotalVolume:       metrics.TotalVolume,
-			ActiveWallets:     metrics.ActiveWallets,
-			ActiveNodes:       metrics.ActiveNodes,
-			AvgBlockTime:      metrics.AverageBlockTime,
-			TotalBandwidthGB:  float64(metrics.TotalBandwidthBytes) / (1024 * 1024 * 1024),
-			LastUpdated:       metrics.CreatedAt,
+			Chain:               metrics.Chain,
+			TotalTransactions:   metrics.TotalTransactions,
+			TotalVolume:         metrics.TotalVolume,
+			ActiveWallets:       metrics.ActiveWallets,
+			ActiveNodes:         metrics.ActiveNodes,
+			AvgBlockTime:        metrics.AverageBlockTime,
+			TotalBandwidthGB:    float64(metrics.TotalBandwidthBytes) / (1024 * 1024 * 1024),
+			TpsWindowHours:      24,
+			LastUpdated:         metrics.CreatedAt,
+			DataSource:          "aggregated",
+			TimeSeriesAvailable: explorerTimeSeriesAvailable(chain),
 		}
 
 		// Cache in Redis
@@ -510,16 +593,15 @@ func getExplorerMetrics(c *gin.Context) {
 	// Cache miss - compute live metrics from real data only
 	var txCount int64
 	var nodeCount int64
-	var walletCount int64
 	var totalVolume float64
 	var totalBandwidthBytes int64
 
 	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&txCount)
 	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND status = ? AND is_orphaned = ?", "solana", "confirmed", false).Select("COALESCE(SUM(amount), 0)").Scan(&totalVolume)
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
-	// Bandwidth is real telemetry from active provider nodes
+	// Bandwidth is cumulative telemetry from active provider nodes (lifetime counter).
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
-	db.DB.Model(&models.Wallet{}).Count(&walletCount)
+	activeWallets := explorerDistinctActiveWallets("solana", time.Now().Add(-24*time.Hour))
 
 	// Compute avg block time from the last 1000 indexed blocks (real chain data)
 	var avgBlockTimeMs float64
@@ -568,17 +650,20 @@ func getExplorerMetrics(c *gin.Context) {
 	}
 
 	response := ExplorerMetricsResponse{
-		Chain:              chain,
-		TotalTransactions:  uint64(txCount),
-		TotalVolume:        totalVolume,
-		ActiveWallets:      uint64(walletCount),
-		ActiveNodes:        uint64(nodeCount),
-		BlockHeight:        blockHeight,
-		AvgBlockTime:       avgBlockTimeMs,
-		TotalBandwidthGB:   float64(totalBandwidthBytes) / (1024 * 1024 * 1024),
-		TPS:                tps,
-		RegionDistribution: regionDist,
-		LastUpdated:        time.Now(),
+		Chain:               chain,
+		TotalTransactions:   uint64(txCount),
+		TotalVolume:         totalVolume,
+		ActiveWallets:       activeWallets,
+		ActiveNodes:         uint64(nodeCount),
+		BlockHeight:         blockHeight,
+		AvgBlockTime:        avgBlockTimeMs,
+		TotalBandwidthGB:    float64(totalBandwidthBytes) / (1024 * 1024 * 1024),
+		TPS:                 tps,
+		TpsWindowHours:      24,
+		RegionDistribution:  regionDist,
+		LastUpdated:         time.Now(),
+		DataSource:          "live",
+		TimeSeriesAvailable: explorerTimeSeriesAvailable(chain),
 	}
 
 	// Cache in Redis
@@ -595,8 +680,8 @@ func getNetworkStats(c *gin.Context) {
 		ActiveNodes int64
 	}
 
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Count(&stats.TotalTx)
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ?", "solana").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&stats.TotalTx)
+	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -624,7 +709,7 @@ func listTransactions(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerTransaction{})
+	query := db.DB.Model(&models.ExplorerTransaction{}).Where("is_orphaned = ?", false)
 
 	if chain != "" {
 		query = query.Where("chain = ?", chain)
@@ -644,11 +729,7 @@ func listTransactions(c *gin.Context) {
 
 	var transactions []models.ExplorerTransaction
 	if err := query.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&transactions).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listTransactions")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch transactions",
-			"details": err.Error(),
-		})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch transactions", err)
 		return
 	}
 
@@ -686,7 +767,7 @@ func getTransactionByHash(c *gin.Context) {
 
 	// Try database cache first
 	var tx models.ExplorerTransaction
-	if err := db.DB.Where("tx_hash = ?", hash).First(&tx).Error; err == nil {
+	if err := db.DB.Where("tx_hash = ? AND is_orphaned = ?", hash, false).First(&tx).Error; err == nil {
 		c.JSON(http.StatusOK, TransactionDetailResponse{
 			TxHash:        tx.TxHash,
 			Chain:         tx.Chain,
@@ -731,7 +812,7 @@ func getTransactionByHash(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
+	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "Transaction not found"})
 }
 
 func getWalletDetails(c *gin.Context) {
@@ -742,18 +823,26 @@ func getWalletDetails(c *gin.Context) {
 		return
 	}
 
-	// Query transaction counts
-	var txCount int64
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("from_address = ? OR to_address = ?", address, address).
-		Count(&txCount)
+	cacheKey := fmt.Sprintf("explorer:wallet:%s", address)
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var response WalletDetailsResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+	}
 
-	// Get first and last activity
+	walletTxWhere := "is_orphaned = ? AND (from_address = ? OR to_address = ?)"
+	walletTxArgs := []interface{}{false, address, address}
+
+	var txCount int64
+	db.DB.Model(&models.ExplorerTransaction{}).Where(walletTxWhere, walletTxArgs...).Count(&txCount)
+
 	var firstTx, lastTx models.ExplorerTransaction
-	db.DB.Where("from_address = ? OR to_address = ?", address, address).
-		Order("timestamp ASC").First(&firstTx)
-	db.DB.Where("from_address = ? OR to_address = ?", address, address).
-		Order("timestamp DESC").First(&lastTx)
+	db.DB.Where(walletTxWhere, walletTxArgs...).Order("timestamp ASC").First(&firstTx)
+	db.DB.Where(walletTxWhere, walletTxArgs...).Order("timestamp DESC").First(&lastTx)
 
 	// Get SOL balance and PHB platform token balance from Solana RPC
 	var balanceSOL, balancePlatform float64
@@ -778,14 +867,7 @@ func getWalletDetails(c *gin.Context) {
 	// Fetch live SOL/USD price (5-min cached via CoinGecko)
 	solPriceUSD, _ := prices.GetSOLPrice(c.Request.Context())
 
-	// Check if this address is linked to a platform user
-	var linkedUserID string
-	var user models.User
-	if err := db.DB.Where("wallet_address = ?", address).First(&user).Error; err == nil {
-		linkedUserID = user.ID.String()
-	}
-
-	c.JSON(http.StatusOK, WalletDetailsResponse{
+	response := WalletDetailsResponse{
 		Address:          address,
 		Chain:            "solana",
 		BalanceSOL:       balanceSOL,
@@ -794,8 +876,10 @@ func getWalletDetails(c *gin.Context) {
 		TransactionCount: txCount,
 		FirstActivity:    firstTx.Timestamp,
 		LastActivity:     lastTx.Timestamp,
-		LinkedUserID:     linkedUserID,
-	})
+	}
+
+	cacheResponse(c, cacheKey, response, 45*time.Second)
+	c.JSON(http.StatusOK, response)
 }
 
 func getWalletTransactions(c *gin.Context) {
@@ -814,16 +898,12 @@ func getWalletTransactions(c *gin.Context) {
 
 	var total int64
 	query := db.DB.Model(&models.ExplorerTransaction{}).
-		Where("from_address = ? OR to_address = ?", address, address)
+		Where("is_orphaned = ? AND (from_address = ? OR to_address = ?)", false, address, address)
 	query.Count(&total)
 
 	var transactions []models.ExplorerTransaction
 	if err := query.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&transactions).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for getWalletTransactions")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch wallet transactions",
-			"details": err.Error(),
-		})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch wallet transactions", err)
 		return
 	}
 
@@ -866,16 +946,12 @@ func listBlocks(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.DB.Model(&models.ExplorerBlock{}).Where("chain = ?", chain)
+	query := db.DB.Model(&models.ExplorerBlock{}).Where("chain = ? AND is_orphaned = ?", chain, false)
 	query.Count(&total)
 
 	var blocks []models.ExplorerBlock
 	if err := query.Order("block_number DESC").Offset(offset).Limit(pageSize).Find(&blocks).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listBlocks")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch blocks",
-			"details": err.Error(),
-		})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch blocks", err)
 		return
 	}
 
@@ -923,7 +999,7 @@ func getBlockByIdentifier(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "Block not found"})
+	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "Block not found"})
 }
 
 func returnBlockDetail(c *gin.Context, block models.ExplorerBlock) {
@@ -964,6 +1040,7 @@ func listExplorerNodes(c *gin.Context) {
 	activeOnly := c.DefaultQuery("active", "true") == "true"
 	validatorOnly := c.DefaultQuery("validator", "false") == "true"
 	region := c.Query("region")
+	searchQ := strings.TrimSpace(c.Query("q"))
 
 	if page < 1 {
 		page = 1
@@ -984,6 +1061,13 @@ func listExplorerNodes(c *gin.Context) {
 	if region != "" {
 		query = query.Where("region = ?", region)
 	}
+	if searchQ != "" {
+		pattern := explorerNodeSearchPattern(searchQ)
+		query = query.Where(
+			"node_id ILIKE ? OR COALESCE(name, '') ILIKE ? OR COALESCE(region, '') ILIKE ? OR COALESCE(country, '') ILIKE ? OR COALESCE(city, '') ILIKE ? OR COALESCE(isp, '') ILIKE ?",
+			pattern, pattern, pattern, pattern, pattern, pattern,
+		)
+	}
 
 	var total, activeCount int64
 	query.Count(&total)
@@ -991,35 +1075,13 @@ func listExplorerNodes(c *gin.Context) {
 
 	var nodes []models.ExplorerNode
 	if err := query.Order("uptime_percent DESC").Offset(offset).Limit(pageSize).Find(&nodes).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listExplorerNodes")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch nodes",
-			"details": err.Error(),
-		})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch nodes", err)
 		return
 	}
 
 	summaries := make([]NodeSummary, len(nodes))
 	for i, n := range nodes {
-		summaries[i] = NodeSummary{
-			NodeID:           n.NodeID,
-			ProviderID:       n.ProviderUserID,
-			ProviderUsername: n.ProviderUsername,
-			Name:             n.Name,
-			Chain:            n.Chain,
-			Region:           n.Region,
-			Country:          n.Country,
-			City:             n.City,
-			ISP:              n.ISP,
-			Latitude:         n.Latitude,
-			Longitude:        n.Longitude,
-			IsActive:         n.IsActive,
-			IsValidator:      n.IsValidator,
-			UptimePercent:    n.UptimePercent,
-			ActiveSessions:   n.ActiveSessions,
-			BandwidthGB:      float64(n.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:    n.LastHeartbeat,
-		}
+		summaries[i] = publicNodeSummary(n)
 	}
 
 	c.JSON(http.StatusOK, NodeListResponse{
@@ -1097,7 +1159,7 @@ func getExplorerNodeDetails(c *gin.Context) {
 
 	var node models.ExplorerNode
 	if err := db.DB.Where("node_id = ?", nodeID).First(&node).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		explorerNotFound(c, "Node not found")
 		return
 	}
 
@@ -1107,14 +1169,11 @@ func getExplorerNodeDetails(c *gin.Context) {
 	var qualityScore, successRate float64
 	var totalSessions int64
 	var bytesUp, bytesDown int64
-	var hotkey string
-
 	var srcNode models.Node
 	if err := db.DB.Where("id = ?", node.NodeID).First(&srcNode).Error; err == nil {
 		latencyMs = srcNode.LatencyMs
 		qualityScore = srcNode.QualityScore
-		successRate = srcNode.SuccessRate * 100 // stored as 0-1 fraction, frontend expects 0-100
-		hotkey = srcNode.Hotkey
+		successRate = explorerSuccessRatePercent(srcNode.SuccessRate)
 		bytesUp = srcNode.TotalBytesUp
 		bytesDown = srcNode.TotalBytesDown
 	}
@@ -1122,25 +1181,7 @@ func getExplorerNodeDetails(c *gin.Context) {
 	db.DB.Model(&models.Session{}).Where("node_id = ?", nodeID).Count(&totalSessions)
 
 	c.JSON(http.StatusOK, NodeDetailResponse{
-		NodeSummary: NodeSummary{
-			NodeID:           node.NodeID,
-			ProviderID:       node.ProviderUserID,
-			ProviderUsername: node.ProviderUsername,
-			Name:             node.Name,
-			Chain:            node.Chain,
-			Region:           node.Region,
-			Country:          node.Country,
-			City:             node.City,
-			ISP:              node.ISP,
-			Latitude:         node.Latitude,
-			Longitude:        node.Longitude,
-			IsActive:         node.IsActive,
-			IsValidator:      node.IsValidator,
-			UptimePercent:    node.UptimePercent,
-			ActiveSessions:   node.ActiveSessions,
-			BandwidthGB:      float64(node.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:    node.LastHeartbeat,
-		},
+		NodeSummary:    publicNodeSummary(node),
 		StakeAmount:    node.StakeAmount,
 		CommissionRate: node.CommissionRate,
 		Version:        node.Version,
@@ -1151,7 +1192,6 @@ func getExplorerNodeDetails(c *gin.Context) {
 		TotalSessions:  totalSessions,
 		BytesUp:        bytesUp,
 		BytesDown:      bytesDown,
-		Hotkey:         hotkey,
 	})
 }
 
@@ -1172,37 +1212,25 @@ func listExplorerValidators(c *gin.Context) {
 	query := db.DB.Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
 	query.Count(&total)
 
+	var maxStake float64
+	db.DB.Model(&models.ExplorerNode{}).
+		Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana").
+		Select("COALESCE(MAX(stake_amount), 0)").
+		Scan(&maxStake)
+	orderClause := "last_heartbeat DESC"
+	if maxStake > 0 {
+		orderClause = "stake_amount DESC"
+	}
+
 	var validators []models.ExplorerNode
-	if err := query.Order("stake_amount DESC").Offset(offset).Limit(pageSize).Find(&validators).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listExplorerValidators")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch validators",
-			"details": err.Error(),
-		})
+	if err := query.Order(orderClause).Offset(offset).Limit(pageSize).Find(&validators).Error; err != nil {
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch validators", err)
 		return
 	}
 
 	summaries := make([]NodeSummary, len(validators))
 	for i, v := range validators {
-		summaries[i] = NodeSummary{
-			NodeID:           v.NodeID,
-			ProviderID:       v.ProviderUserID,
-			ProviderUsername: v.ProviderUsername,
-			Name:             v.Name,
-			Chain:            v.Chain,
-			Region:           v.Region,
-			Country:          v.Country,
-			City:             v.City,
-			ISP:              v.ISP,
-			Latitude:         v.Latitude,
-			Longitude:        v.Longitude,
-			IsActive:         v.IsActive,
-			IsValidator:      v.IsValidator,
-			UptimePercent:    v.UptimePercent,
-			ActiveSessions:   v.ActiveSessions,
-			BandwidthGB:      float64(v.TotalBandwidth) / (1024 * 1024 * 1024),
-			LastHeartbeat:    v.LastHeartbeat,
-		}
+		summaries[i] = publicNodeSummary(v)
 	}
 
 	c.JSON(http.StatusOK, NodeListResponse{
@@ -1242,11 +1270,7 @@ func listContracts(c *gin.Context) {
 
 	var contracts []models.ExplorerContract
 	if err := query.Order("total_calls DESC").Offset(offset).Limit(pageSize).Find(&contracts).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Database query failed for listContracts")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Proxy Explorer: Failed to fetch contracts",
-			"details": err.Error(),
-		})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch contracts", err)
 		return
 	}
 
@@ -1289,7 +1313,7 @@ func getContractDetails(c *gin.Context) {
 
 	var contract models.ExplorerContract
 	if err := db.DB.Where("address = ?", address).First(&contract).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Contract not found"})
+		explorerNotFound(c, "Contract not found")
 		return
 	}
 
@@ -1323,16 +1347,21 @@ func getBandwidthStats(c *gin.Context) {
 		since = time.Now().Add(-24 * time.Hour)
 	}
 
-	// Aggregate bandwidth from nodes
-	var totalBandwidth uint64
-	db.DB.Model(&models.ExplorerNode{}).Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidth)
+	periodDuration := time.Since(since)
+	if periodDuration < time.Minute {
+		periodDuration = 24 * time.Hour
+	}
 
-	// Get recent bandwidth (simplified - would aggregate from usage records in production)
-	var recentBandwidth uint64
-	db.DB.Model(&models.ExplorerNode{}).
-		Where("last_heartbeat > ?", since).
-		Select("COALESCE(SUM(total_bandwidth), 0)").
-		Scan(&recentBandwidth)
+	// Lifetime cumulative bandwidth across all indexed nodes.
+	var totalBandwidth uint64
+	db.DB.Model(&models.ExplorerNode{}).Where("chain = ?", "solana").
+		Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidth)
+
+	// Period bandwidth from proxy usage records (bytes in window).
+	var periodBandwidthBytes int64
+	db.DB.Model(&models.UsageRecord{}).
+		Where("created_at >= ?", since).
+		Select("COALESCE(SUM(bytes_used), 0)").Scan(&periodBandwidthBytes)
 
 	// Active connections count
 	var activeConnections int64
@@ -1370,16 +1399,34 @@ func getBandwidthStats(c *gin.Context) {
 		}
 	}
 
+	periodGB := float64(periodBandwidthBytes) / (1024 * 1024 * 1024)
+	avgThroughputMbps := 0.0
+	if periodBandwidthBytes > 0 && periodDuration > 0 {
+		avgThroughputMbps = (float64(periodBandwidthBytes) * 8) / (periodDuration.Seconds() * 1_000_000)
+	}
+
 	c.JSON(http.StatusOK, BandwidthStatsResponse{
-		TotalBandwidthGB:     float64(totalBandwidth) / (1024 * 1024 * 1024),
-		Last24HoursBandwidth: float64(recentBandwidth) / (1024 * 1024 * 1024),
-		ActiveConnections:    activeConnections,
-		BandwidthByRegion:    bandwidthByRegion,
-		TopProviders:         providerStats,
+		TotalBandwidthGB:      float64(totalBandwidth) / (1024 * 1024 * 1024),
+		Last24HoursBandwidth:  periodGB,
+		ActiveConnections:     activeConnections,
+		AverageThroughputMbps: avgThroughputMbps,
+		BandwidthByRegion:     bandwidthByRegion,
+		TopProviders:          providerStats,
 	})
 }
 
 func getNetworkHealth(c *gin.Context) {
+	cacheKey := "explorer:network:health"
+	if redisClient.Client != nil {
+		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
+			var health NetworkHealthResponse
+			if err := json.Unmarshal([]byte(cached), &health); err == nil {
+				c.JSON(http.StatusOK, health)
+				return
+			}
+		}
+	}
+
 	health := NetworkHealthResponse{
 		Status:      "healthy",
 		LastChecked: time.Now(),
@@ -1416,11 +1463,13 @@ func getNetworkHealth(c *gin.Context) {
 		}
 	}
 
-	// Check Database
+	// Check Database (ping latency exposed as avg_response_time_ms for dashboards)
 	sqlDB, err := db.DB.DB()
 	if err == nil {
+		pingStart := time.Now()
 		if err = sqlDB.Ping(); err == nil {
 			health.DatabaseHealth = "healthy"
+			health.AvgResponseTimeMs = float64(time.Since(pingStart).Milliseconds())
 		} else {
 			health.DatabaseHealth = "down"
 			health.Status = "degraded"
@@ -1433,6 +1482,7 @@ func getNetworkHealth(c *gin.Context) {
 	// Active nodes
 	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
 
+	cacheResponse(c, cacheKey, health, 10*time.Second)
 	c.JSON(http.StatusOK, health)
 }
 
@@ -1454,10 +1504,9 @@ func getExplorerDecentralizationStatus(c *gin.Context) {
 		}
 	}
 
-	response, err := explorerDecentralizationStatusLoader(windowSlots)
+	response, err := loadExplorerDecentralizationStatusCached(windowSlots)
 	if err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] Failed to compute decentralization status")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute decentralization status"})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to compute decentralization status", err)
 		return
 	}
 
@@ -1728,7 +1777,7 @@ func buildWriterHealthRows(
 
 		health := ExplorerWriterHealth{
 			WriterID:                row.WriterID,
-			RPCEndpoint:             row.RPCEndpoint,
+			RPCEndpoint:             "", // redacted on public explorer (EXP-P0-05)
 			WriterPublicKey:         evidence.WriterPublicKey,
 			SignatureScheme:         evidence.SignatureScheme,
 			HasAttestationSignature: strings.TrimSpace(evidence.AttestationSignature) != "",
@@ -1833,12 +1882,67 @@ func classifyExplorerDecentralizationMode(uniqueWriters, minWriters, slotsAnalyz
 	}
 }
 
+// explorerNodeSearchPattern builds a safe ILIKE pattern for node list search (?q=).
+func explorerNodeSearchPattern(q string) string {
+	q = strings.ReplaceAll(q, `\`, `\\`)
+	q = strings.ReplaceAll(q, `%`, `\%`)
+	q = strings.ReplaceAll(q, `_`, `\_`)
+	return "%" + q + "%"
+}
+
+// explorerSuccessRatePercent normalizes nodes.success_rate to API percent (0–100).
+// Source rows use a 0–1 fraction; values already above 1 are treated as legacy percent.
+func explorerSuccessRatePercent(raw float64) float64 {
+	if raw <= 0 {
+		return 0
+	}
+	if raw > 1 {
+		if raw > 100 {
+			return 100
+		}
+		return raw
+	}
+	return raw * 100
+}
+
+// publicNodeSummary maps an explorer node row to a public DTO without provider identity fields.
+func publicNodeSummary(n models.ExplorerNode) NodeSummary {
+	return NodeSummary{
+		NodeID:         n.NodeID,
+		Name:           n.Name,
+		Chain:          n.Chain,
+		Region:         n.Region,
+		Country:        n.Country,
+		City:           n.City,
+		ISP:            n.ISP,
+		Latitude:       n.Latitude,
+		Longitude:      n.Longitude,
+		IsActive:       n.IsActive,
+		IsValidator:    n.IsValidator,
+		UptimePercent:  n.UptimePercent,
+		ActiveSessions: n.ActiveSessions,
+		BandwidthGB:    float64(n.TotalBandwidth) / (1024 * 1024 * 1024),
+		LastHeartbeat:  n.LastHeartbeat,
+	}
+}
+
 func isExplorerFullyDecentralized(resp ExplorerDecentralizationStatusResponse) bool {
+	if resp.MinWritersRequired < 1 {
+		return false
+	}
 	return resp.ExplorerMode == "multi_writer_quorum" &&
-		resp.MinWritersRequired >= 3 &&
+		resp.UniqueWriters >= resp.MinWritersRequired &&
 		resp.ConflictingSlots == 0 &&
 		resp.RecentSlotsAnalyzed > 0 &&
 		resp.SlotsMeetingQuorum == resp.RecentSlotsAnalyzed
+}
+
+// explorerPublicError logs internal details and returns a stable public message.
+func explorerPublicError(c *gin.Context, status int, publicMessage string, err error) {
+	if err != nil {
+		logging.Error(err).Str("path", c.FullPath()).Msg(publicMessage)
+	}
+	c.JSON(status, gin.H{"error": publicMessage})
 }
 
 // cacheResponse caches a response in Redis
@@ -1898,11 +2002,13 @@ type AnalyticsPoint struct {
 }
 
 type AnalyticsResponse struct {
-	Period            string           `json:"period"`
-	TransactionVolume []AnalyticsPoint `json:"transaction_volume"`
-	BandwidthGB       []AnalyticsPoint `json:"bandwidth_gb"`
-	ActiveNodes       []AnalyticsPoint `json:"active_nodes"`
-	ActiveWallets     []AnalyticsPoint `json:"active_wallets"`
+	Period             string           `json:"period"`
+	TransactionVolume  []AnalyticsPoint `json:"transaction_volume"`
+	BandwidthGB        []AnalyticsPoint `json:"bandwidth_gb"`
+	ActiveNodes        []AnalyticsPoint `json:"active_nodes"`
+	ActiveWallets      []AnalyticsPoint `json:"active_wallets"`
+	MetricsAvailable   bool             `json:"metrics_available"`
+	Message            string           `json:"message,omitempty"`
 }
 
 type ExplorerLeaderboardEntry struct {
@@ -2014,6 +2120,11 @@ func getExplorerAnalytics(c *gin.Context) {
 		response.BandwidthGB = append(response.BandwidthGB, AnalyticsPoint{Timestamp: ts, Value: float64(r.TotalBandwidthBytes) / (1024 * 1024 * 1024)})
 		response.ActiveNodes = append(response.ActiveNodes, AnalyticsPoint{Timestamp: ts, Value: float64(r.ActiveNodes)})
 		response.ActiveWallets = append(response.ActiveWallets, AnalyticsPoint{Timestamp: ts, Value: float64(r.ActiveWallets)})
+	}
+
+	response.MetricsAvailable = len(records) > 0
+	if !response.MetricsAvailable {
+		response.Message = explorerMetricsUnavailableMessage(useCustomRange)
 	}
 
 	cacheResponse(c, cacheKey, response, 2*time.Minute)
@@ -2258,14 +2369,11 @@ func getExplorerProviderEarnings(c *gin.Context) {
 
 	providers := make([]ProviderEarningSummary, 0, len(rows))
 	for _, r := range rows {
-		// Resolve wallet address: provider_user_id → users.wallet_address
+		// Public explorer: never expose internal user IDs as addresses (EXP-P0-07).
 		var walletAddr string
 		var user models.User
 		if err := db.DB.Select("wallet_address").Where("id = ?", r.ProviderUserID).First(&user).Error; err == nil && user.WalletAddress != nil {
 			walletAddr = *user.WalletAddress
-		}
-		if walletAddr == "" {
-			walletAddr = r.ProviderUserID // fallback to user ID when no wallet linked
 		}
 		providers = append(providers, ProviderEarningSummary{
 			NodeID:          r.NodeID,
@@ -2338,9 +2446,11 @@ type HealthEvent struct {
 }
 
 type HealthHistoryResponse struct {
-	History       []HealthHistoryPoint `json:"history"`
-	UptimePercent float64              `json:"uptime_percent"`
-	Events        []HealthEvent        `json:"events"`
+	History          []HealthHistoryPoint `json:"history"`
+	UptimePercent    float64              `json:"uptime_percent"`
+	Events           []HealthEvent        `json:"events"`
+	MetricsAvailable bool                 `json:"metrics_available"`
+	Message          string               `json:"message,omitempty"`
 }
 
 func getHealthHistory(c *gin.Context) {
@@ -2405,7 +2515,30 @@ func getHealthHistory(c *gin.Context) {
 		UptimePercent: uptimePct,
 		Events:        []HealthEvent{},
 	}
+	response.MetricsAvailable = len(records) > 0
+	if !response.MetricsAvailable {
+		response.Message = explorerMetricsUnavailableMessage(false)
+	}
 
 	cacheResponse(c, cacheKey, response, 2*time.Minute)
 	c.JSON(http.StatusOK, response)
+}
+
+func explorerTimeSeriesAvailable(chain string) bool {
+	var count int64
+	db.DB.Model(&models.ExplorerMetrics{}).
+		Where("chain = ? AND period IN ?", chain, []string{"hourly", "daily"}).
+		Count(&count)
+	return count > 0
+}
+
+func explorerMetricsUnavailableMessage(customRange bool) string {
+	if customRange {
+		return "No aggregated metrics exist for the selected date range. Try a wider range or wait for the metrics job to backfill."
+	}
+	return "Time-series metrics are not available yet. The metrics aggregator runs periodically; charts populate after indexing activity exists."
+}
+
+func explorerNotFound(c *gin.Context, message string) {
+	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": message})
 }
