@@ -14,6 +14,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 const CATEGORIES = [
     { label: 'Uptime', value: 'uptime', icon: Activity, color: '#10b981', unit: '%' },
@@ -67,10 +68,18 @@ const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transiti
 const itemVariants = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
 
 export default function LeaderboardPage() {
+    const searchParams = useSearchParams();
     const [category, setCategory] = useState('uptime');
     const [period, setPeriod] = useState('24h');
     const [mounted, setMounted] = useState(false);
     useEffect(() => { setMounted(true); }, []);
+
+    useEffect(() => {
+        const cat = searchParams.get('category');
+        if (cat && CATEGORIES.some(c => c.value === cat)) {
+            setCategory(cat);
+        }
+    }, [searchParams]);
 
     const cat = CATEGORIES.find(c => c.value === category)!;
 
@@ -81,21 +90,7 @@ export default function LeaderboardPage() {
         retry: false,
     });
 
-    const { data: nodesData } = useQuery({
-        queryKey: ['nodes-lb'],
-        queryFn: () => getNodes(1, 100, true),
-        retry: false,
-    });
-
-    const nodes = nodesData?.nodes || [];
-    const localRanked = [...nodes].sort((a: any, b: any) => {
-        if (category === 'uptime') return (b.uptime_percent || 0) - (a.uptime_percent || 0);
-        if (category === 'bandwidth') return (b.bandwidth_gb || 0) - (a.bandwidth_gb || 0);
-        return (b.active_sessions || 0) - (a.active_sessions || 0);
-    }).map((n, i) => ({ ...n, rank: i + 1 }));
-
-    const usingLocalData = !leaderboard?.entries?.length && localRanked.length > 0 && !!leaderboardError;
-    const entries = leaderboard?.entries?.length ? leaderboard.entries : localRanked;
+    const entries = leaderboard?.entries ?? [];
 
     const getValue = (node: any) => {
         if (category === 'uptime') return node.uptime_percent || 0;
@@ -235,9 +230,9 @@ export default function LeaderboardPage() {
                     <h2 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
                         <Star size={14} className="text-primary" /> Full Rankings
                     </h2>
-                    {usingLocalData && (
+                    {leaderboardError && (
                         <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[8px] font-black uppercase tracking-widest">
-                            ⚠ Local data — API unavailable
+                            API unavailable
                         </span>
                     )}
                 </div>

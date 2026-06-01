@@ -20,6 +20,7 @@ export default function ExplorerLayout({
 
     const explorerTabs = [
         { href: "/explorer", label: "Overview" },
+        { href: "/explorer/blocks", label: "Blocks" },
         { href: "/explorer/nodes", label: "Nodes" },
         { href: "/explorer/transactions", label: "Transactions" },
         { href: "/explorer/leaderboard", label: "Leaderboard" },
@@ -54,7 +55,10 @@ export default function ExplorerLayout({
                     </div>
                     <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none snap-x mask-fade-edges">
                         {explorerTabs.map((tab) => {
-                            const isActive = pathname === tab.href || pathname?.startsWith(tab.href + '/');
+                            const isOverview = tab.href === "/explorer";
+                            const isActive = isOverview
+                                ? pathname === "/explorer" || pathname === "/explorer/"
+                                : pathname === tab.href || pathname?.startsWith(tab.href + "/");
                             return (
                                 <Link
                                     key={tab.href}

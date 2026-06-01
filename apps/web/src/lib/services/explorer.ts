@@ -1,4 +1,7 @@
 import { API_BASE_URL, fetchWithAuth } from './client';
+import { ExplorerApiError } from './explorer-errors';
+
+export { ExplorerApiError, isExplorerNotFound, isExplorerNetworkError, toExplorerApiError } from './explorer-errors';
 
 // Types match Go backend DTOs
 export interface ExplorerMetrics {
@@ -11,8 +14,11 @@ export interface ExplorerMetrics {
     avg_block_time_ms: number;
     total_bandwidth_gb: number;
     transactions_per_second: number;
+    tps_window_hours?: number;
     region_distribution?: Record<string, number>;
     last_updated: string;
+    data_source?: 'aggregated' | 'live';
+    time_series_available?: boolean;
 }
 
 export interface TransactionSummary {
@@ -100,6 +106,23 @@ export interface TransactionDetail extends TransactionSummary {
     raw_data?: any;
 }
 
+export interface ContractSummary {
+    address: string;
+    chain: string;
+    name: string;
+    contract_type: string;
+    is_verified: boolean;
+    total_calls: number;
+    deployed_at: string;
+}
+
+export interface ContractListResponse {
+    contracts: ContractSummary[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
 export interface ContractDetails {
     address: string;
     name: string;
@@ -176,33 +199,19 @@ async function xfetch(url: string, signal?: AbortSignal): Promise<Response> {
     return fetch(url, signal ? { signal } : undefined);
 }
 
-type ExplorerServiceError = Error & {
-    status?: number;
-    details?: string;
-};
-
 async function throwExplorerError(response: Response, fallback: string): Promise<never> {
-    let details = '';
+    throw await ExplorerApiError.fromResponse(response, fallback);
+}
 
+async function explorerFetch<T>(url: string, fallback: string, signal?: AbortSignal): Promise<T> {
     try {
-        const payload = await response.json();
-        if (payload && typeof payload === 'object') {
-            const rec = payload as Record<string, unknown>;
-            details = String(rec.error || rec.message || '').trim();
-        }
-    } catch {
-        try {
-            details = (await response.text()).trim();
-        } catch {
-            details = '';
-        }
+        const response = await xfetch(url, signal);
+        if (!response.ok) await throwExplorerError(response, fallback);
+        return response.json();
+    } catch (err) {
+        if (err instanceof ExplorerApiError) throw err;
+        throw new ExplorerApiError('network', err instanceof Error ? err.message : fallback);
     }
-
-    const msg = details ? `${fallback}: ${details}` : `${fallback} (HTTP ${response.status})`;
-    const err: ExplorerServiceError = new Error(msg);
-    err.status = response.status;
-    err.details = details;
-    throw err;
 }
 
 export async function getExplorerMetrics(chain = 'all', signal?: AbortSignal): Promise<ExplorerMetrics> {
@@ -229,21 +238,19 @@ export async function getRecentTransactions(page = 1, pageSize = 10, chain?: str
 }
 
 export async function getTransactionDetails(hash: string, signal?: AbortSignal): Promise<TransactionDetail> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/transactions/${hash}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch transaction details');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/transactions/${hash}`, 'Failed to fetch transaction details', signal);
 }
 
 export async function getWalletDetails(address: string, signal?: AbortSignal): Promise<WalletDetails> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/wallets/${address}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch wallet details');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/wallets/${address}`, 'Failed to fetch wallet details', signal);
 }
 
 export async function getWalletTransactions(address: string, page = 1, pageSize = 20, signal?: AbortSignal): Promise<TransactionListResponse> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/wallets/${address}/transactions?page=${page}&page_size=${pageSize}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch wallet transactions');
-    return response.json();
+    return explorerFetch(
+        `${API_BASE_URL}/v1/explorer/wallets/${address}/transactions?page=${page}&page_size=${pageSize}`,
+        'Failed to fetch wallet transactions',
+        signal,
+    );
 }
 
 export async function getBlocks(page = 1, pageSize = 10, chain = 'solana', signal?: AbortSignal): Promise<BlockListResponse> {
@@ -252,12 +259,32 @@ export async function getBlocks(page = 1, pageSize = 10, chain = 'solana', signa
     return response.json();
 }
 
-export async function getNodes(page = 1, pageSize = 20, activeOnly = true, validatorOnly?: boolean, signal?: AbortSignal): Promise<NodeListResponse> {
+export async function getNodes(
+    page = 1,
+    pageSize = 20,
+    activeOnly = true,
+    validatorOnly?: boolean,
+    signal?: AbortSignal,
+    q?: string,
+): Promise<NodeListResponse> {
     let url = `${API_BASE_URL}/v1/explorer/nodes?page=${page}&page_size=${pageSize}&active=${activeOnly}`;
     if (validatorOnly) url += `&validator=true`;
+    const trimmed = q?.trim();
+    if (trimmed) url += `&q=${encodeURIComponent(trimmed)}`;
     const response = await xfetch(url, signal);
     if (!response.ok) await throwExplorerError(response, 'Failed to fetch nodes');
     return response.json();
+}
+
+/** Normalize success_rate from API (0–100 percent) or legacy fraction (0–1). */
+export function successRatePercent(value?: number | null): number {
+    if (value == null || Number.isNaN(value)) return 0;
+    if (value > 1) return Math.min(100, value);
+    return value * 100;
+}
+
+export function formatSuccessRate(value?: number | null, decimals = 1): string {
+    return `${successRatePercent(value).toFixed(decimals)}%`;
 }
 
 // Lightweight type returned by GET /nodes/geo — only what the map engine needs
@@ -295,10 +322,16 @@ export async function getBandwidthStats(period = '24h', signal?: AbortSignal): P
     return response.json();
 }
 
+export async function getContracts(page = 1, pageSize = 20, signal?: AbortSignal): Promise<ContractListResponse> {
+    return explorerFetch(
+        `${API_BASE_URL}/v1/explorer/contracts?page=${page}&page_size=${pageSize}`,
+        'Failed to fetch contracts',
+        signal,
+    );
+}
+
 export async function getContractDetails(address: string, signal?: AbortSignal): Promise<ContractDetails> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/contracts/${address}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch contract details');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/contracts/${address}`, 'Failed to fetch contract details', signal);
 }
 
 export async function getNetworkHealth(signal?: AbortSignal): Promise<NetworkHealth> {
@@ -332,6 +365,8 @@ export interface AnalyticsResponse {
     bandwidth_gb: AnalyticsPoint[];
     active_nodes: AnalyticsPoint[];
     active_wallets: AnalyticsPoint[];
+    metrics_available: boolean;
+    message?: string;
 }
 
 export interface LeaderboardEntry {
@@ -382,9 +417,7 @@ export interface NodeDetail {
 }
 
 export async function getBlockDetail(blockId: string | number, signal?: AbortSignal): Promise<BlockSummary & { transactions?: TransactionSummary[] }> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/blocks/${blockId}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch block detail');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/blocks/${blockId}`, 'Failed to fetch block detail', signal);
 }
 
 export async function getAnalytics(period = '24h', from?: string, to?: string, signal?: AbortSignal): Promise<AnalyticsResponse> {
@@ -403,9 +436,7 @@ export async function getLeaderboard(category = 'uptime', period = '24h', signal
 }
 
 export async function getNodeDetail(nodeId: string, signal?: AbortSignal): Promise<NodeDetail> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/nodes/${nodeId}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch node detail');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/nodes/${nodeId}`, 'Failed to fetch node detail', signal);
 }
 
 export async function getValidators(page = 1, pageSize = 20, signal?: AbortSignal): Promise<NodeListResponse> {
@@ -495,10 +526,10 @@ export interface HealthHistoryResponse {
     history: HealthHistoryPoint[];
     uptime_percent: number;
     events: { timestamp: string; status: string; subsystem: string; message: string }[];
+    metrics_available: boolean;
+    message?: string;
 }
 
 export async function getHealthHistory(period = '24h', signal?: AbortSignal): Promise<HealthHistoryResponse> {
-    const response = await xfetch(`${API_BASE_URL}/v1/explorer/health/history?period=${period}`, signal);
-    if (!response.ok) throw new Error('Failed to fetch health history');
-    return response.json();
+    return explorerFetch(`${API_BASE_URL}/v1/explorer/health/history?period=${period}`, 'Failed to fetch health history', signal);
 }
