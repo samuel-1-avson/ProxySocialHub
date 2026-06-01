@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -52,6 +53,15 @@ func StrictRateLimit() gin.HandlerFunc {
 // IsRateLimiterHealthy checks if the rate limiting backend (Redis) is available
 func IsRateLimiterHealthy() bool {
 	return redis.Client != nil
+}
+
+// LogRateLimitBackend logs which rate-limit store is active (EXP-P0-15).
+func LogRateLimitBackend() {
+	if redis.Client != nil {
+		log.Printf("Rate limiting backend: redis (distributed)")
+		return
+	}
+	log.Printf("Rate limiting backend: in-memory (per-process fallback; Redis unavailable)")
 }
 
 // GetRateLimitStatus returns the current rate limit status for a key

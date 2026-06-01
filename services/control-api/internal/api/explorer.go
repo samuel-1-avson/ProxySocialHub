@@ -73,11 +73,11 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 		explorer.GET("/analytics", getExplorerAnalytics)
 		explorer.GET("/leaderboard", getExplorerLeaderboard)
 
-		// Sessions
-		explorer.GET("/sessions", listExplorerSessions)
+		// Sessions (disabled by default — set EXPLORER_PUBLIC_SESSIONS_ENABLED=true to expose)
+		explorer.GET("/sessions", RateLimitWithConfig(30, time.Minute), enforceExplorerPublicSessions(), listExplorerSessions)
 
-		// Provider Earnings
-		explorer.GET("/earnings", getExplorerProviderEarnings)
+		// Provider Earnings (aggregated payouts; tighter limit than general explorer reads)
+		explorer.GET("/earnings", RateLimitWithConfig(60, time.Minute), getExplorerProviderEarnings)
 
 		// Network Health History
 		explorer.GET("/health/history", getHealthHistory)
@@ -89,14 +89,14 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 // ============================================================
 
 type ExplorerMetricsResponse struct {
-	Chain              string         `json:"chain"`
-	TotalTransactions  uint64         `json:"total_transactions"`
-	TotalVolume        float64        `json:"total_volume"`
-	ActiveWallets      uint64         `json:"active_wallets"`
-	ActiveNodes        uint64         `json:"active_nodes"`
-	BlockHeight        uint64         `json:"block_height"`
-	AvgBlockTime       float64        `json:"avg_block_time_ms"`
-	TotalBandwidthGB   float64        `json:"total_bandwidth_gb"`
+	Chain               string         `json:"chain"`
+	TotalTransactions   uint64         `json:"total_transactions"`
+	TotalVolume         float64        `json:"total_volume"`
+	ActiveWallets       uint64         `json:"active_wallets"`
+	ActiveNodes         uint64         `json:"active_nodes"`
+	BlockHeight         uint64         `json:"block_height"`
+	AvgBlockTime        float64        `json:"avg_block_time_ms"`
+	TotalBandwidthGB    float64        `json:"total_bandwidth_gb"`
 	TPS                 float64        `json:"transactions_per_second"`
 	TpsWindowHours      int            `json:"tps_window_hours"` // hours used for transactions_per_second (live path)
 	RegionDistribution  map[string]int `json:"region_distribution,omitempty"`
@@ -610,6 +610,7 @@ func getExplorerMetrics(c *gin.Context) {
 		Timestamp   time.Time
 	}
 	if err := db.DB.Model(&models.ExplorerBlock{}).
+		Where("is_orphaned = ?", false).
 		Order("block_number DESC").Limit(1000).
 		Select("block_number, timestamp").Scan(&blockTimes).Error; err == nil && len(blockTimes) >= 2 {
 		totalMs := blockTimes[0].Timestamp.Sub(blockTimes[len(blockTimes)-1].Timestamp).Milliseconds()
@@ -628,7 +629,7 @@ func getExplorerMetrics(c *gin.Context) {
 	// Block height from latest indexed block (real Solana chain height)
 	blockHeight := uint64(0)
 	var latestBlock models.ExplorerBlock
-	if err := db.DB.Order("block_number DESC").First(&latestBlock).Error; err == nil {
+	if err := db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
 		blockHeight = latestBlock.BlockNumber
 	}
 
@@ -987,14 +988,14 @@ func getBlockByIdentifier(c *gin.Context) {
 
 	// Try as block number first
 	if blockNum, err := strconv.ParseUint(identifier, 10, 64); err == nil {
-		if err := db.DB.Where("block_number = ?", blockNum).First(&block).Error; err == nil {
+		if err := db.DB.Where("block_number = ? AND is_orphaned = ?", blockNum, false).First(&block).Error; err == nil {
 			returnBlockDetail(c, block)
 			return
 		}
 	}
 
 	// Try as block hash
-	if err := db.DB.Where("block_hash = ?", identifier).First(&block).Error; err == nil {
+	if err := db.DB.Where("block_hash = ? AND is_orphaned = ?", identifier, false).First(&block).Error; err == nil {
 		returnBlockDetail(c, block)
 		return
 	}
@@ -1005,7 +1006,7 @@ func getBlockByIdentifier(c *gin.Context) {
 func returnBlockDetail(c *gin.Context, block models.ExplorerBlock) {
 	// Get transactions in this block
 	var transactions []models.ExplorerTransaction
-	db.DB.Where("block_hash = ?", block.BlockHash).Limit(100).Find(&transactions)
+	db.DB.Where("block_hash = ? AND is_orphaned = ?", block.BlockHash, false).Limit(100).Find(&transactions)
 
 	txSummaries := make([]TransactionSummary, len(transactions))
 	for i, tx := range transactions {
@@ -1125,8 +1126,7 @@ func getExplorerNodesGeo(c *gin.Context) {
 		Order("is_active DESC, uptime_percent DESC").
 		Limit(5000).
 		Find(&nodes).Error; err != nil {
-		logging.Error(err).Msg("[ProxyExplorer] getExplorerNodesGeo query failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch node geo data"})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to fetch node geo data", err)
 		return
 	}
 
@@ -1633,7 +1633,7 @@ func getExplorerDecentralizationWriters(c *gin.Context) {
 	response, err := explorerDecentralizationWritersLoader(windowSlots)
 	if err != nil {
 		logging.Error(err).Msg("[ProxyExplorer] Failed to compute writer health")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute writer health"})
+		explorerPublicError(c, http.StatusInternalServerError, "Failed to compute writer health", err)
 		return
 	}
 
@@ -1942,6 +1942,24 @@ func isExplorerFullyDecentralized(resp ExplorerDecentralizationStatusResponse) b
 		resp.SlotsMeetingQuorum == resp.RecentSlotsAnalyzed
 }
 
+// explorerPublicSessionsEnabled gates the public sessions feed (EXP-P0-07).
+// Default off: operational session lists are not exposed unless explicitly enabled.
+func explorerPublicSessionsEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("EXPLORER_PUBLIC_SESSIONS_ENABLED")))
+	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+func enforceExplorerPublicSessions() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if explorerPublicSessionsEnabled() {
+			c.Next()
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		c.Abort()
+	}
+}
+
 // explorerPublicError logs internal details and returns a stable public message.
 func explorerPublicError(c *gin.Context, status int, publicMessage string, err error) {
 	if err != nil {
@@ -2007,13 +2025,13 @@ type AnalyticsPoint struct {
 }
 
 type AnalyticsResponse struct {
-	Period             string           `json:"period"`
-	TransactionVolume  []AnalyticsPoint `json:"transaction_volume"`
-	BandwidthGB        []AnalyticsPoint `json:"bandwidth_gb"`
-	ActiveNodes        []AnalyticsPoint `json:"active_nodes"`
-	ActiveWallets      []AnalyticsPoint `json:"active_wallets"`
-	MetricsAvailable   bool             `json:"metrics_available"`
-	Message            string           `json:"message,omitempty"`
+	Period            string           `json:"period"`
+	TransactionVolume []AnalyticsPoint `json:"transaction_volume"`
+	BandwidthGB       []AnalyticsPoint `json:"bandwidth_gb"`
+	ActiveNodes       []AnalyticsPoint `json:"active_nodes"`
+	ActiveWallets     []AnalyticsPoint `json:"active_wallets"`
+	MetricsAvailable  bool             `json:"metrics_available"`
+	Message           string           `json:"message,omitempty"`
 }
 
 type ExplorerLeaderboardEntry struct {

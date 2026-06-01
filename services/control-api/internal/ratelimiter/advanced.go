@@ -114,40 +114,38 @@ func StrictAdvancedRateLimitConfig() AdvancedRateLimitConfig {
 	return config
 }
 
-// AdvancedRateLimit middleware with multiple algorithms and progressive penalties
+// AdvancedRateLimit middleware with multiple algorithms and progressive penalties.
+// Uses Redis when available; falls back to per-process in-memory token buckets otherwise.
 func AdvancedRateLimit(config AdvancedRateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if redis.Client == nil {
-			logging.Warn().Msg("Redis not available, skipping advanced rate limiting")
-			c.Next()
-			return
-		}
-
-		// Skip if configured
 		if config.SkipFunc != nil && config.SkipFunc(c) {
 			c.Next()
 			return
 		}
 
 		key := "advanced_ratelimit:" + config.KeyFunc(c)
-		ctx := context.Background()
 
 		var allowed bool
 		var remaining int
 		var resetTime time.Time
 		var penaltyUntil time.Time
 
-		switch config.Algorithm {
-		case TokenBucket:
-			allowed, remaining, resetTime, penaltyUntil = checkTokenBucket(ctx, key, config)
-		case SlidingWindow:
-			allowed, remaining, resetTime, penaltyUntil = checkSlidingWindow(ctx, key, config)
-		case FixedWindow:
-			allowed, remaining, resetTime, penaltyUntil = checkFixedWindow(ctx, key, config)
-		default:
-			logging.Error(fmt.Errorf("unknown algorithm: %s", config.Algorithm)).Msg("Rate limiting algorithm error")
-			c.Next()
-			return
+		if redis.Client == nil {
+			allowed, remaining, resetTime = checkMemoryTokenBucket(key, config)
+		} else {
+			ctx := context.Background()
+			switch config.Algorithm {
+			case TokenBucket:
+				allowed, remaining, resetTime, penaltyUntil = checkTokenBucket(ctx, key, config)
+			case SlidingWindow:
+				allowed, remaining, resetTime, penaltyUntil = checkSlidingWindow(ctx, key, config)
+			case FixedWindow:
+				allowed, remaining, resetTime, penaltyUntil = checkFixedWindow(ctx, key, config)
+			default:
+				logging.Error(fmt.Errorf("unknown algorithm: %s", config.Algorithm)).Msg("Rate limiting algorithm error")
+				c.Next()
+				return
+			}
 		}
 
 		// Set rate limit headers

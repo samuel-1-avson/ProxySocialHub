@@ -470,9 +470,7 @@ export async function getExplorerSessions(
     let url = `${API_BASE_URL}/v1/explorer/sessions?page=${page}&page_size=${pageSize}`;
     if (status) url += `&status=${status}`;
     if (type) url += `&type=${type}`;
-    const response = await xfetch(url, signal);
-    if (!response.ok) throw new Error('Failed to fetch sessions');
-    return response.json();
+    return explorerFetch<ExplorerSessionsResponse>(url, 'Failed to fetch sessions', signal);
 }
 
 // --- Provider Earnings ---
