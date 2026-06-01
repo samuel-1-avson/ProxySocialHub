@@ -12,6 +12,8 @@ export interface UseExplorerWSOptions {
     onNewBlock?: (data: any) => void;
     onNodeUpdate?: (data: any) => void;
     onInitial?: (data: any) => void;
+    /** Fired when the socket opens (before initial payload). */
+    onOpen?: () => void;
     enabled?: boolean;
     /** If provided, send a subscribe message on connect so the server only
      *  sends updates for these topics. Omit to receive all topics. */
@@ -53,6 +55,7 @@ export function useExplorerWS(options: UseExplorerWSOptions = {}) {
             }
             // Successful connection — reset backoff counter.
             retryCount.current = 0;
+            callbacksRef.current.onOpen?.();
 
             // Send subscription filter if caller specified topics.
             const t = callbacksRef.current.topics;
