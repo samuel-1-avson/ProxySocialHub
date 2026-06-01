@@ -4,7 +4,7 @@ import React, { Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getNodeDetail } from '@/lib/services/explorer';
+import { getNodeDetail, formatSuccessRate } from '@/lib/services/explorer';
 import type { NodeDetail } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
@@ -22,7 +22,7 @@ const METRICS: { label: string; key: keyof NodeDetail; format: (v: any) => strin
     { label: 'Uptime', key: 'uptime_percent', format: v => `${(v ?? 0).toFixed(2)}%`, highlight: 'higher_better' },
     { label: 'Latency', key: 'latency_ms', format: v => `${v ?? 0} ms`, highlight: 'lower_better' },
     { label: 'Quality Score', key: 'quality_score', format: v => (v ?? 0).toFixed(1), highlight: 'higher_better' },
-    { label: 'Success Rate', key: 'success_rate', format: v => `${((v ?? 0) * 100).toFixed(1)}%`, highlight: 'higher_better' },
+    { label: 'Success Rate', key: 'success_rate', format: v => formatSuccessRate(v), highlight: 'higher_better' },
     { label: 'Active Sessions', key: 'active_sessions', format: v => String(v ?? 0), highlight: 'higher_better' },
     { label: 'Total Sessions', key: 'total_sessions', format: v => (v ?? 0).toLocaleString(), highlight: 'higher_better' },
     { label: 'Bandwidth', key: 'bandwidth_gb', format: v => `${(v ?? 0).toFixed(2)} GB`, highlight: 'higher_better' },

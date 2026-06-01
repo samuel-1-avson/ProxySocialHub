@@ -3,7 +3,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getNodeDetail } from '@/lib/services/explorer';
+import { getNodeDetail, formatSuccessRate, successRatePercent } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     ArrowLeft,
@@ -26,6 +26,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { ExplorerErrorState } from '@/components/explorer/ExplorerErrorState';
 
 const containerVariants = {
     hidden: { opacity: 0 },
@@ -52,6 +53,17 @@ export default function NodeDetailPage() {
         queryFn: () => getNodeDetail(nodeId),
         refetchInterval: 30000,
     });
+
+    if (error) {
+        return (
+            <ExplorerErrorState
+                error={error}
+                entity="Node"
+                backHref="/explorer/nodes"
+                backLabel="Return to nodes"
+            />
+        );
+    }
 
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
@@ -147,20 +159,6 @@ export default function NodeDetailPage() {
                         <div key={i} className="h-32 bg-white/[0.01] animate-pulse border border-white/5 rounded-2xl" />
                     ))}
                 </div>
-            ) : error ? (
-                <motion.div
-                    variants={itemVariants}
-                    className="py-20 text-center border-2 border-dashed border-rose-500/20 rounded-[2.5rem] bg-rose-500/5"
-                >
-                    <Server size={48} className="mx-auto text-rose-500/20 mb-6" />
-                    <p className="text-[10px] font-black text-rose-400/60 uppercase tracking-[0.5em]">Node not found or not indexed</p>
-                    <Link
-                        href="/explorer/nodes"
-                        className="mt-4 inline-block text-[9px] font-black text-primary hover:text-primary/80 uppercase tracking-widest transition-colors"
-                    >
-                        ← View All Nodes
-                    </Link>
-                </motion.div>
             ) : node ? (
                 <>
                     {/* Performance Metrics */}
@@ -172,7 +170,7 @@ export default function NodeDetailPage() {
                             {[
                                 { label: 'Uptime', value: `${(node.uptime_percent || 0).toFixed(2)}%`, icon: CheckCircle, color: node.uptime_percent > 95 ? 'text-emerald-500' : node.uptime_percent > 80 ? 'text-yellow-500' : 'text-rose-500' },
                                 { label: 'Latency', value: `${(node.latency_ms || 0).toFixed(0)} ms`, icon: Zap, color: node.latency_ms < 50 ? 'text-emerald-500' : node.latency_ms < 150 ? 'text-yellow-500' : 'text-rose-500' },
-                                { label: 'Success Rate', value: `${(node.success_rate || 0).toFixed(2)}%`, icon: Star, color: node.success_rate > 95 ? 'text-emerald-500' : node.success_rate > 80 ? 'text-yellow-500' : 'text-rose-500' },
+                                { label: 'Success Rate', value: formatSuccessRate(node.success_rate, 2), icon: Star, color: successRatePercent(node.success_rate) > 95 ? 'text-emerald-500' : successRatePercent(node.success_rate) > 80 ? 'text-yellow-500' : 'text-rose-500' },
                                 { label: 'Active Sessions', value: (node.active_sessions || 0).toLocaleString(), icon: Users, color: 'text-primary' },
                             ].map((stat) => (
                                 <GlassCard key={stat.label} className="p-5 border-white/5 bg-white/[0.01]">

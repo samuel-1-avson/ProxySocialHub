@@ -15,6 +15,9 @@ import {
     type NetworkHealth,
 } from '@/lib/services/explorer';
 import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
+import { buildExplorerSearchPath } from '@/lib/explorer-search';
+import { MetricsUnavailableBanner } from '@/components/explorer/MetricsUnavailableBanner';
+import { ExplorerApiError } from '@/lib/services/explorer-errors';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -73,6 +76,9 @@ export default function ExplorerDashboard() {
     const [searchQuery, setSearchQuery] = React.useState('');
     const [mounted, setMounted] = useState(false);
     const [explorerGateActive, setExplorerGateActive] = useState(false);
+    const [wsLive, setWsLive] = useState(false);
+    const [liveTxs, setLiveTxs] = useState<any[]>([]);
+    const [liveBlocks, setLiveBlocks] = useState<any[]>([]);
     useEffect(() => { setMounted(true); }, []);
 
     const isFullGateError = React.useCallback((err: unknown): boolean => {
@@ -114,7 +120,7 @@ export default function ExplorerDashboard() {
             }
         },
         enabled: !explorerGateActive,
-        refetchInterval: explorerGateActive ? false : 5000,
+        refetchInterval: explorerGateActive || wsLive ? false : 60_000,
         refetchOnWindowFocus: false,
         retry: false,
     });
@@ -132,7 +138,7 @@ export default function ExplorerDashboard() {
             }
         },
         enabled: !explorerGateActive,
-        refetchInterval: explorerGateActive ? false : 5000,
+        refetchInterval: explorerGateActive || wsLive ? false : 60_000,
         refetchOnWindowFocus: false,
         retry: false,
     });
@@ -193,10 +199,6 @@ export default function ExplorerDashboard() {
         retry: false,
     });
 
-    // Live tx/block state — seeded from REST query, updated by WebSocket
-    const [liveTxs, setLiveTxs] = useState<any[]>([]);
-    const [liveBlocks, setLiveBlocks] = useState<any[]>([]);
-
     useEffect(() => {
         if (transactions?.transactions?.length) {
             setLiveTxs(transactions.transactions);
@@ -210,13 +212,40 @@ export default function ExplorerDashboard() {
     }, [blocks]);
 
     useExplorerWS({
+        enabled: !explorerGateActive,
+        onOpen: () => setWsLive(true),
+        onInitial: (data) => {
+            setWsLive(true);
+            if (Array.isArray(data?.transactions) && data.transactions.length > 0) {
+                setLiveTxs(data.transactions.map((tx: any) => ({
+                    tx_hash: tx.tx_hash,
+                    from_address: tx.from,
+                    to_address: tx.to,
+                    amount: tx.amount,
+                    currency: tx.currency,
+                    tx_type: tx.tx_type,
+                    status: tx.status || 'confirmed',
+                    timestamp: tx.timestamp || new Date().toISOString(),
+                })));
+            }
+            if (Array.isArray(data?.blocks) && data.blocks.length > 0) {
+                setLiveBlocks(data.blocks.map((b: any) => ({
+                    block_hash: b.block_hash,
+                    block_number: b.block_number,
+                    transaction_count: b.transaction_count,
+                    timestamp: b.timestamp || new Date().toISOString(),
+                })));
+            }
+        },
         onNewTransaction: (data) => {
+            setWsLive(true);
             setLiveTxs(prev => [
                 { tx_hash: data.tx_hash, from_address: data.from, to_address: data.to, amount: data.amount, currency: data.currency, tx_type: data.tx_type, status: data.status || 'pending', timestamp: data.timestamp || new Date().toISOString() },
                 ...prev,
             ].slice(0, 10));
         },
         onNewBlock: (data) => {
+            setWsLive(true);
             setLiveBlocks(prev => [
                 { block_hash: data.block_hash, block_number: data.block_number, transaction_count: data.transaction_count, timestamp: data.timestamp || new Date().toISOString() },
                 ...prev,
@@ -236,15 +265,7 @@ export default function ExplorerDashboard() {
     const handleSearch = (val: string) => {
         const query = val.trim();
         if (!query) return;
-        if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(query)) {
-            router.push(`/explorer/transactions/${query}`);
-        } else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(query)) {
-            router.push(`/explorer/wallets/${query}`);
-        } else if (/^\d+$/.test(query)) {
-            router.push(`/explorer/blocks/${query}`);
-        } else {
-            router.push(`/explorer/nodes?q=${query}`);
-        }
+        router.push(buildExplorerSearchPath(query));
     };
 
     const volume = metrics?.total_volume || 0;
@@ -286,7 +307,7 @@ export default function ExplorerDashboard() {
             sparkColor: '#10b981',
             sparkData: volSparkData.length > 0 ? volSparkData : null,
             trend: volume > 0 ? 'up' as const : 'flat' as const,
-            sub: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)} TPS` : null,
+            sub: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)} avg TPS (24h)` : null,
         },
         {
             label: 'Throughput',
@@ -296,7 +317,7 @@ export default function ExplorerDashboard() {
             sparkColor: '#eab308',
             sparkData: bwSparkData.length > 0 ? bwSparkData : null,
             trend: bandwidth > 0 ? 'up' as const : 'flat' as const,
-            sub: 'Total proxy bandwidth',
+            sub: 'Cumulative indexed node bandwidth',
         },
     ];
 
@@ -745,15 +766,22 @@ export default function ExplorerDashboard() {
                 </div>
             </div>
 
+            {metrics && metrics.time_series_available === false && !metricsError && (
+                <motion.div variants={itemVariants}>
+                    <MetricsUnavailableBanner compact />
+                </motion.div>
+            )}
+
             {/* API Error Banner */}
             {(metricsError || txError || blocksError) && (
                 <motion.div variants={itemVariants} className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase tracking-widest">
                     <span className="text-rose-500">⚠</span>
                     {explorerGateActive ? 'Explorer full decentralization gate is active — detailed feeds are paused until quorum is satisfied' :
+                     metricsError instanceof ExplorerApiError && metricsError.kind === 'not_found' ? 'Requested explorer resource was not found' :
                      metricsError && txError ? 'Network metrics and transaction data unavailable' :
-                     metricsError ? 'Network metrics unavailable — data may be stale' :
-                     txError ? 'Transaction feed unavailable — showing cached data' :
-                     'Block data unavailable — showing cached data'}
+                     metricsError ? (metricsError instanceof Error ? metricsError.message : 'Network metrics unavailable') :
+                     txError ? 'Transaction feed unavailable' :
+                     'Block data unavailable'}
                     <span className="ml-auto text-[8px] text-rose-400/50">{explorerGateActive ? 'Follow /explorer/decentralization/status' : 'Check API connection'}</span>
                 </motion.div>
             )}

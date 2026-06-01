@@ -20,6 +20,7 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { ExplorerErrorState } from '@/components/explorer/ExplorerErrorState';
 
 export default function ContractInspectorPage() {
     const params = useParams();
@@ -36,15 +37,12 @@ export default function ContractInspectorPage() {
 
     if (error) {
         return (
-            <div className="min-h-[60vh] flex items-center justify-center font-mono">
-                <div className="text-center space-y-4">
-                    <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Contract Not Found</h1>
-                    <p className="text-white/30 text-[11px] uppercase tracking-widest">This address may not be a registered contract.</p>
-                    <Link href="/explorer/contracts" className="text-primary hover:text-primary/80 text-[10px] font-black uppercase tracking-widest">
-                        Return to Contracts
-                    </Link>
-                </div>
-            </div>
+            <ExplorerErrorState
+                error={error}
+                entity="Contract"
+                backHref="/explorer/contracts"
+                backLabel="Return to contracts"
+            />
         );
     }
 
