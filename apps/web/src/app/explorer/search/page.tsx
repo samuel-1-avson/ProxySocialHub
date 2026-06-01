@@ -5,13 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
 import {
     getRecentTransactions,
-    getNodes,
     getBlocks,
     getTransactionDetails,
     getWalletDetails,
     getBlockDetail,
     getNodeDetail,
+    getContractDetails,
 } from '@/lib/services/explorer';
+import { detectExplorerSearchType, type ExplorerSearchKind } from '@/lib/explorer-search';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -22,23 +23,17 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 
-type SearchType = 'auto' | 'transaction' | 'wallet' | 'block' | 'node';
+type SearchType = 'auto' | ExplorerSearchKind;
 
 const SEARCH_TYPES: { label: string; value: SearchType; icon: any; hint: string }[] = [
     { label: 'Auto', value: 'auto', icon: Search, hint: 'Detect type automatically' },
-    { label: 'Transaction', value: 'transaction', icon: ArrowRightLeft, hint: '64–90 char hash' },
+    { label: 'Transaction', value: 'transaction', icon: ArrowRightLeft, hint: '64–90 char signature' },
     { label: 'Wallet', value: 'wallet', icon: Wallet, hint: '32–44 char address' },
-    { label: 'Block', value: 'block', icon: Box, hint: 'Block number or hash' },
-    { label: 'Node', value: 'node', icon: Server, hint: 'Node ID or name' },
+    { label: 'Block', value: 'block', icon: Box, hint: 'Block number' },
+    { label: 'Contract', value: 'contract', icon: Fingerprint, hint: 'Program / contract address' },
+    { label: 'Node', value: 'node', icon: Server, hint: 'Node ID (exact)' },
+    { label: 'Nodes', value: 'nodes_query', icon: Server, hint: 'Search nodes by id or location' },
 ];
-
-function detectType(query: string): SearchType {
-    const q = query.trim();
-    if (/^\d+$/.test(q)) return 'block';
-    if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(q)) return 'transaction';
-    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) return 'wallet';
-    return 'node';
-}
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } };
 const itemVariants = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
@@ -50,7 +45,9 @@ export default function SearchPage() {
     const [submitted, setSubmitted] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const resolvedType = searchType === 'auto' ? detectType(submitted) : searchType;
+    const resolvedType: ExplorerSearchKind = searchType === 'auto'
+        ? detectExplorerSearchType(submitted)
+        : searchType;
 
     const { data: txResult, isLoading: loadingTx, error: txError } = useQuery({
         queryKey: ['search-tx', submitted],
@@ -80,6 +77,13 @@ export default function SearchPage() {
         retry: false,
     });
 
+    const { data: contractResult, isLoading: loadingContract, error: contractError } = useQuery({
+        queryKey: ['search-contract', submitted],
+        queryFn: () => getContractDetails(submitted),
+        enabled: !!submitted && resolvedType === 'contract',
+        retry: false,
+    });
+
     const { data: recentTx } = useQuery({
         queryKey: ['recent-tx-search'],
         queryFn: () => getRecentTransactions(1, 5),
@@ -92,8 +96,10 @@ export default function SearchPage() {
         retry: false,
     });
 
-    const isLoading = loadingTx || loadingWallet || loadingBlock || loadingNode;
-    const hasError = !!submitted && !isLoading && !txResult && !walletResult && !blockResult && !nodeResult;
+    const isLoading = loadingTx || loadingWallet || loadingBlock || loadingNode || loadingContract;
+    const hasResult = !!(txResult || walletResult || blockResult || nodeResult || contractResult);
+    const isNodesBrowse = resolvedType === 'nodes_query' && !!submitted;
+    const hasError = !!submitted && !isLoading && !hasResult && !isNodesBrowse;
 
     const handleSearch = useCallback(() => {
         const q = query.trim();
@@ -108,6 +114,8 @@ export default function SearchPage() {
         else if (type === 'wallet' && walletResult) router.push(`/explorer/wallets/${submitted}`);
         else if (type === 'block' && blockResult) router.push(`/explorer/blocks/${blockResult.block_number}`);
         else if (type === 'node' && nodeResult) router.push(`/explorer/nodes/${submitted}`);
+        else if (type === 'contract' && contractResult) router.push(`/explorer/contracts/${submitted}`);
+        else if (type === 'nodes_query') router.push(`/explorer/nodes?q=${encodeURIComponent(submitted)}`);
     };
 
     return (
@@ -151,10 +159,12 @@ export default function SearchPage() {
                             onChange={e => setQuery(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleSearch()}
                             placeholder={
-                                searchType === 'transaction' ? 'Enter transaction hash...' :
+                                searchType === 'transaction' ? 'Enter transaction signature (64–90 chars)...' :
                                 searchType === 'wallet' ? 'Enter wallet address...' :
-                                searchType === 'block' ? 'Enter block number or hash...' :
-                                searchType === 'node' ? 'Enter node ID...' :
+                                searchType === 'block' ? 'Enter block number...' :
+                                searchType === 'contract' ? 'Enter contract address...' :
+                                searchType === 'node' ? 'Enter exact node ID...' :
+                                searchType === 'nodes_query' ? 'Search nodes by id, city, country...' :
                                 'Search transactions, wallets, blocks, nodes...'
                             }
                             className="flex-1 bg-transparent text-white text-[11px] font-mono placeholder-white/20 outline-none py-4 pr-4"
@@ -270,6 +280,52 @@ export default function SearchPage() {
                                     { label: 'Hash', value: blockResult.block_hash?.slice(0, 24) + '...' },
                                     { label: 'Transactions', value: blockResult.transaction_count?.toLocaleString() },
                                     { label: 'Validator', value: blockResult.validator_pubkey ? blockResult.validator_pubkey.slice(0, 20) + '...' : '—' },
+                                ].map(f => (
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
+                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    </div>
+                                ))}
+                            </GlassCard>
+                        )}
+
+                        {/* Node list search (no single-node lookup) */}
+                        {isNodesBrowse && !isLoading && (
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <Server size={16} className="text-primary" />
+                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Node search</span>
+                                    </div>
+                                    <Link href={`/explorer/nodes?q=${encodeURIComponent(submitted)}`}
+                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        Browse matches <ChevronRight size={10} />
+                                    </Link>
+                                </div>
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mt-4">
+                                    Opens the nodes grid filtered by id, region, country, or city.
+                                </p>
+                            </GlassCard>
+                        )}
+
+                        {/* Contract Result */}
+                        {contractResult && (
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <Fingerprint size={16} className="text-primary" />
+                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Contract Found</span>
+                                    </div>
+                                    <Link href={`/explorer/contracts/${submitted}`}
+                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        View Full <ChevronRight size={10} />
+                                    </Link>
+                                </div>
+                                {[
+                                    { label: 'Address', value: contractResult.address },
+                                    { label: 'Name', value: contractResult.name },
+                                    { label: 'Type', value: contractResult.contract_type },
+                                    { label: 'Verified', value: contractResult.is_verified ? 'Yes' : 'No' },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
                                         <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
