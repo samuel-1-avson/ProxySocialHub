@@ -1383,7 +1383,12 @@ func getBandwidthStats(c *gin.Context) {
 
 	bandwidthByRegion := make(map[string]float64)
 	for _, r := range regionStats {
-		bandwidthByRegion[r.Region] = r.Bandwidth / (1024 * 1024 * 1024)
+		region := strings.TrimSpace(r.Region)
+		if region == "" {
+			region = "Other"
+		}
+		gb := r.Bandwidth / (1024 * 1024 * 1024)
+		bandwidthByRegion[region] += gb
 	}
 
 	// Top providers
