@@ -482,13 +482,20 @@ export default function GlobeMap({
 
     const style = STYLES[mapStyle];
 
-    // ── City labels sized by tier ──
+    const MAX_CITY_LABELS = 120;
+    const MAX_COUNTRY_LABELS = 48;
+    const MAX_TRAFFIC_ARCS = 50;
+
+    // ── City labels sized by tier (cap count for WebGL performance) ──
     const cityLabels = useMemo(() =>
-        cityData.map(c => ({
-            ...c,
-            labelSize:  0.12 + c.tier * 0.06,  // 0.18–0.42 degrees
-            dotRadius:  0.06 + c.tier * 0.035,
-        })),
+        [...cityData]
+            .sort((a, b) => b.tier - a.tier)
+            .slice(0, MAX_CITY_LABELS)
+            .map(c => ({
+                ...c,
+                labelSize:  0.12 + c.tier * 0.06,  // 0.18–0.42 degrees
+                dotRadius:  0.06 + c.tier * 0.035,
+            })),
     [cityData]);
 
     // ── Country name labels derived from loaded GeoJSON centroids ──
@@ -499,7 +506,7 @@ export default function GlobeMap({
             const name: string = f.properties?.NAME_EN || f.properties?.NAME || '';
             if (!name) return [];
             return [{ name, lat: pt[0], lon: pt[1], labelSize: 0.3, dotRadius: 0 }];
-        }),
+        }).slice(0, MAX_COUNTRY_LABELS),
     [countries]);
 
     // ── ResizeObserver: exact dimensions → pointer events correctly aligned ──
@@ -576,9 +583,9 @@ export default function GlobeMap({
     }, [liveUpdates]);
 
     // ── Init OrbitControls after globe mounts ──
-    const initControls = useCallback(() => {
+    const initControls = useCallback((): (() => void) => {
         const g = globeRef.current;
-        if (!g) return;
+        if (!g) return () => {};
         try {
             const controls          = g.controls();
             controls.autoRotate      = true;
@@ -593,20 +600,40 @@ export default function GlobeMap({
             controls.zoomSpeed       = 0.8;
             const canvas = g.renderer().domElement as HTMLCanvasElement;
             canvas.style.cursor = 'grab';
-            canvas.addEventListener('pointerdown', () => {
+            const onDown = () => {
                 controls.autoRotate = false;
                 canvas.style.cursor = 'grabbing';
-            }, { passive: true });
-            canvas.addEventListener('pointerup', () => {
+            };
+            const onUp = () => {
                 canvas.style.cursor = 'grab';
-            }, { passive: true });
-        } catch (_) {}
+            };
+            canvas.addEventListener('pointerdown', onDown, { passive: true });
+            canvas.addEventListener('pointerup', onUp, { passive: true });
+            return () => {
+                canvas.removeEventListener('pointerdown', onDown);
+                canvas.removeEventListener('pointerup', onUp);
+            };
+        } catch (_) {
+            return () => {};
+        }
     }, []);
 
     useEffect(() => {
-        const t = setTimeout(initControls, 500);
-        return () => clearTimeout(t);
+        let removeListeners: (() => void) | undefined;
+        const t = setTimeout(() => {
+            removeListeners = initControls();
+        }, 500);
+        return () => {
+            clearTimeout(t);
+            removeListeners?.();
+        };
     }, [initControls, size.w, size.h]);
+
+    useEffect(() => () => {
+        try {
+            globeRef.current?.renderer()?.dispose();
+        } catch (_) {}
+    }, []);
 
     // ── Camera fly-to on region filter ──
     useEffect(() => {
@@ -641,6 +668,7 @@ export default function GlobeMap({
     const trafficArcs = useMemo(() =>
         validNodes
             .filter(n => n.is_active)
+            .slice(0, MAX_TRAFFIC_ARCS)
             .map(n => ({
                 startLat: n.lat,
                 startLng: n.lon,

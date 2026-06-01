@@ -20,7 +20,9 @@ export default function BlocksExplorer() {
         refetchInterval: 10000,
     });
 
-    const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
+    const total = data?.total ?? 0;
+    const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+    const hasBlocks = total > 0;
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -108,9 +110,12 @@ export default function BlocksExplorer() {
                                     data?.blocks?.map((block: any) => (
                                         <tr key={block.block_hash} className="hover:bg-white/5 transition-colors group">
                                             <td className="px-6 py-4">
-                                                <span className="font-mono text-primary font-bold text-sm">
+                                                <Link
+                                                    href={`/explorer/blocks/${block.block_number}`}
+                                                    className="font-mono text-primary font-bold text-sm hover:underline"
+                                                >
                                                     #{block.block_number?.toLocaleString()}
-                                                </span>
+                                                </Link>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <span className="font-mono text-[10px] text-white/30 group-hover:text-white/50 transition-colors">
@@ -143,19 +148,26 @@ export default function BlocksExplorer() {
                     {/* Pagination */}
                     <div className="p-6 bg-white/5 flex items-center justify-between border-t border-white/5">
                         <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
-                            Page <span className="text-white">{page}</span> of <span className="text-white">{totalPages || 1}</span>
+                            {hasBlocks ? (
+                                <>
+                                    Page <span className="text-white">{page}</span> of{' '}
+                                    <span className="text-white">{totalPages}</span>
+                                </>
+                            ) : (
+                                <span className="text-white/20">No blocks indexed</span>
+                            )}
                         </p>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setPage(Math.max(1, page - 1))}
-                                disabled={page === 1}
+                                disabled={!hasBlocks || page === 1}
                                 className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
                             <button
                                 onClick={() => setPage(Math.min(totalPages, page + 1))}
-                                disabled={page >= totalPages}
+                                disabled={!hasBlocks || page >= totalPages}
                                 className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronRight className="w-5 h-5" />
