@@ -80,7 +80,8 @@ func TestClassifyExplorerDecentralizationMode(t *testing.T) {
 func TestIsExplorerFullyDecentralized(t *testing.T) {
 	base := ExplorerDecentralizationStatusResponse{
 		ExplorerMode:        "multi_writer_quorum",
-		MinWritersRequired:  3,
+		MinWritersRequired:  2,
+		UniqueWriters:       2,
 		ConflictingSlots:    0,
 		RecentSlotsAnalyzed: 256,
 		SlotsMeetingQuorum:  256,
@@ -91,7 +92,7 @@ func TestIsExplorerFullyDecentralized(t *testing.T) {
 	}
 
 	mutations := []ExplorerDecentralizationStatusResponse{
-		func() ExplorerDecentralizationStatusResponse { r := base; r.MinWritersRequired = 2; return r }(),
+		func() ExplorerDecentralizationStatusResponse { r := base; r.UniqueWriters = 1; return r }(),
 		func() ExplorerDecentralizationStatusResponse { r := base; r.ConflictingSlots = 1; return r }(),
 		func() ExplorerDecentralizationStatusResponse { r := base; r.SlotsMeetingQuorum = 200; return r }(),
 		func() ExplorerDecentralizationStatusResponse { r := base; r.RecentSlotsAnalyzed = 0; return r }(),
