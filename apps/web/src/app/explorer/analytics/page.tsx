@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
+import { MetricsUnavailableBanner } from '@/components/explorer/MetricsUnavailableBanner';
 
 const PERIODS = [
     { label: '1H', value: '1h' },
@@ -192,16 +193,10 @@ export default function AnalyticsPage() {
     const regionMap = metrics?.region_distribution || {};
     const regionData = Object.entries(regionMap).map(([name, value]) => ({ name, value: value as number }));
 
-    // Leaderboard: prefer API response, fall back to sorted nodes (no random data)
-    const nodes = nodesData?.nodes || [];
-    const localLeaderboard = [...nodes].sort((a: any, b: any) => {
-        if (leaderboardCategory === 'uptime') return (b.uptime_percent || 0) - (a.uptime_percent || 0);
-        if (leaderboardCategory === 'bandwidth') return (b.bandwidth_gb || 0) - (a.bandwidth_gb || 0);
-        return (b.active_sessions || 0) - (a.active_sessions || 0);
-    }).slice(0, 10).map((n, i) => ({ ...n, rank: i + 1 }));
-
-    const usingLocalLeaderboard = !leaderboard?.entries?.length && localLeaderboard.length > 0 && !!leaderboardError;
-    const displayLeaderboard = leaderboard?.entries?.length ? leaderboard.entries : localLeaderboard;
+    const displayLeaderboard = leaderboard?.entries ?? [];
+    const emptySeriesLabel =
+        analytics?.message ||
+        (isCustomActive ? 'No aggregated data in this date range' : 'No activity in this period');
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -306,12 +301,18 @@ export default function AnalyticsPage() {
                 </div>
             </motion.header>
 
+            {analytics && analytics.metrics_available === false && (
+                <motion.div variants={itemVariants}>
+                    <MetricsUnavailableBanner message={analytics.message} />
+                </motion.div>
+            )}
+
             {/* Summary Stats */}
             <motion.section variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: 'Avg TPS', value: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)}` : '—', icon: Activity, color: 'text-primary' },
                     { label: 'Total Volume', value: metrics ? `${Number(metrics.total_volume || 0).toFixed(1)} SOL` : '—', icon: TrendingUp, color: 'text-emerald-500' },
-                    { label: 'Bandwidth Served', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
+                    { label: 'Bandwidth (cumulative)', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
                     { label: 'Active Wallets', value: metrics ? (metrics.active_wallets || 0).toLocaleString() : '—', icon: Globe, color: 'text-blue-500' },
                 ].map((stat, i) => (
                     <GlassCard key={i} className="!p-5 border-white/5 bg-white/[0.01] rounded-[1.5rem]">
@@ -335,7 +336,7 @@ export default function AnalyticsPage() {
                         {loadingAnalytics ? (
                             <div className="h-[180px] animate-pulse bg-white/5 rounded-xl" />
                         ) : !mounted || volumeData.length === 0 ? (
-                            <EmptyChart height={180} label="Awaiting indexed data" />
+                            <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
                             <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
                                 <AreaChart data={volumeData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -367,7 +368,7 @@ export default function AnalyticsPage() {
                         {loadingAnalytics ? (
                             <div className="h-[180px] animate-pulse bg-white/5 rounded-xl" />
                         ) : !mounted || bandwidthData.length === 0 ? (
-                            <EmptyChart height={180} label="Awaiting indexed data" />
+                            <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
                             <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
                                 <AreaChart data={bandwidthData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -402,7 +403,7 @@ export default function AnalyticsPage() {
                         {loadingAnalytics ? (
                             <div className="h-[160px] animate-pulse bg-white/5 rounded-xl" />
                         ) : !mounted || nodeData.length === 0 ? (
-                            <EmptyChart height={160} label="Awaiting indexed data" />
+                            <EmptyChart height={160} label={emptySeriesLabel} />
                         ) : (
                             <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
                                 <BarChart data={nodeData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -485,9 +486,9 @@ export default function AnalyticsPage() {
                     </div>
                 </div>
 
-                {usingLocalLeaderboard && (
+                {leaderboardError && (
                     <div className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-black uppercase tracking-widest">
-                        <span className="text-amber-500">⚠</span> Leaderboard API unavailable — showing locally-sorted node data
+                        Leaderboard API unavailable
                     </div>
                 )}
                 <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
