@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,15 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+)
+
+const (
+	explorerWSMaxClients     = 500
+	explorerWSMaxPerIP       = 15
+)
+
+var (
+	explorerWSIPCounts sync.Map // ip -> *int32
 )
 
 // allowedOrigin returns true when the request origin is acceptable.
@@ -41,7 +51,7 @@ var explorerUpgrader = websocket.Upgrader{
 type ExplorerHub struct {
 	clients    map[*websocket.Conn]bool
 	broadcast  chan ExplorerUpdate
-	register   chan *websocket.Conn
+	register   chan *clientEntry
 	unregister chan *websocket.Conn
 	mu         sync.RWMutex
 }
@@ -84,8 +94,9 @@ type NodeUpdate struct {
 // clientEntry holds a connection alongside the topics it subscribed to.
 // An empty topics map means "all topics" (backwards-compatible default).
 type clientEntry struct {
-	conn   *websocket.Conn
-	topics map[string]bool // nil = subscribe to everything
+	conn     *websocket.Conn
+	clientIP string
+	topics   map[string]bool // nil = subscribe to everything
 }
 
 // subscribeMsg is the optional JSON message a client can send on connect
@@ -99,12 +110,48 @@ type subscribeMsg struct {
 
 var hub *ExplorerHub
 
+func explorerWSAllowIP(ip string) bool {
+	if ip == "" {
+		ip = "unknown"
+	}
+	val, _ := explorerWSIPCounts.LoadOrStore(ip, new(int32))
+	count := val.(*int32)
+	return atomic.LoadInt32(count) < explorerWSMaxPerIP
+}
+
+func explorerWSRegisterIP(ip string) {
+	if ip == "" {
+		ip = "unknown"
+	}
+	val, _ := explorerWSIPCounts.LoadOrStore(ip, new(int32))
+	atomic.AddInt32(val.(*int32), 1)
+}
+
+func explorerWSUnregisterIP(ip string) {
+	if ip == "" {
+		ip = "unknown"
+	}
+	if val, ok := explorerWSIPCounts.Load(ip); ok {
+		atomic.AddInt32(val.(*int32), -1)
+	}
+}
+
+// tryAcceptExplorerWSConnection enforces global and per-IP connection caps.
+func (h *ExplorerHub) tryAcceptExplorerWSConnection(ip string) bool {
+	if !explorerWSAllowIP(ip) {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients) < explorerWSMaxClients
+}
+
 // InitExplorerHub initializes the explorer WebSocket hub
 func InitExplorerHub() *ExplorerHub {
 	hub = &ExplorerHub{
 		clients:    make(map[*websocket.Conn]bool),
 		broadcast:  make(chan ExplorerUpdate, 256),
-		register:   make(chan *websocket.Conn),
+		register:   make(chan *clientEntry),
 		unregister: make(chan *websocket.Conn),
 	}
 
@@ -124,16 +171,23 @@ var entries = make(map[*websocket.Conn]*clientEntry)
 func (h *ExplorerHub) run() {
 	for {
 		select {
-		case client := <-h.register:
+		case entry := <-h.register:
+			explorerWSRegisterIP(entry.clientIP)
 			h.mu.Lock()
-			h.clients[client] = true
-			entries[client] = &clientEntry{conn: client, topics: nil} // nil = all topics
+			h.clients[entry.conn] = true
+			entries[entry.conn] = entry
+			if entry.topics == nil {
+				entry.topics = nil // all topics
+			}
 			h.mu.Unlock()
-			logging.Debug().Msg("[ExplorerHub] Client connected")
-			h.sendInitialData(client)
+			logging.Debug().Str("ip", entry.clientIP).Msg("[ExplorerHub] Client connected")
+			h.sendInitialData(entry.conn)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
+			if entry, ok := entries[client]; ok {
+				explorerWSUnregisterIP(entry.clientIP)
+			}
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				delete(entries, client)
@@ -183,7 +237,7 @@ func (h *ExplorerHub) run() {
 func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 	// Recent transactions
 	var transactions []models.ExplorerTransaction
-	db.DB.Order("timestamp DESC").Limit(10).Find(&transactions)
+	db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC").Limit(10).Find(&transactions)
 
 	txUpdates := make([]NewTransactionUpdate, len(transactions))
 	for i, tx := range transactions {
@@ -199,7 +253,7 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 
 	// Recent blocks
 	var blocks []models.ExplorerBlock
-	db.DB.Order("block_number DESC").Limit(5).Find(&blocks)
+	db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").Limit(5).Find(&blocks)
 
 	blockUpdates := make([]NewBlockUpdate, len(blocks))
 	for i, b := range blocks {
@@ -258,10 +312,19 @@ func (h *ExplorerHub) startPolling() {
 	var lastTxTime time.Time
 	var lastBlockNumber uint64
 
+	var latestTx models.ExplorerTransaction
+	if err := db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC").First(&latestTx).Error; err == nil {
+		lastTxTime = latestTx.Timestamp
+	}
+	var latestBlock models.ExplorerBlock
+	if err := db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
+		lastBlockNumber = latestBlock.BlockNumber
+	}
+
 	for range ticker.C {
 		// Check for new transactions
 		var newTransactions []models.ExplorerTransaction
-		query := db.DB.Order("timestamp DESC").Limit(5)
+		query := db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC").Limit(5)
 		if !lastTxTime.IsZero() {
 			query = query.Where("timestamp > ?", lastTxTime)
 		}
@@ -287,13 +350,13 @@ func (h *ExplorerHub) startPolling() {
 			select {
 			case h.broadcast <- update:
 			default:
-				// Channel full, drop update
+				logging.Warn().Str("type", update.Type).Msg("[ExplorerHub] broadcast channel full, dropped update")
 			}
 		}
 
 		// Check for new blocks
 		var latestBlock models.ExplorerBlock
-		if err := db.DB.Order("block_number DESC").First(&latestBlock).Error; err == nil {
+		if err := db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
 			if latestBlock.BlockNumber > lastBlockNumber {
 				lastBlockNumber = latestBlock.BlockNumber
 
@@ -309,6 +372,7 @@ func (h *ExplorerHub) startPolling() {
 				select {
 				case h.broadcast <- update:
 				default:
+					logging.Warn().Str("type", update.Type).Msg("[ExplorerHub] broadcast channel full, dropped update")
 				}
 			}
 		}
@@ -344,9 +408,7 @@ func RegisterExplorerWSRoutes(r *gin.RouterGroup) {
 
 // handleExplorerWebSocket handles WebSocket connections
 func handleExplorerWebSocket(c *gin.Context) {
-	conn, err := explorerUpgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		logging.Error(err).Msg("[ExplorerHub] Failed to upgrade WebSocket")
+	if !allowExplorerWebSocket(c) {
 		return
 	}
 
@@ -354,7 +416,21 @@ func handleExplorerWebSocket(c *gin.Context) {
 		InitExplorerHub()
 	}
 
-	hub.register <- conn
+	clientIP := c.ClientIP()
+	if !hub.tryAcceptExplorerWSConnection(clientIP) {
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			"error": "too_many_websocket_connections",
+		})
+		return
+	}
+
+	conn, err := explorerUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		logging.Error(err).Msg("[ExplorerHub] Failed to upgrade WebSocket")
+		return
+	}
+
+	hub.register <- &clientEntry{conn: conn, clientIP: clientIP, topics: nil}
 
 	// Keep connection alive and handle optional subscription messages from client
 	go func() {
