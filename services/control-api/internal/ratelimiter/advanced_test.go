@@ -3,10 +3,13 @@ package ratelimiter
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/redis/go-redis/v9"
 )
@@ -321,5 +324,37 @@ func BenchmarkFixedWindow(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		checkFixedWindow(ctx, key, config)
+	}
+}
+
+func TestAdvancedRateLimitMemoryFallbackWhenRedisUnavailable(t *testing.T) {
+	redisClient.Client = nil
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	cfg := AdvancedRateLimitConfig{
+		Algorithm:     TokenBucket,
+		Limit:         2,
+		Window:        time.Minute,
+		BurstCapacity: 2,
+		KeyFunc: func(c *gin.Context) string {
+			return "ip:" + c.ClientIP()
+		},
+	}
+	r.Use(AdvancedRateLimit(cfg))
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.RemoteAddr = "203.0.113.9:12345"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with in-memory limiter, got %d body=%s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("X-RateLimit-Limit") != "2" {
+		t.Fatalf("expected rate limit headers, got limit=%q", w.Header().Get("X-RateLimit-Limit"))
 	}
 }
