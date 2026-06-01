@@ -22,6 +22,7 @@ import {
     LineChart, Line, ReferenceLine,
 } from 'recharts';
 import { format, formatDistanceToNow } from 'date-fns';
+import { MetricsUnavailableBanner } from '@/components/explorer/MetricsUnavailableBanner';
 
 function StatusIndicator({ status }: { status: string }) {
     if (status === 'healthy') return (
@@ -138,6 +139,12 @@ export default function HealthPage() {
                 </div>
             </motion.header>
 
+            {historyData && historyData.metrics_available === false && (
+                <motion.div variants={itemVariants}>
+                    <MetricsUnavailableBanner message={historyData.message} />
+                </motion.div>
+            )}
+
             {/* Uptime Banner */}
             {uptime24h !== null && (
                 <motion.section variants={itemVariants}>
@@ -203,7 +210,9 @@ export default function HealthPage() {
                             ) : (
                                 <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl">
                                     <History size={24} className="text-white/10 mb-2" />
-                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">No history data yet</p>
+                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest text-center px-4">
+                                        {historyData?.message || 'No history data yet'}
+                                    </p>
                                 </div>
                             )}
                         </GlassCard>
@@ -230,7 +239,9 @@ export default function HealthPage() {
                             ) : (
                                 <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl">
                                     <History size={24} className="text-white/10 mb-2" />
-                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">No history data yet</p>
+                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest text-center px-4">
+                                        {historyData?.message || 'No history data yet'}
+                                    </p>
                                 </div>
                             )}
                         </GlassCard>

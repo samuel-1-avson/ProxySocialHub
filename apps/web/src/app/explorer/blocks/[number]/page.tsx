@@ -21,6 +21,7 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { ExplorerErrorState } from '@/components/explorer/ExplorerErrorState';
 
 export default function BlockDetailPage() {
     const params = useParams();
@@ -40,6 +41,17 @@ export default function BlockDetailPage() {
         hidden: { opacity: 0, y: 10 },
         show: { opacity: 1, y: 0 },
     };
+
+    if (error) {
+        return (
+            <ExplorerErrorState
+                error={error}
+                entity="Block"
+                backHref="/explorer/blocks"
+                backLabel="Return to blocks"
+            />
+        );
+    }
 
     const fields = block ? [
         { label: 'Block Number', value: block.block_number?.toLocaleString(), icon: Layers },
