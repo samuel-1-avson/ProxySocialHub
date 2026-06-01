@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	explorerWSMaxClients     = 500
-	explorerWSMaxPerIP       = 15
+	explorerWSMaxClients = 500
+	explorerWSMaxPerIP   = 15
 )
 
 var (
@@ -58,19 +58,19 @@ type ExplorerHub struct {
 
 // ExplorerUpdate represents a real-time update to explorer clients
 type ExplorerUpdate struct {
-	Type        string      `json:"type"`
-	Data        interface{} `json:"data"`
-	Timestamp   time.Time   `json:"timestamp"`
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Timestamp time.Time   `json:"timestamp"`
 }
 
 // NewTransactionUpdate represents a new transaction update
 type NewTransactionUpdate struct {
-	TxHash    string  `json:"tx_hash"`
-	From      string  `json:"from"`
-	To        string  `json:"to"`
-	Amount    float64 `json:"amount"`
-	Currency  string  `json:"currency"`
-	TxType    string  `json:"tx_type"`
+	TxHash   string  `json:"tx_hash"`
+	From     string  `json:"from"`
+	To       string  `json:"to"`
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"`
+	TxType   string  `json:"tx_type"`
 }
 
 // NewBlockUpdate represents a new block update
@@ -219,6 +219,10 @@ func (h *ExplorerHub) run() {
 			h.mu.RUnlock()
 
 			if len(dead) > 0 {
+				logging.Warn().
+					Int("dropped_clients", len(dead)).
+					Str("update_type", update.Type).
+					Msg("[ExplorerHub] dropped slow WebSocket clients during broadcast")
 				h.mu.Lock()
 				for _, conn := range dead {
 					delete(h.clients, conn)
