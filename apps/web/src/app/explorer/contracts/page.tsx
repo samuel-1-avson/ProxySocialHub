@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { API_BASE_URL } from '@/lib/services/client';
+import { getContracts } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     FileCode,
@@ -18,13 +18,6 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion } from 'framer-motion';
-
-// Direct fetch for this simple page
-async function getContracts(page = 1) {
-    const res = await fetch(`${API_BASE_URL}/v1/explorer/contracts?page=${page}&page_size=20`);
-    if (!res.ok) throw new Error('Failed to fetch contracts');
-    return res.json();
-}
 
 export default function ContractsPage() {
     const [page, setPage] = useState(1);
