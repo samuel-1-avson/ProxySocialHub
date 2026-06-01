@@ -18,6 +18,7 @@ import {
 import { format } from 'date-fns';
 import { useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { ExplorerErrorState } from '@/components/explorer/ExplorerErrorState';
 
 export default function TransactionDetailPage() {
     const params = useParams();
@@ -34,15 +35,12 @@ export default function TransactionDetailPage() {
 
     if (error) {
         return (
-            <div className="min-h-[60vh] flex items-center justify-center font-mono">
-                <div className="text-center space-y-4">
-                    <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Transaction Not Found</h1>
-                    <p className="text-white/30 text-[11px] uppercase tracking-widest">The transaction hash may be invalid or not yet indexed.</p>
-                    <Link href="/explorer/transactions" className="text-primary hover:text-primary/80 text-[10px] font-black uppercase tracking-widest">
-                        Return to Transactions
-                    </Link>
-                </div>
-            </div>
+            <ExplorerErrorState
+                error={error}
+                entity="Transaction"
+                backHref="/explorer/transactions"
+                backLabel="Return to transactions"
+            />
         );
     }
 

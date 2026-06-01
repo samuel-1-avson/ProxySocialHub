@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getNodes } from '@/lib/services/explorer';
 import Link from 'next/link';
@@ -59,6 +59,8 @@ function SortIcon({ field, sortField, sortDir }: { field: SortField; sortField: 
 
 export default function NodesPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const searchQuery = (searchParams.get('q') || '').trim();
     const [page, setPage] = useState(1);
     const pageSize = 20;
     const [sortField, setSortField] = useState<SortField>('uptime_percent');
@@ -75,13 +77,17 @@ export default function NodesPage() {
         });
     };
 
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, activeOnly, typeFilter]);
+
     const { data, isLoading, error } = useQuery({
-        queryKey: ['nodes', page, activeOnly],
-        queryFn: () => getNodes(page, pageSize, activeOnly),
+        queryKey: ['nodes', page, activeOnly, searchQuery],
+        queryFn: () => getNodes(page, pageSize, activeOnly, undefined, undefined, searchQuery || undefined),
         refetchInterval: 30000,
     });
 
-    // Sort + filter client-side on current page
+    // Sort + type filter on current page (search is server-side via ?q=)
     const displayNodes = useMemo(() => {
         let nodes = data?.nodes || [];
         if (typeFilter === 'validator') nodes = nodes.filter((n: any) => n.is_validator);
@@ -144,6 +150,11 @@ export default function NodesPage() {
                         <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
                             Active validators and proxy nodes powering the network
                         </p>
+                        {searchQuery ? (
+                            <p className="text-[10px] font-black text-primary/80 uppercase tracking-widest mt-2">
+                                Search: &quot;{searchQuery}&quot; — {data?.total ?? 0} match{(data?.total ?? 0) === 1 ? '' : 'es'}
+                            </p>
+                        ) : null}
                     </div>
                     <div className="flex items-center gap-6">
                         <div className="text-right">
@@ -181,7 +192,7 @@ export default function NodesPage() {
                                 </Link>
                             ))}
                         </div>
-                        <Link href="/explorer/analytics" className="mt-4 block text-[9px] font-black text-primary/50 hover:text-primary uppercase tracking-widest transition-colors text-right">
+                        <Link href="/explorer/leaderboard?category=uptime" className="mt-4 block text-[9px] font-black text-primary/50 hover:text-primary uppercase tracking-widest transition-colors text-right">
                             Full Leaderboard →
                         </Link>
                     </GlassCard>
@@ -206,7 +217,7 @@ export default function NodesPage() {
                                 </Link>
                             ))}
                         </div>
-                        <Link href="/explorer/analytics" className="mt-4 block text-[9px] font-black text-primary/50 hover:text-primary uppercase tracking-widest transition-colors text-right">
+                        <Link href="/explorer/leaderboard?category=bandwidth" className="mt-4 block text-[9px] font-black text-primary/50 hover:text-primary uppercase tracking-widest transition-colors text-right">
                             Full Leaderboard →
                         </Link>
                     </GlassCard>

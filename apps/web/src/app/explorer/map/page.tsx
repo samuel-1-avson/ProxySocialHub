@@ -189,22 +189,31 @@ export default function NodeMapPage() {
         if (geoData && !isLoading) setLastUpdated(new Date());
     }, [geoData, isLoading]);
 
+    // Flush batched node_update events every 250ms (avoids re-render per WS message)
+    useEffect(() => {
+        if (!mounted) return;
+        const id = setInterval(() => {
+            if (pendingUpdatesRef.current.length === 0) return;
+            const batch = pendingUpdatesRef.current.splice(0);
+            setLiveUpdates(prev => [...prev.slice(-200), ...batch]);
+        }, 250);
+        return () => clearInterval(id);
+    }, [mounted]);
+
     // ── WebSocket — subscribe only to node updates ──
     useExplorerWS({
         enabled: mounted,
         topics: ['nodes'],
+        onOpen: useCallback(() => setWsConnected(true), []),
         onNodeUpdate: useCallback((data: any) => {
-            const upd: MapNodeUpdate = {
+            pendingUpdatesRef.current.push({
                 node_id: data.node_id,
                 is_active: data.is_active,
                 uptime_percent: data.uptime_percent,
                 active_sessions: data.active_sessions,
                 lat: data.lat,
                 lon: data.lon,
-            };
-            pendingUpdatesRef.current.push(upd);
-            // Batch-flush to avoid re-render per event
-            setLiveUpdates(prev => [...prev.slice(-200), upd]);
+            });
         }, []),
         onInitial: useCallback(() => {
             setWsConnected(true);

@@ -611,6 +611,11 @@ func main() {
 		log.Println("Node Sync Service started")
 	}
 
+	if os.Getenv("EXPLORER_METRICS_ENABLED") != "false" {
+		indexer.StartExplorerMetricsAggregator(indexer.ExplorerMetricsIntervalFromEnv())
+		log.Println("Explorer metrics aggregator started")
+	}
+
 	// Start Governance Proposal Worker
 	governance.ScheduleProposalWorker(context.Background())
 
@@ -643,6 +648,7 @@ func main() {
 			log.Println("[SECURITY] ORACLE_TRANSFER_FREEZE=true — all oracle transfers are frozen at startup")
 		}
 		oracleClient.SetVelocityGuard(vg)
+		solanaClient.RegisterOracleClient(oracleClient)
 		log.Println("Oracle velocity guard attached")
 
 		solanaClient.InitStakingService(oracleClient)
@@ -724,12 +730,16 @@ func main() {
 		reconService.StartReconciliationWorker(context.Background())
 		log.Println("Ledger reconciliation service started (daily at 00:00 UTC)")
 
-		// Initialize Anomaly Detector Service
-		detector := worker.NewAnomalyDetector(5 * time.Minute)
-		worker.GoSupervised("AnomalyDetector", 5*time.Second, func() {
-			detector.Start(context.Background())
-		})
-		log.Println("Anomaly detector service started (interval: 5 minutes)")
+		// Initialize Anomaly Detector Service (disable locally with ANOMALY_DETECTOR_ENABLED=false)
+		if os.Getenv("ANOMALY_DETECTOR_ENABLED") != "false" {
+			detector := worker.NewAnomalyDetector(5 * time.Minute)
+			worker.GoSupervised("AnomalyDetector", 5*time.Second, func() {
+				detector.Start(context.Background())
+			})
+			log.Println("Anomaly detector service started (interval: 5 minutes)")
+		} else {
+			log.Println("Anomaly detector disabled (ANOMALY_DETECTOR_ENABLED=false)")
+		}
 
 		lm := treasury.NewLiquidityManager(oracleClient)
 		lm.StartRebalanceLoop(context.Background(), 1*time.Hour)
