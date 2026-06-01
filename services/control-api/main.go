@@ -142,6 +142,7 @@ func main() {
 	if err := redisClient.Init(); err != nil {
 		log.Printf("Warning: Failed to init Redis: %v", err)
 	}
+	api.LogRateLimitBackend()
 
 	// Initialize Config Manager (Redis + DB Sync)
 	cm := config.NewConfigManager(redisClient.Client, db.DB)
