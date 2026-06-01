@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getExplorerSessions } from '@/lib/services/explorer';
+import { getExplorerSessions, isExplorerNotFound } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     ArrowLeft, Radio, Server, Clock, Zap, Filter, ChevronLeft,
@@ -77,6 +77,7 @@ export default function SessionsPage() {
     const totalPages = Math.ceil(total / pageSize);
 
     const activeCount = sessions.filter((s: any) => s.status === 'active').length;
+    const sessionsFeedDisabled = Boolean(error && isExplorerNotFound(error));
 
     const handleExport = () => {
         if (!sessions.length) return;
@@ -125,6 +126,7 @@ export default function SessionsPage() {
             </motion.header>
 
             {/* Filter Bar */}
+            {!sessionsFeedDisabled && (
             <motion.div variants={itemVariants} className="flex flex-wrap items-center gap-3">
                 <button onClick={() => setShowFilters(!showFilters)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${showFilters ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60'}`}>
@@ -163,6 +165,7 @@ export default function SessionsPage() {
                     <Download size={10} /> CSV
                 </button>
             </motion.div>
+            )}
 
             {/* Sessions Table */}
             <motion.section variants={itemVariants}>
@@ -172,6 +175,20 @@ export default function SessionsPage() {
                             {Array.from({ length: 8 }).map((_, i) => (
                                 <div key={i} className="h-16 animate-pulse bg-white/[0.01]" />
                             ))}
+                        </div>
+                    ) : sessionsFeedDisabled ? (
+                        <div className="py-20 text-center max-w-md mx-auto">
+                            <Radio size={48} className="text-white/5 mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">
+                                Public session feed disabled
+                            </p>
+                            <p className="text-[9px] font-bold text-white/20 leading-relaxed">
+                                This deployment does not expose live session telemetry on the public explorer.
+                                Operators can enable it with <span className="text-primary/80">EXPLORER_PUBLIC_SESSIONS_ENABLED</span>.
+                            </p>
+                            <Link href="/explorer" className="inline-flex items-center gap-2 mt-6 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                <ArrowLeft size={10} /> Back to Grid
+                            </Link>
                         </div>
                     ) : error ? (
                         <div className="py-20 text-center">
