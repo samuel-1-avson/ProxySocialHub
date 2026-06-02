@@ -46,23 +46,30 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 
 ## Medium term
 
-### P3b — Tunnel tier split
+### P3b — Tunnel tier split · signed off
 
-- [ ] Separate tunnel-gw deployment
-- [ ] Edge → tunnel internal API (replace co-located forward)
-- [ ] `EDGE_MODE=split`, `TUNNEL_GW_ADDRS`
+- [x] **PR 1:** ADR 0002, `EdgeMode::Split`, `EDGE_ROLE`, `TUNNEL_GW_ADDRS`, [`docker-compose.p3-split.yml`](../docker-compose.p3-split.yml), [`P3b_TUNNEL_SPLIT.md`](P3b_TUNNEL_SPLIT.md)
+- [x] **PR 2:** reject buyer CONNECT/WebSocket on tunnel tier (`serves_buyer_connect`)
+- [x] **PR 3:** ingress → tunnel via `owner_forward_base_url` / `TUNNEL_GW_ADDRS`
+- [x] **PR 4:** `p3-split-smoke.*`, [`P3b_SIGNOFF.md`](P3b_SIGNOFF.md)
 
-### P4 — Provider transport
+### P4 — Provider transport · signed off
 
-- [ ] Multi-yamux per provider
-- [ ] QUIC transport (feature flag)
-- [ ] Transport benchmarks
+- [x] Multi-yamux per provider (`YAMUX_CONNS_PER_NODE`, `YamuxMux`, tunnel attach), ADR 0003, [`P4_PROVIDER_TRANSPORT.md`](P4_PROVIDER_TRANSPORT.md)
+- [x] `provider-node` multi-dial ([`tunnel/mux.rs`](../../provider-node/src/tunnel/mux.rs))
+- [x] QUIC feature flag (`PROVIDER_TRANSPORT`, `--features quic`, `quic_listener` placeholder)
+- [x] `transport_bench` + `p4-transport-exit-verify.*` + `p4-transport-smoke.*`
+- [x] Sign-off [`P4_SIGNOFF.md`](P4_SIGNOFF.md)
+- [ ] Quinn QUIC listener (post-P4)
+- [ ] Transport soak at scale (ops / load lab)
 
 ### P5 — Security & observability
 
+- [x] OTel bootstrap (`observability`, `--features otel`, [`P5_OTEL.md`](P5_OTEL.md))
+- [ ] Hot-path spans (CONNECT, tunnel, registry)
+- [ ] RED dashboards
 - [ ] In-process TLS + ALPN h2
-- [ ] JA3/JA4 fingerprinting
-- [ ] OTel traces + RED dashboards
+- [ ] JA3/JA4 fingerprinting (code in `security/fingerprint.rs`; wire on accept)
 - [ ] Honeytoken provider attribution
 
 ### P6 — Protocol expansion
@@ -82,5 +89,7 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 | resilience | 18090 | 13128 | 16379 |
 | p3-multipod edge-a | 28090 | 23128 | 26379 |
 | p3-multipod edge-b | 28091 | 23129 | (shared) |
+| p3-split edge-a/b (ingress) | 28100 / 28101 | — | 26479 |
+| p3-split tunnel-a/b | 28110 / 28111 | 23228 / 23229 | (shared) |
 
 **Note:** P3 always uses compose project `edge-p3` (`.\scripts\p3-multipod-up.ps1`). Fixed `container_name` values were removed to avoid global name clashes; if you still have old `proxyhubb-p3-*` containers, run `.\scripts\p3-multipod-down.ps1 -RemoveLegacy`.

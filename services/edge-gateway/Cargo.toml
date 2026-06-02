@@ -32,7 +32,11 @@ tokio-util = { version = "0.7", features = ["compat"] }
 tonic = { version = "0.12", features = ["transport"], optional = true }
 tower-service = "0.3"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-opentelemetry = { version = "0.28", optional = true }
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"], optional = true }
 uuid = { version = "1.8", features = ["v4", "fast-rng"] }
 yamux = "0.10"
 jsonwebtoken = "9.3"
@@ -73,6 +77,15 @@ libc = "0.2"
 
 [features]
 default = []
+# P4: QUIC provider transport (listener wiring in a follow-up; yamux remains default).
+quic = []
+# P5: OTLP trace export (`OTEL_EXPORTER_OTLP_ENDPOINT`).
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
 ml = ["dep:ort"]
 ml-gpu = ["ml", "ort/cuda", "ort/tensorrt"]
 legacy-zk = [
@@ -105,6 +118,10 @@ harness = false
 
 [[bench]]
 name = "hotpath_bench"
+harness = false
+
+[[bench]]
+name = "transport_bench"
 harness = false
 
 [build-dependencies]
