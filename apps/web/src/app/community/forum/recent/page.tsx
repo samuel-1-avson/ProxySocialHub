@@ -49,7 +49,7 @@ export default function ForumRecentPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
-                    <Link href="/forum">
+                    <Link href="/community/forum">
                         <Button variant="ghost" size="icon">
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
@@ -61,7 +61,7 @@ export default function ForumRecentPage() {
                         </p>
                     </div>
                 </div>
-                <Link href="/forum/new">
+                <Link href="/community/forum/new">
                     <Button>
                         <MessageSquare className="w-4 h-4 mr-2" />
                         New Thread
@@ -113,7 +113,7 @@ export default function ForumRecentPage() {
                     <p className="text-muted-foreground mb-4">
                         Be the first to start a discussion!
                     </p>
-                    <Link href="/forum/new">
+                    <Link href="/community/forum/new">
                         <Button>Create Thread</Button>
                     </Link>
                 </Card>
@@ -137,7 +137,7 @@ export default function ForumRecentPage() {
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <Link
-                                            href={`/forum/thread/${thread.id}`}
+                                            href={`/community/forum/thread/${thread.id}`}
                                             className="text-lg font-semibold hover:text-primary transition-colors line-clamp-1"
                                         >
                                             {thread.title}

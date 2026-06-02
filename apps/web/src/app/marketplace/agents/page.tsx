@@ -38,7 +38,7 @@ export default function AgentsPage() {
                     <p className="text-muted-foreground font-mono text-xs">AUTONOMOUS INTELLIGENCE AT YOUR SERVICE.</p>
                 </div>
                 <div className="flex gap-3">
-                    <Link href="/agents/instances" className="btn-retro btn-retro-outline bg-background flex items-center gap-2">
+                    <Link href="/marketplace/agents/instances" className="btn-retro btn-retro-outline bg-background flex items-center gap-2">
                         <Layers size={14} className="text-primary" />
                         MY INSTANCES
                     </Link>

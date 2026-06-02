@@ -65,14 +65,9 @@ func initiateSolanaPayment(c *gin.Context) {
 		return
 	}
 
-	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusActive { // Allow re-init if active but unpaid/failed? Active usually means paid/provisioned.
-		// If order is newly created (Active in createOrder but session might need payment if not pay-as-you-go?),
-		// Actually createOrder sets Active status for Pay-As-You-Go.
-		// Non-Custodial implies Pre-Pay Escrow usually.
-		// If createOrder made it Active, does it need payment?
-		// "Status: OrderStatusActive" in createOrder means it's running.
-		// Maybe we need OrderStatusPendingPayment?
-		// For now, assuming we can attach escrow to Active order too as a "top-up" or initial lock.
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusPendingPayment); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	// Fetch Buyer's Linked Wallet
@@ -206,6 +201,10 @@ func createOrder(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
 	}
+	if !listing.Status.IsPurchasable() {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Listing is not available (status: %s)", listing.Status)})
+		return
+	}
 
 	// Check buyer wallet balance (Minimum threshold for Pay-As-You-Go)
 	var wallet models.Wallet
@@ -306,6 +305,7 @@ func createOrder(c *gin.Context) {
 	tx.Create(feedEvent)
 
 	tx.Commit()
+	invalidateMarketplaceReadModels()
 
 	// Real-time Broadcast & Cache
 	go func() {
@@ -346,6 +346,18 @@ func createOrder(c *gin.Context) {
 	BroadcastToUser(listing.SellerID.String(), ws.MsgTypeNewOrder, gin.H{
 		"order":   order,
 		"message": "New sale: " + floatToString(req.BandwidthGB) + " GB purchased",
+	})
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     listing.SellerID,
+		Type:       models.NotificationNewOrder,
+		Title:      "New sale",
+		Body:       "New sale: " + floatToString(req.BandwidthGB) + " GB purchased",
+		ActionURL:  "/dashboard/orders",
+		ActionType: "open_order",
+		ActorID:    &buyerID,
+		TargetType: "order",
+		TargetID:   &order.ID,
+		Dedupe:     true,
 	})
 
 	// Response includes session credentials if created
@@ -573,9 +585,18 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusPendingPayment && order.Status != models.OrderStatusActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending, pending_payment, or active orders can be cancelled"})
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCancelled); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if order.SessionID != nil {
+		var session models.Session
+		if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
+			if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
 	}
 
 	if err := db.DB.Model(&order).Update("status", models.OrderStatusCancelled).Error; err != nil {

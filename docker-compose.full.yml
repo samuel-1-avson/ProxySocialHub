@@ -63,6 +63,15 @@ services:
       - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
       # Path inside the container to the oracle keypair JSON (64-byte array)
       - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
+      # --- Explorer ---
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
+      - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      - EXPLORER_MIN_WRITERS=${EXPLORER_MIN_WRITERS:-2}
+      - EXPLORER_METRICS_ENABLED=${EXPLORER_METRICS_ENABLED:-true}
+      - EXPLORER_METRICS_INTERVAL=${EXPLORER_METRICS_INTERVAL:-10m}
+      - EXPLORER_INDEXER_ENABLED=${EXPLORER_INDEXER_ENABLED:-true}
+      - EXPLORER_INDEXER_POLL_INTERVAL_MS=${EXPLORER_INDEXER_POLL_INTERVAL_MS:-5000}
 
     # Mount oracle keypair as a read-only secret file.
     # Before running: create ./oracle-keypair.json (64-byte Solana keypair array).

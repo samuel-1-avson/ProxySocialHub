@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -17,13 +19,40 @@ import (
 )
 
 const (
-	explorerWSMaxClients = 500
-	explorerWSMaxPerIP   = 15
+	explorerWSMaxClientsDefault = 500
+	explorerWSMaxPerIPDefault   = 15
+	explorerWSPollBatchSize     = 50
+)
+
+var (
+	explorerWSMaxClients = explorerWSMaxClientsDefault
+	explorerWSMaxPerIP   = explorerWSMaxPerIPDefault
+	explorerWSPending    int32 // handshakes accepted but not yet registered in the hub
 )
 
 var (
 	explorerWSIPCounts sync.Map // ip -> *int32
 )
+
+func init() {
+	if v := strings.TrimSpace(os.Getenv("EXPLORER_WS_MAX_CLIENTS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			explorerWSMaxClients = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EXPLORER_WS_MAX_PER_IP")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			explorerWSMaxPerIP = n
+		}
+	}
+}
+
+func explorerWSNormalizeIP(ip string) string {
+	if ip == "" {
+		return "unknown"
+	}
+	return ip
+}
 
 // allowedOrigin returns true when the request origin is acceptable.
 // In development (APP_URL not set) all origins are allowed.
@@ -110,40 +139,54 @@ type subscribeMsg struct {
 
 var hub *ExplorerHub
 
-func explorerWSAllowIP(ip string) bool {
-	if ip == "" {
-		ip = "unknown"
-	}
+// explorerWSReserveIP atomically reserves a per-IP slot (EXP-P0-11).
+func explorerWSReserveIP(ip string) bool {
+	ip = explorerWSNormalizeIP(ip)
 	val, _ := explorerWSIPCounts.LoadOrStore(ip, new(int32))
 	count := val.(*int32)
-	return atomic.LoadInt32(count) < explorerWSMaxPerIP
+	for {
+		n := atomic.LoadInt32(count)
+		if n >= int32(explorerWSMaxPerIP) {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(count, n, n+1) {
+			return true
+		}
+	}
 }
 
-func explorerWSRegisterIP(ip string) {
-	if ip == "" {
-		ip = "unknown"
-	}
-	val, _ := explorerWSIPCounts.LoadOrStore(ip, new(int32))
-	atomic.AddInt32(val.(*int32), 1)
-}
-
-func explorerWSUnregisterIP(ip string) {
-	if ip == "" {
-		ip = "unknown"
-	}
+func explorerWSReleaseIP(ip string) {
+	ip = explorerWSNormalizeIP(ip)
 	if val, ok := explorerWSIPCounts.Load(ip); ok {
-		atomic.AddInt32(val.(*int32), -1)
+		n := atomic.AddInt32(val.(*int32), -1)
+		if n < 0 {
+			atomic.StoreInt32(val.(*int32), 0)
+		}
 	}
 }
 
-// tryAcceptExplorerWSConnection enforces global and per-IP connection caps.
+// tryAcceptExplorerWSConnection enforces global and per-IP connection caps before upgrade.
 func (h *ExplorerHub) tryAcceptExplorerWSConnection(ip string) bool {
-	if !explorerWSAllowIP(ip) {
+	if !explorerWSReserveIP(ip) {
 		return false
 	}
+
+	pending := atomic.AddInt32(&explorerWSPending, 1)
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.clients) < explorerWSMaxClients
+	atCapacity := len(h.clients)+int(pending) > explorerWSMaxClients
+	h.mu.RUnlock()
+	if atCapacity {
+		atomic.AddInt32(&explorerWSPending, -1)
+		explorerWSReleaseIP(ip)
+		return false
+	}
+	return true
+}
+
+func explorerWSReleasePendingHandshake() {
+	if n := atomic.AddInt32(&explorerWSPending, -1); n < 0 {
+		atomic.StoreInt32(&explorerWSPending, 0)
+	}
 }
 
 // InitExplorerHub initializes the explorer WebSocket hub
@@ -172,7 +215,7 @@ func (h *ExplorerHub) run() {
 	for {
 		select {
 		case entry := <-h.register:
-			explorerWSRegisterIP(entry.clientIP)
+			explorerWSReleasePendingHandshake()
 			h.mu.Lock()
 			h.clients[entry.conn] = true
 			entries[entry.conn] = entry
@@ -186,7 +229,7 @@ func (h *ExplorerHub) run() {
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if entry, ok := entries[client]; ok {
-				explorerWSUnregisterIP(entry.clientIP)
+				explorerWSReleaseIP(entry.clientIP)
 			}
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
@@ -225,6 +268,9 @@ func (h *ExplorerHub) run() {
 					Msg("[ExplorerHub] dropped slow WebSocket clients during broadcast")
 				h.mu.Lock()
 				for _, conn := range dead {
+					if entry, ok := entries[conn]; ok {
+						explorerWSReleaseIP(entry.clientIP)
+					}
 					delete(h.clients, conn)
 					delete(entries, conn)
 					conn.Close()
@@ -314,11 +360,13 @@ func (h *ExplorerHub) startPolling() {
 	defer ticker.Stop()
 
 	var lastTxTime time.Time
+	var lastTxID uuid.UUID
 	var lastBlockNumber uint64
 
 	var latestTx models.ExplorerTransaction
-	if err := db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC").First(&latestTx).Error; err == nil {
+	if err := db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC, id DESC").First(&latestTx).Error; err == nil {
 		lastTxTime = latestTx.Timestamp
+		lastTxID = latestTx.ID
 	}
 	var latestBlock models.ExplorerBlock
 	if err := db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
@@ -326,18 +374,17 @@ func (h *ExplorerHub) startPolling() {
 	}
 
 	for range ticker.C {
-		// Check for new transactions
+		// Check for new transactions (EXP-P0-13: cursor from DB, strict > on time+id).
 		var newTransactions []models.ExplorerTransaction
-		query := db.DB.Where("is_orphaned = ?", false).Order("timestamp DESC").Limit(5)
+		query := db.DB.Where("is_orphaned = ?", false).Order("timestamp ASC, id ASC").Limit(explorerWSPollBatchSize)
 		if !lastTxTime.IsZero() {
-			query = query.Where("timestamp > ?", lastTxTime)
+			query = query.Where("(timestamp > ?) OR (timestamp = ? AND id > ?)", lastTxTime, lastTxTime, lastTxID)
 		}
 		query.Find(&newTransactions)
 
 		for _, tx := range newTransactions {
-			if tx.Timestamp.After(lastTxTime) {
-				lastTxTime = tx.Timestamp
-			}
+			lastTxTime = tx.Timestamp
+			lastTxID = tx.ID
 
 			update := ExplorerUpdate{
 				Type: "new_transaction",
@@ -430,6 +477,8 @@ func handleExplorerWebSocket(c *gin.Context) {
 
 	conn, err := explorerUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		explorerWSReleasePendingHandshake()
+		explorerWSReleaseIP(clientIP)
 		logging.Error(err).Msg("[ExplorerHub] Failed to upgrade WebSocket")
 		return
 	}

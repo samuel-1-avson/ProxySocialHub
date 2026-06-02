@@ -2,12 +2,16 @@ package db
 
 import (
 	"context"
+	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
 type marketplaceRepository struct{}
@@ -21,36 +25,107 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 	var listings []models.ProxyListing
 	var total int64
 
-	query := DB.Model(&models.ProxyListing{}).Where("status = ?", models.ListingStatusActive)
+	query := DB.WithContext(ctx).
+		Model(&models.ProxyListing{}).
+		Preload("Seller").
+		Where("proxy_listings.status = ?", models.ListingStatusActive)
 
-	// In a real implementation, we would map the filters to GORM queries here.
-	// For the initial refactor, we keep it simple to establish the pattern.
+	sellerJoined := false
+	ensureSellerJoin := func() {
+		if sellerJoined {
+			return
+		}
+		query = query.Joins("LEFT JOIN profiles seller_profiles ON seller_profiles.id = proxy_listings.seller_id")
+		sellerJoined = true
+	}
+
+	if proxyType := stringFilter(filters, "proxy_type"); proxyType != "" {
+		query = query.Where("proxy_listings.proxy_type = ?", proxyType)
+	}
+	if protocol := stringFilter(filters, "protocol"); protocol != "" {
+		query = query.Where("LOWER(proxy_listings.protocol) = LOWER(?)", protocol)
+	}
+	if rotationType := stringFilter(filters, "rotation_type"); rotationType != "" {
+		query = query.Where("LOWER(proxy_listings.rotation_type) = LOWER(?)", rotationType)
+	}
+	if country := stringFilter(filters, "country"); country != "" {
+		query = query.Where("LOWER(proxy_listings.country) = LOWER(?)", country)
+	}
+	if isp := stringFilter(filters, "isp"); isp != "" {
+		query = query.Where("proxy_listings.isp ILIKE ?", "%"+isp+"%")
+	}
+	if sellerID := uuidFilter(filters, "seller_id"); sellerID != uuid.Nil {
+		query = query.Where("proxy_listings.seller_id = ?", sellerID)
+	}
+	if minPrice, ok := floatFilter(filters, "min_price"); ok {
+		query = query.Where("proxy_listings.price_per_gb >= ?", minPrice)
+	}
+	if maxPrice, ok := floatFilter(filters, "max_price"); ok {
+		query = query.Where("proxy_listings.price_per_gb <= ?", maxPrice)
+	}
+	if minRating, ok := floatFilter(filters, "min_rating"); ok {
+		if minRating <= 5 {
+			ensureSellerJoin()
+			query = query.Where("COALESCE(seller_profiles.avg_rating, 0) >= ?", minRating)
+		} else {
+			query = query.Where("proxy_listings.quality_score >= ?", minRating)
+		}
+	}
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
+	sortBy := strings.ToLower(stringFilter(filters, "sort_by"))
+	sortOrder := normalizeSortOrder(stringFilter(filters, "sort_order"), "desc")
+	switch sortBy {
+	case "price_asc":
+		query = query.Order("proxy_listings.price_per_gb ASC, proxy_listings.created_at DESC")
+	case "price_desc":
+		query = query.Order("proxy_listings.price_per_gb DESC, proxy_listings.created_at DESC")
+	case "price":
+		query = query.Order("proxy_listings.price_per_gb " + sortOrder + ", proxy_listings.created_at DESC")
+	case "rating", "popular":
+		ensureSellerJoin()
+		query = query.Order("COALESCE(seller_profiles.avg_rating, 0) " + sortOrder + ", proxy_listings.quality_score " + sortOrder + ", proxy_listings.orders_count DESC")
+	case "sales":
+		query = query.Order("proxy_listings.orders_count " + sortOrder + ", proxy_listings.created_at DESC")
+	case "uptime":
+		query = query.Order("proxy_listings.uptime_percent " + sortOrder + ", proxy_listings.avg_latency_ms ASC, proxy_listings.created_at DESC")
+	case "latency":
+		query = query.Order("proxy_listings.avg_latency_ms ASC, proxy_listings.uptime_percent DESC, proxy_listings.created_at DESC")
+	case "quality":
+		query = query.Order("proxy_listings.quality_score " + sortOrder + ", proxy_listings.created_at DESC")
+	case "newest", "":
+		if sortOrder == "ASC" {
+			query = query.Order("proxy_listings.created_at ASC")
+		} else {
+			query = query.Order("proxy_listings.created_at DESC")
+		}
+	default:
+		query = query.Order("proxy_listings.created_at DESC")
+	}
+
+	page := intFilter(filters, "page", 1)
+	limit := intFilter(filters, "limit", 20)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query = query.Offset((page - 1) * limit).Limit(limit)
+
 	if err := query.Find(&listings).Error; err != nil {
 		return nil, 0, err
 	}
 
-	// Map models to domain entities
 	entities := make([]domain.ListingEntity, len(listings))
 	for i, l := range listings {
-		entities[i] = domain.ListingEntity{
-			ID:                   l.ID,
-			SellerID:             l.SellerID,
-			Title:                l.Title,
-			Description:          l.Description,
-			PricePerGB:           l.PricePerGB,
-			AvailableBandwidthGB: l.AvailableBandwidthGB,
-			ProxyType:            domain.ProxyType(l.ProxyType),
-			Protocol:             l.Protocol,
-			Status:               domain.ListingStatus(l.Status),
-			QualityScore:         l.QualityScore,
-			Country:              l.Country,
-			ISP:                  l.ISP,
-		}
+		entities[i] = listingModelToEntity(l)
 	}
 
 	return entities, total, nil
@@ -58,15 +133,41 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 
 func (r *marketplaceRepository) GetListingByID(ctx context.Context, id uuid.UUID) (*domain.ListingEntity, error) {
 	var l models.ProxyListing
-	if err := DB.First(&l, "id = ?", id).Error; err != nil {
+	if err := DB.WithContext(ctx).First(&l, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrListingNotFound
+		}
 		return nil, err
 	}
 
 	return &domain.ListingEntity{
-		ID:       l.ID,
-		SellerID: l.SellerID,
-		Title:    l.Title,
-		Status:   domain.ListingStatus(l.Status),
+		ID:                   l.ID,
+		SellerID:             l.SellerID,
+		ProviderNodeID:       l.ProviderNodeID,
+		Title:                l.Title,
+		Description:          l.Description,
+		PricePerGB:           l.PricePerGB,
+		MinPurchaseGB:        l.MinPurchaseGB,
+		AvailableBandwidthGB: l.AvailableBandwidthGB,
+		MaxConcurrency:       l.MaxConcurrency,
+		ProxyType:            domain.ProxyType(l.ProxyType),
+		Protocol:             l.Protocol,
+		RotationType:         l.RotationType,
+		Country:              l.Country,
+		ISP:                  l.ISP,
+		Status:               domain.ListingStatus(l.Status),
+		QualityScore:         l.QualityScore,
+		AvgLatencyMs:         l.AvgLatencyMs,
+		UptimePercent:        l.UptimePercent,
+		SuccessRate:          l.SuccessRate,
+		CurrentTier:          l.CurrentTier,
+		ViewsCount:           l.ViewsCount,
+		SavesCount:           l.SavesCount,
+		OrdersCount:          l.OrdersCount,
+		ActiveSessionsCount:  l.ActiveSessionsCount,
+		AllowDirectMessage:   l.AllowDirectMessage,
+		CreatedAt:            l.CreatedAt,
+		UpdatedAt:            l.UpdatedAt,
 	}, nil
 }
 
@@ -91,11 +192,87 @@ func (r *marketplaceRepository) CreateListing(ctx context.Context, entity *domai
 	return DB.Create(&m).Error
 }
 
-func (r *marketplaceRepository) UpdateListing(ctx context.Context, entity *domain.ListingEntity) error {
-	return DB.Model(&models.ProxyListing{}).Where("id = ?", entity.ID).Updates(map[string]interface{}{
-		"title":  entity.Title,
-		"status": models.ListingStatus(entity.Status),
-	}).Error
+func (r *marketplaceRepository) UpdateListing(ctx context.Context, id uuid.UUID, updates domain.ListingUpdate) (*domain.ListingEntity, error) {
+	values := make(map[string]interface{})
+	if updates.Title != nil {
+		values["title"] = *updates.Title
+	}
+	if updates.Description != nil {
+		values["description"] = *updates.Description
+	}
+	if updates.PricePerGB != nil {
+		values["price_per_gb"] = *updates.PricePerGB
+	}
+	if updates.MinPurchaseGB != nil {
+		values["min_purchase_gb"] = *updates.MinPurchaseGB
+	}
+	if updates.AvailableBandwidthGB != nil {
+		values["available_bandwidth_gb"] = *updates.AvailableBandwidthGB
+	}
+	if updates.MaxConcurrency != nil {
+		values["max_concurrency"] = *updates.MaxConcurrency
+	}
+	if updates.Status != nil {
+		values["status"] = models.ListingStatus(*updates.Status)
+	}
+	if updates.BulkDiscountsJSON != nil {
+		values["bulk_discounts"] = updates.BulkDiscountsJSON
+	}
+
+	if len(values) > 0 {
+		if err := DB.WithContext(ctx).Model(&models.ProxyListing{}).Where("id = ?", id).Updates(values).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	return r.GetListingByID(ctx, id)
+}
+
+func (r *marketplaceRepository) DeleteListing(ctx context.Context, id uuid.UUID) error {
+	result := DB.WithContext(ctx).
+		Model(&models.ProxyListing{}).
+		Where("id = ?", id).
+		Update("status", models.ListingStatusDeleted)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrListingNotFound
+	}
+	return nil
+}
+
+func (r *marketplaceRepository) SaveListing(ctx context.Context, userID, listingID uuid.UUID) error {
+	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing models.SavedListing
+		if err := tx.Where("user_id = ? AND listing_id = ?", userID, listingID).First(&existing).Error; err == nil {
+			return domain.ErrListingAlreadySaved
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		if err := tx.Create(&models.SavedListing{UserID: userID, ListingID: listingID}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.ProxyListing{}).
+			Where("id = ?", listingID).
+			UpdateColumn("saves_count", gorm.Expr("saves_count + 1")).Error
+	})
+}
+
+func (r *marketplaceRepository) UnsaveListing(ctx context.Context, userID, listingID uuid.UUID) error {
+	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("user_id = ? AND listing_id = ?", userID, listingID).Delete(&models.SavedListing{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrListingNotSaved
+		}
+		return tx.Model(&models.ProxyListing{}).
+			Where("id = ?", listingID).
+			UpdateColumn("saves_count", gorm.Expr("GREATEST(saves_count - 1, 0)")).Error
+	})
 }
 
 func (r *marketplaceRepository) GetNodeByID(ctx context.Context, id uuid.UUID) (*domain.NodeEntity, error) {
@@ -164,4 +341,122 @@ func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID u
 	return DB.Model(&models.ProxyListing{}).
 		Where("seller_id = ? AND status = ?", node.ProviderUserID, models.ListingStatusActive).
 		Update("quality_score", score).Error
+}
+
+func listingModelToEntity(l models.ProxyListing) domain.ListingEntity {
+	return domain.ListingEntity{
+		ID:                   l.ID,
+		SellerID:             l.SellerID,
+		ProviderNodeID:       l.ProviderNodeID,
+		Title:                l.Title,
+		Description:          l.Description,
+		PricePerGB:           l.PricePerGB,
+		MinPurchaseGB:        l.MinPurchaseGB,
+		AvailableBandwidthGB: l.AvailableBandwidthGB,
+		MaxConcurrency:       l.MaxConcurrency,
+		ProxyType:            domain.ProxyType(l.ProxyType),
+		Protocol:             l.Protocol,
+		RotationType:         l.RotationType,
+		Country:              l.Country,
+		ISP:                  l.ISP,
+		Status:               domain.ListingStatus(l.Status),
+		QualityScore:         l.QualityScore,
+		AvgLatencyMs:         l.AvgLatencyMs,
+		UptimePercent:        l.UptimePercent,
+		SuccessRate:          l.SuccessRate,
+		CurrentTier:          l.CurrentTier,
+		ViewsCount:           l.ViewsCount,
+		SavesCount:           l.SavesCount,
+		OrdersCount:          l.OrdersCount,
+		ActiveSessionsCount:  l.ActiveSessionsCount,
+		AllowDirectMessage:   l.AllowDirectMessage,
+		CreatedAt:            l.CreatedAt,
+		UpdatedAt:            l.UpdatedAt,
+	}
+}
+
+func stringFilter(filters map[string]interface{}, key string) string {
+	value, ok := filters[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case uuid.UUID:
+		if v == uuid.Nil {
+			return ""
+		}
+		return v.String()
+	default:
+		return ""
+	}
+}
+
+func uuidFilter(filters map[string]interface{}, key string) uuid.UUID {
+	value := stringFilter(filters, key)
+	if value == "" {
+		return uuid.Nil
+	}
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
+}
+
+func floatFilter(filters map[string]interface{}, key string) (float64, bool) {
+	value, ok := filters[key]
+	if !ok || value == nil {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func intFilter(filters map[string]interface{}, key string, fallback int) int {
+	value, ok := filters[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func normalizeSortOrder(order string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(order)) {
+	case "asc":
+		return "ASC"
+	case "desc":
+		return "DESC"
+	}
+	if strings.ToLower(fallback) == "asc" {
+		return "ASC"
+	}
+	return "DESC"
 }

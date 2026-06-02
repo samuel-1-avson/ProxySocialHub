@@ -16,6 +16,8 @@ Checklist before merging explorer remediation PRs or tagging a release. Run agai
 - [ ] `avg_throughput_mbps` > 0 when usage exists in period
 - [ ] Public node/tx lists exclude `is_orphaned = true`
 - [ ] No provider PII in public DTOs (grep response for internal IDs if needed)
+- [ ] `GET /v1/explorer/sessions` → 404 unless `EXPLORER_PUBLIC_SESSIONS_ENABLED=true`
+- [ ] `GET /v1/explorer/earnings` → 404 unless `EXPLORER_PUBLIC_EARNINGS_ENABLED=true`
 
 ## WebSocket
 

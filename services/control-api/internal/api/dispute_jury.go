@@ -64,6 +64,10 @@ func createDisputeJury(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a party to this order"})
 		return
 	}
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Check if dispute already exists
 	var existing models.DisputeJury
@@ -113,9 +117,10 @@ func createDisputeJury(c *gin.Context) {
 		return
 	}
 
-	// Update order status
-	order.Status = models.OrderStatusDisputed
-	db.DB.Save(&order)
+	if err := db.DB.Model(&order).Update("status", models.OrderStatusDisputed).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status"})
+		return
+	}
 
 	// DISP-001/002: Open dispute on-chain with slot-seed VRF so jury
 	// selection cannot be replayed or pre-computed by the server.
@@ -398,6 +403,10 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 
 	// For pay-as-you-go orders there is no on-chain escrow; nothing to settle.
 	if order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
+		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusRefunded); err != nil {
+			logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid refund transition")
+			return
+		}
 		db.DB.Model(&order).Update("status", models.OrderStatusRefunded)
 		return
 	}
@@ -426,9 +435,11 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 
 	decision, _ := jury.GetMajority()
 
+	nextStatus := models.OrderStatusCompleted
 	var txHash string
 	switch decision {
 	case models.VoteBuyerWins:
+		nextStatus = models.OrderStatusRefunded
 		// Return all locked SOL to buyer.
 		txHash, err = oracle.EmergencyRefund(ctx, solana.RefundEscrowParams{
 			Buyer:     buyerPubKey,
@@ -459,9 +470,13 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		logging.Error(err).Str("jury_id", jury.ID.String()).Msg("dispute settlement: blockchain call failed")
 		return
 	}
+	if err := models.ValidateOrderStatusTransition(order.Status, nextStatus); err != nil {
+		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid final transition")
+		return
+	}
 
 	db.DB.Model(&order).Updates(map[string]interface{}{
-		"status":  models.OrderStatusCompleted,
+		"status":  nextStatus,
 		"tx_hash": txHash,
 	})
 

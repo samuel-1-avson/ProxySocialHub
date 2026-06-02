@@ -68,7 +68,7 @@ func createNode(c *gin.Context) {
 			First(&existing).Error
 		if err == nil {
 			c.JSON(http.StatusConflict, gin.H{
-				"error":           "A node with this IP address is already registered to your account",
+				"error":            "A node with this IP address is already registered to your account",
 				"existing_node_id": existing.ID,
 			})
 			return
@@ -174,10 +174,7 @@ func createNode(c *gin.Context) {
 
 // autoPublishListing creates a default marketplace listing for a newly registered node.
 func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType string) {
-	svc := GetMarketplaceService()
-	if svc == nil {
-		return
-	}
+	svc := marketplaceServiceOrDefault()
 
 	// Map CLI connection type → marketplace proxy type
 	proxyType := domain.Residential
@@ -217,6 +214,7 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 	if _, err := svc.PublishListing(context.Background(), userID, listing); err != nil {
 		logging.Error(err).Str("node_id", node.ID.String()).Msg("autoPublishListing: failed")
 	} else {
+		invalidateMarketplaceReadModels()
 		logging.Info().Str("node_id", node.ID.String()).Msg("autoPublishListing: listing created")
 	}
 }
@@ -255,6 +253,7 @@ func updateNode(c *gin.Context) {
 		updates["ip_address"] = nil // explicitly NULL-out if cleared
 	}
 	db.DB.Model(&node).Updates(updates)
+	invalidateMarketplaceReadModels()
 
 	c.JSON(http.StatusOK, node)
 }
@@ -276,6 +275,7 @@ func deleteNode(c *gin.Context) {
 		return
 	}
 
+	invalidateMarketplaceReadModels()
 	c.JSON(http.StatusOK, gin.H{"message": "Node deleted"})
 }
 
@@ -373,13 +373,15 @@ func getNodeConnectInfo(c *gin.Context) {
 	startCmd := "provider-node start --config " + configHint
 
 	c.JSON(http.StatusOK, gin.H{
-		"node_id":              node.ID.String(),
-		"control_api_url":      controlURL,
-		"gateway_tunnel_addr":  tunnelAddr,
-		"use_tls":              useTLS,
-		"connection_type":      "residential",
-		"config_path_hint":     configHint,
-		"start_command":        startCmd,
+		"node_id":             node.ID.String(),
+		"control_api_url":     controlURL,
+		"gateway_tunnel_addr": tunnelAddr,
+		"use_tls":             useTLS,
+		"connection_type":     "residential",
+		"config_path_hint":    configHint,
+		"start_command":       startCmd,
+		// provider.toml must use this UUID as node_id (not nodes.id). See docs/NODE_REGISTRY.md.
+		"registry_note": "Set provider.toml node_id to node_id above (provider_nodes UUID). Gateway identity is node_<profile_uuid> when linked.",
 	})
 }
 
@@ -451,6 +453,7 @@ func nodeHeartbeat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
 		return
 	}
+	invalidateMarketplaceReadModels()
 
 	// D-C1: Mirror heartbeat metrics to the on-chain ProviderRegistry.
 	// Fetch hotkey from DB (not in the current query); skip if unavailable.
@@ -498,7 +501,7 @@ func nodeHeartbeat(c *gin.Context) {
 			models.FeedEventNodeOnline,
 			"node",
 			&nodeID,
-			"Provider Node " + nodeName + " is now online and actively routing traffic!",
+			"Provider Node "+nodeName+" is now online and actively routing traffic!",
 			map[string]interface{}{
 				"node_id":   nodeID.String(),
 				"node_name": nodeName,
@@ -512,10 +515,11 @@ func nodeHeartbeat(c *gin.Context) {
 // UpdateNodeStatus updates a node's online status (called by gateway)
 func UpdateNodeStatus(nodeID uuid.UUID, isOnline bool, latencyMs int) {
 	// Replaced legacy DB updates with Hexagonal Service call
-	err := GetMarketplaceService().UpdateNodeStatus(context.Background(), nodeID, isOnline, latencyMs)
+	err := marketplaceServiceOrDefault().UpdateNodeStatus(context.Background(), nodeID, isOnline, latencyMs)
 	if err != nil {
 		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node status via core service")
 	}
+	invalidateMarketplaceReadModels()
 
 	// Phase 9.1 Real-time Telemetry: Publish Heartbeat to NATS
 	heartbeat := domain.NodeHeartbeatEvent{

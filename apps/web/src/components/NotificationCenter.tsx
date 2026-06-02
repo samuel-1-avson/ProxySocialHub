@@ -21,6 +21,7 @@ import {
     ChevronRight,
 } from "lucide-react";
 import { VirtualizedNotificationList } from "./virtualized/VirtualizedNotificationList";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function isNotificationPayload(value: unknown): value is Notification {
     return (
@@ -236,7 +237,7 @@ export function NotificationCenter() {
                                 </button>
                             )}
                             <Link
-                                href="/settings/notifications"
+                                href={ROUTES.settingsNotifications}
                                 onClick={() => setIsOpen(false)}
                                 className="p-2 hover:bg-secondary/50 rounded-sm transition-colors"
                                 title="Notification settings"
@@ -275,7 +276,7 @@ export function NotificationCenter() {
                     {/* Footer */}
                     <div className="p-3 border-t border-border bg-secondary/10">
                         <Link
-                            href="/notifications"
+                            href={ROUTES.settingsNotifications}
                             onClick={() => setIsOpen(false)}
                             className="flex items-center justify-center gap-2 text-xs font-mono text-primary hover:text-primary/80 transition-colors"
                         >

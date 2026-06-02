@@ -47,8 +47,8 @@ func RegisterEscrowEventListener() {
 // total) before giving up and logging a critical alert.
 func handleEscrowInitialized(event solana.EscrowEvent) {
 	const (
-		maxAttempts  = 12
-		retryDelay   = 5 * time.Second
+		maxAttempts = 12
+		retryDelay  = 5 * time.Second
 	)
 
 	var order models.Order
@@ -74,22 +74,28 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		return
 	}
 
-	if order.Status == models.OrderStatusPending {
-		db.DB.Model(&order).Updates(map[string]interface{}{
-			"status":       models.OrderStatusActive,
-			"tx_signature": event.TxSignature,
-			"updated_at":   time.Now(),
-		})
-		logging.Info().
-			Str("order_id", order.ID.String()).
-			Str("tx_signature", event.TxSignature).
-			Msg("Order activated via Solana Escrow")
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusActive); err != nil {
+		logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow initialized event for non-activatable order")
+		return
 	}
+	db.DB.Model(&order).Updates(map[string]interface{}{
+		"status":       models.OrderStatusActive,
+		"tx_signature": event.TxSignature,
+		"updated_at":   time.Now(),
+	})
+	logging.Info().
+		Str("order_id", order.ID.String()).
+		Str("tx_signature", event.TxSignature).
+		Msg("Order activated via Solana Escrow")
 }
 
 func handleEscrowSettled(event solana.EscrowEvent) {
 	var order models.Order
 	if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err == nil {
+		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+			logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow settled event for non-completable order")
+			return
+		}
 		db.DB.Model(&order).Updates(map[string]interface{}{
 			"status":     models.OrderStatusCompleted,
 			"updated_at": time.Now(),

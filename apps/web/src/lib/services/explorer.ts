@@ -503,12 +503,11 @@ export interface ProviderEarningsResponse {
 export async function getProviderEarnings(
     period = '24h', page = 1, pageSize = 20, signal?: AbortSignal
 ): Promise<ProviderEarningsResponse> {
-    const response = await xfetch(
+    return explorerFetch<ProviderEarningsResponse>(
         `${API_BASE_URL}/v1/explorer/earnings?period=${period}&page=${page}&page_size=${pageSize}`,
+        'Failed to fetch provider earnings',
         signal,
     );
-    if (!response.ok) throw new Error('Failed to fetch provider earnings');
-    return response.json();
 }
 
 // --- Health History ---

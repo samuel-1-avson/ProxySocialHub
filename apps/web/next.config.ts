@@ -71,6 +71,46 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: '/feed',
+        destination: '/community/feed',
+        permanent: true,
+      },
+      {
+        source: '/messages',
+        destination: '/community/messages',
+        permanent: true,
+      },
+      {
+        source: '/notifications',
+        destination: '/settings/notifications',
+        permanent: true,
+      },
+      {
+        source: '/forum',
+        destination: '/community/forum',
+        permanent: true,
+      },
+      {
+        source: '/forum/:path*',
+        destination: '/community/forum/:path*',
+        permanent: true,
+      },
+      {
+        source: '/agents',
+        destination: '/marketplace/agents',
+        permanent: true,
+      },
+      {
+        source: '/agents/:path*',
+        destination: '/marketplace/agents/:path*',
+        permanent: true,
+      },
+      {
+        source: '/friends',
+        destination: '/community/feed?suggestions=people',
+        permanent: false,
+      },
+      {
         source: '/dashboard/settings',
         destination: '/dashboard/settings/identity',
         permanent: true,
