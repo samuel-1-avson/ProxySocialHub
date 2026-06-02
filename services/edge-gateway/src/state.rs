@@ -339,8 +339,12 @@ pub struct AppState {
     pub config: Config,
     pub rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     pub is_leader: Arc<AtomicBool>,
+    /// When true, `/health` and `/ready` fail and new buyer/tunnel accepts are rejected (P3 drain).
+    pub draining: Arc<AtomicBool>,
     pub circuit_breakers: Arc<CircuitBreakerManager>,
     pub registry_store: Arc<crate::registry::store::RegistryStore>,
+    /// P3: cross-pod provider ownership (`node_id` → `EDGE_POD_ID`).
+    pub provider_directory: Arc<crate::registry::directory::ProviderDirectory>,
     pub usage_tracker: Arc<crate::metering::UsageTracker>,
     pub geoip: Option<Arc<maxminddb::Reader<Vec<u8>>>>,
     pub shaper: Arc<crate::qos::TrafficShaper>,
@@ -385,11 +389,14 @@ pub struct AppState {
     pub honeytoken: Arc<crate::security::honeytoken::HoneytokenRegistry>,
     /// Anomaly tracker for session monitoring (Phase 4).
     pub anomaly: Arc<crate::security::anomaly::AnomalyTracker>,
-    /// Legacy edge-side ZK-SNARK usage prover. Disabled by default in favor of control-api batching.
+    /// Legacy edge-side ZK-SNARK usage prover (`legacy-zk` feature + env opt-in).
+    #[cfg(feature = "legacy-zk")]
     pub zk_prover: Option<Arc<crate::billing::zk::ZkProver>>,
-    /// Solana transaction relayer for decentralized payouts (Phase 5).
+    /// Solana transaction relayer for decentralized payouts (`legacy-zk` feature).
+    #[cfg(feature = "legacy-zk")]
     pub solana_relayer: Arc<crate::billing::solana::SolanaRelayer>,
-    /// Legacy batch relayer for edge-side settlement experiments.
+    /// Legacy batch relayer for edge-side settlement experiments (`legacy-zk` feature).
+    #[cfg(feature = "legacy-zk")]
     pub solana_batch_relayer: Option<Arc<crate::billing::solana::BatchRelayer>>,
 }
 
@@ -398,6 +405,7 @@ impl AppState {
         config: Config,
         is_leader: Arc<AtomicBool>,
         registry_store: Arc<crate::registry::store::RegistryStore>,
+        provider_directory: Arc<crate::registry::directory::ProviderDirectory>,
         usage_tracker: Arc<crate::metering::UsageTracker>,
     ) -> Self {
         // ... (geoip initialization already implemented)
@@ -477,18 +485,23 @@ impl AppState {
         let anomaly = Arc::new(crate::security::anomaly::AnomalyTracker::new(
             config.max_rpm_per_session.unwrap_or(300),
         ));
+        #[cfg(feature = "legacy-zk")]
         let zk_prover = if config.legacy_edge_zk_submission_enabled {
             Some(Arc::new(crate::billing::zk::ZkProver::new()))
         } else {
             None
         };
+        #[cfg(feature = "legacy-zk")]
         let solana_program_id = env::var("SOLANA_PROGRAM_ID")
             .or_else(|_| env::var("REPUTATION_PROGRAM_ID"))
             .unwrap_or_default();
+        #[cfg(feature = "legacy-zk")]
         let solana_relayer = Arc::new(crate::billing::solana::SolanaRelayer::new(
-             &solana_program_id,
-             &env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
+            &solana_program_id,
+            &env::var("SOLANA_RPC_URL")
+                .unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
         ));
+        #[cfg(feature = "legacy-zk")]
         let solana_batch_relayer = if config.legacy_edge_zk_submission_enabled {
             Some(Arc::new(crate::billing::solana::BatchRelayer::new(
                 solana_relayer.clone(),
@@ -503,8 +516,10 @@ impl AppState {
             config,
             rate_limiter,
             is_leader,
+            draining: Arc::new(AtomicBool::new(false)),
             circuit_breakers: Arc::new(CircuitBreakerManager::new()),
             registry_store,
+            provider_directory,
             usage_tracker,
             geoip,
             shaper,
@@ -528,8 +543,11 @@ impl AppState {
             control_api,
             honeytoken,
             anomaly,
+            #[cfg(feature = "legacy-zk")]
             zk_prover,
+            #[cfg(feature = "legacy-zk")]
             solana_relayer,
+            #[cfg(feature = "legacy-zk")]
             solana_batch_relayer,
         }
     }
