@@ -13,8 +13,10 @@ pub const CANONICAL_TUNNEL_PORT: u16 = 3128;
 pub enum EdgeMode {
     /// Default: in-memory registry only (single-pod semantics).
     Single,
-    /// Multi-pod: enforce Redis ownership directory (forwarding in P3.2).
+    /// Multi-pod: shared Redis directory + owner-pod internal forward (P3.1).
     Colocated,
+    /// P3b: buyer ingress and provider tunnel in separate replica pools (ADR 0002).
+    Split,
 }
 
 impl EdgeMode {
@@ -25,8 +27,48 @@ impl EdgeMode {
             .to_ascii_lowercase()
             .as_str()
         {
-            "colocated" | "multi" => Self::Colocated,
+            "colocated" | "multi" | "multipod" => Self::Colocated,
+            "split" | "p3b" => Self::Split,
             _ => Self::Single,
+        }
+    }
+
+    /// Shared Redis provider directory + cross-pod routing (P3.1 / P3b).
+    pub fn uses_multipod_directory(self) -> bool {
+        matches!(self, Self::Colocated | Self::Split)
+    }
+}
+
+/// Process role when [`EdgeMode::Split`] — which listeners this replica runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdgeRole {
+    /// Buyer HTTP + provider tunnel (default for single/colocated).
+    All,
+    /// P3b ingress pool: buyer proxy only; tunnel listener off.
+    Ingress,
+    /// P3b tunnel pool: provider yamux (buyer CONNECT gating in a later slice).
+    Tunnel,
+}
+
+impl EdgeRole {
+    pub fn from_env(edge_mode: EdgeMode) -> Self {
+        if edge_mode != EdgeMode::Split {
+            return Self::All;
+        }
+        match env::var("EDGE_ROLE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "ingress" | "edge" | "buyer" => Self::Ingress,
+            "tunnel" | "tunnel-gw" | "tunnel_gw" | "provider" => Self::Tunnel,
+            other if other.is_empty() => {
+                panic!("EDGE_MODE=split requires EDGE_ROLE=ingress|tunnel (buyer vs tunnel tier)");
+            }
+            other => {
+                panic!("EDGE_MODE=split: unknown EDGE_ROLE={other:?} (expected ingress|tunnel)")
+            }
         }
     }
 }
@@ -103,10 +145,18 @@ pub struct Config {
     /// Stable id for this gateway replica (P3 directory + leader).
     pub edge_pod_id: String,
     pub edge_mode: EdgeMode,
+    /// Listener split when `edge_mode == Split` (see ADR 0002).
+    pub edge_role: EdgeRole,
     /// TTL for `eg:provider:owner:*` keys (default: 120s).
     pub provider_directory_ttl_secs: u64,
     /// Peer edge pods for internal forward (`pod_id` → `http://host:port`).
     pub edge_peer_urls: HashMap<String, String>,
+    /// P3b tunnel-tier replicas (`pod_id` → `http://host:port` for internal API).
+    pub tunnel_gw_urls: HashMap<String, String>,
+    /// P4: parallel yamux/TCP sessions per provider (`YAMUX_CONNS_PER_NODE`, default 1, max 16).
+    pub yamux_conns_per_node: usize,
+    /// P4: `PROVIDER_TRANSPORT` — `yamux` (default) or `quic` (requires `--features quic`).
+    pub provider_transport: crate::provider_transport::ProviderTransportKind,
 }
 
 /// Parse `EDGE_PEER_URLS=pod-a@http://edge-a:8090,pod-b@http://edge-b:8090`.
@@ -132,9 +182,60 @@ pub fn parse_edge_peer_urls() -> HashMap<String, String> {
     map
 }
 
+/// Parse `TUNNEL_GW_ADDRS=tunnel-a@http://tunnel-a:8090,tunnel-b@http://tunnel-b:8090`.
+pub fn parse_tunnel_gw_urls() -> HashMap<String, String> {
+    let raw = env::var("TUNNEL_GW_ADDRS").unwrap_or_default();
+    let mut map = HashMap::new();
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let Some((pod, url)) = entry.split_once('@') else {
+            tracing::warn!(entry, "Skipping TUNNEL_GW_ADDRS entry (expected pod@url)");
+            continue;
+        };
+        let pod = pod.trim();
+        let url = url.trim();
+        if pod.is_empty() || url.is_empty() {
+            continue;
+        }
+        map.insert(pod.to_string(), url.to_string());
+    }
+    map
+}
+
 impl Config {
     pub fn peer_base_url(&self, pod_id: &str) -> Option<String> {
         self.edge_peer_urls.get(pod_id).cloned()
+    }
+
+    pub fn tunnel_gw_base_url(&self, pod_id: &str) -> Option<String> {
+        self.tunnel_gw_urls.get(pod_id).cloned()
+    }
+
+    /// Base URL for forwarding to the pod that owns a provider (P3.2 colocated peer, P3b tunnel).
+    pub fn owner_forward_base_url(&self, owner_pod_id: &str) -> Option<String> {
+        match self.edge_mode {
+            EdgeMode::Split => self.tunnel_gw_base_url(owner_pod_id),
+            _ => self.peer_base_url(owner_pod_id),
+        }
+    }
+
+    /// Whether this process should accept provider yamux on `TUNNEL_PORT`.
+    pub fn binds_tunnel_listener(&self) -> bool {
+        !matches!(
+            (self.edge_mode, self.edge_role),
+            (EdgeMode::Split, EdgeRole::Ingress)
+        )
+    }
+
+    /// Whether public buyer CONNECT/WebSocket proxy is served on this process.
+    pub fn serves_buyer_connect(&self) -> bool {
+        !matches!(
+            (self.edge_mode, self.edge_role),
+            (EdgeMode::Split, EdgeRole::Tunnel)
+        )
     }
 }
 
@@ -214,8 +315,8 @@ impl Config {
             .filter(|s| !s.trim().is_empty())
             .expect("SESSION_SECRET must be set");
 
-        let provider_private_key = env::var("PROVIDER_PRIVATE_KEY")
-            .expect("PROVIDER_PRIVATE_KEY must be set");
+        let provider_private_key =
+            env::var("PROVIDER_PRIVATE_KEY").expect("PROVIDER_PRIVATE_KEY must be set");
 
         let geoip_db_path = env::var("GEOIP_DB_PATH").ok().filter(|p| !p.is_empty());
 
@@ -249,8 +350,8 @@ impl Config {
             .expect("SESSION_CACHE_TTL_SECS must be a positive integer");
 
         // Control API URL for node registration
-        let control_api_url = env::var("CONTROL_API_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let control_api_url =
+            env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
         let legacy_edge_zk_submission_enabled =
             env_bool("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", false);
@@ -293,6 +394,10 @@ impl Config {
             .expect("PROVIDER_DIRECTORY_TTL_SECS must be a positive integer");
 
         let edge_peer_urls = parse_edge_peer_urls();
+        let tunnel_gw_urls = parse_tunnel_gw_urls();
+        let edge_role = EdgeRole::from_env(edge_mode);
+        let yamux_conns_per_node = crate::provider_transport::yamux_conns_per_node_from_env();
+        let provider_transport = crate::provider_transport::ProviderTransportKind::from_env();
 
         Self {
             host,
@@ -320,8 +425,12 @@ impl Config {
             score_snapshot_refresh_ms,
             edge_pod_id,
             edge_mode,
+            edge_role,
             provider_directory_ttl_secs,
             edge_peer_urls,
+            tunnel_gw_urls,
+            yamux_conns_per_node,
+            provider_transport,
         }
     }
 
@@ -347,9 +456,18 @@ impl DynamicConfig {
     ) -> Result<Self, redis::RedisError> {
         use redis::AsyncCommands;
 
-        let treasury: String = redis.hget("sys:config:hash", "treasury_wallet_solana").await.unwrap_or_default();
-        let limit_str: String = redis.hget("sys:config:hash", "global_bandwidth_limit").await.unwrap_or_else(|_| "0".to_string());
-        let maintenance: bool = redis.hget("sys:config:hash", "maintenance_mode").await.unwrap_or(false);
+        let treasury: String = redis
+            .hget("sys:config:hash", "treasury_wallet_solana")
+            .await
+            .unwrap_or_default();
+        let limit_str: String = redis
+            .hget("sys:config:hash", "global_bandwidth_limit")
+            .await
+            .unwrap_or_else(|_| "0".to_string());
+        let maintenance: bool = redis
+            .hget("sys:config:hash", "maintenance_mode")
+            .await
+            .unwrap_or(false);
 
         let limit = limit_str.parse().unwrap_or(0);
 
@@ -572,6 +690,126 @@ mod tests {
         match previous {
             Some(value) => env::set_var("APP_ENV", value),
             None => env::remove_var("APP_ENV"),
+        }
+    }
+
+    #[test]
+    fn edge_mode_split_from_env() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let prev = env::var("EDGE_MODE").ok();
+        env::set_var("EDGE_MODE", "split");
+        assert_eq!(EdgeMode::from_env(), EdgeMode::Split);
+        restore_var("EDGE_MODE", prev);
+    }
+
+    #[test]
+    fn parse_tunnel_gw_urls_splits_pod_at_url() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let prev = env::var("TUNNEL_GW_ADDRS").ok();
+        env::set_var(
+            "TUNNEL_GW_ADDRS",
+            "tunnel-a@http://tunnel-a:8090,tunnel-b@http://tunnel-b:8090",
+        );
+        let map = parse_tunnel_gw_urls();
+        restore_var("TUNNEL_GW_ADDRS", prev);
+        assert_eq!(
+            map.get("tunnel-a").map(String::as_str),
+            Some("http://tunnel-a:8090")
+        );
+        assert_eq!(
+            map.get("tunnel-b").map(String::as_str),
+            Some("http://tunnel-b:8090")
+        );
+    }
+
+    #[test]
+    fn split_ingress_disables_tunnel_listener() {
+        let cfg = Config {
+            edge_mode: EdgeMode::Split,
+            edge_role: EdgeRole::Ingress,
+            ..minimal_test_config()
+        };
+        assert!(cfg.serves_buyer_connect());
+        assert!(!cfg.binds_tunnel_listener());
+    }
+
+    #[test]
+    fn owner_forward_base_url_split_uses_tunnel_gw() {
+        let mut tunnel = HashMap::new();
+        tunnel.insert("tunnel-a".to_string(), "http://tunnel-a:8090".to_string());
+        let cfg = Config {
+            edge_mode: EdgeMode::Split,
+            edge_role: EdgeRole::Ingress,
+            tunnel_gw_urls: tunnel,
+            ..minimal_test_config()
+        };
+        assert_eq!(
+            cfg.owner_forward_base_url("tunnel-a").as_deref(),
+            Some("http://tunnel-a:8090")
+        );
+        assert!(cfg.owner_forward_base_url("edge-a").is_none());
+    }
+
+    #[test]
+    fn owner_forward_base_url_colocated_uses_peer_urls() {
+        let mut peers = HashMap::new();
+        peers.insert("edge-b".to_string(), "http://edge-b:8090".to_string());
+        let cfg = Config {
+            edge_mode: EdgeMode::Colocated,
+            edge_peer_urls: peers,
+            ..minimal_test_config()
+        };
+        assert_eq!(
+            cfg.owner_forward_base_url("edge-b").as_deref(),
+            Some("http://edge-b:8090")
+        );
+        assert!(cfg.owner_forward_base_url("tunnel-a").is_none());
+    }
+
+    #[test]
+    fn split_tunnel_disables_buyer_connect_serving() {
+        let cfg = Config {
+            edge_mode: EdgeMode::Split,
+            edge_role: EdgeRole::Tunnel,
+            ..minimal_test_config()
+        };
+        assert!(!cfg.serves_buyer_connect());
+        assert!(cfg.binds_tunnel_listener());
+    }
+
+    fn minimal_test_config() -> Config {
+        Config {
+            host: "0.0.0.0".to_string(),
+            port: CANONICAL_PORT,
+            tunnel_port: CANONICAL_TUNNEL_PORT,
+            redis_url: "redis://localhost:6379".to_string(),
+            sticky_ttl_secs: 600,
+            jwt_secret: "x".to_string(),
+            gateway_shared_secret: "y".to_string(),
+            session_intent_signing_secret: "z".to_string(),
+            provider_private_key: "k".to_string(),
+            geoip_db_path: None,
+            geo_deny_list: vec![],
+            geo_allow_list: vec![],
+            region: None,
+            legacy_edge_zk_submission_enabled: false,
+            session_cache_size: 1000,
+            session_cache_ttl_secs: 60,
+            control_api_url: "http://localhost:8080".to_string(),
+            proxy_connect_timeout_secs: 10,
+            proxy_idle_timeout_secs: 60,
+            rpc_request_timeout_secs: 15,
+            max_rpm_per_session: None,
+            max_concurrent_connections: 64,
+            score_snapshot_refresh_ms: 100,
+            edge_pod_id: "test".to_string(),
+            edge_mode: EdgeMode::Single,
+            edge_role: EdgeRole::All,
+            provider_directory_ttl_secs: 120,
+            edge_peer_urls: HashMap::new(),
+            tunnel_gw_urls: HashMap::new(),
+            yamux_conns_per_node: 1,
+            provider_transport: crate::provider_transport::ProviderTransportKind::Yamux,
         }
     }
 

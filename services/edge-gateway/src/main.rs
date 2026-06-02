@@ -27,11 +27,14 @@ mod leader;
 mod metering;
 mod metrics;
 mod multiregion;
+mod observability;
 mod pod_drain;
 mod policy;
 mod pool;
 #[cfg(feature = "pricing")]
 mod pricing; // P2-A10: Real-time Pricing Awareness (optional)
+mod proofs;
+mod provider_transport;
 mod proxy;
 mod qos;
 mod redis_pool; // P1-A4: Redis connection pooling
@@ -315,7 +318,9 @@ async fn proxy(
         return Ok(pod_drain::admin_drain_handler(state.clone()).await);
     }
 
-    if config::pod_drain_admin_enabled() && path == "/admin/drain/ownership" && method == Method::POST
+    if config::pod_drain_admin_enabled()
+        && path == "/admin/drain/ownership"
+        && method == Method::POST
     {
         return Ok(pod_drain::admin_drain_ownership_handler(state.clone()).await);
     }
@@ -353,7 +358,10 @@ async fn proxy(
     }
 
     // --- Phase 6: Network Status API (Observability) ---
-    if config::debug_routes_enabled() && path == "/api/v1/network/status" && req.method() == Method::GET {
+    if config::debug_routes_enabled()
+        && path == "/api/v1/network/status"
+        && req.method() == Method::GET
+    {
         trace!("serving network status API");
 
         #[derive(serde::Serialize)]
@@ -381,7 +389,8 @@ async fn proxy(
         let mut node_scores = Vec::new();
         let mut latency_sum: u64 = 0;
         let mut latency_count: u64 = 0;
-        let mut country_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut country_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
 
         // Fetch heartbeat latencies from in-memory monitor
         let hb_statuses = state.heartbeat_monitor.get_all_status().await;
@@ -415,7 +424,11 @@ async fn proxy(
             });
         }
 
-        let avg_latency = if latency_count > 0 { (latency_sum / latency_count) as u32 } else { 0 };
+        let avg_latency = if latency_count > 0 {
+            (latency_sum / latency_count) as u32
+        } else {
+            0
+        };
 
         // Top countries by node count
         let mut country_vec: Vec<_> = country_counts.into_iter().collect();
@@ -480,12 +493,17 @@ async fn proxy(
             }
             RateLimitResult::Challenge if !challenge_cleared => {
                 let token = state.challenge.issue();
-                warn!("⚠️ DDoS challenge required for {} (token={})", ip, &token[..8]);
+                warn!(
+                    "⚠️ DDoS challenge required for {} (token={})",
+                    ip,
+                    &token[..8]
+                );
                 metrics::record_policy_block("ddos_challenge");
                 let mut resp = Response::new(Full::new(Bytes::from(
                     "Rate limit challenge: retry with X-Challenge-Response header",
                 )));
-                *resp.status_mut() = StatusCode::from_u16(429).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
+                *resp.status_mut() =
+                    StatusCode::from_u16(429).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
                 if let Ok(value) = HeaderValue::from_str(&token) {
                     resp.headers_mut().insert(CHALLENGE_TOKEN, value);
                 }
@@ -532,6 +550,29 @@ async fn proxy(
         }
     }
 
+    // P3b.2: tunnel tier serves providers on TUNNEL_PORT only — reject public buyer proxy on PORT.
+    if !state.config.serves_buyer_connect() {
+        let is_internal = internal_forward::is_internal_forward_request(&req);
+        if proxy::websocket::is_websocket(&req) || (method == Method::CONNECT && !is_internal) {
+            metrics::record_policy_block("tunnel_tier_buyer");
+            metrics::record_connection_error("tunnel_tier_buyer_rejected");
+            warn!(
+                path,
+                method = %method,
+                pod_id = %state.config.edge_pod_id,
+                "Rejected buyer proxy on split tunnel tier"
+            );
+            let mut resp = Response::new(Full::new(Bytes::from(
+                "Forbidden: buyer proxy is not served on the tunnel tier; use an ingress pod",
+            )));
+            *resp.status_mut() = StatusCode::FORBIDDEN;
+            metrics::REQUEST_LATENCY_SECONDS
+                .with_label_values(&[method.as_str(), "403"])
+                .observe(start_time.elapsed().as_secs_f64());
+            return Ok(resp);
+        }
+    }
+
     // WebSocket upgrade — client tunnels TCP over WS frames (Phase 2)
     if proxy::websocket::is_websocket(&req) {
         debug!(path, "WebSocket upgrade");
@@ -554,7 +595,11 @@ async fn proxy(
         let (session_username, session_data) = match credentials {
             Some((username, password)) => {
                 match authenticator
-                    .resolve_proxy_auth(&username, &password, &state.config.session_intent_signing_secret)
+                    .resolve_proxy_auth(
+                        &username,
+                        &password,
+                        &state.config.session_intent_signing_secret,
+                    )
                     .await
                 {
                     Ok(Some(resolved)) => {
@@ -884,8 +929,9 @@ async fn proxy(
                 } => {
                     debug!(
                         node_id = %node_id,
-                        peer = %peer_base_url,
-                        "Routing via peer pod (P3.2)"
+                        forward = %peer_base_url,
+                        edge_mode = ?state.config.edge_mode,
+                        "Routing via owner-pod forward (peer or tunnel tier)"
                     );
                     (None, node_id, Some(peer_base_url))
                 }
@@ -952,10 +998,8 @@ async fn proxy(
                     }
                     // Domain: allowed whitelist
                     if !ncfg.allowed_domains.is_empty() {
-                        let ok = policy::host_matches_any_domain_rule(
-                            dest_host,
-                            &ncfg.allowed_domains,
-                        );
+                        let ok =
+                            policy::host_matches_any_domain_rule(dest_host, &ncfg.allowed_domains);
                         if !ok {
                             warn!(
                                 "N-01: domain {} not in allowlist for node {}",
@@ -1046,67 +1090,68 @@ async fn proxy(
                                 // Phase 9: ZK Generation & Batch Proof Submission (`legacy-zk` feature)
                                 #[cfg(feature = "legacy-zk")]
                                 {
-                                let state_zk = state.clone();
-                                let username_zk = username.clone();
-                                let session_id_zk = session_id.clone();
-                                if full_decentralization_enabled() {
-                                    info!(
-                                        session_id = %session_id_zk,
-                                        user = %username_zk,
-                                        "FULL_DECENTRALIZATION enabled: skipping legacy edge-side ZK/Solana submission path"
-                                    );
-                                } else if !state_zk.config.legacy_edge_zk_submission_enabled {
-                                    info!(
-                                        session_id = %session_id_zk,
-                                        user = %username_zk,
-                                        "Legacy edge-side ZK/Solana submission path disabled: control-api batch settlement is canonical"
-                                    );
-                                } else if let (Some(zk_prover), Some(batch_relayer)) = (
-                                    state_zk.zk_prover.clone(),
-                                    state_zk.solana_batch_relayer.clone(),
-                                ) {
-                                    warn!(
-                                        session_id = %session_id_zk,
-                                        user = %username_zk,
-                                        "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated edge-side Groth16 batch submission path"
-                                    );
-                                    tokio::spawn(async move {
-                                        let provider_pubkey = state_zk.solana_relayer.provider_pubkey();
-                                        if let Some(proof) = zk_prover
-                                            .prove_usage(
-                                                &session_id_zk,
-                                                bytes_up,
-                                                bytes_down,
-                                                &provider_pubkey,
-                                            )
-                                            .await
-                                        {
-                                            // Derive session_id_hash from session_id string
-                                            let session_hash = {
-                                                use sha2::{Sha256, Digest};
-                                                let mut h = Sha256::new();
-                                                h.update(session_id_zk.as_bytes());
-                                                let result = h.finalize();
-                                                let mut out = [0u8; 32];
-                                                out.copy_from_slice(&result);
-                                                out
-                                            };
-                                            let inputs = crate::billing::zk::PublicInputs {
-                                                session_id_hash: session_hash,
-                                                total_bytes_up: bytes_up,
-                                                total_bytes_down: bytes_down,
-                                                provider_pubkey,
-                                            };
-                                            batch_relayer.add_proof(proof, inputs).await;
-                                        }
-                                    });
-                                } else {
-                                    warn!(
-                                        session_id = %session_id_zk,
-                                        user = %username_zk,
-                                        "Legacy edge-side ZK/Solana submission path requested but runtime is unavailable"
-                                    );
-                                }
+                                    let state_zk = state.clone();
+                                    let username_zk = username.clone();
+                                    let session_id_zk = session_id.clone();
+                                    if full_decentralization_enabled() {
+                                        info!(
+                                            session_id = %session_id_zk,
+                                            user = %username_zk,
+                                            "FULL_DECENTRALIZATION enabled: skipping legacy edge-side ZK/Solana submission path"
+                                        );
+                                    } else if !state_zk.config.legacy_edge_zk_submission_enabled {
+                                        info!(
+                                            session_id = %session_id_zk,
+                                            user = %username_zk,
+                                            "Legacy edge-side ZK/Solana submission path disabled: control-api batch settlement is canonical"
+                                        );
+                                    } else if let (Some(zk_prover), Some(batch_relayer)) = (
+                                        state_zk.zk_prover.clone(),
+                                        state_zk.solana_batch_relayer.clone(),
+                                    ) {
+                                        warn!(
+                                            session_id = %session_id_zk,
+                                            user = %username_zk,
+                                            "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated edge-side Groth16 batch submission path"
+                                        );
+                                        tokio::spawn(async move {
+                                            let provider_pubkey =
+                                                state_zk.solana_relayer.provider_pubkey();
+                                            if let Some(proof) = zk_prover
+                                                .prove_usage(
+                                                    &session_id_zk,
+                                                    bytes_up,
+                                                    bytes_down,
+                                                    &provider_pubkey,
+                                                )
+                                                .await
+                                            {
+                                                // Derive session_id_hash from session_id string
+                                                let session_hash = {
+                                                    use sha2::{Digest, Sha256};
+                                                    let mut h = Sha256::new();
+                                                    h.update(session_id_zk.as_bytes());
+                                                    let result = h.finalize();
+                                                    let mut out = [0u8; 32];
+                                                    out.copy_from_slice(&result);
+                                                    out
+                                                };
+                                                let inputs = crate::billing::zk::PublicInputs {
+                                                    session_id_hash: session_hash,
+                                                    total_bytes_up: bytes_up,
+                                                    total_bytes_down: bytes_down,
+                                                    provider_pubkey,
+                                                };
+                                                batch_relayer.add_proof(proof, inputs).await;
+                                            }
+                                        });
+                                    } else {
+                                        warn!(
+                                            session_id = %session_id_zk,
+                                            user = %username_zk,
+                                            "Legacy edge-side ZK/Solana submission path requested but runtime is unavailable"
+                                        );
+                                    }
                                 }
 
                                 // Decrement active sessions
@@ -1151,6 +1196,16 @@ async fn proxy(
 
             Ok(resp)
         }
+    } else if !state.config.serves_buyer_connect() {
+        metrics::record_policy_block("tunnel_tier_buyer");
+        metrics::REQUEST_LATENCY_SECONDS
+            .with_label_values(&[method.as_str(), "403"])
+            .observe(start_time.elapsed().as_secs_f64());
+        let mut resp = Response::new(Full::new(Bytes::from(
+            "Forbidden: HTTP proxy not served on tunnel tier",
+        )));
+        *resp.status_mut() = StatusCode::FORBIDDEN;
+        Ok(resp)
     } else {
         // STANDARD HTTP REQUEST
         metrics::REQUEST_LATENCY_SECONDS
@@ -1209,8 +1264,7 @@ pub(crate) async fn bridge_to_provider(
     debug!(node_id = %node_id, target = %addr, "routing CONNECT to provider");
 
     // 4. Open stream and proxy with circuit breaker protection
-    let circuit_config =
-        CircuitConfig::from_env(state.config.proxy_connect_timeout_secs.max(10));
+    let circuit_config = CircuitConfig::from_env(state.config.proxy_connect_timeout_secs.max(10));
 
     let circuit_breaker = state
         .circuit_breakers
@@ -1330,7 +1384,9 @@ pub(crate) async fn bridge_to_provider(
             let state_for_reval = state.clone();
             let node_id_for_reval = node_id.clone();
             let target_host_for_reval = target_domain.to_string();
-            let last_usage_synced = Arc::new(std::sync::Mutex::new(proxy::zerocopy::BridgeStats::default()));
+            let last_usage_synced = Arc::new(std::sync::Mutex::new(
+                proxy::zerocopy::BridgeStats::default(),
+            ));
             let last_usage_synced_for_reval = last_usage_synced.clone();
             let idle_timeout = Some(std::time::Duration::from_secs(
                 state.config.proxy_idle_timeout_secs,
@@ -1397,9 +1453,7 @@ pub(crate) async fn bridge_to_provider(
             let from_provider = stats.bytes_from_provider;
 
             if let Some(ref session) = session_data {
-                let last_synced = *last_usage_synced
-                    .lock()
-                    .expect("usage sync mutex poisoned");
+                let last_synced = *last_usage_synced.lock().expect("usage sync mutex poisoned");
                 crate::finalize_session_intent_ledger(
                     state.clone(),
                     session,
@@ -1420,62 +1474,65 @@ pub(crate) async fn bridge_to_provider(
             // Phase 5: ZK-Proof & Solana (`legacy-zk` feature)
             #[cfg(feature = "legacy-zk")]
             {
-            let state_zk = state.clone();
-            let session_id = username.clone();
-            let up = from_client;
-            let down = from_provider;
+                let state_zk = state.clone();
+                let session_id = username.clone();
+                let up = from_client;
+                let down = from_provider;
 
-            if full_decentralization_enabled() {
-                info!(
-                    session_id = %session_id,
-                    "FULL_DECENTRALIZATION enabled: skipping legacy direct edge proof submission"
-                );
-            } else if !state_zk.config.legacy_edge_zk_submission_enabled {
-                info!(
-                    session_id = %session_id,
-                    "Legacy direct edge proof submission disabled: control-api settlement remains canonical"
-                );
-            } else if let Some(zk_prover) = state_zk.zk_prover.clone() {
-                warn!(
-                    session_id = %session_id,
-                    "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated direct edge proof submission path"
-                );
-                tokio::spawn(async move {
-                    let provider_pk = state_zk.solana_relayer.provider_pubkey();
-                    if let Some(proof) = zk_prover.prove_usage(&session_id, up, down, &provider_pk).await
-                    {
-                        let session_hash = {
-                            use sha2::{Sha256, Digest};
-                            let mut h = Sha256::new();
-                            h.update(session_id.as_bytes());
-                            let result = h.finalize();
-                            let mut out = [0u8; 32];
-                            out.copy_from_slice(&result);
-                            out
-                        };
-                        let inputs = crate::billing::zk::PublicInputs {
-                            session_id_hash: session_hash,
-                            total_bytes_up: up,
-                            total_bytes_down: down,
-                            provider_pubkey: provider_pk,
-                        };
-                        if let Err(e) = state_zk.solana_relayer.submit_proof(&proof, &inputs).await
+                if full_decentralization_enabled() {
+                    info!(
+                        session_id = %session_id,
+                        "FULL_DECENTRALIZATION enabled: skipping legacy direct edge proof submission"
+                    );
+                } else if !state_zk.config.legacy_edge_zk_submission_enabled {
+                    info!(
+                        session_id = %session_id,
+                        "Legacy direct edge proof submission disabled: control-api settlement remains canonical"
+                    );
+                } else if let Some(zk_prover) = state_zk.zk_prover.clone() {
+                    warn!(
+                        session_id = %session_id,
+                        "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated direct edge proof submission path"
+                    );
+                    tokio::spawn(async move {
+                        let provider_pk = state_zk.solana_relayer.provider_pubkey();
+                        if let Some(proof) = zk_prover
+                            .prove_usage(&session_id, up, down, &provider_pk)
+                            .await
                         {
-                            error!("Phase 5: Failed to submit ZK-proof to Solana: {}", e);
-                        } else {
-                            info!(
-                                "Phase 5: ZK-Proof submitted to Solana for session {}",
-                                session_id
-                            );
+                            let session_hash = {
+                                use sha2::{Digest, Sha256};
+                                let mut h = Sha256::new();
+                                h.update(session_id.as_bytes());
+                                let result = h.finalize();
+                                let mut out = [0u8; 32];
+                                out.copy_from_slice(&result);
+                                out
+                            };
+                            let inputs = crate::billing::zk::PublicInputs {
+                                session_id_hash: session_hash,
+                                total_bytes_up: up,
+                                total_bytes_down: down,
+                                provider_pubkey: provider_pk,
+                            };
+                            if let Err(e) =
+                                state_zk.solana_relayer.submit_proof(&proof, &inputs).await
+                            {
+                                error!("Phase 5: Failed to submit ZK-proof to Solana: {}", e);
+                            } else {
+                                info!(
+                                    "Phase 5: ZK-Proof submitted to Solana for session {}",
+                                    session_id
+                                );
+                            }
                         }
-                    }
-                });
-            } else {
-                warn!(
-                    session_id = %session_id,
-                    "Legacy direct edge proof submission path requested but prover runtime is unavailable"
-                );
-            }
+                    });
+                } else {
+                    warn!(
+                        session_id = %session_id,
+                        "Legacy direct edge proof submission path requested but prover runtime is unavailable"
+                    );
+                }
             }
 
             debug!(
@@ -1525,8 +1582,7 @@ pub(crate) async fn bridge_to_provider(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
+    observability::init();
 
     // Initialize metrics
     metrics::init();
@@ -1563,18 +1619,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize Registry Store
     let registry_store = Arc::new(RegistryStore::new(&config.redis_url).await?);
 
-    let provider_directory = Arc::new(
-        crate::registry::directory::ProviderDirectory::from_manager(
-            registry_store.connection_manager(),
-            config.edge_pod_id.clone(),
-            config.region.clone(),
-            config.provider_directory_ttl_secs,
-        ),
-    );
+    let provider_directory = Arc::new(crate::registry::directory::ProviderDirectory::from_manager(
+        registry_store.connection_manager(),
+        config.edge_pod_id.clone(),
+        config.region.clone(),
+        config.provider_directory_ttl_secs,
+    ));
 
+    match config.provider_transport {
+        provider_transport::ProviderTransportKind::Quic => {
+            provider_transport::quic::log_transport_status();
+        }
+        provider_transport::ProviderTransportKind::Yamux => {}
+    }
     info!(
         pod_id = %config.edge_pod_id,
         edge_mode = ?config.edge_mode,
+        edge_role = ?config.edge_role,
+        serves_buyer_connect = config.serves_buyer_connect(),
+        binds_tunnel = config.binds_tunnel_listener(),
+        tunnel_gw_peers = config.tunnel_gw_urls.len(),
+        yamux_conns_per_node = config.yamux_conns_per_node,
+        provider_transport = ?config.provider_transport,
+        quic_compiled = config.provider_transport.quic_compiled(),
         "Starting Edge Gateway"
     );
 
@@ -1693,8 +1760,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("Multi-region staleness checker started");
     }
 
-    let listener = TcpListener::bind(addr).await?;
     let connection_admission = Arc::new(Semaphore::new(state.config.max_concurrent_connections));
+
+    if state.config.binds_tunnel_listener() {
+        let tunnel_state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = tunnel::run_tunnel_server(addr_tunnel, tunnel_state).await {
+                error!("Tunnel server error: {}", e);
+            }
+        });
+        info!("Provider tunnel listening on {}", addr_tunnel);
+    } else {
+        info!(
+            edge_mode = ?state.config.edge_mode,
+            edge_role = ?state.config.edge_role,
+            "Provider tunnel listener disabled (split ingress tier)"
+        );
+    }
+
+    #[cfg(feature = "quic")]
+    if matches!(
+        state.config.provider_transport,
+        provider_transport::ProviderTransportKind::Quic
+    ) {
+        let quic_state = state.clone();
+        let quic_config = Arc::new(state.config.clone());
+        tokio::spawn(async move {
+            if let Err(e) =
+                provider_transport::quic_listener::spawn_quic_tunnel_listener(quic_config, quic_state)
+                    .await
+            {
+                error!("QUIC tunnel listener error: {}", e);
+            }
+        });
+    }
+
+    let listener = TcpListener::bind(addr).await?;
     info!("Edge Gateway Proxy listening on http://{}", addr);
     info!(
         "Buyer connection admission limit: {}",
@@ -1702,14 +1803,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     info!("Metrics endpoint available at http://{}/metrics", addr);
     info!("Health endpoint available at http://{}/health", addr);
-
-    // Spawn Tunnel Server
-    let tunnel_state = state.clone();
-    tokio::spawn(async move {
-        if let Err(e) = tunnel::run_tunnel_server(addr_tunnel, tunnel_state).await {
-            error!("Tunnel server error: {}", e);
-        }
-    });
 
     loop {
         tokio::select! {
@@ -1786,7 +1879,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
-    if state.config.edge_mode != config::EdgeMode::Single {
+    if state.config.edge_mode.uses_multipod_directory() {
         match state.provider_directory.release_all_owned().await {
             Ok(released) => info!(
                 released,
