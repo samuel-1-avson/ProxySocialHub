@@ -4,7 +4,7 @@ Blueprint: [`EDGE_GATEWAY_VNEXT_BLUEPRINT.md`](../../../docs/EDGE_GATEWAY_VNEXT_
 
 ## Goal
 
-Buyers can hit **any** edge pod; providers connected to **one** pod are reachable fleet-wide. Phase **P3a (co-located)** keeps one binary/image but adds a **shared Redis provider directory** and owner-pod forwarding. Phase **P3b** splits tunnel-gw vs edge-ingress later.
+Buyers can hit **any** edge pod; providers connected to **one** pod are reachable fleet-wide. Phase **P3a (co-located)** keeps one binary/image but adds a **shared Redis provider directory** and owner-pod forwarding. Phase **P3b** splits tunnel-gw vs edge-ingress — see [`P3b_TUNNEL_SPLIT.md`](P3b_TUNNEL_SPLIT.md) and ADR [`0002`](../../../docs/adr/0002-edge-gateway-p3b-tunnel-tier-split.md) (PR 1 skeleton: `EDGE_MODE=split`, `EDGE_ROLE`, compose sketch).
 
 ## Slices
 

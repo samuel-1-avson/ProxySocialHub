@@ -39,4 +39,4 @@ Full buyer-via-B / provider-on-A E2E still requires control-api + provider-node 
 
 ## Next
 
-**P3b** — separate tunnel tier (`EDGE_MODE=split`). **P4** — provider transport upgrade.
+**P3b** — signed off ([`P3b_SIGNOFF.md`](P3b_SIGNOFF.md)). **P4** — provider transport upgrade.

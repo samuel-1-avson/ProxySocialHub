@@ -173,7 +173,7 @@ docker compose -f docker-compose.p3-multipod.yml up -d --build
 .\scripts\p3-pod-drain.ps1
 ```
 
-**P3a signed off:** [docs/P3_SIGNOFF.md](docs/P3_SIGNOFF.md). **P3b** (tunnel tier split) not started.
+**P3a signed off:** [docs/P3_SIGNOFF.md](docs/P3_SIGNOFF.md). **P3b signed off:** [docs/P3b_SIGNOFF.md](docs/P3b_SIGNOFF.md) — `.\scripts\p3-split-up.ps1`, `p3-split-smoke.ps1`.
 
 ### Docker
 
