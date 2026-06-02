@@ -27,6 +27,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
 type output struct {
@@ -52,6 +53,7 @@ func main() {
 	generateSigningKey := flag.Bool("generate-signing-key", false, "generate a new base58 signing key for provider proofs")
 	syncHotkey := flag.Bool("sync-hotkey", false, "set provider_nodes.hotkey to the signing public key for the user's latest node")
 	signingOnly := flag.Bool("signing-only", false, "only generate/sync signing key and optional toml; do not mint a new API token")
+	ensureProfile := flag.Bool("ensure-profile", false, "create a dev provider profile+node if the DB has none (local Docker bootstrap)")
 	jsonOut := flag.Bool("json", false, "print machine-readable JSON on stdout")
 	outputJSON := flag.String("output-json", "", "write machine-readable JSON to this file (recommended for scripts)")
 	flag.Parse()
@@ -75,7 +77,7 @@ func main() {
 	}
 	db.Init(dsn)
 
-	uid, err := resolveUserID(*userID)
+	uid, err := resolveUserID(*userID, *ensureProfile)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -186,7 +188,7 @@ func loadEnv(explicit string) {
 	}
 }
 
-func resolveUserID(flag string) (uuid.UUID, error) {
+func resolveUserID(flag string, ensure bool) (uuid.UUID, error) {
 	if flag != "" {
 		return uuid.Parse(flag)
 	}
@@ -200,9 +202,69 @@ func resolveUserID(flag string) (uuid.UUID, error) {
 		).Scan(&id).Error
 	}
 	if err != nil || id == "" {
-		return uuid.Nil, fmt.Errorf("no profile in DB — sign up once or pass -user <uuid>")
+		if !ensure {
+			return uuid.Nil, fmt.Errorf("no profile in DB — sign up once, pass -user <uuid>, or use -ensure-profile")
+		}
+		uid, err := ensureDevProviderProfile()
+		if err != nil {
+			return uuid.Nil, err
+		}
+		fmt.Fprintf(os.Stderr, "provider_dev_token: created dev provider profile %s\n", uid)
+		return uid, nil
 	}
 	return uuid.Parse(id)
+}
+
+// ensureDevProviderProfile creates a minimal provider user for local Docker bootstrap (empty DB after compose down -v).
+func ensureDevProviderProfile() (uuid.UUID, error) {
+	var profileID uuid.UUID
+	email := "dev-provider@local.proxyhubb"
+	username := "dev-provider"
+
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var authID uuid.UUID
+		authUserSQL := `INSERT INTO auth.users (id, email, raw_user_meta_data, created_at, updated_at)
+			VALUES ($1, $2, '{}', NOW(), NOW())
+			ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
+			RETURNING id`
+		row := tx.Raw(authUserSQL, uuid.New(), email).Row()
+		if row == nil {
+			return fmt.Errorf("auth.users insert returned nil row")
+		}
+		if err := row.Scan(&authID); err != nil {
+			return fmt.Errorf("auth.users: %w", err)
+		}
+
+		profileSQL := `INSERT INTO profiles (id, email, role, status, trust_tier, username, created_at, updated_at)
+			VALUES ($1, $2, 'provider', 'active', 'new', $3, NOW(), NOW())
+			ON CONFLICT (id) DO UPDATE SET role = 'provider', updated_at = NOW()`
+		if err := tx.Exec(profileSQL, authID, email, username).Error; err != nil {
+			return fmt.Errorf("profiles: %w", err)
+		}
+
+		wallet := models.Wallet{UserID: authID, BalanceSOL: 0}
+		wallet.InitializeWithDefaultLimits(models.TrustTierNew)
+		if err := tx.Create(&wallet).Error; err != nil {
+			return fmt.Errorf("wallet: %w", err)
+		}
+
+		node := models.ProviderNode{
+			ID:            uuid.New(),
+			UserID:        authID,
+			Name:          "docker-dev",
+			Status:        models.NodeOffline,
+			GatewayNodeID: "node_" + authID.String(),
+		}
+		if err := tx.Omit("ip_address").Create(&node).Error; err != nil {
+			return fmt.Errorf("provider_nodes: %w", err)
+		}
+		profileID = authID
+		return nil
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return profileID, nil
 }
 
 func lookupProviderNodeID(userID uuid.UUID) string {
