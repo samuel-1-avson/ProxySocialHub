@@ -168,6 +168,14 @@ lazy_static! {
         "Total session cache evictions"
     )
     .unwrap();
+
+    /// P3: local yamux vs peer forward vs no route (low cardinality).
+    pub static ref PROVIDER_ROUTE_SELECTION: CounterVec = register_counter_vec!(
+        "edge_gateway_provider_route_selection_total",
+        "Provider route resolution outcomes",
+        &["route"]
+    )
+    .unwrap();
 }
 
 /// Start time for uptime calculation
@@ -328,6 +336,11 @@ pub fn set_session_cache_size(size: i64) {
 /// P0-A2: Record session cache eviction
 pub fn record_session_cache_eviction() {
     SESSION_CACHE_EVICTIONS.inc();
+}
+
+/// P3: `route` is `local`, `remote`, or `miss`.
+pub fn record_provider_route(route: &str) {
+    PROVIDER_ROUTE_SELECTION.with_label_values(&[route]).inc();
 }
 
 #[cfg(test)]

@@ -157,6 +157,11 @@ pub async fn run_tunnel_server(
     };
 
     loop {
+        if crate::pod_drain::is_draining(&state) {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            continue;
+        }
+
         let (stream, peer_addr) = listener.accept().await?;
         let state = state.clone();
         let tls_acceptor = tls_acceptor.clone();
@@ -383,6 +388,9 @@ where
     state
         .registry
         .insert(node_id.clone(), ctrl, node_info.clone());
+    if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
+        warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
+    }
     state.heartbeat_monitor.register_provider(&node_id).await;
     if let Err(err) = state.registry_store.save_node(&user_id, &node_info).await {
         warn!(node_id = %node_id, error = %err, "Failed to persist node info to registry store");
@@ -472,6 +480,14 @@ where
                                             "Failed to record heartbeat details for {}: {}",
                                             heartbeat_msg.node_id, e
                                         );
+                                    }
+                                    if let Some(info) = state.registry.get_node_info(&node_id) {
+                                        let _ = state
+                                            .provider_directory
+                                            .claim_with_info(&info)
+                                            .await;
+                                    } else {
+                                        let _ = state.provider_directory.touch(&node_id).await;
                                     }
                                     let bandwidth_rate_kbps = heartbeat_msg
                                         .bandwidth_usage
@@ -591,6 +607,9 @@ where
 
     warn!("Provider disconnected: {}", node_id);
     let _ = state.heartbeat_monitor.unregister_provider(&node_id).await;
+    if let Err(err) = state.provider_directory.release(&node_id).await {
+        warn!(node_id = %node_id, error = %err, "Failed to release provider directory ownership");
+    }
     state.registry.remove(&node_id);
 
     if let Some(db_id) = db_id {
