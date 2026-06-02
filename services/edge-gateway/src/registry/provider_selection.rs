@@ -1,8 +1,8 @@
 //! Directory-aware provider selection (P3.1).
 
+use crate::auth::SessionAuthenticator;
 use crate::config::EdgeMode;
 use crate::state::AppState;
-use crate::auth::SessionAuthenticator;
 use std::sync::Arc;
 use yamux::Control;
 
@@ -40,7 +40,7 @@ pub async fn select_provider_route(
     {
         Some(id) => id,
         None => {
-            if state.config.edge_mode != EdgeMode::Colocated {
+            if !state.config.edge_mode.uses_multipod_directory() {
                 return Ok(None);
             }
             match pick_from_directory(state.clone(), target_geo).await? {
@@ -91,19 +91,30 @@ async fn resolve_target(
         return Ok(None);
     }
 
-    let Some(peer_base_url) = state.config.peer_base_url(&ownership.pod_id) else {
+    let Some(forward_base_url) = state.config.owner_forward_base_url(&ownership.pod_id) else {
+        let map_hint = if state.config.edge_mode == EdgeMode::Split {
+            "TUNNEL_GW_ADDRS"
+        } else {
+            "EDGE_PEER_URLS"
+        };
         tracing::warn!(
             node_id = %node_id,
             owner_pod = %ownership.pod_id,
-            "No EDGE_PEER_URLS entry for owner pod"
+            map = map_hint,
+            "No forward URL for owner pod"
         );
         return Ok(None);
     };
 
-    crate::metrics::record_provider_route("remote");
+    let route_label = if state.config.edge_mode == EdgeMode::Split {
+        "tunnel_remote"
+    } else {
+        "remote"
+    };
+    crate::metrics::record_provider_route(route_label);
     Ok(Some(ProviderTarget::Remote {
         node_id: node_id.to_string(),
-        peer_base_url,
+        peer_base_url: forward_base_url,
     }))
 }
 
@@ -111,7 +122,10 @@ fn record_route_miss() {
     crate::metrics::record_provider_route("miss");
 }
 
-fn geo_matches(record: &crate::registry::directory::ProviderOwnership, target_geo: Option<&str>) -> bool {
+fn geo_matches(
+    record: &crate::registry::directory::ProviderOwnership,
+    target_geo: Option<&str>,
+) -> bool {
     let Some(geo) = target_geo.filter(|g| !g.is_empty()) else {
         return true;
     };
@@ -203,8 +217,15 @@ async fn select_provider_node_id(
     let node_id = if let Some(ref bound_node_id) = sticky_node_id {
         if state.registry.get_by_id(bound_node_id).is_some() {
             Some(bound_node_id.clone())
-        } else if state.config.edge_mode == EdgeMode::Colocated {
-            if state.provider_directory.lookup(bound_node_id).await.ok().flatten().is_some() {
+        } else if state.config.edge_mode.uses_multipod_directory() {
+            if state
+                .provider_directory
+                .lookup(bound_node_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+            {
                 Some(bound_node_id.clone())
             } else {
                 state
