@@ -39,11 +39,34 @@ pub struct CircuitConfig {
 
 impl Default for CircuitConfig {
     fn default() -> Self {
+        Self::from_env(10)
+    }
+}
+
+impl CircuitConfig {
+    /// Unified provider circuit breaker settings (P2 — env `CB_*`).
+    pub fn from_env(default_request_timeout_secs: u64) -> Self {
+        fn env_u32(key: &str, default: u32) -> u32 {
+            std::env::var(key)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(default)
+        }
+        fn env_secs(key: &str, default: u64) -> u64 {
+            std::env::var(key)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(default)
+        }
+
+        let request_secs = env_secs("CB_REQUEST_TIMEOUT_SECS", default_request_timeout_secs);
         Self {
-            failure_threshold: 5,
-            timeout: Duration::from_secs(30),
-            success_threshold: 3,
-            request_timeout: Duration::from_secs(10),
+            failure_threshold: env_u32("CB_FAILURE_THRESHOLD", 3),
+            timeout: Duration::from_secs(env_secs("CB_OPEN_TIMEOUT_SECS", 30)),
+            success_threshold: env_u32("CB_SUCCESS_THRESHOLD", 2),
+            request_timeout: Duration::from_secs(request_secs),
         }
     }
 }
@@ -390,6 +413,18 @@ mod tests {
 
         let state = cb.state().await;
         assert!(matches!(state, CircuitState::Closed { failures: 0 }));
+    }
+
+    #[test]
+    fn circuit_config_from_env_uses_defaults() {
+        let prev = std::env::var("CB_FAILURE_THRESHOLD").ok();
+        std::env::remove_var("CB_FAILURE_THRESHOLD");
+        let cfg = CircuitConfig::from_env(15);
+        assert_eq!(cfg.failure_threshold, 3);
+        assert_eq!(cfg.request_timeout, Duration::from_secs(15));
+        if let Some(v) = prev {
+            std::env::set_var("CB_FAILURE_THRESHOLD", v);
+        }
     }
 
     #[tokio::test]

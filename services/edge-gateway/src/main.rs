@@ -9,24 +9,29 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::time::Instant;
 use tokio::net::TcpListener;
-use tracing::{error, info, warn};
-use uuid::Uuid;
+use tokio::sync::Semaphore;
+use tracing::{debug, error, info, trace, warn};
 
+mod admission;
 mod auth;
 mod billing;
-mod blockchain; // P2-A9: Direct gRPC to Blockchain
+#[cfg(feature = "blockchain")]
+mod blockchain; // P2-A9: Direct gRPC to Blockchain (optional)
 mod circuitbreaker;
 mod config;
 mod control_api; // Control API client for node registration
 mod error; // Error types
 mod heartbeat;
+mod internal_forward;
 mod leader;
 mod metering;
 mod metrics;
 mod multiregion;
+mod pod_drain;
 mod policy;
 mod pool;
-mod pricing; // P2-A10: Real-time Pricing Awareness
+#[cfg(feature = "pricing")]
+mod pricing; // P2-A10: Real-time Pricing Awareness (optional)
 mod proxy;
 mod qos;
 mod redis_pool; // P1-A4: Redis connection pooling
@@ -178,6 +183,7 @@ pub(crate) async fn finalize_session_intent_ledger(
     .await;
 }
 
+#[cfg(feature = "legacy-zk")]
 fn full_decentralization_enabled() -> bool {
     std::env::var("FULL_DECENTRALIZATION")
         .ok()
@@ -201,8 +207,20 @@ async fn metrics_handler() -> Result<Response<Full<Bytes>>, hyper::Error> {
     Ok(response)
 }
 
-/// Health check endpoint
-async fn health_handler() -> Result<Response<Full<Bytes>>, hyper::Error> {
+/// Health check endpoint — liveness only (process is up).
+async fn health_handler(draining: bool) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    if draining {
+        let body = format!(
+            r#"{{"status":"draining","uptime_seconds":{}}}"#,
+            metrics::uptime_seconds()
+        );
+        let response = Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .header("Content-Type", "application/json")
+            .body(Full::new(Bytes::from(body)))
+            .unwrap();
+        return Ok(response);
+    }
     let health = format!(
         r#"{{"status":"healthy","uptime_seconds":{}}}"#,
         metrics::uptime_seconds()
@@ -215,32 +233,75 @@ async fn health_handler() -> Result<Response<Full<Bytes>>, hyper::Error> {
     Ok(response)
 }
 
+/// Readiness endpoint — gates whether this pod should receive traffic.
+///
+/// Hard requirement: Redis must answer `PING` (sessions cannot be validated
+/// without it, and the gateway fails-closed). Soft signal: healthy provider
+/// count is reported and, when `READY_REQUIRE_PROVIDERS=true`, also required
+/// (off by default so a freshly-started pod with no providers yet is not stuck
+/// un-ready — useful in single-provider/dev stacks).
+async fn ready_handler(
+    state: &AppState,
+    authenticator: &SessionAuthenticator,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let draining = pod_drain::is_draining(state);
+    let redis_ok = authenticator.ping().await;
+    let healthy_providers = state.registry.list_healthy_with_info().len();
+    let require_providers = config::ready_requires_providers();
+    let providers_ok = !require_providers || healthy_providers > 0;
+    let ready = !draining && redis_ok && providers_ok;
+
+    let body = format!(
+        r#"{{"status":"{}","draining":{},"redis":{},"healthy_providers":{},"require_providers":{}}}"#,
+        if ready { "ready" } else { "not_ready" },
+        draining,
+        redis_ok,
+        healthy_providers,
+        require_providers
+    );
+    let response = Response::builder()
+        .status(if ready {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        })
+        .header("Content-Type", "application/json")
+        .body(Full::new(Bytes::from(body)))
+        .unwrap();
+    Ok(response)
+}
+
 async fn proxy(
     req: Request<hyper::body::Incoming>,
     state: Arc<AppState>,
     authenticator: Arc<SessionAuthenticator>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let start_time = Instant::now();
-    let method = req.method().to_string();
+    let method = req.method().clone();
 
     let path = req.uri().path();
-    info!("Request path: {}", path);
+    trace!(path, method = %method, "incoming request");
 
     // Handle metrics endpoint
-    if path == "/metrics" && method == "GET" {
-        info!("Serving metrics endpoint");
+    if path == "/metrics" && method == Method::GET {
+        trace!("serving metrics");
         return metrics_handler().await;
     }
 
-    // Handle health endpoint
-    if path == "/health" && method == "GET" {
-        info!("Serving health endpoint");
-        return health_handler().await;
+    // Handle health endpoint (liveness)
+    if path == "/health" && method == Method::GET {
+        trace!("serving health");
+        return health_handler(pod_drain::is_draining(&state)).await;
+    }
+
+    // Handle readiness endpoint (Redis ping + optional provider count)
+    if path == "/ready" && method == Method::GET {
+        return ready_handler(&state, &authenticator).await;
     }
 
     // Handle ML stats export endpoint (Debug only)
-    if config::debug_routes_enabled() && path == "/debug/ml/stats" && method == "GET" {
-        info!("Serving ML stats export endpoint");
+    if config::debug_routes_enabled() && path == "/debug/ml/stats" && method == Method::GET {
+        trace!("serving ML stats export");
         let csv = state.feature_cache.to_csv(&state.registry);
         let mut resp = Response::new(Full::new(Bytes::from(csv)));
         resp.headers_mut().insert(
@@ -250,9 +311,37 @@ async fn proxy(
         return Ok(resp);
     }
 
+    if config::pod_drain_admin_enabled() && path == "/admin/drain" && method == Method::POST {
+        return Ok(pod_drain::admin_drain_handler(state.clone()).await);
+    }
+
+    if config::pod_drain_admin_enabled() && path == "/admin/drain/ownership" && method == Method::POST
+    {
+        return Ok(pod_drain::admin_drain_ownership_handler(state.clone()).await);
+    }
+
+    if config::debug_routes_enabled() && path == "/debug/directory/stats" && method == Method::GET {
+        match pod_drain::directory_stats_json(&state).await {
+            Ok(json) => {
+                let mut resp = Response::new(Full::new(Bytes::from(json)));
+                resp.headers_mut().insert(
+                    hyper::header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                return Ok(resp);
+            }
+            Err(err) => {
+                return Ok(pod_drain::json_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(r#"{{"error":"{}"}}"#, err.replace('"', "'")),
+                ));
+            }
+        }
+    }
+
     // Handle node list export endpoint (Debug only)
-    if config::debug_routes_enabled() && path == "/debug/nodes" && method == "GET" {
-        info!("Serving node list debug endpoint");
+    if config::debug_routes_enabled() && path == "/debug/nodes" && method == Method::GET {
+        trace!("serving node list debug");
         let nodes = state.registry.list_nodes();
         let json = serde_json::to_string(&nodes).unwrap_or_default();
         let mut resp = Response::new(Full::new(Bytes::from(json)));
@@ -265,7 +354,7 @@ async fn proxy(
 
     // --- Phase 6: Network Status API (Observability) ---
     if config::debug_routes_enabled() && path == "/api/v1/network/status" && req.method() == Method::GET {
-        info!("Serving Network Status API");
+        trace!("serving network status API");
 
         #[derive(serde::Serialize)]
         struct NetworkStatus {
@@ -369,8 +458,18 @@ async fn proxy(
             return Ok(resp);
         }
 
-        // DDoS rate-limit check
+        // DDoS rate-limit check (challenge enforced — P2)
         use crate::security::ddos::RateLimitResult;
+        const CHALLENGE_RESPONSE: &str = "x-challenge-response";
+        const CHALLENGE_TOKEN: &str = "x-challenge-token";
+
+        let challenge_cleared = req
+            .headers()
+            .get(CHALLENGE_RESPONSE)
+            .and_then(|v| v.to_str().ok())
+            .map(|t| state.challenge.validate(t))
+            .unwrap_or(false);
+
         match state.ddos.check(ip) {
             RateLimitResult::Block => {
                 warn!("🛑 DDoS hard-block for {}", ip);
@@ -379,14 +478,20 @@ async fn proxy(
                 *resp.status_mut() = StatusCode::from_u16(429).unwrap_or(StatusCode::FORBIDDEN);
                 return Ok(resp);
             }
-            RateLimitResult::Challenge => {
-                // Issue a soft challenge token in the response header and let the request proceed
-                // with reduced priority.  Full CAPTCHA integration is out of scope here.
+            RateLimitResult::Challenge if !challenge_cleared => {
                 let token = state.challenge.issue();
-                warn!("⚠️ DDoS challenge issued to {} (token={})", ip, &token[..8]);
-                // Fall through — request is allowed but client should echo the token back.
+                warn!("⚠️ DDoS challenge required for {} (token={})", ip, &token[..8]);
+                metrics::record_policy_block("ddos_challenge");
+                let mut resp = Response::new(Full::new(Bytes::from(
+                    "Rate limit challenge: retry with X-Challenge-Response header",
+                )));
+                *resp.status_mut() = StatusCode::from_u16(429).unwrap_or(StatusCode::TOO_MANY_REQUESTS);
+                if let Ok(value) = HeaderValue::from_str(&token) {
+                    resp.headers_mut().insert(CHALLENGE_TOKEN, value);
+                }
+                return Ok(resp);
             }
-            RateLimitResult::Allow => {}
+            RateLimitResult::Challenge | RateLimitResult::Allow => {}
         }
     }
 
@@ -429,11 +534,15 @@ async fn proxy(
 
     // WebSocket upgrade — client tunnels TCP over WS frames (Phase 2)
     if proxy::websocket::is_websocket(&req) {
-        info!("WebSocket upgrade request for {}", path);
+        debug!(path, "WebSocket upgrade");
         return proxy::websocket::handle_ws_upgrade(req, state, authenticator).await;
     }
 
     if Method::CONNECT == req.method() {
+        if internal_forward::is_internal_forward_request(&req) {
+            return internal_forward::handle_internal_forward(req, state, authenticator).await;
+        }
+
         // Record connection started
         metrics::connection_started();
 
@@ -449,12 +558,12 @@ async fn proxy(
                     .await
                 {
                     Ok(Some(resolved)) => {
-                        info!(
-                            "✅ Authenticated session: {} (Role: {}, Tier: {}, Type: {})",
-                            resolved.username,
-                            resolved.session.user_id,
-                            resolved.session.trust_tier,
-                            resolved.session.session_type
+                        debug!(
+                            username = %resolved.username,
+                            user_id = %resolved.session.user_id,
+                            trust_tier = %resolved.session.trust_tier,
+                            session_type = %resolved.session.session_type,
+                            "CONNECT authenticated"
                         );
 
                         // Update active sessions metric
@@ -482,7 +591,7 @@ async fn proxy(
 
                         // Record latency
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "407"])
+                            .with_label_values(&[method.as_str(), "407"])
                             .observe(start_time.elapsed().as_secs_f64());
 
                         return Ok(resp);
@@ -501,7 +610,7 @@ async fn proxy(
                             HeaderValue::from_static("Basic realm=\"ProxyHub\""),
                         );
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "407"])
+                            .with_label_values(&[method.as_str(), "407"])
                             .observe(start_time.elapsed().as_secs_f64());
                         return Ok(resp);
                     }
@@ -523,7 +632,7 @@ async fn proxy(
 
                 // Record latency
                 metrics::REQUEST_LATENCY_SECONDS
-                    .with_label_values(&[&method, "407"])
+                    .with_label_values(&[method.as_str(), "407"])
                     .observe(start_time.elapsed().as_secs_f64());
 
                 return Ok(resp);
@@ -537,13 +646,14 @@ async fn proxy(
                 warn!("Policy violation: {} -> {}", addr, reason);
                 metrics::record_policy_block(&reason);
 
-                let mut resp =
-                    Response::new(Full::new(Bytes::from(format!("Blocked: {}", reason))));
+                let mut resp = Response::new(Full::new(Bytes::from_static(
+                    b"Destination blocked by policy",
+                )));
                 *resp.status_mut() = StatusCode::FORBIDDEN;
 
                 // Record latency
                 metrics::REQUEST_LATENCY_SECONDS
-                    .with_label_values(&[&method, "403"])
+                    .with_label_values(&[method.as_str(), "403"])
                     .observe(start_time.elapsed().as_secs_f64());
 
                 return Ok(resp);
@@ -555,14 +665,10 @@ async fn proxy(
             // N-02: Session-level domain filter enforcement
             if let Some(ref sd) = session_data {
                 // Extract destination host (strip port)
-                let dest_host = addr.split(':').next().unwrap_or(&addr);
+                let dest_host = policy::target_host_from_endpoint(&addr);
 
                 // Blocked-domain check (blacklist wins over whitelist)
-                if sd
-                    .blocked_domains
-                    .iter()
-                    .any(|d| dest_host == d || dest_host.ends_with(&format!(".{}", d)))
-                {
+                if policy::host_matches_any_domain_rule(dest_host, &sd.blocked_domains) {
                     warn!(
                         "Session domain block: {} blocked for {}",
                         dest_host, username
@@ -573,17 +679,15 @@ async fn proxy(
                     )));
                     *resp.status_mut() = StatusCode::FORBIDDEN;
                     metrics::REQUEST_LATENCY_SECONDS
-                        .with_label_values(&[&method, "403"])
+                        .with_label_values(&[method.as_str(), "403"])
                         .observe(start_time.elapsed().as_secs_f64());
                     return Ok(resp);
                 }
 
                 // Allowed-domain whitelist (if non-empty, only listed domains pass)
                 if !sd.allowed_domains.is_empty() {
-                    let allowed = sd
-                        .allowed_domains
-                        .iter()
-                        .any(|d| dest_host == d || dest_host.ends_with(&format!(".{}", d)));
+                    let allowed =
+                        policy::host_matches_any_domain_rule(dest_host, &sd.allowed_domains);
                     if !allowed {
                         warn!(
                             "Session domain whitelist: {} not allowed for {}",
@@ -595,17 +699,28 @@ async fn proxy(
                         )));
                         *resp.status_mut() = StatusCode::FORBIDDEN;
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "403"])
+                            .with_label_values(&[method.as_str(), "403"])
                             .observe(start_time.elapsed().as_secs_f64());
                         return Ok(resp);
                     }
                 }
 
-                // Time-limit enforcement
-                if sd.time_limit_minutes > 0 {
-                    // session_data.created_at is not in the Rust struct yet; enforce via
-                    // bandwidth revalidation callback in bridge_tracked instead.
-                    // Placeholder: future improvement — add created_at to SessionData.
+                if !sd.session_within_time_limit() {
+                    warn!("Session time limit exceeded for {}", username);
+                    metrics::record_auth_failure("session_time_limit");
+
+                    let mut resp = Response::new(Full::new(Bytes::from(
+                        "Proxy session expired (time limit reached)",
+                    )));
+                    *resp.status_mut() = StatusCode::PROXY_AUTHENTICATION_REQUIRED;
+                    resp.headers_mut().insert(
+                        "Proxy-Authenticate",
+                        HeaderValue::from_static("Basic realm=\"ProxyHub\""),
+                    );
+                    metrics::REQUEST_LATENCY_SECONDS
+                        .with_label_values(&[method.as_str(), "407"])
+                        .observe(start_time.elapsed().as_secs_f64());
+                    return Ok(resp);
                 }
             }
 
@@ -619,7 +734,7 @@ async fn proxy(
 
                 // Record latency
                 metrics::REQUEST_LATENCY_SECONDS
-                    .with_label_values(&[&method, "429"])
+                    .with_label_values(&[method.as_str(), "429"])
                     .observe(start_time.elapsed().as_secs_f64());
 
                 return Ok(resp);
@@ -641,34 +756,48 @@ async fn proxy(
             if state.anomaly.record_request(&session_id) {
                 warn!("⚠️ Anomaly detected for session {}: High RPM", session_id);
                 metrics::record_policy_block("anomaly_high_rpm");
-                // For now, we just warn and label the session, but we could block here.
+                let mut resp = Response::new(Full::new(Bytes::from(
+                    "Session rate limit exceeded (anomaly)",
+                )));
+                *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                metrics::REQUEST_LATENCY_SECONDS
+                    .with_label_values(&[method.as_str(), "429"])
+                    .observe(start_time.elapsed().as_secs_f64());
+                return Ok(resp);
             }
 
             // 3. PRE-FLIGHT: Select provider BEFORE acting on upgrade
             // This allows us to return 503/504 if no providers are available
-            let dest_host = addr.split(':').next().unwrap_or(&addr).to_string();
+            let dest_host = policy::target_host_from_endpoint(&addr);
 
             // 2.6 Security: Honeytokens (P4-W13)
-            if let Some(token_type) = state.honeytoken.check(&dest_host) {
+            if let Some(token_type) = state.honeytoken.check(dest_host) {
                 warn!(
                     "🪤 Honeytoken hit! Session {} attempted to access {:?}",
                     session_id, token_type
                 );
                 metrics::record_policy_block("honeytoken_hit");
 
-                // Phase 8: Trigger On-Chain Slash
-                let state_cloned = state.clone();
-                let provider_cloned = "unknown_provider".to_string();
-                tokio::spawn(async move {
-                    let _ = state_cloned
-                        .solana_relayer
-                        .trigger_slash(
-                            &provider_cloned,
-                            &format!("Honeytoken Hit: {:?}", token_type),
-                            500, // Slash 500 PHUBB tokens
-                        )
-                        .await;
-                });
+                // Phase 8: Trigger On-Chain Slash (requires `legacy-zk` feature)
+                #[cfg(feature = "legacy-zk")]
+                {
+                    let state_cloned = state.clone();
+                    let provider_cloned = "unknown_provider".to_string();
+                    tokio::spawn(async move {
+                        let _ = state_cloned
+                            .solana_relayer
+                            .trigger_slash(
+                                &provider_cloned,
+                                &format!("Honeytoken Hit: {:?}", token_type),
+                                500, // Slash 500 PHUBB tokens
+                            )
+                            .await;
+                    });
+                }
+                #[cfg(not(feature = "legacy-zk"))]
+                warn!(
+                    "Honeytoken hit but edge-gateway was built without `legacy-zk`; on-chain slash skipped"
+                );
 
                 // MALICIOUS SINK: Instead of selecting a real provider, we bridge to the sink.
                 let (mut sink_tx, sink_rx) = tokio::io::duplex(4096);
@@ -695,23 +824,25 @@ async fn proxy(
                     .unwrap());
             }
 
-            let (provider_control, node_id) = match select_best_provider(
+            let target_geo = session_data.as_ref().and_then(|session| {
+                if session.target_geo.is_empty() {
+                    None
+                } else {
+                    Some(session.target_geo.as_str())
+                }
+            });
+
+            let provider_route = match crate::registry::provider_selection::select_provider_route(
                 state.clone(),
                 &session_id,
                 is_sticky,
                 authenticator.clone(),
-                session_data.as_ref().and_then(|session| {
-                    if session.target_geo.is_empty() {
-                        None
-                    } else {
-                        Some(session.target_geo.as_str())
-                    }
-                }),
-                Some(&dest_host),
+                target_geo,
+                Some(dest_host),
             )
             .await
             {
-                Ok(Some(res)) => res,
+                Ok(Some(route)) => route,
                 Ok(None) => {
                     warn!("No healthy providers available for session {}", session_id);
                     metrics::record_connection_error("no_providers");
@@ -720,9 +851,8 @@ async fn proxy(
                         Response::new(Full::new(Bytes::from("No healthy providers available")));
                     *resp.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
 
-                    // Record latency
                     metrics::REQUEST_LATENCY_SECONDS
-                        .with_label_values(&[&method, "503"])
+                        .with_label_values(&[method.as_str(), "503"])
                         .observe(start_time.elapsed().as_secs_f64());
 
                     return Ok(resp);
@@ -736,19 +866,35 @@ async fn proxy(
                     )));
                     *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
 
-                    // Record latency
                     metrics::REQUEST_LATENCY_SECONDS
-                        .with_label_values(&[&method, "500"])
+                        .with_label_values(&[method.as_str(), "500"])
                         .observe(start_time.elapsed().as_secs_f64());
 
                     return Ok(resp);
                 }
             };
 
+            let (provider_control, node_id, peer_forward) = match provider_route {
+                crate::registry::provider_selection::ProviderTarget::Local { control, node_id } => {
+                    (Some(control), node_id, None)
+                }
+                crate::registry::provider_selection::ProviderTarget::Remote {
+                    node_id,
+                    peer_base_url,
+                } => {
+                    debug!(
+                        node_id = %node_id,
+                        peer = %peer_base_url,
+                        "Routing via peer pod (P3.2)"
+                    );
+                    (None, node_id, Some(peer_base_url))
+                }
+            };
+
             // N-01: Enforce provider node-level policy (blocked_ports, allowed_ports,
             // blocked_domains, allowed_domains) fetched from Redis node:config cache.
             {
-                let dest_host = addr.split(':').next().unwrap_or(&addr);
+                let dest_host = policy::target_host_from_endpoint(&addr);
                 let dest_port: i64 = addr
                     .split(':')
                     .last()
@@ -768,7 +914,7 @@ async fn proxy(
                         )));
                         *resp.status_mut() = StatusCode::FORBIDDEN;
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "403"])
+                            .with_label_values(&[method.as_str(), "403"])
                             .observe(start_time.elapsed().as_secs_f64());
                         return Ok(resp);
                     }
@@ -784,16 +930,12 @@ async fn proxy(
                         )));
                         *resp.status_mut() = StatusCode::FORBIDDEN;
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "403"])
+                            .with_label_values(&[method.as_str(), "403"])
                             .observe(start_time.elapsed().as_secs_f64());
                         return Ok(resp);
                     }
                     // Domain: blocked list
-                    if ncfg
-                        .blocked_domains
-                        .iter()
-                        .any(|d| dest_host == d || dest_host.ends_with(&format!(".{}", d)))
-                    {
+                    if policy::host_matches_any_domain_rule(dest_host, &ncfg.blocked_domains) {
                         warn!(
                             "N-01: domain {} blocked by node {} policy",
                             dest_host, node_id
@@ -804,16 +946,16 @@ async fn proxy(
                         )));
                         *resp.status_mut() = StatusCode::FORBIDDEN;
                         metrics::REQUEST_LATENCY_SECONDS
-                            .with_label_values(&[&method, "403"])
+                            .with_label_values(&[method.as_str(), "403"])
                             .observe(start_time.elapsed().as_secs_f64());
                         return Ok(resp);
                     }
                     // Domain: allowed whitelist
                     if !ncfg.allowed_domains.is_empty() {
-                        let ok = ncfg
-                            .allowed_domains
-                            .iter()
-                            .any(|d| dest_host == d || dest_host.ends_with(&format!(".{}", d)));
+                        let ok = policy::host_matches_any_domain_rule(
+                            dest_host,
+                            &ncfg.allowed_domains,
+                        );
                         if !ok {
                             warn!(
                                 "N-01: domain {} not in allowlist for node {}",
@@ -825,7 +967,7 @@ async fn proxy(
                             )));
                             *resp.status_mut() = StatusCode::FORBIDDEN;
                             metrics::REQUEST_LATENCY_SECONDS
-                                .with_label_values(&[&method, "403"])
+                                .with_label_values(&[method.as_str(), "403"])
                                 .observe(start_time.elapsed().as_secs_f64());
                             return Ok(resp);
                         }
@@ -854,20 +996,36 @@ async fn proxy(
                         }
 
                         let bandwidth_cap: u32 = 0; // 0 = unlimited
-                        match bridge_to_provider(
-                            upgraded,
-                            addr,
-                            provider_control,
-                            node_id.clone(),
-                            tunnel_state,
-                            auth_clone.clone(),
-                            username.clone(),
-                            session_data.clone(),
-                            bandwidth_cap,
-                            Some(dest_host),
-                        )
-                        .await
-                        {
+                        let bridge_result = if let Some(peer_base_url) = peer_forward {
+                            internal_forward::bridge_via_peer(
+                                upgraded,
+                                addr.clone(),
+                                node_id.clone(),
+                                peer_base_url,
+                                tunnel_state.config.gateway_shared_secret.clone(),
+                            )
+                            .await
+                        } else if let Some(control) = provider_control {
+                            bridge_to_provider(
+                                upgraded,
+                                addr,
+                                control,
+                                node_id.clone(),
+                                tunnel_state,
+                                auth_clone.clone(),
+                                username.clone(),
+                                session_data.clone(),
+                                bandwidth_cap,
+                            )
+                            .await
+                        } else {
+                            Err(std::io::Error::new(
+                                std::io::ErrorKind::NotConnected,
+                                "No provider route",
+                            ))
+                        };
+
+                        match bridge_result {
                             Ok((bytes_up, bytes_down)) => {
                                 // Record signed usage for decentralized billing
                                 state
@@ -885,7 +1043,9 @@ async fn proxy(
                                 let duration = tunnel_start.elapsed().as_secs_f64();
                                 metrics::record_session_duration(&session_type_clone, duration);
 
-                                // Phase 9: ZK Generation & Batch Proof Submission
+                                // Phase 9: ZK Generation & Batch Proof Submission (`legacy-zk` feature)
+                                #[cfg(feature = "legacy-zk")]
+                                {
                                 let state_zk = state.clone();
                                 let username_zk = username.clone();
                                 let session_id_zk = session_id.clone();
@@ -947,6 +1107,7 @@ async fn proxy(
                                         "Legacy edge-side ZK/Solana submission path requested but runtime is unavailable"
                                     );
                                 }
+                                }
 
                                 // Decrement active sessions
                                 metrics::ACTIVE_SESSIONS.dec();
@@ -970,7 +1131,7 @@ async fn proxy(
 
             // Record successful connection latency
             metrics::REQUEST_LATENCY_SECONDS
-                .with_label_values(&[&method, "200"])
+                .with_label_values(&[method.as_str(), "200"])
                 .observe(start_time.elapsed().as_secs_f64());
 
             Ok(Response::new(Full::new(Bytes::new())))
@@ -985,7 +1146,7 @@ async fn proxy(
 
             // Record latency
             metrics::REQUEST_LATENCY_SECONDS
-                .with_label_values(&[&method, "400"])
+                .with_label_values(&[method.as_str(), "400"])
                 .observe(start_time.elapsed().as_secs_f64());
 
             Ok(resp)
@@ -993,7 +1154,7 @@ async fn proxy(
     } else {
         // STANDARD HTTP REQUEST
         metrics::REQUEST_LATENCY_SECONDS
-            .with_label_values(&[&method, "501"])
+            .with_label_values(&[method.as_str(), "501"])
             .observe(start_time.elapsed().as_secs_f64());
 
         Ok(Response::new(Full::new(Bytes::from(
@@ -1031,122 +1192,8 @@ async fn shutdown_signal() {
     }
 }
 
-/// Helper: Select the best provider based on session and load
-async fn select_best_provider(
-    state: Arc<AppState>,
-    session_id: &str,
-    is_sticky: bool,
-    authenticator: Arc<SessionAuthenticator>,
-    target_geo: Option<&str>,
-    target_domain: Option<&str>,
-) -> std::io::Result<Option<(yamux::Control, String)>> {
-    // Use configured TTL
-    let sticky_ttl_secs = state.config.sticky_ttl_secs;
-
-    // W-01: Check rotation state for non-sticky sessions.
-    // If the session's rotation policy says it's time to change nodes, we skip
-    // the sticky binding and force ML-selected node selection.
-    let needs_rotation = if !is_sticky && !session_id.is_empty() {
-        let should = state
-            .rotation
-            .lock()
-            .map(|mut mgr| {
-                let rot = mgr.get_or_create(session_id);
-                let _ = rot.record_request();
-                rot.should_rotate()
-            })
-            .unwrap_or(false);
-        should
-    } else {
-        false
-    };
-
-    // 1. Check for existing sticky binding (skipped when rotation is due)
-    let sticky_node_id = if is_sticky && !needs_rotation && !session_id.is_empty() {
-        match authenticator.get_sticky_node(session_id).await {
-            Ok(Some(node_id)) => {
-                info!("📌 Sticky session {} bound to node {}", session_id, node_id);
-                Some(node_id)
-            }
-            Ok(None) => {
-                info!(
-                    "📌 New sticky session {}, will bind on first connection",
-                    session_id
-                );
-                None
-            }
-            Err(e) => {
-                error!("Failed to get sticky binding: {}", e);
-                None
-            }
-        }
-    } else {
-        if needs_rotation {
-            info!("🔄 Rotating session {} — selecting new node", session_id);
-        }
-        None
-    };
-
-    // 2. Select provider
-    let selection = if let Some(ref bound_node_id) = sticky_node_id {
-        if let Some(control) = state.registry.get_by_id(bound_node_id) {
-            info!(
-                "📍 Sticky hit: Session {} correctly routed to bound node {}",
-                session_id, bound_node_id
-            );
-            Some((control, bound_node_id.clone()))
-        } else {
-            warn!("📍 Sticky miss: Bound node {} is unavailable for session {}, selecting best candidate", bound_node_id, session_id);
-            state.registry.get_best_for(target_geo, None)
-        }
-    } else if let Some((control, node_id)) = state.registry.get_best_for(target_geo, None) {
-        info!(
-            "🧩 Shard-routed to node {} for session {}",
-            node_id, session_id
-        );
-        Some((control, node_id))
-    } else if let Some((control, node_id)) = state.select_provider_ml(target_domain) {
-        info!(
-            "🎯 ML-routed to node {} for session {}",
-            node_id, session_id
-        );
-        Some((control, node_id))
-    } else if let Some(control) = state.registry.get_random() {
-        info!("🎲 Routed to random node for session {}", session_id);
-        Some((control, "random".to_string()))
-    } else {
-        warn!(
-            "🛑 No available nodes found in registry for session {}",
-            session_id
-        );
-        None
-    };
-
-    // 3. Bind sticky session if new
-    if let Some((_, ref node_id)) = selection {
-        if is_sticky && sticky_node_id.is_none() && !session_id.is_empty() {
-            if let Err(e) = authenticator
-                .set_sticky_node(session_id, node_id, sticky_ttl_secs)
-                .await
-            {
-                error!("Failed to set sticky binding: {}", e);
-            } else {
-                info!("📌 Bound sticky session {} to node {}", session_id, node_id);
-            }
-        }
-        // W-01: On rotation — assign the new node to the rotation state tracker.
-        if needs_rotation {
-            if let Ok(mut mgr) = state.rotation.lock() {
-                mgr.get_or_create(session_id).assign_node(node_id.clone());
-            }
-        }
-    }
-
-    Ok(selection)
-}
-
-/// Helper: Bridge client connection to selected provider
-async fn bridge_to_provider(
+/// Bridge client connection to selected provider (local yamux).
+pub(crate) async fn bridge_to_provider(
     upgraded: hyper::upgrade::Upgraded,
     addr: String,
     control: yamux::Control,
@@ -1156,19 +1203,14 @@ async fn bridge_to_provider(
     username: String,
     session_data: Option<crate::auth::SessionData>,
     bandwidth_cap: u32, // bytes/sec — tier-specific (B-05)
-    target_domain: Option<String>,
 ) -> std::io::Result<(u64, u64)> {
     use futures_util::{AsyncReadExt, AsyncWriteExt};
 
-    info!("🔗 Routing to provider {} for {}", node_id, addr);
+    debug!(node_id = %node_id, target = %addr, "routing CONNECT to provider");
 
     // 4. Open stream and proxy with circuit breaker protection
-    let circuit_config = CircuitConfig {
-        failure_threshold: 3,
-        timeout: std::time::Duration::from_secs(30),
-        success_threshold: 2,
-        request_timeout: std::time::Duration::from_secs(30), // Increased timeout for slow proxies
-    };
+    let circuit_config =
+        CircuitConfig::from_env(state.config.proxy_connect_timeout_secs.max(10));
 
     let circuit_breaker = state
         .circuit_breakers
@@ -1183,7 +1225,8 @@ async fn bridge_to_provider(
         .map(|p| p.take_stream());
 
     let addr_for_log = addr.clone(); // preserve for post-call logging
-                                     // P2-12: connect timeout for yamux stream-open + CONNECT handshake.
+    let target_domain = policy::target_host_from_endpoint(&addr_for_log);
+    // P2-12: connect timeout for yamux stream-open + CONNECT handshake.
     let connect_timeout = std::time::Duration::from_secs(state.config.proxy_connect_timeout_secs);
     match circuit_breaker
         .call(move || {
@@ -1209,8 +1252,11 @@ async fn bridge_to_provider(
                         })?,
                 };
 
-                // Send CONNECT command
-                let command = format!("CONNECT {}\n", addr);
+                // Send CONNECT command (pre-sized — hot path per tunnel)
+                let mut command = String::with_capacity(9 + addr.len());
+                command.push_str("CONNECT ");
+                command.push_str(&addr);
+                command.push('\n');
                 stream.write_all(command.as_bytes()).await?;
 
                 // P2-12: Bound CONNECT handshake response read.
@@ -1238,14 +1284,14 @@ async fn bridge_to_provider(
         .await
     {
         Ok(stream) => {
-            info!("🔗 Connected to provider {} for {}", node_id, addr_for_log);
+            debug!(node_id = %node_id, target = %addr_for_log, "connected to provider");
             if let Some(ref session) = session_data {
                 sync_session_intent_lifecycle(
                     state.clone(),
                     session,
                     "routed",
                     Some(&node_id),
-                    target_domain.as_deref(),
+                    Some(target_domain),
                 )
                 .await;
                 sync_session_intent_lifecycle(
@@ -1253,14 +1299,14 @@ async fn bridge_to_provider(
                     session,
                     "active",
                     Some(&node_id),
-                    target_domain.as_deref(),
+                    Some(target_domain),
                 )
                 .await;
             }
             // Record success in ML feature cache (P3-W12)
             state
                 .feature_cache
-                .record_success(&node_id, target_domain.as_deref());
+                .record_success(&node_id, Some(target_domain));
 
             // Bridge connections
             use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -1271,6 +1317,7 @@ async fn bridge_to_provider(
                 .shaper
                 .wrap_with_cap(stream, username.clone(), bandwidth_cap);
 
+            let client_tcp_fd = proxy::zerocopy::client_tcp_fd_from_upgrade(&upgraded);
             let mut upgraded = TokioIo::new(upgraded);
 
             // Bidirectional bridge with bandwidth enforcement (Phase 2: zerocopy module)
@@ -1282,7 +1329,7 @@ async fn bridge_to_provider(
             let session_for_reval = session_data.clone();
             let state_for_reval = state.clone();
             let node_id_for_reval = node_id.clone();
-            let target_host_for_reval = target_domain.clone();
+            let target_host_for_reval = target_domain.to_string();
             let last_usage_synced = Arc::new(std::sync::Mutex::new(proxy::zerocopy::BridgeStats::default()));
             let last_usage_synced_for_reval = last_usage_synced.clone();
             let idle_timeout = Some(std::time::Duration::from_secs(
@@ -1291,6 +1338,7 @@ async fn bridge_to_provider(
             let stats = proxy::zerocopy::bridge_tracked(
                 &mut upgraded,
                 &mut stream,
+                client_tcp_fd,
                 100 * 1024 * 1024, // revalidate every 100 MB
                 idle_timeout,
                 move |current_stats| {
@@ -1319,7 +1367,7 @@ async fn bridge_to_provider(
                                 state.clone(),
                                 session,
                                 Some(&node_id),
-                                target_host.as_deref(),
+                                Some(target_host.as_str()),
                                 delta_up,
                                 delta_down,
                             )
@@ -1333,7 +1381,7 @@ async fn bridge_to_provider(
                                     session,
                                     "closing",
                                     Some(&node_id),
-                                    target_host.as_deref(),
+                                    Some(target_host.as_str()),
                                 )
                                 .await;
                             }
@@ -1356,7 +1404,7 @@ async fn bridge_to_provider(
                     state.clone(),
                     session,
                     Some(&node_id),
-                    target_domain.as_deref(),
+                    Some(target_domain),
                     from_client.saturating_sub(last_synced.bytes_from_client),
                     from_provider.saturating_sub(last_synced.bytes_from_provider),
                 )
@@ -1369,7 +1417,9 @@ async fn bridge_to_provider(
                 error!("Failed to report usage: {}", e);
             }
 
-            // Phase 5: ZK-Proof & Solana (Trustless Billing)
+            // Phase 5: ZK-Proof & Solana (`legacy-zk` feature)
+            #[cfg(feature = "legacy-zk")]
+            {
             let state_zk = state.clone();
             let session_id = username.clone();
             let up = from_client;
@@ -1426,10 +1476,13 @@ async fn bridge_to_provider(
                     "Legacy direct edge proof submission path requested but prover runtime is unavailable"
                 );
             }
+            }
 
-            info!(
-                "✅ Proxy finished: {} up / {} down",
-                from_client, from_provider
+            debug!(
+                node_id = %node_id,
+                bytes_up = from_client,
+                bytes_down = from_provider,
+                "CONNECT tunnel finished"
             );
             Ok((from_client, from_provider))
         }
@@ -1441,7 +1494,7 @@ async fn bridge_to_provider(
             // Record domain-level failure (P3-W12)
             state
                 .feature_cache
-                .record_failure(&node_id, target_domain.as_deref());
+                .record_failure(&node_id, Some(target_domain));
             Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 "Circuit breaker open",
@@ -1452,7 +1505,7 @@ async fn bridge_to_provider(
             // Record domain-level failure (P3-W12)
             state
                 .feature_cache
-                .record_failure(&node_id, target_domain.as_deref());
+                .record_failure(&node_id, Some(target_domain));
             metrics::update_circuit_breaker_state(&node_id, "open");
             metrics::record_circuit_breaker_failure(&node_id);
             state.registry.mark_unhealthy(&node_id);
@@ -1510,16 +1563,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize Registry Store
     let registry_store = Arc::new(RegistryStore::new(&config.redis_url).await?);
 
-    // Initialize Leader Election
-    let service_id = Uuid::new_v4().to_string();
-    info!("Starting Edge Gateway with Service ID: {}", service_id);
+    let provider_directory = Arc::new(
+        crate::registry::directory::ProviderDirectory::from_manager(
+            registry_store.connection_manager(),
+            config.edge_pod_id.clone(),
+            config.region.clone(),
+            config.provider_directory_ttl_secs,
+        ),
+    );
 
-    // Create a NEW client for leader election
+    info!(
+        pod_id = %config.edge_pod_id,
+        edge_mode = ?config.edge_mode,
+        "Starting Edge Gateway"
+    );
+
+    // Initialize Leader Election
     let redis_client = redis::Client::open(redis_url)?;
 
     let leader_elector = LeaderElector::new(
         redis_client,
-        service_id.clone(),
+        config.edge_pod_id.clone(),
         "edge-gateway-leader".to_string(),
         30,
     );
@@ -1530,8 +1594,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Initialize Helper: Usage Tracker
+    // Default aligned with Config::from_env (control-api on :8080). Compose/K8s set this
+    // explicitly to http://control-api:8080; the default only applies to bare local runs.
     let control_api_url =
-        std::env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+        std::env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let usage_tracker = Arc::new(
         crate::metering::UsageTracker::new(&control_api_url, &config.provider_private_key)
             .expect("Failed to create usage tracker"),
@@ -1545,6 +1611,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         config,
         leader_status,
         registry_store,
+        provider_directory,
         usage_tracker,
     ));
 
@@ -1594,14 +1661,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    // P-06: Score snapshot refresh — rebuilds the pre-sorted candidate list every 100 ms
-    // so get_best() is O(1) on the hot path instead of O(n).
+    // P-06 / P1: Debounced score snapshot refresh (dirty flag + periodic tick).
     {
+        let refresh_ms = state.config.score_snapshot_refresh_ms;
         crate::registry::lockfree::LockFreeNodeRegistry::start_score_refresh(
             state.registry.clone(),
-            100, // refresh every 100 ms
+            refresh_ms,
         );
-        info!("Provider score snapshot refresh started (100 ms interval)");
+        info!(
+            "Provider score snapshot refresh started ({} ms interval, debounced)",
+            refresh_ms
+        );
     }
 
     // P-02: Predictive connection pre-warming — opens idle yamux streams ahead of peak load.
@@ -1624,7 +1694,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let listener = TcpListener::bind(addr).await?;
+    let connection_admission = Arc::new(Semaphore::new(state.config.max_concurrent_connections));
     info!("Edge Gateway Proxy listening on http://{}", addr);
+    info!(
+        "Buyer connection admission limit: {}",
+        state.config.max_concurrent_connections
+    );
     info!("Metrics endpoint available at http://{}/metrics", addr);
     info!("Health endpoint available at http://{}/health", addr);
 
@@ -1641,21 +1716,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             res = listener.accept() => {
                 match res {
                     Ok((stream, _)) => {
-                        let io = TokioIo::new(stream);
+                        if pod_drain::is_draining(&state) {
+                            metrics::record_connection_error("pod_draining");
+                            let mut stream = stream;
+                            admission::write_service_unavailable_and_close(&mut stream).await;
+                            continue;
+                        }
 
-                        // Clone state for the request handler
+                        let permit = match connection_admission.clone().try_acquire_owned() {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                metrics::record_connection_error("admission_rejected");
+                                let mut stream = stream;
+                                admission::write_service_unavailable_and_close(&mut stream)
+                                    .await;
+                                continue;
+                            }
+                        };
+
+                        let io = TokioIo::new(stream);
                         let proxy_state = state.clone();
                         let auth_clone = authenticator.clone();
 
                         tokio::task::spawn(async move {
+                            let _permit = permit;
                             let service = service_fn(move |req| {
                                 let s = proxy_state.clone();
                                 let a = auth_clone.clone();
                                 proxy(req, s, a)
                             });
 
-                            // Phase 2: auto-builder serves HTTP/1.1 and HTTP/2
-                            // (h2c prior-knowledge + ALPN on TLS) from one port.
                             let builder = proxy::http2::make_auto_builder();
                             if let Err(err) = builder
                                 .serve_connection_with_upgrades(io, service)
@@ -1670,6 +1760,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
             _ = shutdown_signal() => {
                 info!("Shutting down Edge Gateway — draining active tunnels (max 30s)...");
+                pod_drain::set_draining(&state, true);
                 break;
             }
         }
@@ -1693,6 +1784,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+
+    if state.config.edge_mode != config::EdgeMode::Single {
+        match state.provider_directory.release_all_owned().await {
+            Ok(released) => info!(
+                released,
+                pod_id = %state.config.edge_pod_id,
+                "Released provider directory keys after drain"
+            ),
+            Err(err) => warn!(
+                error = %err,
+                "Failed to release provider directory on shutdown"
+            ),
+        }
     }
 
     // Flush metering WAL so no usage records are lost on shutdown.

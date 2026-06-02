@@ -20,7 +20,9 @@ spec:
       annotations:
         linkerd.io/inject: enabled
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9090"
+        # Metrics are served on the management/proxy port (8090) at /metrics.
+        # A dedicated metrics port is a planned vNext (P5) enhancement.
+        prometheus.io/port: "8090"
         prometheus.io/path: "/metrics"
     spec:
       priorityClassName: high-priority
@@ -40,23 +42,54 @@ spec:
       - name: edge-gateway
         image: proxyhubb/edge-gateway:latest
         ports:
-        - containerPort: 8443
-          name: https
+        # Buyer proxy API + /metrics + /health + /ready (HTTP CONNECT/WS).
+        - containerPort: 8090
+          name: http
           protocol: TCP
-        - containerPort: 9090
-          name: metrics
+        # Provider-node yamux tunnel (TLS-capable via mounted certs).
+        - containerPort: 3128
+          name: tunnel
           protocol: TCP
         env:
         - name: RUST_LOG
           value: "info"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8090"
+        - name: TUNNEL_PORT
+          value: "3128"
         - name: REDIS_URL
           value: "redis://redis-cluster:6379"
         - name: CONTROL_API_URL
           value: "http://control-api:8080"
+        # TLS certs are used by the provider tunnel listener. Buyer-port TLS is
+        # terminated at the LB today (in-process buyer TLS is a vNext/P5 item).
         - name: TLS_CERT_PATH
           value: "/app/certs/server.crt"
         - name: TLS_KEY_PATH
           value: "/app/certs/server.key"
+        # Required secrets — the gateway panics on startup if these are unset.
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: edge-gateway-secrets
+              key: jwt-secret
+        - name: GATEWAY_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: edge-gateway-secrets
+              key: gateway-shared-secret
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: edge-gateway-secrets
+              key: session-secret
+        - name: PROVIDER_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: edge-gateway-secrets
+              key: provider-private-key
         volumeMounts:
         - name: tls-certs
           mountPath: /app/certs
@@ -71,7 +104,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 9090
+            port: 8090
             scheme: HTTP
           initialDelaySeconds: 30
           timeoutSeconds: 5
@@ -81,17 +114,17 @@ spec:
         readinessProbe:
           httpGet:
             path: /ready
-            port: 9090
+            port: 8090
             scheme: HTTP
           initialDelaySeconds: 5
-          timeoutSeconds: 1
+          timeoutSeconds: 2
           periodSeconds: 5
           successThreshold: 1
           failureThreshold: 3
         startupProbe:
           httpGet:
             path: /health
-            port: 9090
+            port: 8090
             scheme: HTTP
           initialDelaySeconds: 10
           timeoutSeconds: 1
@@ -122,19 +155,21 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-  - port: 8443
-    targetPort: 8443
+  # Buyer proxy API + health/ready/metrics.
+  - port: 8090
+    targetPort: 8090
     protocol: TCP
-    name: https
-  - port: 9090
-    targetPort: 9090
+    name: http
+  # Provider-node tunnel.
+  - port: 3128
+    targetPort: 3128
     protocol: TCP
-    name: metrics
+    name: tunnel
   selector:
     app: edge-gateway
 
 ---
-# ServiceMonitor for Prometheus scraping
+# ServiceMonitor for Prometheus scraping (metrics served on the http port at /metrics)
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -147,6 +182,6 @@ spec:
     matchLabels:
       app: edge-gateway
   endpoints:
-  - port: metrics
+  - port: http
     interval: 15s  # More frequent scraping for edge gateway
     path: /metrics
