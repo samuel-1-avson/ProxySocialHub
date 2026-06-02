@@ -26,6 +26,11 @@ impl RegistryStore {
         self.raw_client.clone()
     }
 
+    /// Shared multiplexed connection (e.g. provider directory).
+    pub fn connection_manager(&self) -> ConnectionManager {
+        self.conn.clone()
+    }
+
     /// Load node info for a user ID
     pub async fn load_node(
         &self,

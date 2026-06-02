@@ -99,15 +99,17 @@ impl NodeEntry {
 /// Operations on the same node still take a brief per-shard lock, but this is
 /// orders of magnitude less contention than a single global Mutex.
 ///
-/// P-06: `get_best()` reads from a pre-sorted score snapshot in O(1).
-/// The snapshot is rebuilt on every insert/remove and periodically (100 ms)
-/// by a background task started via `start_score_refresh()`.
+/// P-06 / P1: `get_best()` reads from a pre-sorted score snapshot in O(1).
+/// Mutations set `snapshot_dirty`; a background task rebuilds at most once per
+/// refresh interval (see `start_score_refresh`), avoiding O(N log N) work on every heartbeat.
 pub struct LockFreeNodeRegistry {
     nodes: DashMap<String, Arc<NodeEntry>>,
-    /// Pre-sorted (score desc) list of (node_id, Control). Rebuilt on mutations.
+    /// Pre-sorted (score desc) list of (node_id, Control). Rebuilt when dirty.
     top_nodes: Arc<std::sync::RwLock<Vec<(String, Control)>>>,
     /// Shard-specific pre-sorted snapshots keyed by country and/or connection type.
     shard_nodes: Arc<std::sync::RwLock<HashMap<String, Vec<(String, Control)>>>>,
+    /// Set on registry mutations; cleared by the score-refresh background task.
+    snapshot_dirty: AtomicBool,
 }
 
 impl LockFreeNodeRegistry {
@@ -116,11 +118,15 @@ impl LockFreeNodeRegistry {
             nodes: DashMap::new(),
             top_nodes: Arc::new(std::sync::RwLock::new(Vec::new())),
             shard_nodes: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            snapshot_dirty: AtomicBool::new(true),
         }
     }
 
-    /// Rebuild the pre-sorted score snapshot (P-06).
-    /// Called after every structural change and by the background refresh task.
+    fn mark_snapshot_dirty(&self) {
+        self.snapshot_dirty.store(true, Ordering::Release);
+    }
+
+    /// Rebuild the pre-sorted score snapshot (P-06). Only invoked by the refresh task.
     fn rebuild_score_snapshot(&self) {
         let mut scored: Vec<(u32, String, Control, NodeInfo)> = self
             .nodes
@@ -160,14 +166,17 @@ impl LockFreeNodeRegistry {
         }
     }
 
-    /// Start a background task that refreshes the score snapshot every `interval_ms` ms.
+    /// Start a background task that refreshes the score snapshot when dirty.
     /// Call once at startup from main.rs after constructing the registry.
     pub fn start_score_refresh(registry: Arc<Self>, interval_ms: u64) {
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(interval_ms));
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_millis(interval_ms.max(1)));
             loop {
                 ticker.tick().await;
-                registry.rebuild_score_snapshot();
+                if registry.snapshot_dirty.swap(false, Ordering::AcqRel) {
+                    registry.rebuild_score_snapshot();
+                }
             }
         });
     }
@@ -180,7 +189,7 @@ impl LockFreeNodeRegistry {
         );
         self.nodes
             .insert(node_id, Arc::new(NodeEntry::new(control, info)));
-        self.rebuild_score_snapshot(); // P-06: keep snapshot current
+        self.mark_snapshot_dirty();
     }
 
     /// Register a provider with minimal info (IP address only).
@@ -195,7 +204,7 @@ impl LockFreeNodeRegistry {
             .nodes
             .remove(node_id)
             .and_then(|(_, entry)| entry.info.read().ok().map(|i| i.clone()));
-        self.rebuild_score_snapshot(); // P-06: keep snapshot current
+        self.mark_snapshot_dirty();
         result
     }
 
@@ -232,7 +241,7 @@ impl LockFreeNodeRegistry {
             entry.is_healthy.store(false, Ordering::Relaxed);
             warn!("Marked node {} as unhealthy", node_id);
         }
-        self.rebuild_score_snapshot(); // P-06: remove from best candidates immediately
+        self.mark_snapshot_dirty();
     }
 
     /// Atomically mark a node healthy (called on successful heartbeat).
@@ -240,7 +249,7 @@ impl LockFreeNodeRegistry {
         if let Some(entry) = self.nodes.get(node_id) {
             entry.is_healthy.store(true, Ordering::Relaxed);
         }
-        self.rebuild_score_snapshot(); // P-06: add back into candidate pool
+        self.mark_snapshot_dirty();
     }
 
     /// Increment total bytes served (persisted later to Redis).
@@ -309,7 +318,7 @@ impl LockFreeNodeRegistry {
                 info.is_healthy = true;
             }
         }
-        self.rebuild_score_snapshot();
+        self.mark_snapshot_dirty();
     }
 
     /// Update node info using a closure (allows atomic updates to multiple fields).
@@ -322,7 +331,7 @@ impl LockFreeNodeRegistry {
                 f(&mut info);
             }
         }
-        self.rebuild_score_snapshot();
+        self.mark_snapshot_dirty();
     }
 
     /// Get a random healthy node (fallback when best-node selection unavailable).
@@ -345,24 +354,15 @@ impl LockFreeNodeRegistry {
     /// Get the highest-scoring healthy node (primary routing path).
     ///
     /// P-06: O(1) read from the pre-sorted score snapshot.  Falls back to a
-    /// full O(n) scan only when the snapshot's top node has just gone unhealthy.
+    /// full O(n) scan only when the snapshot is empty or fully stale.
     pub fn get_best(&self) -> Option<(Control, String)> {
-        // Fast path: first healthy entry in the pre-sorted snapshot.
+        // Fast path: snapshot is rebuilt from eligible nodes only (healthy + lease).
         if let Ok(top) = self.top_nodes.read() {
-            for (id, ctrl) in top.iter() {
-                if let Some(entry) = self.nodes.get(id) {
-                    let lease_ok = entry
-                        .info
-                        .read()
-                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
-                        .unwrap_or(false);
-                    if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
-                        return Some((ctrl.clone(), id.clone()));
-                    }
-                }
+            if let Some((id, ctrl)) = top.first() {
+                return Some((ctrl.clone(), id.clone()));
             }
         }
-        // Slow fallback: all snapshot entries are unhealthy or snapshot is empty.
+        // Slow fallback: snapshot empty or not yet refreshed.
         self.nodes
             .iter()
             .filter(|e| {
@@ -385,17 +385,8 @@ impl LockFreeNodeRegistry {
         if let Ok(shards) = self.shard_nodes.read() {
             for key in ordered_shard_keys(country_code, connection_type) {
                 if let Some(entries) = shards.get(&key) {
-                    for (id, ctrl) in entries.iter() {
-                        if let Some(entry) = self.nodes.get(id) {
-                            let lease_ok = entry
-                                .info
-                                .read()
-                                .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
-                                .unwrap_or(false);
-                            if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
-                                return Some((ctrl.clone(), id.clone()));
-                            }
-                        }
+                    if let Some((id, ctrl)) = entries.first() {
+                        return Some((ctrl.clone(), id.clone()));
                     }
                 }
             }
@@ -511,13 +502,24 @@ fn ordered_shard_keys(country_code: Option<&str>, connection_type: Option<&str>)
 
     let mut keys = Vec::new();
     if let (Some(country), Some(connection)) = (country.as_deref(), connection.as_deref()) {
-        keys.push(format!("country:{}|conn:{}", country, connection));
+        let mut key = String::with_capacity(8 + country.len() + 6 + connection.len());
+        key.push_str("country:");
+        key.push_str(country);
+        key.push_str("|conn:");
+        key.push_str(connection);
+        keys.push(key);
     }
     if let Some(country) = country.as_deref() {
-        keys.push(format!("country:{}", country));
+        let mut key = String::with_capacity(8 + country.len());
+        key.push_str("country:");
+        key.push_str(country);
+        keys.push(key);
     }
     if let Some(connection) = connection.as_deref() {
-        keys.push(format!("conn:{}", connection));
+        let mut key = String::with_capacity(5 + connection.len());
+        key.push_str("conn:");
+        key.push_str(connection);
+        keys.push(key);
     }
     keys
 }
@@ -597,5 +599,19 @@ mod tests {
         let low = make_test_info("a", 50, 10, true);
         let high = make_test_info("b", 50, 80, true);
         assert!(low.score() > high.score());
+    }
+
+    #[tokio::test]
+    async fn score_snapshot_rebuilds_when_dirty() {
+        let registry = Arc::new(LockFreeNodeRegistry::new());
+        assert!(registry.snapshot_dirty.load(Ordering::Acquire));
+        LockFreeNodeRegistry::start_score_refresh(registry.clone(), 25);
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        assert!(!registry.snapshot_dirty.load(Ordering::Acquire));
+
+        registry.update_live_metrics("missing-node", 1, 10, 0, 0);
+        assert!(registry.snapshot_dirty.load(Ordering::Acquire));
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        assert!(!registry.snapshot_dirty.load(Ordering::Acquire));
     }
 }

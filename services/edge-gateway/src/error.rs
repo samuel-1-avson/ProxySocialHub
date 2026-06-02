@@ -108,6 +108,7 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+#[cfg(feature = "blockchain")]
 impl From<tonic::transport::Error> for Error {
     fn from(e: tonic::transport::Error) -> Self {
         Error::BlockchainConnection(format!("gRPC transport error: {}", e))

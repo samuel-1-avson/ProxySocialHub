@@ -1,7 +1,9 @@
 //! Billing Module (Phase 5).
 //!
-//! Handles decentralized usage verification via ZK-Proofs and
-//! coordinates trustless payouts on the Solana blockchain.
+//! Legacy edge-side ZK proving and Solana submission live behind the `legacy-zk`
+//! feature. Canonical settlement is handled by control-api batching.
 
+#[cfg(feature = "legacy-zk")]
 pub mod solana;
+#[cfg(feature = "legacy-zk")]
 pub mod zk;

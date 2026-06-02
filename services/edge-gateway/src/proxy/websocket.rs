@@ -256,9 +256,12 @@ where
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e))?;
     let mut tcp = raw_stream.compat();
 
-    // Send CONNECT command to provider agent
-    tcp.write_all(format!("CONNECT {}\n", target).as_bytes())
-        .await?;
+    // Send CONNECT command to provider agent (pre-sized — same as HTTP CONNECT hot path)
+    let mut command = String::with_capacity(9 + target.len());
+    command.push_str("CONNECT ");
+    command.push_str(target);
+    command.push('\n');
+    tcp.write_all(command.as_bytes()).await?;
 
     // Wait for OK
     let mut resp_buf = [0u8; 64];
