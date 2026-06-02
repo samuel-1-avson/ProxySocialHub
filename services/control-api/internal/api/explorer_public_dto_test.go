@@ -3,36 +3,106 @@ package api
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
+func assertJSONKeysAbsent(t *testing.T, body []byte, keys ...string) {
+	t.Helper()
+	var m map[string]interface{}
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		if _, ok := m[key]; ok {
+			t.Fatalf("public JSON must not include %q; body=%s", key, body)
+		}
+	}
+}
+
 func TestPublicNodeSummaryOmitsProviderIdentity(t *testing.T) {
 	n := models.ExplorerNode{
-		NodeID:      "node-1",
+		NodeID:           "node-1",
 		ProviderUserID:   "user-internal",
 		ProviderUsername: "internal-user",
-		Name:        "edge-1",
-		Chain:       "solana",
-		Region:      "eu",
-		Country:     "DE",
-		IsActive:    true,
-		IsValidator: false,
+		Name:             "edge-1",
+		Chain:            "solana",
+		Region:           "eu",
+		Country:          "DE",
+		IsActive:         true,
+		IsValidator:      false,
 	}
 
 	body, err := json.Marshal(publicNodeSummary(n))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(body, &m); err != nil {
+	assertJSONKeysAbsent(t, body, "provider_id", "provider_username", "linked_user_id")
+}
+
+func TestPublicNodeDetailOmitsHotkey(t *testing.T) {
+	n := models.ExplorerNode{
+		NodeID:      "node-1",
+		Name:        "edge-1",
+		Chain:       "solana",
+		Region:      "eu",
+		Country:     "DE",
+		IsActive:    true,
+		IsValidator: true,
+	}
+	detail := NodeDetailResponse{
+		NodeSummary: publicNodeSummary(n),
+		LatencyMs:   12,
+		SuccessRate: 99.5,
+	}
+	body, err := json.Marshal(detail)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"provider_id", "provider_username", "linked_user_id"} {
-		if _, ok := m[key]; ok {
-			t.Fatalf("public node summary must not include %q", key)
-		}
+	assertJSONKeysAbsent(t, body, "hotkey", "provider_id", "provider_username")
+}
+
+func TestTransactionDetailResponseOmitsRawData(t *testing.T) {
+	detail := TransactionDetailResponse{
+		TxHash:        "abc123",
+		Chain:         "solana",
+		FromAddress:   "from",
+		ToAddress:     "to",
+		Amount:        1.5,
+		Currency:      "SOL",
+		Status:        "confirmed",
+		Timestamp:     time.Now().UTC(),
+		Confirmations: 32,
 	}
+	body, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONKeysAbsent(t, body, "raw_data")
+}
+
+func TestWriterHealthOmitsRPCEndpoint(t *testing.T) {
+	rows := buildWriterHealthRows(
+		ExplorerDecentralizationWritersResponse{RecentSlotsAnalyzed: 10},
+		100,
+		[]explorerWriterRollupRow{{WriterID: "w1", LatestSlot: 100, AttestationCount: 5, SlotsCovered: 8}},
+		map[string]int64{},
+		map[string]explorerWriterIdentityEvidence{
+			"w1": {WriterID: "w1", WriterPublicKey: "cHVibGlj"},
+		},
+	)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 writer row, got %d", len(rows))
+	}
+	if rows[0].RPCEndpoint != "" {
+		t.Fatalf("rpc_endpoint must be redacted, got %q", rows[0].RPCEndpoint)
+	}
+	body, err := json.Marshal(rows[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONKeysAbsent(t, body, "rpc_endpoint")
 }
 
 func TestWalletDetailsResponseOmitsLinkedUser(t *testing.T) {
@@ -45,16 +115,5 @@ func TestWalletDetailsResponseOmitsLinkedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "" && containsField(body, "linked_user") {
-		t.Fatalf("wallet response leaked linked_user: %s", body)
-	}
-}
-
-func containsField(body []byte, field string) bool {
-	var m map[string]interface{}
-	if json.Unmarshal(body, &m) != nil {
-		return false
-	}
-	_, ok := m[field]
-	return ok
+	assertJSONKeysAbsent(t, body, "linked_user_id", "linked_user")
 }

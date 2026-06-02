@@ -1,5 +1,5 @@
 // Forum API - Community forum functionality
-import { fetchWithAuth } from "./auth";
+import { authApiFetch, publicApiFetch } from "./api/client";
 
 const API_BASE = ''; // relative — proxied by Next.js rewrite in next.config.ts
 
@@ -77,16 +77,16 @@ export interface VoteRequest {
 // ============== Category API ==============
 
 export async function getForumCategories(): Promise<{ categories: ForumCategory[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/categories`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/categories`);
     if (!res.ok) {
-        if (res.status === 404) return { categories: [] };
+        if (res.status === 401 || res.status === 404) return { categories: [] };
         throw new Error("Failed to fetch forum categories");
     }
     return res.json();
 }
 
 export async function getCategory(slug: string): Promise<{ category: ForumCategory }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/categories/${slug}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/categories/${slug}`);
     if (!res.ok) throw new Error("Category not found");
     return res.json();
 }
@@ -101,25 +101,30 @@ export async function getCategoryThreads(
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/categories/${slug}/threads?${query}`);
-    if (!res.ok) throw new Error("Failed to fetch threads");
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/categories/${slug}/threads?${query}`);
+    if (!res.ok) {
+        if (res.status === 401 || res.status === 404) {
+            return { threads: [], total: 0, page: params.page || 1, limit: params.limit || 20 };
+        }
+        throw new Error("Failed to fetch threads");
+    }
     return res.json();
 }
 
 export async function getThread(id: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/${id}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${id}`);
     if (!res.ok) throw new Error("Thread not found");
     return res.json();
 }
 
 export async function getThreadBySlug(slug: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/slug/${slug}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/slug/${slug}`);
     if (!res.ok) throw new Error("Thread not found");
     return res.json();
 }
 
 export async function createThread(data: CreateThreadRequest): Promise<ForumThread> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -141,13 +146,13 @@ export async function getThreadPosts(
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/${threadId}/posts?${query}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/posts?${query}`);
     if (!res.ok) throw new Error("Failed to fetch posts");
     return res.json();
 }
 
 export async function createPost(threadId: string, data: CreatePostRequest): Promise<ForumPost> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/${threadId}/posts`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/posts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -160,7 +165,7 @@ export async function createPost(threadId: string, data: CreatePostRequest): Pro
 }
 
 export async function updatePost(postId: string, content: string): Promise<ForumPost> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/posts/${postId}`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -170,7 +175,7 @@ export async function updatePost(postId: string, content: string): Promise<Forum
 }
 
 export async function deletePost(postId: string): Promise<{ message: string }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/posts/${postId}`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}`, {
         method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete post");
@@ -180,7 +185,7 @@ export async function deletePost(postId: string): Promise<{ message: string }> {
 // ============== Voting API ==============
 
 export async function votePost(postId: string, voteType: "up" | "down"): Promise<{ upvotes: number; downvotes: number }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/posts/${postId}/vote`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vote_type: voteType === "up" ? 1 : -1 }),
@@ -190,7 +195,7 @@ export async function votePost(postId: string, voteType: "up" | "down"): Promise
 }
 
 export async function voteThread(threadId: string, voteType: "up" | "down"): Promise<{ upvotes: number; downvotes: number }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/${threadId}/vote`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vote_type: voteType === "up" ? 1 : -1 }),
@@ -202,33 +207,36 @@ export async function voteThread(threadId: string, voteType: "up" | "down"): Pro
 // ============== Search & Discovery ==============
 
 export async function searchForum(query: string): Promise<{ threads: ForumThread[]; total: number }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error("Search failed");
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) {
+        if (res.status === 401 || res.status === 404) return { threads: [], total: 0 };
+        throw new Error("Search failed");
+    }
     return res.json();
 }
 
 export async function getRecentThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/recent?limit=${limit}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/recent?limit=${limit}`);
     if (!res.ok) {
-        if (res.status === 404) return { threads: [] };
+        if (res.status === 401 || res.status === 404) return { threads: [] };
         throw new Error("Failed to fetch recent threads");
     }
     return res.json();
 }
 
 export async function getPopularThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/popular?limit=${limit}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/popular?limit=${limit}`);
     if (!res.ok) {
-        if (res.status === 404) return { threads: [] };
+        if (res.status === 401 || res.status === 404) return { threads: [] };
         throw new Error("Failed to fetch popular threads");
     }
     return res.json();
 }
 
 export async function getUnansweredThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/unanswered?limit=${limit}`);
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/unanswered?limit=${limit}`);
     if (!res.ok) {
-        if (res.status === 404) return { threads: [] };
+        if (res.status === 401 || res.status === 404) return { threads: [] };
         throw new Error("Failed to fetch unanswered threads");
     }
     return res.json();
@@ -246,7 +254,7 @@ export async function getMyThreads(params: { page?: number; limit?: number } = {
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/my-threads?${query}`);
+    const res = await authApiFetch(`${API_BASE}/v1/forum/my-threads?${query}`);
     if (!res.ok) throw new Error("Failed to fetch my threads");
     return res.json();
 }
@@ -261,7 +269,7 @@ export async function getMyPosts(params: { page?: number; limit?: number } = {})
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/my-posts?${query}`);
+    const res = await authApiFetch(`${API_BASE}/v1/forum/my-posts?${query}`);
     if (!res.ok) throw new Error("Failed to fetch my posts");
     return res.json();
 }
@@ -269,7 +277,7 @@ export async function getMyPosts(params: { page?: number; limit?: number } = {})
 // ============== Report API ==============
 
 export async function reportThread(threadId: string, reason: string, details?: string): Promise<{ message: string }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/threads/${threadId}/report`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason, details }),
@@ -279,7 +287,7 @@ export async function reportThread(threadId: string, reason: string, details?: s
 }
 
 export async function reportPost(postId: string, reason: string, details?: string): Promise<{ message: string }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/forum/posts/${postId}/report`, {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason, details }),

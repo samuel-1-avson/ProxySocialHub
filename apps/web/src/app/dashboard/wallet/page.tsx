@@ -84,6 +84,9 @@ export default function UnifiedWalletPage() {
     const rawSolanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
     const solanaNetwork = rawSolanaNetwork === 'mainnet' ? 'mainnet-beta' : rawSolanaNetwork;
     const isDevnet = solanaNetwork.toLowerCase().includes('devnet');
+    const solanaRpc =
+        process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || '';
+    const isLocalSolanaRpc = /localhost|127\.0\.0\.1/i.test(solanaRpc);
 
     const { data: wallet, isLoading: loading } = useQuery({
         queryKey: ['wallet'],
@@ -305,8 +308,14 @@ export default function UnifiedWalletPage() {
         try {
             let opts: { nonce?: string; signature?: string } | undefined;
             if (amt > LARGE_WITHDRAW_SOL) {
-                if (!signMessage) {
+                if (!signMessage || !connected || !publicKey) {
                     throw new Error(`Withdrawals over ${LARGE_WITHDRAW_SOL} SOL require wallet signature — connect Phantom/Solflare`);
+                }
+                const linked = wallet.linked_solana_address;
+                if (publicKey.toBase58() !== linked) {
+                    throw new Error(
+                        `Connected wallet must match your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`
+                    );
                 }
                 opts = await signWithdrawalMessage(signMessage, amt);
             }
@@ -352,6 +361,74 @@ export default function UnifiedWalletPage() {
         await navigator.clipboard.writeText(addr);
         setResult({ success: true, message: 'Treasury address copied' });
     };
+
+    const solanaRpcUrl =
+        solanaRpc.trim() ||
+        (isDevnet ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com');
+
+    const buildCliBalanceCommand = (address: string) =>
+        `solana balance ${address} --url ${solanaRpcUrl}`;
+
+    const copyLinkedAddress = async () => {
+        const addr = wallet?.linked_solana_address;
+        if (!addr) return;
+        await navigator.clipboard.writeText(addr);
+        setResult({ success: true, message: 'Linked address copied' });
+    };
+
+    const copyCliBalanceCheck = async () => {
+        const addr = wallet?.linked_solana_address;
+        if (!addr) return;
+        await navigator.clipboard.writeText(buildCliBalanceCommand(addr));
+        setResult({ success: true, message: 'CLI balance command copied' });
+    };
+
+    const linkedOnChainHint =
+        wallet?.linked_solana_address ? (
+            <div className="p-3 rounded-xl border border-white/10 bg-black/30 space-y-2 text-[9px] font-mono text-muted-foreground/90 leading-relaxed">
+                <p className="font-black uppercase tracking-widest text-muted-foreground">
+                    Verify linked wallet on-chain
+                </p>
+                {isLocalSolanaRpc ? (
+                    <p>
+                        Withdrawals land on the local validator. In Phantom use{' '}
+                        <span className="text-amber-300">Solana Localnet</span> (not Devnet). If the
+                        extension balance looks wrong, check with the CLI using the same RPC as the app.
+                    </p>
+                ) : (
+                    <p>
+                        Copy your linked address or run the CLI to confirm the balance Phantom should show on{' '}
+                        {isDevnet ? 'devnet' : 'mainnet'}.
+                    </p>
+                )}
+                <div className="flex gap-2 items-stretch">
+                    <code className="flex-1 break-all bg-black/40 p-2 rounded-lg border border-white/5 text-primary/80">
+                        {wallet.linked_solana_address}
+                    </code>
+                    <button
+                        type="button"
+                        onClick={copyLinkedAddress}
+                        className="px-3 rounded-lg border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                        title="Copy linked address"
+                    >
+                        <Copy size={14} />
+                    </button>
+                </div>
+                <div className="flex gap-2 items-stretch">
+                    <code className="flex-1 break-all bg-black/40 p-2 rounded-lg border border-white/5 text-amber-200/80">
+                        {buildCliBalanceCommand(wallet.linked_solana_address)}
+                    </code>
+                    <button
+                        type="button"
+                        onClick={copyCliBalanceCheck}
+                        className="px-3 rounded-lg border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                        title="Copy CLI balance command"
+                    >
+                        <Copy size={14} />
+                    </button>
+                </div>
+            </div>
+        ) : null;
 
     // Linking Logic
     const handleLinkSolana = async () => {
@@ -439,6 +516,26 @@ export default function UnifiedWalletPage() {
                                     exit={{ opacity: 0, x: 20 }}
                                     className="space-y-8"
                                 >
+                                    {isLocalSolanaRpc && (
+                                        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[10px] font-mono text-amber-100/90 leading-relaxed space-y-2">
+                                            <p className="font-black uppercase tracking-widest text-amber-400">
+                                                Local validator — not public devnet
+                                            </p>
+                                            <p>
+                                                Payouts go to your linked wallet on{' '}
+                                                <span className="text-amber-300">http://127.0.0.1:8899</span> only.
+                                                Phantom must use the same custom RPC or you will not see withdrawn SOL
+                                                (the app balance here is custodial; linked wallet balance follows Phantom&apos;s network).
+                                            </p>
+                                            <p className="text-amber-200/70">
+                                                Phantom → Settings → Developer → enable testnet → select{' '}
+                                                <span className="text-amber-300">Solana Localnet</span>
+                                                {' '}(same chain as <span className="text-amber-300">{solanaRpcUrl}</span>).
+                                            </p>
+                                            {linkedOnChainHint}
+                                        </div>
+                                    )}
+
                                     {/* Balance Cards */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <motion.div
@@ -470,7 +567,9 @@ export default function UnifiedWalletPage() {
 
                                             <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                                Solana {isDevnet ? 'Devnet' : 'Mainnet'}: Synced
+                                                {isLocalSolanaRpc
+                                                    ? 'Local validator: synced'
+                                                    : `Solana ${isDevnet ? 'Devnet' : 'Mainnet'}: synced`}
                                             </div>
                                         </motion.div>
 
@@ -565,11 +664,15 @@ export default function UnifiedWalletPage() {
                                                 <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
                                                     Enter an amount and approve one transfer in your linked wallet. We send SOL to the platform treasury and credit your balance automatically — no signature to copy.
                                                 </p>
-                                                {isDevnet && (
+                                                {isLocalSolanaRpc ? (
+                                                    <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
+                                                        Local validator: set Phantom RPC to http://127.0.0.1:8899 before depositing.
+                                                    </p>
+                                                ) : isDevnet ? (
                                                     <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
                                                         Devnet: use Phantom on devnet, or Ledger with the Solana app set to Devnet and blind signing enabled.
                                                     </p>
-                                                )}
+                                                ) : null}
                                                 {treasuryConfig?.treasury_solana ? (
                                                     <div className="flex gap-2 items-stretch">
                                                         <code className="flex-1 text-[9px] font-mono break-all bg-black/40 p-3 rounded-lg border border-white/5">
@@ -673,13 +776,31 @@ export default function UnifiedWalletPage() {
                                                 />
                                                 {parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL && (
                                                     <p className="text-[9px] font-mono text-amber-500/90 uppercase flex items-center gap-2">
-                                                        <Shield size={12} /> Signature required — approve in your wallet when prompted
+                                                        <Shield size={12} />
+                                                        {signMessage
+                                                            ? 'Signature required — approve the message in your wallet when prompted'
+                                                            : 'Connect Phantom/Solflare below, then withdraw (required for amounts over 10 SOL)'}
                                                     </p>
                                                 )}
+                                                {wallet?.linked_solana_address &&
+                                                    parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL &&
+                                                    !signMessage && (
+                                                        <div className="space-y-2">
+                                                            <p className="text-[9px] font-mono text-amber-500/80 uppercase">
+                                                                Connect the same wallet you linked ({wallet.linked_solana_address.slice(0, 4)}…
+                                                                {wallet.linked_solana_address.slice(-4)}) to sign this withdrawal
+                                                            </p>
+                                                            <SolanaWalletButton />
+                                                        </div>
+                                                    )}
                                                 <button
                                                     type="button"
                                                     onClick={handleWithdrawSol}
-                                                    disabled={processing || !wallet?.linked_solana_address}
+                                                    disabled={
+                                                        processing ||
+                                                        !wallet?.linked_solana_address ||
+                                                        (parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL && !signMessage)
+                                                    }
                                                     className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest border-rose-500/30 hover:border-rose-500/50 disabled:opacity-40"
                                                 >
                                                     {processing ? (
@@ -741,7 +862,12 @@ export default function UnifiedWalletPage() {
                                                                 {(Number(tx.amount || 0) > 0 ? '+' : '')}{Number(tx.amount || 0).toFixed(2)}
                                                             </td>
                                                             <td className="px-8 py-5 text-center">
-                                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${tx.status === 'success' || tx.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${
+                                                                    tx.status === 'success' || tx.status === 'completed' || tx.status === 'settled'
+                                                                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
+                                                                        : tx.status === 'failed'
+                                                                          ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                                                                          : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
                                                                     }`}>
                                                                     {tx.status}
                                                                 </span>
@@ -797,9 +923,20 @@ export default function UnifiedWalletPage() {
                                                             <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,1)]"></div>
                                                             <p className="text-[10px] font-black font-mono text-emerald-500 uppercase tracking-widest">Identity Verified</p>
                                                         </div>
-                                                        <div className="text-[11px] font-mono font-black break-all bg-black/40 p-4 border border-white/5 rounded-xl shadow-inner text-primary/80">
-                                                            {wallet.linked_solana_address}
+                                                        <div className="flex gap-2 items-stretch">
+                                                            <code className="flex-1 text-[11px] font-mono font-black break-all bg-black/40 p-4 border border-white/5 rounded-xl shadow-inner text-primary/80">
+                                                                {wallet.linked_solana_address}
+                                                            </code>
+                                                            <button
+                                                                type="button"
+                                                                onClick={copyLinkedAddress}
+                                                                className="px-3 rounded-xl border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                                                                title="Copy linked address"
+                                                            >
+                                                                <Copy size={14} />
+                                                            </button>
                                                         </div>
+                                                        {linkedOnChainHint}
                                                         <motion.button
                                                             whileHover={{ scale: 1.02 }}
                                                             whileTap={{ scale: 0.98 }}
@@ -810,6 +947,8 @@ export default function UnifiedWalletPage() {
                                                                     await unlinkWallet('solana');
                                                                     setResult({ success: true, message: "Identity De-coupled" });
                                                                     queryClient.invalidateQueries({ queryKey: ['wallet'] });
+                                                                    queryClient.invalidateQueries({ queryKey: ['withdrawal-security'] });
+                                                                    setLinkedWalletBalance(null);
                                                                 } catch (err: unknown) {
                                                                     setResult({ success: false, message: getErrorMessage(err) || "Unlink failed" });
                                                                 } finally {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	internalRedis "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -141,20 +142,21 @@ func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
 	}
 
 	windowSecs := int(velocityWindow.Seconds())
-	results, err := v.redis.Eval(ctx, velocityLuaScript,
+	cmd := v.redis.Eval(ctx, velocityLuaScript,
 		[]string{velocityRedisKey},
 		fmt.Sprintf("%f", amountSOL),
 		fmt.Sprintf("%f", v.maxHourlySOL),
 		fmt.Sprintf("%d", windowSecs),
-	).StringSlice()
+	)
+	totalStr, exceeded, err := parseVelocityEvalResult(cmd)
 	if err != nil {
 		// P0-17: Redis error → block the transfer, do not proceed unchecked.
 		return fmt.Errorf("transfer blocked: Redis velocity check failed: %w", err)
 	}
 
-	if len(results) >= 2 && results[1] == "1" {
+	if exceeded {
 		// Lua script already rolled back the increment.
-		msg := fmt.Sprintf("hourly outflow would reach %s SOL (limit: %.2f SOL)", results[0], v.maxHourlySOL)
+		msg := fmt.Sprintf("hourly outflow would reach %s SOL (limit: %.2f SOL)", totalStr, v.maxHourlySOL)
 		if v.alertFn != nil {
 			v.alertFn("Oracle: Hourly Velocity Limit Hit", msg)
 		}
@@ -162,6 +164,28 @@ func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
 	}
 
 	return nil
+}
+
+// parseVelocityEvalResult reads the Lua script reply: {total_after_increment, exceeded_flag}.
+func parseVelocityEvalResult(cmd *redis.Cmd) (total string, exceeded bool, err error) {
+	raw, err := cmd.Result()
+	if err != nil {
+		return "", false, err
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		if len(v) < 2 {
+			return "", false, fmt.Errorf("unexpected velocity script arity: %d", len(v))
+		}
+		return fmt.Sprint(v[0]), fmt.Sprint(v[1]) == "1", nil
+	case []string:
+		if len(v) < 2 {
+			return "", false, fmt.Errorf("unexpected velocity script arity: %d", len(v))
+		}
+		return v[0], v[1] == "1", nil
+	default:
+		return "", false, fmt.Errorf("unexpected velocity script type %T", raw)
+	}
 }
 
 // RecordOutflow records a completed transfer in the hourly window.

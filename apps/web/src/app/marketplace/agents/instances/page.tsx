@@ -66,7 +66,7 @@ export default function AgentInstancesPage() {
                     <p className="font-mono text-xs text-muted-foreground mt-2 max-w-xs mx-auto mb-6">
                         YOU HAVE NOT DEPLOYED ANY AGENTS YET.
                     </p>
-                    <a href="/agents" className="btn-retro btn-retro-primary">
+                    <a href="/marketplace/agents" className="btn-retro btn-retro-primary">
                         BROWSE MARKETPLACE
                     </a>
                 </div>

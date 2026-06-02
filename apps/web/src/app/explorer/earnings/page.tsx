@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getProviderEarnings } from '@/lib/services/explorer';
+import { getProviderEarnings, isExplorerNotFound } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     ArrowLeft, TrendingUp, Coins, Server, ChevronLeft, ChevronRight,
@@ -49,6 +49,8 @@ export default function EarningsPage() {
         refetchInterval: 30000,
         retry: false,
     });
+
+    const earningsFeedDisabled = Boolean(error && isExplorerNotFound(error));
 
     const providers = data?.providers || [];
     const total = data?.total || 0;
@@ -113,6 +115,24 @@ export default function EarningsPage() {
                 </div>
             </motion.header>
 
+            {earningsFeedDisabled ? (
+                <motion.section variants={itemVariants}>
+                    <GlassCard className="py-20 text-center max-w-md mx-auto border-white/5 bg-white/[0.01] rounded-[2rem]">
+                        <Coins size={48} className="text-white/5 mx-auto mb-4" />
+                        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">
+                            Public earnings feed disabled
+                        </p>
+                        <p className="text-[9px] font-bold text-white/20 leading-relaxed">
+                            This deployment does not expose aggregated provider payouts on the public explorer.
+                            Operators can enable it with <span className="text-primary/80">EXPLORER_PUBLIC_EARNINGS_ENABLED</span>.
+                        </p>
+                        <Link href="/explorer" className="inline-flex items-center gap-2 mt-6 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                            <ArrowLeft size={10} /> Back to Grid
+                        </Link>
+                    </GlassCard>
+                </motion.section>
+            ) : (
+            <>
             {/* Summary Stats */}
             <motion.section variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
@@ -174,7 +194,12 @@ export default function EarningsPage() {
                                 <div key={i} className="h-14 animate-pulse bg-white/[0.01]" />
                             ))}
                         </div>
-                    ) : error || providers.length === 0 ? (
+                    ) : error ? (
+                        <div className="py-20 text-center">
+                            <Coins size={48} className="text-white/5 mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">Earnings data unavailable</p>
+                        </div>
+                    ) : providers.length === 0 ? (
                         <div className="py-20 text-center">
                             <Coins size={48} className="text-white/5 mx-auto mb-4" />
                             <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">No earnings data yet</p>
@@ -250,6 +275,8 @@ export default function EarningsPage() {
                     )}
                 </GlassCard>
             </motion.section>
+            </>
+            )}
         </motion.div>
     );
 }

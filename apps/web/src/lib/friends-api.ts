@@ -103,12 +103,23 @@ export async function getFriendRequests(): Promise<{
     incoming: FriendRequest[];
     outgoing: FriendRequest[];
 }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/friends/requests`);
-    if (!res.ok) {
-        if (res.status === 404) return { incoming: [], outgoing: [] };
-        throw new Error("Failed to fetch friend requests");
-    }
-    return res.json();
+    const fetchRequests = async (type: "incoming" | "outgoing"): Promise<FriendRequest[]> => {
+        const res = await fetchWithAuth(`${API_BASE}/v1/friends/requests?type=${type}`);
+        if (!res.ok) {
+            if (res.status === 404) return [];
+            throw new Error("Failed to fetch friend requests");
+        }
+        const data = await res.json();
+        if (Array.isArray(data)) return data;
+        return data[type] || data.requests || [];
+    };
+
+    const [incoming, outgoing] = await Promise.all([
+        fetchRequests("incoming"),
+        fetchRequests("outgoing"),
+    ]);
+
+    return { incoming, outgoing };
 }
 
 // ============== Friends ==============
@@ -119,7 +130,8 @@ export async function getFriends(): Promise<{ friends: Friendship[] }> {
         if (res.status === 404) return { friends: [] };
         throw new Error("Failed to fetch friends");
     }
-    return res.json();
+    const data = await res.json();
+    return { friends: Array.isArray(data) ? data : data.friends || [] };
 }
 
 export async function removeFriend(friendId: string): Promise<{ message: string }> {

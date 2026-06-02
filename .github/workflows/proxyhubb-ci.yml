@@ -133,6 +133,24 @@ jobs:
         go test ./internal/billing/... -count=1
         go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
 
+    - name: Wallet and billing coverage report
+      env:
+        TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
+        REDIS_URL: "redis://localhost:6379"
+        EMERGENCY_SOL_PRICE_USD: "200"
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+      run: |
+        go test ./internal/api/... -count=1 -coverprofile=wallet_api.cover -covermode=atomic \
+          -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
+        echo "=== wallet API test coverage (filtered run) ==="
+        go tool cover -func=wallet_api.cover | tail -1
+        go test ./internal/billing/... -count=1 -coverprofile=billing.cover -covermode=atomic
+        echo "=== billing package coverage ==="
+        go tool cover -func=billing.cover | tail -1
+
     - name: Test with coverage
       env:
         TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"

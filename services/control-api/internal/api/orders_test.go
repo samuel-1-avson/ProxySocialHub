@@ -15,12 +15,13 @@ import (
 
 func TestCreateOrder_Success(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	// Delete children (orders, ledger, listings, wallets) before parents (users)
-	testutil.CleanupTestData(t, "wallet_ledger_entries", "orders", "proxy_listings", "wallets", "users")
+	testutil.CleanupTestData(t, "wallet_ledger_entries", "feed_events", "sessions", "orders", "proxy_listings", "wallets", "users")
 
 	// 1. Setup Users
-	provider := testutil.CreateTestUser(t, "provider@test.com", "provider")
-	buyer := testutil.CreateTestUser(t, "buyer@test.com", "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_order_success"), "provider")
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_order_success"), "buyer")
 
 	// 2. Setup Listing ($10/GB)
 	listing := models.ProxyListing{
@@ -84,10 +85,24 @@ func TestCreateOrder_Success(t *testing.T) {
 	if order.Status != models.OrderStatusActive {
 		t.Errorf("Expected order status active, got %s", order.Status)
 	}
+	if order.SessionID == nil {
+		t.Fatal("Expected order to be linked to a session")
+	}
+	var session models.Session
+	if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err != nil {
+		t.Fatalf("expected linked session to exist: %v", err)
+	}
+	if session.Status != models.SessionActive {
+		t.Errorf("Expected linked session active, got %s", session.Status)
+	}
+	if session.ListingID == nil || *session.ListingID != listing.ID {
+		t.Errorf("Expected session to reference listing %s, got %v", listing.ID, session.ListingID)
+	}
 }
 
 func TestCreateOrder_InsufficientFunds(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "proxy_listings")
 
 	// 1. Setup
@@ -125,6 +140,99 @@ func TestCreateOrder_InsufficientFunds(t *testing.T) {
 	// 4. Verify
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+func TestCreateOrder_BlocksInactiveListings(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "feed_events", "sessions", "orders", "users", "wallets", "proxy_listings")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_order_inactive"), "provider")
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_order_inactive"), "buyer")
+
+	for _, status := range []models.ListingStatus{models.ListingStatusPaused, models.ListingStatusSoldOut, models.ListingStatusDeleted} {
+		t.Run(string(status), func(t *testing.T) {
+			listing := models.ProxyListing{
+				SellerID:             provider.ID,
+				Title:                "Unavailable Listing",
+				PricePerGB:           1,
+				AvailableBandwidthGB: 10,
+				Status:               status,
+			}
+			if err := db.DB.Create(&listing).Error; err != nil {
+				t.Fatalf("failed to create listing: %v", err)
+			}
+
+			r := setupTestRouter()
+			r.Use(func(c *gin.Context) {
+				c.Set("user_id", buyer.ID)
+			})
+			r.POST("/orders", createOrder)
+
+			reqBody := models.CreateOrderRequest{ListingID: listing.ID, BandwidthGB: 1}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/orders", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusConflict {
+				t.Fatalf("expected 409 for %s listing, got %d: %s", status, w.Code, w.Body.String())
+			}
+
+			var count int64
+			db.DB.Model(&models.Order{}).Where("listing_id = ?", listing.ID).Count(&count)
+			if count != 0 {
+				t.Fatalf("expected no order for inactive listing, got %d", count)
+			}
+		})
+	}
+}
+
+func TestCancelOrder_BlocksTerminalOrders(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "orders", "proxy_listings", "wallets", "users")
+
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_cancel_terminal"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_cancel_terminal"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Terminal Order Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	for _, status := range []models.OrderStatus{models.OrderStatusCompleted, models.OrderStatusCancelled, models.OrderStatusRefunded} {
+		t.Run(string(status), func(t *testing.T) {
+			order := models.Order{
+				BuyerID:   buyer.ID,
+				SellerID:  provider.ID,
+				ListingID: listing.ID,
+				Status:    status,
+			}
+			if err := db.DB.Create(&order).Error; err != nil {
+				t.Fatalf("failed to create order: %v", err)
+			}
+
+			r := setupTestRouter()
+			r.Use(func(c *gin.Context) {
+				c.Set("user_id", buyer.ID)
+			})
+			r.POST("/orders/:id/cancel", cancelOrder)
+
+			req := httptest.NewRequest("POST", "/orders/"+order.ID.String()+"/cancel", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for cancelling %s order, got %d: %s", status, w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

@@ -1,0 +1,46 @@
+# Local unlimited SOL — no public devnet faucet.
+# Usage:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.local-solana.yml up -d solana-local control-api web
+#   pwsh -File scripts/solana-local/fund-oracle.ps1
+#
+# Phantom / browser RPC: http://127.0.0.1:8899
+
+services:
+  solana-local:
+    # amd64-friendly; chesterk image is ARM-only on Docker Hub
+    image: solanalabs/solana:v1.18.26
+    container_name: proxyhubb-solana-local
+    command:
+      - solana-test-validator
+      - --bind-address
+      - "0.0.0.0"
+      - --reset
+    ports:
+      - "8899:8899"
+      - "8900:8900"
+    restart: unless-stopped
+    networks:
+      - backend
+
+  control-api:
+    environment:
+      - SOLANA_RPC_ENDPOINT=http://solana-local:8899
+      - SOLANA_RPC_ENDPOINTS=http://solana-local:8899
+      - SOLANA_WS_ENDPOINT=ws://solana-local:8900
+      - SOLANA_NETWORK=devnet
+      - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+    depends_on:
+      - solana-local
+    networks:
+      - backend
+
+  web:
+    environment:
+      - NEXT_PUBLIC_SOLANA_RPC=http://127.0.0.1:8899
+      - NEXT_PUBLIC_SOLANA_NETWORK=devnet
+    depends_on:
+      - solana-local
+    networks:
+      - backend
+      - frontend

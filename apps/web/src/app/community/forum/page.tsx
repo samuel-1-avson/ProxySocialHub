@@ -103,7 +103,7 @@ function ForumContent() {
                 </div>
                 {isAuthenticated && (
                     <Link
-                        href="/forum/new"
+                        href="/community/forum/new"
                         className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-bold font-mono text-sm hover:bg-primary/90 transition-colors"
                     >
                         <Plus className="w-4 h-4" />
@@ -201,7 +201,7 @@ function ForumContent() {
                         {activeTab === "categories" && (
                             <div className="grid sm:grid-cols-2 gap-4">
                                 {categories.map((category) => (
-                                    <Link key={category.id} href={`/forum/category/${category.slug}`}>
+                                    <Link key={category.id} href={`/community/forum/category/${category.slug}`}>
                                         <GlassCard className="!p-5 hover:border-primary/50 transition-all h-full group">
                                             <div className="flex items-start gap-4">
                                                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -287,7 +287,7 @@ function ForumContent() {
                             <h3 className="font-bold font-mono mb-4">Quick Links</h3>
                             <div className="space-y-2">
                                 <Link
-                                    href="/forum/recent"
+                                    href="/community/forum/recent"
                                     className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
                                 >
                                     <Clock className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
@@ -295,7 +295,7 @@ function ForumContent() {
                                     <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
                                 </Link>
                                 <Link
-                                    href="/forum/unanswered"
+                                    href="/community/forum/unanswered"
                                     className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
                                 >
                                     <MessageCircle className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
@@ -304,7 +304,7 @@ function ForumContent() {
                                 </Link>
                                 {isAuthenticated && (
                                     <Link
-                                        href="/forum/my-posts"
+                                        href="/community/forum/my-posts"
                                         className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
                                     >
                                         <Users className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
@@ -352,7 +352,7 @@ interface ThreadCardProps {
 
 function ThreadCard({ thread, compact }: ThreadCardProps) {
     return (
-        <Link href={`/forum/thread/${thread.id}`}>
+        <Link href={`/community/forum/thread/${thread.id}`}>
             <GlassCard className={`hover:border-primary/50 transition-all group ${compact ? "!p-4" : "!p-5"}`}>
                 <div className="flex items-start gap-4">
                     {/* Vote Count */}

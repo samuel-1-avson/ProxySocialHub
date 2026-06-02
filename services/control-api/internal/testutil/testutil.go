@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
+	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisInternal "github.com/proxyhubb/control-api/internal/redis"
@@ -39,13 +40,21 @@ func SetupTestRedis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start miniredis: %v", err)
 	}
+
+	previousRedisClient := redisInternal.Client
+	previousCacheClient := cache.Client
+	client := redis.NewClient(&redis.Options{
+		Addr: m.Addr(),
+	})
 	t.Cleanup(func() {
+		redisInternal.Client = previousRedisClient
+		cache.Client = previousCacheClient
+		client.Close()
 		m.Close()
 	})
 
-	redisInternal.Client = redis.NewClient(&redis.Options{
-		Addr: m.Addr(),
-	})
+	redisInternal.Client = client
+	cache.Client = client
 }
 
 // SetupTestDB initializes a PostgreSQL test database connection.
@@ -101,6 +110,8 @@ func SetupTestDB(t *testing.T) {
 			&models.Review{},
 			&models.Conversation{},
 			&models.Message{},
+			&models.Notification{},
+			&models.NotificationPreference{},
 			&models.FriendRequest{},
 			&models.Friendship{},
 			&models.ProxyListing{},

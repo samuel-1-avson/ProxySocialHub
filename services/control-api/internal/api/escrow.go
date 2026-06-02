@@ -133,8 +133,8 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
-	if order.Status != models.OrderStatusActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Order is not in active status"})
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -236,6 +236,12 @@ func createEscrowDispute(c *gin.Context) {
 		return
 	}
 
+	var order models.Order
+	if err := db.DB.First(&order, "id = ?", orderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
 	// Only buyer or seller can dispute
 	if escrow.BuyerID != userID && escrow.SellerID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
@@ -244,6 +250,10 @@ func createEscrowDispute(c *gin.Context) {
 
 	if escrow.Status != models.EscrowHeld {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot dispute - escrow not held"})
+		return
+	}
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -264,6 +274,7 @@ func createEscrowDispute(c *gin.Context) {
 
 	// Update escrow status
 	db.DB.Model(&escrow).Update("status", models.EscrowDisputed)
+	db.DB.Model(&order).Update("status", models.OrderStatusDisputed)
 
 	// D-E1: Automatically convene a 3-juror jury from reputation-weighted
 	// validators, excluding the two parties.  If fewer than 3 validators are
@@ -420,9 +431,15 @@ func AutoReleaseExpiredEscrows() {
 				if err := tx.Create(&ledger).Error; err != nil {
 					return err
 				}
-				return tx.Model(&models.Order{}).
-					Where("id = ?", escrow.OrderID).
-					Update("status", models.OrderStatusCompleted).Error
+				var order models.Order
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+					First(&order, "id = ?", escrow.OrderID).Error; err != nil {
+					return err
+				}
+				if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+					return err
+				}
+				return tx.Model(&order).Update("status", models.OrderStatusCompleted).Error
 			}); txErr != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows credit error for escrow %s: %v", escrow.ID, txErr)
 			}

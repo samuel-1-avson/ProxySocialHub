@@ -58,6 +58,10 @@ enum Commands {
         #[arg(long, env = "PROXYHUB_JWT_TOKEN")]
         jwt_token: Option<String>,
 
+        /// Provider API key (overrides config file when set)
+        #[arg(long, env = "PROXYHUB_API_KEY")]
+        api_key: Option<String>,
+
         /// Enable TLS for the tunnel connection
         #[arg(long, default_value_t = false)]
         use_tls: bool,
@@ -149,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
             gateway_addr,
             gateway_addrs,
             jwt_token,
+            api_key,
             use_tls,
             debug,
         } => {
@@ -177,11 +182,14 @@ async fn main() -> anyhow::Result<()> {
             if let Some(token) = jwt_token {
                 cfg.jwt_token = token;
             }
+            if let Some(key) = api_key {
+                cfg.api_key = key;
+            }
             cfg.use_tls = use_tls;
 
             if cfg.jwt_token.is_empty() && cfg.api_key.is_empty() {
                 eprintln!("Error: JWT token or API key is required.");
-                eprintln!("Set via --jwt-token, PROXYHUB_JWT_TOKEN, or in the config file.");
+                eprintln!("Set via config api_key, --api-key, PROXYHUB_API_KEY, or --jwt-token / PROXYHUB_JWT_TOKEN.");
                 std::process::exit(1);
             }
 

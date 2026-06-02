@@ -76,8 +76,8 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 		// Sessions (disabled by default — set EXPLORER_PUBLIC_SESSIONS_ENABLED=true to expose)
 		explorer.GET("/sessions", RateLimitWithConfig(30, time.Minute), enforceExplorerPublicSessions(), listExplorerSessions)
 
-		// Provider Earnings (aggregated payouts; tighter limit than general explorer reads)
-		explorer.GET("/earnings", RateLimitWithConfig(60, time.Minute), getExplorerProviderEarnings)
+		// Provider earnings (disabled by default — set EXPLORER_PUBLIC_EARNINGS_ENABLED=true to expose)
+		explorer.GET("/earnings", RateLimitWithConfig(60, time.Minute), enforceExplorerPublicEarnings(), getExplorerProviderEarnings)
 
 		// Network Health History
 		explorer.GET("/health/history", getHealthHistory)
@@ -139,8 +139,8 @@ type TransactionDetailResponse struct {
 	TxType        string                 `json:"tx_type"`
 	ProgramID     string                 `json:"program_id,omitempty"`
 	Timestamp     time.Time              `json:"timestamp"`
-	Confirmations int                    `json:"confirmations"`
-	RawData       map[string]interface{} `json:"raw_data,omitempty"`
+	Confirmations int `json:"confirmations"`
+	// Raw chain payload is intentionally omitted from public explorer responses (EXP-P0-08).
 }
 
 type WalletDetailsResponse struct {
@@ -193,10 +193,9 @@ type NodeListResponse struct {
 }
 
 type NodeSummary struct {
-	NodeID           string    `json:"node_id"`
-	ProviderID       string    `json:"provider_id,omitempty"`
-	ProviderUsername string    `json:"provider_username,omitempty"`
-	Name             string    `json:"name,omitempty"`
+	NodeID string `json:"node_id"`
+	// Provider identity fields are omitted from public explorer responses (EXP-P0-06); use publicNodeSummary.
+	Name string `json:"name,omitempty"`
 	Chain            string    `json:"chain"`
 	Region           string    `json:"region"`
 	Country          string    `json:"country"`
@@ -223,9 +222,9 @@ type NodeDetailResponse struct {
 	QualityScore  float64 `json:"quality_score"`
 	SuccessRate   float64 `json:"success_rate"`
 	TotalSessions int64   `json:"total_sessions"`
-	BytesUp       int64   `json:"bytes_up"`
-	BytesDown     int64   `json:"bytes_down"`
-	Hotkey        string  `json:"hotkey,omitempty"`
+	BytesUp  int64 `json:"bytes_up"`
+	BytesDown int64 `json:"bytes_down"`
+	// Validator hotkey is intentionally omitted from public node detail (EXP-P0-09).
 }
 
 // NodeGeoPoint is the lightweight payload returned by GET /nodes/geo.
@@ -318,7 +317,7 @@ type ExplorerDecentralizationWritersResponse struct {
 
 type ExplorerWriterHealth struct {
 	WriterID                string    `json:"writer_id"`
-	RPCEndpoint             string    `json:"rpc_endpoint"`
+	RPCEndpoint             string    `json:"rpc_endpoint,omitempty"` // always redacted on public explorer (EXP-P0-05)
 	WriterPublicKey         string    `json:"writer_public_key,omitempty"`
 	SignatureScheme         string    `json:"signature_scheme,omitempty"`
 	HasAttestationSignature bool      `json:"has_attestation_signature"`
@@ -1952,6 +1951,24 @@ func explorerPublicSessionsEnabled() bool {
 func enforceExplorerPublicSessions() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if explorerPublicSessionsEnabled() {
+			c.Next()
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		c.Abort()
+	}
+}
+
+// explorerPublicEarningsEnabled gates the public provider earnings feed (EXP-P0-07).
+// Default off: aggregated payout data is not exposed unless explicitly enabled.
+func explorerPublicEarningsEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("EXPLORER_PUBLIC_EARNINGS_ENABLED")))
+	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+func enforceExplorerPublicEarnings() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if explorerPublicEarningsEnabled() {
 			c.Next()
 			return
 		}

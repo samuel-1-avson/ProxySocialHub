@@ -40,6 +40,10 @@ func reap() {
 		if !exists {
 			// Ghost detected! DB thinks it's active, but Gateway can't auth it.
 			log.Printf("[SessionReaper] Ghost detected: %s (Terminating in DB)", session.ID)
+			if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
+				log.Printf("[SessionReaper] Invalid termination transition for session %s: %v", session.ID, err)
+				continue
+			}
 			db.DB.Model(&session).Update("status", models.SessionTerminated)
 			ghostCount++
 		}
