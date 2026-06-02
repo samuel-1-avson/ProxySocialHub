@@ -1,7 +1,6 @@
 "use client";
 
-import { Sidebar } from "@/components/Sidebar";
-import { Navbar } from "@/components/Navbar";
+import { AppShell } from "@/components/AppShell";
 
 export default function AppLayout({
     children,
@@ -9,21 +8,8 @@ export default function AppLayout({
     children: React.ReactNode;
 }) {
     return (
-        <div className="min-h-screen bg-background text-foreground">
-            {/* Mobile Navbar */}
-            <div className="md:hidden">
-                <Navbar showAuth={true} />
-            </div>
-
-            {/* Global Sidebar (Same as Dashboard) */}
-            <Sidebar />
-
-            {/* Main Content */}
-            <main className="md:pl-64 min-h-screen transition-all">
-                <div className="container mx-auto p-4 md:p-8 max-w-7xl animate-in fade-in duration-500">
-                    {children}
-                </div>
-            </main>
-        </div>
+        <AppShell showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
+            {children}
+        </AppShell>
     );
 }

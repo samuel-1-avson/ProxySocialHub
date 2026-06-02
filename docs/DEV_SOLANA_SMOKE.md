@@ -91,6 +91,21 @@ solana balance 8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2 --url devnet
 solana airdrop 2 8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2 --url devnet
 ```
 
+### Faucet exhausted? Use a local validator
+
+No public devnet needed — unlimited airdrops on `localhost:8899`:
+
+```powershell
+pwsh -File scripts/solana-local/install-solana-cli.ps1
+pwsh -File scripts/solana-local/start-validator-docker.ps1   # Windows-friendly
+pwsh -File scripts/solana-local/fund-oracle.ps1
+docker compose -f docker-compose.dev.yml -f docker-compose.local-solana.yml up -d control-api web
+```
+
+On Windows, native `solana-test-validator` needs **Admin** PowerShell; Docker path avoids that.
+
+Full steps: [scripts/solana-local/README.md](../scripts/solana-local/README.md). Set Phantom custom RPC to `http://127.0.0.1:8899`.
+
 | Check | Pass |
 |-------|------|
 | Small SOL withdraw or provider payout succeeds | ☐ |

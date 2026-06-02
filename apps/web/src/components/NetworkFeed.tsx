@@ -6,6 +6,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { Activity, Shield, Users, Server, DollarSign, Vote, AlertTriangle, Radio, Wifi, Hexagon, ChevronRight, Zap, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export function NetworkFeed() {
     const [events, setEvents] = useState<FeedEvent[]>([]);
@@ -132,7 +133,7 @@ export function NetworkFeed() {
             </div>
 
             <div className="p-4 border-t border-white/5 bg-white/2 backdrop-blur-3xl">
-                <Link href="/feed" className="flex items-center justify-center gap-3 w-full py-3 rounded-xl bg-white/5 hover:bg-primary/10 border border-white/5 hover:border-primary/30 transition-all group/btn">
+                <Link href={ROUTES.communityFeed} className="flex items-center justify-center gap-3 w-full py-3 rounded-xl bg-white/5 hover:bg-primary/10 border border-white/5 hover:border-primary/30 transition-all group/btn">
                     <span className="text-[9px] font-black font-mono uppercase text-muted-foreground group-hover/btn:text-primary transition-colors tracking-[0.3em]">Protocol Archive</span>
                     <ArrowRight size={12} className="text-muted-foreground/20 group-hover/btn:text-primary group-hover/btn:translate-x-1 transition-all" />
                 </Link>

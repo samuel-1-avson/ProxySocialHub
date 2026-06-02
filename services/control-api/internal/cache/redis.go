@@ -18,7 +18,7 @@ const (
 	UserTTL       = 10 * time.Minute
 
 	// Discovery Caching
-	DiscoveryKeyPrefix = "discovery:"
+	DiscoveryKeyPrefix  = "discovery:"
 	DiscoveryFiltersTTL = 1 * time.Hour
 	DiscoveryGeoTTL     = 1 * time.Hour
 	DiscoverySearchTTL  = 2 * time.Minute
@@ -189,6 +189,30 @@ func Delete(key string) error {
 		return nil
 	}
 	return Client.Del(ctx, key).Err()
+}
+
+// DeletePattern removes keys matching a Redis glob pattern.
+func DeletePattern(pattern string) error {
+	if Client == nil {
+		return nil
+	}
+
+	var cursor uint64
+	for {
+		keys, nextCursor, err := Client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := Client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			return nil
+		}
+	}
 }
 
 // Incr increments a counter

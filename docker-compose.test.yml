@@ -41,6 +41,14 @@ services:
       
       # Disable email for tests
       - SMTP_HOST=
+
+      # Explorer (P0 hardening defaults for integration tests)
+      - FULL_DECENTRALIZATION=false
+      - EXPLORER_PUBLIC_SESSIONS_ENABLED=true
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=false
+      - EXPLORER_MIN_WRITERS=2
+      - EXPLORER_METRICS_ENABLED=false
+      - EXPLORER_INDEXER_ENABLED=false
       
     volumes:
       - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro

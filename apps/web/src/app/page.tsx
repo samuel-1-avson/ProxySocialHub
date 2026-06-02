@@ -5,6 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { NetworkFeed } from "@/components/NetworkFeed";
 import { ArrowRight, Shield, Zap, Globe, Wallet, ExternalLink, Activity } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { FOOTER_LEGAL_LINKS, FOOTER_PLATFORM_LINKS, FOOTER_SUPPORT_LINKS, ROUTES } from "@/lib/navigation/routes";
 
 export default function Home() {
   const { user } = useAuth();
@@ -40,21 +41,21 @@ export default function Home() {
 
             {/* CTAs */}
             <div className="flex flex-col sm:flex-row gap-6 justify-center mb-24 relative z-20">
-              <Link href="/marketplace">
+              <Link href={ROUTES.marketplace}>
                 <button className="btn-retro btn-retro-primary px-8 py-4 text-lg w-full sm:w-auto h-full flex items-center justify-center">
                   <Globe className="w-5 h-5 mr-2" />
                   BROWSE MARKETPLACE
                 </button>
               </Link>
               {user ? (
-                <Link href="/dashboard">
+                <Link href={ROUTES.dashboard}>
                   <button className="btn-retro btn-retro-outline px-8 py-4 text-lg w-full sm:w-auto bg-background h-full flex items-center justify-center">
                     <Activity className="w-5 h-5 mr-2" />
                     SYSTEM DASHBOARD
                   </button>
                 </Link>
               ) : (
-                <Link href="/login">
+                <Link href={ROUTES.login}>
                   <button className="btn-retro btn-retro-outline px-8 py-4 text-lg w-full sm:w-auto bg-background h-full flex items-center justify-center">
                     <ExternalLink className="w-5 h-5 mr-2" />
                     ACCESS TERMINAL
@@ -179,26 +180,33 @@ export default function Home() {
               <div>
                 <h4 className="font-bold mb-6 text-foreground font-mono uppercase text-sm">Platform</h4>
                 <ul className="space-y-3 text-muted-foreground text-sm">
-                  <li><Link href="/marketplace" className="hover:text-primary transition-colors hover:underline">Marketplace</Link></li>
-                  <li><Link href="/feed" className="hover:text-primary transition-colors hover:underline">Activity Feed</Link></li>
-                  <li><Link href="/register?role=provider" className="hover:text-primary transition-colors hover:underline">Become a Seller</Link></li>
+                  {FOOTER_PLATFORM_LINKS.map((item) => (
+                    <li key={item.href}>
+                      <Link href={item.href} className="hover:text-primary transition-colors hover:underline">{item.label}</Link>
+                    </li>
+                  ))}
                 </ul>
               </div>
 
               <div>
                 <h4 className="font-bold mb-6 text-foreground font-mono uppercase text-sm">Support</h4>
                 <ul className="space-y-3 text-muted-foreground text-sm">
-                  <li><Link href="/help" className="hover:text-primary transition-colors hover:underline">Help Center</Link></li>
-                  <li><Link href="/guidelines" className="hover:text-primary transition-colors hover:underline">Community Guidelines</Link></li>
-                  <li><Link href="/contact" className="hover:text-primary transition-colors hover:underline">Contact Us</Link></li>
+                  {FOOTER_SUPPORT_LINKS.map((item) => (
+                    <li key={item.href}>
+                      <Link href={item.href} className="hover:text-primary transition-colors hover:underline">{item.label}</Link>
+                    </li>
+                  ))}
                 </ul>
               </div>
 
               <div>
                 <h4 className="font-bold mb-6 text-foreground font-mono uppercase text-sm">Legal</h4>
                 <ul className="space-y-3 text-muted-foreground text-sm">
-                  <li><Link href="/terms" className="hover:text-primary transition-colors hover:underline">Terms of Service</Link></li>
-                  <li><Link href="/privacy" className="hover:text-primary transition-colors hover:underline">Privacy Policy</Link></li>
+                  {FOOTER_LEGAL_LINKS.map((item) => (
+                    <li key={item.href}>
+                      <Link href={item.href} className="hover:text-primary transition-colors hover:underline">{item.label}</Link>
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -217,4 +225,3 @@ export default function Home() {
     </div>
   );
 }
-

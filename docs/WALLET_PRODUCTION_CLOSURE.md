@@ -5,7 +5,10 @@ Checklist to move wallet work from “implemented on branch” to **verified on 
 ## Quick automated pass (local / staging)
 
 ```powershell
-# From repo root — verify schema + API + tests
+# All automated local gates (no GitHub Actions)
+.\scripts\local-verification.ps1
+
+# Or wallet-only:
 .\scripts\wallet-production-closure.ps1
 
 # Apply pending SQL migrations first (Docker dev DB)
@@ -25,7 +28,7 @@ PGPASSWORD=proxyhubb ./scripts/wallet-production-closure.sh
 .\scripts\wallet-manual-e2e.ps1 -AccessToken $env:ACCESS_TOKEN
 ```
 
-**CI:** `.github/workflows/proxyhubb-ci.yml` (**ProxyHubb CI**) runs wallet schema checks in `db-migrate` and wallet/billing Go tests in `backend-test`. See [CI_WALLET_STEPS.md](CI_WALLET_STEPS.md).
+**CI (optional):** `.github/workflows/proxyhubb-ci.yml` when GitHub Actions billing is fixed. For day-to-day verification use `.\scripts\local-verification.ps1` instead of waiting on CI.
 
 Exit code `0` means automated checks passed. You still need **authenticated** steps in [WALLET_E2E_SMOKE.md](WALLET_E2E_SMOKE.md) and [DEV_SOLANA_SMOKE.md](DEV_SOLANA_SMOKE.md).
 
@@ -128,15 +131,27 @@ Test DB: `docker compose -f docker-compose.test.yml up -d` (port **5433**).
 
 ## 6. Staging sign-off
 
-| Item | Owner | Done |
-|------|-------|------|
-| Migrations 080–088 on staging DB | Ops | ☐ |
-| No Paystack/MoMo in prod compose/env | Ops | ☐ |
-| Treasury + oracle funded on target network | Ops | ☐ |
-| Manual E2E smoke (deposit / withdraw / whitelist) | QA | ☐ |
-| Solana smoke (treasury public, solana health) | QA | ☐ |
-| `wallet-production-closure.ps1` green | Eng | ☐ |
-| Monitoring: payout retry queue, circuit breaker logs | Ops | ☐ |
+| Item | Owner | Local dev | Staging / prod |
+|------|-------|-----------|----------------|
+| Migrations 080–088 applied | Ops | ☐ → run `db-migrate` | ☐ |
+| No Paystack/MoMo in compose/env | Ops | ☐ automated in closure script | ☐ |
+| Treasury + oracle funded (target network) | Ops | ☐ devnet oracle | ☐ |
+| `local-verification.ps1` or closure script green | Eng | ☐ | ☐ |
+| `smoke_wallet_api` (auth paths) | Eng | ☐ | ☐ |
+| Manual E2E (deposit / withdraw / whitelist) | QA | ☐ browser + devnet | ☐ |
+| Solana smoke (treasury public, solana health) | QA | ☐ public API OK | ☐ |
+| Provider CLI + registry link | QA | ☐ see PROVIDER_PHASE1_VERIFY | ☐ |
+| Monitoring: payout retry queue, circuit breaker | Ops | — | ☐ |
+
+**Local dev:** after `docker compose -f docker-compose.dev.yml up -d`, run `.\scripts\local-verification.ps1` then complete manual rows in [WALLET_E2E_SMOKE.md](WALLET_E2E_SMOKE.md).
+
+---
+
+## Roadmap tracker
+
+Cross-cutting checklist (CI, staging, E2E, registry): [NEXT_STEPS_TRACKER.md](NEXT_STEPS_TRACKER.md).
+
+Provider self-claim UI is on `/dashboard/provider/earnings` (`ProviderClaimPanel`). Seller listings: `/marketplace/manage`.
 
 ---
 

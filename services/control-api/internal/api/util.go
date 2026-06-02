@@ -33,20 +33,20 @@ func RecordAuditLog(c *gin.Context, eventType models.AuditEventType, severity mo
 }
 
 // GetUserID safely extracts the user UUID from the context.
-// It checks both "user_id" (UUID) and "userID" (string) keys.
+// Auth middleware has historically used both "user_id" and "userID", and
+// callers/tests may store either uuid.UUID or string values under either key.
 func GetUserID(c *gin.Context) (uuid.UUID, bool) {
-	// Try UUID first
-	if val, exists := c.Get("user_id"); exists {
-		if uid, ok := val.(uuid.UUID); ok {
-			return uid, true
-		}
-	}
-
-	// Try string fallback
-	if val, exists := c.Get("userID"); exists {
-		if s, ok := val.(string); ok {
-			if uid, err := uuid.Parse(s); err == nil {
-				return uid, true
+	for _, key := range []string{"user_id", "userID"} {
+		if val, exists := c.Get(key); exists {
+			switch v := val.(type) {
+			case uuid.UUID:
+				if v != uuid.Nil {
+					return v, true
+				}
+			case string:
+				if uid, err := uuid.Parse(v); err == nil && uid != uuid.Nil {
+					return uid, true
+				}
 			}
 		}
 	}

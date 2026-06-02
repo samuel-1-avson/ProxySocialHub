@@ -218,3 +218,354 @@ func TestMarkAsRead_Success(t *testing.T) {
 		t.Error("Message should be marked as read")
 	}
 }
+
+func TestSendMessage_RejectsReplyToFromOtherConversation(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages")
+
+	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("sender"), "buyer")
+	receiver := testutil.CreateTestUser(t, testutil.UniqueEmail("receiver"), "provider")
+	other := testutil.CreateTestUser(t, testutil.UniqueEmail("other"), "provider")
+
+	conversation := models.Conversation{
+		Participant1: sender.ID,
+		Participant2: receiver.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	otherConversation := models.Conversation{
+		Participant1: sender.ID,
+		Participant2: other.ID,
+	}
+	if err := db.DB.Create(&otherConversation).Error; err != nil {
+		t.Fatalf("Failed to create other conversation: %v", err)
+	}
+
+	foreignMessage := models.Message{
+		ConversationID: otherConversation.ID,
+		SenderID:       other.ID,
+		Content:        "different conversation",
+	}
+	if err := db.DB.Create(&foreignMessage).Error; err != nil {
+		t.Fatalf("Failed to create foreign message: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", sender.ID)
+		c.Next()
+	})
+	r.POST("/conversations/:id/messages", sendMessage)
+
+	body := map[string]interface{}{
+		"content":     "Replying",
+		"reply_to_id": foreignMessage.ID,
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/conversations/"+conversation.ID.String()+"/messages", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
+	}
+}
+
+func TestSendMessage_CreatesDurableNotificationForRecipient(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages", "notifications", "notification_preferences")
+
+	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("notify_sender"), "buyer")
+	receiver := testutil.CreateTestUser(t, testutil.UniqueEmail("notify_receiver"), "provider")
+
+	conversation := models.Conversation{
+		Participant1: sender.ID,
+		Participant2: receiver.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", sender.ID)
+		c.Next()
+	})
+	r.POST("/conversations/:id/messages", sendMessage)
+
+	body := map[string]string{"content": "Hello provider"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/conversations/"+conversation.ID.String()+"/messages", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
+	}
+
+	var notification models.Notification
+	if err := db.DB.First(&notification, "user_id = ? AND type = ?", receiver.ID, models.NotificationMessage).Error; err != nil {
+		t.Fatalf("Expected message notification: %v", err)
+	}
+	if notification.ActorID == nil || *notification.ActorID != sender.ID {
+		t.Fatalf("Expected actor %s, got %v", sender.ID, notification.ActorID)
+	}
+	if notification.TargetID == nil || *notification.TargetID != conversation.ID {
+		t.Fatalf("Expected target conversation %s, got %v", conversation.ID, notification.TargetID)
+	}
+}
+
+func TestSendMessage_RespectsNotificationPreferences(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages", "notifications", "notification_preferences")
+
+	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("pref_sender"), "buyer")
+	receiver := testutil.CreateTestUser(t, testutil.UniqueEmail("pref_receiver"), "provider")
+
+	prefs := models.NotificationPreference{
+		UserID:               receiver.ID,
+		SocialInApp:          false,
+		SocialEmail:          true,
+		SocialPush:           false,
+		BusinessInApp:        true,
+		BusinessEmail:        true,
+		BusinessPush:         true,
+		CommunityInApp:       true,
+		CommunityEmail:       true,
+		CommunityPush:        false,
+		SystemInApp:          true,
+		SystemEmail:          true,
+		SystemPush:           true,
+		EmailDigestFrequency: "immediate",
+		DigestDay:            "monday",
+		DigestHour:           9,
+	}
+	if err := db.DB.Create(&prefs).Error; err != nil {
+		t.Fatalf("Failed to create preferences: %v", err)
+	}
+
+	conversation := models.Conversation{
+		Participant1: sender.ID,
+		Participant2: receiver.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", sender.ID)
+		c.Next()
+	})
+	r.POST("/conversations/:id/messages", sendMessage)
+
+	body := map[string]string{"content": "Hello provider"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/conversations/"+conversation.ID.String()+"/messages", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
+	}
+
+	var count int64
+	db.DB.Model(&models.Notification{}).Where("user_id = ?", receiver.ID).Count(&count)
+	if count != 0 {
+		t.Fatalf("Expected notification preference to suppress message notification, got %d", count)
+	}
+}
+
+func TestAddReaction_ForbiddenForNonParticipant(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages", "message_reactions")
+
+	participant := testutil.CreateTestUser(t, testutil.UniqueEmail("participant"), "buyer")
+	otherParticipant := testutil.CreateTestUser(t, testutil.UniqueEmail("other_participant"), "provider")
+	outsider := testutil.CreateTestUser(t, testutil.UniqueEmail("outsider"), "buyer")
+
+	conversation := models.Conversation{
+		Participant1: participant.ID,
+		Participant2: otherParticipant.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	msg := models.Message{
+		ConversationID: conversation.ID,
+		SenderID:       participant.ID,
+		Content:        "private",
+	}
+	if err := db.DB.Create(&msg).Error; err != nil {
+		t.Fatalf("Failed to create message: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", outsider.ID)
+		c.Next()
+	})
+	r.POST("/messages/:messageId/reactions", addReaction)
+
+	body := map[string]string{"emoji": "like"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/messages/"+msg.ID.String()+"/reactions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
+	}
+}
+
+func TestAddReaction_SuccessForParticipant(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages", "message_reactions")
+
+	participant := testutil.CreateTestUser(t, testutil.UniqueEmail("participant"), "buyer")
+	otherParticipant := testutil.CreateTestUser(t, testutil.UniqueEmail("other_participant"), "provider")
+
+	conversation := models.Conversation{
+		Participant1: participant.ID,
+		Participant2: otherParticipant.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	msg := models.Message{
+		ConversationID: conversation.ID,
+		SenderID:       otherParticipant.ID,
+		Content:        "private",
+	}
+	if err := db.DB.Create(&msg).Error; err != nil {
+		t.Fatalf("Failed to create message: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", participant.ID)
+		c.Next()
+	})
+	r.POST("/messages/:messageId/reactions", addReaction)
+
+	body := map[string]string{"emoji": "like"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/messages/"+msg.ID.String()+"/reactions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
+	}
+}
+
+func TestRemoveReaction_ForbiddenForNonParticipant(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages", "message_reactions")
+
+	participant := testutil.CreateTestUser(t, testutil.UniqueEmail("participant"), "buyer")
+	otherParticipant := testutil.CreateTestUser(t, testutil.UniqueEmail("other_participant"), "provider")
+	outsider := testutil.CreateTestUser(t, testutil.UniqueEmail("outsider"), "buyer")
+
+	conversation := models.Conversation{
+		Participant1: participant.ID,
+		Participant2: otherParticipant.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	msg := models.Message{
+		ConversationID: conversation.ID,
+		SenderID:       participant.ID,
+		Content:        "private",
+	}
+	if err := db.DB.Create(&msg).Error; err != nil {
+		t.Fatalf("Failed to create message: %v", err)
+	}
+
+	reaction := models.MessageReaction{
+		MessageID: msg.ID,
+		UserID:    participant.ID,
+		Emoji:     "like",
+	}
+	if err := db.DB.Create(&reaction).Error; err != nil {
+		t.Fatalf("Failed to create reaction: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", outsider.ID)
+		c.Next()
+	})
+	r.DELETE("/messages/:messageId/reactions/:emoji", removeReaction)
+
+	req := httptest.NewRequest("DELETE", "/messages/"+msg.ID.String()+"/reactions/like", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteMessage_OnlySenderCanDelete(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "conversations", "messages")
+
+	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("sender"), "buyer")
+	receiver := testutil.CreateTestUser(t, testutil.UniqueEmail("receiver"), "provider")
+
+	conversation := models.Conversation{
+		Participant1: sender.ID,
+		Participant2: receiver.ID,
+	}
+	if err := db.DB.Create(&conversation).Error; err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	msg := models.Message{
+		ConversationID: conversation.ID,
+		SenderID:       sender.ID,
+		Content:        "sender-owned",
+	}
+	if err := db.DB.Create(&msg).Error; err != nil {
+		t.Fatalf("Failed to create message: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", receiver.ID)
+		c.Next()
+	})
+	r.DELETE("/conversations/:id/messages/:messageId", deleteMessage)
+
+	req := httptest.NewRequest("DELETE", "/conversations/"+conversation.ID.String()+"/messages/"+msg.ID.String(), nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
+	}
+}

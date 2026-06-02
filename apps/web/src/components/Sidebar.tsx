@@ -42,6 +42,7 @@ import { ForProvider, ForConsumer, ForNewUser } from "@/components/RoleGuard";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { AlertCenter } from "@/components/AlertCenter";
 import { motion, AnimatePresence } from "framer-motion";
+import { ROUTES } from "@/lib/navigation/routes";
 
 interface MenuItem {
     href: string;
@@ -71,8 +72,8 @@ export function Sidebar() {
     const sharedHome: MenuSection = {
         id: "main",
         items: [
-            { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { href: "/dashboard/provider", label: "Provider", icon: Server, description: "Manage nodes & earnings" },
+            { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
+            { href: ROUTES.dashboardProvider, label: "Provider", icon: Server, description: "Manage nodes & earnings" },
         ]
     };
 
@@ -81,18 +82,18 @@ export function Sidebar() {
             id: "consumer-proxy",
             title: "My Proxy",
             items: [
-                { href: "/dashboard/proxy", label: "Connect", icon: Globe, description: "Create proxy sessions" },
-                { href: "/dashboard/sessions", label: "My Sessions", icon: Wifi, description: "Active & history" },
-                { href: "/dashboard/usage", label: "Usage & Billing", icon: BarChart3, description: "Track bandwidth" },
-                { href: "/dashboard/trustless", label: "Integrity", icon: ShieldCheck, description: "Usage proofs" },
+                { href: ROUTES.dashboardProxy, label: "Connect", icon: Globe, description: "Create proxy sessions" },
+                { href: ROUTES.dashboardSessions, label: "My Sessions", icon: Wifi, description: "Active & history" },
+                { href: ROUTES.dashboardUsage, label: "Usage & Billing", icon: BarChart3, description: "Track bandwidth" },
+                { href: ROUTES.dashboardTrustless, label: "Integrity", icon: ShieldCheck, description: "Usage proofs" },
             ]
         },
         {
             id: "consumer-discover",
             title: "Discover",
             items: [
-                { href: "/marketplace", label: "Marketplace", icon: Search },
-                { href: "/marketplace/agents", label: "AI Agents", icon: Bot },
+                { href: ROUTES.marketplace, label: "Marketplace", icon: Search },
+                { href: ROUTES.marketplaceAgents, label: "AI Agents", icon: Bot },
             ]
         }
     ];
@@ -102,25 +103,25 @@ export function Sidebar() {
             id: "provider-nodes",
             title: "My Nodes",
             items: [
-                { href: "/dashboard/provider/nodes", label: "Node Health", icon: Radio, description: "Manage infrastructure" },
-                { href: "/dashboard/provider/circle", label: "Circle Pool", icon: CircleDot, description: "Enterprise pooling" },
-                { href: "/dashboard/provider/relationships", label: "Customers", icon: Users },
+                { href: ROUTES.dashboardProviderNodes, label: "Node Health", icon: Radio, description: "Manage infrastructure" },
+                { href: ROUTES.dashboardProviderCircle, label: "Circle Pool", icon: CircleDot, description: "Enterprise pooling" },
+                { href: ROUTES.dashboardProviderRelationships, label: "Customers", icon: Users },
             ]
         },
         {
             id: "provider-earnings",
             title: "Earnings",
             items: [
-                { href: "/dashboard/provider/earnings", label: "Income", icon: Coins, description: "Income & payouts" },
-                { href: "/marketplace/manage", label: "Listings", icon: FileCode, description: "Manage listings" },
+                { href: ROUTES.dashboardProviderEarnings, label: "Income", icon: Coins, description: "Income & payouts" },
+                { href: ROUTES.marketplaceManage, label: "Listings", icon: FileCode, description: "Manage listings" },
             ]
         },
         {
             id: "provider-tools",
             title: "Tools",
             items: [
-                { href: "/dashboard/provider/tokens", label: "API Tokens", icon: Fingerprint, description: "CLI authentication" },
-                { href: "/dashboard/provider/cli", label: "CLI & Download", icon: Terminal, description: "Download & setup" },
+                { href: ROUTES.dashboardProviderTokens, label: "API Tokens", icon: Fingerprint, description: "CLI authentication" },
+                { href: ROUTES.dashboardProviderCli, label: "CLI & Download", icon: Terminal, description: "Download & setup" },
             ]
         }
     ];
@@ -130,16 +131,16 @@ export function Sidebar() {
             id: "network",
             title: "Network",
             items: [
-                { href: "/explorer", label: "Explorer", icon: Blocks },
-                { href: "/community/feed", label: "Community", icon: Activity },
+                { href: ROUTES.explorer, label: "Explorer", icon: Blocks },
+                { href: ROUTES.communityFeed, label: "Community", icon: Activity },
             ]
         }
     ];
 
     const bottomItems = [
-        { href: "/dashboard/wallet", label: "Wallet", icon: Wallet },
-        { href: "/settings", label: "Settings", icon: Settings },
-        { href: "/profile", label: "Profile", icon: User },
+        { href: ROUTES.dashboardWallet, label: "Wallet", icon: Wallet },
+        { href: ROUTES.settings, label: "Settings", icon: Settings },
+        { href: ROUTES.profile, label: "Profile", icon: User },
     ];
 
     return (
@@ -149,7 +150,7 @@ export function Sidebar() {
         >
             {/* Header */}
             <div className={`p-6 border-b border-white/5 flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
-                <Link href="/" className="flex items-center gap-3 group relative">
+                <Link href={ROUTES.home} className="flex items-center gap-3 group relative">
                     <motion.div
                         whileHover={{ scale: 1.1, rotate: 5 }}
                         className="w-10 h-10 rounded-xl flex items-center justify-center bg-primary text-primary-foreground shadow-[0_0_20px_rgba(16,185,129,0.3)] group-hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all"
@@ -231,8 +232,7 @@ export function Sidebar() {
                         )}
                     </Link>
                 ))}
-                
-                        prefetch={false}
+
                 <button
                     onClick={logout}
                     aria-label="Log out"

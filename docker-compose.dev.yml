@@ -1,6 +1,7 @@
 # docker-compose.dev.yml
 # Development Docker Compose — fast iteration with source builds and relaxed defaults.
-# Usage: docker-compose -f docker-compose.dev.yml up
+# Usage: docker compose -f docker-compose.dev.yml up -d
+# After pulling explorer/API fixes: .\scripts\docker-refresh-stack.ps1
 
 services:
   # ==================== DB MIGRATE (one-shot) ====================
@@ -47,6 +48,8 @@ services:
     container_name: proxyhubb-control-api
     ports:
       - "${CONTROL_API_PORT:-18080}:8080"
+    env_file:
+      - config/docker/control-api-explorer.env
     environment:
       # Core secrets
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
@@ -114,8 +117,15 @@ services:
       - HALO2_PROVER_URL=${HALO2_PROVER_URL:-http://zk-prover:8095}
       - HALO2_PROVER_TIMEOUT_MS=${HALO2_PROVER_TIMEOUT_MS:-15000}
       - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-true}
+      # --- Explorer (public API, indexer, metrics — see config/docker/control-api-explorer.env) ---
       - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      - EXPLORER_MIN_WRITERS=${EXPLORER_MIN_WRITERS:-2}
+      - EXPLORER_METRICS_ENABLED=${EXPLORER_METRICS_ENABLED:-true}
+      - EXPLORER_METRICS_INTERVAL=${EXPLORER_METRICS_INTERVAL:-10m}
+      - EXPLORER_INDEXER_ENABLED=${EXPLORER_INDEXER_ENABLED:-true}
+      - EXPLORER_INDEXER_POLL_INTERVAL_MS=${EXPLORER_INDEXER_POLL_INTERVAL_MS:-5000}
 
       # Provider Engine
       - PLATFORM_FEE_PERCENT=${PLATFORM_FEE_PERCENT:-0.10}
@@ -131,6 +141,8 @@ services:
       - ORACLE_MAX_SINGLE_TRANSFER_SOL=${ORACLE_MAX_SINGLE_TRANSFER_SOL:-50}
       - ORACLE_MAX_HOURLY_OUTFLOW_SOL=${ORACLE_MAX_HOURLY_OUTFLOW_SOL:-500}
       - ORACLE_TRANSFER_FREEZE=${ORACLE_TRANSFER_FREEZE:-false}
+      # --- Wallet anomaly detector (auto-freezes withdrawals on suspicious patterns) ---
+      - ANOMALY_DETECTOR_ENABLED=${ANOMALY_DETECTOR_ENABLED:-false}
       # --- Emergency price fallback ---
       - EMERGENCY_SOL_PRICE_USD=${EMERGENCY_SOL_PRICE_USD:-200}
       # --- GeoIP Backfill Worker ---

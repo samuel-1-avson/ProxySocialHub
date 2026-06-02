@@ -36,7 +36,7 @@ export default function MyPostsPage() {
         <div className="container mx-auto py-8 px-4">
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
-                <Link href="/forum">
+                <Link href="/community/forum">
                     <Button variant="ghost" size="icon">
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
@@ -68,7 +68,7 @@ export default function MyPostsPage() {
                     <p className="text-muted-foreground mb-4">
                         Start participating in discussions!
                     </p>
-                    <Link href="/forum">
+                    <Link href="/community/forum">
                         <Button>Browse Forum</Button>
                     </Link>
                 </Card>

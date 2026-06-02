@@ -2,8 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,20 +46,10 @@ type ListingsResponse struct {
 
 // getListings returns marketplace listings with filters
 func getListings(c *gin.Context) {
+	filters := buildListingFilters(c)
+
 	// Try cache first
-	cacheKey := fmt.Sprintf("listings:sla:v1:p:%s:l:%s:pt:%s:pr:%s:min:%s:max:%s:sid:%s:c:%s:i:%s:r:%s:sort:%s",
-		c.DefaultQuery("page", "1"),
-		c.DefaultQuery("limit", "20"),
-		c.Query("proxy_type"),
-		c.Query("protocol"),
-		c.Query("min_price"),
-		c.Query("max_price"),
-		c.Query("seller_id"),
-		c.Query("country"),
-		c.Query("isp"),
-		c.Query("rotation_type"),
-		c.Query("sort_by"),
-	)
+	cacheKey := listingCacheKey(filters)
 
 	var cachedResponse ListingsResponse
 	if found, _ := cache.Get(cacheKey, &cachedResponse); found {
@@ -64,14 +57,7 @@ func getListings(c *gin.Context) {
 		return
 	}
 
-	// Map query params to filters map
-	filters := make(map[string]interface{})
-	if pt := c.Query("proxy_type"); pt != "" {
-		filters["proxy_type"] = pt
-	}
-	// ... add other filters as needed by the service implementation ...
-
-	entities, total, err := GetMarketplaceService().BrowseMarket(c.Request.Context(), filters)
+	entities, total, err := marketplaceServiceOrDefault().BrowseMarket(c.Request.Context(), filters)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to browse marketplace"})
 		return
@@ -80,22 +66,7 @@ func getListings(c *gin.Context) {
 	// Map domain entities back to API response models
 	apiListings := make([]models.ProxyListing, len(entities))
 	for i, e := range entities {
-		listingModel := models.ProxyListing{
-			ID:                   e.ID,
-			SellerID:             e.SellerID,
-			Title:                e.Title,
-			Description:          e.Description,
-			PricePerGB:           e.PricePerGB,
-			AvailableBandwidthGB: e.AvailableBandwidthGB,
-			ProxyType:            models.ProxyType(e.ProxyType),
-			Protocol:             e.Protocol,
-			Country:              e.Country,
-			ISP:                  e.ISP,
-			Status:               models.ListingStatus(e.Status),
-			QualityScore:         e.QualityScore,
-			UptimePercent:        e.UptimePercent,
-			AvgLatencyMs:         e.AvgLatencyMs,
-		}
+		listingModel := listingEntityToModel(e)
 
 		// Apply Elastic Pricing adjustment
 		listingModel.PricePerGB = CalculateFairPrice(listingModel)
@@ -120,6 +91,103 @@ func getListings(c *gin.Context) {
 	cache.Set(cacheKey, response, 60*time.Second)
 
 	c.JSON(http.StatusOK, response)
+}
+
+func buildListingFilters(c *gin.Context) map[string]interface{} {
+	filters := map[string]interface{}{
+		"page":  getPageParam(c, 1),
+		"limit": getLimitParam(c, 20),
+	}
+
+	for _, key := range []string{
+		"proxy_type",
+		"protocol",
+		"rotation_type",
+		"country",
+		"isp",
+		"min_price",
+		"max_price",
+		"min_rating",
+		"seller_id",
+		"sort_by",
+		"sort_order",
+	} {
+		if value := strings.TrimSpace(c.Query(key)); value != "" {
+			filters[key] = value
+		}
+	}
+
+	return filters
+}
+
+func listingCacheKey(filters map[string]interface{}) string {
+	keys := make([]string, 0, len(filters))
+	for key := range filters {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	values := url.Values{}
+	for _, key := range keys {
+		values.Set(key, fmt.Sprint(filters[key]))
+	}
+	return "listings:sla:v2:" + values.Encode()
+}
+
+func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
+	return models.ProxyListing{
+		ID:                   e.ID,
+		SellerID:             e.SellerID,
+		ProviderNodeID:       e.ProviderNodeID,
+		Title:                e.Title,
+		Description:          e.Description,
+		PricePerGB:           e.PricePerGB,
+		MinPurchaseGB:        e.MinPurchaseGB,
+		AvailableBandwidthGB: e.AvailableBandwidthGB,
+		MaxConcurrency:       e.MaxConcurrency,
+		ProxyType:            models.ProxyType(e.ProxyType),
+		Protocol:             e.Protocol,
+		RotationType:         e.RotationType,
+		Country:              e.Country,
+		ISP:                  e.ISP,
+		Status:               models.ListingStatus(e.Status),
+		QualityScore:         e.QualityScore,
+		UptimePercent:        e.UptimePercent,
+		AvgLatencyMs:         e.AvgLatencyMs,
+		SuccessRate:          e.SuccessRate,
+		CurrentTier:          e.CurrentTier,
+		ViewsCount:           e.ViewsCount,
+		SavesCount:           e.SavesCount,
+		OrdersCount:          e.OrdersCount,
+		ActiveSessionsCount:  e.ActiveSessionsCount,
+		AllowDirectMessage:   e.AllowDirectMessage,
+		CreatedAt:            e.CreatedAt,
+		UpdatedAt:            e.UpdatedAt,
+	}
+}
+
+func listingUpdateHasChanges(updates domain.ListingUpdate) bool {
+	return updates.Title != nil ||
+		updates.Description != nil ||
+		updates.PricePerGB != nil ||
+		updates.MinPurchaseGB != nil ||
+		updates.AvailableBandwidthGB != nil ||
+		updates.MaxConcurrency != nil ||
+		updates.Status != nil ||
+		updates.BulkDiscountsJSON != nil
+}
+
+func writeMarketplaceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, domain.ErrListingNotFound), errors.Is(err, domain.ErrListingNotSaved):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrListingForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrListingUnavailable), errors.Is(err, domain.ErrListingAlreadySaved):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	}
 }
 
 // getListing returns a single listing by ID
@@ -260,13 +328,14 @@ func createListing(c *gin.Context) {
 		ISP:                  isp,
 	}
 
-	published, err := GetMarketplaceService().PublishListing(c.Request.Context(), userID, entity)
+	published, err := marketplaceServiceOrDefault().PublishListing(c.Request.Context(), userID, entity)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	invalidateMarketplaceReadModels()
 
-	c.JSON(http.StatusCreated, published)
+	c.JSON(http.StatusCreated, listingEntityToModel(*published))
 }
 
 // resolveListingProviderNode picks or validates the provider_nodes row for a listing.
@@ -318,60 +387,50 @@ func updateListing(c *gin.Context) {
 		return
 	}
 
-	var listing models.ProxyListing
-	if err := db.DB.First(&listing, "id = ?", listingID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
-		return
-	}
-
-	// Check ownership
-	if listing.SellerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You can only update your own listings"})
-		return
-	}
-
 	var req models.UpdateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	updates := make(map[string]interface{})
+	updates := domain.ListingUpdate{}
 	if req.Title != nil {
-		updates["title"] = *req.Title
+		updates.Title = req.Title
 	}
 	if req.Description != nil {
-		updates["description"] = *req.Description
+		updates.Description = req.Description
 	}
 	if req.PricePerGB != nil {
-		updates["price_per_gb"] = *req.PricePerGB
+		updates.PricePerGB = req.PricePerGB
 	}
 	if req.MinPurchaseGB != nil {
-		updates["min_purchase_gb"] = *req.MinPurchaseGB
+		updates.MinPurchaseGB = req.MinPurchaseGB
 	}
 	if req.AvailableBandwidthGB != nil {
-		updates["available_bandwidth_gb"] = *req.AvailableBandwidthGB
+		updates.AvailableBandwidthGB = req.AvailableBandwidthGB
 	}
 	if req.MaxConcurrency != nil {
-		updates["max_concurrency"] = *req.MaxConcurrency
+		updates.MaxConcurrency = req.MaxConcurrency
 	}
 	if req.Status != nil {
-		updates["status"] = *req.Status
+		status := domain.ListingStatus(*req.Status)
+		updates.Status = &status
 	}
 	if len(req.BulkDiscounts) > 0 {
 		discountsJSON, _ := json.Marshal(req.BulkDiscounts)
-		updates["bulk_discounts"] = discountsJSON
+		updates.BulkDiscountsJSON = discountsJSON
 	}
 
-	if len(updates) > 0 {
-		if err := db.DB.Model(&listing).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update listing"})
-			return
-		}
+	updated, err := marketplaceServiceOrDefault().UpdateListing(c.Request.Context(), userID, listingID, updates)
+	if err != nil {
+		writeMarketplaceError(c, err)
+		return
+	}
+	if listingUpdateHasChanges(updates) {
+		invalidateMarketplaceReadModels()
 	}
 
-	db.DB.Preload("Seller").First(&listing, "id = ?", listingID)
-	c.JSON(http.StatusOK, listing)
+	c.JSON(http.StatusOK, listingEntityToModel(*updated))
 }
 
 // deleteListing soft-deletes a listing
@@ -398,18 +457,12 @@ func deleteListing(c *gin.Context) {
 		return
 	}
 
-	var listing models.ProxyListing
-	if err := db.DB.First(&listing, "id = ?", listingID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+	if err := marketplaceServiceOrDefault().DeleteListing(c.Request.Context(), userID, listingID); err != nil {
+		writeMarketplaceError(c, err)
 		return
 	}
 
-	if listing.SellerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete your own listings"})
-		return
-	}
-
-	db.DB.Model(&listing).Update("status", models.ListingStatusDeleted)
+	invalidateMarketplaceReadModels()
 	c.JSON(http.StatusOK, gin.H{"message": "Listing deleted"})
 }
 
@@ -437,36 +490,12 @@ func saveListing(c *gin.Context) {
 		return
 	}
 
-	// Check listing exists
-	var listing models.ProxyListing
-	if err := db.DB.First(&listing, "id = ?", listingID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+	if err := marketplaceServiceOrDefault().SaveListing(c.Request.Context(), userID, listingID); err != nil {
+		writeMarketplaceError(c, err)
 		return
 	}
 
-	// Check if already saved
-	var existing models.SavedListing
-	if err := db.DB.Where("user_id = ? AND listing_id = ?", userID, listingID).First(&existing).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Listing already saved"})
-		return
-	}
-
-	saved := models.SavedListing{
-		UserID:    userID,
-		ListingID: listingID,
-	}
-
-	tx := db.DB.Begin()
-	if err := tx.Create(&saved).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save listing"})
-		return
-	}
-
-	// Update saves count
-	tx.Model(&listing).Update("saves_count", listing.SavesCount+1)
-	tx.Commit()
-
+	invalidateMarketplaceReadModels()
 	c.JSON(http.StatusOK, gin.H{"message": "Listing saved"})
 }
 
@@ -494,17 +523,12 @@ func unsaveListing(c *gin.Context) {
 		return
 	}
 
-	var saved models.SavedListing
-	if err := db.DB.Where("user_id = ? AND listing_id = ?", userID, listingID).First(&saved).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not saved"})
+	if err := marketplaceServiceOrDefault().UnsaveListing(c.Request.Context(), userID, listingID); err != nil {
+		writeMarketplaceError(c, err)
 		return
 	}
 
-	tx := db.DB.Begin()
-	tx.Delete(&saved)
-	tx.Model(&models.ProxyListing{}).Where("id = ?", listingID).Update("saves_count", db.DB.Raw("GREATEST(saves_count - 1, 0)"))
-	tx.Commit()
-
+	invalidateMarketplaceReadModels()
 	c.JSON(http.StatusOK, gin.H{"message": "Listing unsaved"})
 }
 
