@@ -16,6 +16,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
+	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -418,25 +419,58 @@ func nodeHeartbeat(c *gin.Context) {
 		return
 	}
 
-	// Fetch existing status to detect transition to online
-	var currentStatus string
-	var nodeName string
-	if err := db.DB.Model(&models.ProviderNode{}).Where("id = ? AND user_id = ?", nodeID, userID).Select("status, name").Row().Scan(&currentStatus, &nodeName); err != nil {
+	// Fetch existing status to detect transition to online and verify optional provider proof.
+	var currentNode models.ProviderNode
+	if err := db.DB.Model(&models.ProviderNode{}).
+		Where("id = ? AND user_id = ?", nodeID, userID).
+		First(&currentNode).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
+	currentStatus := string(currentNode.Status)
+	nodeName := currentNode.Name
 
 	var req struct {
 		LatencyMs         int     `json:"latency_ms"`
 		ActiveConnections int     `json:"active_connections"`
 		UptimePercent     float64 `json:"uptime_percent"`
+		Proof             models.ProviderProof `json:"proof"`
 	}
 	_ = c.ShouldBindJSON(&req)
+
+	gatewayNodeID := currentNode.GatewayNodeID
+	if gatewayNodeID == "" {
+		gatewayNodeID = req.Proof.GatewayNodeID
+	}
+	payloadHash := providerProofs.HashHeartbeatPayload(providerProofs.HeartbeatPayload{
+		ProviderNodeID:    nodeID,
+		GatewayNodeID:     gatewayNodeID,
+		LatencyMs:         req.LatencyMs,
+		ActiveConnections: req.ActiveConnections,
+		UptimePercent:     req.UptimePercent,
+		IssuedAt:          req.Proof.IssuedAt,
+	})
+	proofResult := verifyProviderProof(req.Proof, providerProofs.ProviderHeartbeatMessageType, currentNode.Hotkey, payloadHash)
+	if proofResult.Present && !proofResult.Verified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider heartbeat proof", "details": proofResult.VerificationError})
+		return
+	}
+	if providerProofRequired() && currentNode.Hotkey != "" && !proofResult.Verified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "provider heartbeat proof required"})
+		return
+	}
 
 	now := time.Now()
 	updates := map[string]interface{}{
 		"last_seen_at": now,
 		"status":       models.NodeOnline,
+		"latest_heartbeat_hash":               proofResult.Hash,
+		"latest_heartbeat_signature":          proofResult.Signature,
+		"latest_heartbeat_signer":             proofResult.Signer,
+		"latest_heartbeat_signed_at":          proofResult.SignedAt,
+		"latest_heartbeat_verified":           proofResult.Verified,
+		"latest_heartbeat_verification_error": proofResult.VerificationError,
+		"latest_heartbeat_nonce":              proofResult.Nonce,
 	}
 	if req.LatencyMs > 0 {
 		updates["avg_latency_ms"] = req.LatencyMs

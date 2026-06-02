@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 	"github.com/proxyhubb/control-api/internal/privacy"
 )
 
@@ -25,6 +26,7 @@ func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings", getListings)
 	rg.GET("/listings/featured", getFeaturedListings)
 	rg.GET("/listings/search", searchListings)
+	rg.GET("/listings/my", getMyListings)
 	rg.GET("/listings/:id", getListing)
 	rg.POST("/listings", createListing)
 	rg.PATCH("/listings/:id", updateListing)
@@ -139,6 +141,13 @@ func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
 		ID:                   e.ID,
 		SellerID:             e.SellerID,
 		ProviderNodeID:       e.ProviderNodeID,
+		ListingOfferHash:     e.ListingOfferHash,
+		ListingOfferSignature: e.ListingOfferSignature,
+		ListingOfferSigner:   e.ListingOfferSigner,
+		ListingOfferSignedAt: e.ListingOfferSignedAt,
+		ListingOfferVerified: e.ListingOfferVerified,
+		ListingOfferVerificationError: e.ListingOfferVerificationError,
+		ListingOfferNonce:    e.ListingOfferNonce,
 		Title:                e.Title,
 		Description:          e.Description,
 		PricePerGB:           e.PricePerGB,
@@ -174,7 +183,14 @@ func listingUpdateHasChanges(updates domain.ListingUpdate) bool {
 		updates.AvailableBandwidthGB != nil ||
 		updates.MaxConcurrency != nil ||
 		updates.Status != nil ||
-		updates.BulkDiscountsJSON != nil
+		updates.BulkDiscountsJSON != nil ||
+		updates.ListingOfferHash != nil ||
+		updates.ListingOfferSignature != nil ||
+		updates.ListingOfferSigner != nil ||
+		updates.ListingOfferSignedAt != nil ||
+		updates.ListingOfferVerified != nil ||
+		updates.ListingOfferVerificationError != nil ||
+		updates.ListingOfferNonce != nil
 }
 
 func writeMarketplaceError(c *gin.Context, err error) {
@@ -328,6 +344,51 @@ func createListing(c *gin.Context) {
 		ISP:                  isp,
 	}
 
+	proofContext, hasProofContext, err := loadListingProofContext(userID, providerNodeID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if providerProofPresent(req.Proof) && !hasProofContext {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider-signed listings require a provider node"})
+		return
+	}
+	if hasProofContext {
+		payloadHash := providerProofs.HashListingOfferPayload(providerProofs.ListingOfferPayload{
+			ProviderNodeID:       proofContext.ProviderNodeID,
+			GatewayNodeID:        proofContext.GatewayNodeID,
+			Title:                req.Title,
+			Description:          req.Description,
+			ProxyType:            string(req.ProxyType),
+			Protocol:             req.Protocol,
+			RotationType:         rotationType,
+			Country:              country,
+			ISP:                  isp,
+			PricePerGB:           req.PricePerGB,
+			MinPurchaseGB:        req.MinPurchaseGB,
+			AvailableBandwidthGB: req.AvailableBandwidthGB,
+			MaxConcurrency:       maxConcurrency,
+			Status:               string(models.ListingStatusActive),
+			ExpiresAt:            req.ListingOfferExpiresAt,
+		})
+		proofResult := verifyProviderProof(req.Proof, providerProofs.ListingOfferMessageType, proofContext.Hotkey, payloadHash)
+		if proofResult.Present && !proofResult.Verified {
+			c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
+			return
+		}
+		if providerProofRequired() && proofContext.Hotkey != "" && !proofResult.Verified {
+			c.JSON(http.StatusForbidden, gin.H{"error": "provider listing proof required"})
+			return
+		}
+		entity.ListingOfferHash = proofResult.Hash
+		entity.ListingOfferSignature = proofResult.Signature
+		entity.ListingOfferSigner = proofResult.Signer
+		entity.ListingOfferSignedAt = proofResult.SignedAt
+		entity.ListingOfferVerified = proofResult.Verified
+		entity.ListingOfferVerificationError = proofResult.VerificationError
+		entity.ListingOfferNonce = proofResult.Nonce
+	}
+
 	published, err := marketplaceServiceOrDefault().PublishListing(c.Request.Context(), userID, entity)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -361,6 +422,29 @@ func resolveListingProviderNode(sellerID uuid.UUID, requested *uuid.UUID) (*uuid
 		return nil, nil
 	}
 	return &pn.ID, nil
+}
+
+type listingProofContext struct {
+	ProviderNodeID uuid.UUID
+	GatewayNodeID  string
+	Hotkey         string
+}
+
+func loadListingProofContext(sellerID uuid.UUID, providerNodeID *uuid.UUID) (listingProofContext, bool, error) {
+	if providerNodeID == nil || *providerNodeID == uuid.Nil {
+		return listingProofContext{}, false, nil
+	}
+	var pn models.ProviderNode
+	if err := db.DB.Select("id", "gateway_node_id", "hotkey").
+		Where("id = ? AND user_id = ?", *providerNodeID, sellerID).
+		First(&pn).Error; err != nil {
+		return listingProofContext{}, false, fmt.Errorf("provider node not found or not owned by you")
+	}
+	return listingProofContext{
+		ProviderNodeID: pn.ID,
+		GatewayNodeID:  pn.GatewayNodeID,
+		Hotkey:         pn.Hotkey,
+	}, true, nil
 }
 
 // updateListing updates an existing listing
@@ -419,6 +503,87 @@ func updateListing(c *gin.Context) {
 	if len(req.BulkDiscounts) > 0 {
 		discountsJSON, _ := json.Marshal(req.BulkDiscounts)
 		updates.BulkDiscountsJSON = discountsJSON
+	}
+
+	if providerProofPresent(req.Proof) || providerProofRequired() {
+		var existing models.ProxyListing
+		if err := db.DB.Where("id = ? AND seller_id = ? AND status != ?", listingID, userID, models.ListingStatusDeleted).
+			First(&existing).Error; err != nil {
+			writeMarketplaceError(c, domain.ErrListingNotFound)
+			return
+		}
+		proofContext, hasProofContext, err := loadListingProofContext(userID, existing.ProviderNodeID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if providerProofPresent(req.Proof) && !hasProofContext {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provider-signed listings require a provider node"})
+			return
+		}
+		if hasProofContext {
+			title := existing.Title
+			if req.Title != nil {
+				title = *req.Title
+			}
+			description := existing.Description
+			if req.Description != nil {
+				description = *req.Description
+			}
+			pricePerGB := existing.PricePerGB
+			if req.PricePerGB != nil {
+				pricePerGB = *req.PricePerGB
+			}
+			minPurchaseGB := existing.MinPurchaseGB
+			if req.MinPurchaseGB != nil {
+				minPurchaseGB = *req.MinPurchaseGB
+			}
+			availableBandwidthGB := existing.AvailableBandwidthGB
+			if req.AvailableBandwidthGB != nil {
+				availableBandwidthGB = *req.AvailableBandwidthGB
+			}
+			maxConcurrency := existing.MaxConcurrency
+			if req.MaxConcurrency != nil {
+				maxConcurrency = *req.MaxConcurrency
+			}
+			status := existing.Status
+			if req.Status != nil {
+				status = *req.Status
+			}
+			payloadHash := providerProofs.HashListingOfferPayload(providerProofs.ListingOfferPayload{
+				ProviderNodeID:       proofContext.ProviderNodeID,
+				GatewayNodeID:        proofContext.GatewayNodeID,
+				Title:                title,
+				Description:          description,
+				ProxyType:            string(existing.ProxyType),
+				Protocol:             existing.Protocol,
+				RotationType:         existing.RotationType,
+				Country:              existing.Country,
+				ISP:                  existing.ISP,
+				PricePerGB:           pricePerGB,
+				MinPurchaseGB:        minPurchaseGB,
+				AvailableBandwidthGB: availableBandwidthGB,
+				MaxConcurrency:       maxConcurrency,
+				Status:               string(status),
+				ExpiresAt:            req.ListingOfferExpiresAt,
+			})
+			proofResult := verifyProviderProof(req.Proof, providerProofs.ListingOfferMessageType, proofContext.Hotkey, payloadHash)
+			if proofResult.Present && !proofResult.Verified {
+				c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
+				return
+			}
+			if providerProofRequired() && proofContext.Hotkey != "" && !proofResult.Verified {
+				c.JSON(http.StatusForbidden, gin.H{"error": "provider listing proof required"})
+				return
+			}
+			updates.ListingOfferHash = &proofResult.Hash
+			updates.ListingOfferSignature = &proofResult.Signature
+			updates.ListingOfferSigner = &proofResult.Signer
+			updates.ListingOfferSignedAt = proofResult.SignedAt
+			updates.ListingOfferVerified = &proofResult.Verified
+			updates.ListingOfferVerificationError = &proofResult.VerificationError
+			updates.ListingOfferNonce = &proofResult.Nonce
+		}
 	}
 
 	updated, err := marketplaceServiceOrDefault().UpdateListing(c.Request.Context(), userID, listingID, updates)
