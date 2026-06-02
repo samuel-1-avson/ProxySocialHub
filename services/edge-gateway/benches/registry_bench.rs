@@ -12,7 +12,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use dashmap::DashMap;
-use rand::seq::IteratorRandom;
 use std::{
     collections::HashMap,
     sync::{
