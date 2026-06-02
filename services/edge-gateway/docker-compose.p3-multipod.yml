@@ -1,0 +1,88 @@
+# Two edge-gateway replicas + shared Redis (P3.3 multipod smoke).
+# Host ports are intentionally NOT 18090/13128 — those belong to docker-compose.resilience.yml.
+# Usage:
+#   From services/edge-gateway:
+#     .\scripts\p3-multipod-up.ps1 -Build
+#     .\scripts\p3-multipod-down.ps1 -RemoveLegacy   # if you hit old container_name conflicts
+#   Compose project name is always `edge-p3` (no fixed container_name — avoids cross-project clashes).
+#   (JWT_SECRET / GATEWAY_SHARED_SECRET must match control-api and provider tokens)
+#   ./scripts/p3-multipod-smoke.ps1
+#
+# Provider tunnel (host): edge-a :23128, edge-b :23129
+# Buyer HTTP (host):       edge-a :28090, edge-b :28091
+
+name: edge-p3
+
+x-edge-common: &edge_common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  depends_on:
+    redis:
+      condition: service_healthy
+  environment: &edge_env
+    RUST_LOG: info
+    HOST: 0.0.0.0
+    PORT: "8090"
+    TUNNEL_PORT: "3128"
+    REDIS_URL: redis://redis:6379
+    # host.docker.internal reaches control-api published on :18080 (Windows/Mac Docker).
+    CONTROL_API_URL: ${P3_CONTROL_API_URL:-http://host.docker.internal:18080}
+    JWT_SECRET: ${JWT_SECRET:-test-jwt-secret-32-bytes-minimum-xx}
+    GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-test-gateway-shared-secret-32b-min}
+    SESSION_SECRET: ${SESSION_SECRET:-test-session-secret-32-bytes-min}
+    PROVIDER_PRIVATE_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+    EDGE_MODE: colocated
+    PROVIDER_DIRECTORY_TTL_SECS: "120"
+    MAX_CONCURRENT_CONNECTIONS: "64"
+    SESSION_CACHE_SIZE: "1000"
+    SESSION_CACHE_TTL_SECS: "60"
+    LEGACY_EDGE_ZK_SUBMISSION_ENABLED: "false"
+    ENABLE_DEBUG_ROUTES: "true"
+  healthcheck:
+    test:
+      [
+        "CMD",
+        "wget",
+        "--no-verbose",
+        "--tries=1",
+        "--spider",
+        "http://127.0.0.1:8090/health",
+      ]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 35s
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "26379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  edge-a:
+    <<: *edge_common
+    hostname: edge-a
+    ports:
+      - "28090:8090"
+      - "23128:3128"
+    environment:
+      <<: *edge_env
+      EDGE_POD_ID: edge-a
+      EDGE_PEER_URLS: edge-b@http://edge-b:8090
+
+  edge-b:
+    <<: *edge_common
+    hostname: edge-b
+    ports:
+      - "28091:8090"
+      - "23129:3128"
+    environment:
+      <<: *edge_env
+      EDGE_POD_ID: edge-b
+      EDGE_PEER_URLS: edge-a@http://edge-a:8090
