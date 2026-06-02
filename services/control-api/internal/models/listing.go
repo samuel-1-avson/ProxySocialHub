@@ -43,6 +43,15 @@ type ProxyListing struct {
 	// Infrastructure link (dashboard provider node → gateway / explorer geo)
 	ProviderNodeID *uuid.UUID `gorm:"type:uuid;index:idx_listing_provider_node" json:"provider_node_id,omitempty"`
 
+	// Provider-authored listing offer proof metadata.
+	ListingOfferHash              string     `gorm:"type:varchar(64)" json:"listing_offer_hash,omitempty"`
+	ListingOfferSignature         string     `gorm:"type:text" json:"listing_offer_signature,omitempty"`
+	ListingOfferSigner            string     `gorm:"type:varchar(64);index" json:"listing_offer_signer,omitempty"`
+	ListingOfferSignedAt          *time.Time `json:"listing_offer_signed_at,omitempty"`
+	ListingOfferVerified          bool       `gorm:"default:false" json:"listing_offer_verified"`
+	ListingOfferVerificationError string     `gorm:"type:text" json:"listing_offer_verification_error,omitempty"`
+	ListingOfferNonce             string     `gorm:"type:varchar(128)" json:"listing_offer_nonce,omitempty"`
+
 	// Targeting & Location
 	Country string `gorm:"size:50;index:idx_listing_country" json:"country"`
 	ISP     string `gorm:"size:100;index:idx_listing_isp" json:"isp"`
@@ -124,6 +133,8 @@ type CreateListingRequest struct {
 	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`
 	MaxConcurrency       int            `json:"max_concurrency" binding:"gte=1,lte=100"`
 	BulkDiscounts        []BulkDiscount `json:"bulk_discounts"`
+	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
+	Proof                ProviderProof `json:"proof"`
 }
 
 // UpdateListingRequest represents a request to update a listing
@@ -136,6 +147,20 @@ type UpdateListingRequest struct {
 	MaxConcurrency       *int           `json:"max_concurrency" binding:"omitempty,gte=1,lte=100"`
 	BulkDiscounts        []BulkDiscount `json:"bulk_discounts"`
 	Status               *ListingStatus `json:"status" binding:"omitempty,oneof=active paused"`
+	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
+	Proof                ProviderProof `json:"proof"`
+}
+
+type ProviderProof struct {
+	MessageType    string `json:"message_type"`
+	Version        string `json:"version"`
+	ProviderNodeID string `json:"provider_node_id"`
+	GatewayNodeID  string `json:"gateway_node_id,omitempty"`
+	ProviderHotkey string `json:"provider_hotkey"`
+	IssuedAt       int64  `json:"issued_at"`
+	Nonce          string `json:"nonce"`
+	PayloadHash    string `json:"payload_hash"`
+	Signature      string `json:"signature"`
 }
 
 // ListingFilters for marketplace browsing

@@ -360,11 +360,17 @@ impl HeartbeatMonitor {
 pub struct HeartbeatMessage {
     pub node_id: String,
     pub timestamp: u64,
+    #[serde(default)]
+    pub provider_node_id: String,
+    #[serde(default)]
+    pub latency_ms: i32,
     pub active_connections: u32,
     pub bandwidth_usage: BandwidthUsage,
     pub system_stats: SystemStats,
     #[serde(default)]
     pub provider_lease: String,
+    #[serde(default)]
+    pub proof: Option<crate::proofs::ProviderProofEnvelope>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -398,6 +404,8 @@ mod tests {
         let msg = HeartbeatMessage {
             node_id: "node-1".to_string(),
             timestamp: 0,
+            provider_node_id: String::new(),
+            latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {
                 bytes_up: 100,
@@ -412,6 +420,7 @@ mod tests {
                 goroutines: 0,
             },
             provider_lease: String::new(),
+            proof: None,
         };
 
         // Record heartbeat
@@ -442,6 +451,8 @@ mod tests {
         let msg = HeartbeatMessage {
             node_id: "node-1".to_string(),
             timestamp: 0,
+            provider_node_id: String::new(),
+            latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {
                 bytes_up: 100,
@@ -456,6 +467,7 @@ mod tests {
                 goroutines: 0,
             },
             provider_lease: String::new(),
+            proof: None,
         };
 
         // Record heartbeat
@@ -476,6 +488,8 @@ mod tests {
         let msg = HeartbeatMessage {
             node_id: "node-1".to_string(),
             timestamp: 1234567890,
+            provider_node_id: String::new(),
+            latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {
                 bytes_up: 1000,
@@ -490,6 +504,7 @@ mod tests {
                 goroutines: 10,
             },
             provider_lease: String::new(),
+            proof: None,
         };
 
         let json = serde_json::to_string(&msg).unwrap();
