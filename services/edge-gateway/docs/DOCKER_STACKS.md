@@ -9,6 +9,7 @@ Only one **buyer** gateway should own ports **8090** / **3128** for the main Pro
 | **Main dev** (with `proxyhubb` / control-api) | `proxyhubb` | repo `docker-compose.dev.yml` → `edge-gateway` | **8090** | **3128** | `proxyhubb-redis` :6380 |
 | **P1 / P2** resilience tests | `edge-resilience` | `docker-compose.resilience.yml` | **18090** | **13128** | **16379** |
 | **P3** multipod | `edge-p3` | `docker-compose.p3-multipod.yml` | **28090** / **28091** | **23128** / **23129** | **26379** |
+| **P3b** split (sketch) | `edge-p3-split` | `docker-compose.p3-split.yml` | **28100**–**28101** (ingress), **28110**–**28111** (tunnel health) | **23228** / **23229** | **26479** |
 
 ## Commands
 
@@ -22,6 +23,10 @@ cd services/edge-gateway
 # P2 resilience only (do not run alongside duplicate project names)
 docker compose -p edge-resilience -f docker-compose.resilience.yml up -d --build
 docker compose -p edge-resilience -f docker-compose.resilience.yml down
+
+# P3b split (ingress + tunnel tiers)
+.\scripts\p3-split-up.ps1 -Build
+.\scripts\p3-split-smoke.ps1
 
 # Remove legacy / duplicate stacks
 .\scripts\edge-docker-cleanup.ps1

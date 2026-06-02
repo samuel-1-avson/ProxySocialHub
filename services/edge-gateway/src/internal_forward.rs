@@ -1,10 +1,10 @@
-//! Peer pod internal CONNECT forward (P3.2).
+//! Owner-pod internal CONNECT forward (P3.2 colocated peer, P3b tunnel tier).
 
+use crate::auth::SessionAuthenticator;
 use crate::state::AppState;
 use base64::Engine;
 use http_body_util::Full;
 use hyper::body::Bytes;
-use crate::auth::SessionAuthenticator;
 use hyper::header::{HeaderMap, PROXY_AUTHORIZATION};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -124,7 +124,7 @@ pub async fn handle_internal_forward(
     Ok(resp)
 }
 
-/// Open a CONNECT tunnel to a peer edge pod and bridge the buyer stream (P3.2).
+/// Open a CONNECT tunnel to the owner pod (peer edge or tunnel tier) and bridge the buyer stream.
 pub async fn bridge_via_peer(
     upgraded: hyper::upgrade::Upgraded,
     dest_addr: String,
@@ -161,7 +161,10 @@ pub async fn bridge_via_peer(
     if !head.contains(" 101 ") && !head.contains(" 200 ") {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
-            format!("Peer rejected internal forward: {}", head.lines().next().unwrap_or("")),
+            format!(
+                "Peer rejected internal forward: {}",
+                head.lines().next().unwrap_or("")
+            ),
         ));
     }
 
