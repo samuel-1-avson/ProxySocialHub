@@ -76,7 +76,7 @@ impl TunnelClient {
                 .to_owned();
             let tls_stream = connector.connect(server_name, tcp).await?;
             debug!("TLS handshake complete");
-            
+
             let conn = yamux::Connection::new(tls_stream.compat(), cfg, yamux::Mode::Client);
             let ctrl = conn.control();
             (tokio::spawn(Self::drive_only(conn, tx)), ctrl)
@@ -92,14 +92,12 @@ impl TunnelClient {
             let provider_user_id = resolve_runtime_provider_user_id(&token);
             (token, provider_user_id)
         } else {
-            let (user_id, jwt) = crate::ip::validate_api_key(
-                &self.config.control_api_url,
-                &self.config.api_key,
-            )
-            .await?;
+            let (user_id, jwt) =
+                crate::ip::validate_api_key(&self.config.control_api_url, &self.config.api_key)
+                    .await?;
             self.config.jwt_token = jwt.clone();
-            let provider_user_id = normalize_user_id(&user_id)
-                .or_else(|| resolve_runtime_provider_user_id(&jwt));
+            let provider_user_id =
+                normalize_user_id(&user_id).or_else(|| resolve_runtime_provider_user_id(&jwt));
             (jwt, provider_user_id)
         };
 
@@ -120,10 +118,9 @@ impl TunnelClient {
         }
     }
 
-    async fn drive_only<S>(
-        conn: yamux::Connection<S>,
-        tx: tokio::sync::mpsc::Sender<Stream>,
-    ) where S: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + 'static
+    async fn drive_only<S>(conn: yamux::Connection<S>, tx: tokio::sync::mpsc::Sender<Stream>)
+    where
+        S: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + 'static,
     {
         let mut incoming = Box::pin(yamux::into_stream(conn));
         loop {
@@ -149,13 +146,23 @@ impl TunnelClient {
         debug!("Yamux driver task finished");
     }
 
-    async fn perform_handshake(&self, ctrl: &mut Control, token: String, config: Config) -> Result<()> {
+    async fn perform_handshake(
+        &self,
+        ctrl: &mut Control,
+        token: String,
+        config: Config,
+    ) -> Result<()> {
         // AUTH
         debug!("Handshake: Starting AUTH...");
-        let mut auth_stream = ctrl.open_stream().await.context("failed to open auth stream")?;
-        auth_stream.write_all(format!("AUTH {token}\n").as_bytes()).await?;
+        let mut auth_stream = ctrl
+            .open_stream()
+            .await
+            .context("failed to open auth stream")?;
+        auth_stream
+            .write_all(format!("AUTH {token}\n").as_bytes())
+            .await?;
         auth_stream.flush().await?;
-        
+
         let mut buf = [0u8; 64];
         let n = auth_stream.read(&mut buf).await?;
         let resp = String::from_utf8_lossy(&buf[..n]);
@@ -167,10 +174,14 @@ impl TunnelClient {
 
         // CAPABILITY
         debug!("Handshake: Sending CAPABILITIES...");
-        let mut cap_stream = ctrl.open_stream().await.context("failed to open capability stream")?;
+        let mut cap_stream = ctrl
+            .open_stream()
+            .await
+            .context("failed to open capability stream")?;
         let (mut caps, lease_request) = build_provider_capability_payload(&config);
 
-        match crate::ip::fetch_provider_lease(&config.control_api_url, &token, &lease_request).await {
+        match crate::ip::fetch_provider_lease(&config.control_api_url, &token, &lease_request).await
+        {
             Ok(lease) => {
                 caps.provider_lease = lease.token;
                 info!("Handshake: provider lease acquired");
@@ -179,14 +190,19 @@ impl TunnelClient {
                 if crate::lease_policy::provider_leases_required() {
                     anyhow::bail!("provider lease required but unavailable: {err}");
                 }
-                warn!("Handshake: provider lease unavailable, continuing without lease: {}", err);
+                warn!(
+                    "Handshake: provider lease unavailable, continuing without lease: {}",
+                    err
+                );
             }
         }
 
         let caps_json = serde_json::to_string(&caps)?;
-        cap_stream.write_all(format!("CAPABILITY {caps_json}\n").as_bytes()).await?;
+        cap_stream
+            .write_all(format!("CAPABILITY {caps_json}\n").as_bytes())
+            .await?;
         cap_stream.flush().await?;
-        
+
         let mut buf = [0u8; 4096];
         let n = cap_stream.read(&mut buf).await?;
         let resp = String::from_utf8_lossy(&buf[..n]);
@@ -245,13 +261,60 @@ impl TunnelClient {
     }
 }
 
-fn build_tls_connector(_config: &Config) -> Result<TlsConnector> {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
+    let tls_config = if config.tls_skip_verify {
+        rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(SkipServerCertVerify))
+            .with_no_client_auth()
+    } else {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    };
     Ok(TlsConnector::from(Arc::new(tls_config)))
+}
+
+#[derive(Debug)]
+struct SkipServerCertVerify;
+
+impl rustls::client::danger::ServerCertVerifier for SkipServerCertVerify {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
 }
 
 fn extract_host(addr: &str) -> String {
