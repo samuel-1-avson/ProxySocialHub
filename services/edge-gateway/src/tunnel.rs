@@ -1,6 +1,8 @@
+use crate::auth::provider_lease::{
+    lease_is_fresh, provider_leases_required, ProviderLeaseValidator,
+};
 use crate::state::{AppState, NodeInfo};
 use crate::tls::{create_tls_acceptor, is_tls_enabled, TlsConfig};
-use crate::auth::provider_lease::{lease_is_fresh, provider_leases_required, ProviderLeaseValidator};
 use anyhow::Context;
 use futures_util::io::AsyncRead as FuturesAsyncRead;
 use futures_util::{AsyncReadExt, AsyncWriteExt, StreamExt};
@@ -239,13 +241,10 @@ where
                     token,
                     &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
                     &validation,
-                )                 {
+                ) {
                     Ok(token_data) => {
                         if let Err(reason) = validate_tunnel_claims(&token_data.claims) {
-                            error!(
-                                "Handshake: AUTH rejected for {}: {}",
-                                peer_addr, reason
-                            );
+                            error!("Handshake: AUTH rejected for {}: {}", peer_addr, reason);
                             return;
                         }
                         let _ = auth_stream.write_all(b"OK\n").await;
@@ -316,16 +315,21 @@ where
     let lease_claims = if caps.provider_lease.trim().is_empty() {
         None
     } else {
-        match ProviderLeaseValidator::new(state.config.gateway_shared_secret.clone())
-            .validate(&caps.provider_lease, &user_id, &caps)
-        {
+        match ProviderLeaseValidator::new(state.config.gateway_shared_secret.clone()).validate(
+            &caps.provider_lease,
+            &user_id,
+            &caps,
+        ) {
             Ok(claims) => Some(claims),
             Err(err) => {
                 if provider_leases_required {
                     error!("Handshake: provider lease invalid for {}: {}", user_id, err);
                     return;
                 }
-                warn!("Handshake: provider lease invalid for {} (compatibility mode): {}", user_id, err);
+                warn!(
+                    "Handshake: provider lease invalid for {} (compatibility mode): {}",
+                    user_id, err
+                );
                 None
             }
         }
@@ -333,10 +337,16 @@ where
 
     if caps.provider_lease.trim().is_empty() {
         if provider_leases_required {
-            error!("Handshake: provider lease required but missing for {}", user_id);
+            error!(
+                "Handshake: provider lease required but missing for {}",
+                user_id
+            );
             return;
         }
-        warn!("Handshake: provider lease missing for {} — continuing in compatibility mode", user_id);
+        warn!(
+            "Handshake: provider lease missing for {} — continuing in compatibility mode",
+            user_id
+        );
     } else if lease_claims.is_some() {
         info!("Handshake: provider lease accepted for {}", user_id);
     }
@@ -359,7 +369,10 @@ where
             info.assigned_limits = assigned_limits.clone();
             info.max_connections = assigned_limits.max_connections;
             info.qos_tier = assigned_limits.qos_tier.clone();
-            info.lease_expires_at = lease_claims.as_ref().map(|claims| claims.exp as u64).unwrap_or(0);
+            info.lease_expires_at = lease_claims
+                .as_ref()
+                .map(|claims| claims.exp as u64)
+                .unwrap_or(0);
             info
         }
         _ => NodeInfo::with_capabilities(
@@ -382,63 +395,103 @@ where
     }
 
     if node_info.lease_expires_at == 0 {
-        node_info.lease_expires_at = lease_claims.as_ref().map(|claims| claims.exp as u64).unwrap_or(0);
+        node_info.lease_expires_at = lease_claims
+            .as_ref()
+            .map(|claims| claims.exp as u64)
+            .unwrap_or(0);
     }
 
-    state
-        .registry
-        .insert(node_id.clone(), ctrl, node_info.clone());
-    if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
-        warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
-    }
-    state.heartbeat_monitor.register_provider(&node_id).await;
-    if let Err(err) = state.registry_store.save_node(&user_id, &node_info).await {
-        warn!(node_id = %node_id, error = %err, "Failed to persist node info to registry store");
-    }
-
-    // Async registration with Control API
-    let control_api = state.control_api.clone();
-    let reg_state = state.clone();
-    let reg_node_id = node_id.clone();
-    let reg_user_id = user_id.clone();
-    let reg_ip = ip_address.clone();
-    let reg_country = node_info.country_code.clone();
-    let reg_connection_type = caps.connection_type.clone();
-    let reg_version = caps.client_version.clone();
-
-    tokio::spawn(async move {
-        let req = crate::control_api::RegisterNodeRequest {
-            provider_user_id: reg_user_id.clone(),
-            node_id: reg_node_id.clone(),
-            ip_address: reg_ip.clone(),
-            port: 0,
-            region: "Unknown".into(),
-            country_code: reg_country,
-            city: "Unknown".into(),
-            isp: reg_ip,
-            connection_type: reg_connection_type,
-            version: reg_version,
-        };
-        if let Ok(resp) = control_api.register_node(&req).await {
-            info!(
-                "✅ Node registered with Control API: {} (db_id: {})",
-                reg_node_id, resp.id
+    let max_lanes = state.config.yamux_conns_per_node;
+    let mux_attach = if state.registry.contains_node(&node_id) {
+        if max_lanes <= 1 {
+            error!(
+                node_id = %node_id,
+                peer = %peer_addr,
+                "Duplicate provider yamux connection rejected (YAMUX_CONNS_PER_NODE=1)"
             );
-            reg_state.registry.update_node_info(&reg_node_id, |info| {
-                info.control_api_db_id = Some(resp.id.clone());
-                info.quality_score = resp.quality_score;
-                info.current_tier = resp.current_tier;
-                info.base_price_per_gb = resp.base_price_per_gb;
-            });
-            if let Some(info) = reg_state.registry.get_node_info(&reg_node_id) {
-                if let Err(err) = reg_state.registry_store.save_node(&reg_user_id, &info).await {
-                    warn!(node_id = %reg_node_id, error = %err, "Failed to persist updated node info");
+            return;
+        }
+        if !state.registry.try_attach_mux_lane(&node_id, ctrl) {
+            warn!(
+                node_id = %node_id,
+                peer = %peer_addr,
+                max_lanes,
+                "Rejected extra yamux lane (mux full)"
+            );
+            return;
+        }
+        true
+    } else {
+        state
+            .registry
+            .insert(node_id.clone(), ctrl, node_info.clone(), max_lanes);
+        if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
+            warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
+        }
+        if let Err(err) = state.registry_store.save_node(&user_id, &node_info).await {
+            warn!(node_id = %node_id, error = %err, "Failed to persist node info to registry store");
+        }
+
+        // Async registration with Control API (first lane only)
+        let control_api = state.control_api.clone();
+        let reg_state = state.clone();
+        let reg_node_id = node_id.clone();
+        let reg_user_id = user_id.clone();
+        let reg_ip = ip_address.clone();
+        let reg_country = node_info.country_code.clone();
+        let reg_connection_type = caps.connection_type.clone();
+        let reg_version = caps.client_version.clone();
+
+        tokio::spawn(async move {
+            let req = crate::control_api::RegisterNodeRequest {
+                provider_user_id: reg_user_id.clone(),
+                node_id: reg_node_id.clone(),
+                ip_address: reg_ip.clone(),
+                port: 0,
+                region: "Unknown".into(),
+                country_code: reg_country,
+                city: "Unknown".into(),
+                isp: reg_ip,
+                connection_type: reg_connection_type,
+                version: reg_version,
+            };
+            if let Ok(resp) = control_api.register_node(&req).await {
+                info!(
+                    "✅ Node registered with Control API: {} (db_id: {})",
+                    reg_node_id, resp.id
+                );
+                reg_state.registry.update_node_info(&reg_node_id, |info| {
+                    info.control_api_db_id = Some(resp.id.clone());
+                    info.quality_score = resp.quality_score;
+                    info.current_tier = resp.current_tier;
+                    info.base_price_per_gb = resp.base_price_per_gb;
+                });
+                if let Some(info) = reg_state.registry.get_node_info(&reg_node_id) {
+                    if let Err(err) = reg_state
+                        .registry_store
+                        .save_node(&reg_user_id, &info)
+                        .await
+                    {
+                        warn!(node_id = %reg_node_id, error = %err, "Failed to persist updated node info");
+                    }
                 }
             }
-        }
-    });
+        });
+        false
+    };
 
-    info!("✅ Provider connected: {} from {}", node_id, peer_addr);
+    state.heartbeat_monitor.register_provider(&node_id).await;
+
+    if mux_attach {
+        info!(
+            "✅ Provider mux lane attached: {} from {} (lanes={})",
+            node_id,
+            peer_addr,
+            state.registry.mux_lane_count(&node_id)
+        );
+    } else {
+        info!("✅ Provider connected: {} from {}", node_id, peer_addr);
+    }
 
     // Main stream acceptance loop (Heartbeats + Data)
     while let Some(mut stream) = rx.recv().await {
@@ -482,17 +535,15 @@ where
                                         );
                                     }
                                     if let Some(info) = state.registry.get_node_info(&node_id) {
-                                        let _ = state
-                                            .provider_directory
-                                            .claim_with_info(&info)
-                                            .await;
+                                        let _ =
+                                            state.provider_directory.claim_with_info(&info).await;
                                     } else {
                                         let _ = state.provider_directory.touch(&node_id).await;
                                     }
-                                    let bandwidth_rate_kbps = heartbeat_msg
-                                        .bandwidth_usage
-                                        .rate_up_kbps
-                                        .saturating_add(heartbeat_msg.bandwidth_usage.rate_down_kbps);
+                                    let bandwidth_rate_kbps =
+                                        heartbeat_msg.bandwidth_usage.rate_up_kbps.saturating_add(
+                                            heartbeat_msg.bandwidth_usage.rate_down_kbps,
+                                        );
                                     let total_bytes_served = heartbeat_msg
                                         .bandwidth_usage
                                         .bytes_up
@@ -503,19 +554,73 @@ where
                                         .get_node_info(&heartbeat_msg.node_id)
                                         .map(|info| info.lease_expires_at)
                                         .unwrap_or(0);
+                                    let require_signed_heartbeats =
+                                        std::env::var("PROXYHUB_REQUIRE_SIGNED_HEARTBEATS")
+                                            .map(|v| {
+                                                matches!(
+                                                    v.to_lowercase().as_str(),
+                                                    "1" | "true" | "yes" | "on"
+                                                )
+                                            })
+                                            .unwrap_or(false);
+
+                                    match heartbeat_msg.proof.as_ref() {
+                                        Some(proof) => {
+                                            let uptime_percent = 100.0_f64;
+                                            if let Err(err) = crate::proofs::verify_heartbeat_proof(
+                                                proof,
+                                                crate::proofs::HeartbeatPayload {
+                                                    provider_node_id: &heartbeat_msg
+                                                        .provider_node_id,
+                                                    gateway_node_id: &heartbeat_msg.node_id,
+                                                    latency_ms: heartbeat_msg.latency_ms,
+                                                    active_connections: heartbeat_msg
+                                                        .active_connections,
+                                                    uptime_percent,
+                                                    issued_at: heartbeat_msg.timestamp as i64,
+                                                },
+                                            ) {
+                                                lease_valid = false;
+                                                warn!(
+                                                    node_id = %heartbeat_msg.node_id,
+                                                    error = %err,
+                                                    "Heartbeat: invalid provider signature"
+                                                );
+                                            }
+                                        }
+                                        None if require_signed_heartbeats => {
+                                            lease_valid = false;
+                                            warn!(
+                                                node_id = %heartbeat_msg.node_id,
+                                                "Heartbeat: missing required provider signature"
+                                            );
+                                        }
+                                        None => {}
+                                    }
 
                                     if !heartbeat_msg.provider_lease.trim().is_empty() {
-                                        if let Some(info) = state.registry.get_node_info(&heartbeat_msg.node_id) {
+                                        if let Some(info) =
+                                            state.registry.get_node_info(&heartbeat_msg.node_id)
+                                        {
                                             let caps = info.capabilities.clone();
                                             let expected_user_id = info.user_id.unwrap_or_default();
-                                            match ProviderLeaseValidator::new(state.config.gateway_shared_secret.clone())
-                                                .validate(&heartbeat_msg.provider_lease, &expected_user_id, &caps)
-                                            {
+                                            match ProviderLeaseValidator::new(
+                                                state.config.gateway_shared_secret.clone(),
+                                            )
+                                            .validate(
+                                                &heartbeat_msg.provider_lease,
+                                                &expected_user_id,
+                                                &caps,
+                                            ) {
                                                 Ok(claims) => {
                                                     lease_expiry = claims.exp as u64;
-                                                    state.registry.update_node_info(&heartbeat_msg.node_id, |node_info| {
-                                                        node_info.lease_expires_at = lease_expiry;
-                                                    });
+                                                    state.registry.update_node_info(
+                                                        &heartbeat_msg.node_id,
+                                                        |node_info| {
+                                                            node_info.lease_expires_at =
+                                                                lease_expiry;
+                                                        },
+                                                    );
                                                 }
                                                 Err(err) => {
                                                     lease_valid = false;
@@ -523,9 +628,14 @@ where
                                                 }
                                             }
                                         }
-                                    } else if provider_leases_required && !lease_is_fresh(lease_expiry) {
+                                    } else if provider_leases_required
+                                        && !lease_is_fresh(lease_expiry)
+                                    {
                                         lease_valid = false;
-                                        warn!("Heartbeat: provider lease expired for {}", heartbeat_msg.node_id);
+                                        warn!(
+                                            "Heartbeat: provider lease expired for {}",
+                                            heartbeat_msg.node_id
+                                        );
                                     }
 
                                     state.registry.update_live_metrics(
@@ -540,9 +650,15 @@ where
                                     } else {
                                         state.registry.mark_unhealthy(&heartbeat_msg.node_id);
                                     }
-                                    if let Some(info) = state.registry.get_node_info(&heartbeat_msg.node_id) {
+                                    if let Some(info) =
+                                        state.registry.get_node_info(&heartbeat_msg.node_id)
+                                    {
                                         if let Some(user_id) = info.user_id.clone() {
-                                            if let Err(err) = state.registry_store.save_node(&user_id, &info).await {
+                                            if let Err(err) = state
+                                                .registry_store
+                                                .save_node(&user_id, &info)
+                                                .await
+                                            {
                                                 warn!(node_id = %heartbeat_msg.node_id, error = %err, "Failed to persist heartbeat-updated node info");
                                             }
                                         }
@@ -570,6 +686,8 @@ where
                                     &crate::heartbeat::HeartbeatMessage {
                                         node_id: node_id.clone(),
                                         timestamp: 0,
+                                        provider_node_id: String::new(),
+                                        latency_ms: 0,
                                         active_connections: 0,
                                         bandwidth_usage: crate::heartbeat::BandwidthUsage {
                                             bytes_up: 0,
@@ -584,6 +702,7 @@ where
                                             goroutines: 0,
                                         },
                                         provider_lease: String::new(),
+                                        proof: None,
                                     },
                                     0,
                                 )
@@ -670,6 +789,8 @@ mod tests {
         let heartbeat = crate::heartbeat::HeartbeatMessage {
             node_id: "node_provider-large-heartbeat".to_string(),
             timestamp: 1_777_675_904,
+            provider_node_id: String::new(),
+            latency_ms: 0,
             active_connections: 1,
             bandwidth_usage: crate::heartbeat::BandwidthUsage {
                 bytes_up: 0,
@@ -684,6 +805,7 @@ mod tests {
                 goroutines: 0,
             },
             provider_lease: "lease".repeat(400),
+            proof: None,
         };
         let heartbeat_json = serde_json::to_string(&heartbeat).unwrap();
         let frame = format!(

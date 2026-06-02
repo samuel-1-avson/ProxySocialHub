@@ -1,0 +1,38 @@
+# Optional provider-node for local Docker stacks (signed heartbeats end-to-end).
+#
+# Bootstrap credentials first:
+#   .\scripts\bootstrap-provider-docker.ps1
+#
+# Start the main stack, then the provider:
+#   docker compose up -d
+#   docker compose -f docker-compose.yml -f docker-compose.provider.yml --profile provider up -d provider-node
+#
+# Verify:
+#   .\scripts\verify-provider-proofs-docker.ps1
+
+services:
+  provider-node:
+    profiles: ["provider"]
+    build:
+      context: ./services/provider-node
+      dockerfile: Dockerfile
+    container_name: proxyhubb-provider-node
+    env_file:
+      - config/docker/provider.compose.env
+    volumes:
+      - ./config/docker/provider.toml:/config/provider.toml:ro
+    environment:
+      - PROXYHUB_API_URL=http://control-api:8080
+      - PROXYHUB_GATEWAY_ADDR=edge-gateway:3128
+      - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
+      - RUST_LOG=${PROVIDER_NODE_LOG:-info}
+    # Gateway docker stack enables TLS on TUNNEL_PORT when certs are mounted.
+    command: ["start", "--config", "/config/provider.toml", "--use-tls"]
+    depends_on:
+      control-api:
+        condition: service_healthy
+      edge-gateway:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped

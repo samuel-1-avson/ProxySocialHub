@@ -34,6 +34,11 @@ pub struct Config {
     #[serde(default)]
     pub node_id: String,
 
+    /// Base58 Ed25519 signing key for provider-authored heartbeat proofs.
+    /// Accepts either a 32-byte seed or a 64-byte keypair encoded as base58.
+    #[serde(default)]
+    pub provider_signing_key: String,
+
     /// Use TLS for the gateway tunnel.
     #[serde(default)]
     pub use_tls: bool,
@@ -81,6 +86,10 @@ pub struct Config {
     /// Type of network connection (e.g., residential, data-center).
     #[serde(default = "default_connection_type")]
     pub connection_type: String,
+
+    /// P4: parallel yamux tunnels to the gateway (must match gateway `YAMUX_CONNS_PER_NODE`).
+    #[serde(default = "default_yamux_conns_per_node")]
+    pub yamux_conns_per_node: usize,
 }
 
 impl Default for Config {
@@ -92,6 +101,7 @@ impl Default for Config {
             jwt_token: String::new(),
             api_key: String::new(),
             node_id: String::new(),
+            provider_signing_key: String::new(),
             use_tls: false,
             tls_skip_verify: false,
             tls_cert_path: String::new(),
@@ -104,7 +114,23 @@ impl Default for Config {
             reconnect_interval: default_reconnect_interval(),
             connect_timeout: default_connect_timeout(),
             connection_type: default_connection_type(),
+            yamux_conns_per_node: default_yamux_conns_per_node(),
         }
+    }
+}
+
+fn default_yamux_conns_per_node() -> usize {
+    1
+}
+
+/// Read `YAMUX_CONNS_PER_NODE` (1–16). Config file value is the default when unset.
+pub fn yamux_conns_per_node_from_env() -> Option<usize> {
+    const MAX: usize = 16;
+    let raw = std::env::var("YAMUX_CONNS_PER_NODE").ok()?;
+    match raw.trim().parse::<usize>() {
+        Ok(0) => Some(1),
+        Ok(n) => Some(n.min(MAX).max(1)),
+        Err(_) => None,
     }
 }
 
@@ -126,6 +152,10 @@ impl Config {
             return dir.join("proxyhubb").join("provider.toml");
         }
         std::path::PathBuf::from("provider.toml")
+    }
+
+    pub fn effective_yamux_conns_per_node(&self) -> usize {
+        yamux_conns_per_node_from_env().unwrap_or(self.yamux_conns_per_node)
     }
 
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
