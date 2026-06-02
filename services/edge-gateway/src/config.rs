@@ -1,7 +1,48 @@
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Canonical buyer/management port — must match compose, K8s, and docs.
+pub const CANONICAL_PORT: u16 = 8090;
+/// Canonical provider yamux tunnel port.
+pub const CANONICAL_TUNNEL_PORT: u16 = 3128;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdgeMode {
+    /// Default: in-memory registry only (single-pod semantics).
+    Single,
+    /// Multi-pod: enforce Redis ownership directory (forwarding in P3.2).
+    Colocated,
+}
+
+impl EdgeMode {
+    pub fn from_env() -> Self {
+        match env::var("EDGE_MODE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "colocated" | "multi" => Self::Colocated,
+            _ => Self::Single,
+        }
+    }
+}
+
+/// Stable pod identity for provider directory and leader election.
+pub fn resolve_edge_pod_id() -> String {
+    for key in ["EDGE_POD_ID", "HOSTNAME", "POD_NAME"] {
+        if let Ok(value) = env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    format!("ephemeral-{}", uuid::Uuid::new_v4())
+}
 
 fn env_bool(key: &str, default: bool) -> bool {
     env::var(key)
@@ -55,6 +96,62 @@ pub struct Config {
     pub rpc_request_timeout_secs: u64,
     /// Maximum requests per minute per session (default: 300).
     pub max_rpm_per_session: Option<u32>,
+    /// Max concurrent buyer HTTP connections (admission control; default: 8192).
+    pub max_concurrent_connections: usize,
+    /// Provider score-snapshot refresh interval in ms (default: 100).
+    pub score_snapshot_refresh_ms: u64,
+    /// Stable id for this gateway replica (P3 directory + leader).
+    pub edge_pod_id: String,
+    pub edge_mode: EdgeMode,
+    /// TTL for `eg:provider:owner:*` keys (default: 120s).
+    pub provider_directory_ttl_secs: u64,
+    /// Peer edge pods for internal forward (`pod_id` → `http://host:port`).
+    pub edge_peer_urls: HashMap<String, String>,
+}
+
+/// Parse `EDGE_PEER_URLS=pod-a@http://edge-a:8090,pod-b@http://edge-b:8090`.
+pub fn parse_edge_peer_urls() -> HashMap<String, String> {
+    let raw = env::var("EDGE_PEER_URLS").unwrap_or_default();
+    let mut map = HashMap::new();
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let Some((pod, url)) = entry.split_once('@') else {
+            tracing::warn!(entry, "Skipping EDGE_PEER_URLS entry (expected pod@url)");
+            continue;
+        };
+        let pod = pod.trim();
+        let url = url.trim();
+        if pod.is_empty() || url.is_empty() {
+            continue;
+        }
+        map.insert(pod.to_string(), url.to_string());
+    }
+    map
+}
+
+impl Config {
+    pub fn peer_base_url(&self, pod_id: &str) -> Option<String> {
+        self.edge_peer_urls.get(pod_id).cloned()
+    }
+}
+
+/// Whether the `/ready` endpoint should require at least one healthy provider
+/// before reporting ready. Off by default to avoid readiness flapping on a
+/// freshly-started pod that has no providers connected yet (e.g. dev/single-node).
+pub fn ready_requires_providers() -> bool {
+    env_bool("READY_REQUIRE_PROVIDERS", false)
+}
+
+/// POST `/admin/drain` and `/admin/drain/ownership` for graceful pod drain (P3).
+/// Enabled when debug routes are on, or explicitly via `ENABLE_POD_DRAIN_ADMIN=true`.
+pub fn pod_drain_admin_enabled() -> bool {
+    if env_bool("ENABLE_POD_DRAIN_ADMIN", false) {
+        return true;
+    }
+    debug_routes_enabled()
 }
 
 /// Expose debug/operator routes on the public proxy listener (default: off in release/prod).
@@ -80,13 +177,17 @@ pub fn debug_routes_enabled() -> bool {
 impl Config {
     pub fn from_env() -> Self {
         let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+        // Canonical buyer/management port (HTTP CONNECT + WS + /metrics + /health + /ready).
+        // 8090 matches docker-compose, .env templates, and SYSTEM_ARCHITECTURE docs.
         let port = env::var("PORT")
-            .unwrap_or_else(|_| "3000".to_string())
+            .unwrap_or_else(|_| CANONICAL_PORT.to_string())
             .parse()
             .expect("PORT must be a number");
 
+        // Canonical provider tunnel port (yamux). 3128 matches provider-node, CLI,
+        // control-api, web, and compose defaults across the repo.
         let tunnel_port = env::var("TUNNEL_PORT")
-            .unwrap_or_else(|_| "4000".to_string())
+            .unwrap_or_else(|_| CANONICAL_TUNNEL_PORT.to_string())
             .parse()
             .expect("TUNNEL_PORT must be a number");
 
@@ -174,6 +275,25 @@ impl Config {
             .ok()
             .and_then(|v| v.parse().ok());
 
+        let max_concurrent_connections = env::var("MAX_CONCURRENT_CONNECTIONS")
+            .unwrap_or_else(|_| "8192".to_string())
+            .parse()
+            .expect("MAX_CONCURRENT_CONNECTIONS must be a positive integer");
+
+        let score_snapshot_refresh_ms = env::var("SCORE_SNAPSHOT_REFRESH_MS")
+            .unwrap_or_else(|_| "100".to_string())
+            .parse()
+            .expect("SCORE_SNAPSHOT_REFRESH_MS must be a positive integer");
+
+        let edge_pod_id = resolve_edge_pod_id();
+        let edge_mode = EdgeMode::from_env();
+        let provider_directory_ttl_secs = env::var("PROVIDER_DIRECTORY_TTL_SECS")
+            .unwrap_or_else(|_| "120".to_string())
+            .parse()
+            .expect("PROVIDER_DIRECTORY_TTL_SECS must be a positive integer");
+
+        let edge_peer_urls = parse_edge_peer_urls();
+
         Self {
             host,
             port,
@@ -196,6 +316,12 @@ impl Config {
             proxy_idle_timeout_secs,
             rpc_request_timeout_secs,
             max_rpm_per_session,
+            max_concurrent_connections,
+            score_snapshot_refresh_ms,
+            edge_pod_id,
+            edge_mode,
+            provider_directory_ttl_secs,
+            edge_peer_urls,
         }
     }
 
@@ -299,6 +425,142 @@ mod tests {
         restore_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED", previous_legacy);
 
         assert!(config.legacy_edge_zk_submission_enabled);
+    }
+
+    #[test]
+    fn canonical_port_defaults_match_ecosystem() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let prev_jwt = env::var("JWT_SECRET").ok();
+        let prev_gateway = env::var("GATEWAY_SHARED_SECRET").ok();
+        let prev_session = env::var("SESSION_SECRET").ok();
+        let prev_provider = env::var("PROVIDER_PRIVATE_KEY").ok();
+        let prev_port = env::var("PORT").ok();
+        let prev_tunnel = env::var("TUNNEL_PORT").ok();
+
+        env::set_var("JWT_SECRET", "test-jwt-secret");
+        env::set_var("GATEWAY_SHARED_SECRET", "test-gateway-secret");
+        env::set_var("SESSION_SECRET", "test-session-secret");
+        env::set_var("PROVIDER_PRIVATE_KEY", "test-provider-key");
+        env::remove_var("PORT");
+        env::remove_var("TUNNEL_PORT");
+
+        let config = Config::from_env();
+
+        restore_var("JWT_SECRET", prev_jwt);
+        restore_var("GATEWAY_SHARED_SECRET", prev_gateway);
+        restore_var("SESSION_SECRET", prev_session);
+        restore_var("PROVIDER_PRIVATE_KEY", prev_provider);
+        restore_var("PORT", prev_port);
+        restore_var("TUNNEL_PORT", prev_tunnel);
+
+        // These defaults must match docker-compose, .env templates, and K8s.
+        assert_eq!(
+            config.port, CANONICAL_PORT,
+            "buyer/management port must default to canonical value"
+        );
+        assert_eq!(
+            config.tunnel_port, CANONICAL_TUNNEL_PORT,
+            "provider tunnel port must default to canonical value"
+        );
+        assert_eq!(config.control_api_url, "http://localhost:8080");
+    }
+
+    #[test]
+    fn deploy_manifests_use_canonical_ports() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let k8s = std::fs::read_to_string(
+            manifest_dir.join("../../infra/k8s/edge-gateway-deployment.yaml"),
+        )
+        .expect("read k8s edge-gateway deployment");
+        assert!(
+            k8s.contains(&format!("value: \"{}\"", CANONICAL_PORT)),
+            "k8s manifest must set PORT to {}",
+            CANONICAL_PORT
+        );
+        assert!(
+            k8s.contains(&format!("value: \"{}\"", CANONICAL_TUNNEL_PORT)),
+            "k8s manifest must set TUNNEL_PORT to {}",
+            CANONICAL_TUNNEL_PORT
+        );
+
+        let compose = std::fs::read_to_string(manifest_dir.join("../../docker-compose.yml"))
+            .expect("read root docker-compose.yml");
+        assert!(
+            compose.contains(&format!("PORT={}", CANONICAL_PORT)),
+            "docker-compose must expose PORT={} for edge-gateway",
+            CANONICAL_PORT
+        );
+        assert!(
+            compose.contains(&format!("TUNNEL_PORT={}", CANONICAL_TUNNEL_PORT)),
+            "docker-compose must expose TUNNEL_PORT={} for edge-gateway",
+            CANONICAL_TUNNEL_PORT
+        );
+
+        let dockerfile = std::fs::read_to_string(manifest_dir.join("Dockerfile"))
+            .expect("read production Dockerfile");
+        assert!(
+            dockerfile.contains(&format!("PORT={}", CANONICAL_PORT)),
+            "Dockerfile runtime ENV PORT must match canonical default"
+        );
+        assert!(
+            dockerfile.contains(&format!("TUNNEL_PORT={}", CANONICAL_TUNNEL_PORT)),
+            "Dockerfile runtime ENV TUNNEL_PORT must match canonical default"
+        );
+
+        let infra_compose = std::fs::read_to_string(
+            manifest_dir.join("../../infra/docker-compose/docker-compose.yml"),
+        )
+        .expect("read infra/docker-compose/docker-compose.yml");
+        assert!(
+            infra_compose.contains(&format!("PORT={}", CANONICAL_PORT)),
+            "infra docker-compose must set PORT={}",
+            CANONICAL_PORT
+        );
+        assert!(
+            infra_compose.contains(&format!("TUNNEL_PORT={}", CANONICAL_TUNNEL_PORT)),
+            "infra docker-compose must set TUNNEL_PORT={}",
+            CANONICAL_TUNNEL_PORT
+        );
+
+        let env_example = std::fs::read_to_string(manifest_dir.join("../../.env.example"))
+            .expect("read root .env.example");
+        assert!(
+            env_example.contains(&format!("EDGE_GATEWAY_PORT={}", CANONICAL_PORT)),
+            ".env.example must document EDGE_GATEWAY_PORT={}",
+            CANONICAL_PORT
+        );
+        assert!(
+            env_example.contains(&format!("localhost:{}", CANONICAL_PORT))
+                || env_example.contains(&format!(":{}", CANONICAL_PORT)),
+            ".env.example must reference buyer port {}",
+            CANONICAL_PORT
+        );
+    }
+
+    /// ADR D4: default feature set must stay lean (no optional bundles enabled).
+    #[test]
+    fn default_features_are_lean() {
+        assert!(
+            cfg!(not(any(
+                feature = "legacy-zk",
+                feature = "blockchain",
+                feature = "pricing",
+                feature = "ml",
+                feature = "ml-gpu"
+            ))),
+            "this test runs on the default lean build only"
+        );
+    }
+
+    #[test]
+    fn ready_requires_providers_defaults_off() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let previous = env::var("READY_REQUIRE_PROVIDERS").ok();
+        env::remove_var("READY_REQUIRE_PROVIDERS");
+        assert!(!ready_requires_providers());
+        env::set_var("READY_REQUIRE_PROVIDERS", "true");
+        assert!(ready_requires_providers());
+        restore_var("READY_REQUIRE_PROVIDERS", previous);
     }
 
     #[test]

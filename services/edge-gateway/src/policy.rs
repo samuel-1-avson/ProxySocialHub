@@ -28,6 +28,34 @@ pub fn is_allowed_port(port: u16) -> bool {
     ALLOWED_PORTS.contains(&port)
 }
 
+/// True when `host` equals `domain` or is a proper subdomain (`host` ends with `.domain`).
+///
+/// Avoids allocating `format!(".{}", domain)` inside hot-path domain list checks.
+#[inline]
+pub fn host_matches_domain_rule(host: &str, domain: &str) -> bool {
+    if host == domain {
+        return true;
+    }
+    let need = domain.len().saturating_add(1);
+    host.len() > need
+        && host.as_bytes().get(host.len() - need) == Some(&b'.')
+        && host.ends_with(domain)
+}
+
+/// Host portion of a `host:port` CONNECT target (no allocation).
+#[inline]
+pub fn target_host_from_endpoint(endpoint: &str) -> &str {
+    endpoint.split(':').next().unwrap_or(endpoint)
+}
+
+/// True when `host` matches any entry in a session/node domain list.
+#[inline]
+pub fn host_matches_any_domain_rule(host: &str, rules: &[String]) -> bool {
+    rules
+        .iter()
+        .any(|domain| host_matches_domain_rule(host, domain))
+}
+
 /// Check if an IP address is private/reserved (should be blocked)
 pub fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
@@ -271,6 +299,21 @@ mod tests {
         assert!(is_safe_hostname("api.github.com").is_ok());
         assert!(is_safe_hostname("8.8.8.8").is_ok()); // public IP — handled by IP parser
     }
+
+    #[test]
+    fn test_target_host_from_endpoint() {
+        assert_eq!(target_host_from_endpoint("example.com:443"), "example.com");
+        assert_eq!(target_host_from_endpoint("example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_host_matches_domain_rule() {
+        assert!(host_matches_domain_rule("example.com", "example.com"));
+        assert!(host_matches_domain_rule("api.example.com", "example.com"));
+        assert!(!host_matches_domain_rule("notexample.com", "example.com"));
+        assert!(!host_matches_domain_rule("evil-example.com", "example.com"));
+        assert!(!host_matches_domain_rule("example.com.evil", "example.com"));
+    }
 }
 
 // ============================================
@@ -408,12 +451,7 @@ pub mod blocklist {
 
             if pattern_lower.starts_with("*.") {
                 let suffix = &pattern_lower[2..];
-                if domain == suffix {
-                    return true;
-                }
-                if domain.ends_with(&format!(".{}", suffix)) {
-                    return true;
-                }
+                return super::host_matches_domain_rule(domain, suffix);
             }
 
             false

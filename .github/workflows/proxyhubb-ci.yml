@@ -232,14 +232,36 @@ jobs:
     - name: Check formatting
       run: cargo fmt -- --check
     
-    - name: Run Clippy
+    - name: Run Clippy (default lean features)
       run: cargo clippy -- -D warnings
       
-    - name: Build
+    - name: Build (default lean features)
       run: cargo build --verbose
       
-    - name: Test
-      run: cargo test --verbose
+    - name: Test (includes P1 deploy port parity + lean features)
+      run: cargo test --verbose --bin edge-gateway
+
+    - name: P1 bench smoke (matches scripts/p1-exit-verify.ps1)
+      run: |
+        cargo bench --bench registry_bench -- --test
+        cargo bench --bench hotpath_bench -- --test
+      # Sign-off: services/edge-gateway/docs/P1_SIGNOFF.md
+
+    - name: P2 unit tests (admission, session limits, circuit config)
+      run: |
+        cargo test --bin edge-gateway session_within_time_limit -- --nocapture
+        cargo test --bin edge-gateway writes_http_503_and_closes -- --nocapture
+        cargo test --bin edge-gateway circuit_config_from_env -- --nocapture
+      # Sign-off: services/edge-gateway/docs/P2_SIGNOFF.md
+
+    - name: P3 unit tests (directory, admission)
+      run: |
+        cargo test --bin edge-gateway ownership_key -- --nocapture
+        cargo test --bin edge-gateway writes_http_503_and_closes -- --nocapture
+      # Sign-off: services/edge-gateway/docs/P3_SIGNOFF.md
+
+    - name: Check optional feature bundles compile
+      run: cargo check --features legacy-zk,blockchain,pricing,ml
 
   # ==================== Solana Programs ====================
   solana-check:

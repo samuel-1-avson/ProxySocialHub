@@ -1,16 +1,61 @@
 pub mod session_intent;
 pub mod provider_lease;
 
+mod redis_keys {
+    /// Pre-sized Redis keys (one allocation, no `format!` macro).
+
+    pub fn session(username: &str) -> String {
+        let mut key = String::with_capacity(8 + username.len());
+        key.push_str("session:");
+        key.push_str(username);
+        key
+    }
+
+    pub fn session_usage(username: &str) -> String {
+        let mut key = String::with_capacity(14 + username.len());
+        key.push_str("session:");
+        key.push_str(username);
+        key.push_str(":usage");
+        key
+    }
+
+    pub fn sticky(session_id: &str) -> String {
+        let mut key = String::with_capacity(7 + session_id.len());
+        key.push_str("sticky:");
+        key.push_str(session_id);
+        key
+    }
+
+    pub fn ratelimit(session_id: &str) -> String {
+        let mut key = String::with_capacity(10 + session_id.len());
+        key.push_str("ratelimit:");
+        key.push_str(session_id);
+        key
+    }
+
+    pub fn node_config(node_id: &str) -> String {
+        let mut key = String::with_capacity(12 + node_id.len());
+        key.push_str("node:config:");
+        key.push_str(node_id);
+        key
+    }
+
+    pub fn intent_username(jti: &str) -> String {
+        let mut key = String::with_capacity(7 + jti.len());
+        key.push_str("intent:");
+        key.push_str(jti);
+        key
+    }
+}
+
 use crate::metrics;
 use crate::redis_pool::PooledConnectionManager;
-use lru::LruCache;
+use moka::future::Cache;
 use redis::AsyncCommands;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyAuthSource {
@@ -55,22 +100,20 @@ pub struct SessionData {
     #[serde(default)]
     pub time_limit_minutes: u32,
     #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub auth_source: String,
     #[serde(default)]
     pub intent_expires_at: i64,
 }
 
-struct CachedSession {
-    data: SessionData,
-    cached_at: Instant,
-}
-
 pub struct SessionAuthenticator {
     // P1-A4: Redis connection pool for better concurrency and performance
-    // Replaces single ConnectionManager with a pool of reusable connections
     conn_pool: PooledConnectionManager,
-    // P0-A2: Bounded LRU cache for validated sessions (configurable TTL and max entries)
-    cache: Arc<Mutex<LruCache<String, CachedSession>>>,
+    /// P1: Sharded async session cache (lock-free reads, TTL-native eviction).
+    cache: Cache<String, SessionData>,
     cache_ttl: Duration,
     cache_max_size: usize,
 }
@@ -87,13 +130,15 @@ impl SessionAuthenticator {
 
         // Ensure cache_size is at least 1
         let effective_size = cache_size.max(1);
+        let cache_ttl = Duration::from_secs(cache_ttl_secs.max(1));
 
         let authenticator = Self {
             conn_pool,
-            cache: Arc::new(Mutex::new(LruCache::new(
-                NonZeroUsize::new(effective_size).unwrap(),
-            ))),
-            cache_ttl: Duration::from_secs(cache_ttl_secs),
+            cache: Cache::builder()
+                .max_capacity(effective_size as u64)
+                .time_to_live(cache_ttl)
+                .build(),
+            cache_ttl,
             cache_max_size: effective_size,
         };
 
@@ -114,11 +159,7 @@ impl SessionAuthenticator {
 
             loop {
                 interval.tick().await;
-                let cache_guard = cache.lock().await;
-                let size = cache_guard.len() as i64;
-                drop(cache_guard);
-
-                metrics::set_session_cache_size(size);
+                metrics::set_session_cache_size(cache.entry_count() as i64);
             }
         });
     }
@@ -132,15 +173,10 @@ impl SessionAuthenticator {
     ) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
         // Check cache first
         if !force_refresh {
-            let mut cache = self.cache.lock().await;
-            if let Some(cached) = cache.get(username) {
-                if cached.cached_at.elapsed() < self.cache_ttl {
-                    // P0-A2: Track cache hit
-                    metrics::record_session_cache_hit();
-                    return Ok(Some(cached.data.clone()));
-                }
+            if let Some(session_data) = self.cache.get(username).await {
+                metrics::record_session_cache_hit();
+                return Ok(Some(session_data));
             }
-            // P0-A2: Track cache miss (entry not found or expired)
             metrics::record_session_cache_miss();
         } else {
             // Forced refresh counts as cache miss
@@ -149,7 +185,7 @@ impl SessionAuthenticator {
 
         // Fetch from Redis
         let mut con = self.conn_pool.get().await?;
-        let key = format!("session:{}", username);
+        let key = redis_keys::session(username);
         let data: Option<String> = con.get(&key).await?;
 
         match data {
@@ -166,17 +202,13 @@ impl SessionAuthenticator {
                     return Ok(None);
                 }
 
-                // Cache the session
-                {
-                    let mut cache = self.cache.lock().await;
-                    cache.put(
-                        username.to_string(),
-                        CachedSession {
-                            data: session_data.clone(),
-                            cached_at: Instant::now(),
-                        },
-                    );
+                if !session_data.session_within_time_limit() {
+                    return Ok(None);
                 }
+
+                self.cache
+                    .insert(username.to_string(), session_data.clone())
+                    .await;
 
                 Ok(Some(session_data))
             }
@@ -200,19 +232,12 @@ impl SessionAuthenticator {
                     ))
                 })?;
 
-            let resolved_username = format!("intent:{}", claims.jti);
+            let resolved_username = redis_keys::intent_username(&claims.jti);
             let session_data = SessionData::from_session_intent(&claims);
 
-            {
-                let mut cache = self.cache.lock().await;
-                cache.put(
-                    resolved_username.clone(),
-                    CachedSession {
-                        data: session_data.clone(),
-                        cached_at: Instant::now(),
-                    },
-                );
-            }
+            self.cache
+                .insert(resolved_username.clone(), session_data.clone())
+                .await;
 
             return Ok(Some(ResolvedProxySession {
                 username: resolved_username,
@@ -236,25 +261,35 @@ impl SessionAuthenticator {
         bytes: i64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("session:{}:usage", username);
+        let key = redis_keys::session_usage(username);
         let _: () = con.incr(&key, bytes).await?;
         Ok(())
     }
 
     /// Invalidate cached session
     pub async fn invalidate_cache(&self, username: &str) {
-        let mut cache = self.cache.lock().await;
-        if cache.pop(username).is_some() {
-            // P0-A2: Track manual eviction
+        if self.cache.contains_key(username) {
+            self.cache.invalidate(username).await;
             metrics::record_session_cache_eviction();
+        }
+    }
+
+    /// Lightweight Redis liveness check for `/ready`.
+    pub async fn ping(&self) -> bool {
+        match self.conn_pool.get().await {
+            Ok(mut con) => redis::cmd("PING")
+                .query_async(&mut con)
+                .await
+                .map(|pong: String| pong == "PONG")
+                .unwrap_or(false),
+            Err(_) => false,
         }
     }
 
     /// P0-A2: Get cache statistics for monitoring
     pub async fn get_cache_stats(&self) -> CacheStats {
-        let cache = self.cache.lock().await;
         CacheStats {
-            size: cache.len(),
+            size: self.cache.entry_count() as usize,
             max_size: self.cache_max_size,
             ttl_secs: self.cache_ttl.as_secs(),
         }
@@ -269,7 +304,7 @@ impl SessionAuthenticator {
         session_id: &str,
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("sticky:{}", session_id);
+        let key = redis_keys::sticky(session_id);
         let node_id: Option<String> = con.get(&key).await?;
         Ok(node_id)
     }
@@ -282,7 +317,7 @@ impl SessionAuthenticator {
         ttl_secs: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("sticky:{}", session_id);
+        let key = redis_keys::sticky(session_id);
         let _: () = con.set_ex(&key, node_id, ttl_secs).await?;
         Ok(())
     }
@@ -293,7 +328,7 @@ impl SessionAuthenticator {
         session_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("sticky:{}", session_id);
+        let key = redis_keys::sticky(session_id);
         let _: () = con.del(&key).await?;
         Ok(())
     }
@@ -308,7 +343,7 @@ impl SessionAuthenticator {
         limit_per_minute: u32,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("ratelimit:{}", session_id);
+        let key = redis_keys::ratelimit(session_id);
 
         // INCR the counter
         let count: i64 = con.incr(&key, 1).await?;
@@ -327,7 +362,7 @@ impl SessionAuthenticator {
         session_id: &str,
     ) -> Result<u32, Box<dyn Error + Send + Sync>> {
         let mut con = self.conn_pool.get().await?;
-        let key = format!("ratelimit:{}", session_id);
+        let key = redis_keys::ratelimit(session_id);
         let count: Option<u32> = con.get(&key).await?;
         Ok(count.unwrap_or(0))
     }
@@ -335,7 +370,7 @@ impl SessionAuthenticator {
     /// Fetch cached node service configuration (N-01)
     pub async fn get_node_config(&self, node_id: &str) -> Option<NodeConfig> {
         let mut con = self.conn_pool.get().await.ok()?;
-        let key = format!("node:config:{}", node_id);
+        let key = redis_keys::node_config(node_id);
         let json_str: Option<String> = redis::AsyncCommands::get(&mut con, &key).await.ok()?;
         let cfg: NodeConfig = serde_json::from_str(&json_str?).ok()?;
         Some(cfg)
@@ -362,6 +397,7 @@ impl SessionData {
             time_limit_minutes: claims.time_limit_minutes.max(0) as u32,
             auth_source: "session_intent".to_string(),
             intent_expires_at: claims.exp as i64,
+            ..Default::default()
         }
     }
 
@@ -380,6 +416,33 @@ impl SessionData {
             .unwrap_or_default();
         now <= self.intent_expires_at
     }
+
+    /// P2: Enforce Redis `expires_at`, `created_at` + `time_limit_minutes`, and intent JWT expiry.
+    pub fn session_within_time_limit(&self) -> bool {
+        let now = Utc::now();
+
+        if self.is_session_intent() && !self.intent_still_valid() {
+            return false;
+        }
+
+        if let Some(expires_at) = self.expires_at {
+            if now > expires_at {
+                return false;
+            }
+        }
+
+        if self.time_limit_minutes > 0 {
+            if let Some(created_at) = self.created_at {
+                let limit =
+                    chrono::Duration::minutes(i64::from(self.time_limit_minutes.max(1)));
+                if now > created_at + limit {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 }
 
 pub async fn revalidate_live_session(
@@ -387,6 +450,10 @@ pub async fn revalidate_live_session(
     username: &str,
     session: &SessionData,
 ) -> bool {
+    if !session.session_within_time_limit() {
+        return false;
+    }
+
     if session.is_session_intent() {
         return session.intent_still_valid();
     }
@@ -508,5 +575,34 @@ mod tests {
         };
 
         assert!(session.bandwidth_used >= session.bandwidth_limit);
+    }
+
+    #[test]
+    fn session_within_time_limit_respects_expires_at() {
+        let session = SessionData {
+            expires_at: Some(Utc::now() - chrono::Duration::minutes(1)),
+            ..Default::default()
+        };
+        assert!(!session.session_within_time_limit());
+    }
+
+    #[test]
+    fn session_within_time_limit_respects_created_plus_minutes() {
+        let session = SessionData {
+            created_at: Some(Utc::now() - chrono::Duration::minutes(31)),
+            time_limit_minutes: 30,
+            ..Default::default()
+        };
+        assert!(!session.session_within_time_limit());
+    }
+
+    #[test]
+    fn session_intent_jwt_expiry_enforced() {
+        let session = SessionData {
+            auth_source: "session_intent".to_string(),
+            intent_expires_at: 1,
+            ..Default::default()
+        };
+        assert!(!session.session_within_time_limit());
     }
 }
