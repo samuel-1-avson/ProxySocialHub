@@ -25,7 +25,7 @@ services:
       - ./migrations:/app/migrations:ro
     restart: "no"
     networks:
-      - proxyhubb
+      - backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +86,9 @@ services:
       - HALO2_PROVER_TIMEOUT_MS=${HALO2_PROVER_TIMEOUT_MS:-15000}
       - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-true}
       - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
+      # --- Provider proofs (Phase 1 decentralization) ---
+      # observe = verify and store; enforce = reject invalid/missing proofs when node hotkey is set
+      - PROVIDER_SIGNATURE_MODE=${PROVIDER_SIGNATURE_MODE:-observe}
       # --- Explorer (public API + workers) ---
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
@@ -162,7 +165,7 @@ services:
       zk-prover:
         condition: service_healthy
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
@@ -182,7 +185,7 @@ services:
       - PORT=8095
       - RUST_LOG=${ZK_PROVER_LOG:-info}
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8095/healthz"]
       interval: 30s
@@ -204,6 +207,9 @@ services:
       - HOST=0.0.0.0
       - PORT=8090
       - TUNNEL_PORT=3128
+      # P4: parallel yamux lanes per provider (gateway + provider-node should match).
+      - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
+      - PROVIDER_TRANSPORT=${PROVIDER_TRANSPORT:-yamux}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - NATS_URL=nats://nats:4222
       - CONTROL_API_URL=http://control-api:8080
@@ -243,6 +249,8 @@ services:
       # Emergency fallback price (USD) when all live feeds + cache are stale
       - EMERGENCY_SOL_PRICE_USD=${EMERGENCY_SOL_PRICE_USD:-200}
       - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-true}
+      # Reject unsigned heartbeats at the gateway when true (default false for gradual rollout)
+      - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-false}
     volumes:
       - ./certs:/app/certs:ro
       - ./geoip:/app/geoip:ro
@@ -255,7 +263,7 @@ services:
       nats:
         condition: service_healthy
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8090/health"]
       interval: 30s
@@ -272,7 +280,7 @@ services:
       - "4222:4222"
       - "8222:8222"
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/varz"]
       interval: 10s
@@ -306,6 +314,7 @@ services:
     environment:
       # Server-side only — used by Next.js API routes and rewrite proxy
       - API_URL=http://control-api:8080
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       # Public vars — must be browser-resolvable (public host/port)
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
       - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
@@ -322,7 +331,7 @@ services:
       control-api:
         condition: service_healthy
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:3000/"]
       interval: 30s
@@ -345,7 +354,7 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-55432}:5432"
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proxyhubb} -d ${POSTGRES_DB:-proxyhubb}"]
       interval: 10s
@@ -371,7 +380,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - proxyhubb
+      - backend
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -388,7 +397,7 @@ services:
     ports:
       - "9121:9121"
     networks:
-      - proxyhubb
+      - backend
     depends_on:
       redis:
         condition: service_healthy
@@ -403,7 +412,7 @@ services:
     ports:
       - "9091:9090"
     networks:
-      - proxyhubb
+      - backend
     restart: unless-stopped
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -429,7 +438,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - proxyhubb
+      - backend
     restart: unless-stopped
 
 volumes:
@@ -439,5 +448,5 @@ volumes:
   prometheus_data:
 
 networks:
-  proxyhubb:
+  backend:
     driver: bridge

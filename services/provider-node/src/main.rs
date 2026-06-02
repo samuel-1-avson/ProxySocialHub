@@ -1,6 +1,7 @@
 mod config;
 mod ip;
 mod lease_policy;
+mod proofs;
 mod proxy;
 mod stats;
 mod sys;
@@ -22,7 +23,11 @@ enum Commands {
     /// Register a new provider node with the Control API
     Register {
         /// Control API URL
-        #[arg(long, env = "PROXYHUB_API_URL", default_value = "http://localhost:18080")]
+        #[arg(
+            long,
+            env = "PROXYHUB_API_URL",
+            default_value = "http://localhost:18080"
+        )]
         api_url: String,
 
         /// Provider API key / token
@@ -62,6 +67,10 @@ enum Commands {
         #[arg(long, env = "PROXYHUB_API_KEY")]
         api_key: Option<String>,
 
+        /// Base58 Ed25519 provider signing key used for heartbeat proofs
+        #[arg(long, env = "PROXYHUB_PROVIDER_SIGNING_KEY")]
+        provider_signing_key: Option<String>,
+
         /// Enable TLS for the tunnel connection
         #[arg(long, default_value_t = false)]
         use_tls: bool,
@@ -69,6 +78,10 @@ enum Commands {
         /// Enable debug logging
         #[arg(long, default_value_t = false)]
         debug: bool,
+
+        /// Parallel yamux tunnels per gateway (P4; env `YAMUX_CONNS_PER_NODE`, max 16).
+        #[arg(long, env = "YAMUX_CONNS_PER_NODE")]
+        yamux_conns_per_node: Option<usize>,
     },
 
     /// Display real-time node metrics from a running node
@@ -115,14 +128,8 @@ async fn main() -> anyhow::Result<()> {
 
             // Register node
             let node_name = format!("rust-node-{}", public_ip.replace('.', "-"));
-            let node_id = ip::register_node(
-                &api_url,
-                &jwt,
-                &node_name,
-                &public_ip,
-                &connection_type,
-            )
-            .await?;
+            let node_id =
+                ip::register_node(&api_url, &jwt, &node_name, &public_ip, &connection_type).await?;
 
             println!();
             println!("╔══════════════════════════════════════════════════════════╗");
@@ -154,11 +161,16 @@ async fn main() -> anyhow::Result<()> {
             gateway_addrs,
             jwt_token,
             api_key,
+            provider_signing_key,
             use_tls,
             debug,
+            yamux_conns_per_node,
         } => {
             init_logging(debug);
-            info!("Starting ProxyHubb Provider Node v{}", env!("CARGO_PKG_VERSION"));
+            info!(
+                "Starting ProxyHubb Provider Node v{}",
+                env!("CARGO_PKG_VERSION")
+            );
 
             let config_path = config.unwrap_or_else(|| {
                 config::Config::default_config_path()
@@ -185,7 +197,15 @@ async fn main() -> anyhow::Result<()> {
             if let Some(key) = api_key {
                 cfg.api_key = key;
             }
+            if let Some(key) = provider_signing_key {
+                cfg.provider_signing_key = key;
+            }
             cfg.use_tls = use_tls;
+            if let Some(lanes) = yamux_conns_per_node {
+                cfg.yamux_conns_per_node = tunnel::mux::normalize_lane_count(lanes);
+            } else if let Some(lanes) = config::yamux_conns_per_node_from_env() {
+                cfg.yamux_conns_per_node = lanes;
+            }
 
             if cfg.jwt_token.is_empty() && cfg.api_key.is_empty() {
                 eprintln!("Error: JWT token or API key is required.");
@@ -219,6 +239,17 @@ async fn main() -> anyhow::Result<()> {
             let stats_collector = stats::Collector::new();
             stats_collector.set_connection_type(cfg.connection_type.clone());
 
+            let provider_signer = if cfg.provider_signing_key.trim().is_empty() {
+                None
+            } else {
+                let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
+                info!(
+                    provider_hotkey = %signer.public_key(),
+                    "Provider heartbeat signing enabled"
+                );
+                Some(signer)
+            };
+
             // Local stats HTTP server
             if cfg.metrics_enabled {
                 let collector_clone = stats_collector.clone();
@@ -233,58 +264,46 @@ async fn main() -> anyhow::Result<()> {
             // On each failure the index advances to the next gateway so the
             // node automatically migrates away from a dead endpoint.
             let reconnect_interval = cfg.reconnect_interval;
+            let lane_count = cfg.effective_yamux_conns_per_node();
             let gw_count = gateway_list.len();
             let mut gw_idx: usize = 0;
+            info!(
+                yamux_conns_per_node = lane_count,
+                "Provider transport: multi-yamux lanes to gateway"
+            );
 
             loop {
                 let addr = gateway_list[gw_idx % gw_count].clone();
                 let mut loop_cfg = cfg.clone();
                 loop_cfg.gateway_addr = addr.clone();
 
-                let mut client =
-                    tunnel::client::TunnelClient::new(&loop_cfg, stats_collector.clone());
+                info!(
+                    addr = %addr,
+                    gateway_index = gw_idx % gw_count,
+                    lanes = lane_count,
+                    "Connecting to Edge Gateway..."
+                );
 
-                info!(addr = %addr, gateway_index = gw_idx % gw_count, "Connecting to Edge Gateway...");
-                match client.connect().await {
+                match tunnel::mux::run_mux_lanes(
+                    loop_cfg,
+                    stats_collector.clone(),
+                    provider_signer.clone(),
+                    lane_count,
+                )
+                .await
+                {
                     Ok(()) => {
-                        info!(addr = %addr, "Connected to Edge Gateway");
-                        // Successful connection: stay on this gateway until it drops.
-                        // Do not advance the index here — we prefer the current node.
+                        info!(addr = %addr, "Gateway session ended cleanly");
                     }
                     Err(e) => {
-                        tracing::error!(addr = %addr, "Connection failed: {e}");
-                        gw_idx += 1; // rotate to next gateway on next attempt
-                        tokio::time::sleep(reconnect_interval).await;
-                        continue;
+                        tracing::warn!(addr = %addr, error = %e, "Gateway session lost");
                     }
                 }
 
-                // Start heartbeats
-                let hb = tunnel::heartbeat::HeartbeatManager::new(
-                    client.session_handle(),
-                    client.runtime_node_id(),
-                    std::time::Duration::from_secs(30),
-                    stats_collector.clone(),
-                    client.control_api_url(),
-                    client.auth_token(),
-                    client.provider_lease_request(),
-                    cfg.node_id.clone(),
-                );
-                let hb_handle = tokio::spawn(async move { hb.run().await });
-
-                // Accept and handle proxy streams
-                let handler = proxy::handler::ProxyHandler::new(&loop_cfg, stats_collector.clone());
-                let accept_result = client.accept_streams(handler).await;
-
-                tracing::warn!(addr = %addr, "Connection lost: {accept_result:?}");
-                hb_handle.abort();
-                client.close().await;
-
-                // Rotate to next gateway after a connection drop
                 gw_idx += 1;
                 tokio::time::sleep(reconnect_interval).await;
                 info!(
-                    next_gateway = %gateway_list[(gw_idx) % gw_count],
+                    next_gateway = %gateway_list[gw_idx % gw_count],
                     "Rotating to next gateway..."
                 );
             }
@@ -332,7 +351,10 @@ async fn main() -> anyhow::Result<()> {
                     }
                     #[cfg(not(unix))]
                     {
-                        println!("On Windows, please terminate the process manually (PID: {})", pid_str.trim());
+                        println!(
+                            "On Windows, please terminate the process manually (PID: {})",
+                            pid_str.trim()
+                        );
                     }
                     let _ = std::fs::remove_file(&pid_path);
                 }
