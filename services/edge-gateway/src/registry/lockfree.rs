@@ -18,12 +18,13 @@ use tracing::{info, warn};
 use yamux::Control;
 
 use crate::auth::provider_lease::{lease_is_fresh, provider_leases_required};
+use crate::provider_transport::yamux_mux::YamuxMux;
 use crate::state::NodeInfo;
 
 /// Per-node entry with atomic hot-path fields and RwLock for cold metadata.
 pub struct NodeEntry {
-    /// yamux control channel — Clone is cheap (Arc internally)
-    pub control: Control,
+    /// One or more yamux control channels (P4 multi-yamux sharding).
+    pub mux: YamuxMux,
     /// Full node metadata (written infrequently, read on every score call)
     pub info: RwLock<NodeInfo>,
     /// Last heartbeat Unix timestamp — updated atomically on every heartbeat
@@ -35,17 +36,22 @@ pub struct NodeEntry {
 }
 
 impl NodeEntry {
-    pub fn new(control: Control, info: NodeInfo) -> Self {
+    pub fn new(control: Control, info: NodeInfo, max_yamux_lanes: usize) -> Self {
         let is_healthy = info.is_healthy;
         let active_connections = info.active_connections;
         let connected_at = info.connected_at;
         Self {
-            control,
+            mux: YamuxMux::new(control, max_yamux_lanes),
             info: RwLock::new(info),
             last_heartbeat: AtomicU64::new(connected_at),
             active_connections: AtomicU32::new(active_connections),
             is_healthy: AtomicBool::new(is_healthy),
         }
+    }
+
+    /// Round-robin yamux lane for opening a buyer stream.
+    pub fn pick_control(&self) -> Option<Control> {
+        self.mux.pick_control()
     }
 
     /// Score this node for routing (higher = better).
@@ -139,26 +145,30 @@ impl LockFreeNodeRegistry {
                 if provider_leases_required() && !lease_is_fresh(info.lease_expires_at) {
                     return None;
                 }
-                Some((
-                    e.value().score(),
-                    e.key().clone(),
-                    e.value().control.clone(),
-                    info,
-                ))
+                let ctrl = e.value().mux.primary()?;
+                Some((e.value().score(), e.key().clone(), ctrl, info))
             })
             .collect();
         // Sort descending by score — best node first.
         scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-        let snapshot: Vec<(String, Control)> =
-            scored.iter().map(|(_, id, ctrl, _)| (id.clone(), ctrl.clone())).collect();
+        let snapshot: Vec<(String, Control)> = scored
+            .iter()
+            .map(|(_, id, ctrl, _)| (id.clone(), ctrl.clone()))
+            .collect();
         if let Ok(mut top) = self.top_nodes.write() {
             *top = snapshot;
         }
 
         let mut shards: HashMap<String, Vec<(String, Control)>> = HashMap::new();
         for (_, id, ctrl, info) in scored {
-            for key in ordered_shard_keys(Some(&info.country_code), Some(&info.capabilities.connection_type)) {
-                shards.entry(key).or_default().push((id.clone(), ctrl.clone()));
+            for key in ordered_shard_keys(
+                Some(&info.country_code),
+                Some(&info.capabilities.connection_type),
+            ) {
+                shards
+                    .entry(key)
+                    .or_default()
+                    .push((id.clone(), ctrl.clone()));
             }
         }
         if let Ok(mut shard_nodes) = self.shard_nodes.write() {
@@ -181,21 +191,67 @@ impl LockFreeNodeRegistry {
         });
     }
 
-    /// Register a new provider node.
-    pub fn insert(&self, node_id: String, control: Control, info: NodeInfo) {
+    /// Register a new provider node (first yamux lane).
+    pub fn insert(
+        &self,
+        node_id: String,
+        control: Control,
+        info: NodeInfo,
+        max_yamux_lanes: usize,
+    ) {
         info!(
-            "Registered node: {} from {} ({})",
-            node_id, info.region, info.country_code
+            "Registered node: {} from {} ({}) max_yamux_lanes={}",
+            node_id, info.region, info.country_code, max_yamux_lanes
         );
-        self.nodes
-            .insert(node_id, Arc::new(NodeEntry::new(control, info)));
+        self.nodes.insert(
+            node_id,
+            Arc::new(NodeEntry::new(control, info, max_yamux_lanes)),
+        );
         self.mark_snapshot_dirty();
     }
 
     /// Register a provider with minimal info (IP address only).
-    pub fn insert_simple(&self, node_id: String, control: Control, ip_address: String) {
+    pub fn insert_simple(
+        &self,
+        node_id: String,
+        control: Control,
+        ip_address: String,
+        max_yamux_lanes: usize,
+    ) {
         let info = NodeInfo::new(node_id.clone(), ip_address, None);
-        self.insert(node_id, control, info);
+        self.insert(node_id, control, info, max_yamux_lanes);
+    }
+
+    pub fn contains_node(&self, node_id: &str) -> bool {
+        self.nodes.contains_key(node_id)
+    }
+
+    /// Attach an extra yamux lane when the provider opens another TCP connection.
+    pub fn try_attach_mux_lane(&self, node_id: &str, control: Control) -> bool {
+        let attached = self.nodes.get(node_id).is_some_and(|entry| {
+            if entry.mux.try_add(control) {
+                info!(
+                    node_id,
+                    lanes = entry.mux.lane_count(),
+                    max = entry.mux.max_lanes(),
+                    "Attached yamux mux lane"
+                );
+                true
+            } else {
+                false
+            }
+        });
+        if attached {
+            self.mark_snapshot_dirty();
+        }
+        attached
+    }
+
+    pub fn mux_lane_count(&self, node_id: &str) -> usize {
+        self.nodes
+            .get(node_id)
+            .map(|e| e.mux.lane_count())
+            .unwrap_or(0)
     }
 
     /// Remove a provider and return its last known NodeInfo.
@@ -228,7 +284,7 @@ impl LockFreeNodeRegistry {
                 .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
                 .unwrap_or(false);
             if entry.is_healthy.load(Ordering::Relaxed) && lease_ok {
-                Some(entry.control.clone())
+                entry.pick_control()
             } else {
                 None
             }
@@ -344,11 +400,13 @@ impl LockFreeNodeRegistry {
                     && e.value()
                         .info
                         .read()
-                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .map(|info| {
+                            !provider_leases_required() || lease_is_fresh(info.lease_expires_at)
+                        })
                         .unwrap_or(false)
             })
             .choose(&mut rng)
-            .map(|e| e.value().control.clone())
+            .and_then(|e| e.value().pick_control())
     }
 
     /// Get the highest-scoring healthy node (primary routing path).
@@ -358,8 +416,10 @@ impl LockFreeNodeRegistry {
     pub fn get_best(&self) -> Option<(Control, String)> {
         // Fast path: snapshot is rebuilt from eligible nodes only (healthy + lease).
         if let Ok(top) = self.top_nodes.read() {
-            if let Some((id, ctrl)) = top.first() {
-                return Some((ctrl.clone(), id.clone()));
+            if let Some((id, _)) = top.first() {
+                if let Some(ctrl) = self.get_by_id(id) {
+                    return Some((ctrl, id.clone()));
+                }
             }
         }
         // Slow fallback: snapshot empty or not yet refreshed.
@@ -370,11 +430,13 @@ impl LockFreeNodeRegistry {
                     && e.value()
                         .info
                         .read()
-                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .map(|info| {
+                            !provider_leases_required() || lease_is_fresh(info.lease_expires_at)
+                        })
                         .unwrap_or(false)
             })
             .max_by_key(|e| e.value().score())
-            .map(|e| (e.value().control.clone(), e.key().clone()))
+            .and_then(|e| e.value().pick_control().map(|ctrl| (ctrl, e.key().clone())))
     }
 
     pub fn get_best_for(
@@ -385,8 +447,10 @@ impl LockFreeNodeRegistry {
         if let Ok(shards) = self.shard_nodes.read() {
             for key in ordered_shard_keys(country_code, connection_type) {
                 if let Some(entries) = shards.get(&key) {
-                    if let Some((id, ctrl)) = entries.first() {
-                        return Some((ctrl.clone(), id.clone()));
+                    if let Some((id, _)) = entries.first() {
+                        if let Some(ctrl) = self.get_by_id(id) {
+                            return Some((ctrl, id.clone()));
+                        }
                     }
                 }
             }
@@ -406,12 +470,13 @@ impl LockFreeNodeRegistry {
                         .read()
                         .map(|i| {
                             i.country_code == country_code
-                                && (!provider_leases_required() || lease_is_fresh(i.lease_expires_at))
+                                && (!provider_leases_required()
+                                    || lease_is_fresh(i.lease_expires_at))
                         })
                         .unwrap_or(false)
             })
             .choose(&mut rng)
-            .map(|e| e.value().control.clone())
+            .and_then(|e| e.value().pick_control())
     }
 
     /// Get a healthy node in the given region (geo-aware routing).
@@ -427,12 +492,13 @@ impl LockFreeNodeRegistry {
                         .read()
                         .map(|i| {
                             i.region.to_lowercase().contains(&region_lower)
-                                && (!provider_leases_required() || lease_is_fresh(i.lease_expires_at))
+                                && (!provider_leases_required()
+                                    || lease_is_fresh(i.lease_expires_at))
                         })
                         .unwrap_or(false)
             })
             .choose(&mut rng)
-            .map(|e| e.value().control.clone())
+            .and_then(|e| e.value().pick_control())
     }
 
     /// Get the least-loaded healthy node.
@@ -445,12 +511,17 @@ impl LockFreeNodeRegistry {
                 let (max, lease_ok) = entry
                     .info
                     .read()
-                    .map(|i| (i.max_connections, !provider_leases_required() || lease_is_fresh(i.lease_expires_at)))
+                    .map(|i| {
+                        (
+                            i.max_connections,
+                            !provider_leases_required() || lease_is_fresh(i.lease_expires_at),
+                        )
+                    })
                     .unwrap_or((100, false));
                 entry.is_healthy.load(Ordering::Relaxed) && active < max && lease_ok
             })
             .min_by_key(|e| e.value().active_connections.load(Ordering::Relaxed))
-            .map(|e| e.value().control.clone())
+            .and_then(|e| e.value().pick_control())
     }
 
     /// Snapshot all nodes' metadata for admin/metrics endpoints.
@@ -472,15 +543,17 @@ impl LockFreeNodeRegistry {
                     && e.value()
                         .info
                         .read()
-                        .map(|info| !provider_leases_required() || lease_is_fresh(info.lease_expires_at))
+                        .map(|info| {
+                            !provider_leases_required() || lease_is_fresh(info.lease_expires_at)
+                        })
                         .unwrap_or(false)
             })
             .filter_map(|e| {
-                e.value()
-                    .info
-                    .read()
-                    .ok()
-                    .map(|i| (e.key().clone(), e.value().control.clone(), i.clone()))
+                e.value().info.read().ok().and_then(|i| {
+                    e.value()
+                        .pick_control()
+                        .map(|ctrl| (e.key().clone(), ctrl, i.clone()))
+                })
             })
             .collect()
     }
