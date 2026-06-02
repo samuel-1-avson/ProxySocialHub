@@ -27,6 +27,8 @@ function Load-DotEnv([string]$path) {
         if ($_ -match "^\s*([^#=]+)=(.*)$") {
             $k = $matches[1].Trim()
             $v = $matches[2].Trim().Trim('"').Trim("'")
+            # Strip inline comments (e.g. GIN_MODE=debug # release) — Docker Compose does not strip these.
+            if ($v -match '^([^#]+)') { $v = $matches[1].Trim() }
             Set-Item -Path "env:$k" -Value $v
         }
     }
@@ -53,6 +55,13 @@ PROXYHUB_PROVIDER_SIGNING_KEY=$signingKey
 "@ | Set-Content -Path $path -Encoding utf8
 }
 
+function Test-PostgresDockerAuth([string]$container, [string]$user, [string]$db, [string]$password) {
+    if (-not $password) { return $false }
+    $out = docker exec -e "PGPASSWORD=$password" $container `
+        psql -U $user -d $db -tAc "SELECT 1" 2>&1
+    return $LASTEXITCODE -eq 0
+}
+
 function Test-ProviderAuth([string]$baseUrl, [string]$apiKey) {
     if (-not $apiKey -or $apiKey.Length -lt 32) { return $false }
     try {
@@ -65,7 +74,7 @@ function Test-ProviderAuth([string]$baseUrl, [string]$apiKey) {
     }
 }
 
-function Invoke-ProviderDevToken([string[]]$extraArgs) {
+function Invoke-ProviderDevToken([string[]]$extraArgs, [string]$HostDatabaseUrl) {
     $jsonPath = Join-Path $env:TEMP ("proxyhubb-provider-dev-token-{0}.json" -f [Guid]::NewGuid().ToString("N"))
     $baseArgs = @(
         "run", "./cmd/provider_dev_token",
@@ -75,11 +84,17 @@ function Invoke-ProviderDevToken([string[]]$extraArgs) {
         "-output-json", $jsonPath
     )
     Push-Location (Join-Path $repoRoot "services\control-api")
+    $prevDb = $env:DATABASE_URL
+    $env:DATABASE_URL = $HostDatabaseUrl
     try {
-        $stderr = & go @baseArgs @extraArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $stderr = & go @baseArgs @("-ensure-profile") @extraArgs 2>&1
+        $exit = $LASTEXITCODE
+        $ErrorActionPreference = $prevEap
+        if ($exit -ne 0) {
             if ($stderr) { Write-Host ($stderr | Out-String) }
-            throw "provider_dev_token failed (exit $LASTEXITCODE)"
+            throw "provider_dev_token failed (exit $exit)"
         }
         if ($stderr) {
             $stderr | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray }
@@ -92,6 +107,7 @@ function Invoke-ProviderDevToken([string[]]$extraArgs) {
     }
     finally {
         Pop-Location
+        if ($null -ne $prevDb) { $env:DATABASE_URL = $prevDb } else { Remove-Item env:DATABASE_URL -ErrorAction SilentlyContinue }
         if (Test-Path $jsonPath) { Remove-Item -Path $jsonPath -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -109,10 +125,22 @@ if (-not $env:TOKEN_HMAC_SECRET) { throw "TOKEN_HMAC_SECRET not set in .env" }
 $composeEnvPath = Join-Path $repoRoot "config\docker\provider.compose.env"
 $dockerTomlPath = Join-Path $repoRoot "config\docker\provider.toml"
 
-$env:DATABASE_URL = "postgresql://${pgUser}:${pgPass}@localhost:${pgPort}/${pgDb}?sslmode=disable"
+# Host URL for `go run provider_dev_token` (localhost mapped port). Compose uses POSTGRES_* in docker-compose.yml.
+$pgPassEncoded = [uri]::EscapeDataString($pgPass)
+$hostDatabaseUrl = "postgresql://${pgUser}:${pgPassEncoded}@localhost:${pgPort}/${pgDb}?sslmode=disable"
 
 Write-Host "=== Bootstrap provider (Docker) ===" -ForegroundColor Cyan
 Write-Host "API: $ApiBaseUrl  Postgres: localhost:$pgPort" -ForegroundColor DarkGray
+
+$pgContainer = "proxyhubb-postgres-1"
+if (-not (Test-PostgresDockerAuth $pgContainer $pgUser $pgDb $pgPass)) {
+    Write-Host "[FAIL] POSTGRES_PASSWORD in .env does not match the running Postgres volume." -ForegroundColor Red
+    Write-Host "  Fix: set POSTGRES_PASSWORD to the password used when the volume was first created," -ForegroundColor Yellow
+    Write-Host "  or reset the DB volume (destructive): docker compose down -v" -ForegroundColor Yellow
+    Write-Host "  Also align DATABASE_URL in .env with POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB." -ForegroundColor Yellow
+    throw "Postgres auth check failed"
+}
+Write-Host "[OK] Postgres password matches container" -ForegroundColor Green
 
 try {
     $h = Invoke-RestMethod "$ApiBaseUrl/health" -TimeoutSec 10
@@ -130,7 +158,7 @@ $signingKey = $existing.SigningKey
 if ($ResyncHotkey) {
     if (-not $signingKey) {
         Write-Host "Generating signing key and syncing node hotkey..." -ForegroundColor Cyan
-        $out = Invoke-ProviderDevToken @("-signing-only", "-generate-signing-key", "-sync-hotkey")
+        $out = Invoke-ProviderDevToken @("-signing-only", "-generate-signing-key", "-sync-hotkey") $hostDatabaseUrl
         $signingKey = $out.signing_key
         if (-not $apiKey) { throw "ResyncHotkey requires existing PROXYHUB_API_KEY in $composeEnvPath (run bootstrap first)" }
         Write-ComposeEnv $composeEnvPath $apiKey $signingKey
@@ -138,7 +166,7 @@ if ($ResyncHotkey) {
     }
     else {
         Write-Host "Resyncing hotkey from existing signing key..." -ForegroundColor Cyan
-        $out = Invoke-ProviderDevToken @("-signing-only", "-signing-key", $signingKey, "-sync-hotkey")
+        $out = Invoke-ProviderDevToken @("-signing-only", "-signing-key", $signingKey, "-sync-hotkey") $hostDatabaseUrl
         Write-Host "[OK] Hotkey resynced on node $($out.hotkey_synced_node_id)" -ForegroundColor Green
     }
 }
@@ -152,7 +180,7 @@ elseif (-not $ForceNewToken -and (Test-ProviderAuth $ApiBaseUrl $apiKey) -and -n
         "-generate-signing-key",
         "-sync-hotkey",
         "-write-toml", $dockerTomlPath
-    )
+    ) $hostDatabaseUrl
     $signingKey = $out.signing_key
     Write-ComposeEnv $composeEnvPath $apiKey $signingKey
     Write-Host "[OK] Wrote signing key to $composeEnvPath" -ForegroundColor Green
@@ -163,7 +191,7 @@ else {
         "-generate-signing-key",
         "-sync-hotkey",
         "-write-toml", $dockerTomlPath
-    )
+    ) $hostDatabaseUrl
     $apiKey = $out.token
     $signingKey = $out.signing_key
     if (-not $apiKey -or -not $signingKey) {
