@@ -1,0 +1,128 @@
+# P3b sketch: split ingress (edge-*) and tunnel tier (tunnel-*).
+# PR 1 — wiring only; no automated smoke yet. See docs/P3b_TUNNEL_SPLIT.md.
+#
+#   docker compose -f docker-compose.p3-split.yml up -d --build
+#
+# Host ports (do not overlap edge-p3 28090/23128 or dev 8090/3128):
+#   edge-a/b buyer:     28100, 28101
+#   tunnel-a/b buyer:   28110, 28111  (health/metrics interim)
+#   tunnel-a/b yamux:   23228, 23229
+#   Redis:              26479
+
+name: edge-p3-split
+
+x-edge-env: &edge_env
+  RUST_LOG: info
+  HOST: 0.0.0.0
+  PORT: "8090"
+  TUNNEL_PORT: "3128"
+  REDIS_URL: redis://redis:6379
+  CONTROL_API_URL: ${P3_CONTROL_API_URL:-http://host.docker.internal:18080}
+  JWT_SECRET: ${JWT_SECRET:-test-jwt-secret-32-bytes-minimum-xx}
+  GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-test-gateway-shared-secret-32b-min}
+  SESSION_SECRET: ${SESSION_SECRET:-test-session-secret-32-bytes-min}
+  PROVIDER_PRIVATE_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+  EDGE_MODE: split
+  PROVIDER_DIRECTORY_TTL_SECS: "120"
+  MAX_CONCURRENT_CONNECTIONS: "64"
+  SESSION_CACHE_SIZE: "1000"
+  SESSION_CACHE_TTL_SECS: "60"
+  LEGACY_EDGE_ZK_SUBMISSION_ENABLED: "false"
+  ENABLE_DEBUG_ROUTES: "true"
+
+x-health-http: &health_http
+  healthcheck:
+    test:
+      [
+        "CMD",
+        "wget",
+        "--no-verbose",
+        "--tries=1",
+        "--spider",
+        "http://127.0.0.1:8090/health",
+      ]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+    start_period: 35s
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "26479:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  edge-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: edge-a
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "28100:8090"
+    environment:
+      <<: *edge_env
+      EDGE_ROLE: ingress
+      EDGE_POD_ID: edge-a
+      EDGE_PEER_URLS: edge-b@http://edge-b:8090
+      TUNNEL_GW_ADDRS: tunnel-a@http://tunnel-a:8090,tunnel-b@http://tunnel-b:8090
+    <<: *health_http
+
+  edge-b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: edge-b
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "28101:8090"
+    environment:
+      <<: *edge_env
+      EDGE_ROLE: ingress
+      EDGE_POD_ID: edge-b
+      EDGE_PEER_URLS: edge-a@http://edge-a:8090
+      TUNNEL_GW_ADDRS: tunnel-a@http://tunnel-a:8090,tunnel-b@http://tunnel-b:8090
+    <<: *health_http
+
+  tunnel-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: tunnel-a
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "28110:8090"
+      - "23228:3128"
+    environment:
+      <<: *edge_env
+      EDGE_ROLE: tunnel
+      EDGE_POD_ID: tunnel-a
+    <<: *health_http
+
+  tunnel-b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: tunnel-b
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "28111:8090"
+      - "23229:3128"
+    environment:
+      <<: *edge_env
+      EDGE_ROLE: tunnel
+      EDGE_POD_ID: tunnel-b
+    <<: *health_http
