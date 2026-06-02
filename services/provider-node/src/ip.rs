@@ -1,3 +1,4 @@
+use crate::proofs::ProviderProofEnvelope;
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -39,16 +40,19 @@ pub async fn detect_public_ip() -> Option<String> {
 // ── API Key Validation ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct AuthResponse {
-    valid: bool,
-    user_id: Option<String>,
-    jwt_token: Option<String>,
-    message: Option<String>,
+struct GatewayTokenResponse {
+    gateway_token: String,
+    user_id: String,
 }
 
-/// Validate an API key against the Control API and return (user_id, jwt_token).
+#[derive(Deserialize)]
+struct GatewayTokenError {
+    error: Option<String>,
+}
+
+/// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.
 pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, String)> {
-    let url = format!("{api_url}/v1/provider/auth");
+    let url = format!("{api_url}/v1/provider/gateway-token");
     let payload = serde_json::json!({ "token": api_key });
 
     let resp = Client::new()
@@ -60,19 +64,23 @@ pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, S
         .context("Failed to connect to Control API")?;
 
     let status = resp.status();
-    let body: AuthResponse = resp
-        .json()
-        .await
-        .context("Failed to parse auth response")?;
-
-    if !status.is_success() || !body.valid {
-        let msg = body.message.unwrap_or_else(|| "unknown error".into());
-        anyhow::bail!("Authentication failed (HTTP {status}): {msg}");
+    if status.is_success() {
+        let body: GatewayTokenResponse = resp
+            .json()
+            .await
+            .context("Failed to parse gateway-token response")?;
+        if body.gateway_token.is_empty() || body.user_id.is_empty() {
+            anyhow::bail!("gateway-token response missing user_id or gateway_token");
+        }
+        return Ok((body.user_id, body.gateway_token));
     }
 
-    let user_id = body.user_id.unwrap_or_default();
-    let jwt = body.jwt_token.unwrap_or_default();
-    Ok((user_id, jwt))
+    let err: GatewayTokenError = resp
+        .json()
+        .await
+        .unwrap_or(GatewayTokenError { error: None });
+    let msg = err.error.unwrap_or_else(|| format!("HTTP {status}"));
+    anyhow::bail!("Authentication failed: {msg}");
 }
 
 // ── Node Registration ───────────────────────────────────────────────
@@ -153,6 +161,7 @@ pub async fn send_provider_node_heartbeat(
     latency_ms: i32,
     active_connections: i32,
     uptime_percent: f64,
+    proof: Option<ProviderProofEnvelope>,
 ) -> Result<()> {
     let node_id = node_id.trim();
     if node_id.is_empty() || !looks_like_uuid(node_id) {
@@ -160,11 +169,14 @@ pub async fn send_provider_node_heartbeat(
     }
 
     let url = format!("{api_url}/v1/provider/nodes/{node_id}/heartbeat");
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "latency_ms": latency_ms,
         "active_connections": active_connections,
         "uptime_percent": uptime_percent,
     });
+    if let Some(proof) = proof {
+        payload["proof"] = serde_json::to_value(proof)?;
+    }
 
     let resp = Client::new()
         .post(&url)
