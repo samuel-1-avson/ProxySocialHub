@@ -17,6 +17,8 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+. (Join-Path $PSScriptRoot "_env.ps1")
+Import-RepoDotEnv $repoRoot
 
 $requiredMigrations = @(
     "000080_withdrawal_security",
@@ -158,14 +160,18 @@ if (-not $SkipTests) {
     Push-Location (Join-Path $repoRoot "services\control-api")
     $env:TEST_DATABASE_URL = $TestDatabaseUrl
     $env:EMERGENCY_SOL_PRICE_USD = "200"
+    Use-GoTestEnv
+    try {
+        go test ./internal/billing/... -count=1
+        if ($LASTEXITCODE -eq 0) { Record-Ok "billing tests" } else { Record-Fail "billing tests" }
 
-    go test ./internal/billing/... -count=1
-    if ($LASTEXITCODE -eq 0) { Record-Ok "billing tests" } else { Record-Fail "billing tests" }
-
-    go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
-    if ($LASTEXITCODE -eq 0) { Record-Ok "wallet API tests" } else { Record-Fail "wallet API tests" }
-
-    Pop-Location
+        go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
+        if ($LASTEXITCODE -eq 0) { Record-Ok "wallet API tests" } else { Record-Fail "wallet API tests" }
+    }
+    finally {
+        Restore-GoTestEnv
+        Pop-Location
+    }
 }
 
 Write-Host ""

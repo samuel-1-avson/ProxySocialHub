@@ -115,7 +115,7 @@ export function VirtualizedForumThreadList({
                                         <Pin className="w-4 h-4 text-amber-500 mt-1" />
                                     )}
                                     <Link
-                                        href={`/forum/thread/${thread.id}`}
+                                        href={`/community/forum/thread/${thread.id}`}
                                         className="text-lg font-semibold hover:text-primary transition-colors line-clamp-2"
                                     >
                                         {thread.title}

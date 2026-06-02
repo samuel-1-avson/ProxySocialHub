@@ -1,9 +1,18 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+var (
+	ErrListingNotFound     = errors.New("listing not found")
+	ErrListingForbidden    = errors.New("listing operation forbidden")
+	ErrListingUnavailable  = errors.New("listing is not available")
+	ErrListingAlreadySaved = errors.New("listing already saved")
+	ErrListingNotSaved     = errors.New("listing not saved")
 )
 
 // ListingStatus represents the state of a listing
@@ -45,8 +54,26 @@ type ListingEntity struct {
 	QualityScore         float64
 	AvgLatencyMs         int
 	UptimePercent        float64
+	SuccessRate          float64
+	CurrentTier          string
+	ViewsCount           int
+	SavesCount           int
+	OrdersCount          int
+	ActiveSessionsCount  int
+	AllowDirectMessage   bool
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+}
+
+type ListingUpdate struct {
+	Title                *string
+	Description          *string
+	PricePerGB           *float64
+	MinPurchaseGB        *float64
+	AvailableBandwidthGB *float64
+	MaxConcurrency       *int
+	Status               *ListingStatus
+	BulkDiscountsJSON    []byte
 }
 
 // NodeEntity represents physical infrastructure

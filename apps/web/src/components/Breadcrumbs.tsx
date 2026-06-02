@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, Home } from "lucide-react";
-import { motion } from "framer-motion";
+import { getRouteLabel, ROUTES } from "@/lib/navigation/routes";
 
 export function Breadcrumbs() {
     const pathname = usePathname();
@@ -11,7 +11,7 @@ export function Breadcrumbs() {
 
     return (
         <nav className="flex items-center space-x-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-4">
-            <Link href="/dashboard" className="flex items-center hover:text-primary transition-colors">
+            <Link href={ROUTES.dashboard} className="flex items-center hover:text-primary transition-colors">
                 <Home size={12} className="mr-2" />
                 SYSTEM
             </Link>
@@ -25,11 +25,11 @@ export function Breadcrumbs() {
                         <ChevronRight size={10} className="opacity-40" />
                         {isLast ? (
                             <span className="text-primary font-bold">
-                                {path.replace(/-/g, " ")}
+                                {getRouteLabel(href)}
                             </span>
                         ) : (
                             <Link href={href} className="hover:text-primary transition-colors">
-                                {path.replace(/-/g, " ")}
+                                {getRouteLabel(href)}
                             </Link>
                         )}
                     </div>

@@ -44,7 +44,7 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 	// 1. Find Orders that are in an actionable state and use Solana Escrow
 	var orders []models.Order
 	db.DB.Where("status IN ? AND payment_method = ?",
-		[]models.OrderStatus{models.OrderStatusPending, models.OrderStatusActive},
+		[]models.OrderStatus{models.OrderStatusPending, models.OrderStatusPendingPayment, models.OrderStatusActive},
 		"solana_escrow",
 	).Find(&orders)
 
@@ -88,6 +88,10 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 			log.Printf("[EscrowCleaner] SUCCESS: Refunded escrow %s (Tx: %s)", order.EscrowPDA, sig)
 
 			// 4. Update Database
+			if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusRefunded); err != nil {
+				log.Printf("[EscrowCleaner] Invalid refund transition for order %s: %v", order.ID, err)
+				continue
+			}
 			db.DB.Model(&order).Updates(map[string]interface{}{
 				"status":     models.OrderStatusRefunded,
 				"updated_at": time.Now(),

@@ -239,8 +239,17 @@ func autoTerminateSessionBandwidth(sessionID, credentialsUser string) {
 
 	now := time.Now()
 
-	if err := db.DB.Model(&models.Session{}).
-		Where("id = ?", sessionID).
+	var session models.Session
+	if err := db.DB.First(&session, "id = ?", sessionID).Error; err != nil {
+		logging.Error(err).Str("session_id", sessionID).Msg("Failed to load bandwidth-exhausted session")
+		return
+	}
+	if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
+		logging.Warn().Err(err).Str("session_id", sessionID).Msg("Skipping auto-termination for invalid session transition")
+		return
+	}
+
+	if err := db.DB.Model(&session).
 		Updates(map[string]interface{}{
 			"status":   models.SessionTerminated,
 			"end_time": now,

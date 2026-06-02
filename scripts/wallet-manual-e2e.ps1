@@ -12,6 +12,7 @@ param(
 )
 
 $base = $ApiBaseUrl.TrimEnd('/')
+$script:publicFailed = $false
 
 function Write-Step([string]$id, [string]$title, [string]$detail) {
     Write-Host ""
@@ -31,6 +32,7 @@ try {
     Write-Host "  status: $($h.status)" -ForegroundColor Green
 } catch {
     Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    $script:publicFailed = $true
 }
 
 Write-Step "P2" "Treasury public" ""
@@ -41,6 +43,7 @@ try {
     Write-Host "  UI: $WebBaseUrl/treasury"
 } catch {
     Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    $script:publicFailed = $true
 }
 
 Write-Step "P3" "Solana health" ""
@@ -50,6 +53,7 @@ try {
     if ($s.oracle_pubkey) { Write-Host "  oracle: $($s.oracle_pubkey)" }
 } catch {
     Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    $script:publicFailed = $true
 }
 
 # --- Authenticated (optional token) ---
@@ -94,3 +98,6 @@ if (-not $AccessToken) {
     Write-Host ""
     Write-Host "Full checklist: docs/WALLET_E2E_SMOKE.md and docs/DEV_SOLANA_SMOKE.md"
 }
+
+if ($script:publicFailed) { exit 1 }
+exit 0

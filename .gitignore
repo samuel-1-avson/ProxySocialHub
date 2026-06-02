@@ -1,3 +1,10 @@
+# Local solana-test-validator ledger (scripts/solana-local)
+scripts/solana-local/.ledger-local/
+scripts/solana-local/.validator.pid
+scripts/solana-local/validator.log
+scripts/solana-local/validator.log.err
+tmp_*.json
+
 # Dependencies
 node_modules/
 vendor/
