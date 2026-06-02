@@ -19,7 +19,7 @@ func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversations/:id/messages", getMessages)
 	rg.POST("/conversations/:id/messages", sendMessage)
 	rg.POST("/conversations/:id/read", markAsRead)
-	
+
 	// Enhanced messaging routes
 	rg.PUT("/conversations/:id/messages/:messageId", editMessage)
 	rg.DELETE("/conversations/:id/messages/:messageId", deleteMessage)
@@ -258,6 +258,20 @@ func sendMessage(c *gin.Context) {
 		return
 	}
 
+	if req.ReplyToID != nil {
+		var count int64
+		if err := db.Social().Model(&models.Message{}).
+			Where("id = ? AND conversation_id = ?", *req.ReplyToID, convID).
+			Count(&count).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate reply target"})
+			return
+		}
+		if count == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Reply target is not in this conversation"})
+			return
+		}
+	}
+
 	// Apply Privacy Shield (Phase 15)
 	safeContent := privacy.MaskPII(req.Content)
 
@@ -283,6 +297,18 @@ func sendMessage(c *gin.Context) {
 	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
 		"conversation_id": convID,
 		"message":         msg,
+	})
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     recipientID,
+		Type:       models.NotificationMessage,
+		Title:      "New message",
+		Body:       truncate(safeContent, 160),
+		ActionURL:  "/messages?conversation=" + convID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &userID,
+		TargetType: "conversation",
+		TargetID:   &convID,
+		Dedupe:     true,
 	})
 
 	c.JSON(http.StatusCreated, msg)
@@ -370,7 +396,7 @@ func editMessage(c *gin.Context) {
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"content":  privacy.MaskPII(req.Content),
+		"content":   privacy.MaskPII(req.Content),
 		"edited_at": now,
 	}
 
@@ -410,12 +436,20 @@ func deleteMessage(c *gin.Context) {
 		return
 	}
 
-	// Only sender or conversation participant can delete
+	// Only the sender can delete their own message. Conversation-level
+	// moderation should use an explicit admin/moderator path.
 	var conv models.Conversation
-	db.Social().First(&conv, "id = ?", convID)
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		return
+	}
 
-	if msg.SenderID != userID && conv.Participant1 != userID && conv.Participant2 != userID {
+	if conv.Participant1 != userID && conv.Participant2 != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+	if msg.SenderID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Can only delete your own messages"})
 		return
 	}
 
@@ -456,6 +490,11 @@ func addReaction(c *gin.Context) {
 		return
 	}
 
+	if !userCanAccessMessage(userID, msg) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	reaction := models.MessageReaction{
 		MessageID: msgID,
 		UserID:    userID,
@@ -487,6 +526,16 @@ func removeReaction(c *gin.Context) {
 	}
 
 	emoji := c.Param("emoji")
+
+	var msg models.Message
+	if err := db.Social().First(&msg, "id = ?", msgID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
+		return
+	}
+	if !userCanAccessMessage(userID, msg) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
 
 	result := db.Social().Where("message_id = ? AND user_id = ? AND emoji = ?", msgID, userID, emoji).
 		Delete(&models.MessageReaction{})
@@ -543,4 +592,12 @@ func searchMessages(c *gin.Context) {
 		"messages": messages,
 		"query":    query,
 	})
+}
+
+func userCanAccessMessage(userID uuid.UUID, msg models.Message) bool {
+	var conv models.Conversation
+	if err := db.Social().First(&conv, "id = ?", msg.ConversationID).Error; err != nil {
+		return false
+	}
+	return conv.Participant1 == userID || conv.Participant2 == userID
 }

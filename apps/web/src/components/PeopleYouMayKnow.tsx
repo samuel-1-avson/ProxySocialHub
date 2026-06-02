@@ -6,6 +6,7 @@ import { getPeopleYouMayKnow, type SuggestedUser } from "@/lib/friends-api";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Sparkles, User, Loader2, ChevronRight } from "lucide-react";
 import { FriendButton } from "./FriendButton";
+import { ROUTES } from "@/lib/navigation/routes";
 
 interface PeopleYouMayKnowProps {
     limit?: number;
@@ -60,7 +61,7 @@ export function PeopleYouMayKnow({ limit = 5, showViewAll = true }: PeopleYouMay
                 </div>
                 {showViewAll && (
                     <Link
-                        href="/friends?suggestions"
+                        href={`${ROUTES.communityFeed}?suggestions=people`}
                         className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
                     >
                         View all

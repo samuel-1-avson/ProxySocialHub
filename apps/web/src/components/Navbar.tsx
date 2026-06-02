@@ -8,6 +8,7 @@ import { ModeToggle } from "@/components/ModeToggle";
 import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User, Wallet } from "lucide-react";
 import { AlertCenter } from "@/components/AlertCenter";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { PRIMARY_AUTH_NAV, PRIMARY_PUBLIC_NAV, ROUTES } from "@/lib/navigation/routes";
 
 interface NavbarProps {
     showAuth?: boolean;
@@ -21,19 +22,15 @@ export function Navbar({ showAuth = true }: NavbarProps) {
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
     const navItems = [
-        { href: "/marketplace", label: "MARKETPLACE" },
-        ...(user ? [
-            { href: "/feed", label: "FEED" },
-            { href: "/leaderboards", label: "LEADERBOARDS" },
-            { href: "/messages", label: "MESSAGES" },
-        ] : []),
+        ...PRIMARY_PUBLIC_NAV,
+        ...(user ? PRIMARY_AUTH_NAV : []),
     ];
 
     return (
         <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border">
             <div className="container mx-auto flex items-center justify-between py-3 px-4">
                 {/* Logo */}
-                <Link href="/" className="flex items-center gap-3 group">
+                <Link href={ROUTES.home} className="flex items-center gap-3 group">
                     <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[4px_4px_0px_var(--foreground)] group-active:shadow-none group-active:translate-x-[4px] group-active:translate-y-[4px] transition-all">
                         <span className="font-bold text-lg font-mono">PS</span>
                     </div>
@@ -79,10 +76,10 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                         <>
                             {!user ? (
                                 <div className="hidden sm:flex items-center gap-4 ml-4">
-                                    <Link href="/login" className="text-sm font-mono font-medium text-muted-foreground hover:text-foreground transition-colors uppercase tracking-widest">
+                                    <Link href={ROUTES.login} className="text-sm font-mono font-medium text-muted-foreground hover:text-foreground transition-colors uppercase tracking-widest">
                                         Login
                                     </Link>
-                                    <Link href="/register">
+                                    <Link href={ROUTES.register}>
                                         <button className="btn-retro btn-retro-primary px-4 py-2 text-xs">
                                             SIGN UP
                                         </button>
@@ -90,13 +87,13 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-4 ml-4">
-                                    <Link href="/dashboard" className="hidden sm:block">
+                                    <Link href={ROUTES.dashboard} className="hidden sm:block">
                                         <button className="btn-retro btn-retro-outline px-4 py-2 text-[10px] flex items-center gap-2 border-primary/50 text-primary">
                                             <Home size={14} />
                                             SYSTEM DASHBOARD
                                         </button>
                                     </Link>
-                                    <Link href="/profile" className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
+                                    <Link href={ROUTES.profile} className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
                                         {user?.avatar_url ? (
                                             <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                                         ) : (
@@ -139,10 +136,10 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                         ))}
                         {showAuth && !user && (
                             <div className="px-4 py-2 flex flex-col gap-2 mt-2">
-                                <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                                <Link href={ROUTES.login} onClick={() => setMobileMenuOpen(false)}>
                                     <button className="btn-retro btn-retro-outline w-full py-2 text-xs">LOGIN</button>
                                 </Link>
-                                <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
+                                <Link href={ROUTES.register} onClick={() => setMobileMenuOpen(false)}>
                                     <button className="btn-retro btn-retro-primary w-full py-2 text-xs">SIGN UP</button>
                                 </Link>
                             </div>
@@ -150,14 +147,14 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                         {user && (
                             <>
                                 <Link
-                                    href="/dashboard/wallet"
+                                    href={ROUTES.dashboardWallet}
                                     onClick={() => setMobileMenuOpen(false)}
                                     className={`flex items-center gap-3 px-4 py-3 mt-2 rounded-sm font-mono text-sm font-medium transition-colors border border-transparent ${isActive('/dashboard/wallet') ? 'bg-primary/10 text-primary border-primary/20' : 'text-foreground hover:bg-accent hover:border-border'}`}
                                 >
                                     <Wallet size={16} /> WALLET
                                 </Link>
                                 <Link
-                                    href="/notifications"
+                                    href={ROUTES.settingsNotifications}
                                     onClick={() => setMobileMenuOpen(false)}
                                     className="block px-4 py-3 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
                                 >
@@ -178,10 +175,10 @@ export function BottomNav() {
     const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
     const items = [
-        { href: "/feed", label: "FEED", icon: <Home className="w-5 h-5" /> },
-        { href: "/marketplace", label: "MARKET", icon: <ShoppingBag className="w-5 h-5" /> },
-        { href: "/messages", label: "CHATS", icon: <MessageSquare className="w-5 h-5" /> },
-        { href: "/profile", label: "ME", icon: <User className="w-5 h-5" /> },
+        { href: ROUTES.communityFeed, label: "FEED", icon: <Home className="w-5 h-5" /> },
+        { href: ROUTES.marketplace, label: "MARKET", icon: <ShoppingBag className="w-5 h-5" /> },
+        { href: ROUTES.communityMessages, label: "CHATS", icon: <MessageSquare className="w-5 h-5" /> },
+        { href: ROUTES.profile, label: "ME", icon: <User className="w-5 h-5" /> },
     ];
 
     return (

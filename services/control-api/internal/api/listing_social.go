@@ -19,13 +19,13 @@ func RegisterListingSocialRoutes(rg *gin.RouterGroup) {
 	rg.POST("/listings/:id/inquire", createListingInquiry)
 	rg.GET("/listings/:id/qa", getListingQA)
 	rg.POST("/listings/:id/qa", askListingQuestion)
-	
+
 	// Provider relationships
 	rg.GET("/provider/relationships", getProviderRelationships)
 	rg.GET("/provider/relationships/stats", getProviderRelationshipStats)
 	rg.GET("/provider/relationships/:buyerId", getProviderRelationshipDetail)
 	rg.POST("/provider/relationships/:buyerId/offer", sendRefillOffer)
-	
+
 	// Online presence
 	rg.POST("/presence/heartbeat", updatePresence)
 	rg.GET("/users/:id/presence", getUserPresence)
@@ -33,14 +33,14 @@ func RegisterListingSocialRoutes(rg *gin.RouterGroup) {
 
 // ListingSocialContext represents social data for a listing
 type ListingSocialContext struct {
-	ListingID          uuid.UUID          `json:"listing_id"`
-	ActiveSessionsCount int               `json:"active_sessions_count"`
-	TotalSessionsCount  int               `json:"total_sessions_count"`
-	AllowDirectMessage  bool              `json:"allow_direct_message"`
+	ListingID           uuid.UUID          `json:"listing_id"`
+	ActiveSessionsCount int                `json:"active_sessions_count"`
+	TotalSessionsCount  int                `json:"total_sessions_count"`
+	AllowDirectMessage  bool               `json:"allow_direct_message"`
 	Provider            ProviderSocialInfo `json:"provider"`
-	IsFollowed          bool              `json:"is_followed"`
-	HasExistingSession  bool              `json:"has_existing_session"`
-	ExistingSessionID   *uuid.UUID        `json:"existing_session_id,omitempty"`
+	IsFollowed          bool               `json:"is_followed"`
+	HasExistingSession  bool               `json:"has_existing_session"`
+	ExistingSessionID   *uuid.UUID         `json:"existing_session_id,omitempty"`
 }
 
 // ProviderSocialInfo represents public social info about a provider
@@ -89,7 +89,7 @@ func getListingSocialContext(c *gin.Context) {
 	// Count active sessions for this listing
 	var activeSessionsCount int64
 	db.DB.Model(&models.Session{}).
-		Where("listing_id = ? AND status = ? AND (expires_at IS NULL OR expires_at > ?)", 
+		Where("listing_id = ? AND status = ? AND (expires_at IS NULL OR expires_at > ?)",
 			listingID, models.SessionActive, time.Now()).
 		Count(&activeSessionsCount)
 
@@ -114,7 +114,7 @@ func getListingSocialContext(c *gin.Context) {
 	var existingSessionID *uuid.UUID
 	if isAuthenticated {
 		var session models.Session
-		if err := db.DB.Where("user_id = ? AND listing_id = ? AND status = ?", 
+		if err := db.DB.Where("user_id = ? AND listing_id = ? AND status = ?",
 			currentUserID, listingID, models.SessionActive).
 			First(&session).Error; err == nil {
 			hasExistingSession = true
@@ -234,11 +234,23 @@ func createListingInquiry(c *gin.Context) {
 		"message_preview": truncate(req.Message, 100),
 		"type":            "listing_inquiry",
 	})
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     providerID,
+		Type:       models.NotificationMessage,
+		Title:      "New listing inquiry",
+		Body:       truncate(req.Message, 160),
+		ActionURL:  "/messages?conversation=" + conversation.ID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &buyerID,
+		TargetType: "conversation",
+		TargetID:   &conversation.ID,
+		Dedupe:     true,
+	})
 
 	// Create feed event
 	feedEvent := models.CreateFeedEvent(
 		&buyerID,
-		models.FeedEventNewListing, // Reuse or create new type
+		models.FeedEventType("listing_inquiry"),
 		"listing_inquiry",
 		&listingID,
 		"inquired about "+listing.Title,
@@ -336,7 +348,7 @@ func askListingQuestion(c *gin.Context) {
 	// Create forum thread linked to listing
 	// Note: listingID is validated but ForumThread doesn't have ListingID field yet
 	_ = listingID // Suppress unused variable warning
-	
+
 	thread := models.ForumThread{
 		AuthorID: userID,
 		Title:    req.Title,
@@ -425,7 +437,7 @@ func getProviderRelationshipDetail(c *gin.Context) {
 	// Get recent sessions
 	var sessions []models.Session
 	db.DB.
-		Where("user_id = ? AND listing_id IN (SELECT id FROM proxy_listings WHERE seller_id = ?)", 
+		Where("user_id = ? AND listing_id IN (SELECT id FROM proxy_listings WHERE seller_id = ?)",
 			buyerID, providerID).
 		Order("created_at DESC").
 		Limit(10).
@@ -508,9 +520,21 @@ func sendRefillOffer(c *gin.Context) {
 		"type":            "refill_offer",
 		"preview":         "Special refill offer from provider",
 	})
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     buyerID,
+		Type:       models.NotificationRefillOffer,
+		Title:      "Special refill offer",
+		Body:       truncate(req.Message, 160),
+		ActionURL:  "/messages?conversation=" + conversation.ID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &providerID,
+		TargetType: "conversation",
+		TargetID:   &conversation.ID,
+		Dedupe:     true,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Offer sent",
+		"message":         "Offer sent",
 		"conversation_id": conversation.ID,
 	})
 }
@@ -526,8 +550,8 @@ func updatePresence(c *gin.Context) {
 	// Update online status
 	now := time.Now()
 	db.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
-		"is_online":     true,
-		"last_seen_at":  now,
+		"is_online":    true,
+		"last_seen_at": now,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"status": "online", "timestamp": now})
@@ -664,11 +688,11 @@ func trackInquiry(listingID, buyerID, providerID uuid.UUID, intent string, expec
 
 // RelationshipStats represents statistics about provider relationships
 type RelationshipStats struct {
-	TotalRelationships   int                               `json:"total_relationships"`
-	TotalBandwidthSoldGB float64                           `json:"total_bandwidth_sold_gb"`
-	TotalRevenue         float64                           `json:"total_revenue"`
-	AvgSessionsPerBuyer  float64                           `json:"avg_sessions_per_buyer"`
-	TopBuyers            []RelationshipResponse `json:"top_buyers"`
+	TotalRelationships    int                    `json:"total_relationships"`
+	TotalBandwidthSoldGB  float64                `json:"total_bandwidth_sold_gb"`
+	TotalRevenue          float64                `json:"total_revenue"`
+	AvgSessionsPerBuyer   float64                `json:"avg_sessions_per_buyer"`
+	TopBuyers             []RelationshipResponse `json:"top_buyers"`
 	RecentFirstTimeBuyers []RelationshipResponse `json:"recent_first_time_buyers"`
 }
 

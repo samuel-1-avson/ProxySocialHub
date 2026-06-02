@@ -83,9 +83,17 @@ func (r *SessionRepository) UpdateSessionStatus(ctx context.Context, id string, 
 		return fmt.Errorf("invalid session id: %w", err)
 	}
 
-	return DB.WithContext(ctx).Model(&models.Session{}).
-		Where("id = ?", sessionID).
-		Update("status", models.SessionStatus(status)).Error
+	var session models.Session
+	if err := DB.WithContext(ctx).First(&session, "id = ?", sessionID).Error; err != nil {
+		return err
+	}
+
+	nextStatus := modelSessionStatusFromDomain(status)
+	if err := models.ValidateSessionStatusTransition(session.Status, nextStatus); err != nil {
+		return err
+	}
+
+	return DB.WithContext(ctx).Model(&session).Update("status", nextStatus).Error
 }
 
 // UpdateUsage updates the BytesUsed column of a session.
@@ -139,4 +147,15 @@ func modelToEntity(m *models.Session) *domain.SessionEntity {
 	}
 
 	return entity
+}
+
+func modelSessionStatusFromDomain(status domain.SessionStatus) models.SessionStatus {
+	switch status {
+	case domain.SessionCompleted, domain.SessionTerminated:
+		return models.SessionTerminated
+	case domain.SessionActive:
+		return models.SessionActive
+	default:
+		return models.SessionStatus(status)
+	}
 }

@@ -12,7 +12,10 @@ type MarketplaceRepository interface {
 	GetListings(ctx context.Context, filters map[string]interface{}) ([]domain.ListingEntity, int64, error)
 	GetListingByID(ctx context.Context, id uuid.UUID) (*domain.ListingEntity, error)
 	CreateListing(ctx context.Context, listing *domain.ListingEntity) error
-	UpdateListing(ctx context.Context, listing *domain.ListingEntity) error
+	UpdateListing(ctx context.Context, id uuid.UUID, updates domain.ListingUpdate) (*domain.ListingEntity, error)
+	DeleteListing(ctx context.Context, id uuid.UUID) error
+	SaveListing(ctx context.Context, userID, listingID uuid.UUID) error
+	UnsaveListing(ctx context.Context, userID, listingID uuid.UUID) error
 
 	GetNodeByID(ctx context.Context, id uuid.UUID) (*domain.NodeEntity, error)
 	UpdateNodeStatus(ctx context.Context, nodeID uuid.UUID, isHealthy bool, latency int) error
@@ -25,6 +28,10 @@ type MarketplaceRepository interface {
 type MarketplaceService interface {
 	BrowseMarket(ctx context.Context, filters map[string]interface{}) ([]domain.ListingEntity, int64, error)
 	PublishListing(ctx context.Context, sellerID uuid.UUID, listing domain.ListingEntity) (*domain.ListingEntity, error)
+	UpdateListing(ctx context.Context, sellerID, listingID uuid.UUID, updates domain.ListingUpdate) (*domain.ListingEntity, error)
+	DeleteListing(ctx context.Context, sellerID, listingID uuid.UUID) error
+	SaveListing(ctx context.Context, userID, listingID uuid.UUID) error
+	UnsaveListing(ctx context.Context, userID, listingID uuid.UUID) error
 	GetProviderHealth(ctx context.Context, nodeID uuid.UUID) (float64, error)
 	UpdateNodeStatus(ctx context.Context, nodeID uuid.UUID, isHealthy bool, latency int) error
 }

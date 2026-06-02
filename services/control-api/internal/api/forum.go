@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
 // RegisterForumRoutes registers community forum routes
@@ -17,9 +18,13 @@ func RegisterForumRoutes(rg *gin.RouterGroup) {
 	rg.GET("/forum/categories", getCategories)
 	rg.GET("/forum/categories/:slug", getCategory)
 	rg.GET("/forum/categories/:slug/threads", getCategoryThreads)
+	rg.GET("/forum/threads/slug/:slug", getThreadBySlug)
 	rg.GET("/forum/threads/:id", getThread)
+	rg.GET("/forum/threads/:id/posts", getThreadPosts)
 	rg.POST("/forum/threads", createThread)
 	rg.POST("/forum/threads/:id/posts", createPost)
+	rg.PATCH("/forum/posts/:id", updatePost)
+	rg.DELETE("/forum/posts/:id", deletePost)
 	rg.POST("/forum/posts/:id/vote", votePost)
 	rg.POST("/forum/threads/:id/vote", voteThread)
 	rg.POST("/forum/threads/:id/report", reportThread)
@@ -47,11 +52,11 @@ func getCategories(c *gin.Context) {
 			{Name: "Buying & Selling", Slug: "marketplace", Description: "Discuss proxy purchases, deals, and recommendations", SortOrder: 5},
 			{Name: "Announcements", Slug: "announcements", Description: "Official announcements and updates from the team", SortOrder: 6},
 		}
-		
+
 		for i := range defaultCategories {
 			db.Social().Create(&defaultCategories[i])
 		}
-		
+
 		categories = defaultCategories
 	}
 
@@ -131,24 +136,71 @@ func getThread(c *gin.Context) {
 		return
 	}
 
-	// Increment view count
-	db.Social().Model(&thread).Update("views_count", thread.ViewsCount+1)
+	renderThreadWithPosts(c, thread, true)
+}
 
-	// Pagination
-	page := getPageParam(c, 1)
-	limit := getLimitParam(c, 20)
-	offset := (page - 1) * limit
+// getThreadBySlug returns a single thread with posts by slug.
+func getThreadBySlug(c *gin.Context) {
+	slug := c.Param("slug")
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid thread slug"})
+		return
+	}
 
-	var totalPosts int64
-	db.Social().Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts)
+	var thread models.ForumThread
+	if err := db.Social().Preload("Author").Preload("Category").First(&thread, "slug = ?", slug).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
 
-	// Get posts
-	var posts []models.ForumPost
-	db.Social().Preload("Author").
-		Where("thread_id = ?", threadID).
-		Order("created_at ASC").
-		Offset(offset).Limit(limit).
-		Find(&posts)
+	renderThreadWithPosts(c, thread, true)
+}
+
+// getThreadPosts returns posts for a thread without the thread envelope.
+func getThreadPosts(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid thread ID"})
+		return
+	}
+
+	var count int64
+	if err := db.Social().Model(&models.ForumThread{}).Where("id = ?", threadID).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch thread"})
+		return
+	}
+	if count == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+
+	posts, totalPosts, page, limit, err := loadThreadPosts(c, threadID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch posts"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"posts": posts,
+		"total": totalPosts,
+		"page":  page,
+		"limit": limit,
+	})
+}
+
+func renderThreadWithPosts(c *gin.Context, thread models.ForumThread, incrementViews bool) {
+	if incrementViews {
+		db.Social().Model(&models.ForumThread{}).
+			Where("id = ?", thread.ID).
+			UpdateColumn("views_count", gorm.Expr("views_count + ?", 1))
+		thread.ViewsCount++
+	}
+
+	posts, totalPosts, page, limit, err := loadThreadPosts(c, thread.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch posts"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"thread":      thread,
@@ -159,6 +211,28 @@ func getThread(c *gin.Context) {
 	})
 }
 
+func loadThreadPosts(c *gin.Context, threadID uuid.UUID) ([]models.ForumPost, int64, int, int, error) {
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+	offset := (page - 1) * limit
+
+	var totalPosts int64
+	if err := db.Social().Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts).Error; err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	var posts []models.ForumPost
+	if err := db.Social().Preload("Author").
+		Where("thread_id = ?", threadID).
+		Order("created_at ASC").
+		Offset(offset).Limit(limit).
+		Find(&posts).Error; err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	return posts, totalPosts, page, limit, nil
+}
+
 type CreateThreadRequest struct {
 	CategorySlug string `json:"category_slug" binding:"required"`
 	Title        string `json:"title" binding:"required"`
@@ -167,8 +241,11 @@ type CreateThreadRequest struct {
 
 // createThread creates a new forum thread
 func createThread(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	var req CreateThreadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -216,8 +293,8 @@ func createThread(c *gin.Context) {
 				"category":  category.Name,
 			},
 		)
-		db.Social().Create(feedEvent)      // Persistent
-		PublishFeedEvent(*feedEvent) // Real-time + Cache
+		db.Social().Create(feedEvent) // Persistent
+		PublishFeedEvent(*feedEvent)  // Real-time + Cache
 	}()
 
 	c.JSON(http.StatusCreated, thread)
@@ -230,8 +307,11 @@ type CreatePostRequest struct {
 
 // createPost creates a reply in a thread
 func createPost(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	threadID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -264,21 +344,153 @@ func createPost(c *gin.Context) {
 	}
 
 	tx := db.Social().Begin()
-	tx.Create(&post)
+	if err := tx.Create(&post).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create post"})
+		return
+	}
 
 	// Update thread
 	now := time.Now()
-	tx.Model(&thread).Updates(map[string]interface{}{
-		"replies_count": thread.RepliesCount + 1,
+	if err := tx.Model(&thread).Updates(map[string]interface{}{
+		"replies_count": gorm.Expr("replies_count + ?", 1),
 		"last_reply_at": now,
 		"last_reply_by": userID,
-	})
+	}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update thread"})
+		return
+	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create post"})
+		return
+	}
 
 	db.Social().Preload("Author").First(&post, "id = ?", post.ID)
 
+	if thread.AuthorID != userID {
+		dispatchUserNotification(c.Request.Context(), userNotification{
+			UserID:     thread.AuthorID,
+			Type:       models.NotificationReply,
+			Title:      "New forum reply",
+			Body:       truncate(req.Content, 160),
+			ActionURL:  "/community/forum/thread/" + threadID.String(),
+			ActionType: "open_thread",
+			ActorID:    &userID,
+			TargetType: "forum_post",
+			TargetID:   &post.ID,
+			Dedupe:     true,
+		})
+	}
+
 	c.JSON(http.StatusCreated, post)
+}
+
+type UpdatePostRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
+// updatePost edits a post owned by the current user.
+func updatePost(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	postID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid post ID"})
+		return
+	}
+
+	var req UpdatePostRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var post models.ForumPost
+	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+		return
+	}
+	if post.AuthorID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Can only edit your own posts"})
+		return
+	}
+
+	var thread models.ForumThread
+	if err := db.Social().First(&thread, "id = ?", post.ThreadID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+	if thread.IsLocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Thread is locked"})
+		return
+	}
+
+	if err := db.Social().Model(&post).Update("content", req.Content).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update post"})
+		return
+	}
+
+	db.Social().Preload("Author").First(&post, "id = ?", post.ID)
+	c.JSON(http.StatusOK, post)
+}
+
+// deletePost deletes a post owned by the current user.
+func deletePost(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	postID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid post ID"})
+		return
+	}
+
+	var post models.ForumPost
+	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+		return
+	}
+	if post.AuthorID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Can only delete your own posts"})
+		return
+	}
+
+	var thread models.ForumThread
+	if err := db.Social().First(&thread, "id = ?", post.ThreadID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+	if thread.IsLocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Thread is locked"})
+		return
+	}
+
+	err = db.Social().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("post_id = ?", postID).Delete(&models.ForumVote{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&post).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.ForumThread{}).
+			Where("id = ?", post.ThreadID).
+			UpdateColumn("replies_count", gorm.Expr("GREATEST(replies_count - 1, 0)")).Error
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Post deleted"})
 }
 
 type VoteRequest struct {
@@ -287,8 +499,11 @@ type VoteRequest struct {
 
 // votePost upvotes or downvotes a post
 func votePost(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	postID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -347,7 +562,7 @@ func votePost(c *gin.Context) {
 		// New vote
 		vote := models.ForumVote{
 			UserID:   userID,
-			PostID:   postID,
+			PostID:   &postID,
 			VoteType: req.VoteType,
 		}
 		tx.Create(&vote)
@@ -366,8 +581,11 @@ func votePost(c *gin.Context) {
 
 // voteThread handles upvoting/downvoting a thread
 func voteThread(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
 	threadID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -426,7 +644,7 @@ func voteThread(c *gin.Context) {
 		// New vote
 		vote := models.ForumVote{
 			UserID:   userID,
-			ThreadID: threadID,
+			ThreadID: &threadID,
 			VoteType: req.VoteType,
 		}
 		tx.Create(&vote)
@@ -531,15 +749,9 @@ func searchForum(c *gin.Context) {
 
 // getMyPosts returns the current user's forum posts
 func getMyPosts(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
@@ -571,15 +783,9 @@ func getMyPosts(c *gin.Context) {
 
 // getMyThreads returns the current user's forum threads
 func getMyThreads(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
@@ -617,15 +823,9 @@ type ReportRequest struct {
 
 // reportThread handles reporting a thread
 func reportThread(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
@@ -674,15 +874,9 @@ func reportThread(c *gin.Context) {
 
 // reportPost handles reporting a post
 func reportPost(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 

@@ -3,7 +3,7 @@
  * All listing and order-related API calls and types
  */
 
-import { apiGet, apiPost, apiPut, apiDelete } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, publicApiGet } from './client';
 
 // ============ Types ============
 
@@ -203,7 +203,7 @@ export function getMarketplaceGeo(filters?: MarketplaceGeoFilters) {
     if (filters?.country) params.country = filters.country;
     if (filters?.proxy_type) params.proxy_type = filters.proxy_type;
     if (filters?.bbox) params.bbox = filters.bbox;
-    return apiGet<MarketplaceGeoResponse>('/v1/listings/geo', params);
+    return publicApiGet<MarketplaceGeoResponse>('/v1/listings/geo', params);
 }
 
 export function getListings(filters?: ListingFilters) {
@@ -215,7 +215,7 @@ export function getListings(filters?: ListingFilters) {
             }
         });
     }
-    return apiGet<{ listings: Listing[]; total: number; page: number }>('/v1/listings', params);
+    return publicApiGet<{ listings: Listing[]; total: number; page: number }>('/v1/listings', params);
 }
 
 /**
@@ -229,21 +229,21 @@ export function getProviderNodes() {
  * Get a specific listing
  */
 export function getListing(id: string) {
-    return apiGet<{ listing: Listing; is_saved: boolean }>(`/v1/listings/${id}`);
+    return publicApiGet<{ listing: Listing; is_saved: boolean }>(`/v1/listings/${id}`);
 }
 
 /**
  * Get featured/top listings
  */
 export function getFeaturedListings() {
-    return apiGet<Listing[]>('/v1/listings/featured');
+    return publicApiGet<Listing[]>('/v1/listings/featured');
 }
 
 /**
  * Search listings
  */
 export function searchListings(query: string) {
-    return apiGet<{ listings: Listing[]; total: number }>('/v1/listings/search', { q: query });
+    return publicApiGet<{ listings: Listing[]; total: number }>('/v1/listings/search', { q: query });
 }
 
 /**

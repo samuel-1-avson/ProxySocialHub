@@ -851,6 +851,13 @@ func SetOracleClientForTest(c *OracleClient) {
 	globalOracleClient = c
 }
 
+// RegisterOracleClient installs the production oracle (velocity guard, billing hooks, etc.)
+// for all handlers that call GetOracleClient / GetOracle.
+func RegisterOracleClient(c *OracleClient) {
+	globalOracleClient = c
+	oracleClient = c
+}
+
 // GetTreasuryAddress returns the configured treasury address from environment
 func GetTreasuryAddress() string {
 	return os.Getenv("SOLANA_TREASURY_ADDRESS")

@@ -60,20 +60,17 @@ func linkWallet(c *gin.Context) {
 
 	// Handle Unlink (DELETE)
 	if c.Request.Method == "DELETE" {
-		if req.Chain == "solana" {
-			user.WalletAddress = nil
-		} else if req.Chain == "ethereum" {
-			// Support for Ethereum unlink
-			user.WalletAddress = nil
-		} else {
+		switch req.Chain {
+		case "solana", "ethereum":
+			if err := clearLinkedWalletIdentity(tx, user.ID, req.Chain); err != nil {
+				tx.Rollback()
+				logging.Error(err).Str("user_id", userID).Str("chain", req.Chain).Msg("Failed to unlink wallet")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
+				return
+			}
+		default:
 			tx.Rollback()
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
-			return
-		}
-
-		if err := tx.Save(&user).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
 			return
 		}
 		tx.Commit()
@@ -235,7 +232,7 @@ func linkWallet(c *gin.Context) {
 		return
 	}
 
-	if err := tx.Save(&user).Error; err != nil {
+	if err := setProfileWalletAddress(tx, user.ID, user.WalletAddress); err != nil {
 		tx.Rollback()
 		logging.Error(err).
 			Str("user_id", userID).
@@ -248,6 +245,56 @@ func linkWallet(c *gin.Context) {
 
 	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet linked successfully"})
+}
+
+// setProfileWalletAddress updates only profiles.wallet_address (avoids Save() touching
+// model fields that may not exist in older DB schemas, e.g. isp).
+func setProfileWalletAddress(tx *gorm.DB, userID uuid.UUID, address *string) error {
+	return tx.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", address).Error
+}
+
+// clearLinkedWalletIdentity removes the linked on-chain identity and withdrawal routing.
+func clearLinkedWalletIdentity(tx *gorm.DB, userID uuid.UUID, chain string) error {
+	if err := setProfileWalletAddress(tx, userID, nil); err != nil {
+		return err
+	}
+	if err := clearWalletWithdrawalRouting(tx, userID); err != nil {
+		return err
+	}
+	var chainType models.BlockchainType
+	switch chain {
+	case "solana":
+		chainType = models.ChainSolana
+	case "ethereum":
+		chainType = models.ChainEthereum
+	default:
+		return fmt.Errorf("unsupported chain: %s", chain)
+	}
+	return deleteLinkedWalletRows(tx, userID, chainType)
+}
+
+func clearWalletWithdrawalRouting(tx *gorm.DB, userID uuid.UUID) error {
+	if !tx.Migrator().HasTable(&models.Wallet{}) {
+		return nil
+	}
+	updates := map[string]interface{}{}
+	if tx.Migrator().HasColumn(&models.Wallet{}, "primary_withdrawal_address") {
+		updates["primary_withdrawal_address"] = nil
+	}
+	if tx.Migrator().HasColumn(&models.Wallet{}, "withdrawal_whitelist") {
+		updates["withdrawal_whitelist"] = []string{}
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return tx.Model(&models.Wallet{}).Where("user_id = ?", userID).Updates(updates).Error
+}
+
+func deleteLinkedWalletRows(tx *gorm.DB, userID uuid.UUID, chain models.BlockchainType) error {
+	if !tx.Migrator().HasTable(&models.LinkedWallet{}) {
+		return nil
+	}
+	return tx.Where("user_id = ? AND chain = ?", userID, chain).Delete(&models.LinkedWallet{}).Error
 }
 
 type cryptoDepositRequest struct {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -43,6 +44,58 @@ func (s *marketplaceService) PublishListing(ctx context.Context, sellerID uuid.U
 	}
 
 	return &listing, nil
+}
+
+func (s *marketplaceService) UpdateListing(ctx context.Context, sellerID, listingID uuid.UUID, updates domain.ListingUpdate) (*domain.ListingEntity, error) {
+	listing, err := s.repo.GetListingByID(ctx, listingID)
+	if err != nil {
+		return nil, err
+	}
+	if listing.SellerID != sellerID {
+		return nil, domain.ErrListingForbidden
+	}
+	if updates.Status != nil {
+		if !canTransitionListingStatus(listing.Status, *updates.Status) {
+			return nil, fmt.Errorf("invalid listing status transition: %s -> %s", listing.Status, *updates.Status)
+		}
+	}
+	return s.repo.UpdateListing(ctx, listingID, updates)
+}
+
+func (s *marketplaceService) DeleteListing(ctx context.Context, sellerID, listingID uuid.UUID) error {
+	listing, err := s.repo.GetListingByID(ctx, listingID)
+	if err != nil {
+		return err
+	}
+	if listing.SellerID != sellerID {
+		return domain.ErrListingForbidden
+	}
+	deleted := domain.ListingDeleted
+	if !canTransitionListingStatus(listing.Status, deleted) {
+		return fmt.Errorf("invalid listing status transition: %s -> %s", listing.Status, deleted)
+	}
+	return s.repo.DeleteListing(ctx, listingID)
+}
+
+func (s *marketplaceService) SaveListing(ctx context.Context, userID, listingID uuid.UUID) error {
+	listing, err := s.repo.GetListingByID(ctx, listingID)
+	if err != nil {
+		return err
+	}
+	if listing.Status != domain.ListingActive {
+		return fmt.Errorf("%w: status %s", domain.ErrListingUnavailable, listing.Status)
+	}
+	return s.repo.SaveListing(ctx, userID, listingID)
+}
+
+func (s *marketplaceService) UnsaveListing(ctx context.Context, userID, listingID uuid.UUID) error {
+	if _, err := s.repo.GetListingByID(ctx, listingID); err != nil {
+		if errors.Is(err, domain.ErrListingNotFound) {
+			return domain.ErrListingNotSaved
+		}
+		return err
+	}
+	return s.repo.UnsaveListing(ctx, userID, listingID)
 }
 
 func (s *marketplaceService) GetProviderHealth(ctx context.Context, nodeID uuid.UUID) (float64, error) {
@@ -109,4 +162,22 @@ func (s *marketplaceService) UpdateNodeStatus(ctx context.Context, nodeID uuid.U
 	}
 
 	return nil
+}
+
+func canTransitionListingStatus(from, to domain.ListingStatus) bool {
+	if from == to {
+		return from != domain.ListingDeleted
+	}
+	switch from {
+	case "":
+		return to == domain.ListingActive || to == domain.ListingPaused
+	case domain.ListingActive:
+		return to == domain.ListingPaused || to == domain.ListingSoldOut || to == domain.ListingDeleted
+	case domain.ListingPaused:
+		return to == domain.ListingActive || to == domain.ListingDeleted
+	case domain.ListingSoldOut:
+		return to == domain.ListingActive || to == domain.ListingDeleted
+	default:
+		return false
+	}
 }

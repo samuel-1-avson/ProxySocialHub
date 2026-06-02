@@ -610,6 +610,10 @@ func terminateSession(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
+	if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Update DB
 	if result := db.DB.Model(&session).Update("status", models.SessionTerminated); result.Error != nil {

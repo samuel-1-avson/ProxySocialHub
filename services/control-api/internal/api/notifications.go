@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"log"
 
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/models"
+	notify "github.com/proxyhubb/control-api/internal/notifications"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
@@ -13,6 +16,20 @@ var SystemUserID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 // SendSystemNotification sends a real-time notification to a user via the Distributed Hub
 func SendSystemNotification(userID string, title, message string) {
 	log.Printf("[Notification] Sending system alert to %s: %s", userID, title)
+
+	uid, err := uuid.Parse(userID)
+	if err == nil && uid != uuid.Nil {
+		if _, delivered, createErr := notify.DefaultService().Create(context.Background(), notify.CreateRequest{
+			UserID:   uid,
+			Type:     models.NotificationSecurityAlert,
+			Title:    title,
+			Body:     message,
+			Dedupe:   true,
+			Realtime: true,
+		}); createErr == nil && delivered {
+			return
+		}
+	}
 
 	// Broadcast via the distributed NATS hub (Phase 15/17)
 	ws.BroadcastToUser(userID, ws.MsgTypeNotification, map[string]interface{}{

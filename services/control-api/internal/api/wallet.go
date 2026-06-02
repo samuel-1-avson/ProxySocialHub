@@ -213,8 +213,8 @@ func getWallet(c *gin.Context) {
 			ID:          l.ID.String(),
 			Type:        l.Type,
 			Amount:      l.Amount,
-			Description: l.Description,
-			Status:      "settled",
+			Description: ledgerEntryDescription(l),
+			Status:      ledgerEntryStatus(l),
 			CreatedAt:   l.CreatedAt,
 		}
 		if l.TxHash != "" {
@@ -716,10 +716,6 @@ func withdrawSOL(c *gin.Context) {
 
 		// Check spending limits
 		if err := walletRecord.CheckSpendingLimit(tx, req.Amount, models.SpendingWithdraw); err != nil {
-			if spendingErr, ok := err.(*models.SpendingLimitError); ok {
-				return fmt.Errorf("%s spending limit exceeded: limit=%.6f SOL, spent=%.6f SOL, attempted=%.6f SOL",
-					spendingErr.LimitType, spendingErr.Limit, spendingErr.CurrentSpend, spendingErr.Attempted)
-			}
 			return err
 		}
 
@@ -746,6 +742,17 @@ func withdrawSOL(c *gin.Context) {
 		}).Error
 	})
 	if err != nil {
+		if spendingErr, ok := err.(*models.SpendingLimitError); ok {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":      "Spending limit exceeded",
+				"limit_type": spendingErr.LimitType,
+				"limit":      spendingErr.Limit,
+				"spent":      spendingErr.CurrentSpend,
+				"attempted":  spendingErr.Attempted,
+				"remaining":  spendingErr.Remaining(),
+			})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -767,7 +774,7 @@ func withdrawSOL(c *gin.Context) {
 				Amount:       req.Amount,
 				BalanceAfter: walletRecord.BalanceSOL + req.Amount,
 				Type:         "withdrawal_failed_refund",
-				Description:  fmt.Sprintf("On-chain transfer failed: %v", sendErr),
+				Description:  "Withdrawal failed: " + summarizeOnChainSendError(sendErr) + " — balance restored",
 				CreatedAt:    time.Now(),
 			}).Error
 		})
@@ -782,7 +789,10 @@ func withdrawSOL(c *gin.Context) {
 			Str("user_id", userUUID.String()).
 			Float64("amount", req.Amount).
 			Msg("SOL withdrawal: on-chain transfer failed, balance restored")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "On-chain transfer failed. Balance has been restored."})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "On-chain transfer failed. Balance has been restored.",
+			"reason": summarizeOnChainSendError(sendErr),
+		})
 		return
 	}
 
@@ -814,6 +824,45 @@ func isLikelySolanaSignature(s string) bool {
 		return false
 	}
 	return true
+}
+
+// ledgerEntryStatus maps internal ledger rows to UI protocol status.
+func ledgerEntryStatus(l models.WalletLedgerEntry) string {
+	switch l.Type {
+	case "withdrawal_failed_refund":
+		return "failed"
+	default:
+		return "settled"
+	}
+}
+
+// ledgerEntryDescription keeps refund rows readable in the settlement ledger.
+func ledgerEntryDescription(l models.WalletLedgerEntry) string {
+	if l.Type == "withdrawal_failed_refund" && strings.HasPrefix(l.Description, "On-chain transfer failed:") {
+		// Legacy rows stored the full RPC error blob.
+		return "Withdrawal failed — balance restored (no SOL sent to linked wallet)"
+	}
+	return l.Description
+}
+
+// summarizeOnChainSendError turns RPC/oracle errors into short user-facing text.
+func summarizeOnChainSendError(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "insufficient lamports"):
+		return "treasury wallet has insufficient devnet SOL to pay this withdrawal (fund the platform oracle/treasury, then retry)"
+	case strings.Contains(msg, "velocity guard"):
+		return "transfer blocked by treasury safety limits"
+	case strings.Contains(msg, "frozen"):
+		return "treasury transfers are temporarily frozen"
+	case strings.Contains(msg, "velocityguard not initialised"):
+		return "treasury payout service is not fully configured"
+	default:
+		return "blockchain transfer could not be submitted"
+	}
 }
 
 // getWithdrawalSecurity returns withdrawal address, whitelist, and cooldown state.
