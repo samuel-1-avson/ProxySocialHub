@@ -120,6 +120,14 @@ Three buckets before calling edge-gateway v2 production-ready. Decisions on defe
 
 - [x] HTTP/3 ingress (initial `--features quic`, `ENABLE_HTTP3_INGRESS`, CONNECT over h3/quinn)
 - [x] SOCKS5 ingress (`ENABLE_SOCKS5`, `SOCKS5_PORT`, username/password auth, CONNECT)
+- [x] Ingress conformance smoke ([`scripts/p6-ingress-smoke.ps1`](../scripts/p6-ingress-smoke.ps1), [`P6_INGRESS_SMOKE.md`](P6_INGRESS_SMOKE.md))
+
+## Optional polish (v2+)
+
+- [x] P6 HTTP/3 + SOCKS5 conformance smoke script
+- [x] P1 Linux flamegraph archive ([`docs/flamegraphs/README.md`](flamegraphs/README.md), `p1-flamegraph.sh`)
+- [x] Grafana contact points + notification policies ([`infra/grafana/alerting/`](../../../infra/grafana/alerting/))
+- [x] Provider mTLS rollout plan ([`PROVIDER_MTLS_ROLLOUT.md`](PROVIDER_MTLS_ROLLOUT.md))
 
 ## Ongoing (product / ops)
 

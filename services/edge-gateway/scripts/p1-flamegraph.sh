@@ -19,4 +19,11 @@ echo "Expect rebuild_score_snapshot in flamegraph; get_best_snapshot should be t
 
 cargo flamegraph --bench hotpath_bench -- --profile-time 5 "$BENCH_FILTER"
 
+ARCHIVE_DIR="docs/flamegraphs"
+mkdir -p "$ARCHIVE_DIR"
+STAMP=$(date -u +%Y-%m-%d)
+SAFE_FILTER=$(echo "$BENCH_FILTER" | tr '/ ' '__')
+cp -f flamegraph.svg "${ARCHIVE_DIR}/${STAMP}-${SAFE_FILTER}.svg"
+echo "Archived ${ARCHIVE_DIR}/${STAMP}-${SAFE_FILTER}.svg"
+
 echo "Wrote flamegraph.svg — search for rebuild_score_snapshot vs get_best_snapshot"
