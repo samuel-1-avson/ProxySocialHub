@@ -381,7 +381,8 @@ jobs:
     - name: Build Control API Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./services/control-api
+        context: .
+        file: services/control-api/Dockerfile
         push: false
         tags: control-api:test
         cache-from: type=gha
