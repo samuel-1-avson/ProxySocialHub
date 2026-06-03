@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead as TokioAsyncRead, AsyncWrite as TokioAsyncWrite};
 use tokio::net::TcpListener;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn, Instrument};
 use yamux::{Config, Connection, Mode, WindowUpdateMode};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -169,23 +169,51 @@ pub async fn run_tunnel_server(
         let tls_acceptor = tls_acceptor.clone();
 
         tokio::spawn(async move {
-            if let Some(acceptor) = tls_acceptor {
-                match acceptor.accept(stream).await {
-                    Ok(tls_stream) => {
-                        handle_provider_connection(tls_stream, peer_addr, state).await;
+            let peer = peer_addr.to_string();
+            let accept_span = crate::observability::provider_tunnel_accept_span(&peer);
+            async move {
+                if let Some(acceptor) = tls_acceptor {
+                    let tls_fp = crate::security::fingerprint::observe_tls_fingerprints_from_tcp(
+                        &stream,
+                        &state.fingerprint_db,
+                    )
+                    .await;
+                    if let Some(ref digest) = tls_fp.ja3_digest {
+                        tracing::Span::current()
+                            .record("tls.ja3_digest", tracing::field::display(digest));
                     }
-                    Err(e) => {
-                        error!("❌ TLS handshake failed with {}: {}", peer_addr, e);
+                    if let Some(ref ja4) = tls_fp.ja4 {
+                        tracing::Span::current()
+                            .record("tls.ja4", tracing::field::display(ja4));
                     }
+                    if tls_fp.ja3_digest.is_some() || tls_fp.ja4.is_some() {
+                        trace!(
+                            %peer_addr,
+                            ja3 = ?tls_fp.ja3_digest,
+                            ja4 = ?tls_fp.ja4,
+                            "provider TLS ClientHello fingerprints"
+                        );
+                    }
+                    match acceptor.accept(stream).await {
+                        Ok(tls_stream) => {
+                            handle_provider_mux_io(tls_stream, peer_addr, state).await;
+                        }
+                        Err(e) => {
+                            error!("❌ TLS handshake failed with {}: {}", peer_addr, e);
+                        }
+                    }
+                } else {
+                    handle_provider_mux_io(stream, peer_addr, state).await;
                 }
-            } else {
-                handle_provider_connection(stream, peer_addr, state).await;
             }
+            .instrument(accept_span)
+            .await;
         });
     }
 }
 
-async fn handle_provider_connection<S>(stream: S, peer_addr: SocketAddr, state: Arc<AppState>)
+/// Provider ingress after TCP/TLS or QUIC: yamux server + AUTH/CAPABILITY handshake.
+pub(crate) async fn handle_provider_mux_io<S>(stream: S, peer_addr: SocketAddr, state: Arc<AppState>)
 where
     S: TokioAsyncRead + TokioAsyncWrite + Unpin + Send + 'static,
 {
@@ -492,6 +520,7 @@ where
     } else {
         info!("✅ Provider connected: {} from {}", node_id, peer_addr);
     }
+    tracing::Span::current().record("provider.node_id", tracing::field::display(&node_id));
 
     // Main stream acceptance loop (Heartbeats + Data)
     while let Some(mut stream) = rx.recv().await {

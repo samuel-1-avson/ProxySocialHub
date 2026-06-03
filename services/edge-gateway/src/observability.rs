@@ -67,3 +67,62 @@ fn init_otel(
     );
     Ok(())
 }
+
+/// Root span for buyer CONNECT tunnel setup (selection + 200 response).
+#[inline]
+pub fn buyer_connect_span(session_id: &str, proxy_target: &str) -> tracing::Span {
+    tracing::info_span!(
+        "edge.buyer_connect",
+        otel.name = "buyer.connect",
+        session.id = %session_id,
+        proxy.target = %proxy_target,
+    )
+}
+
+/// Background bridge after CONNECT 200 (yamux or peer forward).
+#[inline]
+pub fn buyer_connect_bridge_span(
+    session_id: &str,
+    node_id: &str,
+    proxy_target: &str,
+) -> tracing::Span {
+    tracing::info_span!(
+        "edge.buyer_connect_bridge",
+        otel.name = "buyer.connect.bridge",
+        session.id = %session_id,
+        provider.node_id = %node_id,
+        proxy.target = %proxy_target,
+    )
+}
+
+/// Registry / directory provider pick for a session.
+#[inline]
+pub fn provider_select_span(session_id: &str, proxy_target: Option<&str>) -> tracing::Span {
+    tracing::info_span!(
+        "edge.provider_select",
+        otel.name = "provider.select",
+        session.id = %session_id,
+        proxy.target = tracing::field::display(proxy_target.unwrap_or("unknown")),
+    )
+}
+
+/// Local yamux byte bridge to a selected provider.
+#[inline]
+pub fn provider_bridge_span(node_id: &str, proxy_target: &str) -> tracing::Span {
+    tracing::info_span!(
+        "edge.provider_bridge",
+        otel.name = "provider.bridge",
+        provider.node_id = %node_id,
+        proxy.target = %proxy_target,
+    )
+}
+
+/// Provider tunnel handshake + yamux accept loop (per TCP/TLS accept).
+#[inline]
+pub fn provider_tunnel_accept_span(peer: &str) -> tracing::Span {
+    tracing::info_span!(
+        "edge.provider_tunnel_accept",
+        otel.name = "provider.tunnel.accept",
+        net.peer.ip = %peer,
+    )
+}

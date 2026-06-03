@@ -46,18 +46,19 @@ struct UsageCircuit {
 }
 
 impl ConstraintSynthesizer<Fr> for UsageCircuit {
-    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> std::result::Result<(), SynthesisError> {
-        use ark_relations::r1cs::{Variable, LinearCombination};
+    fn generate_constraints(
+        self,
+        cs: ConstraintSystemRef<Fr>,
+    ) -> std::result::Result<(), SynthesisError> {
+        use ark_relations::r1cs::{LinearCombination, Variable};
 
         // Allocate private witness
-        let digest_var = cs.new_witness_variable(|| {
-            self.digest.ok_or(SynthesisError::AssignmentMissing)
-        })?;
+        let digest_var =
+            cs.new_witness_variable(|| self.digest.ok_or(SynthesisError::AssignmentMissing))?;
 
         // Allocate public input
-        let digest_input = cs.new_input_variable(|| {
-            self.digest.ok_or(SynthesisError::AssignmentMissing)
-        })?;
+        let digest_input =
+            cs.new_input_variable(|| self.digest.ok_or(SynthesisError::AssignmentMissing))?;
 
         // Constraint: witness == public_input
         cs.enforce_constraint(
@@ -85,23 +86,29 @@ impl ZkProver {
 
         if let Some(ref path) = key_path {
             match std::fs::read(path) {
-                Ok(bytes) => {
-                    match ProvingKey::<Bn254>::deserialize_compressed(&bytes[..]) {
-                        Ok(pk) => {
-                            let vk = pk.vk.clone();
-                            info!("Loaded ZK proving key from {}", path.display());
-                            return Self {
-                                proving_key: Some(pk),
-                                verifying_key: Some(vk),
-                            };
-                        }
-                        Err(e) => {
-                            error!("Failed to deserialize proving key from {}: {}", path.display(), e);
-                        }
+                Ok(bytes) => match ProvingKey::<Bn254>::deserialize_compressed(&bytes[..]) {
+                    Ok(pk) => {
+                        let vk = pk.vk.clone();
+                        info!("Loaded ZK proving key from {}", path.display());
+                        return Self {
+                            proving_key: Some(pk),
+                            verifying_key: Some(vk),
+                        };
                     }
-                }
+                    Err(e) => {
+                        error!(
+                            "Failed to deserialize proving key from {}: {}",
+                            path.display(),
+                            e
+                        );
+                    }
+                },
                 Err(e) => {
-                    warn!("ZK_PROVING_KEY_PATH set to {} but file not readable: {}", path.display(), e);
+                    warn!(
+                        "ZK_PROVING_KEY_PATH set to {} but file not readable: {}",
+                        path.display(),
+                        e
+                    );
                 }
             }
         }
@@ -118,7 +125,10 @@ impl ZkProver {
                 }
             }
             Err(e) => {
-                error!("Trusted setup failed: {} — ZK proofs will be unavailable", e);
+                error!(
+                    "Trusted setup failed: {} — ZK proofs will be unavailable",
+                    e
+                );
                 Self {
                     proving_key: None,
                     verifying_key: None,
@@ -227,7 +237,10 @@ mod tests {
     #[tokio::test]
     async fn test_prove_and_verify_round_trip() {
         let prover = ZkProver::new();
-        assert!(prover.proving_key.is_some(), "Proving key should be generated");
+        assert!(
+            prover.proving_key.is_some(),
+            "Proving key should be generated"
+        );
 
         let provider_pubkey = [0xABu8; 32];
         let proof = prover
@@ -265,6 +278,9 @@ mod tests {
         assert_eq!(d1, d2, "Same inputs must produce same digest");
 
         let d3 = ZkProver::compute_digest("s2", 100, 200, &pk);
-        assert_ne!(d1, d3, "Different session ids must produce different digests");
+        assert_ne!(
+            d1, d3,
+            "Different session ids must produce different digests"
+        );
     }
 }
