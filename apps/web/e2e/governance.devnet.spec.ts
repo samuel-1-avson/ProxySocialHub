@@ -79,12 +79,16 @@ test.describe('governance live devnet', () => {
         await expect(page.getByText(/impact preview/i)).toBeVisible({ timeout: 30_000 });
 
         await page.getByRole('button', { name: /support unit/i }).click();
-        await page.getByRole('button', { name: /confirm sequence/i }).click();
+        const confirmVote = page.getByRole('button', { name: /confirm sequence/i });
+        await expect(confirmVote).toBeEnabled({ timeout: 15_000 });
+        await confirmVote.click();
 
         await expect
             .poll(
                 async () => {
-                    const err = page.getByText(/sequence error|vote failed/i);
+                    const err = page.getByText(
+                        /sequence error|vote failed|connect your linked solana wallet/i
+                    );
                     if (await err.isVisible().catch(() => false)) {
                         return (await err.textContent()) || 'vote error';
                     }

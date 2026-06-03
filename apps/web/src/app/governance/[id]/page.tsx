@@ -38,7 +38,9 @@ export default function ProposalDetailsPage() {
         if (!voteChoice || !proposal) return;
 
         if (!publicKey || !signMessage || !signTransaction) {
-            alert("Connect your linked Solana wallet (with transaction signing) to vote on-chain.");
+            setVoteError(
+                "Connect your linked Solana wallet (with transaction signing) to vote on-chain."
+            );
             return;
         }
 
