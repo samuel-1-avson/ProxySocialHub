@@ -144,6 +144,13 @@ func (r *marketplaceRepository) GetListingByID(ctx context.Context, id uuid.UUID
 		ID:                   l.ID,
 		SellerID:             l.SellerID,
 		ProviderNodeID:       l.ProviderNodeID,
+		ListingOfferHash:     l.ListingOfferHash,
+		ListingOfferSignature: l.ListingOfferSignature,
+		ListingOfferSigner:   l.ListingOfferSigner,
+		ListingOfferSignedAt: l.ListingOfferSignedAt,
+		ListingOfferVerified: l.ListingOfferVerified,
+		ListingOfferVerificationError: l.ListingOfferVerificationError,
+		ListingOfferNonce:    l.ListingOfferNonce,
 		Title:                l.Title,
 		Description:          l.Description,
 		PricePerGB:           l.PricePerGB,
@@ -176,6 +183,13 @@ func (r *marketplaceRepository) CreateListing(ctx context.Context, entity *domai
 		ID:                   entity.ID,
 		SellerID:             entity.SellerID,
 		ProviderNodeID:       entity.ProviderNodeID,
+		ListingOfferHash:     entity.ListingOfferHash,
+		ListingOfferSignature: entity.ListingOfferSignature,
+		ListingOfferSigner:   entity.ListingOfferSigner,
+		ListingOfferSignedAt: entity.ListingOfferSignedAt,
+		ListingOfferVerified: entity.ListingOfferVerified,
+		ListingOfferVerificationError: entity.ListingOfferVerificationError,
+		ListingOfferNonce:    entity.ListingOfferNonce,
 		Title:                entity.Title,
 		Description:          entity.Description,
 		PricePerGB:           entity.PricePerGB,
@@ -217,6 +231,27 @@ func (r *marketplaceRepository) UpdateListing(ctx context.Context, id uuid.UUID,
 	}
 	if updates.BulkDiscountsJSON != nil {
 		values["bulk_discounts"] = updates.BulkDiscountsJSON
+	}
+	if updates.ListingOfferHash != nil {
+		values["listing_offer_hash"] = *updates.ListingOfferHash
+	}
+	if updates.ListingOfferSignature != nil {
+		values["listing_offer_signature"] = *updates.ListingOfferSignature
+	}
+	if updates.ListingOfferSigner != nil {
+		values["listing_offer_signer"] = *updates.ListingOfferSigner
+	}
+	if updates.ListingOfferSignedAt != nil {
+		values["listing_offer_signed_at"] = *updates.ListingOfferSignedAt
+	}
+	if updates.ListingOfferVerified != nil {
+		values["listing_offer_verified"] = *updates.ListingOfferVerified
+	}
+	if updates.ListingOfferVerificationError != nil {
+		values["listing_offer_verification_error"] = *updates.ListingOfferVerificationError
+	}
+	if updates.ListingOfferNonce != nil {
+		values["listing_offer_nonce"] = *updates.ListingOfferNonce
 	}
 
 	if len(values) > 0 {
@@ -348,6 +383,13 @@ func listingModelToEntity(l models.ProxyListing) domain.ListingEntity {
 		ID:                   l.ID,
 		SellerID:             l.SellerID,
 		ProviderNodeID:       l.ProviderNodeID,
+		ListingOfferHash:     l.ListingOfferHash,
+		ListingOfferSignature: l.ListingOfferSignature,
+		ListingOfferSigner:   l.ListingOfferSigner,
+		ListingOfferSignedAt: l.ListingOfferSignedAt,
+		ListingOfferVerified: l.ListingOfferVerified,
+		ListingOfferVerificationError: l.ListingOfferVerificationError,
+		ListingOfferNonce:    l.ListingOfferNonce,
 		Title:                l.Title,
 		Description:          l.Description,
 		PricePerGB:           l.PricePerGB,

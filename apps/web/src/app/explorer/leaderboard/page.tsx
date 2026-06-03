@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getNodes, getLeaderboard } from '@/lib/services/explorer';
+import { getLeaderboard } from '@/lib/services/explorer';
 import Link from 'next/link';
 import {
     ArrowLeft, Trophy, Shield, Cloud, Activity, Zap, Server,
@@ -135,6 +135,18 @@ export default function LeaderboardPage() {
                     </div>
                 </div>
             </motion.header>
+
+            {leaderboard?.period_applied === false && (
+                <motion.div variants={itemVariants} className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-5 py-4">
+                    <p className="text-[10px] font-black text-amber-400/90 uppercase tracking-widest">
+                        Period filter not applied for this category
+                    </p>
+                    <p className="text-[10px] text-white/40 mt-1 leading-relaxed">
+                        {leaderboard?.note ||
+                            'Uptime rankings use current indexed node counters, not the selected time window. Switch to bandwidth or sessions for period-based rankings.'}
+                    </p>
+                </motion.div>
+            )}
 
             {/* Category Tabs */}
             <motion.div variants={itemVariants} className="flex gap-3">

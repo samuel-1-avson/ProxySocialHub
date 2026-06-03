@@ -45,12 +45,18 @@ impl ProxyHandler {
         let line = String::from_utf8_lossy(line_bytes);
         let line = line.trim();
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        
+
         if parts.len() < 2 {
             // Stats and Ping don't always have a target
             match parts[0] {
-                "STATS" => { self.handle_stats(&mut stream).await; return; },
-                "PING" => { let _ = stream.write_all(b"PONG\n").await; return; },
+                "STATS" => {
+                    self.handle_stats(&mut stream).await;
+                    return;
+                }
+                "PING" => {
+                    let _ = stream.write_all(b"PONG\n").await;
+                    return;
+                }
                 _ => {
                     let _ = stream.write_all(b"ERROR Invalid command\n").await;
                     return;
@@ -81,7 +87,9 @@ impl ProxyHandler {
         // Validate target
         if !self.is_valid_target(target) {
             warn!(target, "Invalid target rejected");
-            let _ = stream.write_all(b"ERROR Invalid target: access denied\n").await;
+            let _ = stream
+                .write_all(b"ERROR Invalid target: access denied\n")
+                .await;
             return;
         }
 

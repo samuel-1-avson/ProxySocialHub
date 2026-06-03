@@ -29,6 +29,7 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/nodes/:id/uptime", getNodeUptime)
 	rg.GET("/provider/nodes/:id/connect", getNodeConnectInfo)
 	rg.POST("/provider/nodes/:id/heartbeat", nodeHeartbeat)
+	rg.POST("/provider/listings/sign-offer", signListingOfferDev)
 }
 
 // getMyNodes returns user's provider nodes
@@ -104,49 +105,16 @@ func createNode(c *gin.Context) {
 	// The provider can update pricing/description later from their dashboard.
 	go autoPublishListing(userID, node, req.ConnectionType)
 
-	// D-C1: Mirror provider registration to the on-chain ProviderRegistry PDA.
-	// We use the node's Hotkey (Solana pubkey) if set; otherwise skip silently.
-	// The oracle pays rent — providers do not need SOL for this.
 	if node.Hotkey != "" {
-		go func(nodeID uuid.UUID, hotkey, ip, country string) {
-			oracle := solanaClient.GetOracleClient()
-			if oracle == nil {
-				return
-			}
-			providerPubkey, err := sol.PublicKeyFromBase58(hotkey)
-			if err != nil {
-				logging.Warn().Str("hotkey", hotkey).Msg("createNode: invalid hotkey for on-chain registration")
-				return
-			}
-			endpoint := ip
-			if endpoint == "" {
-				endpoint = "unknown"
-			}
-			sig, err := oracle.RegisterProviderOnChain(context.Background(), solanaClient.RegisterProviderParams{
-				Provider: providerPubkey,
-				Endpoint: endpoint,
-				Location: country,
-			})
-			if err != nil {
-				logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("createNode: on-chain registration failed (non-fatal)")
-				return
-			}
-			// Mark as registered on-chain in the DB
-			db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
-				"is_registered_on_chain": true,
-			})
-			logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("createNode: provider registered on-chain")
-		}(node.ID, node.Hotkey, req.IPAddress, req.Country)
+		go registerProviderOnChainAsync(node.ID, node.Hotkey, req.IPAddress, req.Country)
 	}
 
-	// Update the nodes table with IP and geo data for explorer map visibility
-	// Find the most recent node entry for this user (created during auth)
+	// Update the nodes table with IP and geo data for explorer map visibility.
 	if req.IPAddress != "" {
 		var existingNode models.Node
 		if err := db.DB.Where("provider_user_id = ? AND ip_address = ?", userID, "").
 			Order("created_at DESC").
 			First(&existingNode).Error; err == nil {
-			// Update the node with IP
 			updates := map[string]interface{}{
 				"ip_address": req.IPAddress,
 			}
@@ -157,24 +125,25 @@ func createNode(c *gin.Context) {
 				updates["city"] = req.City
 			}
 			db.DB.Model(&existingNode).Updates(updates)
-			linkGatewayNodeToProviderNode(existingNode.ID, &node, gatewayID)
-
-			// Trigger geo lookup via NodeSync
 			if ns := indexer.GetNodeSync(); ns != nil {
 				go ns.TriggerSync()
 			}
-		} else if err := db.DB.Where("provider_user_id = ? AND gateway_node_id = ?", userID, gatewayID).
-			Order("created_at DESC").
-			First(&existingNode).Error; err == nil {
-			linkGatewayNodeToProviderNode(existingNode.ID, &node, gatewayID)
 		}
 	}
+	reconcileProviderNodeRegistry(userID, node.ID, gatewayID, 0)
 
 	c.JSON(http.StatusCreated, node)
 }
 
 // autoPublishListing creates a default marketplace listing for a newly registered node.
 func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType string) {
+	if providerProofRequired() {
+		logging.Info().
+			Str("node_id", node.ID.String()).
+			Msg("autoPublishListing: skipped (provider listing proof required in enforce mode)")
+		return
+	}
+
 	svc := marketplaceServiceOrDefault()
 
 	// Map CLI connection type → marketplace proxy type
@@ -450,14 +419,21 @@ func nodeHeartbeat(c *gin.Context) {
 		UptimePercent:     req.UptimePercent,
 		IssuedAt:          req.Proof.IssuedAt,
 	})
-	proofResult := verifyProviderProof(req.Proof, providerProofs.ProviderHeartbeatMessageType, currentNode.Hotkey, payloadHash)
+	expectedHotkey := strings.TrimSpace(currentNode.Hotkey)
+	proofResult := verifyProviderProof(req.Proof, providerProofs.ProviderHeartbeatMessageType, expectedHotkey, payloadHash)
 	if proofResult.Present && !proofResult.Verified {
 		c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider heartbeat proof", "details": proofResult.VerificationError})
 		return
 	}
-	if providerProofRequired() && currentNode.Hotkey != "" && !proofResult.Verified {
+	if providerProofRequired() && !proofResult.Verified {
 		c.JSON(http.StatusForbidden, gin.H{"error": "provider heartbeat proof required"})
 		return
+	}
+	if proofResult.Verified {
+		maybeBindProviderHotkey(nodeID, userID, proofResult.Signer, true)
+		if expectedHotkey == "" && strings.TrimSpace(proofResult.Signer) != "" {
+			currentNode.Hotkey = proofResult.Signer
+		}
 	}
 
 	now := time.Now()
@@ -487,6 +463,7 @@ func nodeHeartbeat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
 		return
 	}
+	reconcileProviderNodeRegistry(userID, nodeID, gatewayNodeID, req.LatencyMs)
 	invalidateMarketplaceReadModels()
 
 	// D-C1: Mirror heartbeat metrics to the on-chain ProviderRegistry.

@@ -73,12 +73,16 @@ impl Collector {
     }
 
     pub fn record_connection_opened(&self) {
-        self.inner.active_connections.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .active_connections
+            .fetch_add(1, Ordering::Relaxed);
         self.inner.total_connections.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_connection_closed(&self) {
-        self.inner.active_connections.fetch_sub(1, Ordering::Relaxed);
+        self.inner
+            .active_connections
+            .fetch_sub(1, Ordering::Relaxed);
     }
 
     pub fn record_bytes_up(&self, n: u64) {

@@ -40,12 +40,13 @@ services:
       dockerfile: services/edge-gateway/Dockerfile
     container_name: proxyhubb-gateway
     environment:
-      - PORT=3000
+      - PORT=8090          # buyer API + health/metrics/ready
+      - TUNNEL_PORT=3128   # provider yamux tunnel
       - CONTROL_API_URL=http://control-api:8080
       - REDIS_URL=redis://redis:6379
     ports:
-      - "3000:3000"
-      - "4000:4000" # Tunnel port
+      - "8090:8090"
+      - "3128:3128" # Provider tunnel port
     depends_on:
       - control-api
       - redis

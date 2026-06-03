@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getExplorerSessions, isExplorerNotFound } from '@/lib/services/explorer';
+import { explorerPublicSessionsEnabled } from '@/lib/navigation/explorer-nav';
 import Link from 'next/link';
 import {
     ArrowLeft, Radio, Server, Clock, Zap, Filter, ChevronLeft,
@@ -59,6 +60,7 @@ const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transiti
 const itemVariants = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
 
 export default function SessionsPage() {
+    const sessionsApiEnabled = explorerPublicSessionsEnabled();
     const [page, setPage] = useState(1);
     const [statusFilter, setStatusFilter] = useState<string>('');
     const [typeFilter, setTypeFilter] = useState<string>('');
@@ -68,7 +70,8 @@ export default function SessionsPage() {
     const { data, isLoading, error } = useQuery({
         queryKey: ['explorer-sessions', page, statusFilter, typeFilter],
         queryFn: () => getExplorerSessions(page, pageSize, statusFilter, typeFilter),
-        refetchInterval: 15000,
+        enabled: sessionsApiEnabled,
+        refetchInterval: sessionsApiEnabled ? 15000 : false,
         retry: false,
     });
 
@@ -77,7 +80,8 @@ export default function SessionsPage() {
     const totalPages = Math.ceil(total / pageSize);
 
     const activeCount = sessions.filter((s: any) => s.status === 'active').length;
-    const sessionsFeedDisabled = Boolean(error && isExplorerNotFound(error));
+    const sessionsFeedDisabled =
+        !sessionsApiEnabled || Boolean(error && isExplorerNotFound(error));
 
     const handleExport = () => {
         if (!sessions.length) return;

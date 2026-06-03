@@ -75,6 +75,36 @@ func linkGatewayNodeToProviderNode(gatewayRowID uuid.UUID, providerNode *models.
 	}
 }
 
+// reconcileProviderNodeRegistry keeps provider_nodes, nodes, and gateway identity aligned.
+func reconcileProviderNodeRegistry(providerUserID, providerNodeID uuid.UUID, gatewayNodeID string, latencyMs int) {
+	if providerUserID == uuid.Nil || providerNodeID == uuid.Nil {
+		return
+	}
+	if gatewayNodeID == "" {
+		gatewayNodeID = providerGatewayNodeID(providerUserID)
+		_ = db.DB.Model(&models.ProviderNode{}).
+			Where("id = ? AND user_id = ?", providerNodeID, providerUserID).
+			Update("gateway_node_id", gatewayNodeID).Error
+	}
+	linkProviderNodeGatewayIdentity(providerNodeID, gatewayNodeID)
+	syncProviderNodeFromGateway(providerUserID, gatewayNodeID, latencyMs)
+
+	var gatewayRow models.Node
+	switch err := db.DB.Where("provider_user_id = ? AND gateway_node_id = ?", providerUserID, gatewayNodeID).
+		Order("created_at DESC").
+		First(&gatewayRow).Error; err {
+	case nil:
+		// linked below
+	default:
+		if err := db.DB.Where("provider_user_id = ?", providerUserID).
+			Order("created_at DESC").
+			First(&gatewayRow).Error; err != nil {
+			return
+		}
+	}
+	linkGatewayNodeToProviderNode(gatewayRow.ID, &models.ProviderNode{ID: providerNodeID}, gatewayNodeID)
+}
+
 // syncProviderNodeFromGateway marks dashboard provider_nodes online when the gateway sees activity.
 func syncProviderNodeFromGateway(providerUserID uuid.UUID, gatewayNodeID string, latencyMs int) {
 	if providerUserID == uuid.Nil {

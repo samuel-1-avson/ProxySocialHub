@@ -155,6 +155,7 @@ export default function SearchPage() {
                         <input
                             ref={inputRef}
                             type="text"
+                            data-testid="explorer-search-query"
                             value={query}
                             onChange={e => setQuery(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -169,7 +170,10 @@ export default function SearchPage() {
                             }
                             className="flex-1 bg-transparent text-white text-[11px] font-mono placeholder-white/20 outline-none py-4 pr-4"
                         />
-                        <button onClick={handleSearch}
+                        <button
+                            type="button"
+                            data-testid="explorer-search-submit"
+                            onClick={handleSearch}
                             className="flex items-center gap-2 px-6 py-3 rounded-[1.5rem] bg-primary text-black text-[10px] font-black uppercase tracking-widest hover:bg-primary/90 transition-all flex-shrink-0">
                             {isLoading ? <Loader size={12} className="animate-spin" /> : <Search size={12} />}
                             Search
@@ -297,7 +301,9 @@ export default function SearchPage() {
                                         <Server size={16} className="text-primary" />
                                         <span className="text-[10px] font-black text-primary uppercase tracking-widest">Node search</span>
                                     </div>
-                                    <Link href={`/explorer/nodes?q=${encodeURIComponent(submitted)}`}
+                                    <Link
+                                        href={`/explorer/nodes?q=${encodeURIComponent(submitted)}`}
+                                        data-testid="explorer-search-browse-nodes"
                                         className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
                                         Browse matches <ChevronRight size={10} />
                                     </Link>

@@ -61,19 +61,18 @@ func TestCreateOrder_Success(t *testing.T) {
 	}
 
 	// 7. Verify Database State
-	// 7a. Buyer Wallet deducted ($100 - $20 = $80)
+	// 7a. Buyer Wallet is only preflight-checked here; funds move via escrow/settlement.
 	var updatedWallet models.Wallet
 	db.DB.First(&updatedWallet, "user_id = ?", buyer.ID)
-	if updatedWallet.BalanceSOL != 80.0 {
-		t.Errorf("Expected buyer balance 80.0, got %f", updatedWallet.BalanceSOL)
+	if updatedWallet.BalanceSOL != 100.0 {
+		t.Errorf("Expected buyer balance to remain 100.0 before escrow settlement, got %f", updatedWallet.BalanceSOL)
 	}
 
-	// 7b. Platform Fee (10% = $2.00)
-	// 7c. Seller Wallet Credited ($18.00)
+	// 7b. Seller Wallet is credited after usage proof settlement.
 	var sellerWallet models.Wallet
 	db.DB.First(&sellerWallet, "user_id = ?", provider.ID)
-	if sellerWallet.BalanceSOL != 18.0 {
-		t.Errorf("Expected seller balance 18.0, got %f", sellerWallet.BalanceSOL)
+	if sellerWallet.BalanceSOL != 0.0 {
+		t.Errorf("Expected seller balance to remain 0.0 before settlement, got %f", sellerWallet.BalanceSOL)
 	}
 
 	// 7d. Order Created
@@ -82,8 +81,14 @@ func TestCreateOrder_Success(t *testing.T) {
 	if order.TotalPrice != 20.0 {
 		t.Errorf("Expected order total 20.0, got %f", order.TotalPrice)
 	}
-	if order.Status != models.OrderStatusActive {
-		t.Errorf("Expected order status active, got %s", order.Status)
+	if order.BandwidthGB != 2.0 {
+		t.Errorf("Expected order bandwidth 2.0GB, got %f", order.BandwidthGB)
+	}
+	if order.BandwidthLimitGB != 2 {
+		t.Errorf("Expected order bandwidth limit 2GB, got %d", order.BandwidthLimitGB)
+	}
+	if order.Status != models.OrderStatusPending {
+		t.Errorf("Expected order status pending before escrow payment, got %s", order.Status)
 	}
 	if order.SessionID == nil {
 		t.Fatal("Expected order to be linked to a session")
@@ -97,6 +102,9 @@ func TestCreateOrder_Success(t *testing.T) {
 	}
 	if session.ListingID == nil || *session.ListingID != listing.ID {
 		t.Errorf("Expected session to reference listing %s, got %v", listing.ID, session.ListingID)
+	}
+	if session.BandwidthLimit != 2*1024*1024*1024 {
+		t.Errorf("Expected linked session bandwidth limit 2GB in bytes, got %d", session.BandwidthLimit)
 	}
 }
 

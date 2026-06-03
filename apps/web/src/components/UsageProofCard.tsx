@@ -40,7 +40,7 @@ const STATUS_CONFIG = {
         border: 'border-blue-400/20',
         label: 'Signed'
     },
-    settling: {
+    settling_confidential: {
         icon: History,
         color: 'text-indigo-400',
         bg: 'bg-indigo-400/10',
@@ -114,7 +114,7 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                             <div className="flex flex-col items-end">
                                 <span className="text-[10px] font-black font-mono uppercase opacity-30 tracking-tighter">Consumption</span>
                                 <span className="text-xl font-black font-mono tabular-nums tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-white/40">
-                                    {formatBytes(proof.bytes_transferred)}
+                                    {formatBytes(proof.total_bytes)}
                                 </span>
                             </div>
                         )}
@@ -130,13 +130,13 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                                 </div>
                                 <div className="space-y-1 text-right lg:text-left">
                                     <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Provider</p>
-                                    <p className="text-[10px] font-mono font-black truncate max-w-[120px]">{proof.provider_id}</p>
+                                    <p className="text-[10px] font-mono font-black truncate max-w-[120px]">{proof.provider_wallet}</p>
                                 </div>
                                 <div className="space-y-1">
                                     <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Duration Segment</p>
                                     <p className="text-[10px] font-mono font-black">
-                                        {new Date(proof.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
-                                        {new Date(proof.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        {new Date(proof.period_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
+                                        {new Date(proof.period_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                 </div>
                                 <div className="space-y-1 text-right">
@@ -200,9 +200,9 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                                             <Globe size={14} /> Submit On-Chain
                                         </button>
                                     )}
-                                    {proof.tx_hash && (
+                                    {proof.on_chain_tx_hash && (
                                         <a 
-                                            href={`https://explorer.solana.com/tx/${proof.tx_hash}`} 
+                                            href={`https://explorer.solana.com/tx/${proof.on_chain_tx_hash}`} 
                                             target="_blank" 
                                             className="p-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-muted-foreground hover:text-white"
                                         >
@@ -216,7 +216,7 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
 
                     {isCompact && (
                         <div className="flex justify-between items-center">
-                            <span className="text-sm font-mono font-black tabular-nums">{formatBytes(proof.bytes_transferred)}</span>
+                            <span className="text-sm font-mono font-black tabular-nums">{formatBytes(proof.total_bytes)}</span>
                             <ChevronRight size={14} className="opacity-20" />
                         </div>
                     )}

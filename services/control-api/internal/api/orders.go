@@ -205,6 +205,11 @@ func createOrder(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Listing is not available (status: %s)", listing.Status)})
 		return
 	}
+	if listing.AvailableBandwidthGB > 0 && req.BandwidthGB > listing.AvailableBandwidthGB {
+		c.JSON(http.StatusConflict, gin.H{"error": "Requested bandwidth exceeds listing availability"})
+		return
+	}
+	requestedTotalPrice := listing.PricePerGB * req.BandwidthGB
 
 	// Check buyer wallet balance (Minimum threshold for Pay-As-You-Go)
 	var wallet models.Wallet
@@ -213,7 +218,7 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	if wallet.BalanceSOL <= 0 {
+	if wallet.BalanceSOL < requestedTotalPrice {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL balance. Please deposit/swap funds."})
 		return
 	}
@@ -225,15 +230,22 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	// Create order (Track allocation, but simple IaaS model)
+	bandwidthLimitBytes := int64(req.BandwidthGB * 1024 * 1024 * 1024)
+	bandwidthLimitGB := uint64(req.BandwidthGB)
+	if req.BandwidthGB > 0 && bandwidthLimitGB == 0 {
+		bandwidthLimitGB = 1
+	}
+
+	// Create order. It remains pending until the buyer funds the Solana escrow.
 	order := models.Order{
-		BuyerID:     buyerID,
-		SellerID:    listing.SellerID,
-		ListingID:   listing.ID,
-		BandwidthGB: 0,                  // Pay-As-You-Go (Unlimited until empty wallet)
-		PricePerGB:  listing.PricePerGB, // Lock in the rate
-		TotalPrice:  0,                  // Charged via Usage
-		Status:      models.OrderStatusActive,
+		BuyerID:          buyerID,
+		SellerID:         listing.SellerID,
+		ListingID:        listing.ID,
+		BandwidthGB:      req.BandwidthGB,
+		PricePerGB:       listing.PricePerGB, // Lock in the rate
+		TotalPrice:       requestedTotalPrice,
+		Status:           models.OrderStatusPending,
+		BandwidthLimitGB: bandwidthLimitGB,
 	}
 
 	tx := db.DB.Begin()
@@ -259,7 +271,8 @@ func createOrder(c *gin.Context) {
 		sessionType = models.SessionRotating
 	}
 
-	// Create a session for the buyer (Unlimited/Pay-As-You-Go)
+	// Create a bandwidth-capped session for the buyer. This lets gateway usage
+	// reports trigger deterministic session finalization and proof settlement.
 	session := models.Session{
 		UserID:          buyerID,
 		ListingID:       &listing.ID,
@@ -267,7 +280,7 @@ func createOrder(c *gin.Context) {
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
-		BandwidthLimit:  0, // 0 = Unlimited / Pay-As-You-Go
+		BandwidthLimit:  bandwidthLimitBytes,
 		Config:          "{}",
 	}
 	if err := tx.Create(&session).Error; err != nil {
@@ -327,7 +340,7 @@ func createOrder(c *gin.Context) {
 		ProviderID:     listing.SellerID.String(),
 		Type:           string(sessionType),
 		Status:         "active",
-		BandwidthLimit: 0,
+		BandwidthLimit: bandwidthLimitBytes,
 		BandwidthUsed:  0,
 		TrustTier:      string(buyer.TrustTier),
 		ExpiresAt:      time.Now().Add(24 * time.Hour),

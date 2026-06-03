@@ -2,24 +2,42 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getListing, createOrder, Listing } from '@/lib/api/marketplace';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+    getListing,
+    createOrder,
+    saveListing,
+    unsaveListing,
+    marketplaceKeys,
+    Listing,
+} from '@/lib/api/marketplace';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
 import { Loader2, Star, Shield, Signal, Activity, Globe, ShoppingCart, Share2, Heart, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
+function isPurchasable(listing: Listing) {
+    return listing.status === 'active' && listing.available_bandwidth_gb > 0;
+}
+
+function formatListingStatus(status: string) {
+    return status.replace(/_/g, ' ');
+}
+
 function ListingDetailContent() {
     const params = useParams();
     const router = useRouter();
     const { user } = useAuth();
     const toast = useToast();
+    const queryClient = useQueryClient();
     const id = params.id as string;
 
     const [listing, setListing] = useState<Listing | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [isSaved, setIsSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [purchasing, setPurchasing] = useState(false);
 
     useEffect(() => {
@@ -40,17 +58,60 @@ function ListingDetailContent() {
 
     const handlePurchase = async () => {
         if (!listing) return;
+        if (!user) {
+            toast.warning('Sign in required', 'Please sign in before buying marketplace bandwidth.');
+            router.push(`/login?redirect=/marketplace/${listing.id}`);
+            return;
+        }
+        if (!isPurchasable(listing)) {
+            toast.warning('Listing unavailable', `This listing is currently ${formatListingStatus(listing.status)}.`);
+            return;
+        }
         setPurchasing(true);
         try {
             // Default to minimum purchase or 1GB for now
             const gbToBuy = listing.min_purchase_gb || 1;
             await createOrder({ listing_id: listing.id, bandwidth_gb: gbToBuy, session_type: 'rotating' });
+            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
             toast.success('Purchase successful', `${gbToBuy} GB added to your account.`);
             router.push('/dashboard/proxy');
         } catch (err: unknown) {
             toast.error('Purchase failed', getErrorMessage(err) || 'Please try again.');
         } finally {
             setPurchasing(false);
+        }
+    };
+
+    const handleToggleSave = async () => {
+        if (!listing || saving) return;
+        if (!user) {
+            toast.warning('Sign in required', 'Please sign in before saving marketplace listings.');
+            router.push(`/login?redirect=/marketplace/${listing.id}`);
+            return;
+        }
+        if (!isSaved && listing.status !== 'active') {
+            toast.warning('Listing unavailable', `Only active listings can be saved. Current status: ${formatListingStatus(listing.status)}.`);
+            return;
+        }
+
+        setSaving(true);
+        try {
+            if (isSaved) {
+                await unsaveListing(listing.id);
+                setIsSaved(false);
+                setListing(current => current ? { ...current, saves_count: Math.max((current.saves_count || 0) - 1, 0) } : current);
+                toast.success('Listing removed', 'This listing was removed from your saved list.');
+            } else {
+                await saveListing(listing.id);
+                setIsSaved(true);
+                setListing(current => current ? { ...current, saves_count: (current.saves_count || 0) + 1 } : current);
+                toast.success('Listing saved', 'This listing was added to your saved list.');
+            }
+            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+        } catch (err: unknown) {
+            toast.error('Save failed', getErrorMessage(err) || 'Please try again.');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -118,12 +179,13 @@ function ListingDetailContent() {
                                 </div>
                                 <div className="flex gap-2">
                                     <button
-                                        onClick={() => setIsSaved(!isSaved)}
+                                        onClick={handleToggleSave}
+                                        disabled={saving || (!isSaved && listing.status !== 'active')}
                                         aria-label={isSaved ? 'Remove from saved' : 'Save listing'}
                                         aria-pressed={isSaved}
-                                        className={`btn-retro p-3 ${isSaved ? 'bg-primary/20 text-primary border-primary' : 'bg-background border-border hover:border-primary'}`}
+                                        className={`btn-retro p-3 disabled:opacity-50 disabled:cursor-not-allowed ${isSaved ? 'bg-primary/20 text-primary border-primary' : 'bg-background border-border hover:border-primary'}`}
                                     >
-                                        <Heart size={20} className={isSaved ? 'fill-current' : ''} />
+                                        {saving ? <Loader2 size={20} className="animate-spin" /> : <Heart size={20} className={isSaved ? 'fill-current' : ''} />}
                                     </button>
                                     <button
                                         aria-label="Share listing"
@@ -212,12 +274,12 @@ function ListingDetailContent() {
 
                         <button
                             onClick={handlePurchase}
-                            disabled={purchasing}
+                            disabled={purchasing || !isPurchasable(listing)}
                             className="w-full btn-retro btn-retro-primary py-4 text-sm uppercase tracking-wider flex items-center justify-center gap-2 group mb-4"
                         >
                             {purchasing && <Loader2 className="animate-spin" size={16} />}
                             {!purchasing && <ShoppingCart className="group-hover:translate-x-1 transition-transform" size={18} />}
-                            {purchasing ? "Processing..." : "Buy Bandwidth"}
+                            {purchasing ? "Processing..." : isPurchasable(listing) ? "Buy Bandwidth" : `Unavailable: ${formatListingStatus(listing.status)}`}
                         </button>
 
                         <p className="text-[10px] text-center text-muted-foreground font-mono">

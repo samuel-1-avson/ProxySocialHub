@@ -107,3 +107,59 @@ func TestAgentMarketplace(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.Equal(t, "Job queued", response["message"])
 }
+
+func TestAgentRouteAuthPolicy_PublicBrowseProtectedActions(t *testing.T) {
+	router := testutil.SetupTestRouter()
+	testutil.SetupTestDB(t)
+	defer testutil.CleanupTestData(t)
+
+	agent := models.MarketAgent{
+		Name:        "Public Agent",
+		Description: "Visible in public marketplace",
+		Version:     "1.0.0",
+		PricePerRun: 5.0,
+		DockerImage: "proxyhub/public-agent:latest",
+		Categories:  []string{"utility"},
+	}
+	if err := db.DB.Create(&agent).Error; err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	v1 := router.Group("/v1")
+	api.RegisterAgentPublicRoutes(v1)
+
+	protected := v1.Group("")
+	protected.Use(func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "auth required"})
+	})
+	api.RegisterAgentProtectedRoutes(protected)
+
+	t.Run("public list agents does not require auth", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/agents", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("rent requires auth", func(t *testing.T) {
+		payloadBytes, _ := json.Marshal(map[string]interface{}{
+			"market_agent_id": agent.ID.String(),
+			"name":            "Blocked",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/agents/rent", bytes.NewBuffer(payloadBytes))
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("instances requires auth", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/agents/instances", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}

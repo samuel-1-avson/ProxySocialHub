@@ -169,9 +169,15 @@ export default function NodesPage() {
                 </div>
             </motion.header>
 
-            {/* Leaderboard Preview */}
+            {/* Leaderboard Preview — same-day snapshot; official page may add period windows later */}
             {!isLoading && (top3Uptime.length > 0 || top3Bandwidth.length > 0) && (
-                <motion.section variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <motion.section variants={itemVariants} className="space-y-3">
+                    <p className="text-[9px] font-black text-white/25 uppercase tracking-widest px-1">
+                        Preview rankings use current node counters, not a historical period. See{' '}
+                        <Link href="/explorer/leaderboard" className="text-primary/60 hover:text-primary">official leaderboard</Link>{' '}
+                        for API metadata.
+                    </p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Top Uptime */}
                     <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
                         <div className="flex items-center gap-3 mb-4">
@@ -221,6 +227,7 @@ export default function NodesPage() {
                             Full Leaderboard →
                         </Link>
                     </GlassCard>
+                </div>
                 </motion.section>
             )}
 

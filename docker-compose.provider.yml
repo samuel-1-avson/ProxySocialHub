@@ -1,21 +1,34 @@
-# Optional provider-node for local Docker stacks (signed heartbeats end-to-end).
+# Optional provider-node + QUIC provider tunnel (gateway UDP listener + provider QUIC dialer).
 #
 # Bootstrap credentials first:
 #   .\scripts\bootstrap-provider-docker.ps1
 #
-# Start the main stack, then the provider:
-#   docker compose up -d
-#   docker compose -f docker-compose.yml -f docker-compose.provider.yml --profile provider up -d provider-node
+# Start full dev stack (always use BOTH compose files):
+#   .\scripts\compose-up-dev.ps1
+#   # or:
+#   docker compose -f docker-compose.yml -f docker-compose.provider.yml --profile provider up -d
 #
-# Verify:
+# Verify QUIC E2E:
+#   .\scripts\quic-provider-e2e-docker.ps1 -SkipHeal
 #   .\scripts\verify-provider-proofs-docker.ps1
 
 services:
+  edge-gateway:
+    build:
+      args:
+        ENABLE_QUIC: "1"
+    ports:
+      - "3128:3128/udp"
+    environment:
+      - PROVIDER_TRANSPORT=quic
+
   provider-node:
     profiles: ["provider"]
     build:
       context: ./services/provider-node
       dockerfile: Dockerfile
+      args:
+        ENABLE_QUIC: "1"
     container_name: proxyhubb-provider-node
     env_file:
       - config/docker/provider.compose.env
@@ -24,9 +37,9 @@ services:
     environment:
       - PROXYHUB_API_URL=http://control-api:8080
       - PROXYHUB_GATEWAY_ADDR=edge-gateway:3128
+      - PROVIDER_TRANSPORT=quic
       - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
       - RUST_LOG=${PROVIDER_NODE_LOG:-info}
-    # Gateway docker stack enables TLS on TUNNEL_PORT when certs are mounted.
     command: ["start", "--config", "/config/provider.toml", "--use-tls"]
     depends_on:
       control-api:

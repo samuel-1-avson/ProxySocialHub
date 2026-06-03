@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -180,6 +181,92 @@ func TestTerminateSession(t *testing.T) {
 
 	if updatedSession.Status != models.SessionTerminated {
 		t.Errorf("Expected status 'terminated', got '%s'", updatedSession.Status)
+	}
+}
+
+func TestTerminateSession_CreatesUsageProofForEscrowOrder(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "usage_proofs", "orders", "proxy_listings", "sessions", "users", "wallets")
+
+	buyerWallet := "11111111111111111111111111111111"
+	providerWallet := "GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF"
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("session_terminate_proof_buyer"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("session_terminate_proof_provider"), "provider")
+	if err := db.DB.Model(&models.User{}).Where("id = ?", buyer.ID).Update("wallet_address", buyerWallet).Error; err != nil {
+		t.Fatalf("failed to set buyer wallet: %v", err)
+	}
+	if err := db.DB.Model(&models.User{}).Where("id = ?", provider.ID).Update("wallet_address", providerWallet).Error; err != nil {
+		t.Fatalf("failed to set provider wallet: %v", err)
+	}
+
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Escrow Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	session := models.Session{
+		UserID:          buyer.ID,
+		ListingID:       &listing.ID,
+		Type:            models.SessionRotating,
+		Status:          models.SessionActive,
+		CredentialsUser: "proof-user",
+		CredentialsPass: "proof-pass",
+		Config:          "{}",
+		BandwidthLimit:  2 * 1024 * 1024 * 1024,
+		BytesUsed:       1536,
+		StartTime:       time.Now().Add(-10 * time.Minute),
+	}
+	if err := db.DB.Create(&session).Error; err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	order := models.Order{
+		BuyerID:          buyer.ID,
+		SellerID:         provider.ID,
+		ListingID:        listing.ID,
+		SessionID:        &session.ID,
+		BandwidthGB:      2,
+		PricePerGB:       1,
+		TotalPrice:       2,
+		Status:           models.OrderStatusPendingPayment,
+		EscrowPDA:        "11111111111111111111111111111111",
+		BuyerWallet:      buyerWallet,
+		SellerWallet:     providerWallet,
+		BandwidthLimitGB: 2,
+		PaymentMethod:    "solana_escrow",
+	}
+	if err := db.DB.Create(&order).Error; err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(buyer.ID.String(), "buyer"))
+	r.DELETE("/sessions/:id", terminateSession)
+
+	req := httptest.NewRequest("DELETE", "/sessions/"+session.ID.String(), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 terminating escrow session, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var proof models.UsageProof
+	if err := db.DB.Where("session_id = ? AND order_id = ?", session.ID, order.ID).First(&proof).Error; err != nil {
+		t.Fatalf("expected usage proof for terminated escrow session: %v", err)
+	}
+	if proof.TotalBytes != session.BytesUsed {
+		t.Fatalf("expected proof total bytes %d, got %d", session.BytesUsed, proof.TotalBytes)
+	}
+	if proof.BuyerWallet != buyerWallet || proof.ProviderWallet != providerWallet {
+		t.Fatalf("proof wallets not copied from order, got buyer=%s provider=%s", proof.BuyerWallet, proof.ProviderWallet)
 	}
 }
 
