@@ -239,20 +239,13 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
-    - name: Fast map E2E
-      run: npm run test:e2e:map
+    - name: Marketplace E2E (map, browse, moderation)
+      run: npm run test:e2e:marketplace
       env:
         JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
         TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
         PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
         NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: "1"
-
-    - name: Marketplace moderation E2E
-      run: npm run test:e2e:moderation
-      env:
-        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
-        TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
-        PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
       
     - name: Build
       run: npm run build
