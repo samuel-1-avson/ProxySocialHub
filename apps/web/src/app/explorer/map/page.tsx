@@ -28,6 +28,7 @@ import {
 } from '@/lib/api/marketplace';
 import {
     marketplacePointToListingPin,
+    marketplacePointToNode,
     type MarketplaceListingMapPin,
 } from '@/lib/map/marketplace-map-adapters';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
@@ -167,6 +168,9 @@ export default function NodeMapPage() {
     const mapBuyEnabled = explorerMapBuyEnabled();
     /** Listings render on Leaflet only (W12 — globe is nodes-only). */
     const listingsPlottedOnMap = showListingsLayer && mapMode === 'map';
+    /** 2D + listings: one GET /v1/marketplace/map?include_nodes=true (nodes + listings). */
+    const unified2DMap = listingsPlottedOnMap;
+    const geoQueryEnabled = mapMode === 'globe' || (mapMode === 'map' && !showListingsLayer);
 
     const toggleListingsLayer = useCallback(() => {
         setShowListingsLayer((on) => {
@@ -185,9 +189,10 @@ export default function NodeMapPage() {
     useEffect(() => { setMounted(true); }, []);
 
     // ── Fetch lightweight geo data ──
-    const { data: geoData, isLoading, error, refetch } = useQuery({
+    const { data: geoData, isLoading: geoLoading, error, refetch } = useQuery({
         queryKey: ['nodes-geo', showActiveOnly, showValidatorsOnly],
         queryFn: () => getNodeGeo(showActiveOnly, showValidatorsOnly),
+        enabled: geoQueryEnabled,
         refetchInterval: 60_000,   // background refresh every 60s
         staleTime: 15_000,
         retry: 3,
@@ -196,17 +201,27 @@ export default function NodeMapPage() {
     const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
     const mapListingFilters = useMemo<MarketplaceMapFilters>(() => ({
         purchasable_only: false,
-        include_nodes: false,
+        include_nodes: unified2DMap,
+        active_nodes_only: unified2DMap && showActiveOnly,
         bbox: bboxParam,
-    }), [bboxParam]);
+    }), [bboxParam, unified2DMap, showActiveOnly]);
 
-    const { data: marketplaceMapData, isFetching: mapListingsFetching } = useQuery({
+    const { data: marketplaceMapData, isFetching: mapListingsFetching, refetch: refetchMapListings } = useQuery({
         queryKey: marketplaceKeys.map(mapListingFilters),
         queryFn: () => getMarketplaceMapPoints(mapListingFilters),
         enabled: listingsPlottedOnMap,
         staleTime: 30_000,
         refetchInterval: searchBBox ? false : 60_000,
     });
+
+    const mapNodes = useMemo((): NodeGeoPoint[] | null => {
+        if (!unified2DMap || !marketplaceMapData?.points) return null;
+        return marketplaceMapData.points
+            .filter((p) => p.kind === 'node')
+            .map(marketplacePointToNode);
+    }, [unified2DMap, marketplaceMapData?.points]);
+
+    const isLoading = unified2DMap ? mapListingsFetching && !marketplaceMapData : geoLoading;
 
     const listingPins = useMemo((): MarketplaceListingMapPin[] => {
         const raw = marketplaceMapData?.points ?? [];
@@ -269,7 +284,14 @@ export default function NodeMapPage() {
 
     // ── Resolve coords + apply filters ──
     const nodes = useMemo(() => {
-        let list = (geoData?.nodes ?? []).map(resolveCoords);
+        const baseNodes = mapNodes ?? geoData?.nodes ?? [];
+        let list = baseNodes.map(resolveCoords);
+        if (showValidatorsOnly) {
+            list = list.filter((n) => n.is_validator);
+        }
+        if (showActiveOnly && !unified2DMap) {
+            list = list.filter((n) => n.is_active);
+        }
         if (selectedRegion !== 'all') {
             list = list.filter(n =>
                 n.region === selectedRegion || n.country === selectedRegion
@@ -285,7 +307,7 @@ export default function NodeMapPage() {
             );
         }
         return list;
-    }, [geoData?.nodes, selectedRegion, searchQuery]);
+    }, [mapNodes, geoData?.nodes, showValidatorsOnly, showActiveOnly, unified2DMap, selectedRegion, searchQuery]);
 
     const totalActive = nodes.filter(n => n.is_active).length;
     const totalValidator = nodes.filter(n => n.is_validator).length;
@@ -308,12 +330,13 @@ export default function NodeMapPage() {
     // ── Region breakdown ──
     const regionBreakdown = useMemo(() => {
         const acc: Record<string, number> = {};
-        for (const n of geoData?.nodes ?? []) {
+        const source = mapNodes ?? geoData?.nodes ?? [];
+        for (const n of source) {
             const k = n.region || n.country || 'Unknown';
             acc[k] = (acc[k] || 0) + 1;
         }
         return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    }, [geoData?.nodes]);
+    }, [mapNodes, geoData?.nodes]);
 
     const handleSelectNode = useCallback((node: NodeGeoPoint) => {
         setSelectedNode(node);
@@ -975,6 +998,11 @@ export default function NodeMapPage() {
                 <BuyListingModal
                     listing={buyListing}
                     onClose={() => setBuyListing(null)}
+                    onSuccess={() => {
+                        setBuyListing(null);
+                        void refetch();
+                        void refetchMapListings();
+                    }}
                 />
             )}
         </motion.div>

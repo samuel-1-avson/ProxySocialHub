@@ -1,6 +1,6 @@
 /** Shared explorer E2E fixtures. */
 
-import { mockMapResponse } from './marketplace-map';
+import { mockMapResponse, verifiedMapPoint } from './marketplace-map';
 
 export const EXPLORER_NODE_IDS = {
     primary: 'explorer-node-e2e-1',
@@ -103,5 +103,35 @@ export const mockExplorerGate503Body = {
     error: 'explorer full decentralization gate active; quorum requirements not satisfied',
     message: 'explorer full decentralization gate active; quorum requirements not satisfied',
 };
+
+/** Unified map payload: nodes + listings for 2D explorer map (include_nodes=true). */
+export function mockExplorerUnifiedMapResponse() {
+    const listingPoints = [verifiedMapPoint];
+    const nodePoints = mockExplorerNodeGeo.nodes.map((n) => ({
+        id: `node:${n.node_id}`,
+        kind: 'node' as const,
+        node_id: n.node_id,
+        lat: n.lat,
+        lon: n.lon,
+        title: n.city || n.node_id,
+        country: n.country,
+        city: n.city,
+        isp: n.isp,
+        status: n.is_active ? 'active' : 'offline',
+        purchasable: false,
+        uptime_percent: n.uptime_percent,
+        active_sessions: n.active_sessions,
+        is_validator: n.is_validator,
+        geo_source: 'explorer' as const,
+    }));
+    return {
+        points: [...nodePoints, ...listingPoints],
+        total: nodePoints.length + listingPoints.length,
+        listing_count: listingPoints.length,
+        node_count: nodePoints.length,
+        bbox_applied: false,
+        generated_at: new Date().toISOString(),
+    };
+}
 
 export { mockMapResponse };
