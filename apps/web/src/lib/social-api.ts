@@ -310,38 +310,13 @@ export async function getListingReviews(listingId: string, page = 1): Promise<{ 
     return res.json();
 }
 
-// ============== Messaging API ==============
-export async function getConversations(): Promise<{ conversations: Conversation[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/conversations`);
-    if (!res.ok) throw new Error('Failed to fetch conversations');
-    return res.json();
-}
-
-export async function startConversation(recipientId: string, message: string): Promise<Conversation> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/conversations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient_id: recipientId, message }),
-    });
-    if (!res.ok) throw new Error('Failed to start conversation');
-    return res.json();
-}
-
-export async function getMessages(conversationId: string): Promise<{ messages: Message[] }> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/messages`);
-    if (!res.ok) throw new Error('Failed to fetch messages');
-    return res.json();
-}
-
-export async function sendMessage(conversationId: string, content: string, replyToId?: string): Promise<Message> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/conversations/${conversationId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, reply_to_id: replyToId }),
-    });
-    if (!res.ok) throw new Error('Failed to send message');
-    return res.json();
-}
+// ============== Messaging API (canonical transport: @/lib/api/social) ==============
+export {
+    getConversationsNormalized as getConversations,
+    getMessagesNormalized as getMessages,
+    sendMessageNormalized as sendMessage,
+    startConversationNormalized as startConversation,
+} from '@/lib/messaging/social-messaging';
 
 // Enhanced Messaging API
 export async function editMessage(conversationId: string, messageId: string, content: string): Promise<Message> {

@@ -13,14 +13,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// RegisterForumRoutes registers community forum routes
-func RegisterForumRoutes(rg *gin.RouterGroup) {
+// RegisterForumPublicRoutes registers read-only community forum routes.
+func RegisterForumPublicRoutes(rg *gin.RouterGroup) {
 	rg.GET("/forum/categories", getCategories)
 	rg.GET("/forum/categories/:slug", getCategory)
 	rg.GET("/forum/categories/:slug/threads", getCategoryThreads)
 	rg.GET("/forum/threads/slug/:slug", getThreadBySlug)
 	rg.GET("/forum/threads/:id", getThread)
 	rg.GET("/forum/threads/:id/posts", getThreadPosts)
+	rg.GET("/forum/search", searchForum)
+	rg.GET("/forum/recent", getRecentThreads)
+	rg.GET("/forum/popular", getPopularThreads)
+	rg.GET("/forum/unanswered", getUnansweredThreads)
+}
+
+// RegisterForumProtectedRoutes registers forum routes that require a user session.
+func RegisterForumProtectedRoutes(rg *gin.RouterGroup) {
 	rg.POST("/forum/threads", createThread)
 	rg.POST("/forum/threads/:id/posts", createPost)
 	rg.PATCH("/forum/posts/:id", updatePost)
@@ -29,12 +37,16 @@ func RegisterForumRoutes(rg *gin.RouterGroup) {
 	rg.POST("/forum/threads/:id/vote", voteThread)
 	rg.POST("/forum/threads/:id/report", reportThread)
 	rg.POST("/forum/posts/:id/report", reportPost)
-	rg.GET("/forum/search", searchForum)
-	rg.GET("/forum/recent", getRecentThreads)
-	rg.GET("/forum/popular", getPopularThreads)
-	rg.GET("/forum/unanswered", getUnansweredThreads)
 	rg.GET("/forum/my-posts", getMyPosts)
 	rg.GET("/forum/my-threads", getMyThreads)
+}
+
+// RegisterForumRoutes registers all community forum routes on the given group.
+// Prefer RegisterForumPublicRoutes and RegisterForumProtectedRoutes in app setup
+// so read and write auth policies stay explicit.
+func RegisterForumRoutes(rg *gin.RouterGroup) {
+	RegisterForumPublicRoutes(rg)
+	RegisterForumProtectedRoutes(rg)
 }
 
 // getCategories returns all forum categories

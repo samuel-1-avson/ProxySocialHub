@@ -2,18 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Save, Shield, Globe, Server, User } from "lucide-react";
+import { ArrowLeft, Save, Globe, Server, User } from "lucide-react";
 import Link from "next/link";
-import { fetchWithAuth } from "@/lib/auth";
 import { getMyNodes, type NodeRegistration } from "@/lib/api/provider";
+import {
+    createListing,
+    getListingProofPolicy,
+    marketplaceKeys,
+    signListingOfferDev,
+    type CreateListingRequest,
+    type ListingProofPolicy,
+} from "@/lib/api/marketplace";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+    canonicalListingFields,
+    signListingOfferProof,
+} from "@/lib/proofs/listing-offer";
 
 export default function CreateListingPage() {
     const { user, isAuthenticated } = useAuth();
+    const { publicKey, signMessage, connected } = useWallet();
     const router = useRouter();
+    const queryClient = useQueryClient();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [providerNodes, setProviderNodes] = useState<NodeRegistration[]>([]);
+    const [proofPolicy, setProofPolicy] = useState<ListingProofPolicy | null>(null);
 
     const [formData, setFormData] = useState({
         title: "",
@@ -41,7 +57,16 @@ export default function CreateListingPage() {
                 }
             })
             .catch(() => setProviderNodes([]));
+        getListingProofPolicy()
+            .then(setProofPolicy)
+            .catch(() => setProofPolicy(null));
     }, [isAuthenticated]);
+
+    const proofRequired =
+        proofPolicy?.required ??
+        process.env.NEXT_PUBLIC_PROVIDER_SIGNATURE_MODE === "enforce";
+
+    const selectedNode = providerNodes.find(n => n.id === formData.provider_node_id);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -59,22 +84,63 @@ export default function CreateListingPage() {
         setError("");
 
         try {
-            const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-            const payload = { ...formData };
+            const canon = canonicalListingFields(formData as CreateListingRequest);
+            const payload: CreateListingRequest = {
+                ...formData,
+                description: canon.description,
+                protocol: canon.protocol,
+                rotation_type: canon.rotationType,
+                max_concurrency: canon.maxConcurrency,
+                min_purchase_gb: canon.minPurchaseGb,
+                country: canon.country || formData.country,
+                isp: canon.isp,
+            };
             if (!payload.provider_node_id) {
-                delete (payload as { provider_node_id?: string }).provider_node_id;
-            }
-            const response = await fetchWithAuth(`${apiBase}/v1/listings`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error || "Failed to create listing");
+                delete payload.provider_node_id;
             }
 
+            const nodeId = payload.provider_node_id;
+            const needsProof =
+                proofRequired ||
+                Boolean(nodeId && (selectedNode?.hotkey || proofRequired));
+
+            if (needsProof) {
+                if (!nodeId) {
+                    throw new Error(
+                        "Select a provider node to sign this listing, or register a node first."
+                    );
+                }
+                const walletHotkey = connected && publicKey ? publicKey.toBase58() : "";
+                const nodeHotkey = selectedNode?.hotkey?.trim() ?? "";
+                const canWalletSign =
+                    Boolean(connected && publicKey && signMessage) &&
+                    (!nodeHotkey || nodeHotkey === walletHotkey);
+
+                if (canWalletSign) {
+                    payload.proof = await signListingOfferProof(
+                        payload,
+                        nodeId,
+                        selectedNode?.gateway_node_id,
+                        walletHotkey,
+                        signMessage!
+                    );
+                } else if (proofPolicy?.dev_server_signing) {
+                    const signed = await signListingOfferDev(payload);
+                    payload.proof = signed.proof;
+                } else if (proofRequired) {
+                    if (!connected || !publicKey || !signMessage) {
+                        throw new Error(
+                            "Connect a Solana wallet to sign the listing offer, or enable dev server signing on control-api."
+                        );
+                    }
+                    throw new Error(
+                        "Your wallet does not match this node's provider hotkey. Use the provider wallet, enable dev server signing (PROXYHUB_PROVIDER_SIGNING_KEY), or use scripts/post-signed-listing-docker.ps1."
+                    );
+                }
+            }
+
+            await createListing(payload);
+            queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
             router.push("/marketplace");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
@@ -83,11 +149,10 @@ export default function CreateListingPage() {
         }
     };
 
-    if (!user) return null; // Or redirect
+    if (!user) return null;
 
     return (
         <div className="max-w-3xl mx-auto space-y-6 pb-20">
-            {/* Header */}
             <div className="flex items-center gap-4 border-b border-border pb-6">
                 <Link href="/marketplace" className="btn-retro btn-retro-outline p-2">
                     <ArrowLeft size={16} />
@@ -98,6 +163,23 @@ export default function CreateListingPage() {
                 </div>
             </div>
 
+            {proofRequired && (
+                <div className="p-4 bg-primary/10 border border-primary/20 text-xs font-mono">
+                    <p className="font-bold uppercase text-primary mb-1">Signed listing required</p>
+                    <p className="text-muted-foreground">
+                        Provider signature mode is <span className="text-foreground">enforce</span>.
+                        Select a provider node and sign with the matching wallet when you submit.
+                        {proofPolicy?.dev_server_signing && (
+                            <>
+                                {" "}
+                                Dev server signing is enabled — listings can be signed with the Docker
+                                provider key when your browser wallet does not match the node hotkey.
+                            </>
+                        )}
+                    </p>
+                </div>
+            )}
+
             {error && (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 text-destructive text-xs font-mono font-bold uppercase">
                     Error: {error}
@@ -105,7 +187,6 @@ export default function CreateListingPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Section 1: Basic Info */}
                 <div className="space-y-4">
                     <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2 border-b border-border/50 pb-2">
                         <User size={14} className="text-primary" /> Listing Details
@@ -138,7 +219,6 @@ export default function CreateListingPage() {
                     </div>
                 </div>
 
-                {/* Section 2: Technical Specs */}
                 <div className="space-y-4">
                     <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2 border-b border-border/50 pb-2">
                         <Server size={14} className="text-primary" /> Technical Specs
@@ -151,17 +231,23 @@ export default function CreateListingPage() {
                                 name="provider_node_id"
                                 value={formData.provider_node_id}
                                 onChange={handleChange}
+                                required={proofRequired}
                                 className="w-full bg-secondary/10 border border-border p-2 text-sm font-mono rounded-sm focus:border-primary outline-none"
                             >
-                                <option value="">Auto-select best node</option>
+                                <option value="">{proofRequired ? "Select a node (required)" : "Auto-select best node"}</option>
                                 {providerNodes.map(n => (
                                     <option key={n.id} value={n.id}>
-                                        {n.name} ({n.status}){n.country ? ` — ${n.country}` : ''}
+                                        {n.name} ({n.status})
+                                        {n.country ? ` — ${n.country}` : ""}
+                                        {n.hotkey ? " · signed" : ""}
                                     </option>
                                 ))}
                             </select>
                             <p className="text-[10px] text-muted-foreground font-mono">
                                 Links this listing to infrastructure shown on the marketplace map.
+                                {selectedNode?.hotkey && (
+                                    <> Hotkey: {selectedNode.hotkey.slice(0, 8)}…</>
+                                )}
                             </p>
                         </div>
                     )}
@@ -217,7 +303,6 @@ export default function CreateListingPage() {
                     </div>
                 </div>
 
-                {/* Section 3: Location & Pricing */}
                 <div className="space-y-4">
                     <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2 border-b border-border/50 pb-2">
                         <Globe size={14} className="text-primary" /> Location & Pricing
@@ -281,7 +366,7 @@ export default function CreateListingPage() {
                     >
                         {loading ? "Creating..." : (
                             <>
-                                <Save size={16} /> CREATE LISTING
+                                <Save size={16} /> {proofRequired ? "SIGN & CREATE LISTING" : "CREATE LISTING"}
                             </>
                         )}
                     </button>

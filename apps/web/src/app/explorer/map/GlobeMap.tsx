@@ -16,7 +16,7 @@
 import Globe from 'react-globe.gl';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
-import type { MapNodeUpdate } from './LeafletMap';
+import type { MapNodeUpdate } from '@/components/map/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth";
-import { deleteListing, getMyListings, type Listing } from "@/lib/social-api";
+import { deleteListing, getMyListings, marketplaceKeys, type Listing } from "@/lib/api/marketplace";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
@@ -22,15 +22,15 @@ export default function ManageListingsPage() {
     const limit = 20;
 
     const { data, isLoading, error } = useQuery({
-        queryKey: ["my-listings", page],
-        queryFn: () => getMyListings(page),
+        queryKey: marketplaceKeys.myListings(page),
+        queryFn: () => getMyListings(page, limit),
         enabled: isAuthenticated,
     });
 
     const removeMutation = useMutation({
         mutationFn: (id: string) => deleteListing(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["my-listings"] });
+            queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
         },
     });
 

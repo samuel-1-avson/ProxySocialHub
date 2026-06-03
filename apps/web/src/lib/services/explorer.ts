@@ -386,6 +386,9 @@ export interface LeaderboardResponse {
     entries: LeaderboardEntry[];
     category: string;
     period: string;
+    data_source?: string;
+    period_applied?: boolean;
+    note?: string;
 }
 
 export interface NodeDetail {

@@ -4,14 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 4011",
+    "dev:e2e": "next dev -H 0.0.0.0 -p 4011 --webpack",
     "build": "next build",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "validate:routes": "node scripts/validate-routes.mjs",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:map": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts --project=chromium",
+    "test:e2e:map-buy": "playwright test e2e/marketplace-map-buy.spec.ts --project=chromium",
+    "test:e2e:map-buy:devnet:check": "node e2e/check-live-map-buy-env.mjs",
+    "test:e2e:map-buy:devnet": "npm run test:e2e:map-buy:devnet:check && playwright test e2e/marketplace-map-buy.devnet.spec.ts --project=chromium"
   },
   "dependencies": {
     "@moonpay/moonpay-js": "^0.7.6",
+    "@noble/ed25519": "^3.1.0",
     "@polkadot/extension-dapp": "^0.62.6",
     "@polkadot/keyring": "^14.0.1",
     "@polkadot/util": "^14.0.1",

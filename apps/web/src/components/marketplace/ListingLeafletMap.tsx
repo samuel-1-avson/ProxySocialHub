@@ -48,7 +48,7 @@ function markerHtml(
     const label =
         count > 1
             ? `<span style="font-size:9px;font-weight:900;color:#fff;">${count}</span>`
-            : `<span style="font-size:7px;font-weight:900;color:#fff;">$${price.toFixed(2)}</span>`;
+            : `<span style="font-size:7px;font-weight:900;color:#fff;">${price.toFixed(4)}</span>`;
     return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:${border};box-shadow:0 0 12px ${color}88;display:flex;align-items:center;justify-content:center;cursor:pointer;">${label}</div>`;
 }
 
@@ -63,7 +63,7 @@ function popupHtml(pin: ListingMapPin): string {
         ${locBadge}</div>
         <div style="font-size:11px;font-weight:700;margin-bottom:8px;">${esc(pin.title)}</div>
         <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · ${esc(pin.proxy_type)}</div>
-        <div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:4px;"><span style="color:rgba(255,255,255,.4)">Price</span><span style="color:#fff;font-weight:700;">$${pin.price_per_gb.toFixed(2)}/GB</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:4px;"><span style="color:rgba(255,255,255,.4)">Price</span><span style="color:#fff;font-weight:700;">${pin.price_per_gb.toFixed(6)} SOL/GB</span></div>
         <div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Uptime</span><span style="color:#fff;">${(pin.uptime_percent || 0).toFixed(1)}%</span></div>
     </div>`;
 }

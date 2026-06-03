@@ -3,26 +3,45 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { User, Shield, Wallet, Bell, ChevronRight } from 'lucide-react';
+import { User, Shield, Wallet, Bell, ChevronRight, Key, Monitor } from 'lucide-react';
+import { ROUTES } from '@/lib/navigation/routes';
 
 const SETTINGS_NAV = [
     {
         name: 'Identity',
-        href: '/dashboard/settings/identity',
+        href: ROUTES.dashboardSettingsIdentity,
         icon: User,
-        description: 'Public profile and social presence'
+        description: 'Public profile and social presence',
     },
     {
         name: 'Account & Tier',
-        href: '/dashboard/settings/account',
+        href: ROUTES.dashboardSettingsAccount,
         icon: Wallet,
-        description: 'Wallet, KYC and network trust'
+        description: 'Wallet, KYC and network trust',
     },
     {
         name: 'Security',
-        href: '/dashboard/settings/security',
+        href: ROUTES.dashboardSettingsSecurity,
         icon: Shield,
-        description: '2FA, Sessions and history'
+        description: '2FA, anomalies and login history',
+    },
+    {
+        name: 'Notifications',
+        href: ROUTES.dashboardSettingsNotifications,
+        icon: Bell,
+        description: 'Email and in-app alerts',
+    },
+    {
+        name: 'API keys',
+        href: ROUTES.dashboardSettingsApiKeys,
+        icon: Key,
+        description: 'CLI and automation tokens',
+    },
+    {
+        name: 'Devices',
+        href: ROUTES.dashboardSettingsDevices,
+        icon: Monitor,
+        description: 'Active sessions and terminals',
     },
 ];
 
@@ -31,7 +50,6 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
     return (
         <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in duration-700">
-            {/* Settings Sidebar */}
             <aside className="w-full lg:w-64 space-y-2 shrink-0">
                 <div className="px-4 mb-6">
                     <h1 className="text-2xl font-black font-mono uppercase tracking-tighter">Settings</h1>
@@ -80,7 +98,6 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 </div>
             </aside>
 
-            {/* Main Content Area */}
             <section className="flex-1 min-w-0 pb-20">
                 {children}
             </section>

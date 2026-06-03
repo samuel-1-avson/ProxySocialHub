@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // ============ Referral Program ============
@@ -165,18 +166,32 @@ const (
 )
 
 type ProviderNode struct {
-	ID               uuid.UUID  `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	UserID           uuid.UUID  `gorm:"type:uuid;not null" json:"user_id"`
-	Name             string     `gorm:"type:varchar(100);not null" json:"name"`
-	IPAddress        string     `gorm:"type:inet" json:"ip_address,omitempty"`
-	Country          string     `gorm:"type:varchar(2)" json:"country,omitempty"`
-	City             string     `gorm:"type:varchar(100)" json:"city,omitempty"`
-	Status           NodeStatus `gorm:"type:varchar(50);default:'offline'" json:"status"`
-	TotalBandwidthGB float64    `gorm:"type:numeric(20,4);default:0" json:"total_bandwidth_gb"`
-	QualityScore     float64    `gorm:"default:100" json:"quality_score"` // Network Trust Score
-	BasePricePerGB   float64    `gorm:"type:decimal(10,4);default:0.20" json:"base_price_per_gb"`
-	LastSeenAt       *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID                uuid.UUID      `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	UserID            uuid.UUID      `gorm:"type:uuid;not null" json:"user_id"`
+	Name              string         `gorm:"type:varchar(100);not null" json:"name"`
+	IPAddress         string         `gorm:"type:inet" json:"ip_address,omitempty"`
+	Country           string         `gorm:"type:varchar(2)" json:"country,omitempty"`
+	City              string         `gorm:"type:varchar(100)" json:"city,omitempty"`
+	Region            string         `gorm:"type:varchar(100)" json:"region,omitempty"`
+	ISP               string         `gorm:"type:varchar(100)" json:"isp,omitempty"`
+	ConnectionType    string         `gorm:"type:varchar(50)" json:"connection_type,omitempty"`
+	Port              int            `gorm:"default:0" json:"port,omitempty"`
+	Protocol          string         `gorm:"type:varchar(10);default:'http'" json:"protocol,omitempty"`
+	Status            NodeStatus     `gorm:"type:varchar(50);default:'offline'" json:"status"`
+	IsHealthy         bool           `gorm:"default:false" json:"is_healthy"`
+	ActiveConnections int            `gorm:"default:0" json:"active_connections"`
+	MaxConnections    int            `gorm:"default:100" json:"max_connections"`
+	LatencyMs         int            `gorm:"default:0" json:"latency_ms"`
+	TotalBytesUp      int64          `gorm:"default:0" json:"total_bytes_up"`
+	TotalBytesDown    int64          `gorm:"default:0" json:"total_bytes_down"`
+	SuccessRate       float64        `gorm:"default:1.0" json:"success_rate"`
+	TotalBandwidthGB  float64        `gorm:"type:numeric(20,4);default:0" json:"total_bandwidth_gb"`
+	QualityScore      float64        `gorm:"default:100" json:"quality_score"` // Network Trust Score
+	BasePricePerGB    float64        `gorm:"type:decimal(10,4);default:0.20" json:"base_price_per_gb"`
+	LastSeenAt        *time.Time     `json:"last_seen_at,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
 	// On-Chain Registry
 	IsRegisteredOnChain bool    `gorm:"default:false" json:"is_registered_on_chain"`
@@ -202,10 +217,48 @@ type ProviderNode struct {
 	// Gateway tunnel identity (e.g. node_<user_uuid>) — links to nodes.gateway_node_id
 	GatewayNodeID string `gorm:"type:varchar(128);index" json:"gateway_node_id,omitempty"`
 	KycVerified   bool   `gorm:"default:false" json:"kyc_verified"`
+
+	// Provider-authored heartbeat proof metadata.
+	LatestHeartbeatHash              string     `gorm:"type:varchar(64)" json:"latest_heartbeat_hash,omitempty"`
+	LatestHeartbeatSignature         string     `gorm:"type:text" json:"latest_heartbeat_signature,omitempty"`
+	LatestHeartbeatSigner            string     `gorm:"type:varchar(64);index" json:"latest_heartbeat_signer,omitempty"`
+	LatestHeartbeatSignedAt          *time.Time `json:"latest_heartbeat_signed_at,omitempty"`
+	LatestHeartbeatVerified          bool       `gorm:"default:false" json:"latest_heartbeat_verified"`
+	LatestHeartbeatVerificationError string     `gorm:"type:text" json:"latest_heartbeat_verification_error,omitempty"`
+	LatestHeartbeatNonce             string     `gorm:"type:varchar(128)" json:"latest_heartbeat_nonce,omitempty"`
 }
 
 func (ProviderNode) TableName() string {
 	return "provider_nodes"
+}
+
+// CalculateQualityScore calculates the gateway runtime quality score for the
+// canonical provider node row.
+func (n *ProviderNode) CalculateQualityScore() float64 {
+	score := 100.0
+	if n.LatencyMs > 100 {
+		score -= float64(n.LatencyMs-100) * 0.1
+	}
+	if n.SuccessRate > 0 {
+		score *= n.SuccessRate
+	}
+	if n.UptimePercent > 0 {
+		score *= (n.UptimePercent / 100)
+	}
+	totalGB := float64(n.TotalBytesUp+n.TotalBytesDown) / (1024 * 1024 * 1024)
+	if totalGB > 10 {
+		score += 5
+	}
+	if totalGB > 100 {
+		score += 10
+	}
+	if score < 0 {
+		return 0
+	}
+	if score > 100 {
+		return 100
+	}
+	return score
 }
 
 // GetEarningsMultiplier returns a quality-based SOL earnings multiplier (0.70 – 1.25).

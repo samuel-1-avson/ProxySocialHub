@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getProviderEarnings, isExplorerNotFound } from '@/lib/services/explorer';
+import { explorerPublicEarningsEnabled } from '@/lib/navigation/explorer-nav';
 import Link from 'next/link';
 import {
     ArrowLeft, TrendingUp, Coins, Server, ChevronLeft, ChevronRight,
@@ -38,6 +39,7 @@ const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transiti
 const itemVariants = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } };
 
 export default function EarningsPage() {
+    const earningsApiEnabled = explorerPublicEarningsEnabled();
     const [period, setPeriod] = useState('24h');
     const [page, setPage] = useState(1);
     const [mounted, setMounted] = useState(false);
@@ -46,11 +48,13 @@ export default function EarningsPage() {
     const { data, isLoading, error } = useQuery({
         queryKey: ['provider-earnings', period, page],
         queryFn: () => getProviderEarnings(period, page, 20),
-        refetchInterval: 30000,
+        enabled: earningsApiEnabled,
+        refetchInterval: earningsApiEnabled ? 30000 : false,
         retry: false,
     });
 
-    const earningsFeedDisabled = Boolean(error && isExplorerNotFound(error));
+    const earningsFeedDisabled =
+        !earningsApiEnabled || Boolean(error && isExplorerNotFound(error));
 
     const providers = data?.providers || [];
     const total = data?.total || 0;

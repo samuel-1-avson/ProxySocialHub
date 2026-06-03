@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -35,7 +36,39 @@ type AdminAccount struct {
 }
 
 type GatewayConfig struct {
-	ManagementURL string
+	ManagementURL  string
+	BuyerProxyHost string
+	BuyerProxyPort int
+}
+
+// BuyerProxyEndpoint is the host:port buyers use for HTTP CONNECT (edge buyer listener).
+func (g GatewayConfig) BuyerProxyEndpoint() string {
+	host := strings.TrimSpace(g.BuyerProxyHost)
+	if host == "" {
+		host = "proxy.proxyhubb.com"
+	}
+	port := g.BuyerProxyPort
+	if port <= 0 {
+		port = 8090
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
+func (g GatewayConfig) BuyerProxyHostOnly() string {
+	host, _, _ := strings.Cut(g.BuyerProxyEndpoint(), ":")
+	return host
+}
+
+func (g GatewayConfig) BuyerProxyPortOnly() int {
+	_, portStr, ok := strings.Cut(g.BuyerProxyEndpoint(), ":")
+	if !ok {
+		return 8090
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 {
+		return 8090
+	}
+	return port
 }
 
 type ServerConfig struct {
@@ -150,6 +183,12 @@ func Load() (*Config, error) {
 
 	// Edge Gateway
 	cfg.Gateway.ManagementURL = getEnv("EDGE_GATEWAY_MGMT_URL", "http://edge-gateway:8090")
+	cfg.Gateway.BuyerProxyHost = getEnv("EDGE_GATEWAY_BUYER_HOST", "proxy.proxyhubb.com")
+	buyerPort, err := strconv.Atoi(getEnv("EDGE_GATEWAY_BUYER_PORT", "8090"))
+	if err != nil || buyerPort <= 0 {
+		return nil, fmt.Errorf("EDGE_GATEWAY_BUYER_PORT must be a positive integer")
+	}
+	cfg.Gateway.BuyerProxyPort = buyerPort
 
 	// Legacy Admin Config (optional)
 	cfg.Admin.JWTSecret = strings.TrimSpace(os.Getenv("ADMIN_JWT_SECRET"))
