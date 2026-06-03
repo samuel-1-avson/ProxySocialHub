@@ -7,7 +7,7 @@ authenticates sessions, enforces policy, selects provider nodes, bridges bytes o
 Implemented in **Rust** (Tokio + Hyper). For the full architecture analysis and the
 forward-looking v2 plan, see:
 
-- [`docs/EDGE_GATEWAY_DEEP_DIVE.md`](../../docs/EDGE_GATEWAY_DEEP_DIVE.md) — current-state analysis.
+- [`docs/REMAINING_PHASES.md`](docs/REMAINING_PHASES.md) — phase checklist and verification.
 - [`docs/EDGE_GATEWAY_VNEXT_BLUEPRINT.md`](../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT.md) — vNext roadmap & implementation plan.
 - [`docs/adr/0001-edge-gateway-scope-and-ports.md`](../../docs/adr/0001-edge-gateway-scope-and-ports.md) — port/scope decisions.
 
@@ -17,17 +17,21 @@ forward-looking v2 plan, see:
 
 | Port | Env var | Listener | Who connects | Notes |
 |-----:|---------|----------|--------------|-------|
-| **8090** | `PORT` | Buyer proxy API | Buyers / SDK / browser | HTTP/1.1 + HTTP/2 `CONNECT`, WebSocket tunnel, **and** `/metrics`, `/health`, `/ready` |
+| **8090** | `PORT` | Buyer proxy API | Buyers / SDK / browser | HTTP/1.1 + HTTP/2 `CONNECT`, WebSocket tunnel, `/health`, `/ready` |
+| **9090** | `METRICS_PORT` | Prometheus scrape | Prometheus / ops | `/metrics` only (set `METRICS_PORT`; `0` or unset = legacy `/metrics` on `PORT`) |
 | **3128** | `TUNNEL_PORT` | Provider tunnel | `provider-node` (outbound) | yamux; TLS-capable when `TLS_CERT_PATH`/`TLS_KEY_PATH` set |
+| **1080** | `SOCKS5_PORT` | SOCKS5 buyer ingress | Proxy clients | Optional; set `ENABLE_SOCKS5=1`. Username/password auth maps to ProxyHub session credentials. |
+| **8443/UDP** | `HTTP3_PORT` | HTTP/3 buyer ingress | HTTP/3-capable proxy clients | Optional; build with `--features quic` and set `ENABLE_HTTP3_INGRESS=1` plus TLS cert/key paths. |
 
 > Buyers use **8090**. Providers connect outbound to **3128** (see `PROXYHUB_GATEWAY_ADDRS`
-> in `provider-node`). A dedicated metrics port is a planned vNext (P5) enhancement; today
-> `/metrics` is served on `8090`.
+> in `provider-node`). Prometheus should scrape **`METRICS_PORT`** (default **9090** in
+> compose/K8s); `/metrics` on the buyer port returns **404** when split is enabled.
 
 ```mermaid
 flowchart LR
   Buyer["Buyer / SDK"] -->|CONNECT/WS · :8090| EG["edge-gateway"]
-  Ops["Prometheus / k8s probes"] -->|/metrics /health /ready · :8090| EG
+  Ops["Prometheus"] -->|/metrics · :9090| EG
+  Ops2["k8s probes"] -->|/health /ready · :8090| EG
   PN["provider-node"] -->|yamux · :3128| EG
   EG --> Redis[("Redis")]
   EG --> API["control-api :8080"]
@@ -41,8 +45,8 @@ flowchart LR
 |------|--------|---------|
 | `/health` | GET | Liveness — process is up (`200` always while serving). |
 | `/ready` | GET | Readiness — `200` when Redis answers `PING`; `503` otherwise. Reports healthy provider count. Set `READY_REQUIRE_PROVIDERS=true` to also require ≥1 provider. |
-| `/metrics` | GET | Prometheus exposition. |
-| `CONNECT host:port` | CONNECT | Buyer proxy tunnel (requires `Proxy-Authorization`). |
+| `/metrics` | GET | Prometheus exposition (`METRICS_PORT`, or `PORT` when `METRICS_PORT` unset/`0`). |
+| `CONNECT host:port` | CONNECT | Buyer proxy tunnel (requires `Proxy-Authorization`; HTTP/1.1, HTTP/2, and optional HTTP/3). |
 | `/debug/*`, `/api/v1/network/status` | GET | Debug/observability — only when `ENABLE_DEBUG_ROUTES=true` or a dev env. |
 
 ---
@@ -63,8 +67,10 @@ flowchart LR
 | Env | Default | Purpose |
 |-----|---------|---------|
 | `HOST` | `0.0.0.0` | Bind address. |
-| `PORT` | `8090` | Buyer proxy API + health/metrics/ready. |
-| `TUNNEL_PORT` | `3128` | Provider yamux tunnel. |
+| `PORT` | `8090` | Buyer proxy API + health/ready. |
+| `METRICS_PORT` | `9090` (compose/K8s) | Dedicated `/metrics` listener; `0` or unset keeps metrics on `PORT`. |
+| `TUNNEL_PORT` | `3128` | Provider yamux tunnel (TCP). With `PROVIDER_TRANSPORT=quic` + `--features quic`, UDP QUIC on the same port number. |
+| `PROVIDER_TRANSPORT` | `yamux` | `yamux` (TCP) or `quic` (UDP; requires TLS cert env and quic feature build). |
 | `REDIS_URL` | `redis://localhost:6379` | Sessions, sticky bindings, registry, WAL. |
 | `CONTROL_API_URL` | `http://localhost:8080` | Control-API base URL. |
 | `REGION` | _(unset)_ | Region tag for multi-region routing. |
@@ -198,5 +204,4 @@ session `proxy_credentials` — see `internal/api/gateway_endpoints.go`.
 
 ## Module map
 
-See [`docs/EDGE_GATEWAY_DEEP_DIVE.md` §4](../../docs/EDGE_GATEWAY_DEEP_DIVE.md) for the full
-module map (auth, routing, registry, pool, proxy, security, metering, tunnel, etc.).
+See `src/` module tree (auth, routing, registry, pool, proxy, security, metering, tunnel, etc.) and [`docs/REMAINING_PHASES.md`](docs/REMAINING_PHASES.md).

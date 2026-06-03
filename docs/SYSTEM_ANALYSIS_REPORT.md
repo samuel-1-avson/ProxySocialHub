@@ -58,8 +58,8 @@
 | Document | Path | Role |
 |----------|------|------|
 | Public HTTP API | [docs/openapi.yaml](openapi.yaml) | Contract of record for `/v1` |
-| Wallet deep dive | [docs/WALLET_SYSTEM_DEEP_DIVE_REPORT.md](WALLET_SYSTEM_DEEP_DIVE_REPORT.md) | Threat model and wallet flows |
-| Wallet roadmap | [docs/WALLET_IMPLEMENTATION_PLAN.md](WALLET_IMPLEMENTATION_PLAN.md) | SOL-only hardening plan |
+| Wallet | [docs/WALLET_STATUS.md](WALLET_STATUS.md) | Phases and closure checklist |
+| Wallet production checklist | [docs/WALLET_PRODUCTION_CLOSURE.md](WALLET_PRODUCTION_CLOSURE.md) | SOL-only verification and staging gate |
 | Environment template | [.env.example](../.env.example) | Full-stack configuration |
 
 There is **no root README**; onboarding relies on the above plus Docker Compose files.
@@ -481,7 +481,7 @@ Full per-file index: [Appendix C](#appendix-c-migration-index-000001000082).
 - Batch processor for gas-efficient multi-recipient payouts
 - Payout retry queue (migration `000012`)
 
-For detailed threat analysis, see [WALLET_SYSTEM_DEEP_DIVE_REPORT.md](WALLET_SYSTEM_DEEP_DIVE_REPORT.md) (independent audit dated 2026-05-24; overall grade **B-** with pre-`000080` findings). This system report reflects the **current branch** including withdrawal whitelist and `user_flags` work not fully covered in that wallet doc.
+For wallet hardening status, see [WALLET_PRODUCTION_CLOSURE.md](WALLET_PRODUCTION_CLOSURE.md) and [WALLET_STATUS.md](WALLET_STATUS.md).
 
 **Consistency note:** `POST /wallet/deposit/crypto` is mounted under `RegisterWalletRoutes`. Separate `RegisterCryptoRoutes` (`/crypto/*` for batch-settle, treasury admin, settlement telemetry) remains **unmounted** in `main.go`. GDPR account export/delete routes are unmounted, but scheduled deletion is handled by `StartGDPRDeletionWorker` when users have `scheduled_deletion_at` set (likely via a future or internal code path).
 
@@ -708,7 +708,7 @@ Based on git status and code review at report time:
 
 ### 16.6 Documentation
 
-- Existing: `WALLET_IMPLEMENTATION_PLAN.md`, `WALLET_SYSTEM_DEEP_DIVE_REPORT.md`
+- Existing: `WALLET_STATUS.md`, `WALLET_PRODUCTION_CLOSURE.md`
 - **This report:** `SYSTEM_ANALYSIS_REPORT.md`
 
 ---
@@ -915,8 +915,8 @@ All paths prefixed with `/v1` unless noted. Auth: **O** = optional JWT, **R** = 
 | Title | Path |
 |-------|------|
 | OpenAPI 3.1 | [docs/openapi.yaml](openapi.yaml) |
-| Wallet deep dive | [docs/WALLET_SYSTEM_DEEP_DIVE_REPORT.md](WALLET_SYSTEM_DEEP_DIVE_REPORT.md) |
-| Wallet implementation plan | [docs/WALLET_IMPLEMENTATION_PLAN.md](WALLET_IMPLEMENTATION_PLAN.md) |
+| Wallet | [docs/WALLET_STATUS.md](WALLET_STATUS.md) |
+| Wallet production closure | [docs/WALLET_PRODUCTION_CLOSURE.md](WALLET_PRODUCTION_CLOSURE.md) |
 | Environment template | [.env.example](../.env.example) |
 | Control API entry | [services/control-api/main.go](../services/control-api/main.go) |
 | ZK prover README | [services/zk-prover/README.md](../services/zk-prover/README.md) |

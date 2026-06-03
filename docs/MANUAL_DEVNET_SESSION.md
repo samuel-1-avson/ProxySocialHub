@@ -148,7 +148,7 @@ Or use a build from `cli/` if you compile locally.
 
 Expect: `gateway_node_id = node_741719aa-...`, `status = online`, `nodes.provider_node_id = pn.id`.
 
-Detail: [PROVIDER_PHASE1_VERIFY.md](./PROVIDER_PHASE1_VERIFY.md).
+Detail: [STAGING_ENFORCE_RUNBOOK.md](./STAGING_ENFORCE_RUNBOOK.md), [PROVIDER_PROOFS_DOCKER.md](./PROVIDER_PROOFS_DOCKER.md).
 
 ---
 

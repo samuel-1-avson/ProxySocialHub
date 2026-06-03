@@ -1,6 +1,6 @@
 # Wallet production closure
 
-Checklist to move wallet work from “implemented on branch” to **verified on staging/production**. Phases 1–4 of [`WALLET_IMPLEMENTATION_PLAN.md`](WALLET_IMPLEMENTATION_PLAN.md) are code-complete; this doc is the operational gate.
+Checklist to move wallet work from “implemented on branch” to **verified on staging/production**. Wallet phases 1–4 are summarized in [`WALLET_STATUS.md`](WALLET_STATUS.md); this doc is the operational gate.
 
 ## Quick automated pass (local / staging)
 
@@ -140,7 +140,7 @@ Test DB: `docker compose -f docker-compose.test.yml up -d` (port **5433**).
 | `smoke_wallet_api` (auth paths) | Eng | ☐ | ☐ |
 | Manual E2E (deposit / withdraw / whitelist) | QA | ☐ browser + devnet | ☐ |
 | Solana smoke (treasury public, solana health) | QA | ☐ public API OK | ☐ |
-| Provider CLI + registry link | QA | ☐ see PROVIDER_PHASE1_VERIFY | ☐ |
+| Provider CLI + registry link | QA | ☐ see STAGING_ENFORCE_RUNBOOK | ☐ |
 | Monitoring: payout retry queue, circuit breaker | Ops | — | ☐ |
 
 **Local dev:** after `docker compose -f docker-compose.dev.yml up -d`, run `.\scripts\local-verification.ps1` then complete manual rows in [WALLET_E2E_SMOKE.md](WALLET_E2E_SMOKE.md).
@@ -149,7 +149,7 @@ Test DB: `docker compose -f docker-compose.test.yml up -d` (port **5433**).
 
 ## Roadmap tracker
 
-Cross-cutting checklist (CI, staging, E2E, registry): [NEXT_STEPS_TRACKER.md](NEXT_STEPS_TRACKER.md).
+Cross-cutting staging, enforce, D4, and E2E checklist: [STAGING_ENFORCE_RUNBOOK.md](STAGING_ENFORCE_RUNBOOK.md).
 
 Provider self-claim UI is on `/dashboard/provider/earnings` (`ProviderClaimPanel`). Seller listings: `/marketplace/manage`.
 
@@ -157,8 +157,5 @@ Provider self-claim UI is on `/dashboard/provider/earnings` (`ProviderClaimPanel
 
 ## Related docs
 
-- [WALLET_PHASE1_STATUS.md](WALLET_PHASE1_STATUS.md) — security
-- [WALLET_PHASE2_STATUS.md](WALLET_PHASE2_STATUS.md) — tests
-- [WALLET_PHASE3_STATUS.md](WALLET_PHASE3_STATUS.md) — fiat removal, workers
-- [WALLET_PHASE4_STATUS.md](WALLET_PHASE4_STATUS.md) — treasury, explorer, claim
+- [WALLET_STATUS.md](WALLET_STATUS.md) — phases 1–4 summary
 - [DOCKER_REBUILD.md](DOCKER_REBUILD.md) — image rebuild after migration changes

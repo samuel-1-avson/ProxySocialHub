@@ -1,8 +1,9 @@
 # ProxyHubb Edge Gateway — vNext (v2) Engineering Blueprint
 
-> **Status:** Proposal for review (no code changed).
-> **Date:** 2026-06-02
-> **Companion to:** [`EDGE_GATEWAY_DEEP_DIVE.md`](./EDGE_GATEWAY_DEEP_DIVE.md) (current-state analysis).
+> **Status:** Living blueprint — engineering **P0–P4 signed off**; **P5** (OTel, TLS/JA3/JA4, buyer `SO_REUSEPORT`) and **P6** (HTTP/3 + SOCKS5 ingress, `--features quic`) largely landed in `services/edge-gateway/`. **§16** still needs stakeholder approval; **§15** v2 Definition of Done is only partially met (see checkboxes + notes).
+> **Date:** 2026-06-02 (implementation sync: 2026-06-02)
+> **Implementation tracker:** [`services/edge-gateway/docs/REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md)
+> **Companion to:** [`REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md) (phase sign-offs and verification scripts).
 > **Goal of this document:** Define the **next real version** of the Edge Gateway — a complete, sequenced plan to make it **~10× faster, ~10× more scalable, and dramatically more capable** — with explicit phases, roadmaps, an implementation plan, and prioritized recommendations.
 
 ---
@@ -79,46 +80,49 @@ Order-of-magnitude improvement does not come from one trick; it comes from remov
 
 Legend: ✅ present · 🟡 partial · ❌ missing · ➕ new in vNext
 
+**Baseline** = deep-dive snapshot; **Shipped** = codebase as of 2026-06-02 (detail in [`REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md)).
+
 ### 3.1 Ingress & protocol
 
-| Capability | Today | vNext | Notes |
-|------------|:----:|:----:|-------|
-| HTTP/1.1 `CONNECT` | ✅ | ✅ | Core path |
-| HTTP/2 `CONNECT` (h2/h2c) | 🟡 | ✅ | Auto-builder present; ALPN `h2` not advertised on TLS |
-| WebSocket tunnel | ✅ | ✅ | `proxy/websocket.rs` |
-| In-process TLS on buyer port | ❌ | ✅ | rustls termination, resumption, 0-RTT optional |
-| HTTP/3 / QUIC ingress | ❌ | ➕ | Stretch; large mobile/loss-tolerance win |
-| SOCKS5 ingress | ❌ | ➕ | Common proxy-client expectation |
-| Per-listener admission control | ❌ | ✅ | Bounded concurrency |
+| Capability | Baseline | vNext | Shipped | Notes |
+|------------|:----:|:----:|:----:|-------|
+| HTTP/1.1 `CONNECT` | ✅ | ✅ | ✅ | Core path |
+| HTTP/2 `CONNECT` (h2/h2c) | 🟡 | ✅ | 🟡 | ALPN `h2` when `BUYER_TLS_ENABLE`; plain TCP still HTTP/1.1-first |
+| WebSocket tunnel | ✅ | ✅ | ✅ | `proxy/websocket.rs` |
+| In-process TLS on buyer port | ❌ | ✅ | 🟡 | Opt-in `BUYER_TLS_ENABLE` + cert paths; 0-RTT not required yet |
+| HTTP/3 / QUIC ingress | ❌ | ➕ | 🟡 | Initial: `--features quic`, `ENABLE_HTTP3_INGRESS`, h3 CONNECT |
+| SOCKS5 ingress | ❌ | ➕ | ✅ | `ENABLE_SOCKS5`, username/password auth |
+| Per-listener admission control | ❌ | ✅ | ✅ | `MAX_CONCURRENT_CONNECTIONS` → 503 |
 
 ### 3.2 Routing & provider plane
 
-| Capability | Today | vNext |
-|------------|:----:|:----:|
-| Lock-free registry + score snapshot | ✅ | ✅ (debounced rebuild) |
-| Geo/shard-aware selection | ✅ | ✅ |
-| Sticky sessions + rotation | ✅ | ✅ |
-| ML routing (ONNX) | 🟡 | ✅ (feature-flag, sidecar) |
-| Multi-yamux / QUIC provider transport | ❌ | ➕ |
-| Shared provider directory (multi-pod) | ❌ | ➕ |
-| Least-loaded / EWMA latency routing | 🟡 | ✅ |
-| Provider health (heartbeat + circuit) | ✅ | ✅ (unified thresholds) |
+| Capability | Baseline | vNext | Shipped |
+|------------|:----:|:----:|:----:|
+| Lock-free registry + score snapshot | ✅ | ✅ (debounced rebuild) | ✅ |
+| Geo/shard-aware selection | ✅ | ✅ | ✅ |
+| Sticky sessions + rotation | ✅ | ✅ | ✅ |
+| ML routing (ONNX) | 🟡 | ✅ (feature-flag, sidecar) | 🟡 |
+| Multi-yamux provider transport | ❌ | ➕ | ✅ |
+| QUIC provider transport | ❌ | ➕ | 🟡 |
+| Shared provider directory (multi-pod) | ❌ | ➕ | ✅ |
+| Least-loaded / EWMA latency routing | 🟡 | ✅ | 🟡 |
+| Provider health (heartbeat + circuit) | ✅ | ✅ (unified thresholds) | ✅ |
 
 ### 3.3 Auth, policy, security
 
-| Capability | Today | vNext |
-|------------|:----:|:----:|
-| Fail-closed session auth | ✅ | ✅ |
-| Session-intent JWT (v2) | ✅ | ✅ |
-| Provider lease validation | ✅ | ✅ |
-| Global + session + node policy | ✅ | ✅ |
-| DDoS adaptive limiter | ✅ | ✅ (challenge **enforced**) |
-| Bot detection (HTTP) | ✅ | ✅ |
-| JA3/JA4 TLS fingerprinting | ❌ | ➕ (enabled by in-proc TLS) |
-| Honeytoken sink | ✅ | ✅ (real provider attribution) |
-| Anomaly enforcement (block) | 🟡 | ✅ |
-| Session time-limit enforcement | ❌ | ✅ |
-| mTLS for provider tunnels | 🟡 | ✅ (default in prod) |
+| Capability | Baseline | vNext | Shipped |
+|------------|:----:|:----:|:----:|
+| Fail-closed session auth | ✅ | ✅ | ✅ |
+| Session-intent JWT (v2) | ✅ | ✅ | ✅ |
+| Provider lease validation | ✅ | ✅ | ✅ |
+| Global + session + node policy | ✅ | ✅ | ✅ |
+| DDoS adaptive limiter | ✅ | ✅ (challenge **enforced**) | ✅ |
+| Bot detection (HTTP) | ✅ | ✅ | ✅ |
+| JA3/JA4 TLS fingerprinting | ❌ | ➕ | ✅ |
+| Honeytoken sink | ✅ | ✅ (real provider attribution) | ✅ |
+| Anomaly enforcement (block) | 🟡 | ✅ | ✅ |
+| Session time-limit enforcement | ❌ | ✅ | ✅ |
+| mTLS for provider tunnels | 🟡 | ✅ (default in prod) | 🟡 |
 
 ### 3.4 Metering, billing, settlement
 
@@ -133,17 +137,17 @@ Legend: ✅ present · 🟡 partial · ❌ missing · ➕ new in vNext
 
 ### 3.5 Operability & DX
 
-| Capability | Today | vNext |
-|------------|:----:|:----:|
-| `/health` | ✅ | ✅ |
-| `/ready` (Redis + provider count) | ❌ | ➕ |
-| Separate metrics port | ❌ | ➕ |
-| Single-source config (ports/env) | ❌ | ➕ |
-| K8s manifests match runtime | ❌ | ✅ |
-| OpenTelemetry traces | ❌ | ➕ |
-| Service README + runbook | ❌ | ➕ |
-| Integration/load/chaos tests | 🟡 | ✅ |
-| Feature-flagged build flavors | ❌ | ➕ |
+| Capability | Baseline | vNext | Shipped |
+|------------|:----:|:----:|:----:|
+| `/health` | ✅ | ✅ | ✅ |
+| `/ready` (Redis + provider count) | ❌ | ➕ | ✅ |
+| Separate metrics port | ❌ | ➕ | ✅ |
+| Single-source config (ports/env) | ❌ | ➕ | 🟡 |
+| K8s manifests match runtime | ❌ | ✅ | ✅ |
+| OpenTelemetry traces | ❌ | ➕ | 🟡 |
+| Service README + runbook | ❌ | ➕ | 🟡 |
+| Integration/load/chaos tests | 🟡 | ✅ | 🟡 |
+| Feature-flagged build flavors | ❌ | ➕ | ✅ |
 
 ---
 
@@ -382,11 +386,11 @@ Each item lists the **file**, the **problem**, the **change**, and the **expecte
 
 ## 9. Developer Experience & Repo Hygiene
 
-- [ ] `services/edge-gateway/README.md`: ports diagram, env table, run/test/bench instructions, TLS termination policy.
-- [ ] **Single-source config**: one table in `eg-core` that generates the env doc; CI test asserts compose/K8s match defaults.
-- [ ] Slim default Docker image (no CUDA/Solana/ZK); separate `Dockerfile.ml` for the GPU flavor.
+- [x] `services/edge-gateway/README.md`: ports diagram, env table, run/test/bench instructions, TLS termination policy.
+- [ ] **Single-source config**: one table in `eg-core` that generates the env doc; CI test asserts compose/K8s match defaults (parity test exists; generator not built).
+- [x] Slim default Docker image (no CUDA/Solana/ZK); separate `Dockerfile.ml` for the GPU flavor.
 - [ ] Delete or quarantine dead build artifacts in-tree (`build_output.txt`, `cargo_errors*.txt`, `check_output*.txt`).
-- [ ] Decision recorded (ADR) for `pricing` and `blockchain`: **wire or remove**.
+- [x] Decision recorded (ADR) for `pricing` and `blockchain`: **wire or remove** → [`adr/0001-edge-gateway-scope-and-ports.md`](./adr/0001-edge-gateway-scope-and-ports.md) (feature-flagged; not wired in main path).
 
 ---
 
@@ -447,25 +451,32 @@ gantt
 - **Deliverables:** shared provider directory in Redis; **co-located mode (P3a)** first (owner-pod forwarding), then **tunnel-tier split (P3b)**; internal edge↔tunnel transport; ownership TTL + drain.
 - **Exit criteria:** providers reachable from any edge pod; fleet directory benchmark; pod drain releases ownership for migration.
 - **Verification:** [`services/edge-gateway/docs/P3_SIGNOFF.md`](services/edge-gateway/docs/P3_SIGNOFF.md), `p3-multipod-smoke.*`, `p3-scale-benchmark.*`, `p3-pod-drain.*`, `p3-multipod-e2e-full.*`.
-- **P3b (next):** tunnel-tier split — see [`P3_MULTI_POD.md`](services/edge-gateway/docs/P3_MULTI_POD.md).
+- **P3b:** tunnel-tier split **signed off** — [`P3b_SIGNOFF.md`](services/edge-gateway/docs/P3b_SIGNOFF.md), [`P3b_TUNNEL_SPLIT.md`](services/edge-gateway/docs/P3b_TUNNEL_SPLIT.md), ADR [`0002-edge-gateway-p3b-tunnel-tier-split.md`](./adr/0002-edge-gateway-p3b-tunnel-tier-split.md).
 
-### P4 — Provider transport upgrade (3–4 weeks)
+### P4 — Provider transport upgrade (3–4 weeks) · **signed off (yamux); QUIC deferred**
 
 - **Objective:** lift the per-provider throughput ceiling (§5.8).
 - **Deliverables:** multi-yamux per provider (a) → QUIC transport (b) behind `quic` feature; raw-TCP elephant-flow path (c) optional; benchmarks comparing transports.
 - **Exit criteria:** single busy provider sustains ≥ target throughput without HoL stalls; documented transport selection policy.
+- **Verification:** [`P4_SIGNOFF.md`](services/edge-gateway/docs/P4_SIGNOFF.md), [`P4_PROVIDER_TRANSPORT.md`](services/edge-gateway/docs/P4_PROVIDER_TRANSPORT.md), ADR [`0003-provider-transport-multiyamux.md`](./adr/0003-provider-transport-multiyamux.md).
+- **Deferred:** Raw-TCP elephant path, 10k+ stream load-lab soak (dev script: `p4-transport-soak.ps1`; see `REMAINING_PHASES.md`).
 
-### P5 — Security & observability depth (3 weeks, can parallel P3)
+### P5 — Security & observability depth (3 weeks, can parallel P3) · **observability + fingerprinting landed**
 
 - **Objective:** production-grade trust + insight.
 - **Deliverables:** in-proc TLS + JA3/JA4; provider mTLS default; OTel traces; dedicated metrics port; RED/USE dashboards; honeytoken attribution.
 - **Exit criteria:** dashboards + alerts live; security review sign-off; trace-driven debugging demonstrated.
+- **Verification:** [`P5_SIGNOFF.md`](services/edge-gateway/docs/P5_SIGNOFF.md), [`P5_OTEL.md`](services/edge-gateway/docs/P5_OTEL.md), Grafana dashboards under `infra/grafana/dashboards/`.
+- **Landed:** OTel (`--features otel`), buyer/provider JA3+JA4, opt-in buyer TLS + ALPN h2, `BUYER_ACCEPT_WORKERS` / `SO_REUSEPORT`, honeytoken attribution.
+- **Open:** prod-default provider mTLS; formal security review sign-off.
 
-### P6 — Protocol & product expansion (3–4 weeks)
+### P6 — Protocol & product expansion (3–4 weeks) · **ingress initial landing**
 
 - **Objective:** broaden what the edge can serve.
 - **Deliverables:** HTTP/3 ingress (`quic`), SOCKS5 ingress, optional ML routing flavor proven against load data, pricing→routing integration if approved.
 - **Exit criteria:** new ingress protocols pass conformance + load; ML flavor shows measurable routing-quality lift or is shelved.
+- **Landed:** HTTP/3 CONNECT (`ingress/h3.rs`, `ENABLE_HTTP3_INGRESS`), SOCKS5 (`ingress/socks5.rs`, `ENABLE_SOCKS5`).
+- **Open:** live h3 conformance/soak; ML/pricing wiring decision; provider QUIC listener (shared with P4 deferrals).
 
 ---
 
@@ -596,23 +607,25 @@ gantt
 
 ## 15. Definition of Done — "Edge Gateway v2"
 
-v2 is considered shipped when **all** of the following hold:
+v2 is considered shipped when **all** of the following hold. Checked items are **implemented and signed off in engineering docs**; unchecked items still block declaring v2 shipped.
 
-- [ ] Config/health/ports are consistent across code, compose, and K8s; `/ready` gates traffic.
-- [ ] Default image contains no GPU/blockchain/ZK deps; heavy paths are feature-flagged flavors.
-- [ ] Score-snapshot rebuild is debounced; flamegraph shows no rebuild hotspot under heartbeat load.
-- [ ] Admission control bounds memory and protects p99 under flood.
-- [ ] Session cache is lock-free (`moka`); auth p99 < 2 ms on cache hit.
-- [ ] Challenge, anomaly, and session time limits are **enforced**, not warned.
-- [ ] A buyer can reach a provider connected to **any** pod (multi-pod scale-out).
-- [ ] A single busy provider exceeds the old throughput ceiling (transport upgrade).
-- [ ] OTel traces + RED/USE dashboards + alerts are live.
-- [ ] Load, soak, and chaos suites pass against published SLOs.
-- [ ] Service README + runbook + ADRs exist.
+- [x] Config/health/ports are consistent across code, compose, and K8s; `/ready` gates traffic. (`deploy_manifests_use_canonical_ports`, P0/P1)
+- [x] Default image contains no GPU/blockchain/ZK deps; heavy paths are feature-flagged flavors. (lean `Dockerfile`, ADR 0001)
+- [x] Score-snapshot rebuild is debounced; flamegraph shows no rebuild hotspot under heartbeat load. (P1; optional Linux flamegraph archive still open)
+- [x] Admission control bounds memory and protects p99 under flood. (P2 `p2-admission-soak.*`)
+- [x] Session cache is lock-free (`moka`); auth p99 < 2 ms on cache hit. (P1; formal SLO proof vs §8.2: [`P0_BASELINE_RUNBOOK.md`](../services/edge-gateway/docs/P0_BASELINE_RUNBOOK.md))
+- [x] Challenge, anomaly, and session time limits are **enforced**, not warned. (P2)
+- [x] A buyer can reach a provider connected to **any** pod (multi-pod scale-out). (P3a + P3b)
+- [ ] A single busy provider exceeds the old throughput ceiling (transport upgrade). (Multi-yamux shipped; QUIC listener + scale soak deferred — P4 post-items)
+- [ ] OTel traces + RED/USE dashboards + alerts are live. (OTel + Grafana provisioned; **alerts** and ops runbook not verified end-to-end)
+- [ ] Load, soak, and chaos suites pass against published SLOs. (P2 chaos/admission scripts exist; **24 h soak** and SLO baseline in runbook still open)
+- [x] Service README + runbook + ADRs exist. (README + ADRs 0001–0003 + [`P0_BASELINE_RUNBOOK.md`](../services/edge-gateway/docs/P0_BASELINE_RUNBOOK.md))
 
 ---
 
 ## 16. Review Checklist (sign-off for this blueprint)
+
+> **Note:** These checkboxes are for **product/architecture approval**, not implementation status. Engineering progress is tracked in [`REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md) and phase sign-off docs (P1–P5).
 
 - [ ] Approve the **vision & target rating** (§1) as the v2 goal.
 - [ ] Approve the **tiered data plane** direction (§4.1) and whether to start with **co-located (P3a)** or go straight to **tunnel-tier split (P3b)**.
@@ -629,7 +642,7 @@ v2 is considered shipped when **all** of the following hold:
 
 | Document | Purpose |
 |----------|---------|
-| [`EDGE_GATEWAY_DEEP_DIVE.md`](./EDGE_GATEWAY_DEEP_DIVE.md) | Current-state analysis, ratings, pros/cons, code map |
+| [`REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md) | Phase sign-offs, verification scripts, compose matrices |
 | `services/edge-gateway/src/registry/lockfree.rs` | Snapshot rebuild target (§5.1) |
 | `services/edge-gateway/src/main.rs` | Accept loop, CONNECT, bridge orchestration |
 | `services/edge-gateway/src/proxy/zerocopy.rs` | Bridge + unused `splice` (§5.5) |
@@ -639,4 +652,4 @@ v2 is considered shipped when **all** of the following hold:
 
 ---
 
-*End of blueprint — ready for review. On sign-off, P0 lands first (operational truth + baseline), then P1/P2 performance and resilience, before any scale-out work.*
+*End of blueprint — **P0–P4 complete in code**; P5/P6 largely landed; §16 stakeholder sign-off and §15 items marked open still gate "v2 shipped." See [`REMAINING_PHASES.md`](../services/edge-gateway/docs/REMAINING_PHASES.md) for the live checklist.*

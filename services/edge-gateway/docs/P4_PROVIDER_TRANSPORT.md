@@ -9,9 +9,10 @@ Blueprint: [EDGE_GATEWAY_VNEXT_BLUEPRINT.md](../../../docs/EDGE_GATEWAY_VNEXT_BL
 | Multi-yamux per provider (`YAMUX_CONNS_PER_NODE`) | Done (gateway) |
 | Round-robin stream sharding | Done |
 | `provider-node` multi-dial | Done |
-| `PROVIDER_TRANSPORT` + `quic` feature flag | Done (stub) |
+| `PROVIDER_TRANSPORT` + `quic` feature flag | Done |
 | Sign-off | [`P4_SIGNOFF.md`](P4_SIGNOFF.md) |
-| QUIC listener (`quinn`) | Post-P4 |
+| QUIC listener + client (`quinn`) | Done (gateway + `provider-node --features quic`) |
+| Transport soak | [`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md) |
 
 ## Configuration
 
@@ -38,8 +39,27 @@ cargo bench --bench transport_bench -- --test
 ./scripts/p4-transport-exit-verify.sh
 ```
 
+## QUIC provider tunnel
+
+| Item | Detail |
+|------|--------|
+| Enable | `PROVIDER_TRANSPORT=quic` and `cargo build --features quic` |
+| Listen | UDP `TUNNEL_PORT` (3128) with QUIC + TLS (same cert env as TCP tunnel) |
+| Wire | First client bidi stream → yamux → same AUTH/CAPABILITY as TCP |
+| TCP tunnel | Disabled when `PROVIDER_TRANSPORT=quic` (avoids double bind on 3128) |
+
+`provider-node`: `PROVIDER_TRANSPORT=quic`, `cargo build --features quic`, and `--use-tls` (or `use_tls=true`).
+
+## Soak
+
+```powershell
+cd services/edge-gateway
+.\scripts\p4-transport-soak.ps1
+```
+
+See [`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md). Load-lab target: 10k+ concurrent CONNECT tunnels.
+
 ## Follow-ups
 
-- Quinn QUIC listener behind `--features quic`
-- Scale soak (10k+ streams) in load lab
 - Raw-TCP elephant-flow fast path (blueprint §5.8)
+- 10k+ stream soak on dedicated load lab (script supports `SOAK_CONCURRENT`)
