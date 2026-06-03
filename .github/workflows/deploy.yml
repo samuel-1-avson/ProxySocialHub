@@ -31,8 +31,8 @@ jobs:
       matrix:
         service:
           - name: control-api
-            context: ./services/control-api
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: services/control-api/Dockerfile
           - name: edge-gateway
             context: ./services/edge-gateway
             dockerfile: Dockerfile
@@ -67,7 +67,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.service.context }}
-          file: ${{ matrix.service.context }}/${{ matrix.service.dockerfile }}
+          file: ${{ matrix.service.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
