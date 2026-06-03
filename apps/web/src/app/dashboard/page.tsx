@@ -13,6 +13,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useQuery } from "@tanstack/react-query";
 import { useRole } from "@/hooks/useRole";
 import { NewUserDashboard } from "@/components/NewUserDashboard";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function DashboardPage() {
     const { user } = useAuth();
@@ -120,11 +121,11 @@ export default function DashboardPage() {
                                 title="Settings"
                                 description="Account & protocol preferences"
                                 icon={User}
-                                href="/settings"
+                                href={ROUTES.dashboardSettingsIdentity}
                                 ctaLabel="Manage"
                             />
                             <ActionCard
-                                title="Integrity"
+                                title="Usage proofs"
                                 description="Verify trustless usage proofs"
                                 icon={ShieldCheck}
                                 href="/dashboard/trustless"

@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
-import { Listing, createOrder, createSessionFromListing, type MarketplaceProxyCredentials } from '@/lib/api/marketplace';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+    Listing,
+    createOrderWithProvisioning,
+    createSessionFromListing,
+    initiateSmartContractPayment,
+    marketplaceKeys,
+    type MarketplaceProxyCredentials,
+} from '@/lib/api/marketplace';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
@@ -18,6 +26,7 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     const { publicKey } = useWallet();
     const wallet = useAnchorWallet();
     const toast = useToast();
+    const queryClient = useQueryClient();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
@@ -36,8 +45,13 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
         });
     };
 
+    const e2eMockBuy =
+        process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
+        (typeof window !== 'undefined' &&
+            !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
+
     const handleConnect = async () => {
-        if (!wallet || !publicKey) {
+        if (!e2eMockBuy && (!wallet || !publicKey)) {
             toast.warning('Wallet required', 'Please connect your Solana wallet first.');
             return;
         }
@@ -46,18 +60,18 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
         setError('');
         try {
             // Step 1: Create order — locks in rate and creates escrow record
-            const order = await createOrder({
+            const orderResult = await createOrderWithProvisioning({
                 listing_id: listing.id,
                 bandwidth_gb: bandwidth,
                 session_type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
             });
+            const order = orderResult.order;
 
             // Step 2: Initiate on-chain escrow payment
-            const { initiateSmartContractPayment } = await import('@/lib/services/market');
             const params = await initiateSmartContractPayment(order.id);
 
             const { tx } = await initializeEscrow(
-                wallet,
+                e2eMockBuy ? { publicKey: null } : wallet,
                 params.seller_pubkey,
                 params.amount_lamports,
                 params.bandwidth_gb
@@ -65,16 +79,23 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
 
             console.log("Solana escrow tx:", tx);
 
-            // Step 3: Provision the P2P session — links to specific provider node
-            // bandwidth_limit is in bytes (0 = listing minimum)
-            const sessionResult = await createSessionFromListing({
-                listing_id: listing.id,
-                type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
-                bandwidth_limit: bandwidthLimitBytes,
-            });
+            let nextCredentials = orderResult.proxy_credentials;
+            if (!nextCredentials) {
+                // Fallback for older API responses that create the order but do not return credentials.
+                const sessionResult = await createSessionFromListing({
+                    listing_id: listing.id,
+                    type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
+                    bandwidth_limit: bandwidthLimitBytes,
+                });
+                nextCredentials = sessionResult.proxy_credentials;
+            }
+            if (!nextCredentials) {
+                throw new Error('Order created, but proxy credentials were not returned.');
+            }
 
-            setCredentials(sessionResult.proxy_credentials);
-            onSuccess(order.id, sessionResult.proxy_credentials);
+            setCredentials(nextCredentials);
+            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+            onSuccess(order.id, nextCredentials);
         } catch (err: unknown) {
             console.error(err);
             setError(getErrorMessage(err) || 'Failed to connect. Check your SOL wallet balance.');
@@ -86,7 +107,10 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     // Success: show proxy credentials
     if (credentials) {
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <div
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+                data-testid="buy-listing-modal-success"
+            >
                 <div className="bg-[#0a0a0a] border border-green-500/20 rounded-3xl p-8 max-w-md w-full space-y-6 animate-in fade-in zoom-in duration-300">
                     <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
@@ -158,7 +182,10 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            data-testid="buy-listing-modal"
+        >
             <div className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
                 {/* Header */}
@@ -240,6 +267,8 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
                     )}
 
                     <button
+                        type="button"
+                        data-testid="buy-listing-start-connection"
                         onClick={handleConnect}
                         disabled={loading}
                         className="w-full py-4 rounded-2xl bg-white text-black font-black text-lg uppercase tracking-wide hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl hover:-translate-y-0.5"

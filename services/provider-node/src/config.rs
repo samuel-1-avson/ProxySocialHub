@@ -123,6 +123,30 @@ fn default_yamux_conns_per_node() -> usize {
     1
 }
 
+/// Provider → gateway wire protocol (mirrors edge-gateway `PROVIDER_TRANSPORT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderTransport {
+    Yamux,
+    Quic,
+}
+
+impl ProviderTransport {
+    pub fn from_env() -> Self {
+        match std::env::var("PROVIDER_TRANSPORT")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("quic" | "http3") => Self::Quic,
+            _ => Self::Yamux,
+        }
+    }
+
+    pub fn quic_requested(&self) -> bool {
+        matches!(self, Self::Quic)
+    }
+}
+
 /// Read `YAMUX_CONNS_PER_NODE` (1–16). Config file value is the default when unset.
 pub fn yamux_conns_per_node_from_env() -> Option<usize> {
     const MAX: usize = 16;
@@ -219,5 +243,21 @@ mod duration_secs {
     {
         let secs = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(secs))
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::ProviderTransport;
+
+    #[test]
+    fn provider_transport_from_env() {
+        std::env::remove_var("PROVIDER_TRANSPORT");
+        assert_eq!(ProviderTransport::from_env(), ProviderTransport::Yamux);
+
+        std::env::set_var("PROVIDER_TRANSPORT", "quic");
+        assert_eq!(ProviderTransport::from_env(), ProviderTransport::Quic);
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
     }
 }

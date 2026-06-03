@@ -102,7 +102,8 @@ type ExplorerMetricsResponse struct {
 	RegionDistribution  map[string]int `json:"region_distribution,omitempty"`
 	LastUpdated         time.Time      `json:"last_updated"`
 	DataSource          string         `json:"data_source"`           // "aggregated" | "live"
-	TimeSeriesAvailable bool           `json:"time_series_available"` // hourly/daily explorer_metrics rows exist
+	TimeSeriesAvailable       bool `json:"time_series_available"`        // hourly/daily explorer_metrics rows exist
+	MetricsAggregatorEnabled bool `json:"metrics_aggregator_enabled"` // EXPLORER_METRICS_ENABLED (default on)
 }
 
 type TransactionListResponse struct {
@@ -541,6 +542,16 @@ func explorerDistinctActiveWallets(chain string, since time.Time) uint64 {
 	return uint64(count)
 }
 
+// explorerCompute24hTPS returns confirmed non-orphaned tx count in the last 24h divided by 86400.
+func explorerCompute24hTPS(chain string) float64 {
+	var tpsWindow int64
+	since := time.Now().Add(-24 * time.Hour)
+	db.DB.Model(&models.ExplorerTransaction{}).
+		Where("chain = ? AND is_orphaned = ? AND timestamp > ?", chain, false, since).
+		Count(&tpsWindow)
+	return float64(tpsWindow) / (24 * 3600)
+}
+
 func getExplorerMetrics(c *gin.Context) {
 	chain := c.DefaultQuery("chain", "all")
 
@@ -557,6 +568,12 @@ func getExplorerMetrics(c *gin.Context) {
 		if err == nil && cached != "" {
 			var response ExplorerMetricsResponse
 			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				if response.TpsWindowHours == 24 && response.TPS == 0 {
+					response.TPS = explorerCompute24hTPS(chain)
+				}
+				ts, agg := explorerMetricsResponseExtras(chain)
+				response.TimeSeriesAvailable = ts
+				response.MetricsAggregatorEnabled = agg
 				c.JSON(http.StatusOK, response)
 				return
 			}
@@ -576,10 +593,12 @@ func getExplorerMetrics(c *gin.Context) {
 			ActiveNodes:         metrics.ActiveNodes,
 			AvgBlockTime:        metrics.AverageBlockTime,
 			TotalBandwidthGB:    float64(metrics.TotalBandwidthBytes) / (1024 * 1024 * 1024),
+			TPS:                 explorerCompute24hTPS(chain),
 			TpsWindowHours:      24,
 			LastUpdated:         metrics.CreatedAt,
 			DataSource:          "aggregated",
 			TimeSeriesAvailable: explorerTimeSeriesAvailable(chain),
+			MetricsAggregatorEnabled: explorerMetricsAggregatorEnabled(),
 		}
 
 		// Cache in Redis
@@ -618,12 +637,7 @@ func getExplorerMetrics(c *gin.Context) {
 		}
 	}
 
-	// TPS: confirmed non-orphaned transactions in the last 24h
-	var tpsWindow int64
-	db.DB.Model(&models.ExplorerTransaction{}).
-		Where("chain = ? AND is_orphaned = ? AND timestamp > ?", "solana", false, time.Now().Add(-24*time.Hour)).
-		Count(&tpsWindow)
-	tps := float64(tpsWindow) / (24 * 3600)
+	tps := explorerCompute24hTPS("solana")
 
 	// Block height from latest indexed block (real Solana chain height)
 	blockHeight := uint64(0)
@@ -661,9 +675,10 @@ func getExplorerMetrics(c *gin.Context) {
 		TPS:                 tps,
 		TpsWindowHours:      24,
 		RegionDistribution:  regionDist,
-		LastUpdated:         time.Now(),
-		DataSource:          "live",
-		TimeSeriesAvailable: explorerTimeSeriesAvailable(chain),
+		LastUpdated:              time.Now(),
+		DataSource:               "live",
+		TimeSeriesAvailable:      explorerTimeSeriesAvailable(chain),
+		MetricsAggregatorEnabled: explorerMetricsAggregatorEnabled(),
 	}
 
 	// Cache in Redis
@@ -1329,22 +1344,23 @@ func getContractDetails(c *gin.Context) {
 	})
 }
 
-func getBandwidthStats(c *gin.Context) {
-	period := c.DefaultQuery("period", "24h")
-
-	var since time.Time
+// explorerPeriodSince maps public explorer period query values to a window start time.
+func explorerPeriodSince(period string) time.Time {
 	switch period {
 	case "1h":
-		since = time.Now().Add(-1 * time.Hour)
-	case "24h":
-		since = time.Now().Add(-24 * time.Hour)
+		return time.Now().Add(-1 * time.Hour)
 	case "7d":
-		since = time.Now().Add(-7 * 24 * time.Hour)
+		return time.Now().Add(-7 * 24 * time.Hour)
 	case "30d":
-		since = time.Now().Add(-30 * 24 * time.Hour)
-	default:
-		since = time.Now().Add(-24 * time.Hour)
+		return time.Now().Add(-30 * 24 * time.Hour)
+	default: // 24h
+		return time.Now().Add(-24 * time.Hour)
 	}
+}
+
+func getBandwidthStats(c *gin.Context) {
+	period := c.DefaultQuery("period", "24h")
+	since := explorerPeriodSince(period)
 
 	periodDuration := time.Since(since)
 	if periodDuration < time.Minute {
@@ -2065,9 +2081,12 @@ type ExplorerLeaderboardEntry struct {
 }
 
 type ExplorerLeaderboardResponse struct {
-	Entries  []ExplorerLeaderboardEntry `json:"entries"`
-	Category string                     `json:"category"`
-	Period   string                     `json:"period"`
+	Entries       []ExplorerLeaderboardEntry `json:"entries"`
+	Category      string                     `json:"category"`
+	Period        string                     `json:"period"`
+	DataSource    string                     `json:"data_source"`     // "indexed_nodes"
+	PeriodApplied bool                       `json:"period_applied"`  // false until time-windowed MV exists
+	Note          string                     `json:"note,omitempty"`
 }
 
 func getExplorerAnalytics(c *gin.Context) {
@@ -2186,50 +2205,147 @@ func getExplorerLeaderboard(c *gin.Context) {
 		}
 	}
 
-	var nodes []models.ExplorerNode
-	query := db.DB.Where("is_active = ?", true)
+	const leaderboardLimit = 20
+	since := explorerPeriodSince(period)
+
+	var (
+		entries       []ExplorerLeaderboardEntry
+		dataSource    string
+		periodApplied bool
+		note          string
+	)
 
 	switch category {
 	case "bandwidth":
-		query = query.Order("total_bandwidth DESC")
+		entries = explorerLeaderboardByPeriodBandwidth(since, leaderboardLimit)
+		dataSource = "usage_records"
+		periodApplied = true
 	case "sessions":
-		query = query.Order("active_sessions DESC")
-	default: // uptime
-		query = query.Order("uptime_percent DESC")
-	}
-
-	query.Limit(20).Find(&nodes)
-
-	entries := make([]ExplorerLeaderboardEntry, 0, len(nodes))
-	for i, n := range nodes {
-		bwGB := float64(n.TotalBandwidth) / (1024 * 1024 * 1024)
-		// Quality score: weighted combination of uptime (50%), sessions (25%), bandwidth (25%)
-		qualityScore := (n.UptimePercent * 0.5) + (float64(n.ActiveSessions) / 10.0 * 0.25) + (bwGB / 100.0 * 0.25)
-		if qualityScore > 100 {
-			qualityScore = 100
-		}
-		entries = append(entries, ExplorerLeaderboardEntry{
-			Rank:           i + 1,
-			NodeID:         n.NodeID,
-			Name:           n.Name,
-			Region:         n.Region,
-			Country:        n.Country,
-			UptimePercent:  n.UptimePercent,
-			BandwidthGB:    bwGB,
-			ActiveSessions: n.ActiveSessions,
-			QualityScore:   qualityScore,
-			IsValidator:    n.IsValidator,
-		})
+		entries = explorerLeaderboardByPeriodSessions(since, leaderboardLimit)
+		dataSource = "sessions"
+		periodApplied = true
+	default:
+		var nodes []models.ExplorerNode
+		db.DB.Where("is_active = ?", true).
+			Order("uptime_percent DESC").
+			Limit(leaderboardLimit).
+			Find(&nodes)
+		entries = explorerLeaderboardEntriesFromNodes(nodes)
+		dataSource = "indexed_nodes"
+		periodApplied = false
+		note = "Uptime rankings use current indexed node counters. Bandwidth and sessions categories honor the selected period."
 	}
 
 	response := ExplorerLeaderboardResponse{
-		Entries:  entries,
-		Category: category,
-		Period:   period,
+		Entries:       entries,
+		Category:      category,
+		Period:        period,
+		DataSource:    dataSource,
+		PeriodApplied: periodApplied,
+		Note:          note,
 	}
 
 	cacheResponse(c, cacheKey, response, 2*time.Minute)
 	c.JSON(http.StatusOK, response)
+}
+
+type explorerLeaderboardAggRow struct {
+	NodeID string
+	Score  int64
+}
+
+func explorerLeaderboardByPeriodBandwidth(since time.Time, limit int) []ExplorerLeaderboardEntry {
+	var rows []explorerLeaderboardAggRow
+	db.DB.Model(&models.UsageRecord{}).
+		Select("node_id::text AS node_id, COALESCE(SUM(bytes_used), 0) AS score").
+		Where("created_at >= ? AND node_id IS NOT NULL", since).
+		Group("node_id").
+		Order("score DESC").
+		Limit(limit).
+		Scan(&rows)
+	return explorerLeaderboardEntriesFromAgg(rows, func(n models.ExplorerNode, score int64) ExplorerLeaderboardEntry {
+		bwGB := float64(score) / (1024 * 1024 * 1024)
+		return explorerLeaderboardEntryFromNode(n, bwGB, n.ActiveSessions)
+	})
+}
+
+func explorerLeaderboardByPeriodSessions(since time.Time, limit int) []ExplorerLeaderboardEntry {
+	var rows []explorerLeaderboardAggRow
+	db.DB.Model(&models.Session{}).
+		Select("node_id::text AS node_id, COUNT(*) AS score").
+		Where("created_at >= ? AND node_id IS NOT NULL", since).
+		Group("node_id").
+		Order("score DESC").
+		Limit(limit).
+		Scan(&rows)
+	return explorerLeaderboardEntriesFromAgg(rows, func(n models.ExplorerNode, score int64) ExplorerLeaderboardEntry {
+		bwGB := float64(n.TotalBandwidth) / (1024 * 1024 * 1024)
+		return explorerLeaderboardEntryFromNode(n, bwGB, int(score))
+	})
+}
+
+func explorerLeaderboardEntriesFromAgg(
+	rows []explorerLeaderboardAggRow,
+	build func(models.ExplorerNode, int64) ExplorerLeaderboardEntry,
+) []ExplorerLeaderboardEntry {
+	if len(rows) == 0 {
+		return nil
+	}
+	nodeIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.NodeID != "" {
+			nodeIDs = append(nodeIDs, r.NodeID)
+		}
+	}
+	var nodes []models.ExplorerNode
+	db.DB.Where("node_id IN ?", nodeIDs).Find(&nodes)
+	byID := make(map[string]models.ExplorerNode, len(nodes))
+	for _, n := range nodes {
+		byID[n.NodeID] = n
+	}
+
+	entries := make([]ExplorerLeaderboardEntry, 0, len(rows))
+	rank := 1
+	for _, row := range rows {
+		n, ok := byID[row.NodeID]
+		if !ok {
+			continue
+		}
+		entry := build(n, row.Score)
+		entry.Rank = rank
+		entries = append(entries, entry)
+		rank++
+	}
+	return entries
+}
+
+func explorerLeaderboardEntriesFromNodes(nodes []models.ExplorerNode) []ExplorerLeaderboardEntry {
+	entries := make([]ExplorerLeaderboardEntry, 0, len(nodes))
+	for i, n := range nodes {
+		bwGB := float64(n.TotalBandwidth) / (1024 * 1024 * 1024)
+		entry := explorerLeaderboardEntryFromNode(n, bwGB, n.ActiveSessions)
+		entry.Rank = i + 1
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func explorerLeaderboardEntryFromNode(n models.ExplorerNode, bwGB float64, activeSessions int) ExplorerLeaderboardEntry {
+	qualityScore := (n.UptimePercent * 0.5) + (float64(activeSessions) / 10.0 * 0.25) + (bwGB / 100.0 * 0.25)
+	if qualityScore > 100 {
+		qualityScore = 100
+	}
+	return ExplorerLeaderboardEntry{
+		NodeID:         n.NodeID,
+		Name:           n.Name,
+		Region:         n.Region,
+		Country:        n.Country,
+		UptimePercent:  n.UptimePercent,
+		BandwidthGB:    bwGB,
+		ActiveSessions: activeSessions,
+		QualityScore:   qualityScore,
+		IsValidator:    n.IsValidator,
+	}
 }
 
 // ============================================================
@@ -2564,12 +2680,21 @@ func getHealthHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+func explorerMetricsAggregatorEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("EXPLORER_METRICS_ENABLED")))
+	return raw != "false" && raw != "0" && raw != "no"
+}
+
 func explorerTimeSeriesAvailable(chain string) bool {
 	var count int64
 	db.DB.Model(&models.ExplorerMetrics{}).
 		Where("chain = ? AND period IN ?", chain, []string{"hourly", "daily"}).
 		Count(&count)
 	return count > 0
+}
+
+func explorerMetricsResponseExtras(chain string) (timeSeriesAvailable, aggregatorEnabled bool) {
+	return explorerTimeSeriesAvailable(chain), explorerMetricsAggregatorEnabled()
 }
 
 func explorerMetricsUnavailableMessage(customRange bool) string {

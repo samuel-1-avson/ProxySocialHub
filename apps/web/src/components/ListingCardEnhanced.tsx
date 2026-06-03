@@ -142,6 +142,9 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                                 <ListingSlaBadge
                                     uptimePercent={listing.uptime_percent}
                                     slaSource={listing.sla_source}
+                                    listingOfferVerified={listing.listing_offer_verified}
+                                    listingOfferSigner={listing.listing_offer_signer}
+                                    listingOfferError={listing.listing_offer_verification_error}
                                     compact
                                 />
                             </div>

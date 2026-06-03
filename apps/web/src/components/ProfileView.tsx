@@ -316,7 +316,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         <div className="flex gap-4 pb-4">
                             {isOwnProfile ? (
                                 <Link
-                                    href="/settings"
+                                    href="/dashboard/settings/identity"
                                     className="px-10 py-5 rounded-2xl bg-white text-black font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-2xl hover:scale-105 transition-all active:scale-95"
                                 >
                                     <Edit3 size={18} /> Edit Local Buffer

@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/AppShell";
+import { ForumSubNav } from "@/components/community/ForumSubNav";
 
 export default function ForumLayout({
     children,
@@ -9,6 +10,7 @@ export default function ForumLayout({
 }) {
     return (
         <AppShell showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
+            <ForumSubNav />
             {children}
         </AppShell>
     );

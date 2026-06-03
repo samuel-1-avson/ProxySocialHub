@@ -51,6 +51,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	api.InitGatewayEndpoints(cfg.Gateway)
+	log.Printf("Buyer proxy endpoint: %s", cfg.Gateway.BuyerProxyEndpoint())
 	log.Printf("Loaded CORS Origins: %v", cfg.Server.CORSOrigins)
 
 	// Initialize DB
@@ -407,21 +409,23 @@ func main() {
 		api.RegisterAuthRoutes(v1)
 		api.RegisterMarketplaceGeoRoutes(v1) // Before /listings/:id (map pins)
 		api.RegisterListingRoutes(v1)        // Mix of public/private
-		api.RegisterListingSocialRoutes(v1) // Social integration for listings
-		api.RegisterMilestoneRoutes(v1)     // Usage milestones
-		api.RegisterUsageReviewRoutes(v1)   // Usage-based reviews
-		api.RegisterCirclePoolRoutes(v1)    // Circle bandwidth pooling
-		api.RegisterFeedRoutes(v1)          // Mix of public/private (Discover)
-		api.RegisterProfileRoutes(v1)       // Public profiles
+		api.RegisterListingSocialRoutes(v1)  // Social integration for listings
+		api.RegisterMilestoneRoutes(v1)      // Usage milestones
+		api.RegisterUsageReviewRoutes(v1)    // Usage-based reviews
+		api.RegisterCirclePoolRoutes(v1)     // Circle bandwidth pooling
+		api.RegisterFeedRoutes(v1)           // Mix of public/private (Discover)
+		api.RegisterProfileRoutes(v1)        // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterKYCRoutes(v1)
-		api.RegisterReputationRoutes(v1)   // Phase 9.2 Trust Layer
-		api.RegisterExplorerRoutes(v1)     // System Explorer (Public blockchain explorer)
-		api.RegisterExplorerWSRoutes(v1)   // Explorer WebSocket for real-time updates
-		api.RegisterSDKRoutes(v1)          // P1-A5: SDK Examples API
-		api.RegisterGatewayRoutes(v1, cfg) // Gateway node registration and heartbeat
-		api.RegisterTreasuryPublicRoutes(v1) // Phase 4.3: public treasury transparency
+		api.RegisterReputationRoutes(v1)      // Phase 9.2 Trust Layer
+		api.RegisterExplorerRoutes(v1)        // System Explorer (Public blockchain explorer)
+		api.RegisterExplorerWSRoutes(v1)      // Explorer WebSocket for real-time updates
+		api.RegisterSDKRoutes(v1)             // P1-A5: SDK Examples API
+		api.RegisterGatewayRoutes(v1, cfg)    // Gateway node registration and heartbeat
+		api.RegisterTreasuryPublicRoutes(v1)  // Phase 4.3: public treasury transparency
+		api.RegisterForumPublicRoutes(v1)     // Public forum browse/search/read endpoints
+		api.RegisterAgentPublicRoutes(v1)     // Public agent marketplace browse
 		solanaClient.RegisterPublicRoutes(v1) // Oracle/RPC health (no auth)
 	}
 
@@ -455,7 +459,7 @@ func main() {
 		api.RegisterReferralRoutes(protected)
 		api.RegisterSubscriptionRoutes(protected)
 		api.RegisterLinkedWalletRoutes(protected)
-		api.RegisterForumRoutes(protected) // Mostly private (posting)
+		api.RegisterForumProtectedRoutes(protected)
 		api.RegisterMessagingRoutes(protected)
 		api.RegisterFriendRoutes(protected)
 		api.RegisterNotificationRoutes(protected)
@@ -463,7 +467,7 @@ func main() {
 		api.RegisterWebSocketRoutes(protected) // WebSocket for real-time updates
 
 		api.RegisterProtectedReviewRoutes(protected)
-		api.RegisterAgentRoutes(protected)
+		api.RegisterAgentProtectedRoutes(protected)
 		api.RegisterAgentRegistryRoutes(protected)
 		// Analytics & Geo
 		api.RegisterAnalyticsRoutes(protected)
@@ -615,6 +619,8 @@ func main() {
 	if os.Getenv("EXPLORER_METRICS_ENABLED") != "false" {
 		indexer.StartExplorerMetricsAggregator(indexer.ExplorerMetricsIntervalFromEnv())
 		log.Println("Explorer metrics aggregator started")
+	} else {
+		log.Println("Explorer metrics aggregator disabled (EXPLORER_METRICS_ENABLED=false)")
 	}
 
 	// Start Governance Proposal Worker

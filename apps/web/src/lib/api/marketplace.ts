@@ -41,6 +41,10 @@ export interface Listing {
     is_priority: boolean;
     zk_proof?: string;
     privacy_enabled?: boolean;
+    listing_offer_verified?: boolean;
+    listing_offer_signer?: string;
+    listing_offer_signed_at?: string;
+    listing_offer_verification_error?: string;
     created_at: string;
     seller?: {
         id: string;
@@ -96,6 +100,60 @@ export interface CreateOrderRequest {
     listing_id: string;
     bandwidth_gb: number;
     session_type?: 'rotating' | 'sticky';
+}
+
+export interface CreateOrderResponse {
+    order: Order;
+    session?: {
+        id: string;
+        status: string;
+        type: string;
+        listing_id?: string;
+        node_id?: string;
+        expires_at?: string;
+        created_at: string;
+    };
+    proxy_credentials?: MarketplaceProxyCredentials;
+}
+
+export interface CreateListingRequest {
+    title: string;
+    description?: string;
+    provider_node_id?: string;
+    proxy_type: string;
+    protocol: string;
+    rotation_type?: string;
+    country?: string;
+    isp?: string;
+    price_per_gb: number;
+    min_purchase_gb?: number;
+    available_bandwidth_gb: number;
+    max_concurrency?: number;
+    bulk_discounts?: Array<{
+        min_gb: number;
+        price_per_gb: number;
+    }>;
+    listing_offer_expires_at?: number;
+    proof?: ProviderProofEnvelope;
+}
+
+export interface ProviderProofEnvelope {
+    message_type: string;
+    version: string;
+    provider_node_id: string;
+    gateway_node_id?: string;
+    provider_hotkey: string;
+    issued_at: number;
+    nonce: string;
+    payload_hash: string;
+    signature: string;
+}
+
+export interface MyListingsResponse {
+    listings: Listing[];
+    total: number;
+    page: number;
+    limit: number;
 }
 
 export interface SessionFromListingRequest {
@@ -184,6 +242,10 @@ export interface MarketplaceGeoPin {
     sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
     geo_resolved: boolean;
     purchasable: boolean;
+    listing_offer_verified?: boolean;
+    listing_offer_signer?: string;
+    listing_offer_signed_at?: string;
+    listing_offer_verification_error?: string;
 }
 
 export interface MarketplaceGeoResponse {
@@ -198,12 +260,82 @@ export interface MarketplaceGeoFilters {
     bbox?: string;
 }
 
+export interface MarketplaceMapPoint {
+    id: string;
+    kind: 'listing' | 'node';
+    lat: number;
+    lon: number;
+    title: string;
+    country?: string;
+    city?: string;
+    isp?: string;
+    status: 'active' | 'offline' | 'paused' | 'sold_out' | 'unknown' | string;
+    purchasable: boolean;
+    listing_id?: string;
+    node_id?: string;
+    seller_id?: string;
+    proxy_type?: string;
+    protocol?: string;
+    price_per_gb?: number;
+    available_bandwidth_gb?: number;
+    uptime_percent?: number;
+    latency_ms?: number;
+    is_validator?: boolean;
+    active_sessions?: number;
+    sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
+    geo_source: 'gps' | 'gateway' | 'explorer' | 'provider' | 'country_centroid' | 'unknown' | string;
+    listing_offer_verified?: boolean;
+    listing_offer_signer?: string;
+    listing_offer_signed_at?: string;
+    listing_offer_verification_error?: string;
+    heartbeat_verified?: boolean;
+    heartbeat_signer?: string;
+    heartbeat_signed_at?: string;
+    heartbeat_verification_error?: string;
+}
+
+export interface MarketplaceMapResponse {
+    points: MarketplaceMapPoint[];
+    total: number;
+    listing_count: number;
+    node_count: number;
+    bbox_applied: boolean;
+    generated_at: string;
+}
+
+export interface MarketplaceMapFilters {
+    country?: string;
+    proxy_type?: string;
+    protocol?: string;
+    min_price?: number | string;
+    max_price?: number | string;
+    min_uptime?: number | string;
+    max_latency?: number | string;
+    purchasable_only?: boolean;
+    include_nodes?: boolean;
+    active_nodes_only?: boolean;
+    /** west,south,east,north */
+    bbox?: string;
+}
+
 export function getMarketplaceGeo(filters?: MarketplaceGeoFilters) {
     const params: Record<string, string> = {};
     if (filters?.country) params.country = filters.country;
     if (filters?.proxy_type) params.proxy_type = filters.proxy_type;
     if (filters?.bbox) params.bbox = filters.bbox;
     return publicApiGet<MarketplaceGeoResponse>('/v1/listings/geo', params);
+}
+
+export function getMarketplaceMapPoints(filters?: MarketplaceMapFilters) {
+    const params: Record<string, string> = {};
+    if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                params[key] = String(value);
+            }
+        });
+    }
+    return publicApiGet<MarketplaceMapResponse>('/v1/marketplace/map', params);
 }
 
 export function getListings(filters?: ListingFilters) {
@@ -247,10 +379,89 @@ export function searchListings(query: string) {
 }
 
 /**
- * Create a new order
+ * Get current provider/seller listings.
  */
-export function createOrder(data: CreateOrderRequest) {
-    return apiPost<Order>('/v1/orders', data);
+export function getMyListings(page = 1, limit = 20) {
+    return apiGet<MyListingsResponse>('/v1/listings/my', {
+        page: String(page),
+        limit: String(limit),
+    });
+}
+
+export interface ListingProofPolicy {
+    mode: 'observe' | 'enforce';
+    required: boolean;
+    /** Dev/docker: control-api can sign with PROXYHUB_PROVIDER_SIGNING_KEY when wallet ≠ node hotkey */
+    dev_server_signing?: boolean;
+}
+
+/**
+ * Whether signed listing offers are required (public, no auth).
+ */
+export function getListingProofPolicy() {
+    return publicApiGet<ListingProofPolicy>('/v1/system/provider-proof-policy');
+}
+
+export interface SignListingOfferDevResponse {
+    proof: ProviderProofEnvelope;
+    dev_server_signing?: boolean;
+}
+
+/**
+ * Dev-only: sign a listing create payload with the server provider signing key.
+ */
+export function signListingOfferDev(data: CreateListingRequest) {
+    return apiPost<SignListingOfferDevResponse, CreateListingRequest>(
+        '/v1/provider/listings/sign-offer',
+        data
+    );
+}
+
+/**
+ * Create a new marketplace listing.
+ */
+export function createListing(data: CreateListingRequest) {
+    return apiPost<Listing, CreateListingRequest>('/v1/listings', data);
+}
+
+/**
+ * Soft-delete a marketplace listing owned by the current seller.
+ */
+export function deleteListing(id: string) {
+    return apiDelete<{ message: string }>(`/v1/listings/${id}`);
+}
+
+/**
+ * Save a marketplace listing for the current user.
+ */
+export function saveListing(id: string) {
+    return apiPost<{ message: string }>(`/v1/listings/${id}/save`);
+}
+
+/**
+ * Remove a marketplace listing from the current user's saved list.
+ */
+export function unsaveListing(id: string) {
+    return apiDelete<{ message: string }>(`/v1/listings/${id}/save`);
+}
+
+/**
+ * Create a new order and return the full backend provisioning response.
+ */
+export async function createOrderWithProvisioning(data: CreateOrderRequest) {
+    const response = await apiPost<Order | CreateOrderResponse, CreateOrderRequest>('/v1/orders', data);
+    if (response && typeof response === 'object' && 'order' in response) {
+        return response as CreateOrderResponse;
+    }
+    return { order: response as Order };
+}
+
+/**
+ * Create a new order.
+ */
+export async function createOrder(data: CreateOrderRequest) {
+    const response = await createOrderWithProvisioning(data);
+    return response.order;
 }
 
 /**
@@ -340,8 +551,11 @@ export const marketplaceKeys = {
     all: ['marketplace'] as const,
     listings: (filters?: ListingFilters) => [...marketplaceKeys.all, 'listings', filters] as const,
     listing: (id: string) => [...marketplaceKeys.all, 'listing', id] as const,
+    map: (filters?: MarketplaceMapFilters) => [...marketplaceKeys.all, 'map', filters] as const,
     featured: () => [...marketplaceKeys.all, 'featured'] as const,
     search: (query: string) => [...marketplaceKeys.all, 'search', query] as const,
+    myListings: (page?: number) => [...marketplaceKeys.all, 'my-listings', page] as const,
+    saved: () => [...marketplaceKeys.all, 'saved'] as const,
     orders: (status?: string) => [...marketplaceKeys.all, 'orders', status] as const,
     order: (id: string) => [...marketplaceKeys.all, 'order', id] as const,
 };

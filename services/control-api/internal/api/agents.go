@@ -10,15 +10,30 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterAgentRoutes registers the agent marketplace routes
-func RegisterAgentRoutes(r *gin.RouterGroup) {
+// RegisterAgentPublicRoutes registers read-only agent marketplace routes.
+func RegisterAgentPublicRoutes(r *gin.RouterGroup) {
 	agents := r.Group("/agents")
 	{
 		agents.GET("", ListMarketAgents)
+	}
+}
+
+// RegisterAgentProtectedRoutes registers authenticated agent actions.
+func RegisterAgentProtectedRoutes(r *gin.RouterGroup) {
+	agents := r.Group("/agents")
+	{
 		agents.POST("/rent", RentAgentInstance)
 		agents.GET("/instances", ListUserInstances)
 		agents.POST("/instances/:id/execute", ExecuteAgentJob)
 	}
+}
+
+// RegisterAgentRoutes registers all agent marketplace routes on the given group.
+// Prefer RegisterAgentPublicRoutes and RegisterAgentProtectedRoutes in app setup
+// so public browse and authenticated actions stay explicit.
+func RegisterAgentRoutes(r *gin.RouterGroup) {
+	RegisterAgentPublicRoutes(r)
+	RegisterAgentProtectedRoutes(r)
 }
 
 func parseUUID(s string) uuid.UUID {

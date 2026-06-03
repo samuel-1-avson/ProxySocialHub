@@ -35,7 +35,7 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                         <span className="font-bold text-lg font-mono">PS</span>
                     </div>
                     <span className="text-xl font-bold tracking-tighter font-mono text-foreground hidden sm:inline group-hover:underline decoration-2 underline-offset-4 decoration-primary uppercase">
-                        ProxyHub
+                        ProxyHubb
                     </span>
                 </Link>
 
@@ -154,7 +154,7 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                                     <Wallet size={16} /> WALLET
                                 </Link>
                                 <Link
-                                    href={ROUTES.settingsNotifications}
+                                    href={ROUTES.dashboardSettingsNotifications}
                                     onClick={() => setMobileMenuOpen(false)}
                                     className="block px-4 py-3 rounded-sm font-mono text-sm font-medium text-foreground hover:bg-accent border border-transparent hover:border-border"
                                 >

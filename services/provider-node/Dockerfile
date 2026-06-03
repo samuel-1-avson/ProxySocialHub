@@ -22,7 +22,12 @@ RUN cargo fetch --locked
 
 COPY src ./src
 
-RUN cargo build --release --locked
+ARG ENABLE_QUIC=0
+RUN if [ "$ENABLE_QUIC" = "1" ]; then \
+      cargo build --release --locked --features quic; \
+    else \
+      cargo build --release --locked; \
+    fi
 
 FROM debian:bookworm-slim
 

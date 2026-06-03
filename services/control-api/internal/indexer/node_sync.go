@@ -31,13 +31,13 @@ func GetNodeSync() *NodeSync {
 
 // NodeSync periodically synchronizes active nodes to explorer tables
 type NodeSync struct {
-	isRunning    int32 // accessed atomically
-	interval     time.Duration
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.RWMutex
-	db           *gorm.DB
-	callbacks    NodeSyncCallbacks
+	isRunning int32 // accessed atomically
+	interval  time.Duration
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.RWMutex
+	db        *gorm.DB
+	callbacks NodeSyncCallbacks
 }
 
 // SetCallbacks sets notification callbacks called after each DB write.
@@ -49,7 +49,7 @@ func (ns *NodeSync) SetCallbacks(cb NodeSyncCallbacks) {
 
 // NodeSyncConfig holds configuration for node synchronization
 type NodeSyncConfig struct {
-	Interval     time.Duration
+	Interval time.Duration
 }
 
 // NewNodeSync creates a new node sync instance
@@ -66,7 +66,7 @@ func NewNodeSync(cfg NodeSyncConfig) *NodeSync {
 		cancel:   cancel,
 		db:       db.DB,
 	}
-	
+
 	// Store as global instance for access by other packages
 	globalNodeSync = ns
 	return ns
@@ -124,13 +124,12 @@ func (ns *NodeSync) loop() {
 	}
 }
 
-// syncNodes synchronizes nodes from the main nodes table to explorer_nodes
+// syncNodes synchronizes canonical provider_nodes to explorer_nodes.
 func (ns *NodeSync) syncNodes() error {
 	logging.Debug().Msg("[NodeSync] Starting node synchronization")
 
-	// Get all active nodes from main nodes table
-	var nodes []models.Node
-	if err := ns.db.Where("is_healthy = ?", true).Find(&nodes).Error; err != nil {
+	var nodes []models.ProviderNode
+	if err := ns.db.Where("is_healthy = ? OR status = ?", true, models.NodeOnline).Find(&nodes).Error; err != nil {
 		return err
 	}
 
@@ -157,7 +156,7 @@ func (ns *NodeSync) syncNodes() error {
 }
 
 // syncNode synchronizes a single node
-func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
+func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error {
 	// Get or create explorer node
 	var explorerNode models.ExplorerNode
 
@@ -187,9 +186,9 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 	// P0-13: resolve real coordinates from the node's IP address instead of
 	// leaving them as the default (0, 0) forever.
 	var (
-		lat, lon    float64
-		city, isp   string
-		country     = ns.getCountryFromRegion(region)
+		lat, lon  float64
+		city, isp string
+		country   = ns.getCountryFromRegion(region)
 	)
 	if node.IPAddress != "" {
 		if geo, ok := geoip.Resolve(node.IPAddress); ok {
@@ -208,10 +207,10 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 	// Get provider info
 	var providerID string
 	var providerUsername string
-	if node.ProviderUserID != uuid.Nil {
-		providerID = node.ProviderUserID.String()
+	if node.UserID != uuid.Nil {
+		providerID = node.UserID.String()
 		var provider models.User
-		if err := ns.db.Where("id = ?", node.ProviderUserID).First(&provider).Error; err == nil {
+		if err := ns.db.Where("id = ?", node.UserID).First(&provider).Error; err == nil {
 			if provider.Username != nil {
 				providerUsername = *provider.Username
 			}
@@ -224,7 +223,7 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 		Name:             ns.getNodeName(node),
 		IP:               node.IPAddress,
 		Region:           region,
-		Country:          country,
+		Country:          firstNonEmpty(node.Country, country),
 		City:             city,
 		ISP:              isp,
 		Latitude:         lat,
@@ -236,7 +235,7 @@ func (ns *NodeSync) syncNode(node models.Node, stats SessionStats) error {
 		ActiveSessions:   stats.ActiveSessions,
 		ProviderUserID:   providerID,
 		ProviderUsername: providerUsername,
-		LastHeartbeat:    node.LastSeenAt,
+		LastHeartbeat:    providerNodeLastSeen(node),
 		Version:          "", // Node model doesn't have Version field
 	}
 
@@ -314,12 +313,12 @@ func (ns *NodeSync) calculateNodeBandwidth(nodeID string) uint64 {
 
 // calculateNodeUptime calculates uptime percentage from the last heartbeat time.
 // Returns 100% if seen within 5 minutes, then decays linearly to 0% at 24 hours.
-func (ns *NodeSync) calculateNodeUptime(node models.Node) float64 {
-	if node.LastSeenAt.IsZero() {
+func (ns *NodeSync) calculateNodeUptime(node models.ProviderNode) float64 {
+	if node.LastSeenAt == nil || node.LastSeenAt.IsZero() {
 		return 0.0
 	}
 
-	timeSinceLastSeen := time.Since(node.LastSeenAt)
+	timeSinceLastSeen := time.Since(*node.LastSeenAt)
 
 	if timeSinceLastSeen < 5*time.Minute {
 		return 100.0
@@ -334,7 +333,7 @@ func (ns *NodeSync) calculateNodeUptime(node models.Node) float64 {
 }
 
 // markInactiveNodes marks nodes as inactive if they're not in the active nodes list
-func (ns *NodeSync) markInactiveNodes(activeNodes []models.Node) error {
+func (ns *NodeSync) markInactiveNodes(activeNodes []models.ProviderNode) error {
 	activeIDs := make([]string, len(activeNodes))
 	for i, node := range activeNodes {
 		activeIDs[i] = node.ID.String()
@@ -354,10 +353,10 @@ func (ns *NodeSync) markInactiveNodes(activeNodes []models.Node) error {
 }
 
 // getNodeName gets a display name for the node
-func (ns *NodeSync) getNodeName(node models.Node) string {
+func (ns *NodeSync) getNodeName(node models.ProviderNode) string {
 	// Try to get provider name
 	var provider models.User
-	if err := ns.db.Where("id = ?", node.ProviderUserID).First(&provider).Error; err == nil {
+	if err := ns.db.Where("id = ?", node.UserID).First(&provider).Error; err == nil {
 		if provider.Username != nil {
 			return *provider.Username
 		}
@@ -394,13 +393,29 @@ func (ns *NodeSync) getCountryFromRegion(region string) string {
 
 // SyncNodeNow immediately syncs a specific node (for use by other services)
 func (ns *NodeSync) SyncNodeNow(nodeID string) error {
-	var node models.Node
+	var node models.ProviderNode
 	if err := ns.db.Where("id = ?", nodeID).First(&node).Error; err != nil {
 		return err
 	}
 
 	stats := ns.getSessionStats()
 	return ns.syncNode(node, stats[nodeID])
+}
+
+func providerNodeLastSeen(node models.ProviderNode) time.Time {
+	if node.LastSeenAt == nil {
+		return time.Time{}
+	}
+	return *node.LastSeenAt
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // GetNodeCount returns the total number of explorer nodes

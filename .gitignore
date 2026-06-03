@@ -60,6 +60,7 @@ npm-debug.log*
 .env.test
 .env.production
 config/docker/provider.compose.env
+config/docker/provider.toml
 
 # Security - Secrets and Credentials
 *.key

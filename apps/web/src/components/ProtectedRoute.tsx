@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { isRoleAllowedForPolicy } from "@/lib/navigation/policies";
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
@@ -24,7 +25,7 @@ export function ProtectedRoute({ children, requireAuth = true, requiredRole }: P
 
     useEffect(() => {
         // Check role if required
-        if (requireAuth && !isLoading && isAuthenticated && requiredRole && user?.role !== requiredRole) {
+        if (requireAuth && !isLoading && isAuthenticated && requiredRole && !isRequiredRoleAllowed(user?.role, requiredRole)) {
             // User doesn't have required role
             if (requiredRole === "provider" && user?.role === "buyer") {
                 router.push("/dashboard?error=provider_required");
@@ -62,7 +63,7 @@ export function ProtectedRoute({ children, requireAuth = true, requiredRole }: P
     }
 
     // Wrong role
-    if (requiredRole && user?.role !== requiredRole) {
+    if (requiredRole && !isRequiredRoleAllowed(user?.role, requiredRole)) {
         return (
             <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
                 <div className="text-center">
@@ -90,3 +91,11 @@ export function withAuth<P extends object>(
 }
 
 export default ProtectedRoute;
+
+function isRequiredRoleAllowed(role: string | undefined, requiredRole: "buyer" | "provider" | "admin") {
+    if (requiredRole === "provider") return isRoleAllowedForPolicy(role, "provider");
+    if (requiredRole === "admin") return isRoleAllowedForPolicy(role, "admin");
+
+    const normalizedRole = role?.trim().toLowerCase();
+    return normalizedRole === "buyer" || normalizedRole === "consumer" || normalizedRole === "both" || normalizedRole === "admin";
+}
