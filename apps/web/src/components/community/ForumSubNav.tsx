@@ -28,7 +28,9 @@ export function ForumSubNav() {
             aria-label="Forum sections"
             className="flex flex-wrap gap-2 border-b border-border pb-4 mb-6"
         >
-            {FORUM_LINKS.map(({ href, label, icon: Icon, exact }) => {
+            {FORUM_LINKS.map((link) => {
+                const { href, label, icon: Icon } = link;
+                const exact = 'exact' in link ? link.exact : undefined;
                 const active = isForumLinkActive(pathname, href, exact);
                 return (
                     <Link
