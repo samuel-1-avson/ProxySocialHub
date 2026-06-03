@@ -7,7 +7,7 @@
 #[cfg(feature = "quic")]
 pub fn log_transport_status() {
     tracing::info!(
-        "PROVIDER_TRANSPORT=quic: quic feature enabled; yamux/TCP on TUNNEL_PORT remains the active provider path until quinn listener ships"
+        "PROVIDER_TRANSPORT=quic: listening on UDP TUNNEL_PORT (yamux on first QUIC bidi stream); provider-node uses open_bi + --features quic"
     );
 }
 

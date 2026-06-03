@@ -2,7 +2,7 @@
 //!
 //! Today providers connect over TCP + yamux (`TUNNEL_PORT`). Multiple parallel
 //! yamux sessions per node shard buyer streams across connections (see
-//! `YAMUX_CONNS_PER_NODE`). QUIC is behind the `quic` feature flag until P4.2.
+//! `YAMUX_CONNS_PER_NODE`). QUIC provider ingress: `--features quic` + `PROVIDER_TRANSPORT=quic`.
 
 pub mod quic;
 #[cfg(feature = "quic")]

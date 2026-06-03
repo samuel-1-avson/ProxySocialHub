@@ -200,10 +200,7 @@ impl ControlApiClient {
         status: &str,
         reason: Option<&str>,
     ) -> Result<()> {
-        let url = format!(
-            "{}/v1/gateway/nodes/{}/status",
-            self.base_url, db_node_id
-        );
+        let url = format!("{}/v1/gateway/nodes/{}/status", self.base_url, db_node_id);
 
         let req = StatusUpdateRequest {
             is_healthy,
@@ -278,9 +275,7 @@ impl ControlApiClient {
             let text = response.text().await.unwrap_or_default();
             warn!(
                 "Session intent state update failed for {} ({}): {}",
-                intent_id,
-                lifecycle_state,
-                text
+                intent_id, lifecycle_state, text
             );
             Err(Error::Internal(format!(
                 "Session intent state update failed: {}",
@@ -332,8 +327,7 @@ impl ControlApiClient {
             let text = response.text().await.unwrap_or_default();
             warn!(
                 "Session intent usage update failed for {}: {}",
-                intent_id,
-                text
+                intent_id, text
             );
             Err(Error::Internal(format!(
                 "Session intent usage update failed: {}",

@@ -65,6 +65,25 @@ impl Default for HoneytokenRegistry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_matches_host_and_strips_port() {
+        let reg = HoneytokenRegistry::new();
+        assert_eq!(
+            reg.check("169.254.169.254"),
+            Some(HoneytokenType::SensitiveEndpoint)
+        );
+        assert_eq!(
+            reg.check("169.254.169.254:80"),
+            Some(HoneytokenType::SensitiveEndpoint)
+        );
+        assert_eq!(reg.check("example.com"), None);
+    }
+}
+
 /// A "sink" for malicious connections. Emits data that confuses scrapers.
 pub mod sink {
     use std::io;

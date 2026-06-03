@@ -1,5 +1,5 @@
-pub mod session_intent;
 pub mod provider_lease;
+pub mod session_intent;
 
 mod redis_keys {
     /// Pre-sized Redis keys (one allocation, no `format!` macro).
@@ -50,9 +50,9 @@ mod redis_keys {
 
 use crate::metrics;
 use crate::redis_pool::PooledConnectionManager;
+use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use redis::AsyncCommands;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::time::Duration;
@@ -433,8 +433,7 @@ impl SessionData {
 
         if self.time_limit_minutes > 0 {
             if let Some(created_at) = self.created_at {
-                let limit =
-                    chrono::Duration::minutes(i64::from(self.time_limit_minutes.max(1)));
+                let limit = chrono::Duration::minutes(i64::from(self.time_limit_minutes.max(1)));
                 if now > created_at + limit {
                     return false;
                 }
@@ -458,7 +457,10 @@ pub async fn revalidate_live_session(
         return session.intent_still_valid();
     }
 
-    matches!(authenticator.validate_session(username, true).await, Ok(Some(_)))
+    matches!(
+        authenticator.validate_session(username, true).await,
+        Ok(Some(_))
+    )
 }
 
 fn is_session_intent_username(username: &str) -> bool {

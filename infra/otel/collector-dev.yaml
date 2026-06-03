@@ -1,0 +1,17 @@
+# Dev/staging OpenTelemetry Collector (traces only).
+# edge-gateway: OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
