@@ -17,8 +17,42 @@ env:
   RUST_VERSION: 'stable'
 
 jobs:
+  # ==================== Secret / keypair gate (always) ====================
+  secrets-gate:
+    name: Secrets & keypair gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail on tracked keypair or env secret files
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files \
+            'infra/oracle-keypair.json' \
+            'treasury-keypair.json' \
+            'provider-keypair.json' \
+            'oracle-keypair.json' \
+            '.env' \
+            'config/docker/provider.compose.env' \
+            || true)
+          bad=$(echo "$bad" | grep -v '\.example$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Tracked secret-like files (remove with git rm --cached):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "No tracked keypair or .env files in index."
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ==================== Changes Detection ====================
   changes:
+    needs: secrets-gate
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -46,7 +80,7 @@ jobs:
 
   # ==================== Backend (Go) ====================
   backend-test:
-    needs: changes
+    needs: [secrets-gate, changes]
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
@@ -195,9 +229,23 @@ jobs:
       
     - name: Run linter
       run: npm run lint
-      
+
+    - name: Validate route registry
+      run: npm run validate:routes
+
     - name: Type check
-      run: npx tsc --noEmit
+      run: npm run typecheck
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Fast map E2E
+      run: npm run test:e2e:map
+      env:
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
+        NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: "1"
       
     - name: Build
       run: npm run build
@@ -261,7 +309,7 @@ jobs:
       # Sign-off: services/edge-gateway/docs/P3_SIGNOFF.md
 
     - name: Check optional feature bundles compile
-      run: cargo check --features legacy-zk,blockchain,pricing,ml
+      run: cargo check --features legacy-zk,blockchain,pricing,ml,otel
 
   # ==================== Solana Programs ====================
   solana-check:

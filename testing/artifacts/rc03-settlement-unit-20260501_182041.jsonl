@@ -1,8 +1,0 @@
-{"Time":"2026-05-01T18:20:56.5658822Z","Action":"start","Package":"github.com/proxyhubb/control-api/internal/billing"}
-{"Time":"2026-05-01T18:20:56.7170468Z","Action":"run","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle"}
-{"Time":"2026-05-01T18:20:56.7170468Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Output":"=== RUN   TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle\n"}
-{"Time":"2026-05-01T18:20:58.5149072Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Output":"--- PASS: TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle (1.80s)\n"}
-{"Time":"2026-05-01T18:20:58.5149072Z","Action":"pass","Package":"github.com/proxyhubb/control-api/internal/billing","Test":"TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle","Elapsed":1.8}
-{"Time":"2026-05-01T18:20:58.5154277Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"PASS\n"}
-{"Time":"2026-05-01T18:20:58.5263712Z","Action":"output","Package":"github.com/proxyhubb/control-api/internal/billing","Output":"ok  \tgithub.com/proxyhubb/control-api/internal/billing\t1.959s\n"}
-{"Time":"2026-05-01T18:20:58.5269109Z","Action":"pass","Package":"github.com/proxyhubb/control-api/internal/billing","Elapsed":1.9609999999999999}
