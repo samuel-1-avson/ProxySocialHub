@@ -1027,11 +1027,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProviderListResponse'
 
-  # ==================== Services ====================
+  # ==================== Services (deprecated — use /v1/listings) ====================
   /v1/services:
     get:
+      deprecated: true
       tags: [Services]
-      summary: Discover active marketplace services with filters
+      summary: Discover active marketplace services with filters (deprecated)
+      description: Deprecated. Use GET /v1/listings. Sunset 2026-09-01. See docs/MARKETPLACE_DISCOVERY_API.md.
       operationId: discoverServices
       security:
         - bearerAuth: []
@@ -1118,8 +1120,9 @@ paths:
 
   /v1/services/filters:
     get:
+      deprecated: true
       tags: [Services]
-      summary: Get available service discovery filter values
+      summary: Get available service discovery filter values (deprecated)
       operationId: getAvailableFilters
       security:
         - bearerAuth: []
@@ -1133,8 +1136,9 @@ paths:
 
   /v1/services/routing-profiles:
     get:
+      deprecated: true
       tags: [Services]
-      summary: List active routing profiles used for intelligent matching
+      summary: List active routing profiles used for intelligent matching (deprecated)
       operationId: getRoutingProfiles
       security:
         - bearerAuth: []
@@ -1148,8 +1152,9 @@ paths:
 
   /v1/services/geo-coverage:
     get:
+      deprecated: true
       tags: [Services]
-      summary: Get marketplace geo coverage aggregates
+      summary: Get marketplace geo coverage aggregates (deprecated)
       operationId: getGeoCoverage
       security:
         - bearerAuth: []
@@ -1163,8 +1168,9 @@ paths:
 
   /v1/services/match:
     post:
+      deprecated: true
       tags: [Services]
-      summary: Match services using a routing profile or use-case hints
+      summary: Match services using a routing profile or use-case hints (deprecated)
       operationId: matchServices
       security:
         - bearerAuth: []
@@ -1186,7 +1192,8 @@ paths:
   /v1/listings:
     get:
       tags: [Listings]
-      summary: Browse marketplace listings with basic filters
+      summary: Browse marketplace listings (canonical discovery API)
+      description: Primary buyer discovery surface. Replaces deprecated GET /v1/services for new integrations.
       operationId: getListings
       parameters:
         - name: page
@@ -1208,6 +1215,39 @@ paths:
           in: query
           schema:
             type: string
+        - name: protocols
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filters by service_configurations protocol flags (http, https, socks5, ssh)
+        - name: min_quality_score
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_success_rate
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_uptime_percent
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_bandwidth_mbps
+          in: query
+          schema:
+            type: integer
+        - name: min_rating
+          in: query
+          schema:
+            type: number
+            format: float
         - name: min_price
           in: query
           schema:
@@ -1278,6 +1318,177 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListingSummaryCollectionResponse'
+
+  /v1/listings/facets:
+    get:
+      tags: [Listings]
+      summary: Aggregated browse dimensions (countries, proxy types, ISPs, price bands)
+      operationId: getListingFacets
+      responses:
+        '200':
+          description: Facet buckets for active listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingFacetsResponse'
+
+  /v1/listings/collections:
+    get:
+      tags: [Listings]
+      summary: Curated collection summaries with active listing counts
+      operationId: getListingCollections
+      responses:
+        '200':
+          description: Collection catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionsIndexResponse'
+
+  /v1/listings/collections/{slug}:
+    get:
+      tags: [Listings]
+      summary: Paginated listings in a curated collection
+      operationId: getListingCollectionBySlug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [featured, verified, editors-pick]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Collection page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionPageResponse'
+        '404':
+          description: Unknown collection slug
+
+  /v1/marketplace/funnel-events:
+    post:
+      tags: [Marketplace]
+      summary: Ingest client marketplace funnel events (listing_view, buy_modal_open)
+      operationId: ingestMarketplaceFunnelEvent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event]
+              properties:
+                event:
+                  type: string
+                  enum: [listing_view, buy_modal_open]
+                schema_version:
+                  type: string
+                  default: marketplace.funnel.v1
+                listing_id:
+                  type: string
+                  format: uuid
+                order_id:
+                  type: string
+                  format: uuid
+                surface:
+                  type: string
+                meta:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Event accepted
+        '400':
+          description: Invalid event or body
+
+  /v1/moderation/listings/pending:
+    get:
+      tags: [Moderation]
+      summary: Paginated listings awaiting moderation (platform moderator JWT)
+      operationId: getPendingListingsModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Pending listings
+        '403':
+          description: Requires admin, moderator, or superadmin role
+
+  /v1/moderation/listings/{id}/approve:
+    post:
+      tags: [Moderation]
+      summary: Approve a pending_review listing (sets active)
+      operationId: approveListingModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing approved
+        '404':
+          description: Listing not found or not pending
+
+  /v1/moderation/listings/{id}/reject:
+    post:
+      tags: [Moderation]
+      summary: Reject a pending_review listing (sets deleted)
+      operationId: rejectListingModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Listing rejected
 
   /v1/listings/search:
     get:
@@ -4006,6 +4217,92 @@ components:
         total:
           type: integer
           format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    FacetBucket:
+      type: object
+      properties:
+        value:
+          type: string
+        count:
+          type: integer
+          format: int64
+
+    PriceBucket:
+      type: object
+      properties:
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        count:
+          type: integer
+          format: int64
+
+    ListingFacetsResponse:
+      type: object
+      properties:
+        countries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        proxy_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        isps:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        price_buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceBucket'
+
+    ListingCollectionSummary:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        count:
+          type: integer
+          format: int64
+
+    ListingCollectionsIndexResponse:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListingCollectionSummary'
+
+    ListingCollectionPageResponse:
+      type: object
+      properties:
+        collection:
+          type: object
+          properties:
+            slug:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        total:
+          type: integer
         page:
           type: integer
         limit:

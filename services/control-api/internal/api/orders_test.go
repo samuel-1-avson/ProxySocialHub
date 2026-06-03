@@ -10,10 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/prices"
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
 func TestCreateOrder_Success(t *testing.T) {
+	prices.SetTestSOLPrice(100)
+	defer prices.SetTestSOLPrice(0)
+
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	// Delete children (orders, ledger, listings, wallets) before parents (users)
@@ -97,8 +101,8 @@ func TestCreateOrder_Success(t *testing.T) {
 	if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err != nil {
 		t.Fatalf("expected linked session to exist: %v", err)
 	}
-	if session.Status != models.SessionActive {
-		t.Errorf("Expected linked session active, got %s", session.Status)
+	if session.Status != models.SessionDisabled {
+		t.Errorf("Expected linked session disabled until escrow, got %s", session.Status)
 	}
 	if session.ListingID == nil || *session.ListingID != listing.ID {
 		t.Errorf("Expected session to reference listing %s, got %v", listing.ID, session.ListingID)
@@ -109,6 +113,9 @@ func TestCreateOrder_Success(t *testing.T) {
 }
 
 func TestCreateOrder_InsufficientFunds(t *testing.T) {
+	prices.SetTestSOLPrice(100)
+	defer prices.SetTestSOLPrice(0)
+
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "proxy_listings")
@@ -124,8 +131,8 @@ func TestCreateOrder_InsufficientFunds(t *testing.T) {
 	}
 	db.DB.Create(&listing)
 
-	// Wallet with $10
-	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 10.0)
+	// 0.1 SOL is below ~0.5 SOL required for a $50 order at $100/SOL
+	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.1)
 
 	// 2. Router
 	r := setupTestRouter()

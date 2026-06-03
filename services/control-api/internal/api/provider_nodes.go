@@ -181,10 +181,12 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 		Country:              node.Country,
 	}
 
-	if _, err := svc.PublishListing(context.Background(), userID, listing); err != nil {
+	published, err := svc.PublishListing(context.Background(), userID, listing)
+	if err != nil {
 		logging.Error(err).Str("node_id", node.ID.String()).Msg("autoPublishListing: failed")
 	} else {
 		invalidateMarketplaceReadModels()
+		publishNewListingFeedEvent(userID, *published)
 		logging.Info().Str("node_id", node.ID.String()).Msg("autoPublishListing: listing created")
 	}
 }

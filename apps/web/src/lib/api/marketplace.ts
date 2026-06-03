@@ -19,7 +19,7 @@ export interface Listing {
     max_concurrency: number;
     proxy_type: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | 'both';
     protocol: string;
-    status: 'active' | 'paused' | 'sold_out' | string;
+    status: 'active' | 'paused' | 'sold_out' | 'pending_review' | string;
     country?: string;
     city?: string;
     isp?: string;
@@ -62,25 +62,71 @@ export interface Listing {
     };
 }
 
+export type OrderStatus =
+    | 'pending'
+    | 'pending_payment'
+    | 'active'
+    | 'completed'
+    | 'disputed'
+    | 'cancelled'
+    | 'refunded'
+    | string;
+
 export interface Order {
     id: string;
     buyer_id: string;
     seller_id: string;
     listing_id: string;
-    node_id: string;
+    node_id?: string;
     bandwidth_gb: number;
-    price_total: number;
+    price_total?: number;
+    total_price?: number;
     amount?: number; // Legacy support
-    status: 'pending' | 'paid' | 'active' | 'completed' | 'cancelled' | 'refunded' | string;
-    session_type: 'rotating' | 'sticky';
+    status: OrderStatus;
+    session_type?: 'rotating' | 'sticky';
     session_id?: string;
     tx_hash?: string;
+    tx_signature?: string;
     created_at: string;
     completed_at?: string;
     listing?: {
         title: string;
     };
     escrow_status?: string;
+    escrow_pda?: string;
+}
+
+export interface FacetBucket {
+    value: string;
+    count: number;
+}
+
+export interface PriceBucket {
+    min: number;
+    max: number;
+    count: number;
+}
+
+export interface ListingFacets {
+    countries: FacetBucket[];
+    proxy_types: FacetBucket[];
+    isps: FacetBucket[];
+    price_buckets: PriceBucket[];
+}
+
+export interface ListingCollectionSummary {
+    slug: string;
+    title: string;
+    description: string;
+    count: number;
+}
+
+export interface ListingCollectionResponse {
+    collection: Pick<ListingCollectionSummary, 'slug' | 'title' | 'description'>;
+    listings: Listing[];
+    total: number;
+    page: number;
+    limit: number;
 }
 
 export interface ListingFilters {
@@ -90,10 +136,27 @@ export interface ListingFilters {
     proxy_type?: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | string;
     min_rating?: number;
     seller_id?: string;
-    sort_by?: 'price' | 'rating' | 'sales' | 'uptime' | string;
+    sort_by?: 'newest' | 'price' | 'price_asc' | 'price_desc' | 'rating' | 'popular' | 'sales' | 'uptime' | 'latency' | 'quality' | string;
     sort_order?: 'asc' | 'desc';
     page?: number;
     limit?: number;
+}
+
+export interface UpdateListingRequest {
+    title?: string;
+    description?: string;
+    price_per_gb?: number;
+    min_purchase_gb?: number;
+    available_bandwidth_gb?: number;
+    max_concurrency?: number;
+    status?: 'active' | 'paused' | 'sold_out' | string;
+}
+
+export interface SavedListingEntry {
+    id: string;
+    listing_id: string;
+    created_at: string;
+    listing?: Listing;
 }
 
 export interface CreateOrderRequest {
@@ -367,8 +430,24 @@ export function getListing(id: string) {
 /**
  * Get featured/top listings
  */
-export function getFeaturedListings() {
-    return publicApiGet<Listing[]>('/v1/listings/featured');
+export async function getFeaturedListings(): Promise<Listing[]> {
+    const data = await publicApiGet<{ listings: Listing[]; total: number }>('/v1/listings/featured');
+    return data.listings ?? [];
+}
+
+export function getListingFacets() {
+    return publicApiGet<ListingFacets>('/v1/listings/facets');
+}
+
+export function getListingCollections() {
+    return publicApiGet<{ collections: ListingCollectionSummary[] }>('/v1/listings/collections');
+}
+
+export function getListingCollection(slug: string, page = 1, limit = 20) {
+    return publicApiGet<ListingCollectionResponse>(`/v1/listings/collections/${slug}`, {
+        page: String(page),
+        limit: String(limit),
+    });
 }
 
 /**
@@ -429,6 +508,10 @@ export function createListing(data: CreateListingRequest) {
  */
 export function deleteListing(id: string) {
     return apiDelete<{ message: string }>(`/v1/listings/${id}`);
+}
+
+export function updateListing(id: string, data: UpdateListingRequest) {
+    return apiPut<{ listing: Listing }>(`/v1/listings/${id}`, data);
 }
 
 /**
@@ -497,8 +580,40 @@ export async function unstakeNode(data: UnstakeNodeRequest) {
 /**
  * Get a specific order
  */
-export function getOrder(id: string) {
-    return apiGet<Order>(`/v1/orders/${id}`);
+export async function getOrder(id: string) {
+    const data = await apiGet<Order | { order: Order }>(`/v1/orders/${id}`);
+    if (data && typeof data === 'object' && 'order' in data && data.order) {
+        return data.order;
+    }
+    return data as Order;
+}
+
+export function getOrderProxyCredentials(orderId: string) {
+    return apiGet<{ proxy_credentials: MarketplaceProxyCredentials }>(`/v1/orders/${orderId}/credentials`);
+}
+
+export async function waitForOrderActive(
+    orderId: string,
+    options?: { timeoutMs?: number; pollIntervalMs?: number },
+): Promise<Order> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const pollIntervalMs = options?.pollIntervalMs ?? 2000;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+        const order = await getOrder(orderId);
+        if (order.status === 'active' || order.status === 'completed') {
+            return order;
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    throw new Error('Timed out waiting for escrow confirmation. Check your wallet transaction and try again.');
+}
+
+export function getSavedListings(page = 1, limit = 20) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    return apiGet<{ saved: SavedListingEntry[]; total: number; page: number; limit: number }>(
+        `/v1/saved?${params.toString()}`,
+    );
 }
 
 /**
@@ -553,6 +668,10 @@ export const marketplaceKeys = {
     listing: (id: string) => [...marketplaceKeys.all, 'listing', id] as const,
     map: (filters?: MarketplaceMapFilters) => [...marketplaceKeys.all, 'map', filters] as const,
     featured: () => [...marketplaceKeys.all, 'featured'] as const,
+    facets: () => [...marketplaceKeys.all, 'facets'] as const,
+    collections: () => [...marketplaceKeys.all, 'collections'] as const,
+    collection: (slug: string, page?: number) =>
+        [...marketplaceKeys.all, 'collection', slug, page] as const,
     search: (query: string) => [...marketplaceKeys.all, 'search', query] as const,
     myListings: (page?: number) => [...marketplaceKeys.all, 'my-listings', page] as const,
     saved: () => [...marketplaceKeys.all, 'saved'] as const,

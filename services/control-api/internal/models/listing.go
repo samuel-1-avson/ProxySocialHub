@@ -12,10 +12,11 @@ import (
 type ListingStatus string
 
 const (
-	ListingStatusActive  ListingStatus = "active"
-	ListingStatusPaused  ListingStatus = "paused"
-	ListingStatusSoldOut ListingStatus = "sold_out"
-	ListingStatusDeleted ListingStatus = "deleted"
+	ListingStatusActive        ListingStatus = "active"
+	ListingStatusPendingReview ListingStatus = "pending_review"
+	ListingStatusPaused        ListingStatus = "paused"
+	ListingStatusSoldOut       ListingStatus = "sold_out"
+	ListingStatusDeleted       ListingStatus = "deleted"
 )
 
 // ProxyType represents the type of proxy

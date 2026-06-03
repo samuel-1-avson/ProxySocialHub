@@ -35,7 +35,7 @@ test.describe("Social Features Accessibility", () => {
     });
 
     test("should have proper heading hierarchy", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Check h1 exists
         const h1 = page.locator("h1");
@@ -53,7 +53,7 @@ test.describe("Social Features Accessibility", () => {
     });
 
     test("should have proper focus indicators", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Tab to first interactive element
         await page.keyboard.press("Tab");
@@ -100,7 +100,7 @@ test.describe("Social Features Accessibility", () => {
     test("should respect prefers-reduced-motion", async ({ page }) => {
         // Emulate reduced motion preference
         await page.emulateMedia({ reducedMotion: "reduce" });
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Check animations are disabled or reduced
         const hasReducedMotion = await page.evaluate(() => {
@@ -111,7 +111,7 @@ test.describe("Social Features Accessibility", () => {
     });
 
     test("forms should have proper labels", async ({ page }) => {
-        await page.goto("/forum/new");
+        await page.goto("/community/forum/new");
         
         // Check all inputs have labels
         const inputs = page.locator("input, textarea, select");
@@ -169,7 +169,7 @@ test.describe("Social Features Accessibility", () => {
     });
 
     test("color contrast should meet WCAG standards", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // This test would typically use a tool like axe-core
         // For now, we check basic text visibility
@@ -202,7 +202,7 @@ test.describe("Keyboard Navigation", () => {
     });
 
     test("should navigate entire page with keyboard only", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Get all focusable elements
         const focusableSelectors = [
@@ -240,7 +240,7 @@ test.describe("Keyboard Navigation", () => {
     });
 
     test("Enter key should activate buttons and links", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Tab to first link
         await page.keyboard.press("Tab");

@@ -133,7 +133,10 @@ export interface FeedEvent {
     id: string;
     actor_id?: string;
     event_type: string;
+    target_type?: string;
+    target_id?: string;
     content: string;
+    metadata?: Record<string, unknown>;
     actor?: User;
     created_at: string;
 }

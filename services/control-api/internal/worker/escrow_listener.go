@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace"
+	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
@@ -83,6 +86,22 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		"tx_signature": event.TxSignature,
 		"updated_at":   time.Now(),
 	})
+	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
+		logging.Error(err).
+			Str("order_id", order.ID.String()).
+			Msg("Order activated on-chain but session activation failed")
+	}
+	funnel.Record(context.Background(), funnel.RecordParams{
+		EventName: models.FunnelEscrowConfirmed,
+		UserID:    &order.BuyerID,
+		ListingID: &order.ListingID,
+		OrderID:   &order.ID,
+		Surface:   "escrow_worker",
+		Meta: map[string]interface{}{
+			"tx_signature": event.TxSignature,
+		},
+	})
+
 	logging.Info().
 		Str("order_id", order.ID.String()).
 		Str("tx_signature", event.TxSignature).

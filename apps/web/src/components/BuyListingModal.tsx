@@ -1,28 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
     Listing,
     createOrderWithProvisioning,
-    createSessionFromListing,
+    getOrderProxyCredentials,
     initiateSmartContractPayment,
     marketplaceKeys,
+    waitForOrderActive,
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
+import {
+    trackMarketplaceEvent,
+    type MarketplaceFunnelSurface,
+} from '@/lib/analytics/marketplace-funnel';
 
 interface BuyListingModalProps {
     listing: Listing;
     onClose: () => void;
     onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
+    surface?: MarketplaceFunnelSurface | string;
 }
 
-export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModalProps) {
+export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknown' }: BuyListingModalProps) {
     const { publicKey } = useWallet();
     const wallet = useAnchorWallet();
     const toast = useToast();
@@ -34,6 +40,13 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     const [copied, setCopied] = useState<string | null>(null);
 
     const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
+
+    useEffect(() => {
+        trackMarketplaceEvent('buy_modal_open', {
+            listing_id: listing.id,
+            surface,
+        });
+    }, [listing.id, surface]);
 
     const bandwidthLimitBytes = bandwidth * 1024 * 1024 * 1024;
     const estimatedCostUSD = listing.price_per_gb * bandwidth;
@@ -79,18 +92,14 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
 
             console.log("Solana escrow tx:", tx);
 
-            let nextCredentials = orderResult.proxy_credentials;
+            await waitForOrderActive(order.id, {
+                timeoutMs: e2eMockBuy ? 15_000 : 60_000,
+                pollIntervalMs: e2eMockBuy ? 250 : 2000,
+            });
+            const credsResponse = await getOrderProxyCredentials(order.id);
+            const nextCredentials = credsResponse.proxy_credentials;
             if (!nextCredentials) {
-                // Fallback for older API responses that create the order but do not return credentials.
-                const sessionResult = await createSessionFromListing({
-                    listing_id: listing.id,
-                    type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
-                    bandwidth_limit: bandwidthLimitBytes,
-                });
-                nextCredentials = sessionResult.proxy_credentials;
-            }
-            if (!nextCredentials) {
-                throw new Error('Order created, but proxy credentials were not returned.');
+                throw new Error('Order created, but proxy credentials were not returned after escrow confirmation.');
             }
 
             setCredentials(nextCredentials);
