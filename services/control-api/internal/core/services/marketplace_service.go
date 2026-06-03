@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace/moderation"
 )
 
 type marketplaceService struct {
@@ -27,6 +29,53 @@ func (s *marketplaceService) BrowseMarket(ctx context.Context, filters map[strin
 	return s.repo.GetListings(ctx, filters)
 }
 
+func (s *marketplaceService) GetListingForViewer(ctx context.Context, listingID uuid.UUID, viewer ports.ListingViewer) (*domain.ListingDetail, error) {
+	entity, seller, err := s.repo.GetListingDetail(ctx, listingID)
+	if err != nil {
+		return nil, err
+	}
+	if entity.Status == domain.ListingPendingReview {
+		if viewer.UserID == nil || (!viewer.IsModerator && *viewer.UserID != entity.SellerID) {
+			return nil, domain.ErrListingNotFound
+		}
+	}
+	if err := s.repo.IncrementListingViews(ctx, listingID); err != nil {
+		logging.Warn().Err(err).Str("listing_id", listingID.String()).Msg("Failed to increment listing views")
+	}
+	isSaved := false
+	if viewer.UserID != nil {
+		isSaved, err = s.repo.IsListingSaved(ctx, *viewer.UserID, listingID)
+		if err != nil {
+			logging.Warn().Err(err).Msg("Failed to check saved listing state")
+		}
+	}
+	return &domain.ListingDetail{
+		Listing: *entity,
+		Seller:  seller,
+		IsSaved: isSaved,
+	}, nil
+}
+
+func (s *marketplaceService) SearchListings(ctx context.Context, query string) ([]domain.ListingEntity, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("search query is required")
+	}
+	return s.repo.SearchListings(ctx, query, 50)
+}
+
+func (s *marketplaceService) GetFeaturedListings(ctx context.Context, limit int) ([]domain.ListingEntity, error) {
+	return s.repo.GetFeaturedListings(ctx, limit)
+}
+
+func (s *marketplaceService) GetSellerListings(ctx context.Context, sellerID uuid.UUID, page, limit int) ([]domain.ListingEntity, int64, error) {
+	return s.repo.GetSellerListings(ctx, sellerID, page, limit)
+}
+
+func (s *marketplaceService) GetSavedListings(ctx context.Context, userID uuid.UUID, page, limit int) ([]domain.SavedListingEntry, int64, error) {
+	return s.repo.GetSavedListings(ctx, userID, page, limit)
+}
+
 func (s *marketplaceService) PublishListing(ctx context.Context, sellerID uuid.UUID, listing domain.ListingEntity) (*domain.ListingEntity, error) {
 	logging.Info().Str("seller_id", sellerID.String()).Msg("MarketplaceService: Publishing new listing")
 
@@ -34,6 +83,9 @@ func (s *marketplaceService) PublishListing(ctx context.Context, sellerID uuid.U
 	listing.ID = uuid.New()
 	listing.SellerID = sellerID
 	listing.Status = domain.ListingActive
+	if moderation.ListingModerationEnforced() {
+		listing.Status = domain.ListingPendingReview
+	}
 
 	if listing.PricePerGB <= 0 {
 		return nil, fmt.Errorf("invalid pricing: must be greater than zero")
@@ -53,6 +105,15 @@ func (s *marketplaceService) UpdateListing(ctx context.Context, sellerID, listin
 	}
 	if listing.SellerID != sellerID {
 		return nil, domain.ErrListingForbidden
+	}
+	if listing.Status == domain.ListingPendingReview {
+		if updates.PricePerGB != nil || updates.Title != nil || updates.Description != nil ||
+			updates.MinPurchaseGB != nil || updates.AvailableBandwidthGB != nil || updates.MaxConcurrency != nil {
+			return nil, fmt.Errorf("listing is pending review: price and content cannot be changed until approved")
+		}
+		if updates.Status != nil && *updates.Status != domain.ListingDeleted {
+			return nil, fmt.Errorf("listing is pending review: only deletion is allowed until approved")
+		}
 	}
 	if updates.Status != nil {
 		if !canTransitionListingStatus(listing.Status, *updates.Status) {
@@ -170,7 +231,9 @@ func canTransitionListingStatus(from, to domain.ListingStatus) bool {
 	}
 	switch from {
 	case "":
-		return to == domain.ListingActive || to == domain.ListingPaused
+		return to == domain.ListingActive || to == domain.ListingPendingReview || to == domain.ListingPaused
+	case domain.ListingPendingReview:
+		return to == domain.ListingActive || to == domain.ListingDeleted
 	case domain.ListingActive:
 		return to == domain.ListingPaused || to == domain.ListingSoldOut || to == domain.ListingDeleted
 	case domain.ListingPaused:

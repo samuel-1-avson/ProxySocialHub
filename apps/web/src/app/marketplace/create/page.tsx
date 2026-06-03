@@ -139,9 +139,13 @@ export default function CreateListingPage() {
                 }
             }
 
-            await createListing(payload);
+            const listing = await createListing(payload);
             queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-            router.push("/marketplace");
+            if (listing.status === "pending_review") {
+                router.push("/marketplace/manage?submitted=pending_review");
+            } else {
+                router.push("/marketplace");
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
         } finally {

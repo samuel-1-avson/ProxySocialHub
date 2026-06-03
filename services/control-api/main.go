@@ -424,8 +424,13 @@ func main() {
 		api.RegisterSDKRoutes(v1)             // P1-A5: SDK Examples API
 		api.RegisterGatewayRoutes(v1, cfg)    // Gateway node registration and heartbeat
 		api.RegisterTreasuryPublicRoutes(v1)  // Phase 4.3: public treasury transparency
+		api.RegisterGovernancePublicRoutes(v1) // Public governance execution readiness
+		api.RegisterGovernanceImpactRoutes(v1)       // Public proposal impact previews
+		api.RegisterGovernanceTreasuryPublicRoutes(v1) // Treasury audit rows per proposal
+		api.RegisterBetaProgramPublicRoutes(v1) // Public beta task catalog (+ progress when token present)
 		api.RegisterForumPublicRoutes(v1)     // Public forum browse/search/read endpoints
 		api.RegisterAgentPublicRoutes(v1)     // Public agent marketplace browse
+		api.RegisterMarketplaceFunnelRoutes(v1) // WS-D: client funnel events (optional auth)
 		solanaClient.RegisterPublicRoutes(v1) // Oracle/RPC health (no auth)
 	}
 
@@ -453,6 +458,7 @@ func main() {
 
 		api.RegisterSmartMatchingRoutes(protected)
 		api.RegisterGovernanceRoutes(protected)
+		api.RegisterBetaProgramRoutes(protected)
 		api.RegisterOnboardingRoutes(protected)
 		api.RegisterCircleRoutes(protected)
 
@@ -511,6 +517,9 @@ func main() {
 
 		// Provider Verification Tiers (Phase 6)
 		api.RegisterTierRoutes(protected)
+
+		// Marketplace listing moderation (dashboard moderators)
+		api.RegisterPlatformListingModerationRoutes(protected)
 	}
 
 	if adminAPIEnabled {
@@ -521,6 +530,7 @@ func main() {
 		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
 		api.RegisterAdminRoutes(adminProtected)
 		api.RegisterAdminOnboardingRoutes(adminProtected)
+		api.RegisterAdminListingModerationRoutes(adminProtected)
 		api.RegisterAdminPayoutRoutes(adminProtected)
 		api.RegisterAdminMeRoute(adminProtected)
 		log.Println("Admin API enabled (ADMIN_API_ENABLED=true)")

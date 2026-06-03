@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getFeed, discoverProviders, getTrendingListings, type FeedEvent, type User, type Listing } from "@/lib/social-api";
+import { FollowProviderButton } from "@/components/social/FollowProviderButton";
 import {
     Package,
     Star,
@@ -39,6 +40,11 @@ export default function FeedPage() {
     const [providers, setProviders] = useState<User[]>([]);
     const [trending, setTrending] = useState<Listing[]>([]);
 
+    const refreshDiscover = async () => {
+        const data = await discoverProviders();
+        setProviders(data.providers || []);
+    };
+
     useEffect(() => {
         async function fetchData() {
             setLoading(true);
@@ -47,8 +53,7 @@ export default function FeedPage() {
                     const data = await getFeed();
                     setEvents(data.events || []);
                 } else if (activeTab === "discover") {
-                    const data = await discoverProviders();
-                    setProviders(data.providers || []);
+                    await refreshDiscover();
                 } else if (activeTab === "trending") {
                     const data = await getTrendingListings();
                     setTrending(data.listings || []);
@@ -67,7 +72,11 @@ export default function FeedPage() {
             case "new_listing": return <Package className="text-primary" size={18} />;
             case "new_review": return <Star className="text-amber-500 fill-amber-500/20" size={18} />;
             case "new_sale": return <Coins className="text-emerald-500" size={18} />;
+            case "badge_earned":
             case "new_badge": return <Award className="text-blue-500" size={18} />;
+            case "milestone": return <TrendingUp className="text-violet-400" size={18} />;
+            case "new_thread": return <Terminal className="text-sky-400" size={18} />;
+            case "node_online": return <Zap className="text-yellow-400" size={18} />;
             case "new_follower": return <Heart className="text-rose-500" size={18} />;
             default: return <Activity className="text-primary" size={18} />;
         }
@@ -84,6 +93,21 @@ export default function FeedPage() {
     const itemVariants = {
         hidden: { opacity: 0, y: 20 },
         show: { opacity: 1, y: 0 }
+    };
+
+    const feedEventHref = (event: FeedEvent): string | null => {
+        if (!event.target_id) return null;
+        switch (event.event_type) {
+            case "new_listing":
+            case "listing_inquiry":
+                return `/marketplace/${event.target_id}`;
+            case "new_thread":
+                return `/community/forum/thread/${event.target_id}`;
+            case "new_sale":
+                return event.target_type === "listing" ? `/marketplace/${event.target_id}` : null;
+            default:
+                return null;
+        }
     };
 
     return (
@@ -180,21 +204,19 @@ export default function FeedPage() {
                                             <GlassCard className="!p-16 text-center space-y-6 opacity-60 grayscale border-dashed border-white/10">
                                                 <Rss size={48} className="mx-auto text-muted-foreground/20" />
                                                 <div className="space-y-2">
-                                                    <h3 className="text-lg font-black uppercase tracking-tighter">Zero Pulse Detected</h3>
-                                                    <p className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest">NO RECENT ACTIVITY DETECTED IN THE SECTOR.</p>
+                                                    <h3 className="text-lg font-black uppercase tracking-tighter">Your feed is quiet</h3>
+                                                    <p className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest leading-relaxed max-w-sm mx-auto">
+                                                        Follow providers from the marketplace or Discover tab to see new listings, sales, and milestones here.
+                                                    </p>
                                                 </div>
                                                 <button onClick={() => setActiveTab("discover")} className="px-6 py-3 glass-card border-white/10 hover:border-primary/50 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl">
-                                                    Browse Active Nodes
+                                                    Discover providers
                                                 </button>
                                             </GlassCard>
                                         ) : (
-                                            events.map((event, idx) => (
-                                                <motion.div
-                                                    key={event.id}
-                                                    initial={{ opacity: 0, x: -10 }}
-                                                    animate={{ opacity: 1, x: 0 }}
-                                                    transition={{ delay: idx * 0.05 }}
-                                                >
+                                            events.map((event, idx) => {
+                                                const href = feedEventHref(event);
+                                                const card = (
                                                     <GlassCard className="!p-6 group relative overflow-hidden active:scale-[0.99] transition-transform">
                                                         <div className="absolute left-0 top-0 w-1 h-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                                         <div className="flex gap-6 items-start">
@@ -206,16 +228,34 @@ export default function FeedPage() {
                                                                 <div className="flex items-center gap-4 text-[9px] font-black text-muted-foreground/30 uppercase tracking-widest">
                                                                     <div className="flex items-center gap-2"><Clock size={12} /> {new Date(event.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                                                                     <span className="text-white/5">•</span>
-                                                                    <div className="flex items-center gap-2 text-primary/80">{event.event_type.replace('_', ' ')}</div>
+                                                                    <div className="flex items-center gap-2 text-primary/80">{event.event_type.replace(/_/g, ' ')}</div>
                                                                 </div>
                                                             </div>
-                                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <ChevronRight size={18} className="text-primary/40" />
-                                                            </div>
+                                                            {href && (
+                                                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <ChevronRight size={18} className="text-primary/40" />
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </GlassCard>
-                                                </motion.div>
-                                            ))
+                                                );
+                                                return (
+                                                    <motion.div
+                                                        key={event.id}
+                                                        initial={{ opacity: 0, x: -10 }}
+                                                        animate={{ opacity: 1, x: 0 }}
+                                                        transition={{ delay: idx * 0.05 }}
+                                                    >
+                                                        {href ? (
+                                                            <Link href={href} className="block">
+                                                                {card}
+                                                            </Link>
+                                                        ) : (
+                                                            card
+                                                        )}
+                                                    </motion.div>
+                                                );
+                                            })
                                         )}
                                     </div>
                                 )}
@@ -229,33 +269,57 @@ export default function FeedPage() {
                                             </div>
                                         ) : (
                                             providers.map((provider) => (
-                                                <Link key={provider.id} href={`/profile/${provider.username || provider.id}`} className="group">
-                                                    <GlassCard className="!p-6 hover:border-primary/40 transition-all flex items-center gap-6 relative overflow-hidden active:scale-95">
+                                                <GlassCard
+                                                    key={provider.id}
+                                                    className="!p-6 hover:border-primary/40 transition-all flex items-center gap-6 relative overflow-hidden"
+                                                >
+                                                    <Link
+                                                        href={`/profile/${provider.username || provider.id}`}
+                                                        className="flex items-center gap-6 flex-1 min-w-0 group"
+                                                    >
                                                         <div className="w-16 h-16 shrink-0 rounded-2xl bg-white/2 border border-white/10 flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform shadow-xl">
                                                             {provider.avatar_url ? (
-                                                                <img src={provider.avatar_url} className="w-full h-full object-cover" />
+                                                                <img src={provider.avatar_url} alt="" className="w-full h-full object-cover" />
                                                             ) : (
-                                                                <span className="font-black text-xl text-primary/40">{(provider.display_name || provider.username || "?").charAt(0).toUpperCase()}</span>
+                                                                <span className="font-black text-xl text-primary/40">
+                                                                    {(provider.display_name || provider.username || "?").charAt(0).toUpperCase()}
+                                                                </span>
                                                             )}
                                                         </div>
                                                         <div className="flex-1 min-w-0 space-y-1">
                                                             <div className="flex items-center gap-2">
-                                                                <span className="font-black text-base tracking-tighter truncate group-hover:text-primary transition-colors">{provider.display_name || provider.username}</span>
+                                                                <span className="font-black text-base tracking-tighter truncate group-hover:text-primary transition-colors">
+                                                                    {provider.display_name || provider.username}
+                                                                </span>
                                                                 {provider.verified && <ShieldCheck size={14} className="text-primary" />}
                                                             </div>
-                                                            <div className="flex items-center gap-4">
+                                                            <div className="flex items-center gap-4 flex-wrap">
                                                                 <div className="flex items-center gap-1 text-[9px] font-black text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
                                                                     <Star size={10} className="fill-current" />
                                                                     {provider.avg_rating?.toFixed(1) || "5.0"}
                                                                 </div>
-                                                                <span className="text-[9px] font-black text-muted-foreground/30 uppercase tracking-widest">{provider.total_bandwidth_sold?.toLocaleString() || 0} GB DISPATCHED</span>
+                                                                <span className="text-[9px] font-black text-muted-foreground/30 uppercase tracking-widest">
+                                                                    {provider.total_bandwidth_sold?.toLocaleString() || 0} GB dispatched
+                                                                </span>
                                                             </div>
                                                         </div>
-                                                        <div className="p-3 bg-white/2 rounded-xl group-hover:bg-primary/10 transition-colors">
-                                                            <ArrowRight size={18} className="text-muted-foreground/20 group-hover:text-primary transition-all" />
-                                                        </div>
-                                                    </GlassCard>
-                                                </Link>
+                                                    </Link>
+                                                    <div className="flex flex-col items-end gap-2 shrink-0">
+                                                        <FollowProviderButton
+                                                            providerId={provider.id}
+                                                            providerName={provider.display_name || provider.username}
+                                                            compact
+                                                            onFollowChange={() => refreshDiscover()}
+                                                        />
+                                                        <Link
+                                                            href={`/profile/${provider.username || provider.id}`}
+                                                            className="p-2 text-muted-foreground/30 hover:text-primary transition-colors"
+                                                            aria-label="View profile"
+                                                        >
+                                                            <ArrowRight size={16} />
+                                                        </Link>
+                                                    </div>
+                                                </GlassCard>
                                             ))
                                         )}
                                     </div>

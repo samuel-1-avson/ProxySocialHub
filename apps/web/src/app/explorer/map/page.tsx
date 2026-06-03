@@ -997,6 +997,7 @@ export default function NodeMapPage() {
             {buyListing && (
                 <BuyListingModal
                     listing={buyListing}
+                    surface="explorer_map"
                     onClose={() => setBuyListing(null)}
                     onSuccess={() => {
                         setBuyListing(null);

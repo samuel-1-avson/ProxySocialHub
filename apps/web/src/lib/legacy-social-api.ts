@@ -1,7 +1,13 @@
 export * from './services/client';
 // export * from './services/auth'; 
 export * from './services/wallet';
-export * from './services/market';
+export { getProviderNodes, type ProviderNode } from './api/marketplace';
+export {
+    createSessionIntent,
+    getSessions,
+    terminateSession,
+    type Session,
+} from './api/sessions';
 export * from './services/governance';
 export * from './services/profile';
 export * from './services/config';
@@ -32,7 +38,7 @@ export interface Order {
   escrow_status?: string;
 }
 
-// createOrder moved to services/market.ts
+// createOrder: use @/lib/api/marketplace
 
 export async function getMyOrders(): Promise<Order[]> {
   const response = await fetchWithAuth(`${API_BASE_URL}/v1/orders`);

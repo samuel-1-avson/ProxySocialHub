@@ -52,7 +52,9 @@ func CanTransitionListingStatus(from, to ListingStatus) bool {
 	}
 	switch from {
 	case "":
-		return to == ListingStatusActive || to == ListingStatusPaused
+		return to == ListingStatusActive || to == ListingStatusPendingReview || to == ListingStatusPaused
+	case ListingStatusPendingReview:
+		return to == ListingStatusActive || to == ListingStatusDeleted
 	case ListingStatusActive:
 		return to == ListingStatusPaused || to == ListingStatusSoldOut || to == ListingStatusDeleted
 	case ListingStatusPaused:

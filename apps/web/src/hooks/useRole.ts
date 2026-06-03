@@ -11,7 +11,7 @@ export function useRole() {
 
   const isConsumer = role === "consumer" || role === "buyer" || role === "both";
   const isProvider = role === "provider" || role === "both";
-  const isAdmin = role === "admin" || role === "moderator";
+  const isAdmin = role === "admin" || role === "moderator" || role === "superadmin";
   const isDualRole = role === "both";
   
   // A new user is someone who has authenticated but hasn't selected a role
