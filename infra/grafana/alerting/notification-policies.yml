@@ -1,0 +1,16 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: edge-gateway-ops-email
+    group_by: ['alertname', 'job']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: edge-gateway-ops-webhook
+        object_matchers:
+          - ['severity', '=', 'critical']
+      - receiver: edge-gateway-ops-email
+        object_matchers:
+          - ['job', '=', 'edge-gateway']
