@@ -26,8 +26,10 @@ if (-not $SkipBootstrap -and -not (Test-Path $composeEnv)) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$upGw = @("compose", "up", "-d", "--force-recreate", "edge-gateway")
-if (-not $SkipBuild) { $upGw = @("compose", "up", "-d", "--build", "--force-recreate", "edge-gateway") }
+    $upGw = @("compose", "-f", "docker-compose.yml", "-f", "docker-compose.provider.yml", "up", "-d", "--force-recreate", "edge-gateway")
+    if (-not $SkipBuild) {
+        $upGw = @("compose", "-f", "docker-compose.yml", "-f", "docker-compose.provider.yml", "up", "-d", "--build", "--force-recreate", "edge-gateway")
+    }
 Write-Host "Recreating edge-gateway..."
 & docker @upGw
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -67,7 +67,9 @@ Prometheus (if running): compare `rate(edge_gateway_connection_errors[5m])` befo
 |---------|-----|
 | `healthy_providers=0` | `compose-up-dev.ps1`; check `docker logs proxyhubb-provider-node` |
 | All CONNECT fail (407) | Session seed failed; script uses `p3_seed_redis` against `127.0.0.1:6379` — verify `REDIS_PASSWORD` and Redis port |
-| CONNECT 502/504 only | Provider egress; still counts if some 200 — check provider outbound |
+| `/health` timeout after soak | Dev box saturated; `docker compose restart edge-gateway` and re-run with lower `SOAK_CONCURRENT` |
+| CONNECT 429 during ramp | Admission/rate limit; reduce batch size or raise limits for load lab only |
+| CONNECT 502/504 only | Provider egress; counts as tunnel established — check provider outbound |
 | Metrics missing | Rebuild gateway with `METRICS_PORT=9090`; host scrape `:9092` |
 | Yamux/QUIC mismatch | Never start gateway without `docker-compose.provider.yml` when using provider |
 
