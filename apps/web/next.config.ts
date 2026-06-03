@@ -154,11 +154,6 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: '/dashboard/admin',
-        destination: '/dashboard',
-        permanent: false,
-      },
-      {
         source: '/settings',
         destination: '/dashboard/settings/identity',
         permanent: true,

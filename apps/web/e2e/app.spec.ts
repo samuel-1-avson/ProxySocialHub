@@ -123,10 +123,12 @@ test.describe('Landing Page', () => {
 // ==================== Admin Tests ====================
 
 test.describe('Admin Panel', () => {
-  test('should display retired admin notice', async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard/admin`);
+  test('redirects unauthenticated users from admin moderation', async ({ page }) => {
+    await page.goto(`${BASE_URL}/dashboard/admin`, { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByText(/legacy admin dashboard removed/i)).toBeVisible({ timeout: 10000 });
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/login');
+    expect(url.searchParams.get('next') || url.searchParams.get('redirect')).toContain('/dashboard/admin');
   });
 });
 

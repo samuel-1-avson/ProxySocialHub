@@ -11,10 +11,15 @@
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test",
-    "test:e2e:map": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts --project=chromium",
+    "test:e2e:map": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts e2e/marketplace-listing-buy.spec.ts e2e/marketplace-browse-buy.spec.ts --project=chromium --workers=1",
+    "test:e2e:moderation": "playwright test e2e/marketplace-moderation.spec.ts --project=chromium",
+    "test:e2e:marketplace": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts e2e/marketplace-listing-buy.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-moderation.spec.ts --project=chromium --workers=1",
     "test:e2e:map-buy": "playwright test e2e/marketplace-map-buy.spec.ts --project=chromium",
     "test:e2e:map-buy:devnet:check": "node e2e/check-live-map-buy-env.mjs",
-    "test:e2e:map-buy:devnet": "npm run test:e2e:map-buy:devnet:check && playwright test e2e/marketplace-map-buy.devnet.spec.ts --project=chromium"
+    "test:e2e:map-buy:devnet": "npm run test:e2e:map-buy:devnet:check && playwright test e2e/marketplace-map-buy.devnet.spec.ts --project=chromium",
+    "test:e2e:governance:devnet:check": "node e2e/check-live-governance-env.mjs",
+    "test:e2e:governance:devnet": "npm run test:e2e:governance:devnet:check && playwright test e2e/governance.devnet.spec.ts --project=chromium",
+    "test:e2e:governance:smoke": "playwright test e2e/governance.smoke.spec.ts --project=chromium"
   },
   "dependencies": {
     "@moonpay/moonpay-js": "^0.7.6",

@@ -53,9 +53,12 @@ export default async function globalSetup() {
             'Quick check:',
             '  Invoke-WebRequest http://127.0.0.1:4011 -UseBasicParsing',
             '',
-            'Or let Playwright start dev for you:',
+            'Or let Playwright start dev:e2e for you (default; do not reuse plain npm run dev on :4011):',
             '  Remove-Item Env:TEST_BASE_URL -ErrorAction SilentlyContinue',
             '  npm run test:e2e:map',
+            '',
+            'If you already run dev:e2e on :4011, opt in to reuse:',
+            "  $env:PLAYWRIGHT_REUSE_SERVER = '1'",
         ].join('\n')
     );
 }

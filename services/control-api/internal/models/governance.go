@@ -44,9 +44,9 @@ type Proposal struct {
 	// Quorum requirement (minimum total votes needed)
 	Quorum float64 `gorm:"default:100" json:"quorum"`
 
-	// Decentralized Storage
-	IPFSHash    string `gorm:"type:varchar(100)" json:"ipfs_hash"`
-	ArweaveTxID string `gorm:"type:varchar(64)" json:"arweave_tx_id,omitempty"`
+	// Decentralized Storage (explicit column names — GORM would map IPFSHash to ip_fs_hash)
+	IPFSHash    string `gorm:"column:ipfs_hash;type:varchar(100)" json:"ipfs_hash"`
+	ArweaveTxID string `gorm:"column:arweave_tx_id;type:varchar(64)" json:"arweave_tx_id,omitempty"`
 
 	// Vote Counts (Cached)
 	YesVotes float64 `gorm:"default:0" json:"yes_votes"`

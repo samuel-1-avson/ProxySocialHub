@@ -41,6 +41,19 @@
 | [../services/edge-gateway/docs/P4_TRANSPORT_SOAK_RUNBOOK.md](../services/edge-gateway/docs/P4_TRANSPORT_SOAK_RUNBOOK.md) | Provider transport soak |
 | [adr/](./adr/) | Architecture decision records |
 
+## Marketplace (Phase 2 complete)
+
+| Document | Purpose |
+|----------|---------|
+| [MARKETPLACE_PHASE2_SCOPE.md](./MARKETPLACE_PHASE2_SCOPE.md) | Phase 2 execution scope (WS-A–E) |
+| [reports/MARKETPLACE_SYSTEM_ANALYSIS_REPORT.md](./reports/MARKETPLACE_SYSTEM_ANALYSIS_REPORT.md) | Analysis, gaps, §12 checklist |
+| [MARKETPLACE_DISCOVERY_API.md](./MARKETPLACE_DISCOVERY_API.md) | **Canonical buyer discovery:** `GET /v1/listings` (not `/v1/services`) |
+| [MARKETPLACE_MODERATION.md](./MARKETPLACE_MODERATION.md) | `pending_review` + admin approve/reject |
+| [MARKETPLACE_FUNNEL_METRICS.md](./MARKETPLACE_FUNNEL_METRICS.md) | Funnel events + SQL examples |
+| [MARKETPLACE_CREDENTIAL_GATING.md](./MARKETPLACE_CREDENTIAL_GATING.md) | Order/credential policy |
+
+New integrations should use **`/v1/listings`** per [openapi.yaml](./openapi.yaml). `/v1/services` remains as a deprecated wrapper (90-day sunset).
+
 ## Product & architecture
 
 | Document | Purpose |

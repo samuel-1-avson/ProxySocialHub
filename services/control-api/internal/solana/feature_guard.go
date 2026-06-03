@@ -190,6 +190,14 @@ func GetGovernanceExecutionCapabilityReport(ctx context.Context) GovernanceExecu
 		return report
 	}
 
+	onChain := GetProgramOnChainReport(ctx)
+	if !onChain.Ready {
+		report.Ready = false
+		report.Status = onChain.Status
+		report.Message = onChain.Message
+		return report
+	}
+
 	report.Ready = true
 	report.Status = "ready"
 	report.Message = "deployed program supports governance execution instructions"

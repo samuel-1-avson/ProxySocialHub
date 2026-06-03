@@ -179,10 +179,14 @@ export function useLeaveCircle() {
 
 // ============ Marketplace Hooks ============
 
-export function useListings(filters?: marketplaceApi.ListingFilters) {
+export function useListings(
+    filters?: marketplaceApi.ListingFilters,
+    options?: { enabled?: boolean },
+) {
     return useQuery({
         queryKey: marketplaceApi.marketplaceKeys.listings(filters),
-        queryFn: () => marketplaceApi.getListings(filters),
+        queryFn: () => marketplaceApi.getListings(filters!),
+        enabled: options?.enabled !== false && filters !== undefined,
     });
 }
 
@@ -197,7 +201,34 @@ export function useListing(id: string) {
 export function useFeaturedListings() {
     return useQuery({
         queryKey: marketplaceApi.marketplaceKeys.featured(),
-        queryFn: marketplaceApi.getFeaturedListings,
+        queryFn: () => marketplaceApi.getFeaturedListings(),
+    });
+}
+
+export function useListingFacets() {
+    return useQuery({
+        queryKey: marketplaceApi.marketplaceKeys.facets(),
+        queryFn: marketplaceApi.getListingFacets,
+        staleTime: 5 * 60 * 1000,
+    });
+}
+
+export function useListingCollections() {
+    return useQuery({
+        queryKey: marketplaceApi.marketplaceKeys.collections(),
+        queryFn: async () => {
+            const data = await marketplaceApi.getListingCollections();
+            return data.collections ?? [];
+        },
+        staleTime: 5 * 60 * 1000,
+    });
+}
+
+export function useListingCollection(slug: string | null, page = 1) {
+    return useQuery({
+        queryKey: marketplaceApi.marketplaceKeys.collection(slug ?? '', page),
+        queryFn: () => marketplaceApi.getListingCollection(slug!, page),
+        enabled: Boolean(slug),
     });
 }
 

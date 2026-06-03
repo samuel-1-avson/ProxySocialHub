@@ -321,7 +321,7 @@ func getListingQA(c *gin.Context) {
 	})
 }
 
-// askListingQuestion asks a question about a listing
+// askListingQuestion asks a question about a listing (stored as a forum thread with listing_id).
 func askListingQuestion(c *gin.Context) {
 	userID, err := getCurrentUserID(c)
 	if err != nil {
@@ -345,15 +345,25 @@ func askListingQuestion(c *gin.Context) {
 		return
 	}
 
-	// Create forum thread linked to listing
-	// Note: listingID is validated but ForumThread doesn't have ListingID field yet
-	_ = listingID // Suppress unused variable warning
+	category, err := resolveForumCategorySlug("marketplace")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Forum category unavailable"})
+		return
+	}
+
+	listingIDCopy := listingID
+	slug := fmt.Sprintf("listing-%s-%s", listingID.String()[:8], slugify(req.Title))
+	if len(slug) > 255 {
+		slug = slug[:255]
+	}
 
 	thread := models.ForumThread{
-		AuthorID: userID,
-		Title:    req.Title,
-		Content:  req.Content,
-		// Category would be a special "Listing Q&A" category
+		CategoryID: category.ID,
+		AuthorID:   userID,
+		Title:      req.Title,
+		Slug:       slug,
+		Content:    req.Content,
+		ListingID:  &listingIDCopy,
 	}
 
 	if err := db.Social().Create(&thread).Error; err != nil {
@@ -361,7 +371,32 @@ func askListingQuestion(c *gin.Context) {
 		return
 	}
 
+	db.Social().Preload("Author").Preload("Category").First(&thread, "id = ?", thread.ID)
+
 	c.JSON(http.StatusCreated, thread)
+}
+
+// resolveForumCategorySlug returns a forum category by slug, seeding marketplace if needed.
+func resolveForumCategorySlug(slug string) (models.ForumCategory, error) {
+	var category models.ForumCategory
+	if err := db.Social().Where("slug = ?", slug).First(&category).Error; err == nil {
+		return category, nil
+	}
+
+	if slug == "marketplace" {
+		seed := models.ForumCategory{
+			Name:        "Buying & Selling",
+			Slug:        "marketplace",
+			Description: "Discuss proxy purchases, deals, and recommendations",
+			SortOrder:   5,
+		}
+		if err := db.Social().Create(&seed).Error; err == nil {
+			return seed, nil
+		}
+	}
+
+	err := db.Social().Where("slug = ?", slug).First(&category).Error
+	return category, err
 }
 
 // getProviderRelationships returns all buyer relationships for a provider

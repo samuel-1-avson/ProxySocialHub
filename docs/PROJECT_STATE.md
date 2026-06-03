@@ -6,7 +6,7 @@
 
 This document is the **canonical progress record**. Older deep-dive and duplicate status files were removed or merged; see [Documentation index](./README.md).
 
-**Saved walkthrough reports:** [reports/DECENTRALIZATION_STATUS_REPORT.md](./reports/DECENTRALIZATION_STATUS_REPORT.md), [reports/IMPROVEMENTS_AND_ROADMAP.md](./reports/IMPROVEMENTS_AND_ROADMAP.md).
+**Saved walkthrough reports:** [reports/DECENTRALIZATION_STATUS_REPORT.md](./reports/DECENTRALIZATION_STATUS_REPORT.md), [reports/IMPROVEMENTS_AND_ROADMAP.md](./reports/IMPROVEMENTS_AND_ROADMAP.md), [reports/COMMUNITY_AND_GOVERNANCE_ANALYSIS_REPORT.md](./reports/COMMUNITY_AND_GOVERNANCE_ANALYSIS_REPORT.md) (community + governance roadmap: Phases 1–3, devnet gate, Phase 4 unified network).
 
 ---
 
@@ -172,6 +172,12 @@ SOL-only wallet hardening is largely **complete** through plan Phase 4 (streams 
 
 | Item | Status |
 |------|--------|
+| **Phase 2 (catalog & discovery)** WS-A–E | Done — [MARKETPLACE_PHASE2_SCOPE.md](./MARKETPLACE_PHASE2_SCOPE.md) |
+| Canonical discovery `GET /v1/listings` (+ facets, collections, featured) | Done — `/v1/services` deprecated in OpenAPI |
+| Listing moderation (`pending_review` + admin queue) | Done — [MARKETPLACE_MODERATION.md](./MARKETPLACE_MODERATION.md) |
+| Funnel metrics (`marketplace_funnel_events`) | Done — migrations `000095`, `000096`; [MARKETPLACE_FUNNEL_METRICS.md](./MARKETPLACE_FUNNEL_METRICS.md) |
+| Listing reads via `marketplace_service` + `listing_read_repository` | Done — WS-E |
+| Browse: facets, collections rail, featured strip, `useListings` | Done |
 | `GET /v1/marketplace/map` (listings + optional nodes, bbox, filters) | Done |
 | Shared `ProxyMapCanvas` (Leaflet + globe) | Done |
 | Explorer map reuses engine | Done |
@@ -199,8 +205,12 @@ go test ./internal/api/ -run "ReconcileProviderNodeRegistry|SignListingOfferDev"
 cd ..\..\apps\web
 npm run validate:routes
 npm run typecheck
-# Terminal 1: npm run dev:e2e  |  Terminal 2: npm run test:e2e:map
+# Terminal 1: npm run dev:e2e  |  Terminal 2: npm run test:e2e:marketplace
 .\scripts\soak-enforce-monitor.ps1
+
+# Go (Phase 2 discovery parity + moderation; needs TEST_DATABASE_URL)
+cd services\control-api
+go test ./internal/marketplace/discovery/... ./internal/api/... -run "Parity|Moderation|Equivalent|Offset" -count=1
 ```
 
 Canonical local URLs: API **18080**, gateway **8090** inside Docker (host often **18090** via `EDGE_GATEWAY_PORT`), gateway metrics **9092** (host), web dev **4011** (`npm run dev:e2e`). If edge fails with **port 9090 in use**, see [PROVIDER_PROOFS_DOCKER.md](./PROVIDER_PROOFS_DOCKER.md) troubleshooting (stale Prometheus container).

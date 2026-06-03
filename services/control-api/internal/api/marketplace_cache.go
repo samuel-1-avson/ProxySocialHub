@@ -12,6 +12,12 @@ func invalidateMarketplaceReadModels() {
 	if err := cache.DeletePattern("listings:sla:*"); err != nil {
 		logging.Warn().Err(err).Msg("failed to invalidate listing cache")
 	}
+	if err := cache.Delete("listings:facets:v1"); err != nil {
+		logging.Warn().Err(err).Msg("failed to invalidate listing facets cache")
+	}
+	if err := cache.Delete("listings:collections:v1"); err != nil {
+		logging.Warn().Err(err).Msg("failed to invalidate listing collections cache")
+	}
 	invalidateRedisPattern("marketplace:geo:*")
 	invalidateRedisPattern("marketplace:map:*")
 	invalidateRedisPattern("discovery:*")

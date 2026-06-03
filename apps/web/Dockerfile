@@ -66,10 +66,11 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy necessary files
-COPY --from=builder /app/public ./public
+# Standalone preserves the app path when outputFileTracingRoot is above the project dir
+# (monorepo root locally; filesystem root in this image). server.js is at app/server.js.
+COPY --from=builder /app/public ./app/public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./app/.next/static
 
 # Switch to non-root user
 USER nextjs
@@ -85,4 +86,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 -O /dev/null http://127.0.0.1:3000/ || exit 1
 
 # Start the application
-CMD ["node", "server.js"]
+CMD ["node", "app/server.js"]

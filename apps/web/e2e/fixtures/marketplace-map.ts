@@ -50,8 +50,92 @@ export function mockListingDetail(overrides: Record<string, unknown> = {}) {
         quality_score: 98,
         listing_offer_verified: true,
         created_at: '2026-06-02T14:31:00Z',
+        seller: {
+            id: 'seller-1',
+            username: 'seller-e2e',
+            display_name: 'E2E Seller',
+            location: 'Austin, US',
+            avg_rating: 5,
+        },
         ...overrides,
     };
+}
+
+export function mockListingSocialContext(listingId: string) {
+    return {
+        listing_id: listingId,
+        active_sessions_count: 0,
+        total_sessions_count: 0,
+        allow_direct_message: true,
+        provider: {
+            id: 'seller-1',
+            username: 'seller-e2e',
+            display_name: 'E2E Seller',
+            avatar_url: '',
+            is_online: true,
+            avg_rating: 5,
+            reviews_count: 0,
+            total_bandwidth_sold: 0,
+            response_time_min: 5,
+        },
+        is_followed: false,
+        has_existing_session: false,
+    };
+}
+
+export async function stubListingAuxApis(
+    page: import('@playwright/test').Page,
+    listingId: string,
+) {
+    await page.route(`**/v1/listings/${listingId}/social`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(mockListingSocialContext(listingId)),
+        });
+    });
+    await page.route(`**/v1/listings/${listingId}/qa`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ questions: [], count: 0 }),
+        });
+    });
+}
+
+/** Stub map + listing detail APIs without proxying to a live control-api. */
+export async function stubMarketplaceListingDetail(
+    page: import('@playwright/test').Page,
+    listingId = verifiedMapListingId,
+) {
+    await page.route('**/v1/marketplace/map**', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(mockMapResponse()),
+        });
+    });
+    await stubListingAuxApis(page, listingId);
+    await page.route(
+        (url) => {
+            const path = url.pathname;
+            return (
+                path === `/v1/listings/${listingId}` ||
+                path === `/api/v1/listings/${listingId}`
+            );
+        },
+        async (route) => {
+            if (route.request().method() !== 'GET') {
+                await route.fallback();
+                return;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ listing: mockListingDetail(), is_saved: false }),
+            });
+        },
+    );
 }
 
 export function mockMapResponse() {
