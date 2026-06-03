@@ -111,6 +111,7 @@ The “foundation” is staged: **identity → registry → edge enforcement →
 | Edge gateway P1–P4 sign-off | Done | `services/edge-gateway/docs/P*_SIGNOFF.md` |
 | P3 multipod + tunnel tier split (P3b) | Done | ADR 0002, compose stacks |
 | P4 multi-yamux provider transport | Done | ADR 0003 |
+| P4 dev transport soak (CONNECT hold via provider) | Done | [P4_TRANSPORT_SOAK.md](../services/edge-gateway/docs/P4_TRANSPORT_SOAK.md) |
 | P5 OTEL + JA3/JA4 + buyer TLS options | Done | [P5_OTEL.md](../services/edge-gateway/docs/P5_OTEL.md) |
 | P6 HTTP/3 + SOCKS5 ingress (initial) | Done | `REMAINING_PHASES.md` |
 | `FULL_DECENTRALIZATION` gate | Done | `control-api/internal/decentralization`, explorer tests, edge skips legacy ZK path |

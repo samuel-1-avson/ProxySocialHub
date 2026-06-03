@@ -14,6 +14,7 @@ Blueprint: [EDGE_GATEWAY_VNEXT_BLUEPRINT.md](../../../docs/EDGE_GATEWAY_VNEXT_BL
 | Docker QUIC stack (`docker-compose.provider.yml`, `compose-up-dev.ps1`) | Done |
 | `transport_bench` + `p4-transport-exit-verify.*` | Done |
 | Transport soak runbook + `p4-transport-soak.ps1` | Done |
+| Dev transport soak (20 CONNECT × 45s, QUIC overlay) | Done — [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md) 2026-06-03 |
 | `get_best` / shard routing uses `pick_control` | Done |
 
 ## Deferred (post-P4)

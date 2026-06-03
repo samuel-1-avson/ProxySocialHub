@@ -62,6 +62,7 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 - [x] Sign-off [`P4_SIGNOFF.md`](P4_SIGNOFF.md)
 - [x] Docker QUIC E2E ([`scripts/compose-up-dev.ps1`](../../../scripts/compose-up-dev.ps1), [`scripts/quic-provider-e2e-docker.ps1`](../../../scripts/quic-provider-e2e-docker.ps1))
 - [x] Transport soak script + runbook ([`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md), `p4-transport-soak.ps1`)
+- [x] Dev transport soak (20–50 CONNECT tunnels; snapshots in [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md))
 - [ ] 10k+ stream load-lab soak (ops — `SOAK_CONCURRENT` on dedicated hardware)
 
 ### P5 — Security & observability · observability signed off
