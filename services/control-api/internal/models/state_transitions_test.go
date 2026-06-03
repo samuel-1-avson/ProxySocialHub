@@ -52,6 +52,9 @@ func TestListingStatusTransitions(t *testing.T) {
 		want bool
 	}{
 		{"new active", "", ListingStatusActive, true},
+		{"new pending review", "", ListingStatusPendingReview, true},
+		{"pending approve", ListingStatusPendingReview, ListingStatusActive, true},
+		{"pending reject", ListingStatusPendingReview, ListingStatusDeleted, true},
 		{"active paused", ListingStatusActive, ListingStatusPaused, true},
 		{"active sold out", ListingStatusActive, ListingStatusSoldOut, true},
 		{"active deleted", ListingStatusActive, ListingStatusDeleted, true},

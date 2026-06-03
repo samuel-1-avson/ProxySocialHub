@@ -28,7 +28,18 @@ var (
 		prices: make(map[string]float64),
 		ttl:    5 * time.Minute, // Cache for 5 minutes
 	}
+	testSOLPriceUSD *float64
 )
+
+// SetTestSOLPrice overrides GetSOLPrice for unit tests. Pass zero or negative to clear.
+func SetTestSOLPrice(usd float64) {
+	if usd <= 0 {
+		testSOLPriceUSD = nil
+		return
+	}
+	v := usd
+	testSOLPriceUSD = &v
+}
 
 // CoinGeckoPriceResponse represents the API response
 type coinGeckoPriceResponse map[string]map[string]float64
@@ -108,6 +119,9 @@ const (
 
 // GetSOLPrice returns the current SOL price in USD
 func GetSOLPrice(ctx context.Context) (float64, error) {
+	if testSOLPriceUSD != nil {
+		return *testSOLPriceUSD, nil
+	}
 	return GetPrice(ctx, TokenSolana)
 }
 

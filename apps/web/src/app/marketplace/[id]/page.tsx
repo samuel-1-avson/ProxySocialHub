@@ -5,17 +5,20 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
     getListing,
-    createOrder,
     saveListing,
     unsaveListing,
     marketplaceKeys,
     Listing,
 } from '@/lib/api/marketplace';
+import { BuyListingModal } from '@/components/BuyListingModal';
+import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
+import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
 import { Loader2, Star, Shield, Signal, Activity, Globe, ShoppingCart, Share2, Heart, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { trackListingViewOnce } from '@/lib/analytics/marketplace-funnel';
 
 function isPurchasable(listing: Listing) {
     return listing.status === 'active' && listing.available_bandwidth_gb > 0;
@@ -38,7 +41,7 @@ function ListingDetailContent() {
     const [error, setError] = useState("");
     const [isSaved, setIsSaved] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [purchasing, setPurchasing] = useState(false);
+    const [buyOpen, setBuyOpen] = useState(false);
 
     useEffect(() => {
         const fetchDetails = async () => {
@@ -46,6 +49,7 @@ function ListingDetailContent() {
                 const data = await getListing(id);
                 setListing(data.listing);
                 setIsSaved(data.is_saved);
+                trackListingViewOnce(data.listing.id, 'detail', Boolean(user));
             } catch (err: unknown) {
                 setError(getErrorMessage(err) || 'Failed to load listing details');
             } finally {
@@ -54,9 +58,9 @@ function ListingDetailContent() {
         };
 
         if (id) fetchDetails();
-    }, [id]);
+    }, [id, user]);
 
-    const handlePurchase = async () => {
+    const handleBuyClick = () => {
         if (!listing) return;
         if (!user) {
             toast.warning('Sign in required', 'Please sign in before buying marketplace bandwidth.');
@@ -67,19 +71,7 @@ function ListingDetailContent() {
             toast.warning('Listing unavailable', `This listing is currently ${formatListingStatus(listing.status)}.`);
             return;
         }
-        setPurchasing(true);
-        try {
-            // Default to minimum purchase or 1GB for now
-            const gbToBuy = listing.min_purchase_gb || 1;
-            await createOrder({ listing_id: listing.id, bandwidth_gb: gbToBuy, session_type: 'rotating' });
-            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-            toast.success('Purchase successful', `${gbToBuy} GB added to your account.`);
-            router.push('/dashboard/proxy');
-        } catch (err: unknown) {
-            toast.error('Purchase failed', getErrorMessage(err) || 'Please try again.');
-        } finally {
-            setPurchasing(false);
-        }
+        setBuyOpen(true);
     };
 
     const handleToggleSave = async () => {
@@ -141,13 +133,22 @@ function ListingDetailContent() {
 
     return (
         <div className="space-y-6">
-            {/* Nav Back */}
+            {buyOpen && (
+                <BuyListingModal
+                    listing={listing}
+                    surface="detail"
+                    onClose={() => setBuyOpen(false)}
+                    onSuccess={() => {
+                        void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+                    }}
+                />
+            )}
+
             <Link href="/marketplace" className="inline-flex items-center gap-2 text-xs font-mono font-bold uppercase text-muted-foreground hover:text-primary transition-colors">
                 <ArrowLeft size={14} /> Back to Market
             </Link>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Col: Main Info */}
                 <div className="lg:col-span-2 space-y-6">
                     <div className="card-retro p-8 bg-card relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-4 opacity-50">
@@ -246,13 +247,12 @@ function ListingDetailContent() {
                     </div>
                 </div>
 
-                {/* Right Col: Purchase */}
                 <div className="space-y-6">
                     <div className="card-retro p-6 bg-card sticky top-24 border-l-4 border-l-primary">
                         <div className="flex justify-between items-baseline mb-6">
                             <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
                             <div className="text-right">
-                                <span className="text-4xl font-bold font-mono">{listing.price_per_gb} SOL</span>
+                                <span className="text-4xl font-bold font-mono">${listing.price_per_gb}</span>
                                 <span className="text-sm text-muted-foreground font-mono">/GB</span>
                             </div>
                         </div>
@@ -273,13 +273,12 @@ function ListingDetailContent() {
                         </div>
 
                         <button
-                            onClick={handlePurchase}
-                            disabled={purchasing || !isPurchasable(listing)}
+                            onClick={handleBuyClick}
+                            disabled={!isPurchasable(listing)}
                             className="w-full btn-retro btn-retro-primary py-4 text-sm uppercase tracking-wider flex items-center justify-center gap-2 group mb-4"
                         >
-                            {purchasing && <Loader2 className="animate-spin" size={16} />}
-                            {!purchasing && <ShoppingCart className="group-hover:translate-x-1 transition-transform" size={18} />}
-                            {purchasing ? "Processing..." : isPurchasable(listing) ? "Buy Bandwidth" : `Unavailable: ${formatListingStatus(listing.status)}`}
+                            <ShoppingCart className="group-hover:translate-x-1 transition-transform" size={18} />
+                            {isPurchasable(listing) ? "Buy Bandwidth" : `Unavailable: ${formatListingStatus(listing.status)}`}
                         </button>
 
                         <p className="text-[10px] text-center text-muted-foreground font-mono">
@@ -291,6 +290,15 @@ function ListingDetailContent() {
                             </Link>
                         </p>
                     </div>
+
+                    <ListingSocialPanel
+                        listingId={listing.id}
+                        listingTitle={listing.title}
+                        pricePerGb={listing.price_per_gb}
+                        location={listing.seller?.location}
+                    />
+
+                    <ListingQASection listingId={listing.id} />
                 </div>
             </div>
         </div>

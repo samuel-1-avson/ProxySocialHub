@@ -95,6 +95,15 @@ export async function publicApiGet<T>(endpoint: string, params?: Record<string, 
     return readJsonOrThrow<T>(response);
 }
 
+export async function publicApiPost<T, B = unknown>(endpoint: string, body?: B): Promise<T> {
+    const response = await publicApiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    return readJsonOrThrow<T>(response);
+}
+
 export async function authApiGet<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
     const response = await authApiFetch(buildUrl(endpoint, params));
     return readJsonOrThrow<T>(response);

@@ -14,8 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/core/domain"
+	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
 	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 	"github.com/proxyhubb/control-api/internal/privacy"
@@ -33,6 +35,7 @@ func getListingProofPolicy(c *gin.Context) {
 
 // RegisterListingRoutes registers marketplace listing routes
 func RegisterListingRoutes(rg *gin.RouterGroup) {
+	RegisterListingCatalogRoutes(rg)
 	rg.GET("/listings", getListings)
 	rg.GET("/listings/featured", getFeaturedListings)
 	rg.GET("/listings/search", searchListings)
@@ -115,12 +118,17 @@ func buildListingFilters(c *gin.Context) map[string]interface{} {
 	for _, key := range []string{
 		"proxy_type",
 		"protocol",
+		"protocols",
 		"rotation_type",
 		"country",
 		"isp",
 		"min_price",
 		"max_price",
 		"min_rating",
+		"min_quality_score",
+		"min_success_rate",
+		"min_uptime_percent",
+		"min_bandwidth_mbps",
 		"seller_id",
 		"sort_by",
 		"sort_order",
@@ -128,6 +136,10 @@ func buildListingFilters(c *gin.Context) map[string]interface{} {
 		if value := strings.TrimSpace(c.Query(key)); value != "" {
 			filters[key] = value
 		}
+	}
+
+	if protocols := c.QueryArray("protocols"); len(protocols) > 0 {
+		filters["protocols"] = protocols
 	}
 
 	return filters
@@ -145,6 +157,39 @@ func listingCacheKey(filters map[string]interface{}) string {
 		values.Set(key, fmt.Sprint(filters[key]))
 	}
 	return "listings:sla:v2:" + values.Encode()
+}
+
+func sellerProfileToModel(p *domain.SellerPublicProfile) *models.User {
+	if p == nil {
+		return nil
+	}
+	return &models.User{
+		ID:          p.ID,
+		DisplayName: p.DisplayName,
+		Username:    p.Username,
+		AvatarURL:   p.AvatarURL,
+		Role:        p.Role,
+		TrustTier:   models.TrustTier(p.TrustTier),
+	}
+}
+
+func listingEntitiesToModels(entities []domain.ListingEntity) []models.ProxyListing {
+	out := make([]models.ProxyListing, len(entities))
+	for i, e := range entities {
+		out[i] = listingEntityToModel(e)
+		out[i].Seller = sellerProfileToModel(e.Seller)
+	}
+	return out
+}
+
+func listingViewerFromContext(c *gin.Context) ports.ListingViewer {
+	viewer := ports.ListingViewer{
+		IsModerator: isPlatformModeratorRole(c.GetString("userRole")),
+	}
+	if userID, err := parseUserIDFromContext(c); err == nil {
+		viewer.UserID = &userID
+	}
+	return viewer
 }
 
 func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
@@ -227,7 +272,7 @@ func getListing(c *gin.Context) {
 			"message": "Use GET /v1/listings/geo or GET /v1/marketplace/geo",
 		})
 		return
-	case "featured", "search":
+	case "featured", "search", "facets", "collections":
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "endpoint_not_found",
 			"message": "Use GET /v1/listings/" + id,
@@ -241,52 +286,26 @@ func getListing(c *gin.Context) {
 		return
 	}
 
-	var listing models.ProxyListing
-	if err := db.DB.Preload("Seller").First(&listing, "id = ?", listingID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+	detail, err := marketplaceServiceOrDefault().GetListingForViewer(
+		c.Request.Context(),
+		listingID,
+		listingViewerFromContext(c),
+	)
+	if err != nil {
+		writeMarketplaceError(c, err)
 		return
 	}
 
+	listing := listingEntityToModel(detail.Listing)
+	listing.Seller = sellerProfileToModel(detail.Seller)
 	enrichListingsSLA([]models.ProxyListing{listing})
 
-	// Increment view count
-	db.DB.Model(&listing).Update("views_count", listing.ViewsCount+1)
-
-	// Check if current user has saved this listing
-	// Manually check both keys for safety
-	var currentUserID interface{}
-	exists := false
-	if uid, ok := c.Get("user_id"); ok {
-		currentUserID = uid
-		exists = true
-	} else if uidStr := c.GetString("userID"); uidStr != "" {
-		currentUserID, _ = uuid.Parse(uidStr)
-		exists = true
-	}
-
-	isSaved := false
-	if exists {
-		// Ensure currentUserID is uuid
-		var uID uuid.UUID
-		if id, ok := currentUserID.(uuid.UUID); ok {
-			uID = id
-		} else if idStr, ok := currentUserID.(string); ok {
-			uID, _ = uuid.Parse(idStr)
-		}
-
-		var saved models.SavedListing
-		if err := db.DB.Where("user_id = ? AND listing_id = ?", uID, listingID).First(&saved).Error; err == nil {
-			isSaved = true
-		}
-	}
-
-	// Apply ZK-Privacy Obfuscation (Security Audit Sweep)
 	sentry := privacy.NewZKMetadataSentry()
 	sentry.SanitizeListing(&listing)
 
 	c.JSON(http.StatusOK, gin.H{
 		"listing":  listing,
-		"is_saved": isSaved,
+		"is_saved": detail.IsSaved,
 	})
 }
 
@@ -305,6 +324,16 @@ func createListing(c *gin.Context) {
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	allowed, err := CheckSubscriptionLimits(userID, "listings")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify subscription limits"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Listing limit reached for your subscription plan. Upgrade or remove an existing listing."})
 		return
 	}
 
@@ -409,6 +438,7 @@ func createListing(c *gin.Context) {
 		return
 	}
 	invalidateMarketplaceReadModels()
+	publishNewListingFeedEvent(userID, *published)
 
 	c.JSON(http.StatusCreated, listingEntityToModel(*published))
 }
@@ -678,6 +708,14 @@ func saveListing(c *gin.Context) {
 	}
 
 	invalidateMarketplaceReadModels()
+
+	funnel.Record(c.Request.Context(), funnel.RecordParams{
+		EventName: models.FunnelListingSave,
+		UserID:    &userID,
+		ListingID: &listingID,
+		Surface:   "api",
+	})
+
 	c.JSON(http.StatusOK, gin.H{"message": "Listing saved"})
 }
 
@@ -716,17 +754,7 @@ func unsaveListing(c *gin.Context) {
 
 // getSavedListings returns user's saved listings
 func getSavedListings(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		if uid, exists := c.Get("user_id"); exists {
-			if id, ok := uid.(uuid.UUID); ok {
-				userIDStr = id.String()
-			} else if idStr, ok := uid.(string); ok {
-				userIDStr = idStr
-			}
-		}
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := parseUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
 		return
@@ -734,20 +762,23 @@ func getSavedListings(c *gin.Context) {
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
-	offset := (page - 1) * limit
 
-	var saved []models.SavedListing
-	var total int64
-
-	db.DB.Model(&models.SavedListing{}).Where("user_id = ?", userID).Count(&total)
-
-	if err := db.DB.Preload("Listing").Preload("Listing.Seller").
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Offset(offset).Limit(limit).
-		Find(&saved).Error; err != nil {
+	entries, total, err := marketplaceServiceOrDefault().GetSavedListings(c.Request.Context(), userID, page, limit)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch saved listings"})
 		return
+	}
+
+	saved := make([]models.SavedListing, len(entries))
+	for i, entry := range entries {
+		listing := listingEntityToModel(entry.Listing)
+		listing.Seller = sellerProfileToModel(entry.Seller)
+		saved[i] = models.SavedListing{
+			UserID:    entry.UserID,
+			ListingID: entry.ListingID,
+			CreatedAt: entry.CreatedAt,
+			Listing:   &listing,
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -760,17 +791,7 @@ func getSavedListings(c *gin.Context) {
 
 // getMyListings returns the current user's listings
 func getMyListings(c *gin.Context) {
-	userIDStr := c.GetString("userID")
-	if userIDStr == "" {
-		if uid, exists := c.Get("user_id"); exists {
-			if id, ok := uid.(uuid.UUID); ok {
-				userIDStr = id.String()
-			} else if idStr, ok := uid.(string); ok {
-				userIDStr = idStr
-			}
-		}
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := parseUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
 		return
@@ -778,21 +799,15 @@ func getMyListings(c *gin.Context) {
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
-	offset := (page - 1) * limit
 
-	var listings []models.ProxyListing
-	var total int64
-
-	query := db.DB.Model(&models.ProxyListing{}).Where("seller_id = ? AND status != ?", userID, models.ListingStatusDeleted)
-	query.Count(&total)
-
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&listings).Error; err != nil {
+	entities, total, err := marketplaceServiceOrDefault().GetSellerListings(c.Request.Context(), userID, page, limit)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch listings"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"listings": listings,
+		"listings": listingEntitiesToModels(entities),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -821,17 +836,13 @@ func suggestPrice(c *gin.Context) {
 
 // getFeaturedListings returns top-ranked active listings (high quality score, priority)
 func getFeaturedListings(c *gin.Context) {
-	var listings []models.ProxyListing
-	if err := db.DB.
-		Preload("Seller").
-		Where("status = ? AND quality_score > ?", models.ListingStatusActive, 70).
-		Order("is_priority DESC, priority_rank ASC, quality_score DESC").
-		Limit(12).
-		Find(&listings).Error; err != nil {
+	entities, err := marketplaceServiceOrDefault().GetFeaturedListings(c.Request.Context(), 12)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch featured listings"})
 		return
 	}
 
+	listings := listingEntitiesToModels(entities)
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
@@ -843,53 +854,52 @@ func getFeaturedListings(c *gin.Context) {
 // searchListings searches listings using PostgreSQL full-text search (E4).
 // Falls back to ILIKE if the search_vector column does not yet exist (pre-migration).
 func searchListings(c *gin.Context) {
-	q := c.Query("q")
+	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
 		return
 	}
 
-	var listings []models.ProxyListing
-
-	// Try FTS first (requires migration 000036_listing_fulltext_search to have been applied).
-	// Uses plainto_tsquery which safely tokenises user input — no injection risk.
-	// Routes to read replica when available (GetReadDB falls back to primary if not configured).
-	ftsErr := db.GetReadDB().Raw(`
-		SELECT proxy_listings.* FROM proxy_listings
-		WHERE status = ?
-		  AND search_vector @@ plainto_tsquery('english', ?)
-		ORDER BY ts_rank(search_vector, plainto_tsquery('english', ?)) DESC,
-		         quality_score DESC
-		LIMIT 50`,
-		models.ListingStatusActive, q, q).
-		Scan(&listings).Error
-
-	if ftsErr != nil {
-		// Graceful fallback: search_vector column not yet present — use ILIKE.
-		like := "%" + q + "%"
-		if err := db.DB.
-			Preload("Seller").
-			Where("status = ? AND (title ILIKE ? OR description ILIKE ? OR country ILIKE ? OR isp ILIKE ?)",
-				models.ListingStatusActive, like, like, like, like).
-			Order("quality_score DESC").
-			Limit(50).
-			Find(&listings).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search listings"})
-			return
-		}
-	} else if len(listings) > 0 {
-		// Raw scan does not preload associations — re-fetch with Seller preloaded.
-		ids := make([]string, len(listings))
-		for i, l := range listings {
-			ids[i] = l.ID.String()
-		}
-		db.DB.Preload("Seller").Where("id IN ?", ids).Find(&listings)
+	entities, err := marketplaceServiceOrDefault().SearchListings(c.Request.Context(), q)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
+	listings := listingEntitiesToModels(entities)
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
 	}
 
 	c.JSON(http.StatusOK, gin.H{"listings": listings, "total": len(listings)})
+}
+
+func canViewPendingReviewListing(c *gin.Context, sellerID uuid.UUID) bool {
+	if isPlatformModeratorRole(c.GetString("userRole")) {
+		return true
+	}
+	userID, err := parseUserIDFromContext(c)
+	return err == nil && userID == sellerID
+}
+
+func isPlatformModeratorRole(role string) bool {
+	switch role {
+	case "admin", "moderator", "superadmin":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseUserIDFromContext(c *gin.Context) (uuid.UUID, error) {
+	if uid, ok := c.Get("user_id"); ok {
+		if id, ok := uid.(uuid.UUID); ok {
+			return id, nil
+		}
+	}
+	if userIDStr := c.GetString("userID"); userIDStr != "" {
+		return uuid.Parse(userIDStr)
+	}
+	return uuid.Nil, fmt.Errorf("no user in context")
 }
