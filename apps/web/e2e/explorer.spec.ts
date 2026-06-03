@@ -7,7 +7,7 @@ import {
     mockExplorerNodeDetail,
     mockExplorerNodeGeo,
     mockExplorerNodesList,
-    mockMapResponse,
+    mockExplorerUnifiedMapResponse,
 } from './fixtures/explorer';
 import { fillReactInput } from './fixtures/react-input';
 
@@ -109,7 +109,7 @@ async function stubExplorerApis(page: import('@playwright/test').Page, options: 
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(mockMapResponse()),
+            body: JSON.stringify(mockExplorerUnifiedMapResponse()),
         });
     });
 
