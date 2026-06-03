@@ -1,0 +1,12 @@
+# Install: pip install pre-commit && pre-commit install
+# Runs scripts/pre-commit-security.sh on every commit.
+
+repos:
+  - repo: local
+    hooks:
+      - id: proxyhubb-security-gates
+        name: ProxyHubb security gates
+        entry: bash scripts/pre-commit-security.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

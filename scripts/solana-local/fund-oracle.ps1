@@ -12,6 +12,7 @@ Use-SolanaPath
 Ensure-SolanaConfig
 
 $solana = Get-SolanaExe "solana"
+$solanaKeygen = Get-SolanaExe "solana-keygen"
 & $solana config set --url http://127.0.0.1:8899 | Out-Null
 
 # Defaults match docs/DEV_SOLANA_SMOKE.md (override via .env if set)
@@ -19,8 +20,16 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 . (Join-Path $repoRoot "scripts\_env.ps1")
 Import-RepoDotEnv -RepoRoot $repoRoot
 
-$oracle = if ($env:SOLANA_ORACLE_PUBKEY) { $env:SOLANA_ORACLE_PUBKEY } else { "8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2" }
-$treasury = if ($env:SOLANA_TREASURY_ADDRESS) { $env:SOLANA_TREASURY_ADDRESS } else { "8g7WUuPosAg82Uu7iGYCx6HBnoTBFb4QuyiJCEGzktU4" }
+$keypairPath = Join-Path $repoRoot "infra\oracle-keypair.json"
+if ($env:SOLANA_ORACLE_PUBKEY) {
+    $oracle = $env:SOLANA_ORACLE_PUBKEY
+} elseif (Test-Path $keypairPath) {
+    $oracle = (& $solanaKeygen pubkey $keypairPath 2>$null | Out-String).Trim()
+    if (-not $oracle) { throw "Could not read pubkey from $keypairPath — set SOLANA_ORACLE_PUBKEY in .env" }
+} else {
+    throw "Set SOLANA_ORACLE_PUBKEY in .env or create infra/oracle-keypair.json (see infra/README.md)"
+}
+$treasury = if ($env:SOLANA_TREASURY_ADDRESS) { $env:SOLANA_TREASURY_ADDRESS } else { $oracle }
 
 function Invoke-LocalAirdrop {
     param([string]$Address, [double]$AmountSOL)
