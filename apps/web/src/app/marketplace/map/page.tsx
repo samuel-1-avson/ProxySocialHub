@@ -9,6 +9,8 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Globe, Loader2, MapPin, Search, ShoppingCart, X } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
+import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
+import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import {
     getListing,
     getMarketplaceMapPoints,
@@ -210,12 +212,20 @@ export default function MarketplaceMapPage() {
         >
             <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4 border-b border-white/5 pb-8">
                 <div>
-                    <Link
-                        href="/marketplace"
-                        className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary uppercase tracking-[0.3em] mb-4"
-                    >
-                        <ArrowLeft size={14} /> Node Market
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-4 mb-4">
+                        <Link
+                            href="/marketplace"
+                            className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary uppercase tracking-[0.3em]"
+                        >
+                            <ArrowLeft size={14} /> Node Market
+                        </Link>
+                        <Link
+                            href="/community/feed"
+                            className="text-[10px] font-black text-white/25 hover:text-primary uppercase tracking-[0.3em]"
+                        >
+                            Community feed →
+                        </Link>
+                    </div>
                     <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
                         <MapPin className="text-emerald-400" size={32} />
                         Buy on Map
@@ -506,6 +516,19 @@ export default function MarketplaceMapPage() {
                                 <ShoppingCart size={14} />
                                 {buyLoading ? 'Loading…' : selectedPin.purchasable ? 'Buy bandwidth' : 'Unavailable'}
                             </button>
+                            <ListingSocialPanel
+                                listingId={selectedPin.listing_id}
+                                listingTitle={selectedPin.title}
+                                pricePerGb={selectedPin.price_per_gb}
+                                location={[selectedPin.city, selectedPin.country].filter(Boolean).join(', ')}
+                                compact
+                                className="border-emerald-500/10"
+                            />
+                            <ListingQASection
+                                listingId={selectedPin.listing_id}
+                                compact
+                                className="border-emerald-500/10"
+                            />
                             <Link
                                 href={`/marketplace/${selectedPin.listing_id}`}
                                 className="block text-center text-[9px] font-black text-white/40 uppercase tracking-widest hover:text-primary"
@@ -613,6 +636,7 @@ export default function MarketplaceMapPage() {
             {buyListing && (
                 <BuyListingModal
                     listing={buyListing}
+                    surface="map"
                     onClose={() => {
                         setBuyListing(null);
                         setSelectedPin(null);

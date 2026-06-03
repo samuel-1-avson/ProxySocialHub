@@ -116,15 +116,32 @@ func RequireAdmin() gin.HandlerFunc {
 			})
 			return
 		}
-		
+
 		if role.(string) != "admin" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "Admin access required",
 			})
 			return
 		}
-		
+
 		c.Next()
+	}
+}
+
+// RequirePlatformModerator allows marketplace moderation for admin and moderator roles.
+func RequirePlatformModerator() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("userRole")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			return
+		}
+		switch role.(string) {
+		case "admin", "moderator", "superadmin":
+			c.Next()
+		default:
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Moderator access required"})
+		}
 	}
 }
 

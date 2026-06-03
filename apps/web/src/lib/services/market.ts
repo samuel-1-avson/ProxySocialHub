@@ -1,3 +1,6 @@
+/**
+ * @deprecated Prefer `@/lib/api/marketplace` for orders/listings and `@/lib/api/sessions` for sessions.
+ */
 import { API_BASE_URL, fetchWithAuth } from './client';
 import type { CreateSessionIntentResponse } from '../api/sessions';
 

@@ -6,29 +6,32 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace/discovery"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterServiceDiscoveryRoutes registers service discovery/marketplace routes
+// RegisterServiceDiscoveryRoutes registers legacy service discovery routes (deprecated; use /v1/listings).
 func RegisterServiceDiscoveryRoutes(r *gin.RouterGroup) {
-	discovery := r.Group("/services")
+	discoveryGroup := r.Group("/services")
+	discoveryGroup.Use(deprecatedDiscoveryHeaders())
 	{
-		discovery.GET("", discoverServices)
-		discovery.GET("/filters", getAvailableFilters)
-		discovery.GET("/routing-profiles", getRoutingProfiles)
-		discovery.GET("/geo-coverage", getGeoCoverage)
-		discovery.POST("/match", matchServices)
+		discoveryGroup.GET("", discoverServices)
+		discoveryGroup.GET("/filters", getAvailableFilters)
+		discoveryGroup.GET("/routing-profiles", getRoutingProfiles)
+		discoveryGroup.GET("/geo-coverage", getGeoCoverage)
+		discoveryGroup.POST("/match", matchServices)
 	}
 }
 
-// @Summary Discover available services with filters
+// @Summary Discover available services with filters (deprecated)
+// @Description Deprecated: use GET /v1/listings. This route wraps the shared listing discovery layer.
 // @Tags service-discovery
+// @Deprecated
 // @Accept json
 // @Produce json
 // @Param protocols query []string false "Protocols (http,https,socks5,ssh)"
@@ -46,9 +49,8 @@ func discoverServices(c *gin.Context) {
 
 	logging.Info().
 		Interface("filter", filter).
-		Msg("Discovering services")
+		Msg("Discovering services (deprecated /v1/services)")
 
-	// Try cache
 	cacheKey := generateSearchKey(filter)
 	var cachedResponse gin.H
 	if hit, _ := cache.Get(cacheKey, &cachedResponse); hit {
@@ -57,99 +59,21 @@ func discoverServices(c *gin.Context) {
 		return
 	}
 
-	// Default pagination
-	if filter.Limit == 0 {
-		filter.Limit = 20
-	}
-	if filter.Limit > 100 {
-		filter.Limit = 100
-	}
+	q := discovery.FromServiceFilter(filter)
+	query := discovery.Apply(discovery.BaseQuery(db.DB), q)
 
-	// Build query
-	query := db.DB.Model(&models.ProxyListing{}).
-		Joins("LEFT JOIN service_configurations sc ON sc.node_id = proxy_listings.id").
-		Joins("LEFT JOIN nodes n ON n.id = proxy_listings.id").
-		Where("proxy_listings.status = ?", models.ListingStatusActive)
-
-	// Protocol filters
-	if len(filter.Protocols) > 0 {
-		protocolConditions := []string{}
-		for _, p := range filter.Protocols {
-			switch p {
-			case "http":
-				protocolConditions = append(protocolConditions, "COALESCE(sc.enable_http, true) = true")
-			case "https":
-				protocolConditions = append(protocolConditions, "COALESCE(sc.enable_https, true) = true")
-			case "socks5":
-				protocolConditions = append(protocolConditions, "sc.enable_socks5 = true")
-			case "ssh":
-				protocolConditions = append(protocolConditions, "sc.enable_ssh_tunnel = true")
-			}
-		}
-		if len(protocolConditions) > 0 {
-			query = query.Where("(" + strings.Join(protocolConditions, " OR ") + ")")
-		}
-	}
-
-	// Geographic filters
-	if len(filter.TargetCountries) > 0 {
-		query = query.Where("proxy_listings.country IN ?", filter.TargetCountries)
-	}
-
-	// Quality filters
-	if filter.MinQualityScore > 0 {
-		query = query.Where("proxy_listings.quality_score >= ?", filter.MinQualityScore)
-	}
-	if filter.MinSuccessRate > 0 {
-		query = query.Where("proxy_listings.success_rate >= ?", filter.MinSuccessRate)
-	}
-	if filter.MinUptimePercent > 0 {
-		query = query.Where("proxy_listings.uptime_percent >= ?", filter.MinUptimePercent)
-	}
-
-	// Speed filters
-	if filter.MinBandwidthMbps > 0 {
-		query = query.Where("COALESCE(sc.max_bandwidth_mbps, 100) >= ?", filter.MinBandwidthMbps)
-	}
-	if filter.PriorityTier != "" {
-		query = query.Where("COALESCE(sc.priority_tier, 'standard') = ?", filter.PriorityTier)
-	}
-
-	// Premium service filters
-	if filter.RequireCaptchaSolving {
-		query = query.Where("sc.captcha_solving_enabled = true")
-	}
-	if filter.RequireJsRendering {
-		query = query.Where("sc.javascript_render_enabled = true")
-	}
-	if filter.RequireBrowserFingerprint {
-		query = query.Where("sc.browser_fingerprint_enabled = true")
-	}
-
-	// Price filter
-	if filter.MaxPricePerGB > 0 {
-		query = query.Where("proxy_listings.price_per_gb <= ?", filter.MaxPricePerGB)
-	}
-
-	// Rotation filters
-	if filter.RequireStickySession {
-		query = query.Where("COALESCE(sc.supports_sticky_session, true) = true")
-	}
-	if filter.RequireAutoRotation {
-		query = query.Where("COALESCE(sc.supports_auto_rotation, true) = true")
-	}
-
-	// Count total
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch services"})
+		return
+	}
 
-	// Fetch results
 	var listings []models.ProxyListing
-	if err := query.
+	offset := discovery.Offset(q.Page, q.Limit)
+	if err := discovery.ServiceDiscoveryOrder(query).
 		Preload("Seller").
-		Order("proxy_listings.quality_score DESC, proxy_listings.price_per_gb ASC").
-		Offset(filter.Page * filter.Limit).
-		Limit(filter.Limit).
+		Offset(offset).
+		Limit(q.Limit).
 		Find(&listings).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch services"})
 		return
@@ -159,10 +83,9 @@ func discoverServices(c *gin.Context) {
 		"services": listings,
 		"total":    total,
 		"page":     filter.Page,
-		"limit":    filter.Limit,
+		"limit":    q.Limit,
 	}
 
-	// Store in cache
 	cache.Set(cacheKey, response, cache.DiscoverySearchTTL)
 
 	c.JSON(http.StatusOK, response)
@@ -179,8 +102,9 @@ type FilterOptions struct {
 	PriorityTiers []string `json:"priority_tiers"`
 }
 
-// @Summary Get available filter options
+// @Summary Get available filter options (deprecated)
 // @Tags service-discovery
+// @Deprecated
 // @Produce json
 // @Success 200 {object} FilterOptions
 // @Router /v1/services/filters [get]
@@ -199,7 +123,6 @@ func getAvailableFilters(c *gin.Context) {
 		PriorityTiers: []string{"standard", "priority", "enterprise"},
 	}
 
-	// Get distinct countries
 	var countries []string
 	db.DB.Model(&models.ProxyListing{}).
 		Where("status = ?", models.ListingStatusActive).
@@ -207,7 +130,6 @@ func getAvailableFilters(c *gin.Context) {
 		Pluck("country", &countries)
 	options.Countries = countries
 
-	// Get distinct ISPs
 	var isps []string
 	db.DB.Model(&models.ProxyListing{}).
 		Where("status = ? AND isp != ''", models.ListingStatusActive).
@@ -219,17 +141,16 @@ func getAvailableFilters(c *gin.Context) {
 	c.JSON(http.StatusOK, options)
 }
 
-// @Summary Get routing profiles
+// @Summary Get routing profiles (deprecated)
 // @Tags service-discovery
+// @Deprecated
 // @Produce json
 // @Success 200 {array} models.RoutingProfile
 // @Router /v1/services/routing-profiles [get]
 func getRoutingProfiles(c *gin.Context) {
-	// First check DB for custom profiles
 	var profiles []models.RoutingProfile
 	db.DB.Where("is_active = ?", true).Order("name").Find(&profiles)
 
-	// If empty, seed with defaults
 	if len(profiles) == 0 {
 		defaults := models.GetDefaultRoutingProfiles()
 		for _, p := range defaults {
@@ -252,8 +173,9 @@ type GeoCoverage struct {
 	HasDatacenter  bool    `json:"has_datacenter"`
 }
 
-// @Summary Get geographic coverage
+// @Summary Get geographic coverage (deprecated)
 // @Tags service-discovery
+// @Deprecated
 // @Produce json
 // @Success 200 {array} GeoCoverage
 // @Router /v1/services/geo-coverage [get]
@@ -267,7 +189,6 @@ func getGeoCoverage(c *gin.Context) {
 
 	var coverage []GeoCoverage
 
-	// Aggregate by country
 	rows, err := db.DB.Model(&models.ProxyListing{}).
 		Select(`
 			country,
@@ -319,8 +240,9 @@ type MatchRequest struct {
 	Count             int      `json:"count"`
 }
 
-// @Summary Match services using intelligent routing
+// @Summary Match services using intelligent routing (deprecated)
 // @Tags service-discovery
+// @Deprecated
 // @Accept json
 // @Produce json
 // @Param request body MatchRequest true "Match criteria"
@@ -337,9 +259,8 @@ func matchServices(c *gin.Context) {
 		Str("use_case", req.UseCase).
 		Str("profile_id", req.RoutingProfileID).
 		Int("count", req.Count).
-		Msg("Matching services")
+		Msg("Matching services (deprecated /v1/services/match)")
 
-	// Try cache
 	cacheKey := generateMatchKey(req)
 	var cachedResponse gin.H
 	if hit, _ := cache.Get(cacheKey, &cachedResponse); hit {
@@ -351,7 +272,6 @@ func matchServices(c *gin.Context) {
 		req.Count = 5
 	}
 
-	// Get routing profile if specified
 	var profile models.RoutingProfile
 	if req.RoutingProfileID != "" {
 		db.DB.Where("id = ? OR slug = ?", req.RoutingProfileID, req.RoutingProfileID).First(&profile)
@@ -359,22 +279,21 @@ func matchServices(c *gin.Context) {
 		db.DB.Where("use_case = ? AND is_active = true", req.UseCase).First(&profile)
 	}
 
-	// Build weighted query
-	query := db.DB.Model(&models.ProxyListing{}).
-		Where("status = ?", models.ListingStatusActive)
-
-	// Apply filters
-	if len(req.TargetCountries) > 0 {
-		query = query.Where("country IN ?", req.TargetCountries)
-	}
+	matchQuery := discovery.Query{TargetCountries: req.TargetCountries}
 	if req.MinQuality > 0 {
-		query = query.Where("quality_score >= ?", req.MinQuality)
+		matchQuery.MinQualityScore = req.MinQuality
+		matchQuery.MinQualitySet = true
 	}
 	if req.MaxPrice > 0 {
-		query = query.Where("price_per_gb <= ?", req.MaxPrice)
+		matchQuery.MaxPrice = req.MaxPrice
+		matchQuery.MaxPriceSet = true
+	}
+	if len(req.RequiredProtocols) > 0 {
+		matchQuery.Protocols = req.RequiredProtocols
 	}
 
-	// Build weighted score
+	query := discovery.Apply(discovery.BaseQuery(db.DB), matchQuery)
+
 	weightedScore := "("
 	if profile.ID.String() != "" {
 		weightedScore += "quality_score * " + floatToStr(profile.StabilityWeight) + " + "
@@ -402,7 +321,6 @@ func matchServices(c *gin.Context) {
 		"count":   len(listings),
 	}
 
-	// Store in cache
 	cache.Set(cacheKey, response, cache.DiscoveryMatchTTL)
 
 	c.JSON(http.StatusOK, response)

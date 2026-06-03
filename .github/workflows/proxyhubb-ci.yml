@@ -246,6 +246,13 @@ jobs:
         TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
         PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
         NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: "1"
+
+    - name: Marketplace moderation E2E
+      run: npm run test:e2e:moderation
+      env:
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
       
     - name: Build
       run: npm run build
