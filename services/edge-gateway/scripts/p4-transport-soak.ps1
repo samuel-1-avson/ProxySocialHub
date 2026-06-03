@@ -100,6 +100,12 @@ function Test-ConnectEstablished([string]$Response) {
 }
 
 Import-DotEnv (Join-Path $RepoRoot ".env")
+if (-not $PSBoundParameters.ContainsKey('GatewayPort') -and $env:EDGE_GATEWAY_PORT) {
+    $GatewayPort = [int]$env:EDGE_GATEWAY_PORT
+}
+if (-not $PSBoundParameters.ContainsKey('MetricsPort') -and $env:EDGE_GATEWAY_METRICS_PORT) {
+    $MetricsPort = [int]$env:EDGE_GATEWAY_METRICS_PORT
+}
 if (-not $ApiBaseUrl) {
     $apiPort = if ($env:CONTROL_API_HOST_PORT) { $env:CONTROL_API_HOST_PORT } else { "18080" }
     $ApiBaseUrl = "http://localhost:$apiPort"
@@ -324,6 +330,11 @@ Add-Content -Path $outPath -Value ($lines -join "`n") -Encoding UTF8
 
 Write-Host ""
 Write-Host "P4 transport soak complete. Appended snapshot to $OutFile" -ForegroundColor Green
-if ($connectOk -lt [Math]::Max(1, [int]($TargetConcurrent * 0.5))) {
+$heldPct = if ($TargetConcurrent -gt 0) { 100.0 * $connectOk / $TargetConcurrent } else { 0 }
+$minPct = if ($TargetConcurrent -ge 5000) { 95 } else { 50 }
+if ($connectOk -lt [Math]::Max(1, [int]($TargetConcurrent * 0.5)) -and $TargetConcurrent -lt 5000) {
     Write-Host "WARN: held fewer than 50% of target tunnels - investigate before load lab" -ForegroundColor Yellow
 }
+if (-not $healthOk) { exit 2 }
+if ($TargetConcurrent -ge 5000 -and $heldPct -lt $minPct) { exit 1 }
+if ($connectOk -lt 1) { exit 1 }

@@ -51,6 +51,30 @@ Load-lab target (10k+ streams): run on dedicated hardware with tuned `MAX_CONCUR
 
 **Host:** 8+ vCPU, 16+ GiB RAM, Linux; monitor host NIC + `process_resident_memory_bytes`.
 
+**Load-lab env (`.env` on soak host):**
+
+```env
+MAX_CONCURRENT_CONNECTIONS=16384
+EDGE_GATEWAY_PORT=8090
+EDGE_GATEWAY_METRICS_PORT=9092
+```
+
+Recreate gateway after raising admission limit: `docker compose -f docker-compose.yml -f docker-compose.provider.yml up -d edge-gateway`.
+
+**Scale profiles (automated):**
+
+```powershell
+cd services/edge-gateway
+# Dev ramp on laptop (50 -> 100 -> 200 tunnels)
+.\scripts\p4-transport-soak-scale.ps1 -Profile dev-ladder
+
+# Ops hardware — 10k gate
+.\scripts\p4-transport-soak-scale.ps1 -Profile load-lab-10k
+
+# Ops hardware — 24h hold
+.\scripts\p4-transport-soak-scale.ps1 -Profile load-lab-24h
+```
+
 **Before run:** `docker compose up -d prometheus` (alerts volume at `infra/prometheus/alerts`).
 
 **After run:** Append to [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md); update [`REMAINING_PHASES.md`](REMAINING_PHASES.md) and [`V2_SIGNOFF.md`](V2_SIGNOFF.md).

@@ -9,6 +9,7 @@ import { useUIStore } from "@/lib/store/ui-store";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { ExplorerTrustBadge } from "@/components/explorer/ExplorerTrustBadge";
+import { getVisibleExplorerTabs } from "@/lib/navigation/explorer-nav";
 
 export default function ExplorerLayout({
     children,
@@ -17,22 +18,7 @@ export default function ExplorerLayout({
 }) {
     const { isSidebarCollapsed } = useUIStore();
     const pathname = usePathname();
-
-    const explorerTabs = [
-        { href: "/explorer", label: "Overview" },
-        { href: "/explorer/blocks", label: "Blocks" },
-        { href: "/explorer/nodes", label: "Nodes" },
-        { href: "/explorer/transactions", label: "Transactions" },
-        { href: "/explorer/leaderboard", label: "Leaderboard" },
-        { href: "/explorer/sessions", label: "Sessions" },
-        { href: "/explorer/earnings", label: "Earnings" },
-        { href: "/explorer/analytics", label: "Analytics" },
-        { href: "/explorer/health", label: "Health" },
-        { href: "/explorer/map", label: "Node Map" },
-        { href: "/explorer/search", label: "Search" },
-        { href: "/explorer/wallets", label: "Wallets" },
-        { href: "/explorer/contracts", label: "Contracts" },
-    ];
+    const explorerTabs = getVisibleExplorerTabs();
 
     return (
         <div className="min-h-screen bg-background text-foreground font-sans">
@@ -55,13 +41,13 @@ export default function ExplorerLayout({
                     </div>
                     <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none snap-x mask-fade-edges">
                         {explorerTabs.map((tab) => {
-                            const isOverview = tab.href === "/explorer";
+                            const isOverview = tab.id === "overview";
                             const isActive = isOverview
-                                ? pathname === "/explorer" || pathname === "/explorer/"
-                                : pathname === tab.href || pathname?.startsWith(tab.href + "/");
+                                ? pathname === tab.href || pathname === `${tab.href}/`
+                                : pathname === tab.href || pathname?.startsWith(`${tab.href}/`);
                             return (
                                 <Link
-                                    key={tab.href}
+                                    key={tab.id}
                                     href={tab.href}
                                     prefetch={false}
                                     className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap snap-start transition-all ${

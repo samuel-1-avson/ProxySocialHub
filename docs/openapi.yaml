@@ -78,6 +78,11 @@ tags:
     description: Bilaterally signed usage proofs and verification flows
   - name: Reputation
     description: Batch-settlement and on-chain reputation telemetry
+  - name: Explorer
+    description: |
+      Public Solana proxy-chain explorer (indexed telemetry). No auth required.
+      May return 503 when full decentralization gate is active.
+      Metric semantics: see ExplorerMetrics schema field descriptions.
 paths:
   # ==================== Auth ====================
   /v1/auth/wallet/challenge:
@@ -1829,6 +1834,382 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReputationTelemetryResponse'
+
+  # ==================== Explorer (public) ====================
+  /v1/explorer/metrics:
+    get:
+      tags: [Explorer]
+      summary: Explorer dashboard metrics
+      operationId: getExplorerMetrics
+      parameters:
+        - name: chain
+          in: query
+          schema:
+            type: string
+            default: all
+          description: Chain filter; `all` resolves to `solana` for the proxy indexer.
+      responses:
+        '200':
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplorerMetrics'
+        '503':
+          description: Full decentralization gate active
+
+  /v1/explorer/stats:
+    get:
+      tags: [Explorer]
+      summary: Network statistics summary
+      operationId: getExplorerNetworkStats
+      responses:
+        '200':
+          description: Network stats
+
+  /v1/explorer/transactions:
+    get:
+      tags: [Explorer]
+      summary: List indexed transactions
+      operationId: listExplorerTransactions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Transaction list
+
+  /v1/explorer/transactions/{hash}:
+    get:
+      tags: [Explorer]
+      summary: Transaction detail by hash
+      operationId: getExplorerTransaction
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/wallets/{address}:
+    get:
+      tags: [Explorer]
+      summary: Wallet summary
+      operationId: getExplorerWallet
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wallet details
+
+  /v1/explorer/wallets/{address}/transactions:
+    get:
+      tags: [Explorer]
+      summary: Wallet transaction history
+      operationId: getExplorerWalletTransactions
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Wallet transactions
+
+  /v1/explorer/blocks:
+    get:
+      tags: [Explorer]
+      summary: List indexed blocks
+      operationId: listExplorerBlocks
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Block list
+
+  /v1/explorer/blocks/{identifier}:
+    get:
+      tags: [Explorer]
+      summary: Block by hash or number
+      operationId: getExplorerBlock
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Block detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/nodes:
+    get:
+      tags: [Explorer]
+      summary: List explorer nodes
+      operationId: listExplorerNodes
+      responses:
+        '200':
+          description: Node list
+
+  /v1/explorer/nodes/geo:
+    get:
+      tags: [Explorer]
+      summary: Geo distribution of active nodes
+      operationId: getExplorerNodesGeo
+      description: Large payload; rate-limited to 20 req/min per IP.
+      responses:
+        '200':
+          description: Geo nodes
+
+  /v1/explorer/nodes/{id}:
+    get:
+      tags: [Explorer]
+      summary: Node detail
+      operationId: getExplorerNode
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Node detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/validators:
+    get:
+      tags: [Explorer]
+      summary: List validators
+      operationId: listExplorerValidators
+      responses:
+        '200':
+          description: Validators
+
+  /v1/explorer/contracts:
+    get:
+      tags: [Explorer]
+      summary: List indexed contracts
+      operationId: listExplorerContracts
+      responses:
+        '200':
+          description: Contracts
+
+  /v1/explorer/contracts/{address}:
+    get:
+      tags: [Explorer]
+      summary: Contract detail
+      operationId: getExplorerContract
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contract detail
+
+  /v1/explorer/bandwidth:
+    get:
+      tags: [Explorer]
+      summary: Bandwidth usage for a period
+      operationId: getExplorerBandwidth
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+      responses:
+        '200':
+          description: Bandwidth stats (period-scoped usage_records sum)
+
+  /v1/explorer/network/health:
+    get:
+      tags: [Explorer]
+      summary: Network health snapshot
+      operationId: getExplorerNetworkHealth
+      responses:
+        '200':
+          description: Health status
+
+  /v1/explorer/decentralization/status:
+    get:
+      tags: [Explorer]
+      summary: Decentralization gate status
+      operationId: getExplorerDecentralizationStatus
+      responses:
+        '200':
+          description: Writer quorum and gate state
+
+  /v1/explorer/decentralization/writers:
+    get:
+      tags: [Explorer]
+      summary: Active decentralization writers
+      operationId: getExplorerDecentralizationWriters
+      responses:
+        '200':
+          description: Writer registry snapshot
+
+  /v1/explorer/analytics:
+    get:
+      tags: [Explorer]
+      summary: Time-series analytics
+      operationId: getExplorerAnalytics
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Analytics series
+
+  /v1/explorer/leaderboard:
+    get:
+      tags: [Explorer]
+      summary: Node leaderboard
+      operationId: getExplorerLeaderboard
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [uptime, bandwidth, sessions]
+            default: uptime
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+          description: Filters bandwidth (usage_records) and sessions rankings; uptime uses indexed counters (see period_applied).
+      responses:
+        '200':
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplorerLeaderboard'
+
+  /v1/explorer/sessions:
+    get:
+      tags: [Explorer]
+      summary: Public session explorer (optional)
+      description: Requires EXPLORER_PUBLIC_SESSIONS_ENABLED=true on the server.
+      operationId: listExplorerSessions
+      responses:
+        '200':
+          description: Sessions
+        '404':
+          description: Feature disabled
+
+  /v1/explorer/earnings:
+    get:
+      tags: [Explorer]
+      summary: Provider earnings explorer (optional)
+      description: Requires EXPLORER_PUBLIC_EARNINGS_ENABLED=true on the server.
+      operationId: getExplorerProviderEarnings
+      responses:
+        '200':
+          description: Earnings
+        '404':
+          description: Feature disabled
+
+  /v1/explorer/health/history:
+    get:
+      tags: [Explorer]
+      summary: Network health history
+      operationId: getExplorerHealthHistory
+      responses:
+        '200':
+          description: Health history
+
+  /v1/explorer/ws:
+    get:
+      tags: [Explorer]
+      summary: Explorer WebSocket (real-time)
+      description: |
+        Upgrades to WebSocket. Server sends JSON envelopes `{ "type", "data", "timestamp" }`.
+
+        **Server → client types**
+        - `initial` — snapshot: `{ transactions[], blocks[], nodes[] }` on connect
+        - `new_transaction` — `{ tx_hash, from, to, amount, currency, tx_type }`
+        - `new_block` — `{ block_number, block_hash, transaction_count }`
+        - `node_update` — node geo/status patch for map markers
+
+        **Client → server**
+        - `{ "type": "subscribe", "topics": ["transactions", "blocks", "nodes"] }` — optional topic filter
+
+        Idle connections receive WebSocket ping every 30s. Per-IP connection caps apply.
+      responses:
+        '101':
+          description: Switching Protocols
+        '429':
+          description: Too many WebSocket connections
 
 components:
   securitySchemes:
@@ -4164,6 +4545,92 @@ components:
           $ref: '#/components/schemas/RoutingProfile'
         count:
           type: integer
+
+    ExplorerMetrics:
+      type: object
+      description: Public explorer dashboard metrics (see docs/EXPLORER_REFRESH_STRATEGY.md).
+      properties:
+        chain:
+          type: string
+        total_transactions:
+          type: integer
+          format: int64
+        total_volume:
+          type: number
+          format: double
+        active_wallets:
+          type: integer
+          format: int64
+          description: Distinct from/to addresses on confirmed non-orphaned txs in the last 24h.
+        active_nodes:
+          type: integer
+          format: int64
+        block_height:
+          type: integer
+          format: int64
+        avg_block_time_ms:
+          type: number
+          format: double
+        total_bandwidth_gb:
+          type: number
+          format: double
+          description: Sum of active nodes' lifetime total_bandwidth counters (not period usage).
+        transactions_per_second:
+          type: number
+          format: double
+          description: Confirmed non-orphaned txs in the last 24h divided by 86400.
+        tps_window_hours:
+          type: integer
+          description: Hours used for transactions_per_second (always 24 on current indexer).
+        region_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+        last_updated:
+          type: string
+          format: date-time
+        data_source:
+          type: string
+          enum: [aggregated, live]
+        time_series_available:
+          type: boolean
+        metrics_aggregator_enabled:
+          type: boolean
+          description: True when EXPLORER_METRICS_ENABLED is not false; charts need rollup rows in explorer_metrics.
+
+    ExplorerLeaderboard:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              node_id:
+                type: string
+              uptime_percent:
+                type: number
+              bandwidth_gb:
+                type: number
+              active_sessions:
+                type: integer
+              quality_score:
+                type: number
+        category:
+          type: string
+        period:
+          type: string
+          description: Time window for bandwidth and sessions categories.
+        data_source:
+          type: string
+          example: usage_records
+        period_applied:
+          type: boolean
+          description: true when category rankings use the selected period window.
+        note:
+          type: string
 
   responses:
     BadRequest:

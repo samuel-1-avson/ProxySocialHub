@@ -3,7 +3,7 @@
  * Renting and managing decentralized AI worker instances
  */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, publicApiGet } from './client';
 
 export interface MarketAgent {
     id: string;
@@ -34,7 +34,7 @@ export interface AgentInstance {
  * List available agents in the marketplace
  */
 export async function getMarketAgents() {
-    const data = await apiGet<MarketAgent[]>('/v1/agents');
+    const data = await publicApiGet<MarketAgent[]>('/v1/agents');
     return Array.isArray(data) ? data : (data as any).agents || [];
 }
 

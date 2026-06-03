@@ -344,16 +344,15 @@ func createSession(c *gin.Context) {
 	// Apply tier-based bandwidth limit
 	bandwidthLimit := computeBandwidthLimit(req.BandwidthLimit, tierConfig)
 
-	// Pick the best available infrastructure node (nodes table) so the edge-gateway has a
-	// real IP/port to route traffic through. Use models.Node — not ProviderNode — because
-	// only Node carries Port, Protocol, and ProviderUserID needed for routing and billing.
-	var node models.Node
+	// Pick the best available canonical provider node. Runtime fields are now
+	// carried on provider_nodes; nodes remains only a compatibility mirror.
+	var node models.ProviderNode
 	nodeQuery := db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL")
 	if req.TargetGeo != "" {
-		nodeQuery = nodeQuery.Where("country_code = ?", req.TargetGeo)
+		nodeQuery = nodeQuery.Where("country = ?", req.TargetGeo)
 	}
 	if req.PreferredTier != "" {
-		nodeQuery = nodeQuery.Where("current_tier = ?", req.PreferredTier)
+		nodeQuery = nodeQuery.Where("tier = ?", req.PreferredTier)
 	}
 	if err := nodeQuery.Order("quality_score DESC").First(&node).Error; err != nil {
 		// Retry without geo/tier filter if requested but none match.
@@ -361,7 +360,7 @@ func createSession(c *gin.Context) {
 			retryQuery := db.DB.Where("is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL")
 			// Try without geo first if tier was also set, or vice versa
 			if req.PreferredTier != "" {
-				retryQuery = retryQuery.Where("current_tier = ?", req.PreferredTier)
+				retryQuery = retryQuery.Where("tier = ?", req.PreferredTier)
 			}
 			if err = retryQuery.Order("quality_score DESC").First(&node).Error; err != nil {
 				// Final fallback: best global node
@@ -449,7 +448,7 @@ func createSession(c *gin.Context) {
 	// edge-gateway knows which node IP/port to forward traffic through.
 	sessionData := &redisClient.SessionData{
 		UserID:                  userID,
-		ProviderID:              node.ProviderUserID.String(),
+		ProviderID:              node.UserID.String(),
 		SessionID:               session.ID.String(),
 		Type:                    req.Type,
 		Status:                  "active",
@@ -482,15 +481,17 @@ func createSession(c *gin.Context) {
 		return
 	}
 
+	buyerHost, buyerPort, buyerEndpoint := BuyerProxyConnectInfo()
+
 	c.JSON(http.StatusCreated, gin.H{
 		"session": session,
 		"proxy_credentials": gin.H{
 			"username": credUser,
 			"password": credPass,
-			"host":     node.IPAddress,
-			"port":     node.Port,
-			"protocol": node.Protocol,
-			"endpoint": "proxy.proxyhubb.com:3128",
+			"host":     buyerHost,
+			"port":     buyerPort,
+			"protocol": "http",
+			"endpoint": buyerEndpoint,
 		},
 		"limits": gin.H{
 			"bandwidth_limit_bytes": bandwidthLimit,
@@ -615,11 +616,17 @@ func terminateSession(c *gin.Context) {
 		return
 	}
 
+	now := time.Now().UTC()
 	// Update DB
-	if result := db.DB.Model(&session).Update("status", models.SessionTerminated); result.Error != nil {
+	if result := db.DB.Model(&session).Updates(map[string]interface{}{
+		"status":   models.SessionTerminated,
+		"end_time": now,
+	}); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to terminate session"})
 		return
 	}
+	session.Status = models.SessionTerminated
+	session.EndTime = now
 
 	redisClient.DeleteSession(session.CredentialsUser)
 
@@ -635,8 +642,17 @@ func terminateSession(c *gin.Context) {
 		go recordProviderEarning(session, session.BytesUsed, 0.002, platformFee)
 	}
 
-	// Trigger on-chain escrow settlement asynchronously so the API response is not blocked.
-	go settleSessionOnChain(session)
+	if _, escrowBacked, err := ensureUsageProofForSessionSettlement(session, now); err != nil {
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to create usage proof while terminating session")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create usage proof"})
+		return
+	} else if escrowBacked {
+		go anchorUsageProofAndSettle(session.ID.String(), now)
+	} else {
+		// Preserve legacy behavior for non-order sessions while escrow-backed
+		// marketplace sessions use the proof-first finalization path above.
+		go settleSessionOnChain(session)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "terminated"})
 }
@@ -913,9 +929,9 @@ func createSessionFromListing(c *gin.Context) {
 	}
 
 	// --- Find the best available node for this provider ---
-	var node models.Node
+	var node models.ProviderNode
 	nodeErr := db.DB.
-		Where("provider_user_id = ? AND is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL", listing.SellerID).
+		Where("user_id = ? AND is_healthy = true AND active_connections < max_connections AND deleted_at IS NULL", listing.SellerID).
 		Order("quality_score DESC").
 		First(&node).Error
 	if nodeErr != nil {
@@ -1039,15 +1055,17 @@ func createSessionFromListing(c *gin.Context) {
 		Float64("price_per_gb", listing.PricePerGB).
 		Msg("P2P session created")
 
+	buyerHost, buyerPort, buyerEndpoint := BuyerProxyConnectInfo()
+
 	c.JSON(http.StatusCreated, gin.H{
 		"session": session,
 		"proxy_credentials": gin.H{
 			"username": credUser,
 			"password": credPass,
-			"host":     node.IPAddress,
-			"port":     node.Port,
-			"protocol": node.Protocol,
-			"endpoint": "proxy.proxyhubb.com:3128",
+			"host":     buyerHost,
+			"port":     buyerPort,
+			"protocol": "http",
+			"endpoint": buyerEndpoint,
 		},
 		"provider": gin.H{
 			"id":            listing.SellerID,

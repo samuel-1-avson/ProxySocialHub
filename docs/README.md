@@ -11,6 +11,8 @@
 | **[STAGING_ENFORCE_RUNBOOK.md](./STAGING_ENFORCE_RUNBOOK.md)** | Staging enforce, registry, D4 settlement, and live devnet E2E checklist |
 | **[SECURITY_GATES.md](./SECURITY_GATES.md)** | Pre-push secret/keypair checks and CI gates |
 | **[reports/SECURITY_AUDIT.md](./reports/SECURITY_AUDIT.md)** | Secrets audit findings and remediation (2026-06-03) |
+| **[reports/session_analysis_report.md](./reports/session_analysis_report.md)** | AI session postmortem: root causes, hotspots, severity (2026-06-03) |
+| **[reports/prompt_improvement_tips.md](./reports/prompt_improvement_tips.md)** | Prompt templates from high-sufficiency sessions |
 
 ## Decentralization & providers
 

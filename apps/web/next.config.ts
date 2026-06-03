@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const isPlaywrightE2E = process.env.PLAYWRIGHT_E2E_AUTH_BYPASS === "1";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
 
@@ -10,7 +15,10 @@ const nextConfig: NextConfig = {
   compress: true,
   output: "standalone",
   trailingSlash: false,
-  reactCompiler: true,
+  // React Compiler needs native SWC; disable for Playwright dev server on Windows
+  // when @next/swc-win32-x64-msvc is missing or arch-mismatched.
+  reactCompiler: !isPlaywrightE2E,
+  outputFileTracingRoot: path.join(configDir, "../.."),
   experimental: {
     useWasmBinary: true,
   },
@@ -82,7 +90,12 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/notifications',
-        destination: '/settings/notifications',
+        destination: '/dashboard/settings/notifications',
+        permanent: true,
+      },
+      {
+        source: '/settings/notifications',
+        destination: '/dashboard/settings/notifications',
         permanent: true,
       },
       {
@@ -123,6 +136,31 @@ const nextConfig: NextConfig = {
       {
         source: '/dashboard/security',
         destination: '/dashboard/settings/security',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/feed',
+        destination: '/community/feed',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/messages',
+        destination: '/community/messages',
+        permanent: true,
+      },
+      {
+        source: '/leaderboards',
+        destination: '/explorer/leaderboard',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/admin',
+        destination: '/dashboard',
+        permanent: false,
+      },
+      {
+        source: '/settings',
+        destination: '/dashboard/settings/identity',
         permanent: true,
       },
     ];

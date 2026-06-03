@@ -4,10 +4,10 @@
  * Node Map Page — Proxy Explorer
  *
  * Data flow:
- *  1. GET /v1/explorer/nodes/geo  → lightweight geo array → 3D globe
- *  2. WS  /v1/explorer/ws        → node_update events   → merge into local node map
- *  3. Globe rotate / zoom        → Three.js handles rendering
- *  4. Heatmap toggle             → hex-bin session density layer
+ *  1. GET /v1/explorer/nodes/geo  → provider nodes (2D/3D)
+ *  2. GET /v1/marketplace/map     → listing pins with proofs (when layer on)
+ *  3. WS  /v1/explorer/ws         → node_update events
+ *  4. Optional in-map buy         → NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -15,15 +15,30 @@ import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
+import { BuyListingModal } from '@/components/BuyListingModal';
 import { getNodeGeo, type NodeGeoPoint } from '@/lib/services/explorer';
 import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
-import type { ExplorerListingPin, MapNodeUpdate } from './LeafletMap';
-import { getMarketplaceGeo, type MarketplaceGeoPin } from '@/lib/api/marketplace';
-import { resolveListingCoords } from '@/lib/geo/country-coords';
+import type { ExplorerListingPin, MapNodeUpdate } from '@/components/map/types';
+import {
+    getListing,
+    getMarketplaceMapPoints,
+    marketplaceKeys,
+    type Listing,
+    type MarketplaceMapFilters,
+} from '@/lib/api/marketplace';
+import {
+    marketplacePointToListingPin,
+    type MarketplaceListingMapPin,
+} from '@/lib/map/marketplace-map-adapters';
+import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
+import { ROUTES } from '@/lib/navigation/routes';
+import { explorerMapBuyEnabled } from '@/lib/navigation/explorer-nav';
+import { bboxNearlyEqual, bboxToParam, type MapBBox } from '@/lib/geo/bbox';
 import type { MapStyle } from './GlobeMap';
 import {
     ArrowLeft, Globe, MapPin, Server, Shield,
     Radio, Activity, RefreshCw, Layers, Zap, Satellite, Mountain, Map,
+    Search, ShoppingCart, Loader2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -38,7 +53,7 @@ const GlobeMap = dynamic(() => import('./GlobeMap'), {
     ),
 });
 
-const LeafletMap = dynamic(() => import('./LeafletMap'), {
+const LeafletMap = dynamic(() => import('@/components/map/ProxyMapCanvas'), {
     ssr: false,
     loading: () => (
         <div className="w-full h-full flex items-center justify-center bg-[#050508]">
@@ -145,6 +160,23 @@ export default function NodeMapPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [wsConnected, setWsConnected] = useState(false);
+    const [viewport, setViewport] = useState<MapBBox | null>(null);
+    const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
+    const [buyListing, setBuyListing] = useState<Listing | null>(null);
+    const [buyLoading, setBuyLoading] = useState(false);
+    const mapBuyEnabled = explorerMapBuyEnabled();
+    /** Listings render on Leaflet only (W12 — globe is nodes-only). */
+    const listingsPlottedOnMap = showListingsLayer && mapMode === 'map';
+
+    const toggleListingsLayer = useCallback(() => {
+        setShowListingsLayer((on) => {
+            if (!on && mapMode === 'globe') {
+                setMapMode('map');
+                return true;
+            }
+            return !on;
+        });
+    }, [mapMode]);
 
     // Accumulate WS node_update events; flushed to LeafletMap as a batch
     const pendingUpdatesRef = useRef<MapNodeUpdate[]>([]);
@@ -161,29 +193,44 @@ export default function NodeMapPage() {
         retry: 3,
     });
 
-    const { data: marketplaceGeo } = useQuery({
-        queryKey: ['marketplace-geo-explorer'],
-        queryFn: () => getMarketplaceGeo(),
-        enabled: showListingsLayer && mapMode === 'map',
+    const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
+    const mapListingFilters = useMemo<MarketplaceMapFilters>(() => ({
+        purchasable_only: false,
+        include_nodes: false,
+        bbox: bboxParam,
+    }), [bboxParam]);
+
+    const { data: marketplaceMapData, isFetching: mapListingsFetching } = useQuery({
+        queryKey: marketplaceKeys.map(mapListingFilters),
+        queryFn: () => getMarketplaceMapPoints(mapListingFilters),
+        enabled: listingsPlottedOnMap,
         staleTime: 30_000,
-        refetchInterval: 60_000,
+        refetchInterval: searchBBox ? false : 60_000,
     });
 
-    const listingPins = useMemo((): ExplorerListingPin[] => {
-        const raw = marketplaceGeo?.pins ?? [];
-        return raw.map((p: MarketplaceGeoPin, i: number) => {
-            const { lat, lon, estimated } = resolveListingCoords(p, i);
-            return {
-                listing_id: p.listing_id,
-                title: p.title,
-                lat,
-                lon,
-                price_per_gb: p.price_per_gb,
-                country: p.country,
-                estimated,
-            };
-        }).filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
-    }, [marketplaceGeo?.pins]);
+    const listingPins = useMemo((): MarketplaceListingMapPin[] => {
+        const raw = marketplaceMapData?.points ?? [];
+        return raw
+            .filter(p => p.kind === 'listing')
+            .map(marketplacePointToListingPin)
+            .filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
+    }, [marketplaceMapData?.points]);
+
+    const areaSearchStale = useMemo(() => {
+        if (!viewport) return false;
+        if (!searchBBox) return true;
+        return !bboxNearlyEqual(viewport, searchBBox);
+    }, [viewport, searchBBox]);
+
+    const searchThisArea = useCallback(() => {
+        if (!viewport) return;
+        setSearchBBox(viewport);
+        setSelectedListing(null);
+    }, [viewport]);
+
+    const clearAreaSearch = useCallback(() => {
+        setSearchBBox(null);
+    }, []);
 
     useEffect(() => {
         if (geoData && !isLoading) setLastUpdated(new Date());
@@ -274,8 +321,53 @@ export default function NodeMapPage() {
     }, []);
 
     const handleSelectListing = useCallback((pin: ExplorerListingPin) => {
-        setSelectedListing(pin);
+        setSelectedListing(pin as MarketplaceListingMapPin);
         setSelectedNode(null);
+    }, []);
+
+    const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
+        if (!pin.purchasable) return;
+        setBuyLoading(true);
+        try {
+            const res = await getListing(pin.listing_id);
+            setBuyListing(res.listing);
+        } catch {
+            setBuyListing({
+                id: pin.listing_id,
+                seller_id: pin.seller_id ?? '',
+                node_id: pin.node_id ?? '',
+                title: pin.title,
+                description: '',
+                price_per_gb: pin.price_per_gb,
+                min_purchase_gb: 1,
+                available_bandwidth_gb: pin.available_bandwidth_gb,
+                max_concurrency: 5,
+                proxy_type: (pin.proxy_type ?? 'residential') as Listing['proxy_type'],
+                protocol: pin.protocol ?? 'http',
+                status: pin.status ?? 'active',
+                country: pin.country,
+                isp: pin.isp,
+                uptime_percent: pin.uptime_percent ?? 0,
+                avg_latency_ms: 0,
+                success_rate: 100,
+                quality_score: 100,
+                views_count: 0,
+                saves_count: 0,
+                orders_count: 0,
+                total_sales: 0,
+                rating: 0,
+                staked_amount: 0,
+                priority_rank: 0,
+                is_priority: false,
+                created_at: new Date().toISOString(),
+                listing_offer_verified: pin.listing_offer_verified,
+                listing_offer_signer: pin.listing_offer_signer,
+                listing_offer_signed_at: pin.listing_offer_signed_at,
+                listing_offer_verification_error: pin.listing_offer_verification_error,
+            });
+        } finally {
+            setBuyLoading(false);
+        }
     }, []);
 
     return (
@@ -287,10 +379,35 @@ export default function NodeMapPage() {
                     <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                         <ArrowLeft size={14} /> Back to Grid
                     </Link>
-                    <Link href="/marketplace/map" className="flex items-center gap-2 text-[10px] font-black text-emerald-400/80 hover:text-emerald-400 transition-colors uppercase tracking-[0.3em] w-fit">
+                    <Link href={ROUTES.marketplaceMap} className="flex items-center gap-2 text-[10px] font-black text-emerald-400/80 hover:text-emerald-400 transition-colors uppercase tracking-[0.3em] w-fit">
                         Buy on map →
                     </Link>
                 </div>
+                {!mapBuyEnabled && (
+                    <div
+                        role="status"
+                        className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-100/90"
+                    >
+                        <div className="flex items-start gap-2 flex-1">
+                            <Search size={14} className="mt-0.5 shrink-0 text-amber-400" aria-hidden />
+                            <p>
+                                <span className="font-black uppercase tracking-wider text-amber-300">Discovery map.</span>{' '}
+                                Browse nodes and listing pins here. To purchase bandwidth with wallet checkout, use the{' '}
+                                <Link href={ROUTES.marketplaceMap} className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
+                                    marketplace map
+                                </Link>
+                                .
+                            </p>
+                        </div>
+                        <Link
+                            href={ROUTES.marketplaceMap}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/25 transition-colors shrink-0"
+                        >
+                            <ShoppingCart size={12} aria-hidden />
+                            Open marketplace map
+                        </Link>
+                    </div>
+                )}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // {mapMode === 'globe' ? '3D Globe' : '2D Map'}</div>
@@ -299,10 +416,11 @@ export default function NodeMapPage() {
                             {mapMode === 'globe' ? 'Node Globe' : 'Network Wide Map'}
                         </h1>
                         <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
-                            {mapMode === 'globe' 
-                                ? 'Live global relay node distribution · WebGL 3D globe'
-                                : 'High-resolution network topology · 2D interactive view'
-                            }
+                            {mapMode === 'globe'
+                                ? showListingsLayer
+                                    ? 'Node distribution on WebGL globe · marketplace listings use 2D map'
+                                    : 'Live global relay node distribution · WebGL 3D globe'
+                                : 'High-resolution network topology · 2D interactive view'}
                         </p>
                     </div>
                     <div className="flex gap-3 flex-wrap">
@@ -311,7 +429,7 @@ export default function NodeMapPage() {
                             { label: 'Active', value: totalActive, color: 'text-emerald-400' },
                             { label: 'Validators', value: totalValidator, color: 'text-purple-400' },
                             { label: 'Plotted', value: mappedCount, color: 'text-primary' },
-                            ...(showListingsLayer
+                            ...(listingsPlottedOnMap
                                 ? [{ label: 'Listings', value: listingPins.length, color: 'text-emerald-400' }]
                                 : []),
                         ].map(s => (
@@ -385,7 +503,7 @@ export default function NodeMapPage() {
                                     { color: 'bg-emerald-500', label: 'Active' },
                                     { color: 'bg-purple-500', label: 'Validator' },
                                     { color: 'bg-rose-500', label: 'Offline' },
-                                    ...(showListingsLayer ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
+                                    ...(listingsPlottedOnMap ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
                                 ].map(l => (
                                     <div key={l.label} className="flex items-center gap-1.5">
                                         <div className={`w-2 h-2 rounded-full ${l.color}`} />
@@ -417,10 +535,56 @@ export default function NodeMapPage() {
                                             showHeatmap={showHeatmap}
                                             focusBounds={focusBounds}
                                             liveUpdates={liveUpdates}
-                                            listingPins={showListingsLayer ? listingPins : []}
+                                            listingPins={listingsPlottedOnMap ? listingPins : []}
                                             onSelectListing={handleSelectListing}
                                             selectedListingId={selectedListing?.listing_id}
+                                            onBoundsChange={setViewport}
                                         />
+                                    )}
+                                </div>
+                            )}
+
+                            {mapMode === 'globe' && showListingsLayer && (
+                                <div
+                                    data-testid="explorer-map-listings-2d-only"
+                                    className="absolute top-4 right-4 z-[1000] max-w-xs px-4 py-3 rounded-2xl bg-[#0a0a15]/90 border border-emerald-500/30 backdrop-blur-sm shadow-xl"
+                                >
+                                    <p className="text-[9px] font-black text-emerald-300 uppercase tracking-widest leading-relaxed">
+                                        Marketplace listings are shown on the 2D map only.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMapMode('map')}
+                                        className="mt-2 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80"
+                                    >
+                                        Switch to 2D map →
+                                    </button>
+                                </div>
+                            )}
+
+                            {mapMode === 'map' && showListingsLayer && viewport && (areaSearchStale || !searchBBox) && (
+                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={searchThisArea}
+                                        disabled={mapListingsFetching}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/30 shadow-lg disabled:opacity-50"
+                                    >
+                                        {mapListingsFetching ? (
+                                            <Loader2 size={12} className="animate-spin" />
+                                        ) : (
+                                            <Search size={12} />
+                                        )}
+                                        Search this area
+                                    </button>
+                                    {searchBBox && (
+                                        <button
+                                            type="button"
+                                            onClick={clearAreaSearch}
+                                            className="px-3 py-2 rounded-full bg-white/10 border border-white/20 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white"
+                                        >
+                                            Clear area
+                                        </button>
                                     )}
                                 </div>
                             )}
@@ -529,18 +693,42 @@ export default function NodeMapPage() {
                                     <span className="text-amber-400/80"> · est. location</span>
                                 )}
                             </p>
+                            <ListingSlaBadge
+                                uptimePercent={selectedListing.uptime_percent ?? 0}
+                                slaSource={selectedListing.sla_source}
+                                listingOfferVerified={selectedListing.listing_offer_verified}
+                                listingOfferSigner={selectedListing.listing_offer_signer}
+                                listingOfferError={selectedListing.listing_offer_verification_error}
+                            />
+                            {mapBuyEnabled && (selectedListing as MarketplaceListingMapPin).purchasable && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleBuy(selectedListing as MarketplaceListingMapPin)}
+                                    disabled={buyLoading}
+                                    className="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-emerald-500/25 border border-emerald-500/50 text-emerald-300 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/35 transition-all disabled:opacity-50"
+                                >
+                                    {buyLoading ? (
+                                        <Loader2 size={12} className="animate-spin" />
+                                    ) : (
+                                        <ShoppingCart size={12} />
+                                    )}
+                                    Buy on map
+                                </button>
+                            )}
                             <Link
                                 href={`/marketplace/${selectedListing.listing_id}`}
                                 className="block w-full text-center py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/25 transition-all"
                             >
-                                View & buy →
+                                View listing →
                             </Link>
-                            <Link
-                                href="/marketplace/map"
-                                className="block text-center text-[8px] font-black text-white/30 uppercase tracking-widest hover:text-emerald-400"
-                            >
-                                Open buy-on-map
-                            </Link>
+                            {!mapBuyEnabled && (
+                                <Link
+                                    href={ROUTES.marketplaceMap}
+                                    className="block text-center text-[8px] font-black text-white/30 uppercase tracking-widest hover:text-emerald-400"
+                                >
+                                    Buy on marketplace map (wallet)
+                                </Link>
+                            )}
                         </GlassCard>
                     ) : selectedNode ? (
                         <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
@@ -620,12 +808,20 @@ export default function NodeMapPage() {
                         </div>
 
                         <button
-                            onClick={() => setShowListingsLayer(v => !v)}
+                            type="button"
+                            onClick={toggleListingsLayer}
                             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${showListingsLayer ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70'}`}
                         >
                             <span>Marketplace listings</span>
-                            <span className="text-[8px] opacity-60">{showListingsLayer ? 'ON' : 'OFF'}</span>
+                            <span className="text-[8px] opacity-60">
+                                {showListingsLayer ? (mapMode === 'globe' ? '2D ONLY' : 'ON') : 'OFF'}
+                            </span>
                         </button>
+                        {mapMode === 'globe' && showListingsLayer && (
+                            <p className="text-[8px] font-bold text-white/30 uppercase tracking-wider leading-relaxed">
+                                Layer enabled — switch to 2D map to plot listing pins.
+                            </p>
+                        )}
 
                         {/* Hex-bin heatmap toggle */}
                         <button
@@ -774,6 +970,13 @@ export default function NodeMapPage() {
                     )}
                 </GlassCard>
             </motion.section>
+
+            {buyListing && (
+                <BuyListingModal
+                    listing={buyListing}
+                    onClose={() => setBuyListing(null)}
+                />
+            )}
         </motion.div>
     );
 }

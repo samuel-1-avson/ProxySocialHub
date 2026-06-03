@@ -13,6 +13,7 @@ func invalidateMarketplaceReadModels() {
 		logging.Warn().Err(err).Msg("failed to invalidate listing cache")
 	}
 	invalidateRedisPattern("marketplace:geo:*")
+	invalidateRedisPattern("marketplace:map:*")
 	invalidateRedisPattern("discovery:*")
 	if redisClient.Client != nil {
 		if err := redisClient.Client.Del(context.Background(), "public:feed").Err(); err != nil {

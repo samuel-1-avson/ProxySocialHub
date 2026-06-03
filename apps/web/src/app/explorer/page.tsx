@@ -17,7 +17,11 @@ import {
 import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
 import { buildExplorerSearchPath } from '@/lib/explorer-search';
 import { MetricsUnavailableBanner } from '@/components/explorer/MetricsUnavailableBanner';
-import { ExplorerApiError } from '@/lib/services/explorer-errors';
+import { ExplorerApiError, isExplorerDecentralizationGate } from '@/lib/services/explorer-errors';
+import {
+    explorerPublicEarningsEnabled,
+    explorerPublicSessionsEnabled,
+} from '@/lib/navigation/explorer-nav';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -81,13 +85,10 @@ export default function ExplorerDashboard() {
     const [liveBlocks, setLiveBlocks] = useState<any[]>([]);
     useEffect(() => { setMounted(true); }, []);
 
-    const isFullGateError = React.useCallback((err: unknown): boolean => {
-        if (!err || typeof err !== 'object') return false;
-        const anyErr = err as { status?: number; message?: string; details?: string };
-        if (anyErr.status !== 503) return false;
-        const hay = `${anyErr.message || ''} ${anyErr.details || ''}`.toLowerCase();
-        return hay.includes('full decentralization gate active') || hay.includes('quorum requirements not satisfied');
-    }, []);
+    const isFullGateError = React.useCallback(
+        (err: unknown): boolean => isExplorerDecentralizationGate(err),
+        [],
+    );
 
     const { data: metrics, isLoading: loadingMetrics, error: metricsError } = useQuery({
         queryKey: ['explorer-metrics'],
@@ -200,20 +201,23 @@ export default function ExplorerDashboard() {
     });
 
     useEffect(() => {
+        if (wsLive) return;
         if (transactions?.transactions?.length) {
             setLiveTxs(transactions.transactions);
         }
-    }, [transactions]);
+    }, [transactions, wsLive]);
 
     useEffect(() => {
+        if (wsLive) return;
         if (blocks?.blocks?.length) {
             setLiveBlocks(blocks.blocks);
         }
-    }, [blocks]);
+    }, [blocks, wsLive]);
 
     useExplorerWS({
         enabled: !explorerGateActive,
         onOpen: () => setWsLive(true),
+        onClose: () => setWsLive(false),
         onInitial: (data) => {
             setWsLive(true);
             if (Array.isArray(data?.transactions) && data.transactions.length > 0) {
@@ -297,7 +301,7 @@ export default function ExplorerDashboard() {
             sparkColor: '#3b82f6',
             sparkData: nodeSparkData.length > 0 ? nodeSparkData : null,
             trend: nodes > 0 ? 'up' as const : 'flat' as const,
-            sub: metrics ? `${metrics.active_wallets || 0} wallets active` : null,
+            sub: metrics ? `${metrics.active_wallets || 0} distinct wallets (24h)` : null,
         },
         {
             label: '24H Volume',
@@ -406,7 +410,7 @@ export default function ExplorerDashboard() {
                 </div>
             </motion.header>
 
-            {/* Quick Nav Links */}
+            {/* Quick Nav Links — hide sessions/earnings unless public API flags match control-api */}
             <motion.section variants={itemVariants} className="flex flex-wrap gap-3">
                 {[
                     { href: '/treasury', label: 'Treasury', icon: ShieldCheck },
@@ -416,8 +420,12 @@ export default function ExplorerDashboard() {
                     { href: '/explorer/analytics', label: 'Analytics', icon: BarChart2 },
                     { href: '/explorer/map', label: 'Node Map', icon: MapPin },
                     { href: '/explorer/leaderboard', label: 'Leaderboard', icon: Trophy },
-                    { href: '/explorer/sessions', label: 'Sessions', icon: Radio },
-                    { href: '/explorer/earnings', label: 'Earnings', icon: TrendingUp },
+                    ...(explorerPublicSessionsEnabled()
+                        ? [{ href: '/explorer/sessions', label: 'Sessions', icon: Radio }]
+                        : []),
+                    ...(explorerPublicEarningsEnabled()
+                        ? [{ href: '/explorer/earnings', label: 'Earnings', icon: TrendingUp }]
+                        : []),
                     { href: '/explorer/health', label: 'Health', icon: ShieldCheck },
                     { href: '/explorer/search', label: 'Search', icon: Fingerprint },
                     { href: '/explorer/wallets', label: 'Wallets', icon: Database },
@@ -635,7 +643,7 @@ export default function ExplorerDashboard() {
                     </div>
 
                     <div className="space-y-3">
-                        {loadingTx ? (
+                        {loadingTx && !(wsLive && liveTxs.length > 0) ? (
                             Array.from({ length: 5 }).map((_, i) => (
                                 <div key={i} className="h-16 bg-white/[0.01] animate-pulse border border-white/5 rounded-2xl" />
                             ))
@@ -697,7 +705,7 @@ export default function ExplorerDashboard() {
                         </div>
 
                         <div className="space-y-3">
-                            {loadingBlocks ? (
+                            {loadingBlocks && !(wsLive && liveBlocks.length > 0) ? (
                                 Array.from({ length: 3 }).map((_, i) => (
                                     <div key={i} className="h-20 bg-white/[0.01] animate-pulse border border-white/5 rounded-[1.5rem]" />
                                 ))
@@ -774,7 +782,11 @@ export default function ExplorerDashboard() {
 
             {/* API Error Banner */}
             {(metricsError || txError || blocksError) && (
-                <motion.div variants={itemVariants} className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase tracking-widest">
+                <motion.div
+                    variants={itemVariants}
+                    data-testid={explorerGateActive ? 'explorer-overview-gate-banner' : undefined}
+                    className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase tracking-widest"
+                >
                     <span className="text-rose-500">⚠</span>
                     {explorerGateActive ? 'Explorer full decentralization gate is active — detailed feeds are paused until quorum is satisfied' :
                      metricsError instanceof ExplorerApiError && metricsError.kind === 'not_found' ? 'Requested explorer resource was not found' :

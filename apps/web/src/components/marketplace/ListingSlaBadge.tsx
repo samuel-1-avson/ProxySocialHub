@@ -1,12 +1,15 @@
 'use client';
 
-import { Activity } from 'lucide-react';
+import { Activity, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 export type ListingSlaSource = 'gateway' | 'explorer' | 'provider' | 'listing' | string | undefined;
 
 interface Props {
     uptimePercent: number;
     slaSource?: ListingSlaSource;
+    listingOfferVerified?: boolean;
+    listingOfferSigner?: string;
+    listingOfferError?: string;
     compact?: boolean;
 }
 
@@ -17,7 +20,14 @@ const SOURCE_LABEL: Record<string, string> = {
     listing: 'Listed SLA',
 };
 
-export function ListingSlaBadge({ uptimePercent, slaSource, compact }: Props) {
+export function ListingSlaBadge({
+    uptimePercent,
+    slaSource,
+    listingOfferVerified,
+    listingOfferSigner,
+    listingOfferError,
+    compact,
+}: Props) {
     const live = slaSource === 'gateway';
     const label = SOURCE_LABEL[slaSource || 'listing'] || 'SLA';
     const uptime = Number(uptimePercent || 0);
@@ -25,16 +35,34 @@ export function ListingSlaBadge({ uptimePercent, slaSource, compact }: Props) {
         uptime > 98 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : uptime > 90
             ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
             : 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+    const proofTitle = listingOfferVerified
+        ? `Provider-signed offer${listingOfferSigner ? ` · ${listingOfferSigner}` : ''}`
+        : listingOfferError && listingOfferError !== 'unsigned'
+            ? `Listing proof issue: ${listingOfferError}`
+            : 'Listing offer is not provider-signed yet';
 
     if (compact) {
         return (
-            <span
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[7px] font-black uppercase tracking-wider border ${tone}`}
-                title={`${uptime.toFixed(1)}% uptime · ${label}`}
-            >
-                <Activity size={8} />
-                {uptime.toFixed(0)}%
-                {live && <span className="text-emerald-300">live</span>}
+            <span className="inline-flex items-center gap-1">
+                <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[7px] font-black uppercase tracking-wider border ${tone}`}
+                    title={`${uptime.toFixed(1)}% uptime · ${label}`}
+                >
+                    <Activity size={8} />
+                    {uptime.toFixed(0)}%
+                    {live && <span className="text-emerald-300">live</span>}
+                </span>
+                <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[7px] font-black uppercase tracking-wider border ${
+                        listingOfferVerified
+                            ? 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10'
+                            : 'text-white/40 border-white/10 bg-white/5'
+                    }`}
+                    title={proofTitle}
+                >
+                    {listingOfferVerified ? <ShieldCheck size={8} /> : <ShieldAlert size={8} />}
+                    {listingOfferVerified ? 'signed' : 'unsigned'}
+                </span>
             </span>
         );
     }
@@ -47,6 +75,15 @@ export function ListingSlaBadge({ uptimePercent, slaSource, compact }: Props) {
                 {live && <span className="text-emerald-300 animate-pulse">●</span>}
             </div>
             <div className="text-[11px] font-black tabular-nums">{uptime.toFixed(1)}% uptime</div>
+            <div
+                className={`inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest ${
+                    listingOfferVerified ? 'text-cyan-300' : 'text-white/40'
+                }`}
+                title={proofTitle}
+            >
+                {listingOfferVerified ? <ShieldCheck size={9} /> : <ShieldAlert size={9} />}
+                {listingOfferVerified ? 'Provider signed' : 'Unsigned offer'}
+            </div>
         </div>
     );
 }

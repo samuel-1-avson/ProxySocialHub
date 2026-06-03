@@ -1,6 +1,6 @@
 //! Tunnel client: manages the Yamux-multiplexed reverse tunnel to the Edge Gateway.
 
-use crate::config::Config;
+use crate::config::{Config, ProviderTransport};
 use crate::proxy::handler::ProxyHandler;
 use crate::stats::Collector;
 
@@ -54,12 +54,57 @@ impl TunnelClient {
     }
 
     pub async fn connect(&mut self) -> Result<()> {
+        let transport = ProviderTransport::from_env();
+        if transport.quic_requested() {
+            #[cfg(feature = "quic")]
+            {
+                return self.connect_quic().await;
+            }
+            #[cfg(not(feature = "quic"))]
+            {
+                anyhow::bail!(
+                    "PROVIDER_TRANSPORT=quic requires building provider-node with --features quic"
+                );
+            }
+        }
+
+        self.connect_tcp_yamux().await
+    }
+
+    #[cfg(feature = "quic")]
+    async fn connect_quic(&mut self) -> Result<()> {
+        use tokio_util::compat::TokioAsyncReadCompatExt as _;
+
+        let io = super::quic::dial_quic_bidi(&self.config).await?;
+        debug!(addr = %self.config.gateway_addr, "QUIC connected (yamux on bidi stream)");
+        self.finish_yamux_handshake(io.compat()).await
+    }
+
+    async fn connect_tcp_yamux(&mut self) -> Result<()> {
         let tcp = TcpStream::connect(&self.config.gateway_addr)
             .await
             .with_context(|| format!("TCP dial to {} failed", self.config.gateway_addr))?;
 
         debug!(addr = %self.config.gateway_addr, "TCP connected");
 
+        if self.config.use_tls {
+            let connector = build_tls_connector(&self.config)?;
+            let domain = extract_host(&self.config.gateway_addr);
+            let server_name = rustls::pki_types::ServerName::try_from(domain.as_str())
+                .map_err(|_| anyhow::anyhow!("Invalid TLS server name"))?
+                .to_owned();
+            let tls_stream = connector.connect(server_name, tcp).await?;
+            debug!("TLS handshake complete");
+            self.finish_yamux_handshake(tls_stream.compat()).await
+        } else {
+            self.finish_yamux_handshake(tcp.compat()).await
+        }
+    }
+
+    async fn finish_yamux_handshake<S>(&mut self, io: S) -> Result<()>
+    where
+        S: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + 'static,
+    {
         let mut cfg = yamux::Config::default();
         cfg.set_receive_window(4 * 1024 * 1024);
         cfg.set_max_num_streams(1000);
@@ -68,25 +113,11 @@ impl TunnelClient {
         let (tx, rx) = tokio::sync::mpsc::channel(256);
         let config_clone = self.config.clone();
 
-        let (conn_task, mut ctrl) = if self.config.use_tls {
-            let connector = build_tls_connector(&self.config)?;
-            let domain = extract_host(&self.config.gateway_addr);
-            let server_name = rustls::pki_types::ServerName::try_from(domain.as_str())
-                .map_err(|_| anyhow::anyhow!("Invalid TLS server name"))?
-                .to_owned();
-            let tls_stream = connector.connect(server_name, tcp).await?;
-            debug!("TLS handshake complete");
+        let conn = yamux::Connection::new(io, cfg, yamux::Mode::Client);
+        let mut ctrl = conn.control();
+        let conn_task = tokio::spawn(Self::drive_only(conn, tx));
 
-            let conn = yamux::Connection::new(tls_stream.compat(), cfg, yamux::Mode::Client);
-            let ctrl = conn.control();
-            (tokio::spawn(Self::drive_only(conn, tx)), ctrl)
-        } else {
-            let conn = yamux::Connection::new(tcp.compat(), cfg, yamux::Mode::Client);
-            let ctrl = conn.control();
-            (tokio::spawn(Self::drive_only(conn, tx)), ctrl)
-        };
-
-        // NOW perform the handshake on the main task
+        // Perform AUTH/CAPABILITY on the main task
         let (token, provider_user_id) = if !self.config.jwt_token.is_empty() {
             let token = self.config.jwt_token.clone();
             let provider_user_id = resolve_runtime_provider_user_id(&token);
@@ -261,7 +292,7 @@ impl TunnelClient {
     }
 }
 
-fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
+pub(crate) fn build_rustls_client_config(config: &Config) -> Result<Arc<rustls::ClientConfig>> {
     let tls_config = if config.tls_skip_verify {
         rustls::ClientConfig::builder()
             .dangerous()
@@ -274,7 +305,11 @@ fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
             .with_root_certificates(root_store)
             .with_no_client_auth()
     };
-    Ok(TlsConnector::from(Arc::new(tls_config)))
+    Ok(Arc::new(tls_config))
+}
+
+fn build_tls_connector(config: &Config) -> Result<TlsConnector> {
+    Ok(TlsConnector::from(build_rustls_client_config(config)?))
 }
 
 #[derive(Debug)]
@@ -317,7 +352,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerCertVerify {
     }
 }
 
-fn extract_host(addr: &str) -> String {
+pub(crate) fn extract_host(addr: &str) -> String {
     addr.split(':').next().unwrap_or(addr).to_string()
 }
 
@@ -383,6 +418,9 @@ fn build_provider_capability_payload(
     let mut features = vec!["ipv4".to_string(), "http_connect".to_string()];
     if config.use_tls {
         features.push("tls_tunnel".to_string());
+    }
+    if ProviderTransport::from_env().quic_requested() {
+        features.push("quic_tunnel".to_string());
     }
 
     let caps = CapabilityInfo {

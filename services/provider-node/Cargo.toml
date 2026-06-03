@@ -46,6 +46,12 @@ tokio-util = { version = "0.7", features = ["compat"] }
 toml = "0.8"
 dirs = "5.0"
 uuid = { version = "1", features = ["v4"] }
+quinn = { version = "0.11.7", optional = true }
+
+[features]
+default = []
+# P4: QUIC provider tunnel (UDP + TLS); pair with PROVIDER_TRANSPORT=quic on gateway and node.
+quic = ["dep:quinn"]
 
 [target."cfg(unix)".dependencies]
 nix = { version = "0.31.3", features = ["signal", "process"] }

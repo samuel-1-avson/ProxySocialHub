@@ -23,6 +23,24 @@ docker compose -f docker-compose.dev.yml build --no-cache db-migrate control-api
 docker compose -f docker-compose.dev.yml up -d
 ```
 
+### Navigation / settings IA (web-only)
+
+The web app bakes `next.config.ts` redirects and `NEXT_PUBLIC_*` flags into the production image at **build** time. A running container does not pick up sidebar or `/settings` changes until you rebuild:
+
+```powershell
+.\scripts\docker-refresh-stack.ps1 -Services web
+.\scripts\verify-web-docker-nav.ps1
+```
+
+Or:
+
+```bash
+docker compose -f docker-compose.dev.yml build --no-cache web
+docker compose -f docker-compose.dev.yml up -d --force-recreate web
+```
+
+Hot-reload alternative (no image rebuild): run the API stack with `docker-compose.dev.yml`, then `docker compose -f docker-compose.web-dev.yml up -d --build` and open http://localhost:4001.
+
 Migrations only (existing DB volume):
 
 ```bash

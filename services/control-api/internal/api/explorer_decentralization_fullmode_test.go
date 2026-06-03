@@ -87,6 +87,49 @@ func TestExplorerFullModeGate_BypassesDecentralizationStatusEndpoint(t *testing.
 	}
 }
 
+func TestExplorerFullModeGate_AllowsProtectedRouteWhenMinWritersIsTwo(t *testing.T) {
+	t.Setenv("FULL_DECENTRALIZATION", "true")
+	t.Setenv("EXPLORER_MIN_WRITERS", "2")
+
+	originalLoader := explorerDecentralizationStatusLoader
+	t.Cleanup(func() {
+		explorerDecentralizationStatusLoader = originalLoader
+		clearExplorerDecentralizationStatusCache()
+	})
+
+	explorerDecentralizationStatusLoader = func(windowSlots uint64) (ExplorerDecentralizationStatusResponse, error) {
+		return ExplorerDecentralizationStatusResponse{
+			Chain:               "solana",
+			WindowSlots:         windowSlots,
+			LatestAttestedSlot:  1000,
+			RecentSlotsAnalyzed: 256,
+			UniqueWriters:       2,
+			MinWritersRequired:  2,
+			SlotsMeetingQuorum:  256,
+			ConflictingSlots:    0,
+			QuorumRatio:         1,
+			ExplorerMode:        "multi_writer_quorum",
+			FullyDecentralized:  true,
+		}, nil
+	}
+	clearExplorerDecentralizationStatusCache()
+
+	r := setupTestRouter()
+	explorer := r.Group("/v1/explorer")
+	explorer.Use(enforceExplorerFullDecentralization())
+	explorer.GET("/blocks", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/explorer/blocks", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d with EXPLORER_MIN_WRITERS=2, got %d body=%s", http.StatusOK, w.Code, w.Body.String())
+	}
+}
+
 func TestExplorerFullModeGate_AllowsProtectedRouteWhenFullyDecentralized(t *testing.T) {
 	t.Setenv("FULL_DECENTRALIZATION", "true")
 

@@ -21,12 +21,23 @@ import (
 	"github.com/proxyhubb/control-api/internal/privacy"
 )
 
+// getListingProofPolicy exposes whether signed listing offers are mandatory.
+func getListingProofPolicy(c *gin.Context) {
+	mode := providerProofMode()
+	c.JSON(http.StatusOK, gin.H{
+		"mode":               mode,
+		"required":           mode == "enforce",
+		"dev_server_signing": devListingServerSignEnabled(),
+	})
+}
+
 // RegisterListingRoutes registers marketplace listing routes
 func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings", getListings)
 	rg.GET("/listings/featured", getFeaturedListings)
 	rg.GET("/listings/search", searchListings)
 	rg.GET("/listings/my", getMyListings)
+	rg.GET("/listings/proof-policy", getListingProofPolicy)
 	rg.GET("/listings/:id", getListing)
 	rg.POST("/listings", createListing)
 	rg.PATCH("/listings/:id", updateListing)
@@ -376,9 +387,12 @@ func createListing(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
 			return
 		}
-		if providerProofRequired() && proofContext.Hotkey != "" && !proofResult.Verified {
+		if providerProofRequired() && !proofResult.Verified {
 			c.JSON(http.StatusForbidden, gin.H{"error": "provider listing proof required"})
 			return
+		}
+		if proofResult.Verified {
+			maybeBindProviderHotkey(proofContext.ProviderNodeID, userID, proofResult.Signer, true)
 		}
 		entity.ListingOfferHash = proofResult.Hash
 		entity.ListingOfferSignature = proofResult.Signature
@@ -572,9 +586,12 @@ func updateListing(c *gin.Context) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
 				return
 			}
-			if providerProofRequired() && proofContext.Hotkey != "" && !proofResult.Verified {
+			if providerProofRequired() && !proofResult.Verified {
 				c.JSON(http.StatusForbidden, gin.H{"error": "provider listing proof required"})
 				return
+			}
+			if proofResult.Verified {
+				maybeBindProviderHotkey(proofContext.ProviderNodeID, userID, proofResult.Signer, true)
 			}
 			updates.ListingOfferHash = &proofResult.Hash
 			updates.ListingOfferSignature = &proofResult.Signature

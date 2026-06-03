@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/wallet-adapter-react';
+import bs58 from 'bs58';
 import { 
     ShieldCheck, 
     History, 
@@ -18,7 +19,13 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
 import { UsageProofCard } from '@/components/UsageProofCard';
-import { getUsageProofs, signUsageProof, submitUsageProofOnChain, UsageProofStatus } from '@/lib/api/trustless';
+import {
+    getUsageProofMessage,
+    getUsageProofs,
+    signUsageProof,
+    submitUsageProofOnChain,
+    UsageProofStatus,
+} from '@/lib/api/trustless';
 
 const containerVariants = {
     hidden: { opacity: 0 },
@@ -67,11 +74,10 @@ export default function TrustlessPage() {
             return;
         }
         try {
-            const message = new TextEncoder().encode(
-                `ProxyHubb: Sign usage proof ${id} with wallet ${publicKey.toBase58()}`
-            );
+            const proofMessage = await getUsageProofMessage(id);
+            const message = new TextEncoder().encode(proofMessage.message);
             const sigBytes = await signMessage(message);
-            const signature = Buffer.from(sigBytes).toString('base64');
+            const signature = bs58.encode(sigBytes);
             signMutation.mutate({ id, signature });
         } catch (err) {
             console.error('Wallet signing failed:', err);
@@ -91,7 +97,7 @@ export default function TrustlessPage() {
         total: proofs.length,
         pending: proofs.filter(p => p.status === 'pending').length,
         onChain: proofs.filter(p => p.status === 'on_chain').length,
-        totalBytes: proofs.reduce((acc, p) => acc + p.bytes_transferred, 0)
+        totalBytes: proofs.reduce((acc, p) => acc + p.total_bytes, 0)
     };
 
     const formatBytes = (bytes: number) => {
@@ -162,7 +168,7 @@ export default function TrustlessPage() {
             {/* Filtering & Search */}
             <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 justify-between items-center">
                 <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 w-full lg:w-auto overflow-x-auto">
-                    {['all', 'pending', 'signed', 'settling', 'on_chain'].map((s) => (
+                    {['all', 'pending', 'signed', 'settling_confidential', 'on_chain'].map((s) => (
                         <button
                             key={s}
                             onClick={() => setFilterStatus(s as any)}

@@ -40,7 +40,7 @@ Real staging needs your API URL and staging TOKEN_HMAC_SECRET / DB (not localhos
 function Load-DotEnv([string]$path) {
     if (-not (Test-Path $path)) { return }
     Get-Content $path | ForEach-Object {
-        if ($_ -match '^\s*([^#=]+)=(.*)$') {
+        if ($_ -match "^\s*([^#=]+)=(.*)$") {
             $k = $matches[1].Trim()
             $v = $matches[2].Trim().Trim('"').Trim("'")
             Set-Item -Path "env:$k" -Value $v
@@ -52,8 +52,9 @@ function Test-ProviderAuthQuiet([string]$baseUrl, [string]$tomlPath) {
     $key = ""
     if (Test-Path $tomlPath) {
         $content = Get-Content $tomlPath -Raw
-        if ($content -match 'api_key\s*=\s*"([^"]+)"') {
-            $key = $matches[1]
+        $keyMatch = [regex]::Match($content, 'api_key\s*=\s*"([a-fA-F0-9]+)"')
+        if ($keyMatch.Success) {
+            $key = $keyMatch.Groups[1].Value
         }
     }
     if (-not $key -or $key -match '<' -or $key.Length -lt 32) { return $false }
@@ -83,8 +84,9 @@ function Resolve-ProfileAndNodeId {
     }
     if (-not $profile -and (Test-Path $script:tomlPath)) {
         $content = Get-Content $script:tomlPath -Raw
-        if ($content -match 'api_key\s*=\s*"([^"]+)"') {
-            $key = $matches[1]
+        $keyMatch = [regex]::Match($content, 'api_key\s*=\s*"([a-fA-F0-9]+)"')
+        if ($keyMatch.Success) {
+            $key = $keyMatch.Groups[1].Value
             try {
                 $body = @{ token = $key } | ConvertTo-Json
                 $resp = Invoke-RestMethod -Uri ($ApiBaseUrl.TrimEnd('/') + "/v1/provider/auth") -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10

@@ -175,7 +175,7 @@ function CompareContent() {
 
             {/* Metric comparison table */}
             {!isAnyLoading && nodes.some(Boolean) && (
-                <motion.section variants={itemVariants}>
+                <motion.section variants={itemVariants} data-testid="explorer-node-compare-metrics">
                     <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
                         <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3">
                             <Activity size={14} className="text-primary" />

@@ -124,7 +124,7 @@ func generateProxyCode(c *gin.Context) {
 		req.ProxyHost = "proxy.proxyhub.io"
 	}
 	if req.ProxyPort == 0 {
-		req.ProxyPort = 3128
+		_, req.ProxyPort, _ = BuyerProxyConnectInfo()
 	}
 	
 	language := SDKLanguage(req.Language)
@@ -183,8 +183,7 @@ func generateExamples(language SDKLanguage, sessionID string) []SDKExample {
 		username = "YOUR_SESSION_ID"
 	}
 	password := "YOUR_SESSION_PASSWORD"
-	proxyHost := "proxy.proxyhub.io"
-	proxyPort := 3128
+	proxyHost, proxyPort, _ := BuyerProxyConnectInfo()
 	
 	examples := []SDKExample{
 		{

@@ -14,6 +14,7 @@ import (
 
 func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/config/public", getPublicSystemConfig)
+	r.GET("/system/provider-proof-policy", getListingProofPolicy)
 	r.GET("/network/gateways", getFederatedGateways)
 	r.GET("/system/watchtower/status", getWatchtowerStatus)
 	if env := os.Getenv("APP_ENV"); env == "" || env == "development" {

@@ -257,6 +257,62 @@ func TestRegisterForumRoutes(t *testing.T) {
 	RegisterForumRoutes(r.Group(""))
 }
 
+func TestForumRouteAuthPolicy_PublicReadsProtectedWrites(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "forum_categories", "forum_threads")
+
+	cat := models.ForumCategory{Name: "General", Slug: "general", SortOrder: 1}
+	db.DB.Create(&cat)
+
+	r := setupTestRouter()
+	RegisterForumPublicRoutes(r.Group(""))
+
+	protected := r.Group("")
+	protected.Use(func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "auth required"})
+	})
+	RegisterForumProtectedRoutes(protected)
+
+	t.Run("public categories do not require auth", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/forum/categories", nil)
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("protected create thread requires auth", func(t *testing.T) {
+		jsonBody, _ := json.Marshal(CreateThreadRequest{
+			CategorySlug: "general",
+			Title:        "Blocked",
+			Content:      "Should require auth",
+		})
+		req := httptest.NewRequest("POST", "/forum/threads", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("protected my posts requires auth", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/forum/my-posts", nil)
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusUnauthorized, w.Code, w.Body.String())
+		}
+	})
+}
+
 func TestGetThreadBySlug(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "forum_categories", "forum_threads", "forum_posts")

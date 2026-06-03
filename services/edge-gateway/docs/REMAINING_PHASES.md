@@ -58,7 +58,7 @@ Three buckets before calling edge-gateway v2 production-ready. Decisions on defe
 
 ### (b) Ops proof at scale
 
-- [ ] **10k+ stream load-lab** — scheduled on ops hardware ([`V2_SIGNOFF.md`](V2_SIGNOFF.md) § Ops scale)
+- [ ] **10k+ stream load-lab** — dev ladder done on HALLDEAN (50 held, health saturates); **run `load-lab-10k` on Linux ops hardware** ([`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md) § Ops scale)
 - [ ] **24h soak** — scheduled on ops hardware (same)
 - [x] **SLO baseline** — [`P0_BASELINE.md`](P0_BASELINE.md) 2026-06-03 (post-restart idle + after 20×45s soak)
 - [x] **Alert verification** — `edge_gateway_red` rules loaded; scrape `edge-gateway:9090` up (2026-06-03)

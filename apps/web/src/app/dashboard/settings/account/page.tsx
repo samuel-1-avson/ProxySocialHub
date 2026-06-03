@@ -7,6 +7,7 @@ import { Shield, Wallet, Zap, Activity, Info, AlertCircle, CheckCircle, Smartpho
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { DeleteAccountPanel } from '@/components/settings/DeleteAccountPanel';
 
 const TIER_LIMITS = {
     new: { rpm: 10, bandwidth: '5 GB', concurrency: 3, automation: false },
@@ -179,6 +180,8 @@ export default function AccountSettingsPage() {
                     </div>
                 </div>
             </div>
+
+            <DeleteAccountPanel />
         </div>
     );
 }

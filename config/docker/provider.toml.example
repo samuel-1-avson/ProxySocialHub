@@ -1,0 +1,12 @@
+# Copy to provider.toml after running scripts/bootstrap-provider-docker.ps1 (dev/local only).
+# Do not commit provider.toml — it contains API keys and signing material.
+
+control_api_url = "http://control-api:8080"
+gateway_addr = "edge-gateway:3128"
+api_key = "REPLACE_WITH_PROVIDER_DEV_TOKEN"
+node_id = "REPLACE_WITH_PROVIDER_NODE_UUID"
+provider_signing_key = "REPLACE_WITH_BASE58_SIGNING_KEY"
+connection_type = "residential"
+use_tls = true
+tls_skip_verify = true
+metrics_port = 9090
