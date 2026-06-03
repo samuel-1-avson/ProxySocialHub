@@ -1,8 +1,8 @@
 # ProxyHubb Explorer — Implementation Plan
 
-> **Status:** Draft for review — implement after sign-off on [EXPLORER_DEEP_ANALYSIS.md](EXPLORER_DEEP_ANALYSIS.md).
+> **Status:** Active delivery plan — background analysis was folded into [PROJECT_STATE.md](./PROJECT_STATE.md) and this checklist.
 > **Date:** 2026-06-01
-> **Scope:** Remediation roadmap Phases 0–4 from the deep analysis.
+> **Scope:** Remediation roadmap Phases 0–4 (explorer metrics, WS, UI trust).
 
 ---
 
@@ -308,6 +308,6 @@ flowchart TD
 
 ## 12. Related documents
 
-- [EXPLORER_DEEP_ANALYSIS.md](EXPLORER_DEEP_ANALYSIS.md)
+- [PROJECT_STATE.md](PROJECT_STATE.md)
 - [NODE_REGISTRY.md](NODE_REGISTRY.md)
 - [DEV_SOLANA_SMOKE.md](DEV_SOLANA_SMOKE.md)

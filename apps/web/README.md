@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ProxyHubb web app
 
-## Getting Started
+Next.js 16 frontend for marketplace, explorer, wallet flows, and provider tooling. Canonical project docs live in [`docs/README.md`](../../docs/README.md).
 
-First, run the development server:
+## Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 20+
+- Control API and backing services (see [`docs/PROJECT_STATE.md`](../../docs/PROJECT_STATE.md) and [`docs/STAGING_ENFORCE_RUNBOOK.md`](../../docs/STAGING_ENFORCE_RUNBOOK.md))
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy env from repo root `.env.example` / `.env.docker.example` as needed. The dev server defaults to port **4011**.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Local dev server (`http://localhost:4011`) |
+| `npm run dev:e2e` | Dev server with webpack (Playwright `webServer`) |
+| `npm run build` | Production build |
+| `npm run typecheck` | TypeScript check (`tsconfig.typecheck.json`) |
+| `npm run validate:routes` | Route/nav policy parity |
+| `npm run lint` | ESLint |
+| `npm run test:e2e` | Full Playwright suite |
+| `npm run test:e2e:map` | Marketplace map proof + mock buy |
+| `npm run test:e2e:map-buy` | Map buy flow only |
+| `npm run test:e2e:map-buy:devnet` | Live devnet map buy (requires env; see `e2e/check-live-map-buy-env.mjs`) |
 
-## Learn More
+Install Playwright browsers once: `npx playwright install chromium`.
 
-To learn more about Next.js, take a look at the following resources:
+## Map UI
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Shared map canvas: [`src/components/map/ProxyMapCanvas.tsx`](src/components/map/ProxyMapCanvas.tsx). Explorer and marketplace routes compose it from `src/app/explorer/map/` and `src/app/marketplace/map/`. See [`docs/EXPLORER_IMPLEMENTATION_PLAN.md`](../../docs/EXPLORER_IMPLEMENTATION_PLAN.md).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Generated artifacts
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Do not commit `playwright-report/` or `test-results/` (gitignored).

@@ -10,8 +10,8 @@
 | Document | Focus |
 |----------|--------|
 | [SYSTEM_ANALYSIS_REPORT.md](./SYSTEM_ANALYSIS_REPORT.md) | Exhaustive control-api route index, migration catalog, env matrix |
-| [PROVIDER_SYSTEM_DEEP_DIVE.md](./PROVIDER_SYSTEM_DEEP_DIVE.md) | Provider control vs data plane, registry gaps, CLI |
-| [WALLET_SYSTEM_DEEP_DIVE_REPORT.md](./WALLET_SYSTEM_DEEP_DIVE_REPORT.md) | Wallet threat model and ledger flows |
+| [PROVIDER_PROOFS_DOCKER.md](./PROVIDER_PROOFS_DOCKER.md) | Provider proof operations and Docker verification |
+| [WALLET_STATUS.md](./WALLET_STATUS.md) | Wallet phases and production closure summary |
 | [openapi.yaml](./openapi.yaml) | HTTP contract for `/v1` |
 | [.env.example](../.env.example) | Full-stack configuration |
 
@@ -478,7 +478,7 @@ Public semantics (per OpenAPI): `ledger_committed` → `batched` → `chain_comm
 
 - **SOL-only** internal ledger (deposits verified on-chain, withdrawals with limits/whitelist).
 - Treasury reconciliation worker, velocity guard on oracle, platform fee on provider payouts.
-- See [WALLET_SYSTEM_DEEP_DIVE_REPORT.md](./WALLET_SYSTEM_DEEP_DIVE_REPORT.md).
+- See [WALLET_STATUS.md](./WALLET_STATUS.md) and [WALLET_PRODUCTION_CLOSURE.md](./WALLET_PRODUCTION_CLOSURE.md).
 
 #### Sessions & proxy
 
@@ -686,7 +686,7 @@ erDiagram
 **Operator runbooks in repo:**
 
 - [DOCKER_REBUILD.md](./DOCKER_REBUILD.md)
-- [PROVIDER_PHASE1_VERIFY.md](./PROVIDER_PHASE1_VERIFY.md)
+- [STAGING_ENFORCE_RUNBOOK.md](./STAGING_ENFORCE_RUNBOOK.md)
 - [DEV_SOLANA_SMOKE.md](./DEV_SOLANA_SMOKE.md)
 - [WALLET_E2E_SMOKE.md](./WALLET_E2E_SMOKE.md)
 
@@ -768,12 +768,12 @@ Grouped for roadmap planning — not committed work.
 | Need | Read |
 |------|------|
 | Full API route appendix | [SYSTEM_ANALYSIS_REPORT.md](./SYSTEM_ANALYSIS_REPORT.md) |
-| Provider registry & CLI | [PROVIDER_SYSTEM_DEEP_DIVE.md](./PROVIDER_SYSTEM_DEEP_DIVE.md) |
-| Wallet security | [WALLET_SYSTEM_DEEP_DIVE_REPORT.md](./WALLET_SYSTEM_DEEP_DIVE_REPORT.md) |
-| Wallet roadmap | [WALLET_IMPLEMENTATION_PLAN.md](./WALLET_IMPLEMENTATION_PLAN.md) |
+| Provider registry & CLI | [NODE_REGISTRY.md](./NODE_REGISTRY.md), [PROVIDER_PROOFS_DOCKER.md](./PROVIDER_PROOFS_DOCKER.md) |
+| Wallet security | [WALLET_PRODUCTION_CLOSURE.md](./WALLET_PRODUCTION_CLOSURE.md) |
+| Wallet status | [WALLET_STATUS.md](./WALLET_STATUS.md) |
 | HTTP contract | [openapi.yaml](./openapi.yaml) |
 | Env setup | [.env.example](../.env.example) |
-| Provider E2E check | [PROVIDER_PHASE1_VERIFY.md](./PROVIDER_PHASE1_VERIFY.md) |
+| Provider E2E check | [STAGING_ENFORCE_RUNBOOK.md](./STAGING_ENFORCE_RUNBOOK.md) |
 | Docker rebuild | [DOCKER_REBUILD.md](./DOCKER_REBUILD.md) |
 
 ---

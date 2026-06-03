@@ -8,7 +8,7 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 
 - [x] Code deliverables (snapshot, moka, logs, splice, allocations)
 - [x] CI bench smoke (`registry_bench`, `hotpath_bench` `--test`)
-- [x] Full criterion baseline @ 10k (`P1_SIGNOFF.md`, `P1_BASELINE.md`)
+- [x] Full criterion baseline @ 10k (`P1_SIGNOFF.md`; raw logs trimmed from `P1_BASELINE.md`)
 - [x] Sign-off doc [`P1_SIGNOFF.md`](P1_SIGNOFF.md)
 - [ ] Linux flamegraph (optional archive)
 - [ ] CONNECT soak with providers (CPU/memory note; out of P1 scope)
@@ -57,30 +57,38 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 
 - [x] Multi-yamux per provider (`YAMUX_CONNS_PER_NODE`, `YamuxMux`, tunnel attach), ADR 0003, [`P4_PROVIDER_TRANSPORT.md`](P4_PROVIDER_TRANSPORT.md)
 - [x] `provider-node` multi-dial ([`tunnel/mux.rs`](../../provider-node/src/tunnel/mux.rs))
-- [x] QUIC feature flag (`PROVIDER_TRANSPORT`, `--features quic`, `quic_listener` placeholder)
+- [x] QUIC (`PROVIDER_TRANSPORT`, `--features quic`, Quinn listener + provider client)
 - [x] `transport_bench` + `p4-transport-exit-verify.*` + `p4-transport-smoke.*`
 - [x] Sign-off [`P4_SIGNOFF.md`](P4_SIGNOFF.md)
-- [ ] Quinn QUIC listener (post-P4)
-- [ ] Transport soak at scale (ops / load lab)
+- [x] Docker QUIC E2E ([`scripts/compose-up-dev.ps1`](../../../scripts/compose-up-dev.ps1), [`scripts/quic-provider-e2e-docker.ps1`](../../../scripts/quic-provider-e2e-docker.ps1))
+- [x] Transport soak script + runbook ([`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md), `p4-transport-soak.ps1`)
+- [ ] 10k+ stream load-lab soak (ops — `SOAK_CONCURRENT` on dedicated hardware)
 
-### P5 — Security & observability
+### P5 — Security & observability · observability signed off
 
 - [x] OTel bootstrap (`observability`, `--features otel`, [`P5_OTEL.md`](P5_OTEL.md))
-- [ ] Hot-path spans (CONNECT, tunnel, registry)
-- [ ] RED dashboards
-- [ ] In-process TLS + ALPN h2
-- [ ] JA3/JA4 fingerprinting (code in `security/fingerprint.rs`; wire on accept)
-- [ ] Honeytoken provider attribution
+- [x] Docker `ENABLE_OTEL` build arg + dev collector (`infra/otel/collector-dev.yaml`, compose profile `otel`)
+- [x] Hot-path spans (CONNECT, bridge, registry, tunnel accept)
+- [x] RED dashboard + Grafana provisioning ([`infra/grafana/dashboards/`](../../../infra/grafana/dashboards/))
+- [x] Sign-off observability track [`P5_SIGNOFF.md`](P5_SIGNOFF.md)
+- [x] JA3 on provider tunnel TLS accept (peek before `TlsAcceptor`)
+- [x] In-process TLS + ALPN h2 (buyer `:8090`, opt-in `BUYER_TLS_ENABLE`)
+- [x] JA3 on buyer TLS path (peek before `TlsAcceptor` when buyer TLS on)
+- [x] JA4 fingerprinting (ClientHello parse, `observe_ja4`, buyer + provider TLS peek)
+- [x] JA3 in buyer bot classifier (`BUYER_TLS_ENABLE` + `BotClassifier::score_with_db`)
+- [x] Buyer `SO_REUSEPORT` accept pool (`BUYER_ACCEPT_WORKERS`, Linux)
+- [x] Honeytoken provider attribution (`attribution_node_id` + slash target)
+- [x] Dedicated `METRICS_PORT` listener (`9090`; `/metrics` not on buyer `PORT` when set)
 
 ### P6 — Protocol expansion
 
-- [ ] HTTP/3 ingress
-- [ ] SOCKS5 ingress
+- [x] HTTP/3 ingress (initial `--features quic`, `ENABLE_HTTP3_INGRESS`, CONNECT over h3/quinn)
+- [x] SOCKS5 ingress (`ENABLE_SOCKS5`, `SOCKS5_PORT`, username/password auth, CONNECT)
 
 ## Ongoing (product / ops)
 
-- [ ] P0 baseline metrics (tunnels/pod, p99 CONNECT, CPU/Gbps) in runbook
-- [ ] Marketplace map merge ([MARKETPLACE_NODE_MAP_MERGE_PLAN](../../../docs/MARKETPLACE_NODE_MAP_MERGE_PLAN.md)) if still in scope
+- [x] P0 baseline metrics runbook ([`P0_BASELINE_RUNBOOK.md`](P0_BASELINE_RUNBOOK.md), [`scripts/p0-record-baseline.ps1`](../scripts/p0-record-baseline.ps1))
+- [ ] Marketplace map cleanup if still in scope (tracked in `docs/reports/IMPROVEMENTS_AND_ROADMAP.md`)
 
 ## Compose port matrix
 

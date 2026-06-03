@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-06-02
 - **Context phase:** vNext P0 — "Operational truth"
-- **Related:** [`EDGE_GATEWAY_DEEP_DIVE.md`](../EDGE_GATEWAY_DEEP_DIVE.md), [`EDGE_GATEWAY_VNEXT_BLUEPRINT.md`](../EDGE_GATEWAY_VNEXT_BLUEPRINT.md)
+- **Related:** [`EDGE_GATEWAY_VNEXT_BLUEPRINT.md`](../EDGE_GATEWAY_VNEXT_BLUEPRINT.md), [`REMAINING_PHASES.md`](../../services/edge-gateway/docs/REMAINING_PHASES.md)
 
 ---
 
@@ -47,11 +47,11 @@ Consequences:
   added via `secretKeyRef`.
 - `.env.docker.example`/`.env.example` stragglers (`4000`, buyer `GATEWAY_PUBLIC_URL`) corrected to `3128`/`8090`.
 
-### D2 — A dedicated metrics port is deferred (Accepted)
+### D2 — Dedicated metrics port (Accepted; implemented P5)
 
-For P0, metrics remain on `PORT` (`/metrics` on 8090). Splitting metrics onto a dedicated
-`METRICS_PORT` is a **vNext P5** hardening item (don't expose `/metrics` on the CONNECT surface).
-This avoids introducing a second listener during the "operational truth" phase.
+`METRICS_PORT` (canonical **9090**) serves `/metrics` only. Buyer `PORT` (**8090**) returns **404**
+for `/metrics` when `METRICS_PORT` is set. Unset or `METRICS_PORT=0` keeps legacy behavior
+(metrics on the buyer port) for local bare-metal runs.
 
 ### D3 — `/ready` semantics (Accepted)
 
