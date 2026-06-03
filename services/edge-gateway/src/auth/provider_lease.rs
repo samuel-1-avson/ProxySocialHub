@@ -180,7 +180,9 @@ mod tests {
         .unwrap();
 
         let validator = ProviderLeaseValidator::new("gateway-secret");
-        let parsed = validator.validate(&token, "provider-123", &sample_caps()).unwrap();
+        let parsed = validator
+            .validate(&token, "provider-123", &sample_caps())
+            .unwrap();
 
         assert_eq!(parsed.user_id, "provider-123");
     }
@@ -198,7 +200,9 @@ mod tests {
         .unwrap();
 
         let validator = ProviderLeaseValidator::new("gateway-secret");
-        let parsed = validator.validate(&token, "provider-123", &sample_caps()).unwrap();
+        let parsed = validator
+            .validate(&token, "provider-123", &sample_caps())
+            .unwrap();
 
         assert_eq!(parsed.user_id, "provider-123");
         assert_eq!(parsed.aud, claims.aud);

@@ -19,8 +19,8 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 /// On TLS connections the protocol is chosen via ALPN; on plaintext, hyper
 /// detects the HTTP/2 connection preface automatically (h2c prior knowledge).
 ///
-/// Phase 2 note: for ALPN-based protocol negotiation, the `tls.rs` module
-/// should advertise `["h2", "http/1.1"]` in the TLS config (Week 8 task).
+/// When buyer TLS is enabled (`BUYER_TLS_ENABLE`), `tls::create_buyer_tls_acceptor`
+/// advertises ALPN `h2` and `http/1.1` so this builder negotiates HTTP/2 over TLS.
 pub fn make_auto_builder() -> AutoBuilder<TokioExecutor> {
     AutoBuilder::new(TokioExecutor::new())
 }

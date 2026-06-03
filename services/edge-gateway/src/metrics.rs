@@ -144,6 +144,14 @@ lazy_static! {
     )
     .unwrap();
 
+    /// P5: honeytoken hits with whether a provider node id was resolved for attribution.
+    pub static ref HONEYTOKEN_HITS: CounterVec = register_counter_vec!(
+        "edge_gateway_honeytoken_hits_total",
+        "Honeytoken decoy access attempts",
+        &["attribution"]
+    )
+    .unwrap();
+
     // P0-A2: Session cache metrics
     pub static ref SESSION_CACHE_HITS: IntCounter = register_int_counter!(
         "edge_gateway_session_cache_hits_total",
@@ -176,6 +184,13 @@ lazy_static! {
         &["route"]
     )
     .unwrap();
+
+    /// P5: healthy providers with local yamux control (refreshed on each /metrics scrape).
+    pub static ref HEALTHY_PROVIDERS: IntGauge = register_int_gauge!(
+        "edge_gateway_healthy_providers",
+        "Healthy provider nodes registered on this pod (local control handles)"
+    )
+    .unwrap();
 }
 
 /// Start time for uptime calculation
@@ -185,10 +200,46 @@ static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 pub fn init() {
     START_TIME.get_or_init(Instant::now);
 
-    // ProcessCollector removed - not available in this prometheus version
-    // CPU/memory metrics can be collected externally via node_exporter
+    // prometheus 0.13 only exports lazy_static metrics after first use — register all at boot
+    // so /metrics and Grafana RED panels work before the first CONNECT or provider route.
+    let _ = ACTIVE_CONNECTIONS.get();
+    let _ = TOTAL_CONNECTIONS.get();
+    let _ = ACTIVE_SESSIONS.get();
+    let _ = PROVIDER_ACTIVE_CONNECTIONS.get();
+    let _ = CIRCUIT_BREAKER_FAILURES.get();
+    let _ = SESSION_CACHE_HITS.get();
+    let _ = SESSION_CACHE_MISSES.get();
+    let _ = SESSION_CACHE_SIZE.get();
+    let _ = SESSION_CACHE_EVICTIONS.get();
+    HEALTHY_PROVIDERS.set(0);
+
+    CONNECTION_ERRORS.with_label_values(&["init"]);
+    BANDWIDTH_BYTES_TOTAL.with_label_values(&["up"]);
+    BANDWIDTH_BYTES_TOTAL.with_label_values(&["down"]);
+    BANDWIDTH_RATE.with_label_values(&["up"]);
+    SESSION_DURATION_SECONDS.with_label_values(&["unknown"]);
+    SESSION_AUTH_FAILURES.with_label_values(&["init"]);
+    PROVIDER_HEALTH_SCORE.with_label_values(&["unknown"]);
+    PROVIDER_TOTAL_BYTES.with_label_values(&["up"]);
+    PROVIDER_LATENCY_MS.with_label_values(&["unknown"]);
+    CIRCUIT_BREAKER_STATE.with_label_values(&["closed"]);
+    RATE_LIMIT_HITS.with_label_values(&["init"]);
+    REQUEST_LATENCY_SECONDS.with_label_values(&["INIT", "0"]);
+    CONNECTIONS_BY_COUNTRY.with_label_values(&["unknown"]);
+    POLICY_BLOCKS.with_label_values(&["init"]);
+    HONEYTOKEN_HITS.with_label_values(&["resolved"]);
+    HONEYTOKEN_HITS.with_label_values(&["unknown"]);
+    PROVIDER_ROUTE_SELECTION.with_label_values(&["local"]);
+    PROVIDER_ROUTE_SELECTION.with_label_values(&["remote"]);
+    PROVIDER_ROUTE_SELECTION.with_label_values(&["tunnel_remote"]);
+    PROVIDER_ROUTE_SELECTION.with_label_values(&["miss"]);
 
     tracing::info!("Prometheus metrics initialized");
+}
+
+/// Update gauges that require registry state (call before `gather_metrics`).
+pub fn refresh_registry_gauges(healthy_provider_count: i64) {
+    HEALTHY_PROVIDERS.set(healthy_provider_count);
 }
 
 /// Get metrics in Prometheus text format
@@ -213,7 +264,10 @@ pub fn connection_started() {
 
 pub fn connection_ended(bytes_up: u64, bytes_down: u64) {
     ACTIVE_CONNECTIONS.dec();
+    record_bandwidth(bytes_up, bytes_down);
+}
 
+pub fn record_bandwidth(bytes_up: u64, bytes_down: u64) {
     if bytes_up > 0 {
         BANDWIDTH_BYTES_TOTAL
             .with_label_values(&["up"])
@@ -294,6 +348,11 @@ pub fn record_policy_block(reason: &str) {
     POLICY_BLOCKS.with_label_values(&[reason]).inc();
 }
 
+/// Record honeytoken hit (`attribution` is `resolved` or `unknown`).
+pub fn record_honeytoken_hit(attribution: &str) {
+    HONEYTOKEN_HITS.with_label_values(&[attribution]).inc();
+}
+
 /// Record session authentication failure
 pub fn record_auth_failure(reason: &str) {
     SESSION_AUTH_FAILURES.with_label_values(&[reason]).inc();
@@ -338,7 +397,7 @@ pub fn record_session_cache_eviction() {
     SESSION_CACHE_EVICTIONS.inc();
 }
 
-/// P3: `route` is `local`, `remote`, or `miss`.
+/// P3: `route` is `local`, `remote`, `tunnel_remote` (split ingress→tunnel), or `miss`.
 pub fn record_provider_route(route: &str) {
     PROVIDER_ROUTE_SELECTION.with_label_values(&[route]).inc();
 }

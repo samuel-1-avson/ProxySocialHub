@@ -4,6 +4,7 @@ use crate::auth::SessionAuthenticator;
 use crate::config::EdgeMode;
 use crate::state::AppState;
 use std::sync::Arc;
+use tracing::Instrument;
 use yamux::Control;
 
 /// Where the buyer tunnel terminates: local yamux or a peer edge pod.
@@ -21,6 +22,27 @@ pub enum ProviderTarget {
 
 /// Select the best provider route for a buyer CONNECT (local control or peer forward).
 pub async fn select_provider_route(
+    state: Arc<AppState>,
+    session_id: &str,
+    is_sticky: bool,
+    authenticator: Arc<SessionAuthenticator>,
+    target_geo: Option<&str>,
+    target_domain: Option<&str>,
+) -> std::io::Result<Option<ProviderTarget>> {
+    let span = crate::observability::provider_select_span(session_id, target_domain);
+    select_provider_route_inner(
+        state,
+        session_id,
+        is_sticky,
+        authenticator,
+        target_geo,
+        target_domain,
+    )
+    .instrument(span)
+    .await
+}
+
+async fn select_provider_route_inner(
     state: Arc<AppState>,
     session_id: &str,
     is_sticky: bool,
@@ -50,10 +72,26 @@ pub async fn select_provider_route(
         }
     };
 
+    let edge_mode = state.config.edge_mode;
     match resolve_target(state, &node_id).await? {
-        Some(t) => Ok(Some(t)),
+        Some(t) => {
+            let route = match &t {
+                ProviderTarget::Local { .. } => "local",
+                ProviderTarget::Remote { .. } => {
+                    if edge_mode == EdgeMode::Split {
+                        "tunnel_remote"
+                    } else {
+                        "remote"
+                    }
+                }
+            };
+            tracing::Span::current().record("provider.node_id", tracing::field::display(&node_id));
+            tracing::Span::current().record("provider.route", route);
+            Ok(Some(t))
+        }
         None => {
             record_route_miss();
+            tracing::Span::current().record("provider.route", "miss");
             Ok(None)
         }
     }
@@ -273,4 +311,26 @@ async fn select_provider_node_id(
     }
 
     Ok(node_id)
+}
+
+/// Node id routing would assign for this session (honeytoken slash / audit only; no tunnel opened).
+pub async fn attribution_node_id(
+    state: Arc<AppState>,
+    session_id: &str,
+    is_sticky: bool,
+    authenticator: Arc<SessionAuthenticator>,
+    target_geo: Option<&str>,
+    target_domain: Option<&str>,
+) -> Option<String> {
+    select_provider_node_id(
+        state,
+        session_id,
+        is_sticky,
+        authenticator,
+        target_geo,
+        target_domain,
+    )
+    .await
+    .ok()
+    .flatten()
 }

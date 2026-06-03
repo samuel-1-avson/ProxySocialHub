@@ -22,7 +22,12 @@ use tokio::sync::Mutex;
 fn legacy_edge_submission_enabled() -> bool {
     std::env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED")
         .ok()
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -74,7 +79,10 @@ pub struct SolanaRelayer {
 impl SolanaRelayer {
     pub fn new(program_id_str: &str, rpc_url: &str) -> Self {
         let program_id = program_id_str.parse().unwrap_or_else(|_| {
-            warn!("Invalid program ID '{}', falling back to system program", program_id_str);
+            warn!(
+                "Invalid program ID '{}', falling back to system program",
+                program_id_str
+            );
             system_program::ID
         });
 
@@ -87,7 +95,9 @@ impl SolanaRelayer {
 
         info!(
             "Solana relayer initialized: program={}, rpc={}, signer={}",
-            program_id, rpc_url, keypair.pubkey()
+            program_id,
+            rpc_url,
+            keypair.pubkey()
         );
 
         Self {
@@ -104,12 +114,24 @@ impl SolanaRelayer {
 
     fn load_keypair() -> Option<Keypair> {
         let signer_sources = [
-            ("SOLANA_PRIVATE_KEY", std::env::var("SOLANA_PRIVATE_KEY").ok()),
-            ("ORACLE_PRIVATE_KEY", std::env::var("ORACLE_PRIVATE_KEY").ok()),
+            (
+                "SOLANA_PRIVATE_KEY",
+                std::env::var("SOLANA_PRIVATE_KEY").ok(),
+            ),
+            (
+                "ORACLE_PRIVATE_KEY",
+                std::env::var("ORACLE_PRIVATE_KEY").ok(),
+            ),
         ];
         let path_sources = [
-            ("SOLANA_KEYPAIR_PATH", std::env::var("SOLANA_KEYPAIR_PATH").ok()),
-            ("ORACLE_KEYPAIR_PATH", std::env::var("ORACLE_KEYPAIR_PATH").ok()),
+            (
+                "SOLANA_KEYPAIR_PATH",
+                std::env::var("SOLANA_KEYPAIR_PATH").ok(),
+            ),
+            (
+                "ORACLE_KEYPAIR_PATH",
+                std::env::var("ORACLE_KEYPAIR_PATH").ok(),
+            ),
         ];
 
         Self::load_keypair_from_inputs(&signer_sources, &path_sources)
@@ -120,7 +142,11 @@ impl SolanaRelayer {
         path_sources: &[(impl AsRef<str>, Option<String>)],
     ) -> Option<Keypair> {
         for (source_name, candidate) in signer_sources {
-            let Some(raw_value) = candidate.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+            let Some(raw_value) = candidate
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
                 continue;
             };
 
@@ -129,11 +155,18 @@ impl SolanaRelayer {
                 return Some(keypair);
             }
 
-            warn!(source = source_name.as_ref(), "Ignoring invalid Solana signer value and falling back to other inputs");
+            warn!(
+                source = source_name.as_ref(),
+                "Ignoring invalid Solana signer value and falling back to other inputs"
+            );
         }
 
         for (source_name, candidate) in path_sources {
-            let Some(path) = candidate.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+            let Some(path) = candidate
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
                 continue;
             };
 
@@ -199,10 +232,7 @@ impl SolanaRelayer {
 
     /// Derive the PDA for a ZK batch on-chain account.
     fn find_zk_batch_pda(&self, batch_root: &[u8; 32]) -> (Pubkey, u8) {
-        Pubkey::find_program_address(
-            &[b"zk_batch", batch_root.as_ref()],
-            &self.program_id,
-        )
+        Pubkey::find_program_address(&[b"zk_batch", batch_root.as_ref()], &self.program_id)
     }
 
     /// Derive the PDA for the program state account.
@@ -240,10 +270,10 @@ impl SolanaRelayer {
 
         self.submit_zk_batch_tx(
             &batch_root,
-            1,                                              // session_count
+            1,                                               // session_count
             inputs.total_bytes_up + inputs.total_bytes_down, // total_bytes
-            0,                                              // period_start (best-effort)
-            chrono::Utc::now().timestamp(),                 // period_end
+            0,                                               // period_start (best-effort)
+            chrono::Utc::now().timestamp(),                  // period_end
         )
         .await
     }
@@ -268,7 +298,8 @@ impl SolanaRelayer {
         let mut total_bytes: u64 = 0;
         for (_, inputs) in &batch {
             hasher.update(inputs.session_id_hash);
-            total_bytes = total_bytes.saturating_add(inputs.total_bytes_up + inputs.total_bytes_down);
+            total_bytes =
+                total_bytes.saturating_add(inputs.total_bytes_up + inputs.total_bytes_down);
         }
         let root_hash = hasher.finalize();
         let mut batch_root = [0u8; 32];
@@ -317,8 +348,8 @@ impl SolanaRelayer {
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(self.keypair.pubkey(), true),     // oracle (mut, signer)
-                AccountMeta::new(zk_batch_pda, false),             // zk_batch (init by program)
+                AccountMeta::new(self.keypair.pubkey(), true), // oracle (mut, signer)
+                AccountMeta::new(zk_batch_pda, false),         // zk_batch (init by program)
                 AccountMeta::new_readonly(system_program::ID, false), // system_program
                 AccountMeta::new_readonly(program_state_pda, false), // program_state
             ],
@@ -357,8 +388,8 @@ impl SolanaRelayer {
             provider_id, reason, amount
         );
 
-        let provider_pubkey = Pubkey::from_str(provider_id)
-            .map_err(|e| format!("Invalid provider pubkey: {}", e))?;
+        let provider_pubkey =
+            Pubkey::from_str(provider_id).map_err(|e| format!("Invalid provider pubkey: {}", e))?;
 
         let client = solana_client::rpc_client::RpcClient::new_with_commitment(
             self.rpc_url.clone(),
@@ -366,10 +397,8 @@ impl SolanaRelayer {
         );
 
         // Derive the provider's stake PDA
-        let (stake_pda, _) = Pubkey::find_program_address(
-            &[b"stake", provider_pubkey.as_ref()],
-            &self.program_id,
-        );
+        let (stake_pda, _) =
+            Pubkey::find_program_address(&[b"stake", provider_pubkey.as_ref()], &self.program_id);
         let (program_state_pda, _) = self.find_program_state_pda();
 
         let disc = Self::anchor_discriminator("slash_provider_insurance");
@@ -381,18 +410,16 @@ impl SolanaRelayer {
         data.extend_from_slice(reason.as_bytes());
 
         // Derive insurance pool PDA
-        let (insurance_pool_pda, _) = Pubkey::find_program_address(
-            &[b"insurance_pool"],
-            &self.program_id,
-        );
+        let (insurance_pool_pda, _) =
+            Pubkey::find_program_address(&[b"insurance_pool"], &self.program_id);
 
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(insurance_pool_pda, false),       // insurance_pool
-                AccountMeta::new(stake_pda, false),                // stake_account
+                AccountMeta::new(insurance_pool_pda, false), // insurance_pool
+                AccountMeta::new(stake_pda, false),          // stake_account
                 AccountMeta::new_readonly(self.keypair.pubkey(), true), // admin (signer)
-                AccountMeta::new_readonly(program_state_pda, false),   // program_state
+                AccountMeta::new_readonly(program_state_pda, false), // program_state
             ],
             data,
         };
@@ -483,7 +510,8 @@ mod tests {
         let previous = std::env::var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED").ok();
         std::env::remove_var("LEGACY_EDGE_ZK_SUBMISSION_ENABLED");
 
-        let relayer = SolanaRelayer::new("11111111111111111111111111111111", "http://127.0.0.1:65535");
+        let relayer =
+            SolanaRelayer::new("11111111111111111111111111111111", "http://127.0.0.1:65535");
         let result = relayer.submit_batch(Vec::new()).await;
 
         match previous {

@@ -91,6 +91,9 @@ services:
       # --- Provider proofs (Phase 1 decentralization) ---
       # observe = verify and store; enforce = reject invalid/missing proofs when node hotkey is set
       - PROVIDER_SIGNATURE_MODE=${PROVIDER_SIGNATURE_MODE:-observe}
+      # Dev listing signing (marketplace create UX); set key from bootstrap provider.compose.env
+      - PROXYHUB_PROVIDER_SIGNING_KEY=${PROXYHUB_PROVIDER_SIGNING_KEY:-}
+      - PROXYHUB_ALLOW_DEV_LISTING_SIGN=${PROXYHUB_ALLOW_DEV_LISTING_SIGN:-true}
       # --- Explorer (public API + workers) ---
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
@@ -201,13 +204,17 @@ services:
     build:
       context: ./services/edge-gateway
       dockerfile: Dockerfile
+      args:
+        ENABLE_OTEL: ${EDGE_GATEWAY_ENABLE_OTEL:-0}
     ports:
       - "3128:3128"    # SOCKS5/HTTP Proxy port
-      - "${EDGE_GATEWAY_PORT:-8090}:8090"    # Gateway API / Metrics / Health
+      - "${EDGE_GATEWAY_PORT:-8090}:8090"    # Buyer proxy API / health / ready
+      - "${EDGE_GATEWAY_METRICS_PORT:-9092}:9090"  # Host metrics (9091=prometheus UI, avoid 9090 clashes)
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - HOST=0.0.0.0
       - PORT=8090
+      - METRICS_PORT=9090
       - TUNNEL_PORT=3128
       # P4: parallel yamux lanes per provider (gateway + provider-node should match).
       - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
@@ -232,6 +239,9 @@ services:
       - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
       - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
       - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+      # P5: OTLP traces (image must be built with EDGE_GATEWAY_ENABLE_OTEL=1)
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-edge-gateway}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # --- GeoIP Auto-Update (weekly cron) ---
       - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY:-}
       # --- Phase 8: DAO & Staking ---
@@ -405,11 +415,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ==================== OTEL Collector (P5, optional) ====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: proxyhubb-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/otel/collector-dev.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+    networks:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - otel
+
   # ==================== Prometheus ====================
   prometheus:
     image: prom/prometheus:v2.48.0
     volumes:
       - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
     ports:
       - "9091:9090"
@@ -435,8 +461,7 @@ services:
       - GF_SECURITY_ALLOW_EMBEDDING=false
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./infra/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
-      - ./infra/grafana/dashboard.json:/etc/grafana/provisioning/dashboards/proxyhubb.json:ro
+      - ./infra/grafana:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
     networks:

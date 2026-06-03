@@ -337,15 +337,19 @@ services:
     build:
       context: ./services/edge-gateway
       dockerfile: Dockerfile.dev
+      args:
+        ENABLE_OTEL: ${EDGE_GATEWAY_ENABLE_OTEL:-0}
     container_name: proxyhubb-edge-gateway
     ports:
       - "3128:3128"
       - "8090:8090"
+      - "9090:9090"
     environment:
       - APP_ENV=development
       - RUST_LOG=debug
       - HOST=0.0.0.0
       - PORT=8090
+      - METRICS_PORT=9090
       - TUNNEL_PORT=3128
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       - NATS_URL=nats://nats:4222
@@ -365,6 +369,9 @@ services:
       - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
       - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
       - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
+      # P5: OTLP traces (requires image built with EDGE_GATEWAY_ENABLE_OTEL=1)
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-edge-gateway}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
 
     volumes:
       - ./geoip:/app/geoip:ro
@@ -395,6 +402,21 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+
+  # ==================== OTEL COLLECTOR (P5, optional traces) ====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: proxyhubb-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/otel/collector-dev.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+    networks:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - otel
 
   # ==================== PROMETHEUS ====================
   prometheus:

@@ -16,8 +16,8 @@ const ALLOWED_PORTS: &[u16] = &[
     22, 2222, // SOCKS / proxy
     1080, 3128, // Email (SMTP/IMAP/POP3 and their TLS variants)
     25, 465, 587, 110, 995, 143, 993, // DNS over TCP
-    53, // FTP
-    21, // VPN
+    53,  // FTP
+    21,  // VPN
     1194, 1723, // Mobile push (Google/Firebase)
     5228, 5229, 5230, // XMPP / chat
     5222, 5223,

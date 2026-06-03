@@ -42,7 +42,37 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 ### Hygiene
 
 - [x] `services/edge-gateway/target/` in `.gitignore`
-- [ ] Commit logical slices (avoid `target/` artifacts)
+- [x] Commit logical slices (P5/P6 + observability infra; avoid `target/` artifacts)
+
+## v2 closure (product / ops)
+
+Three buckets before calling edge-gateway v2 production-ready. Decisions on deferred scope: [`docs/adr/0004-edge-gateway-v2-deferred-decisions.md`](../../../docs/adr/0004-edge-gateway-v2-deferred-decisions.md).
+
+### (a) Land P5/P6 in git
+
+- [x] P5 security + `METRICS_PORT`, JA3/JA4, honeytoken, buyer TLS opt-in, OTel scripts
+- [x] P6 HTTP/3 + SOCKS5 ingress (`ingress/`, `net_listen.rs`)
+- [x] Grafana provisioning (`infra/grafana/dashboards/`, datasources)
+- [x] OTel dev collector (`infra/otel/collector-dev.yaml`, compose profile `otel`)
+- [x] Prometheus scrape `edge-gateway:9090` + baseline alert rules (`infra/prometheus/alerts/`)
+
+### (b) Ops proof at scale
+
+- [ ] **10k+ stream load-lab** — `SOAK_CONCURRENT` on dedicated hardware; record in [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md)
+- [ ] **24h soak** — blueprint §12/§15; runbook TBD on ops host
+- [ ] **SLO baseline** — run [`scripts/p0-record-baseline.ps1`](../scripts/p0-record-baseline.ps1); compare to blueprint §8.2
+- [ ] **Alert verification** — Prometheus rules loaded; confirm firing in staging (Grafana contact points optional)
+
+### (c) Deferred items · decided (ADR 0004)
+
+| Item | Decision |
+|------|----------|
+| Elephant raw-TCP fast path | **Deferred** until 10k soak shows mux ceiling |
+| `pricing` → routing | **Do not wire**; keep `--features pricing`; scores from control-api if ever needed |
+| `blockchain` gRPC stream | **Do not wire**; keep feature-flagged; metering stays sync HTTP |
+| ML routing (`ml`) | **Shelved for prod** until A/B replay proves lift; heuristic default |
+| NATS metering emit | **Deferred** with blockchain decision |
+| Provider mTLS prod-default | **Opt-in** (`TLS_REQUIRE_CLIENT_CERT`) until fleet cert rollout |
 
 ## Medium term
 
@@ -63,7 +93,7 @@ Tracks [EDGE_GATEWAY_VNEXT_BLUEPRINT](../../../docs/EDGE_GATEWAY_VNEXT_BLUEPRINT
 - [x] Docker QUIC E2E ([`scripts/compose-up-dev.ps1`](../../../scripts/compose-up-dev.ps1), [`scripts/quic-provider-e2e-docker.ps1`](../../../scripts/quic-provider-e2e-docker.ps1))
 - [x] Transport soak script + runbook ([`P4_TRANSPORT_SOAK_RUNBOOK.md`](P4_TRANSPORT_SOAK_RUNBOOK.md), `p4-transport-soak.ps1`)
 - [x] Dev transport soak (20–50 CONNECT tunnels; snapshots in [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md))
-- [ ] 10k+ stream load-lab soak (ops — `SOAK_CONCURRENT` on dedicated hardware)
+- [ ] 10k+ stream load-lab soak (ops — see **v2 closure (b)** above)
 
 ### P5 — Security & observability · observability signed off
 
