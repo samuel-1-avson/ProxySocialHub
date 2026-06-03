@@ -40,6 +40,28 @@ $env:SOAK_DURATION_SEC = 600
 
 Load-lab target (10k+ streams): run on dedicated hardware with tuned `MAX_CONCURRENT_CONNECTIONS`, multiple providers, and host NIC monitoring. Record machine SKU, `YAMUX_CONNS_PER_NODE`, and `PROVIDER_TRANSPORT` in the soak snapshot note.
 
+## Ops scale schedule (10k / 24h)
+
+**Do not run on the dev laptop** — a 50-tunnel dev soak can saturate `/health` and metrics scrapes.
+
+| Phase | Suggested settings | Pass bar |
+|-------|-------------------|----------|
+| 10k ramp | `SOAK_CONCURRENT=10000`, `SOAK_DURATION_SEC=600`, ≥3 providers | ≥95% tunnels held; no restarts |
+| 24h hold | `SOAK_CONCURRENT=2000–5000`, `SOAK_DURATION_SEC=86400` | ≥95% held; `/health` 200 after release |
+
+**Host:** 8+ vCPU, 16+ GiB RAM, Linux; monitor host NIC + `process_resident_memory_bytes`.
+
+**Before run:** `docker compose up -d prometheus` (alerts volume at `infra/prometheus/alerts`).
+
+**After run:** Append to [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md); update [`REMAINING_PHASES.md`](REMAINING_PHASES.md) and [`V2_SIGNOFF.md`](V2_SIGNOFF.md).
+
+```powershell
+$env:SOAK_CONCURRENT = 10000
+$env:SOAK_DURATION_SEC = 600
+cd services/edge-gateway
+.\scripts\p4-transport-soak.ps1
+```
+
 ## Pass criteria
 
 | Check | Dev soak | Load lab |
