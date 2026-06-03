@@ -59,6 +59,7 @@ npm-debug.log*
 .env.development
 .env.test
 .env.production
+config/docker/provider.compose.env
 
 # Security - Secrets and Credentials
 *.key
@@ -72,11 +73,21 @@ secrets/
 credentials/
 .private/
 
-# Blockchain
+# Blockchain (never commit real key material)
 oracle-keypair.json
+infra/oracle-keypair.json
 treasury-keypair.json
 provider-keypair.json
 *keypair*.json
+!*keypair*.json.example
+!infra/oracle-keypair.json.example
+
+# Local provider operator configs (may contain api_key)
+**/provider.local*.toml
+services/provider-node/provider.local*.toml
+
+# Generated test / release artifacts (may log pubkeys or env)
+testing/artifacts/
 
 # Backup files
 *.backup
@@ -93,6 +104,8 @@ temp/
 coverage/
 coverage.out
 *.test
+apps/web/playwright-report/
+apps/web/test-results/
 
 # Mobile
 apps/mobile/.expo/
