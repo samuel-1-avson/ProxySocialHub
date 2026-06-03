@@ -82,15 +82,70 @@ fn load_root_certs(path: &str) -> Result<RootCertStore, Box<dyn std::error::Erro
     Ok(root_store)
 }
 
-/// Create TLS acceptor for server-side TLS
-pub fn create_tls_acceptor(
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
+/// TLS config for the buyer proxy port when `BUYER_TLS_ENABLE` is set and cert/key paths resolve.
+pub fn buyer_tls_config_from_env() -> Option<TlsConfig> {
+    if !env_bool("BUYER_TLS_ENABLE", false) {
+        return None;
+    }
+    let cert_path = tls_env_path("BUYER_TLS_CERT_FILE", "BUYER_TLS_CERT_PATH")
+        .or_else(|| tls_env_path("TLS_CERT_FILE", "TLS_CERT_PATH"))?;
+    let key_path = tls_env_path("BUYER_TLS_KEY_FILE", "BUYER_TLS_KEY_PATH")
+        .or_else(|| tls_env_path("TLS_KEY_FILE", "TLS_KEY_PATH"))?;
+    Some(TlsConfig {
+        cert_path,
+        key_path,
+        ca_path: None,
+        require_client_cert: false,
+    })
+}
+
+#[cfg(feature = "quic")]
+pub fn http3_tls_config_from_env() -> Option<TlsConfig> {
+    if !env_bool("ENABLE_HTTP3_INGRESS", false) {
+        return None;
+    }
+    let cert_path = tls_env_path("HTTP3_TLS_CERT_FILE", "HTTP3_TLS_CERT_PATH")
+        .or_else(|| tls_env_path("BUYER_TLS_CERT_FILE", "BUYER_TLS_CERT_PATH"))
+        .or_else(|| tls_env_path("TLS_CERT_FILE", "TLS_CERT_PATH"))?;
+    let key_path = tls_env_path("HTTP3_TLS_KEY_FILE", "HTTP3_TLS_KEY_PATH")
+        .or_else(|| tls_env_path("BUYER_TLS_KEY_FILE", "BUYER_TLS_KEY_PATH"))
+        .or_else(|| tls_env_path("TLS_KEY_FILE", "TLS_KEY_PATH"))?;
+    Some(TlsConfig {
+        cert_path,
+        key_path,
+        ca_path: None,
+        require_client_cert: false,
+    })
+}
+
+fn apply_buyer_server_tuning(server_config: &mut ServerConfig) {
+    use rustls::server::ServerSessionMemoryCache;
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    server_config.session_storage = ServerSessionMemoryCache::new(256);
+}
+
+fn apply_http3_server_tuning(server_config: &mut ServerConfig) {
+    server_config.alpn_protocols = vec![b"h3".to_vec()];
+}
+
+fn build_server_config(
     config: &TlsConfig,
-) -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<ServerConfig, Box<dyn std::error::Error + Send + Sync>> {
     let certs = load_certs(&config.cert_path)?;
     let key = load_key(&config.key_path)?;
 
-    let server_config = if config.require_client_cert && config.ca_path.is_some() {
-        // mTLS: Require client certificate
+    if config.require_client_cert && config.ca_path.is_some() {
         let ca_path = config.ca_path.as_ref().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -98,25 +153,73 @@ pub fn create_tls_acceptor(
             )
         })?;
         let root_store = load_root_certs(ca_path)?;
-
         let client_verifier = WebPkiClientVerifier::builder(Arc::new(root_store)).build()?;
-
-        ServerConfig::builder()
+        Ok(ServerConfig::builder()
             .with_client_cert_verifier(client_verifier)
-            .with_single_cert(certs, key)?
+            .with_single_cert(certs, key)?)
     } else {
-        // Standard TLS (no client cert required)
-        ServerConfig::builder()
+        Ok(ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(certs, key)?
-    };
+            .with_single_cert(certs, key)?)
+    }
+}
 
+/// Create TLS acceptor for the provider tunnel (yamux over TLS; no HTTP ALPN).
+pub fn create_tls_acceptor(
+    config: &TlsConfig,
+) -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
+    let server_config = build_server_config(config)?;
     Ok(TlsAcceptor::from(Arc::new(server_config)))
 }
 
-/// Check if TLS is enabled
+/// Buyer ingress TLS: ALPN `h2` + `http/1.1` and in-memory session resumption.
+pub fn create_buyer_tls_acceptor(
+    config: &TlsConfig,
+) -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
+    let mut server_config = build_server_config(config)?;
+    apply_buyer_server_tuning(&mut server_config);
+    Ok(TlsAcceptor::from(Arc::new(server_config)))
+}
+
+/// QUIC server config for the provider tunnel (yamux over QUIC; not HTTP/3 ALPN).
+#[cfg(feature = "quic")]
+pub fn create_provider_quic_server_config(
+    config: &TlsConfig,
+) -> Result<quinn::ServerConfig, Box<dyn std::error::Error + Send + Sync>> {
+    let rustls_config = build_server_config(config)?;
+    let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(rustls_config)?;
+    let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_concurrent_bidi_streams(256_u32.into());
+    transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
+    server_config.transport = Arc::new(transport);
+    Ok(server_config)
+}
+
+#[cfg(feature = "quic")]
+pub fn create_http3_quic_server_config(
+    config: &TlsConfig,
+) -> Result<quinn::ServerConfig, Box<dyn std::error::Error + Send + Sync>> {
+    let mut rustls_config = build_server_config(config)?;
+    apply_http3_server_tuning(&mut rustls_config);
+    rustls_config.max_early_data_size = u32::MAX;
+
+    let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(rustls_config)?;
+    let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_concurrent_bidi_streams(1024_u32.into());
+    server_config.transport = Arc::new(transport);
+    Ok(server_config)
+}
+
+/// Check if TLS is enabled on the provider tunnel listener.
 pub fn is_tls_enabled() -> bool {
     TlsConfig::from_env().is_some()
+}
+
+/// Check if TLS is enabled on the buyer proxy port (`BUYER_TLS_ENABLE` + cert/key paths).
+pub fn is_buyer_tls_enabled() -> bool {
+    buyer_tls_config_from_env().is_some()
 }
 
 #[cfg(test)]
@@ -152,6 +255,37 @@ mod tests {
         assert_eq!(cfg.cert_path, "/tmp/cert.pem");
         assert_eq!(cfg.key_path, "/tmp/key.pem");
         assert!(is_tls_enabled());
+
+        for (key, value) in keys.iter().zip(previous.iter()) {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn buyer_tls_requires_explicit_enable() {
+        let _guard = env_lock();
+        let keys = [
+            "BUYER_TLS_ENABLE",
+            "BUYER_TLS_CERT_FILE",
+            "BUYER_TLS_KEY_FILE",
+            "TLS_CERT_FILE",
+            "TLS_KEY_FILE",
+        ];
+        let previous: Vec<_> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        for key in &keys {
+            std::env::remove_var(key);
+        }
+        std::env::set_var("TLS_CERT_FILE", "/tmp/cert.pem");
+        std::env::set_var("TLS_KEY_FILE", "/tmp/key.pem");
+        assert!(buyer_tls_config_from_env().is_none());
+
+        std::env::set_var("BUYER_TLS_ENABLE", "true");
+        let cfg = buyer_tls_config_from_env().expect("enabled buyer TLS should resolve certs");
+        assert_eq!(cfg.cert_path, "/tmp/cert.pem");
+        assert_eq!(cfg.key_path, "/tmp/key.pem");
 
         for (key, value) in keys.iter().zip(previous.iter()) {
             match value {

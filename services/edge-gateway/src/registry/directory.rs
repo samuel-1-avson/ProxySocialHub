@@ -186,9 +186,7 @@ impl ProviderDirectory {
     }
 
     /// List all provider ownership records visible in Redis (P3.1 fleet selection).
-    pub async fn list_all(
-        &self,
-    ) -> Result<Vec<ProviderOwnership>, Box<dyn Error + Send + Sync>> {
+    pub async fn list_all(&self) -> Result<Vec<ProviderOwnership>, Box<dyn Error + Send + Sync>> {
         let mut conn = self.conn.clone();
         let pattern = format!("{KEY_PREFIX}*");
         let mut cursor: u64 = 0;
@@ -223,14 +221,9 @@ impl ProviderDirectory {
     }
 
     /// Keys in Redis owned by this pod (`pod_id` in JSON record).
-    pub async fn count_owned(
-        &self,
-    ) -> Result<usize, Box<dyn Error + Send + Sync>> {
+    pub async fn count_owned(&self) -> Result<usize, Box<dyn Error + Send + Sync>> {
         let records = self.list_all().await?;
-        Ok(records
-            .iter()
-            .filter(|r| r.pod_id == self.pod_id)
-            .count())
+        Ok(records.iter().filter(|r| r.pod_id == self.pod_id).count())
     }
 
     /// Release every directory entry owned by this pod (drain / shutdown).
@@ -268,5 +261,4 @@ mod tests {
             "eg:provider:owner:node-abc"
         );
     }
-
 }

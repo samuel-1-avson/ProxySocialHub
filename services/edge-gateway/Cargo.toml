@@ -51,7 +51,10 @@ prometheus = { version = "0.13", features = ["process"] }
 lazy_static = "1.4"
 dashmap = "5.5"
 h2 = "0.4"
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
 tokio-tungstenite = "0.23"
+quinn = { version = "0.11.7", optional = true }
 sha1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.10"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
@@ -77,8 +80,8 @@ libc = "0.2"
 
 [features]
 default = []
-# P4: QUIC provider transport (listener wiring in a follow-up; yamux remains default).
-quic = []
+# P4/P6: QUIC provider transport experiments + HTTP/3 buyer ingress.
+quic = ["dep:quinn", "dep:h3", "dep:h3-quinn"]
 # P5: OTLP trace export (`OTEL_EXPORTER_OTLP_ENDPOINT`).
 otel = [
     "dep:opentelemetry",

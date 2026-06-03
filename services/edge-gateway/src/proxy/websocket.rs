@@ -228,17 +228,14 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     // Select best provider
-    let (mut control, node_id) = match state
-        .registry
-        .get_best_for(
-            if session_data.target_geo.is_empty() {
-                None
-            } else {
-                Some(session_data.target_geo.as_str())
-            },
-            None,
-        )
-    {
+    let (mut control, node_id) = match state.registry.get_best_for(
+        if session_data.target_geo.is_empty() {
+            None
+        } else {
+            Some(session_data.target_geo.as_str())
+        },
+        None,
+    ) {
         Some(result) => result,
         None => {
             warn!("No providers available for WS bridge to {}", target);
@@ -364,12 +361,13 @@ where
             .await;
             last_usage_synced_up = bytes_from_client;
             last_usage_synced_down = bytes_from_provider;
-            if !crate::auth::revalidate_live_session(&authenticator, username, &session_data).await {
+            if !crate::auth::revalidate_live_session(&authenticator, username, &session_data).await
+            {
                 if session_data.is_session_intent() {
                     crate::sync_session_intent_lifecycle(
                         state.clone(),
                         &session_data,
-                            "closing",
+                        "closing",
                         Some(&node_id),
                         Some(target),
                     )

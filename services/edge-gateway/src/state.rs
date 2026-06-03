@@ -1,18 +1,18 @@
 use crate::circuitbreaker::CircuitBreakerManager;
 use crate::config::Config;
 use crate::registry::lockfree::LockFreeNodeRegistry;
-use crate::tunnel::{ProviderCapabilities, AssignedLimits};
+use crate::tunnel::{AssignedLimits, ProviderCapabilities};
 use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use yamux::Control;
-use std::env;
 
 /// Provider node metadata for intelligent routing
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -432,9 +432,7 @@ impl AppState {
         let rate_limiter = Arc::new(RateLimiter::keyed(quota));
 
         // Initialize heartbeat store
-        let heartbeat_store = crate::heartbeat::HeartbeatStore::new(
-            registry_store.client()
-        );
+        let heartbeat_store = crate::heartbeat::HeartbeatStore::new(registry_store.client());
 
         // Initialize heartbeat monitor and start background check task
         let heartbeat_monitor = Arc::new(crate::heartbeat::HeartbeatMonitor::new(
@@ -445,7 +443,9 @@ impl AppState {
 
         // Phase 3: ML routing components
         let feature_cache = Arc::new(crate::routing::features::FeatureCache::new());
-        let routing = Arc::new(crate::routing::ml_router::MLRouter::new(feature_cache.clone()));
+        let routing = Arc::new(crate::routing::ml_router::MLRouter::new(
+            feature_cache.clone(),
+        ));
         let prewarm = Arc::new(crate::routing::prewarm::PrewarmEngine::new(
             std::time::Duration::from_secs(60),
         ));
@@ -472,7 +472,10 @@ impl AppState {
         ));
         let fingerprint_db = Arc::new(crate::security::fingerprint::FingerprintDb::new());
         let multiregion = Arc::new(crate::multiregion::routing::MultiRegionRouter::new(
-            config.region.clone().unwrap_or_else(|| "default".to_string()),
+            config
+                .region
+                .clone()
+                .unwrap_or_else(|| "default".to_string()),
         ));
         let rollout = Arc::new(crate::rollout::RolloutPlan::new());
 

@@ -16,7 +16,8 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src benches \
     && printf 'fn main() {}\n' > src/main.rs \
     && printf 'fn main() {}\n' > benches/registry_bench.rs \
-    && printf 'fn main() {}\n' > benches/hotpath_bench.rs
+    && printf 'fn main() {}\n' > benches/hotpath_bench.rs \
+    && printf 'fn main() {}\n' > benches/transport_bench.rs
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
     CARGO_HTTP_MULTIPLEXING=false \
@@ -30,9 +31,16 @@ COPY proto ./proto
 COPY src ./src
 COPY benches ./benches
 
-RUN cargo build --release --locked
+ARG ENABLE_OTEL=0
+RUN if [ "$ENABLE_OTEL" = "1" ]; then \
+      cargo build --release --locked --features otel; \
+    else \
+      cargo build --release --locked; \
+    fi
 
 FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     curl \

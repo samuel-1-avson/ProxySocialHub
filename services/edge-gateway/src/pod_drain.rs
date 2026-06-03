@@ -1,9 +1,9 @@
 //! Pod drain helpers (P3a): stop new traffic, release Redis ownership on shutdown.
 
 use crate::state::AppState;
+use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::{Response, StatusCode};
-use http_body_util::Full;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

@@ -8,6 +8,8 @@ use tokio::sync::RwLock;
 pub const CANONICAL_PORT: u16 = 8090;
 /// Canonical provider yamux tunnel port.
 pub const CANONICAL_TUNNEL_PORT: u16 = 3128;
+/// Canonical dedicated Prometheus scrape port (P5; optional via `METRICS_PORT`).
+pub const CANONICAL_METRICS_PORT: u16 = 9090;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdgeMode {
@@ -101,6 +103,8 @@ fn env_bool(key: &str, default: bool) -> bool {
 pub struct Config {
     pub host: String,
     pub port: u16,
+    /// When set, `/metrics` is served only on this port (not on the buyer proxy port).
+    pub metrics_port: Option<u16>,
     pub tunnel_port: u16,
     pub redis_url: String,
     pub sticky_ttl_secs: u64,
@@ -292,6 +296,8 @@ impl Config {
             .parse()
             .expect("TUNNEL_PORT must be a number");
 
+        let metrics_port = parse_metrics_port_from_env();
+
         let redis_url =
             env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
@@ -399,9 +405,16 @@ impl Config {
         let yamux_conns_per_node = crate::provider_transport::yamux_conns_per_node_from_env();
         let provider_transport = crate::provider_transport::ProviderTransportKind::from_env();
 
+        if metrics_port == Some(port) {
+            panic!(
+                "METRICS_PORT ({port}) must differ from PORT (buyer proxy listener)"
+            );
+        }
+
         Self {
             host,
             port,
+            metrics_port,
             tunnel_port,
             redis_url,
             sticky_ttl_secs,
@@ -438,6 +451,29 @@ impl Config {
         format!("{}:{}", self.host, self.port)
             .parse()
             .expect("Invalid address format")
+    }
+
+    pub fn metrics_socket_addr(&self) -> Option<SocketAddr> {
+        self.metrics_port.map(|metrics_port| {
+            format!("{}:{}", self.host, metrics_port)
+                .parse()
+                .expect("Invalid metrics address format")
+        })
+    }
+
+    pub fn metrics_on_separate_port(&self) -> bool {
+        self.metrics_port.is_some()
+    }
+}
+
+/// `METRICS_PORT` unset or `0` → metrics stay on the buyer port (legacy). Any other value → dedicated listener.
+fn parse_metrics_port_from_env() -> Option<u16> {
+    let raw = env::var("METRICS_PORT").ok()?;
+    let port: u16 = raw.trim().parse().expect("METRICS_PORT must be a number");
+    if port == 0 {
+        None
+    } else {
+        Some(port)
     }
 }
 
@@ -613,6 +649,15 @@ mod tests {
             "docker-compose must expose TUNNEL_PORT={} for edge-gateway",
             CANONICAL_TUNNEL_PORT
         );
+        assert!(
+            k8s.contains(&format!("value: \"{}\"", CANONICAL_METRICS_PORT)),
+            "k8s manifest must set METRICS_PORT to {}",
+            CANONICAL_METRICS_PORT
+        );
+        assert!(
+            compose.contains("METRICS_PORT=") || compose.contains("METRICS_PORT=${"),
+            "docker-compose must set METRICS_PORT for edge-gateway"
+        );
 
         let dockerfile = std::fs::read_to_string(manifest_dir.join("Dockerfile"))
             .expect("read production Dockerfile");
@@ -781,6 +826,7 @@ mod tests {
         Config {
             host: "0.0.0.0".to_string(),
             port: CANONICAL_PORT,
+            metrics_port: None,
             tunnel_port: CANONICAL_TUNNEL_PORT,
             redis_url: "redis://localhost:6379".to_string(),
             sticky_ttl_secs: 600,
@@ -811,6 +857,33 @@ mod tests {
             yamux_conns_per_node: 1,
             provider_transport: crate::provider_transport::ProviderTransportKind::Yamux,
         }
+    }
+
+    #[test]
+    fn metrics_port_separate_listener_address() {
+        let cfg = Config {
+            metrics_port: Some(CANONICAL_METRICS_PORT),
+            ..minimal_test_config()
+        };
+        assert!(cfg.metrics_on_separate_port());
+        let addr = cfg.metrics_socket_addr().expect("metrics addr");
+        assert_eq!(addr.port(), CANONICAL_METRICS_PORT);
+    }
+
+    #[test]
+    fn metrics_port_unset_stays_on_buyer() {
+        let cfg = minimal_test_config();
+        assert!(!cfg.metrics_on_separate_port());
+        assert!(cfg.metrics_socket_addr().is_none());
+    }
+
+    #[test]
+    fn metrics_port_from_env_zero_is_legacy() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let prev = env::var("METRICS_PORT").ok();
+        env::set_var("METRICS_PORT", "0");
+        assert_eq!(parse_metrics_port_from_env(), None);
+        restore_var("METRICS_PORT", prev);
     }
 
     #[test]

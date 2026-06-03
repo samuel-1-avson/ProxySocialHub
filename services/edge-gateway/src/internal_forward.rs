@@ -175,6 +175,66 @@ pub async fn bridge_via_peer(
     Ok((bytes_to_peer, bytes_from_peer))
 }
 
+/// Open a CONNECT tunnel to the owner pod and bridge a raw TCP client stream.
+pub async fn bridge_tcp_via_peer(
+    mut client: TcpStream,
+    dest_addr: String,
+    node_id: String,
+    peer_base_url: String,
+    gateway_secret: String,
+) -> std::io::Result<(u64, u64)> {
+    let mut peer = open_peer_tunnel(dest_addr, node_id, peer_base_url, gateway_secret).await?;
+    let (bytes_to_peer, bytes_from_peer) = tokio::io::copy_bidirectional(&mut client, &mut peer)
+        .await
+        .unwrap_or((0, 0));
+    Ok((bytes_to_peer, bytes_from_peer))
+}
+
+pub(crate) async fn open_peer_tunnel(
+    dest_addr: String,
+    node_id: String,
+    peer_base_url: String,
+    gateway_secret: String,
+) -> std::io::Result<TcpStream> {
+    let (host, port) = parse_peer_http_endpoint(&peer_base_url)?;
+    let peer_addr = format!("{host}:{port}");
+
+    let mut peer = TcpStream::connect(&peer_addr).await?;
+    let auth = gateway_basic_auth(&gateway_secret);
+    let request = format!(
+        "CONNECT {INTERNAL_FORWARD_HOST}:0 HTTP/1.1\r\n\
+         Host: {INTERNAL_FORWARD_HOST}\r\n\
+         {HDR_INTERNAL}: 1\r\n\
+         {HDR_NODE_ID}: {node_id}\r\n\
+         {HDR_DEST}: {dest_addr}\r\n\
+         Proxy-Authorization: {auth}\r\n\
+         Connection: keep-alive\r\n\
+         \r\n"
+    );
+    peer.write_all(request.as_bytes()).await?;
+
+    let mut buf = vec![0u8; 4096];
+    let n = peer.read(&mut buf).await?;
+    if n == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "Peer closed before response",
+        ));
+    }
+    let head = String::from_utf8_lossy(&buf[..n]);
+    if !head.contains(" 101 ") && !head.contains(" 200 ") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            format!(
+                "Peer rejected internal forward: {}",
+                head.lines().next().unwrap_or("")
+            ),
+        ));
+    }
+
+    Ok(peer)
+}
+
 fn parse_peer_http_endpoint(base: &str) -> std::io::Result<(String, u16)> {
     let trimmed = base.trim();
     let without_scheme = trimmed
