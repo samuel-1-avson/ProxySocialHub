@@ -1,0 +1,26 @@
+apiVersion: 1
+
+# Provision default notification targets for edge-gateway alerts.
+# Configure delivery via GF_SMTP_* (email) or edit the webhook URL below.
+contactPoints:
+  - orgId: 1
+    name: edge-gateway-ops-email
+    receivers:
+      - uid: edge-gateway-ops-email
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: ops-alerts@proxyhubb.local
+        secureSettings: {}
+
+  - orgId: 1
+    name: edge-gateway-ops-webhook
+    receivers:
+      - uid: edge-gateway-ops-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://control-api:8080/internal/alerts/webhook
+          httpMethod: POST
+          maxAlerts: 10
+        secureSettings: {}

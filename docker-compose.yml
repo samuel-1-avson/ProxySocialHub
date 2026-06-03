@@ -210,12 +210,16 @@ services:
       - "3128:3128"    # SOCKS5/HTTP Proxy port
       - "${EDGE_GATEWAY_PORT:-8090}:8090"    # Buyer proxy API / health / ready
       - "${EDGE_GATEWAY_METRICS_PORT:-9092}:9090"  # Host metrics (9091=prometheus UI, avoid 9090 clashes)
+      - "${EDGE_GATEWAY_SOCKS5_PORT:-1080}:1080"  # P6 SOCKS5 ingress (when ENABLE_SOCKS5=1)
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - HOST=0.0.0.0
       - PORT=8090
       - METRICS_PORT=9090
       - TUNNEL_PORT=3128
+      # P6: optional SOCKS5 buyer ingress (no rebuild required)
+      - ENABLE_SOCKS5=${ENABLE_SOCKS5:-0}
+      - SOCKS5_PORT=1080
       # P4: parallel yamux lanes per provider (gateway + provider-node should match).
       - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
       - PROVIDER_TRANSPORT=${PROVIDER_TRANSPORT:-yamux}
@@ -459,6 +463,13 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
       - GF_SECURITY_DISABLE_GRAVATAR=true
       - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_SMTP_ENABLED=${GRAFANA_SMTP_ENABLED:-false}
+      - GF_SMTP_HOST=${GRAFANA_SMTP_HOST:-}
+      - GF_SMTP_USER=${GRAFANA_SMTP_USER:-}
+      - GF_SMTP_PASSWORD=${GRAFANA_SMTP_PASSWORD:-}
+      - GF_SMTP_FROM_ADDRESS=${GRAFANA_SMTP_FROM:-alerts@proxyhubb.local}
+      - GF_SMTP_FROM_NAME=${GRAFANA_SMTP_FROM_NAME:-ProxyHubb Alerts}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infra/grafana:/etc/grafana/provisioning:ro
