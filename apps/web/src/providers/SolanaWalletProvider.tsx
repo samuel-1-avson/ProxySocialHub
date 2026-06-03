@@ -30,6 +30,10 @@ class PlaywrightSolanaTestWalletAdapter extends BaseMessageSignerWalletAdapter<'
     constructor(secret: string) {
         super();
         this.keypair = Keypair.fromSecretKey(parsePlaywrightSecretKey(secret));
+        // E2E: expose pubkey and connect immediately so useWallet() exposes signMessage/signTransaction.
+        this.walletPublicKey = this.keypair.publicKey;
+        this.readyState = WalletReadyState.Installed;
+        void this.connect();
     }
 
     get publicKey() {
@@ -37,7 +41,9 @@ class PlaywrightSolanaTestWalletAdapter extends BaseMessageSignerWalletAdapter<'
     }
 
     async connect() {
-        this.walletPublicKey = this.keypair.publicKey;
+        if (!this.walletPublicKey) {
+            this.walletPublicKey = this.keypair.publicKey;
+        }
         this.emit('connect', this.keypair.publicKey);
     }
 
@@ -95,12 +101,21 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
     const enableTestWallet = process.env.NEXT_PUBLIC_PLAYWRIGHT_SOLANA_TEST_WALLET === '1';
     const testWalletSecret = process.env.NEXT_PUBLIC_PLAYWRIGHT_SOLANA_WALLET_SECRET;
     const wallets = useMemo(() => {
-        if (!mounted) return [];
         if (enableTestWallet && testWalletSecret) {
             return [new PlaywrightSolanaTestWalletAdapter(testWalletSecret)];
         }
+        if (!mounted) return [];
         return [];
     }, [enableTestWallet, mounted, testWalletSecret]);
+
+    useEffect(() => {
+        if (!enableTestWallet || wallets.length === 0) return;
+        const adapter = wallets[0];
+        if (adapter.connected) return;
+        void adapter.connect().catch((err) => {
+            console.error('Playwright test wallet connect failed:', err);
+        });
+    }, [enableTestWallet, wallets]);
 
     return (
         <ConnectionProvider endpoint={endpoint}>
