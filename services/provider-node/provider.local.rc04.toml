@@ -1,4 +1,0 @@
-control_api_url = "http://localhost:18080"
-gateway_addr = "localhost:3128"
-metrics_enabled = false
-use_tls = false

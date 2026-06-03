@@ -30,6 +30,9 @@ function Import-DotEnv([string]$Path) {
 
 Import-DotEnv (Join-Path $RepoRoot ".env")
 
+& (Join-Path $RepoRoot "scripts\ensure-oracle-keypair.ps1")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 if ([string]::IsNullOrWhiteSpace($env:POSTGRES_PASSWORD)) {
     throw "POSTGRES_PASSWORD is empty in .env - db-migrate will fail."
 }

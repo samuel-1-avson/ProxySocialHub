@@ -10,7 +10,7 @@ Quick pass after changing program id, treasury address, or oracle keypair. Assum
 | Web | http://localhost:3000 |
 | Escrow program | `SOLANA_PROGRAM_ID` → `9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2` |
 | Treasury (deposits) | `SOLANA_TREASURY_ADDRESS` → `8g7WUuPosAg82Uu7iGYCx6HBnoTBFb4QuyiJCEGzktU4` |
-| Oracle signer | `infra/oracle-keypair.json` → pubkey `8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2` |
+| Oracle signer | `infra/oracle-keypair.json` (local only; see `infra/README.md`) — `solana-keygen pubkey infra/oracle-keypair.json` |
 | Network | devnet |
 
 Start stack:
