@@ -20,9 +20,8 @@ spec:
       annotations:
         linkerd.io/inject: enabled
         prometheus.io/scrape: "true"
-        # Metrics are served on the management/proxy port (8090) at /metrics.
-        # A dedicated metrics port is a planned vNext (P5) enhancement.
-        prometheus.io/port: "8090"
+        # Prometheus scrapes METRICS_PORT (9090); buyer :8090 does not expose /metrics.
+        prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
       priorityClassName: high-priority
@@ -42,9 +41,12 @@ spec:
       - name: edge-gateway
         image: proxyhubb/edge-gateway:latest
         ports:
-        # Buyer proxy API + /metrics + /health + /ready (HTTP CONNECT/WS).
+        # Buyer proxy API + /health + /ready (HTTP CONNECT/WS). No /metrics on this port.
         - containerPort: 8090
           name: http
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
           protocol: TCP
         # Provider-node yamux tunnel (TLS-capable via mounted certs).
         - containerPort: 3128
@@ -57,6 +59,8 @@ spec:
           value: "0.0.0.0"
         - name: PORT
           value: "8090"
+        - name: METRICS_PORT
+          value: "9090"
         - name: TUNNEL_PORT
           value: "3128"
         - name: REDIS_URL
@@ -155,11 +159,15 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-  # Buyer proxy API + health/ready/metrics.
+  # Buyer proxy API + health/ready.
   - port: 8090
     targetPort: 8090
     protocol: TCP
     name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
   # Provider-node tunnel.
   - port: 3128
     targetPort: 3128
@@ -169,7 +177,7 @@ spec:
     app: edge-gateway
 
 ---
-# ServiceMonitor for Prometheus scraping (metrics served on the http port at /metrics)
+# ServiceMonitor for Prometheus scraping (dedicated metrics port)
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -182,6 +190,6 @@ spec:
     matchLabels:
       app: edge-gateway
   endpoints:
-  - port: http
+  - port: metrics
     interval: 15s  # More frequent scraping for edge gateway
     path: /metrics

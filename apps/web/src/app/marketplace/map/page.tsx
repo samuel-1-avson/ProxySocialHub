@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -10,16 +11,21 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
 import {
     getListing,
-    getMarketplaceGeo,
+    getMarketplaceMapPoints,
+    marketplaceKeys,
     type Listing,
-    type MarketplaceGeoPin,
+    type MarketplaceMapFilters,
 } from '@/lib/api/marketplace';
 import { bboxNearlyEqual, bboxToParam, pinInBBox, type MapBBox } from '@/lib/geo/bbox';
-import { resolveListingCoords } from '@/lib/geo/country-coords';
-import type { ListingMapPin } from '@/components/marketplace/ListingLeafletMap';
+import type { NodeGeoPoint } from '@/lib/services/explorer';
+import {
+    marketplacePointToListingPin,
+    marketplacePointToNode,
+    type MarketplaceListingMapPin,
+} from '@/lib/map/marketplace-map-adapters';
 
-const ListingLeafletMap = dynamic(
-    () => import('@/components/marketplace/ListingLeafletMap'),
+const ProxyMapCanvas = dynamic(
+    () => import('@/components/map/ProxyMapCanvas'),
     {
         ssr: false,
         loading: () => (
@@ -32,10 +38,33 @@ const ListingLeafletMap = dynamic(
     },
 );
 
+function geoSourceLabel(pin: MarketplaceListingMapPin) {
+    switch (pin.geo_source) {
+        case 'gateway':
+            return 'Gateway GPS';
+        case 'explorer':
+            return 'Explorer GPS';
+        case 'provider':
+            return 'Provider node';
+        case 'country_centroid':
+            return 'Estimated country';
+        default:
+            return pin.estimated ? 'Estimated location' : 'Resolved location';
+    }
+}
+
 export default function MarketplaceMapPage() {
+    const searchParams = useSearchParams();
+    const highlightListingId = searchParams.get('listing');
     const [proxyType, setProxyType] = useState('');
+    const [protocol, setProtocol] = useState('');
     const [country, setCountry] = useState('');
-    const [selectedPin, setSelectedPin] = useState<ListingMapPin | null>(null);
+    const [minPrice, setMinPrice] = useState('');
+    const [maxPrice, setMaxPrice] = useState('');
+    const [minUptime, setMinUptime] = useState('');
+    const [maxLatency, setMaxLatency] = useState('');
+    const [selectedPin, setSelectedPin] = useState<MarketplaceListingMapPin | null>(null);
+    const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
     const [viewport, setViewport] = useState<MapBBox | null>(null);
@@ -44,18 +73,27 @@ export default function MarketplaceMapPage() {
     useEffect(() => {
         setSearchBBox(null);
         setSelectedPin(null);
-    }, [proxyType, country]);
+        setSelectedNode(null);
+    }, [proxyType, protocol, country, minPrice, maxPrice, minUptime, maxLatency]);
 
     const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
+    const mapFilters = useMemo<MarketplaceMapFilters>(() => ({
+        proxy_type: proxyType || undefined,
+        protocol: protocol || undefined,
+        country: country || undefined,
+        min_price: minPrice || undefined,
+        max_price: maxPrice || undefined,
+        min_uptime: minUptime || undefined,
+        max_latency: maxLatency || undefined,
+        purchasable_only: true,
+        include_nodes: true,
+        active_nodes_only: false,
+        bbox: bboxParam,
+    }), [bboxParam, country, maxLatency, maxPrice, minPrice, minUptime, protocol, proxyType]);
 
     const { data, isLoading, error, refetch, isFetching } = useQuery({
-        queryKey: ['marketplace-geo', proxyType, country, bboxParam ?? ''],
-        queryFn: () =>
-            getMarketplaceGeo({
-                proxy_type: proxyType || undefined,
-                country: country || undefined,
-                bbox: bboxParam,
-            }),
+        queryKey: marketplaceKeys.map(mapFilters),
+        queryFn: () => getMarketplaceMapPoints(mapFilters),
         staleTime: 30_000,
         refetchInterval: searchBBox ? false : 60_000,
     });
@@ -76,15 +114,26 @@ export default function MarketplaceMapPage() {
         setSearchBBox(null);
     }, []);
 
-    const pins = useMemo((): ListingMapPin[] => {
-        const raw = data?.pins ?? [];
-        return raw.map((p: MarketplaceGeoPin, i: number) => {
-            const { lat, lon, estimated } = resolveListingCoords(p, i);
-            return { ...p, lat, lon, estimated };
-        });
-    }, [data?.pins]);
+    const pins = useMemo((): MarketplaceListingMapPin[] => {
+        const raw = data?.points ?? [];
+        return raw.filter(point => point.kind === 'listing').map(marketplacePointToListingPin);
+    }, [data?.points]);
+
+    const nodes = useMemo((): NodeGeoPoint[] => {
+        const raw = data?.points ?? [];
+        return raw.filter(point => point.kind === 'node').map(marketplacePointToNode);
+    }, [data?.points]);
 
     const plotted = pins.filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
+
+    useEffect(() => {
+        if (!highlightListingId || plotted.length === 0) return;
+        const pin = plotted.find(p => p.listing_id === highlightListingId);
+        if (pin) {
+            setSelectedPin(pin);
+            setSelectedNode(null);
+        }
+    }, [highlightListingId, plotted]);
 
     const viewportPins = useMemo(() => {
         if (!viewport) return plotted;
@@ -108,7 +157,8 @@ export default function MarketplaceMapPage() {
         ];
     }, [country, plotted]);
 
-    const handleBuy = useCallback(async (pin: ListingMapPin) => {
+    const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
+        if (!pin.purchasable) return;
         setBuyLoading(true);
         try {
             const res = await getListing(pin.listing_id);
@@ -116,7 +166,7 @@ export default function MarketplaceMapPage() {
         } catch {
             setBuyListing({
                 id: pin.listing_id,
-                seller_id: pin.seller_id,
+                seller_id: pin.seller_id ?? '',
                 node_id: pin.node_id ?? '',
                 title: pin.title,
                 description: '',
@@ -125,11 +175,11 @@ export default function MarketplaceMapPage() {
                 available_bandwidth_gb: pin.available_bandwidth_gb,
                 max_concurrency: 5,
                 proxy_type: pin.proxy_type as Listing['proxy_type'],
-                protocol: pin.protocol,
-                status: 'active',
+                protocol: pin.protocol ?? 'http',
+                status: pin.status ?? 'active',
                 country: pin.country,
                 isp: pin.isp,
-                uptime_percent: pin.uptime_percent,
+                uptime_percent: pin.uptime_percent ?? 0,
                 avg_latency_ms: 0,
                 success_rate: 100,
                 quality_score: 100,
@@ -142,6 +192,10 @@ export default function MarketplaceMapPage() {
                 priority_rank: 0,
                 is_priority: false,
                 created_at: new Date().toISOString(),
+                listing_offer_verified: pin.listing_offer_verified,
+                listing_offer_signer: pin.listing_offer_signer,
+                listing_offer_signed_at: pin.listing_offer_signed_at,
+                listing_offer_verification_error: pin.listing_offer_verification_error,
             });
         } finally {
             setBuyLoading(false);
@@ -167,7 +221,7 @@ export default function MarketplaceMapPage() {
                         Buy on Map
                     </h1>
                     <p className="text-[11px] text-white/30 uppercase tracking-widest mt-2">
-                        Active listings by region · click a pin to purchase
+                        Purchasable proxy listings by geography · click a point to buy
                         {searchBBox && (
                             <span className="text-amber-400/90"> · area filter on</span>
                         )}
@@ -175,12 +229,16 @@ export default function MarketplaceMapPage() {
                 </div>
                 <div className="flex gap-3 flex-wrap">
                     <GlassCard className="!p-4 min-w-[80px] text-center">
-                        <div className="text-xl font-black text-white">{pins.length}</div>
+                        <div className="text-xl font-black text-white">{data?.listing_count ?? pins.length}</div>
                         <div className="text-[8px] text-white/30 uppercase tracking-widest">Listings</div>
                     </GlassCard>
                     <GlassCard className="!p-4 min-w-[80px] text-center">
                         <div className="text-xl font-black text-emerald-400">{plotted.length}</div>
                         <div className="text-[8px] text-white/30 uppercase tracking-widest">On map</div>
+                    </GlassCard>
+                    <GlassCard className="!p-4 min-w-[80px] text-center">
+                        <div className="text-xl font-black text-primary">{data?.node_count ?? 0}</div>
+                        <div className="text-[8px] text-white/30 uppercase tracking-widest">Nodes</div>
                     </GlassCard>
                 </div>
             </header>
@@ -229,9 +287,18 @@ export default function MarketplaceMapPage() {
                                 </button>
                             </div>
                         )}
-                        <ListingLeafletMap
-                            pins={plotted}
-                            onSelectPin={setSelectedPin}
+                        <ProxyMapCanvas
+                            nodes={nodes}
+                            onSelectNode={(node) => {
+                                setSelectedNode(node);
+                                setSelectedPin(null);
+                            }}
+                            selectedNodeId={selectedNode?.node_id}
+                            listingPins={plotted}
+                            onSelectListing={(pin) => {
+                                setSelectedPin(pin as MarketplaceListingMapPin);
+                                setSelectedNode(null);
+                            }}
                             selectedListingId={selectedPin?.listing_id}
                             focusBounds={focusBounds}
                             onBoundsChange={setViewport}
@@ -255,6 +322,15 @@ export default function MarketplaceMapPage() {
                             <option value="datacenter">Datacenter</option>
                         </select>
                         <select
+                            value={protocol}
+                            onChange={e => setProtocol(e.target.value)}
+                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
+                        >
+                            <option value="">All protocols</option>
+                            <option value="http">HTTP</option>
+                            <option value="socks5">SOCKS5</option>
+                        </select>
+                        <select
                             value={country}
                             onChange={e => setCountry(e.target.value)}
                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
@@ -266,6 +342,63 @@ export default function MarketplaceMapPage() {
                                 </option>
                             ))}
                         </select>
+                        <div className="grid grid-cols-2 gap-2">
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={minPrice}
+                                onChange={e => setMinPrice(e.target.value)}
+                                placeholder="Min price"
+                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
+                            />
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={maxPrice}
+                                onChange={e => setMaxPrice(e.target.value)}
+                                placeholder="Max price"
+                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={minUptime}
+                                onChange={e => setMinUptime(e.target.value)}
+                                placeholder="Min uptime"
+                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
+                            />
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={maxLatency}
+                                onChange={e => setMaxLatency(e.target.value)}
+                                placeholder="Max ms"
+                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setProxyType('');
+                                setProtocol('');
+                                setCountry('');
+                                setMinPrice('');
+                                setMaxPrice('');
+                                setMinUptime('');
+                                setMaxLatency('');
+                                setSearchBBox(null);
+                            }}
+                            className="w-full py-2 rounded-xl border border-white/10 bg-white/[0.03] text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:border-white/20"
+                        >
+                            Reset filters
+                        </button>
                     </GlassCard>
 
                     {selectedPin ? (
@@ -293,14 +426,14 @@ export default function MarketplaceMapPage() {
                                                 selectedPin.estimated ? 'text-amber-400/90' : 'text-emerald-400/80'
                                             }`}
                                         >
-                                            {selectedPin.estimated ? 'Estimated (country)' : 'GPS resolved'}
+                                            {geoSourceLabel(selectedPin)}
                                         </span>
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-white/30">Price</span>
                                     <span className="text-emerald-400 font-black">
-                                        ${selectedPin.price_per_gb.toFixed(2)}/GB
+                                        {selectedPin.price_per_gb.toFixed(6)} SOL/GB
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
@@ -318,6 +451,34 @@ export default function MarketplaceMapPage() {
                                         )}
                                     </span>
                                 </div>
+                                <div className="flex justify-between">
+                                    <span className="text-white/30">Offer proof</span>
+                                    <span className={selectedPin.listing_offer_verified ? 'text-cyan-300' : 'text-white/40'}>
+                                        {selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-white/30">Heartbeat proof</span>
+                                    <span className={selectedPin.heartbeat_verified ? 'text-emerald-300' : 'text-white/40'}>
+                                        {selectedPin.heartbeat_verified ? 'Provider signed' : 'Unsigned'}
+                                    </span>
+                                </div>
+                                {selectedPin.heartbeat_signer && (
+                                    <div className="flex justify-between gap-3">
+                                        <span className="text-white/30">Heartbeat signer</span>
+                                        <span className="text-white/50 text-right truncate max-w-[160px]" title={selectedPin.heartbeat_signer}>
+                                            {selectedPin.heartbeat_signer}
+                                        </span>
+                                    </div>
+                                )}
+                                {selectedPin.listing_offer_signer && (
+                                    <div className="flex justify-between gap-3">
+                                        <span className="text-white/30">Signer</span>
+                                        <span className="text-white/50 text-right truncate max-w-[160px]" title={selectedPin.listing_offer_signer}>
+                                            {selectedPin.listing_offer_signer}
+                                        </span>
+                                    </div>
+                                )}
                                 {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 && (
                                     <div className="flex justify-between">
                                         <span className="text-white/30">Latency</span>
@@ -329,15 +490,21 @@ export default function MarketplaceMapPage() {
                                         Approximate location (country centroid)
                                     </p>
                                 )}
+                                {!selectedPin.purchasable && (
+                                    <p className="text-rose-400/80 text-[8px] uppercase tracking-wider pt-1">
+                                        This listing is not currently purchasable.
+                                    </p>
+                                )}
                             </div>
                             <button
                                 type="button"
-                                disabled={buyLoading}
+                                data-testid="marketplace-map-buy-btn"
+                                disabled={buyLoading || !selectedPin.purchasable}
                                 onClick={() => handleBuy(selectedPin)}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/30 transition-all disabled:opacity-50"
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <ShoppingCart size={14} />
-                                {buyLoading ? 'Loading…' : 'Buy bandwidth'}
+                                {buyLoading ? 'Loading…' : selectedPin.purchasable ? 'Buy bandwidth' : 'Unavailable'}
                             </button>
                             <Link
                                 href={`/marketplace/${selectedPin.listing_id}`}
@@ -346,11 +513,70 @@ export default function MarketplaceMapPage() {
                                 Full listing →
                             </Link>
                         </GlassCard>
+                    ) : selectedNode ? (
+                        <GlassCard className="!p-6 space-y-4 border-primary/20 bg-primary/[0.02]">
+                            <div className="flex justify-between items-start">
+                                <span className="text-[9px] font-black text-primary uppercase tracking-widest">
+                                    Network node
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedNode(null)}
+                                    className="text-white/20 hover:text-white text-xs"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <h2 className="text-sm font-black text-white leading-tight break-all">
+                                {selectedNode.node_id.slice(0, 24)}…
+                            </h2>
+                            <div className="space-y-1 text-[9px]">
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-white/30">Status</span>
+                                    <span className={selectedNode.is_active ? 'text-emerald-400 font-black' : 'text-rose-400 font-black'}>
+                                        {selectedNode.is_active ? 'Active' : 'Offline'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-white/30">Type</span>
+                                    <span className="text-white">{selectedNode.is_validator ? 'Validator' : 'Proxy node'}</span>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-white/30">Location</span>
+                                    <span className="text-white text-right">
+                                        {[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || '—'}
+                                    </span>
+                                </div>
+                                {selectedNode.isp && (
+                                    <div className="flex justify-between gap-3">
+                                        <span className="text-white/30">ISP</span>
+                                        <span className="text-white text-right truncate max-w-[140px]">{selectedNode.isp}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-white/30">Uptime</span>
+                                    <span className="text-white">{(selectedNode.uptime_percent || 0).toFixed(1)}%</span>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-white/30">Sessions</span>
+                                    <span className="text-white">{selectedNode.active_sessions || 0}</span>
+                                </div>
+                            </div>
+                            <Link
+                                href={`/explorer/nodes/${selectedNode.node_id}`}
+                                className="block w-full text-center py-2 rounded-xl bg-primary/15 border border-primary/35 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary/25 transition-all"
+                            >
+                                Node details →
+                            </Link>
+                            <p className="text-[8px] text-white/25 uppercase tracking-widest leading-relaxed">
+                                Node markers show network availability. Select an emerald price marker to buy bandwidth.
+                            </p>
+                        </GlassCard>
                     ) : (
                         <GlassCard className="!p-6 text-center border-white/5">
                             <MapPin size={28} className="mx-auto text-white/10 mb-2" />
                             <p className="text-[9px] font-black text-white/25 uppercase tracking-widest">
-                                Select a listing on the map
+                                Select a listing or node on the map
                             </p>
                         </GlassCard>
                     )}
@@ -373,7 +599,7 @@ export default function MarketplaceMapPage() {
                                     >
                                         <span className="block truncate">{p.title}</span>
                                         <span className="text-white/30">
-                                            {p.country} · ${p.price_per_gb.toFixed(2)}
+                                            {p.country} · {p.price_per_gb.toFixed(6)} SOL
                                             {p.estimated ? ' · est.' : ' · gps'}
                                         </span>
                                     </button>
@@ -387,11 +613,12 @@ export default function MarketplaceMapPage() {
             {buyListing && (
                 <BuyListingModal
                     listing={buyListing}
-                    onClose={() => setBuyListing(null)}
-                    onSuccess={() => {
+                    onClose={() => {
                         setBuyListing(null);
                         setSelectedPin(null);
-                        refetch();
+                    }}
+                    onSuccess={() => {
+                        void refetch();
                     }}
                 />
             )}

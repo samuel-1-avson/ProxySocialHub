@@ -214,6 +214,8 @@ export interface NodeRegistration {
     ip_address?: string;
     country?: string;
     city?: string;
+    hotkey?: string;
+    gateway_node_id?: string;
     status: 'online' | 'offline' | 'pending';
     quality_score: number;
     current_tier: string;

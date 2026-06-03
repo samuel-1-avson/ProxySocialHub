@@ -39,6 +39,13 @@ type ListingEntity struct {
 	ID                   uuid.UUID
 	SellerID             uuid.UUID
 	ProviderNodeID       *uuid.UUID
+	ListingOfferHash     string
+	ListingOfferSignature string
+	ListingOfferSigner   string
+	ListingOfferSignedAt *time.Time
+	ListingOfferVerified bool
+	ListingOfferVerificationError string
+	ListingOfferNonce    string
 	Title                string
 	Description          string
 	ProxyType            ProxyType
@@ -74,6 +81,13 @@ type ListingUpdate struct {
 	MaxConcurrency       *int
 	Status               *ListingStatus
 	BulkDiscountsJSON    []byte
+	ListingOfferHash     *string
+	ListingOfferSignature *string
+	ListingOfferSigner   *string
+	ListingOfferSignedAt *time.Time
+	ListingOfferVerified *bool
+	ListingOfferVerificationError *string
+	ListingOfferNonce    *string
 }
 
 // NodeEntity represents physical infrastructure

@@ -229,6 +229,13 @@ func registerGatewayNode(c *gin.Context) {
 		return
 	}
 
+	canonicalNode, canonicalCreated, err := upsertProviderNodeFromGateway(providerID, req)
+	if err != nil {
+		logging.Error(err).Str("gateway_node_id", req.NodeID).Msg("Failed to upsert canonical provider node")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert provider node"})
+		return
+	}
+
 	// Check if node already exists — prefer GatewayNodeID (stable across IP changes),
 	// fall back to provider+IP+port for legacy registrations without a NodeID.
 	var existingNode models.Node
@@ -261,6 +268,7 @@ func registerGatewayNode(c *gin.Context) {
 			UptimePercent:       100,
 			LastSeenAt:          time.Now(),
 			IsRegisteredOnChain: false,
+			ProviderNodeID:      &canonicalNode.ID,
 		}
 
 		if err := db.DB.Create(&node).Error; err != nil {
@@ -280,24 +288,24 @@ func registerGatewayNode(c *gin.Context) {
 			}
 		}(node.ID.String())
 
-		pn := resolveProviderNodeForGateway(providerID, req.NodeID)
-		linkGatewayNodeToProviderNode(node.ID, pn, req.NodeID)
-		syncProviderNodeFromGateway(providerID, req.NodeID, 0)
+		reconcileProviderNodeRegistry(providerID, canonicalNode.ID, req.NodeID, 0)
 
 		logging.Info().
-			Str("node_id", node.ID.String()).
+			Str("node_id", canonicalNode.ID.String()).
+			Str("legacy_node_id", node.ID.String()).
 			Str("provider_id", providerID.String()).
 			Str("gateway_node_id", req.NodeID).
 			Msg("Gateway node registered")
 
 		c.JSON(http.StatusCreated, gin.H{
-			"id":                node.ID.String(),
+			"id":                canonicalNode.ID.String(),
+			"legacy_node_id":    node.ID.String(),
 			"node_id":           req.NodeID,
 			"status":            "created",
 			"is_healthy":        true,
-			"quality_score":     node.QualityScore,
-			"current_tier":      node.CurrentTier,
-			"base_price_per_gb": node.BasePricePerGB,
+			"quality_score":     canonicalNode.QualityScore,
+			"current_tier":      canonicalNode.Tier,
+			"base_price_per_gb": canonicalNode.BasePricePerGB,
 		})
 	} else {
 		// Update existing node
@@ -316,6 +324,7 @@ func registerGatewayNode(c *gin.Context) {
 		if req.NodeID != "" {
 			updates["gateway_node_id"] = req.NodeID
 		}
+		updates["provider_node_id"] = canonicalNode.ID
 
 		if err := db.DB.Model(&existingNode).Updates(updates).Error; err != nil {
 			logging.Error(err).Str("node_id", existingNode.ID.String()).Msg("Failed to update gateway node")
@@ -332,25 +341,104 @@ func registerGatewayNode(c *gin.Context) {
 			}
 		}(existingNode.ID.String())
 
-		pn := resolveProviderNodeForGateway(providerID, req.NodeID)
-		linkGatewayNodeToProviderNode(existingNode.ID, pn, req.NodeID)
-		syncProviderNodeFromGateway(providerID, req.NodeID, 0)
+		reconcileProviderNodeRegistry(providerID, canonicalNode.ID, req.NodeID, 0)
 
 		logging.Info().
-			Str("node_id", existingNode.ID.String()).
+			Str("node_id", canonicalNode.ID.String()).
+			Str("legacy_node_id", existingNode.ID.String()).
 			Str("gateway_node_id", req.NodeID).
 			Msg("Gateway node reconnected")
 
+		status := "updated"
+		if canonicalCreated {
+			status = "created"
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"id":                existingNode.ID.String(),
+			"id":                canonicalNode.ID.String(),
+			"legacy_node_id":    existingNode.ID.String(),
 			"node_id":           req.NodeID,
-			"status":            "updated",
+			"status":            status,
 			"is_healthy":        true,
-			"quality_score":     existingNode.QualityScore,
-			"current_tier":      existingNode.CurrentTier,
-			"base_price_per_gb": existingNode.BasePricePerGB,
+			"quality_score":     canonicalNode.QualityScore,
+			"current_tier":      canonicalNode.Tier,
+			"base_price_per_gb": canonicalNode.BasePricePerGB,
 		})
 	}
+}
+
+func upsertProviderNodeFromGateway(providerID uuid.UUID, req RegisterGatewayNodeRequest) (*models.ProviderNode, bool, error) {
+	now := time.Now().UTC()
+	node := resolveProviderNodeForGateway(providerID, req.NodeID)
+	created := false
+	if node == nil {
+		name := req.NodeID
+		if name == "" {
+			name = "Gateway Node"
+		}
+		node = &models.ProviderNode{
+			ID:            uuid.New(),
+			UserID:        providerID,
+			Name:          name,
+			GatewayNodeID: req.NodeID,
+			CreatedAt:     now,
+		}
+		created = true
+	}
+
+	updates := map[string]interface{}{
+		"gateway_node_id":    req.NodeID,
+		"ip_address":         req.IPAddress,
+		"country":            req.CountryCode,
+		"city":               req.City,
+		"region":             req.Region,
+		"isp":                req.ISP,
+		"connection_type":    req.ConnectionType,
+		"protocol":           "http",
+		"status":             models.NodeOnline,
+		"is_healthy":         true,
+		"active_connections": 0,
+		"max_connections":    100,
+		"quality_score":      100,
+		"uptime_percent":     100,
+		"last_seen_at":       now,
+		"updated_at":         now,
+	}
+	if req.Port > 0 {
+		updates["port"] = req.Port
+	}
+
+	if created {
+		node.IPAddress = req.IPAddress
+		node.Country = req.CountryCode
+		node.City = req.City
+		node.Region = req.Region
+		node.ISP = req.ISP
+		node.ConnectionType = req.ConnectionType
+		node.Protocol = "http"
+		node.Status = models.NodeOnline
+		node.IsHealthy = true
+		node.ActiveConnections = 0
+		node.MaxConnections = 100
+		node.QualityScore = 100
+		node.UptimePercent = 100
+		node.LastSeenAt = &now
+		node.UpdatedAt = now
+		if req.Port > 0 {
+			node.Port = req.Port
+		}
+		if err := db.DB.Create(node).Error; err != nil {
+			return nil, false, err
+		}
+		return node, true, nil
+	}
+
+	if err := db.DB.Model(node).Updates(updates).Error; err != nil {
+		return nil, false, err
+	}
+	if err := db.DB.Where("id = ?", node.ID).First(node).Error; err != nil {
+		return nil, false, err
+	}
+	return node, false, nil
 }
 
 // GatewayHeartbeatRequest represents a heartbeat update from Edge Gateway
@@ -390,20 +478,61 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 		updates["total_bytes_down"] = req.TotalBytesDown
 	}
 
-	if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
-		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node heartbeat")
+	providerUpdate := db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(updates)
+	if providerUpdate.Error != nil {
+		logging.Error(providerUpdate.Error).Str("node_id", nodeID.String()).Msg("Failed to update node heartbeat")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
 		return
 	}
+	updatedProviderNode := providerUpdate.RowsAffected > 0
+	qualityScore := 0.0
+	currentTier := ""
+	basePricePerGB := 0.0
+	if !updatedProviderNode {
+		if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+			logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update legacy node heartbeat")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update heartbeat"})
+			return
+		}
+	}
 
 	// Recalculate quality score using latest stats
-	var node models.Node
-	if err := db.DB.Where("id = ?", nodeID).First(&node).Error; err == nil {
-		newScore := node.CalculateQualityScore()
-		if err := db.DB.Model(&node).Update("quality_score", newScore).Error; err != nil {
-			logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on heartbeat")
+	var node models.ProviderNode
+	if updatedProviderNode {
+		if err := db.DB.Where("id = ?", nodeID).First(&node).Error; err == nil {
+			newScore := node.CalculateQualityScore()
+			if err := db.DB.Model(&node).Update("quality_score", newScore).Error; err != nil {
+				logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on heartbeat")
+			}
+			reconcileProviderNodeRegistry(node.UserID, node.ID, node.GatewayNodeID, req.LatencyMs)
+			qualityScore = newScore
+			currentTier = node.Tier
+			basePricePerGB = node.BasePricePerGB
 		}
-		syncProviderNodeFromGateway(node.ProviderUserID, node.GatewayNodeID, req.LatencyMs)
+	} else {
+		var legacyNode models.Node
+		if err := db.DB.Where("id = ?", nodeID).First(&legacyNode).Error; err == nil {
+			newScore := legacyNode.CalculateQualityScore()
+			if err := db.DB.Model(&legacyNode).Update("quality_score", newScore).Error; err != nil {
+				logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on legacy heartbeat")
+			}
+			if legacyNode.ProviderUserID != uuid.Nil && legacyNode.GatewayNodeID != "" {
+				if pn := resolveProviderNodeForGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID); pn != nil {
+					reconcileProviderNodeRegistry(legacyNode.ProviderUserID, pn.ID, legacyNode.GatewayNodeID, req.LatencyMs)
+					node = *pn
+					qualityScore = node.QualityScore
+					currentTier = node.Tier
+					basePricePerGB = node.BasePricePerGB
+				} else {
+					syncProviderNodeFromGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID, req.LatencyMs)
+				}
+			}
+			if qualityScore == 0 {
+				qualityScore = newScore
+				currentTier = legacyNode.CurrentTier
+				basePricePerGB = legacyNode.BasePricePerGB
+			}
+		}
 	}
 
 	// Trigger immediate sync to update explorer with latest heartbeat data
@@ -418,9 +547,9 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":            "ok",
 		"timestamp":         time.Now(),
-		"quality_score":     node.QualityScore,
-		"current_tier":      node.CurrentTier,
-		"base_price_per_gb": node.BasePricePerGB,
+		"quality_score":     qualityScore,
+		"current_tier":      currentTier,
+		"base_price_per_gb": basePricePerGB,
 	})
 }
 
@@ -450,10 +579,18 @@ func updateGatewayNodeStatus(c *gin.Context) {
 		"last_seen_at": time.Now(),
 	}
 
-	if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
-		logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update node status")
+	result := db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(updates)
+	if result.Error != nil {
+		logging.Error(result.Error).Str("node_id", nodeID.String()).Msg("Failed to update node status")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
 		return
+	}
+	if result.RowsAffected == 0 {
+		if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+			logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update legacy node status")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
+			return
+		}
 	}
 
 	// Trigger immediate sync to update explorer with status change

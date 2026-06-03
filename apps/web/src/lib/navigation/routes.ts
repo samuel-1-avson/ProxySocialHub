@@ -7,22 +7,62 @@ export const ROUTES = {
     marketplaceAgents: "/marketplace/agents",
     marketplaceAgentInstances: "/marketplace/agents/instances",
     dashboard: "/dashboard",
+    dashboardAdmin: "/dashboard/admin",
+    dashboardAgents: "/dashboard/agents",
+    dashboardAnalytics: "/dashboard/analytics",
+    dashboardFeed: "/dashboard/feed",
+    dashboardMessages: "/dashboard/messages",
+    dashboardMonitoring: "/dashboard/monitoring",
+    dashboardProfile: "/dashboard/profile",
     dashboardProxy: "/dashboard/proxy",
+    dashboardSecurity: "/dashboard/security",
     dashboardSessions: "/dashboard/sessions",
     dashboardUsage: "/dashboard/usage",
     dashboardTrustless: "/dashboard/trustless",
     dashboardWallet: "/dashboard/wallet",
     dashboardProvider: "/dashboard/provider",
+    dashboardProviderAnalytics: "/dashboard/provider/analytics",
     dashboardProviderNodes: "/dashboard/provider/nodes",
+    dashboardProviderHealth: "/dashboard/provider/health",
     dashboardProviderCircle: "/dashboard/provider/circle",
     dashboardProviderRelationships: "/dashboard/provider/relationships",
     dashboardProviderEarnings: "/dashboard/provider/earnings",
+    dashboardProviderServices: "/dashboard/provider/services",
+    dashboardProviderSetup: "/dashboard/provider/setup",
     dashboardProviderTokens: "/dashboard/provider/tokens",
     dashboardProviderCli: "/dashboard/provider/cli",
+    dashboardSettingsAccount: "/dashboard/settings/account",
+    dashboardSettingsIdentity: "/dashboard/settings/identity",
+    dashboardSettingsNotifications: "/dashboard/settings/notifications",
+    dashboardSettingsApiKeys: "/dashboard/settings/api-keys",
+    dashboardSettingsDevices: "/dashboard/settings/devices",
+    dashboardSettingsSecurity: "/dashboard/settings/security",
     communityFeed: "/community/feed",
     communityForum: "/community/forum",
+    communityForumRecent: "/community/forum/recent",
+    communityForumPopular: "/community/forum/popular",
+    communityForumUnanswered: "/community/forum/unanswered",
+    communityForumMyPosts: "/community/forum/my-posts",
+    communityForumNew: "/community/forum/new",
     communityMessages: "/community/messages",
     explorer: "/explorer",
+    explorerMap: "/explorer/map",
+    explorerNodes: "/explorer/nodes",
+    explorerNodeCompare: "/explorer/nodes/compare",
+    explorerTransactions: "/explorer/transactions",
+    explorerBlocks: "/explorer/blocks",
+    explorerWallets: "/explorer/wallets",
+    explorerContracts: "/explorer/contracts",
+    explorerSessions: "/explorer/sessions",
+    explorerAnalytics: "/explorer/analytics",
+    explorerHealth: "/explorer/health",
+    explorerEarnings: "/explorer/earnings",
+    explorerLeaderboard: "/explorer/leaderboard",
+    explorerSearch: "/explorer/search",
+    governance: "/governance",
+    governanceCreate: "/governance/create",
+    treasury: "/treasury",
+    /** Legacy path; `/settings` redirects to dashboard settings. */
     settings: "/settings",
     settingsNotifications: "/settings/notifications",
     profile: "/profile",
@@ -38,6 +78,25 @@ export const ROUTES = {
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
 
+export function isNavigationRouteActive(pathname: string | null | undefined, route: string): boolean {
+    if (!pathname) return false;
+
+    const currentPath = pathname.split(/[?#]/)[0].replace(/\/$/, "") || "/";
+    const targetRoute = route.split(/[?#]/)[0].replace(/\/$/, "") || "/";
+
+    if (currentPath === targetRoute) return true;
+    if (targetRoute === "/" || !currentPath.startsWith(`${targetRoute}/`)) return false;
+
+    const hasMoreSpecificRegisteredRoute = Object.values(ROUTES)
+        .filter(candidate => candidate !== targetRoute && candidate.startsWith(`${targetRoute}/`))
+        .some(candidate => {
+            const normalizedCandidate = candidate.replace(/\/$/, "");
+            return currentPath === normalizedCandidate || currentPath.startsWith(`${normalizedCandidate}/`);
+        });
+
+    return !hasMoreSpecificRegisteredRoute;
+}
+
 export interface RouteLabel {
     label: string;
     breadcrumb?: string;
@@ -46,32 +105,71 @@ export interface RouteLabel {
 export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
     [ROUTES.marketplace]: { label: "Marketplace" },
-    [ROUTES.marketplaceMap]: { label: "Marketplace Map", breadcrumb: "Map" },
+    [ROUTES.marketplaceMap]: { label: "Buy on map", breadcrumb: "Map" },
     [ROUTES.marketplaceCreate]: { label: "Create Listing", breadcrumb: "Create" },
     [ROUTES.marketplaceManage]: { label: "My Listings", breadcrumb: "Listings" },
-    [ROUTES.marketplaceAgents]: { label: "AI Agents", breadcrumb: "Agents" },
-    [ROUTES.marketplaceAgentInstances]: { label: "Agent Instances", breadcrumb: "Instances" },
+    [ROUTES.marketplaceAgents]: { label: "Rent agents", breadcrumb: "Agents" },
+    [ROUTES.marketplaceAgentInstances]: { label: "My agents", breadcrumb: "Instances" },
     [ROUTES.dashboard]: { label: "Dashboard", breadcrumb: "System" },
+    [ROUTES.dashboardAdmin]: { label: "Admin", breadcrumb: "Admin" },
+    [ROUTES.dashboardAgents]: { label: "Agent console", breadcrumb: "Agents" },
+    [ROUTES.dashboardAnalytics]: { label: "My analytics", breadcrumb: "Analytics" },
+    [ROUTES.dashboardFeed]: { label: "Feed (legacy)", breadcrumb: "Feed" },
+    [ROUTES.dashboardMessages]: { label: "Messages (legacy)", breadcrumb: "Messages" },
+    [ROUTES.dashboardMonitoring]: { label: "Operations", breadcrumb: "Ops" },
+    [ROUTES.dashboardProfile]: { label: "Dashboard Profile", breadcrumb: "Profile" },
     [ROUTES.dashboardProxy]: { label: "Connect", breadcrumb: "Proxy" },
+    [ROUTES.dashboardSecurity]: { label: "Security (legacy)", breadcrumb: "Security" },
     [ROUTES.dashboardSessions]: { label: "Sessions" },
     [ROUTES.dashboardUsage]: { label: "Usage & Billing", breadcrumb: "Usage" },
-    [ROUTES.dashboardTrustless]: { label: "Integrity", breadcrumb: "Trustless" },
+    [ROUTES.dashboardTrustless]: { label: "Usage proofs", breadcrumb: "Proofs" },
     [ROUTES.dashboardWallet]: { label: "Wallet" },
     [ROUTES.dashboardProvider]: { label: "Provider" },
+    [ROUTES.dashboardProviderAnalytics]: { label: "Provider Analytics", breadcrumb: "Analytics" },
     [ROUTES.dashboardProviderNodes]: { label: "Node Health", breadcrumb: "Nodes" },
+    [ROUTES.dashboardProviderHealth]: { label: "Provider Health", breadcrumb: "Health" },
     [ROUTES.dashboardProviderCircle]: { label: "Circle Pool", breadcrumb: "Circle" },
     [ROUTES.dashboardProviderRelationships]: { label: "Customers", breadcrumb: "Customers" },
     [ROUTES.dashboardProviderEarnings]: { label: "Income", breadcrumb: "Earnings" },
+    [ROUTES.dashboardProviderServices]: { label: "Services", breadcrumb: "Services" },
+    [ROUTES.dashboardProviderSetup]: { label: "Provider Setup", breadcrumb: "Setup" },
     [ROUTES.dashboardProviderTokens]: { label: "API Tokens", breadcrumb: "Tokens" },
     [ROUTES.dashboardProviderCli]: { label: "CLI & Download", breadcrumb: "CLI" },
+    [ROUTES.dashboardSettingsAccount]: { label: "Account & tier", breadcrumb: "Account" },
+    [ROUTES.dashboardSettingsIdentity]: { label: "Settings", breadcrumb: "Settings" },
+    [ROUTES.dashboardSettingsNotifications]: { label: "Notifications", breadcrumb: "Notifications" },
+    [ROUTES.dashboardSettingsApiKeys]: { label: "API keys", breadcrumb: "API keys" },
+    [ROUTES.dashboardSettingsDevices]: { label: "Devices", breadcrumb: "Devices" },
+    [ROUTES.dashboardSettingsSecurity]: { label: "Security", breadcrumb: "Security" },
     [ROUTES.communityFeed]: { label: "Feed" },
     [ROUTES.communityForum]: { label: "Forum" },
+    [ROUTES.communityForumRecent]: { label: "Recent Threads", breadcrumb: "Recent" },
+    [ROUTES.communityForumPopular]: { label: "Popular Threads", breadcrumb: "Popular" },
+    [ROUTES.communityForumUnanswered]: { label: "Unanswered Threads", breadcrumb: "Unanswered" },
+    [ROUTES.communityForumMyPosts]: { label: "My Forum Posts", breadcrumb: "My Posts" },
+    [ROUTES.communityForumNew]: { label: "New Thread", breadcrumb: "New" },
     [ROUTES.communityMessages]: { label: "Messages" },
     [ROUTES.explorer]: { label: "Explorer" },
+    [ROUTES.explorerMap]: { label: "Network map", breadcrumb: "Map" },
+    [ROUTES.explorerNodes]: { label: "Nodes" },
+    [ROUTES.explorerNodeCompare]: { label: "Compare Nodes", breadcrumb: "Compare" },
+    [ROUTES.explorerTransactions]: { label: "Transactions" },
+    [ROUTES.explorerBlocks]: { label: "Blocks" },
+    [ROUTES.explorerWallets]: { label: "Wallets" },
+    [ROUTES.explorerContracts]: { label: "Contracts" },
+    [ROUTES.explorerSessions]: { label: "Public sessions", breadcrumb: "Sessions" },
+    [ROUTES.explorerAnalytics]: { label: "Network analytics", breadcrumb: "Analytics" },
+    [ROUTES.explorerHealth]: { label: "Network health", breadcrumb: "Health" },
+    [ROUTES.explorerEarnings]: { label: "Network earnings", breadcrumb: "Earnings" },
+    [ROUTES.explorerLeaderboard]: { label: "Leaderboard", breadcrumb: "Leaderboard" },
+    [ROUTES.explorerSearch]: { label: "Explorer Search", breadcrumb: "Search" },
+    [ROUTES.governance]: { label: "Governance" },
+    [ROUTES.governanceCreate]: { label: "Create Proposal", breadcrumb: "Create" },
+    [ROUTES.treasury]: { label: "Treasury" },
     [ROUTES.settings]: { label: "Settings" },
     [ROUTES.settingsNotifications]: { label: "Notification Settings", breadcrumb: "Notifications" },
     [ROUTES.profile]: { label: "Profile" },
-    [ROUTES.leaderboards]: { label: "Leaderboards" },
+    [ROUTES.leaderboards]: { label: "Leaderboard (legacy)" },
     [ROUTES.login]: { label: "Login" },
     [ROUTES.register]: { label: "Register" },
     [ROUTES.help]: { label: "Help Center", breadcrumb: "Help" },
@@ -87,7 +185,7 @@ export const PRIMARY_PUBLIC_NAV = [
 
 export const PRIMARY_AUTH_NAV = [
     { href: ROUTES.communityFeed, label: "FEED" },
-    { href: ROUTES.leaderboards, label: "LEADERBOARDS" },
+    { href: ROUTES.explorerLeaderboard, label: "LEADERBOARD" },
     { href: ROUTES.communityMessages, label: "MESSAGES" },
 ];
 

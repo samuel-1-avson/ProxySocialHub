@@ -65,7 +65,7 @@ test.describe("Notification Center", () => {
         const settingsLink = page.locator("[aria-label='Notification settings']");
         await settingsLink.click();
 
-        await expect(page).toHaveURL("/settings/notifications");
+        await expect(page).toHaveURL("/dashboard/settings/notifications");
     });
 
     test("should mark all notifications as read", async ({ page }) => {
@@ -90,7 +90,7 @@ test.describe("Notification Settings", () => {
         await page.fill("[name='email']", process.env.TEST_USER_EMAIL || "");
         await page.fill("[name='password']", process.env.TEST_USER_PASSWORD || "");
         await page.click("button[type='submit']");
-        await page.goto("/settings/notifications");
+        await page.goto("/dashboard/settings/notifications");
     });
 
     test("should display notification preferences", async ({ page }) => {

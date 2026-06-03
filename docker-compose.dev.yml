@@ -1,7 +1,9 @@
 # docker-compose.dev.yml
 # Development Docker Compose — fast iteration with source builds and relaxed defaults.
 # Usage: docker compose -f docker-compose.dev.yml up -d
-# After pulling explorer/API fixes: .\scripts\docker-refresh-stack.ps1
+# After web navigation / settings / explorer UI changes:
+#   .\scripts\docker-refresh-stack.ps1 -Services web
+#   .\scripts\verify-web-docker-nav.ps1
 
 services:
   # ==================== DB MIGRATE (one-shot) ====================
@@ -235,6 +237,9 @@ services:
         - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
         - NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
         - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
+        - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+        - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+        - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
     container_name: proxyhubb-web
     ports:
       - "3000:3000"
@@ -252,6 +257,9 @@ services:
       - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
       - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2}
       - NEXT_PUBLIC_SOLANA_TREASURY=${SOLANA_TREASURY_ADDRESS}
+      - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
     depends_on:
       control-api:
         condition: service_healthy

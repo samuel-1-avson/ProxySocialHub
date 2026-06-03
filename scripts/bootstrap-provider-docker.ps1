@@ -211,8 +211,9 @@ if (-not $SkipAuthTest) {
 }
 
 Write-Host ""
-Write-Host "Start signed provider in Docker:" -ForegroundColor Cyan
-Write-Host "  docker compose -f docker-compose.yml -f docker-compose.provider.yml --profile provider up -d provider-node"
+Write-Host "Start signed provider in Docker (QUIC tunnel):" -ForegroundColor Cyan
+Write-Host "  .\scripts\compose-up-dev.ps1"
+Write-Host "  # or: docker compose -f docker-compose.yml -f docker-compose.provider.yml --profile provider up -d"
 Write-Host ""
 Write-Host "Verify proofs (wait ~2 min after start):" -ForegroundColor Cyan
 Write-Host "  .\scripts\verify-provider-proofs-docker.ps1"
@@ -220,11 +221,15 @@ Write-Host "  .\scripts\verify-provider-proofs-docker.ps1"
 if ($StartProvider) {
     $composeArgs = @("compose", "-f", "docker-compose.yml", "-f", "docker-compose.provider.yml", "--profile", "provider")
     if ($Build) {
-        & docker @composeArgs build provider-node
+        & docker @composeArgs build provider-node edge-gateway
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
-    & docker @composeArgs up -d provider-node
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Write-Host "[OK] provider-node started (proxyhubb-provider-node)" -ForegroundColor Green
+    & docker @composeArgs up -d edge-gateway provider-node
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "edge-gateway/provider-node failed (often host port 9090/9092 in use). See docs/PROVIDER_PROOFS_DOCKER.md troubleshooting." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+    Write-Host "[OK] edge-gateway + provider-node started (PROVIDER_TRANSPORT=quic via provider overlay)" -ForegroundColor Green
+    Write-Host "  Gateway health: http://localhost:${env:EDGE_GATEWAY_PORT -replace '^$','8090'}/health"
     Write-Host "  Logs: docker logs -f proxyhubb-provider-node"
 }

@@ -1,5 +1,6 @@
 
 import { type NextRequest, NextResponse } from 'next/server'
+import { getRoutePolicyForPathname, isRoleAllowedForPolicy } from '@/lib/navigation/policies'
 
 const accessTokenCookieName = 'proxyhubb_token'
 const refreshTokenCookieName = 'proxyhubb_refresh_token'
@@ -7,6 +8,11 @@ const e2eAuthBypassCookieName = 'proxyhubb_e2e_auth'
 const issuer = 'proxyhubb-control-api'
 
 export async function middleware(request: NextRequest) {
+    const routePolicy = getRoutePolicyForPathname(request.nextUrl.pathname)
+    if (routePolicy === 'public') {
+        return NextResponse.next({ request })
+    }
+
     if (isLocalE2EBypassRequest(request)) {
         return NextResponse.next({ request })
     }
@@ -23,12 +29,20 @@ export async function middleware(request: NextRequest) {
             return redirectToLogin(request, true)
         }
 
+        if (!isRoleAllowedForPolicy(getRoleFromPayload(payload), routePolicy)) {
+            return redirectToUnauthorized(request, routePolicy)
+        }
+
         return NextResponse.next({ request })
     }
 
-    const isValid = await validateViaBackend(request, token)
-    if (!isValid) {
+    const session = await validateViaBackend(request, token)
+    if (!session.isValid) {
         return redirectToLogin(request, true)
+    }
+
+    if (!isRoleAllowedForPolicy(session.role, routePolicy)) {
+        return redirectToUnauthorized(request, routePolicy)
     }
 
     return NextResponse.next({ request })
@@ -61,6 +75,15 @@ function redirectToLogin(request: NextRequest, clearCookies = false) {
     return response
 }
 
+function redirectToUnauthorized(request: NextRequest, policy: string) {
+    const dashboardUrl = request.nextUrl.clone()
+    dashboardUrl.pathname = '/dashboard'
+    dashboardUrl.search = ''
+    dashboardUrl.searchParams.set('error', `${policy}_required`)
+
+    return NextResponse.redirect(dashboardUrl)
+}
+
 async function validateViaBackend(request: NextRequest, token: string) {
     try {
         const apiBaseUrl = process.env.API_URL?.trim()
@@ -75,9 +98,17 @@ async function validateViaBackend(request: NextRequest, token: string) {
             },
         })
 
-        return response.ok
+        if (!response.ok) {
+            return { isValid: false }
+        }
+
+        const user = await response.json() as { role?: unknown }
+        return {
+            isValid: true,
+            role: typeof user.role === 'string' ? user.role : undefined,
+        }
     } catch {
-        return false
+        return { isValid: false }
     }
 }
 
@@ -109,6 +140,10 @@ async function verifyToken(token: string, secret: string) {
     }
 
     return payload
+}
+
+function getRoleFromPayload(payload: Record<string, unknown>) {
+    return typeof payload.role === 'string' ? payload.role : undefined
 }
 
 function parseJwtSegment(input: string): Record<string, unknown> | null {
@@ -160,8 +195,6 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array) {
 
 export const config = {
     matcher: [
-        '/dashboard/:path*',
-        '/settings/:path*',
-        '/governance/:path*',
+        '/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
     ],
 }

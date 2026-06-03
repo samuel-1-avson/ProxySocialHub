@@ -5,6 +5,7 @@
 #   .\scripts\docker-refresh-stack.ps1
 #   .\scripts\docker-refresh-stack.ps1 -NoCache
 #   .\scripts\docker-refresh-stack.ps1 -Services control-api,web
+#   .\scripts\docker-refresh-stack.ps1 -ComposeFile docker-compose.yml   # web on :3009
 
 param(
     [switch]$NoCache,
@@ -44,8 +45,13 @@ Write-Host "Recreating API and web..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "docker compose up failed ($LASTEXITCODE)" }
 
 $apiPort = if ($env:CONTROL_API_PORT) { $env:CONTROL_API_PORT } else { '18080' }
+$webPort = if ($ComposeFile -eq 'docker-compose.yml') { '3009' } else { '3000' }
 Write-Host ""
 Write-Host "Stack refreshed." -ForegroundColor Green
 Write-Host "  API:  http://localhost:$apiPort/health"
-Write-Host "  Web:  http://localhost:3000/explorer"
+Write-Host "  Web:  http://localhost:${webPort}/explorer"
+Write-Host "  Settings hub: http://localhost:${webPort}/dashboard/settings/identity"
 Write-Host "  Verify explorer: .\scripts\explorer-verification.ps1 -ApiBaseUrl http://localhost:$apiPort"
+if ($Services -contains 'web') {
+    Write-Host "  Verify nav redirects: .\scripts\verify-web-docker-nav.ps1 -BaseUrl http://localhost:$webPort"
+}

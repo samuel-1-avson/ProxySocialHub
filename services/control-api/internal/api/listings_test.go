@@ -441,6 +441,67 @@ func TestListingState_InvalidTransitionFromDeleted(t *testing.T) {
 	}
 }
 
+func TestGetMyListings_CanonicalListingsPath(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_my_listings"), "provider")
+	otherProvider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_my_listings_other"), "provider")
+
+	ownListing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Own Active Listing",
+		PricePerGB:           2,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	deletedOwnListing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Own Deleted Listing",
+		PricePerGB:           2,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusDeleted,
+	}
+	otherListing := models.ProxyListing{
+		SellerID:             otherProvider.ID,
+		Title:                "Other Listing",
+		PricePerGB:           2,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&ownListing).Error; err != nil {
+		t.Fatalf("failed to create own listing: %v", err)
+	}
+	if err := db.DB.Create(&deletedOwnListing).Error; err != nil {
+		t.Fatalf("failed to create deleted own listing: %v", err)
+	}
+	if err := db.DB.Create(&otherListing).Error; err != nil {
+		t.Fatalf("failed to create other listing: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", provider.ID.String())
+	})
+	r.GET("/listings/my", getMyListings)
+
+	req := httptest.NewRequest("GET", "/listings/my?page=1&limit=20", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp ListingsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Total != 1 || len(resp.Listings) != 1 || resp.Listings[0].Title != ownListing.Title {
+		t.Fatalf("expected only own non-deleted listing, got total=%d listings=%#v", resp.Total, resp.Listings)
+	}
+}
+
 func TestInvalidateMarketplaceReadModels(t *testing.T) {
 	testutil.SetupTestRedis(t)
 
@@ -450,6 +511,9 @@ func TestInvalidateMarketplaceReadModels(t *testing.T) {
 	}
 	if err := redisClient.Client.Set(ctx, "marketplace:geo:test", "geo", 0).Err(); err != nil {
 		t.Fatalf("failed to seed marketplace geo cache: %v", err)
+	}
+	if err := redisClient.Client.Set(ctx, "marketplace:map:test", "map", 0).Err(); err != nil {
+		t.Fatalf("failed to seed marketplace map cache: %v", err)
 	}
 	if err := redisClient.Client.Set(ctx, "discovery:test", "discovery", 0).Err(); err != nil {
 		t.Fatalf("failed to seed discovery cache: %v", err)
@@ -463,7 +527,7 @@ func TestInvalidateMarketplaceReadModels(t *testing.T) {
 
 	invalidateMarketplaceReadModels()
 
-	for _, key := range []string{"listings:sla:test", "marketplace:geo:test", "discovery:test", "public:feed"} {
+	for _, key := range []string{"listings:sla:test", "marketplace:geo:test", "marketplace:map:test", "discovery:test", "public:feed"} {
 		exists, err := redisClient.Client.Exists(ctx, key).Result()
 		if err != nil {
 			t.Fatalf("failed to check key %s: %v", key, err)

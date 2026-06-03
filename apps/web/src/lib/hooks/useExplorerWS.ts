@@ -14,6 +14,8 @@ export interface UseExplorerWSOptions {
     onInitial?: (data: any) => void;
     /** Fired when the socket opens (before initial payload). */
     onOpen?: () => void;
+    /** Fired when the socket closes (before reconnect attempt). */
+    onClose?: () => void;
     enabled?: boolean;
     /** If provided, send a subscribe message on connect so the server only
      *  sends updates for these topics. Omit to receive all topics. */
@@ -89,6 +91,7 @@ export function useExplorerWS(options: UseExplorerWSOptions = {}) {
 
         ws.onclose = () => {
             wsRef.current = null;
+            callbacksRef.current.onClose?.();
             if (!unmounted.current) {
                 // P1-15: Exponential backoff with jitter.
                 const delay = Math.min(

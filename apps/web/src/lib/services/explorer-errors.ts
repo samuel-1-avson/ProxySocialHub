@@ -39,12 +39,15 @@ export class ExplorerApiError extends Error {
         }
 
         const kind = classifyExplorerError(response.status, code);
-        const display =
-            message && message !== code
-                ? message
-                : code
-                  ? humanizeExplorerCode(code, fallback)
-                  : `${fallback} (HTTP ${response.status})`;
+        let display: string;
+        if (message && message !== code) {
+            display = message;
+        } else if (code) {
+            const humanized = humanizeExplorerCode(code, fallback);
+            display = humanized !== fallback ? humanized : code;
+        } else {
+            display = `${fallback} (HTTP ${response.status})`;
+        }
 
         return new ExplorerApiError(kind, display, response.status, code || undefined);
     }
@@ -83,6 +86,20 @@ export function isExplorerNetworkError(error: unknown): boolean {
     if (error instanceof ExplorerApiError) return error.kind === 'network';
     if (error instanceof TypeError) return true;
     return false;
+}
+
+export function isExplorerDecentralizationGate(error: unknown): boolean {
+    if (error instanceof ExplorerApiError) {
+        return error.kind === 'decentralization';
+    }
+    if (!error || typeof error !== 'object') return false;
+    const anyErr = error as { status?: number; message?: string; details?: string };
+    if (anyErr.status !== 503) return false;
+    const hay = `${anyErr.message || ''} ${anyErr.details || ''}`.toLowerCase();
+    return (
+        hay.includes('full decentralization gate active') ||
+        hay.includes('quorum requirements not satisfied')
+    );
 }
 
 export function toExplorerApiError(error: unknown, fallback: string): ExplorerApiError {

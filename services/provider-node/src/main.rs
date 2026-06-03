@@ -264,6 +264,19 @@ async fn main() -> anyhow::Result<()> {
             // On each failure the index advances to the next gateway so the
             // node automatically migrates away from a dead endpoint.
             let reconnect_interval = cfg.reconnect_interval;
+            let transport = config::ProviderTransport::from_env();
+            if transport.quic_requested() {
+                if !cfg.use_tls {
+                    info!("PROVIDER_TRANSPORT=quic: enabling TLS for gateway QUIC tunnel");
+                    cfg.use_tls = true;
+                }
+                info!(
+                    transport = "quic",
+                    gateway = %cfg.gateway_addr,
+                    "Provider transport: QUIC (UDP) + yamux on first bidi stream"
+                );
+            }
+
             let lane_count = cfg.effective_yamux_conns_per_node();
             let gw_count = gateway_list.len();
             let mut gw_idx: usize = 0;

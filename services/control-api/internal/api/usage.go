@@ -259,8 +259,68 @@ func autoTerminateSessionBandwidth(sessionID, credentialsUser string) {
 	}
 	logging.Info().Str("session_id", sessionID).Str("credentials_user", credentialsUser).Msg("Session auto-terminated: bandwidth limit exhausted")
 
-	// D-UP1: submit usage proof + settle escrow on-chain (non-blocking)
-	go anchorUsageProofAndSettle(sessionID, now)
+	if _, escrowBacked, err := ensureUsageProofForSessionSettlement(session, now); err != nil {
+		logging.Error(err).Str("session_id", sessionID).Msg("Failed to create usage proof for bandwidth-exhausted session")
+	} else if escrowBacked {
+		go anchorUsageProofAndSettle(sessionID, now)
+	}
+}
+
+// ensureUsageProofForSessionSettlement materializes the durable usage proof for
+// an escrow-backed session. It is intentionally synchronous so the API can return
+// only after the audit record exists; on-chain anchoring still runs separately.
+func ensureUsageProofForSessionSettlement(session models.Session, endedAt time.Time) (*models.UsageProof, bool, error) {
+	var order models.Order
+	if err := db.DB.Where("session_id = ?", session.ID).First(&order).Error; err != nil {
+		return nil, false, nil
+	}
+	if order.EscrowPDA == "" {
+		return nil, false, nil
+	}
+
+	var existing models.UsageProof
+	if err := db.DB.Where("session_id = ? AND order_id = ?", session.ID, order.ID).First(&existing).Error; err == nil {
+		return &existing, true, nil
+	}
+
+	totalBytes := session.BytesUsed
+	if totalBytes <= 0 && session.CredentialsUser != "" {
+		if redisUsage, err := redisClient.GetUsage(session.CredentialsUser); err == nil && redisUsage > 0 {
+			totalBytes = redisUsage
+			_ = db.DB.Model(&models.Session{}).Where("id = ?", session.ID).Update("bytes_used", totalBytes).Error
+		}
+	}
+
+	periodStart := session.StartTime
+	if periodStart.IsZero() {
+		periodStart = session.CreatedAt
+	}
+	if periodStart.IsZero() {
+		periodStart = endedAt
+	}
+	if endedAt.IsZero() {
+		endedAt = time.Now().UTC()
+	}
+
+	proof := models.UsageProof{
+		SessionID:       session.ID,
+		OrderID:         order.ID,
+		BuyerWallet:     order.BuyerWallet,
+		ProviderWallet:  order.SellerWallet,
+		BytesUploaded:   0,
+		BytesDownloaded: totalBytes,
+		TotalBytes:      totalBytes,
+		RequestCount:    0,
+		PeriodStart:     periodStart,
+		PeriodEnd:       endedAt,
+		Status:          models.UsageProofPending,
+	}
+	proof.SetMessageHash()
+
+	if err := db.DB.Create(&proof).Error; err != nil {
+		return nil, true, err
+	}
+	return &proof, true, nil
 }
 
 // anchorUsageProofAndSettle submits a UsageProofRecord to Solana and then
@@ -332,7 +392,8 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 	} else {
 		// Persist the on-chain reference in the usage_proofs table.
 		db.DB.Model(&models.UsageProof{}).
-			Where("order_id = ? AND status IN ?", order.ID, []string{
+			Where("session_id = ? AND order_id = ? AND status IN ?", session.ID, order.ID, []string{
+				string(models.UsageProofPending),
 				string(models.UsageProofSigned),
 				string(models.UsageProofSettlingConfidential),
 			}).
