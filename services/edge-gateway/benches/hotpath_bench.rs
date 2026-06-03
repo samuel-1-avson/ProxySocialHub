@@ -181,12 +181,16 @@ fn bench_score_snapshot(c: &mut Criterion) {
         });
 
         let reg_rebuild = populate_registry(n);
-        group.bench_with_input(BenchmarkId::new("rebuild_snapshot", n), &reg_rebuild, |b, reg| {
-            b.iter(|| {
-                reg.snapshot_dirty.store(true, Ordering::Release);
-                reg.rebuild_score_snapshot();
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("rebuild_snapshot", n),
+            &reg_rebuild,
+            |b, reg| {
+                b.iter(|| {
+                    reg.snapshot_dirty.store(true, Ordering::Release);
+                    reg.rebuild_score_snapshot();
+                })
+            },
+        );
     }
 
     group.finish();
@@ -209,9 +213,8 @@ fn bench_domain_rules(c: &mut Criterion) {
 fn bench_auth_cache_lookup(c: &mut Criterion) {
     // Mirrors moka session cache read path (P1 §5.3) without Redis I/O.
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let cache: moka::future::Cache<String, u64> = moka::future::Cache::builder()
-        .max_capacity(10_000)
-        .build();
+    let cache: moka::future::Cache<String, u64> =
+        moka::future::Cache::builder().max_capacity(10_000).build();
     rt.block_on(async {
         for i in 0..10_000 {
             cache.insert(format!("session-{i}"), i as u64).await;

@@ -10,7 +10,7 @@ use hyper_util::rt::TokioIo;
 use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn, Instrument};
 
 mod admission;
 mod auth;
@@ -22,11 +22,13 @@ mod config;
 mod control_api; // Control API client for node registration
 mod error; // Error types
 mod heartbeat;
+mod ingress;
 mod internal_forward;
 mod leader;
 mod metering;
 mod metrics;
 mod multiregion;
+mod net_listen;
 mod observability;
 mod pod_drain;
 mod policy;
@@ -200,7 +202,9 @@ fn full_decentralization_enabled() -> bool {
 }
 
 /// Metrics endpoint handler
-async fn metrics_handler() -> Result<Response<Full<Bytes>>, hyper::Error> {
+async fn metrics_handler(state: &AppState) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let healthy = state.registry.list_healthy_with_info().len() as i64;
+    metrics::refresh_registry_gauges(healthy);
     let metrics_text = metrics::gather_metrics();
     let response = Response::builder()
         .status(StatusCode::OK)
@@ -274,10 +278,149 @@ async fn ready_handler(
     Ok(response)
 }
 
+async fn run_buyer_accept_loop(
+    listener: TcpListener,
+    state: Arc<AppState>,
+    connection_admission: Arc<Semaphore>,
+    authenticator: Arc<SessionAuthenticator>,
+    buyer_tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+) {
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("Accept error: {}", e);
+                continue;
+            }
+        };
+
+        if pod_drain::is_draining(&state) {
+            metrics::record_connection_error("pod_draining");
+            let mut stream = stream;
+            admission::write_service_unavailable_and_close(&mut stream).await;
+            continue;
+        }
+
+        let permit = match connection_admission.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                metrics::record_connection_error("admission_rejected");
+                let mut stream = stream;
+                admission::write_service_unavailable_and_close(&mut stream).await;
+                continue;
+            }
+        };
+
+        let proxy_state = state.clone();
+        let auth_clone = authenticator.clone();
+        let buyer_tls = buyer_tls_acceptor.clone();
+
+        tokio::task::spawn(async move {
+            let _permit = permit;
+            if let Some(acceptor) = buyer_tls {
+                let tls_fp = crate::security::fingerprint::observe_tls_fingerprints_from_tcp(
+                    &stream,
+                    &proxy_state.fingerprint_db,
+                )
+                .await;
+                if tls_fp.ja3_digest.is_some() || tls_fp.ja4.is_some() {
+                    trace!(
+                        ja3 = ?tls_fp.ja3_digest,
+                        ja4 = ?tls_fp.ja4,
+                        "buyer TLS ClientHello fingerprints"
+                    );
+                }
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        serve_buyer_http_connection(
+                            TokioIo::new(tls_stream),
+                            proxy_state,
+                            auth_clone,
+                            Some(tls_fp),
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        error!("Buyer TLS handshake failed: {}", e);
+                    }
+                }
+            } else {
+                serve_buyer_http_connection(
+                    TokioIo::new(stream),
+                    proxy_state,
+                    auth_clone,
+                    None,
+                )
+                .await;
+            }
+        });
+    }
+}
+
+async fn serve_buyer_http_connection<I>(
+    io: TokioIo<I>,
+    proxy_state: Arc<AppState>,
+    auth: Arc<SessionAuthenticator>,
+    conn_tls: Option<crate::security::fingerprint::TlsClientFingerprints>,
+) where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let service = service_fn(move |req| {
+        let s = proxy_state.clone();
+        let a = auth.clone();
+        let tls = conn_tls.clone();
+        async move { proxy(req, s, a, tls).await }
+    });
+    let builder = proxy::http2::make_auto_builder();
+    if let Err(err) = builder.serve_connection_with_upgrades(io, service).await {
+        error!("Error serving connection: {:?}", err);
+    }
+}
+
+async fn metrics_only_http_connection<I>(io: TokioIo<I>, state: Arc<AppState>)
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let service = service_fn(move |req| {
+        let s = state.clone();
+        async move {
+            if req.method() == Method::GET && req.uri().path() == "/metrics" {
+                metrics_handler(&s).await
+            } else {
+                Ok(Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Full::new(Bytes::from("Not Found")))
+                    .unwrap())
+            }
+        }
+    });
+    let builder = proxy::http2::make_auto_builder();
+    if let Err(err) = builder.serve_connection_with_upgrades(io, service).await {
+        error!("Metrics listener connection error: {:?}", err);
+    }
+}
+
+async fn run_metrics_accept_loop(listener: TcpListener, state: Arc<AppState>) {
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("Metrics accept error: {}", e);
+                continue;
+            }
+        };
+        let metrics_state = state.clone();
+        tokio::spawn(async move {
+            metrics_only_http_connection(TokioIo::new(stream), metrics_state).await;
+        });
+    }
+}
+
 async fn proxy(
     req: Request<hyper::body::Incoming>,
     state: Arc<AppState>,
     authenticator: Arc<SessionAuthenticator>,
+    conn_tls: Option<crate::security::fingerprint::TlsClientFingerprints>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let start_time = Instant::now();
     let method = req.method().clone();
@@ -285,10 +428,16 @@ async fn proxy(
     let path = req.uri().path();
     trace!(path, method = %method, "incoming request");
 
-    // Handle metrics endpoint
+    // Handle metrics endpoint (buyer port only when METRICS_PORT is unset/0)
     if path == "/metrics" && method == Method::GET {
+        if state.config.metrics_on_separate_port() {
+            return Ok(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Full::new(Bytes::from("Not Found")))
+                .unwrap());
+        }
         trace!("serving metrics");
-        return metrics_handler().await;
+        return metrics_handler(&state).await;
     }
 
     // Handle health endpoint (liveness)
@@ -513,8 +662,7 @@ async fn proxy(
         }
     }
 
-    // P-04: HTTP-layer bot detection (UA, header order, request timing signals).
-    // JA3/TLS fingerprinting requires raw TCP interception and is deferred.
+    // P-04: HTTP-layer bot detection (UA, header order, JA3 when buyer TLS is enabled).
     {
         use crate::security::fingerprint::{BotClassifier, RequestProfile};
 
@@ -531,17 +679,25 @@ async fn proxy(
         let profile = RequestProfile {
             ip: client_ip.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)),
             user_agent: ua,
-            ja3: None, // JA3 requires raw TLS bytes before HTTP layer
+            ja3: conn_tls.as_ref().and_then(|fp| fp.ja3_digest.clone()),
             h2: None,
             request_interval_ms: 0, // per-request tracking not available at this layer
             header_order_hash,
         };
 
-        let bot_score = BotClassifier::score(&profile);
+        let bot_score = BotClassifier::score_with_db(&profile, &state.fingerprint_db);
         if bot_score.is_likely_bot() {
+            if let Some(ref digest) = profile.ja3 {
+                state.fingerprint_db.observe_ja3(digest, true);
+            }
+            if let Some(ref ja4) = conn_tls.as_ref().and_then(|fp| fp.ja4.as_ref()) {
+                state.fingerprint_db.observe_ja4(ja4, true);
+            }
             warn!(
-                "🤖 Bot detected (score={:.2}) from {:?}",
-                bot_score.0, client_ip
+                "🤖 Bot detected (score={:.2}) from {:?} ja3={:?}",
+                bot_score.0,
+                client_ip,
+                profile.ja3
             );
             metrics::record_policy_block("bot_detected");
             let mut resp = Response::new(Full::new(Bytes::from("Forbidden")));
@@ -814,26 +970,55 @@ async fn proxy(
             // 3. PRE-FLIGHT: Select provider BEFORE acting on upgrade
             // This allows us to return 503/504 if no providers are available
             let dest_host = policy::target_host_from_endpoint(&addr);
+            let target_geo = session_data.as_ref().and_then(|session| {
+                if session.target_geo.is_empty() {
+                    None
+                } else {
+                    Some(session.target_geo.as_str())
+                }
+            });
 
             // 2.6 Security: Honeytokens (P4-W13)
             if let Some(token_type) = state.honeytoken.check(dest_host) {
+                let attributed_provider = crate::registry::provider_selection::attribution_node_id(
+                    state.clone(),
+                    &session_id,
+                    is_sticky,
+                    authenticator.clone(),
+                    target_geo,
+                    Some(dest_host),
+                )
+                .await;
+                let provider_id = attributed_provider
+                    .as_deref()
+                    .unwrap_or("unknown_provider");
+                let attribution_label = if attributed_provider.is_some() {
+                    "resolved"
+                } else {
+                    "unknown"
+                };
                 warn!(
-                    "🪤 Honeytoken hit! Session {} attempted to access {:?}",
-                    session_id, token_type
+                    session_id = %session_id,
+                    %provider_id,
+                    ?token_type,
+                    dest = %dest_host,
+                    "Honeytoken hit — routing attribution for audit/slash"
                 );
                 metrics::record_policy_block("honeytoken_hit");
+                metrics::record_honeytoken_hit(attribution_label);
 
                 // Phase 8: Trigger On-Chain Slash (requires `legacy-zk` feature)
                 #[cfg(feature = "legacy-zk")]
                 {
                     let state_cloned = state.clone();
-                    let provider_cloned = "unknown_provider".to_string();
+                    let provider_cloned = provider_id.to_string();
+                    let token_type_cloned = token_type;
                     tokio::spawn(async move {
                         let _ = state_cloned
                             .solana_relayer
                             .trigger_slash(
                                 &provider_cloned,
-                                &format!("Honeytoken Hit: {:?}", token_type),
+                                &format!("Honeytoken Hit: {:?}", token_type_cloned),
                                 500, // Slash 500 PHUBB tokens
                             )
                             .await;
@@ -869,22 +1054,20 @@ async fn proxy(
                     .unwrap());
             }
 
-            let target_geo = session_data.as_ref().and_then(|session| {
-                if session.target_geo.is_empty() {
-                    None
-                } else {
-                    Some(session.target_geo.as_str())
-                }
-            });
-
-            let provider_route = match crate::registry::provider_selection::select_provider_route(
-                state.clone(),
-                &session_id,
-                is_sticky,
-                authenticator.clone(),
-                target_geo,
-                Some(dest_host),
-            )
+            let connect_span =
+                observability::buyer_connect_span(&session_id, &addr);
+            let provider_route = match async {
+                crate::registry::provider_selection::select_provider_route(
+                    state.clone(),
+                    &session_id,
+                    is_sticky,
+                    authenticator.clone(),
+                    target_geo,
+                    Some(dest_host),
+                )
+                .await
+            }
+            .instrument(connect_span)
             .await
             {
                 Ok(Some(route)) => route,
@@ -1021,7 +1204,14 @@ async fn proxy(
 
             // 4. Return 200 OK to establish tunnel, then bridge in background
             let session_type_clone = session_type.clone();
-            tokio::task::spawn(async move {
+            let bridge_session_id = session_id.clone();
+            let bridge_span = observability::buyer_connect_bridge_span(
+                &bridge_session_id,
+                &node_id,
+                &addr,
+            );
+            tokio::task::spawn(
+                async move {
                 match hyper::upgrade::on(req).await {
                     Ok(upgraded) => {
                         let tunnel_state = state.clone();
@@ -1172,7 +1362,9 @@ async fn proxy(
                         metrics::ACTIVE_SESSIONS.dec();
                     }
                 }
-            });
+            }
+                .instrument(bridge_span),
+            );
 
             // Record successful connection latency
             metrics::REQUEST_LATENCY_SECONDS
@@ -1258,6 +1450,33 @@ pub(crate) async fn bridge_to_provider(
     username: String,
     session_data: Option<crate::auth::SessionData>,
     bandwidth_cap: u32, // bytes/sec — tier-specific (B-05)
+) -> std::io::Result<(u64, u64)> {
+    let span = observability::provider_bridge_span(&node_id, &addr);
+    bridge_to_provider_inner(
+        upgraded,
+        addr,
+        control,
+        node_id,
+        state,
+        auth_clone,
+        username,
+        session_data,
+        bandwidth_cap,
+    )
+    .instrument(span)
+    .await
+}
+
+async fn bridge_to_provider_inner(
+    upgraded: hyper::upgrade::Upgraded,
+    addr: String,
+    control: yamux::Control,
+    node_id: String,
+    state: Arc<AppState>,
+    auth_clone: Arc<SessionAuthenticator>,
+    username: String,
+    session_data: Option<crate::auth::SessionData>,
+    bandwidth_cap: u32,
 ) -> std::io::Result<(u64, u64)> {
     use futures_util::{AsyncReadExt, AsyncWriteExt};
 
@@ -1762,14 +1981,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let connection_admission = Arc::new(Semaphore::new(state.config.max_concurrent_connections));
 
+    let use_quic_provider_tunnel = {
+        #[cfg(feature = "quic")]
+        {
+            matches!(
+                state.config.provider_transport,
+                provider_transport::ProviderTransportKind::Quic
+            )
+        }
+        #[cfg(not(feature = "quic"))]
+        {
+            false
+        }
+    };
+
     if state.config.binds_tunnel_listener() {
-        let tunnel_state = state.clone();
-        tokio::spawn(async move {
-            if let Err(e) = tunnel::run_tunnel_server(addr_tunnel, tunnel_state).await {
-                error!("Tunnel server error: {}", e);
-            }
-        });
-        info!("Provider tunnel listening on {}", addr_tunnel);
+        if use_quic_provider_tunnel {
+            info!(
+                port = addr_tunnel,
+                "Provider TCP/yamux tunnel disabled (PROVIDER_TRANSPORT=quic)"
+            );
+        } else {
+            let tunnel_state = state.clone();
+            tokio::spawn(async move {
+                if let Err(e) = tunnel::run_tunnel_server(addr_tunnel, tunnel_state).await {
+                    error!("Tunnel server error: {}", e);
+                }
+            });
+            info!("Provider tunnel listening on {}", addr_tunnel);
+        }
     } else {
         info!(
             edge_mode = ?state.config.edge_mode,
@@ -1779,10 +2019,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     #[cfg(feature = "quic")]
-    if matches!(
-        state.config.provider_transport,
-        provider_transport::ProviderTransportKind::Quic
-    ) {
+    if state.config.binds_tunnel_listener() && use_quic_provider_tunnel {
         let quic_state = state.clone();
         let quic_config = Arc::new(state.config.clone());
         tokio::spawn(async move {
@@ -1795,68 +2032,113 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    let listener = TcpListener::bind(addr).await?;
-    info!("Edge Gateway Proxy listening on http://{}", addr);
+    if ingress::socks5::enabled() && state.config.serves_buyer_connect() {
+        let socks5_addr = ingress::socks5::listen_addr(&state.config.host)?;
+        let socks5_state = state.clone();
+        let socks5_auth = authenticator.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ingress::socks5::run_server(socks5_addr, socks5_state, socks5_auth).await
+            {
+                error!("SOCKS5 ingress error: {}", e);
+            }
+        });
+    } else if ingress::socks5::enabled() {
+        info!(
+            edge_mode = ?state.config.edge_mode,
+            edge_role = ?state.config.edge_role,
+            "SOCKS5 ingress disabled on tunnel tier"
+        );
+    }
+
+    #[cfg(feature = "quic")]
+    if ingress::h3::enabled() && state.config.serves_buyer_connect() {
+        let h3_addr = ingress::h3::listen_addr(&state.config.host)?;
+        let h3_state = state.clone();
+        let h3_auth = authenticator.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ingress::h3::run_server(h3_addr, h3_state, h3_auth).await {
+                error!("HTTP/3 ingress error: {}", e);
+            }
+        });
+    }
+
+    let buyer_tls_acceptor = match tls::buyer_tls_config_from_env() {
+        Some(cfg) => match tls::create_buyer_tls_acceptor(&cfg) {
+            Ok(acceptor) => Some(acceptor),
+            Err(e) => {
+                return Err(format!("BUYER_TLS_ENABLE set but TLS init failed: {e}").into());
+            }
+        },
+        None => None,
+    };
+
+    if let Some(metrics_addr) = state.config.metrics_socket_addr() {
+        let metrics_listener = TcpListener::bind(metrics_addr).await?;
+        let metrics_state = state.clone();
+        tokio::spawn(async move {
+            run_metrics_accept_loop(metrics_listener, metrics_state).await;
+        });
+        info!(
+            "Prometheus metrics listening on http://{}/metrics (METRICS_PORT; not on buyer port)",
+            metrics_addr
+        );
+    }
+
+    let listeners = net_listen::bind_buyer_listeners(addr).await?;
+    if buyer_tls_acceptor.is_some() {
+        info!("Edge Gateway Proxy listening on https://{} (ALPN h2, http/1.1)", addr);
+    } else {
+        info!("Edge Gateway Proxy listening on http://{}", addr);
+    }
+    if listeners.len() > 1 {
+        info!(
+            accept_workers = listeners.len(),
+            "Buyer accept pool (SO_REUSEPORT)"
+        );
+    }
     info!(
         "Buyer connection admission limit: {}",
         state.config.max_concurrent_connections
     );
-    info!("Metrics endpoint available at http://{}/metrics", addr);
-    info!("Health endpoint available at http://{}/health", addr);
-
-    loop {
-        tokio::select! {
-            res = listener.accept() => {
-                match res {
-                    Ok((stream, _)) => {
-                        if pod_drain::is_draining(&state) {
-                            metrics::record_connection_error("pod_draining");
-                            let mut stream = stream;
-                            admission::write_service_unavailable_and_close(&mut stream).await;
-                            continue;
-                        }
-
-                        let permit = match connection_admission.clone().try_acquire_owned() {
-                            Ok(permit) => permit,
-                            Err(_) => {
-                                metrics::record_connection_error("admission_rejected");
-                                let mut stream = stream;
-                                admission::write_service_unavailable_and_close(&mut stream)
-                                    .await;
-                                continue;
-                            }
-                        };
-
-                        let io = TokioIo::new(stream);
-                        let proxy_state = state.clone();
-                        let auth_clone = authenticator.clone();
-
-                        tokio::task::spawn(async move {
-                            let _permit = permit;
-                            let service = service_fn(move |req| {
-                                let s = proxy_state.clone();
-                                let a = auth_clone.clone();
-                                proxy(req, s, a)
-                            });
-
-                            let builder = proxy::http2::make_auto_builder();
-                            if let Err(err) = builder
-                                .serve_connection_with_upgrades(io, service)
-                                .await
-                            {
-                                error!("Error serving connection: {:?}", err);
-                            }
-                        });
-                    }
-                    Err(e) => error!("Accept error: {}", e),
-                }
-            }
-            _ = shutdown_signal() => {
-                info!("Shutting down Edge Gateway — draining active tunnels (max 30s)...");
-                pod_drain::set_draining(&state, true);
-                break;
-            }
+    let mgmt_scheme = if buyer_tls_acceptor.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+    if state.config.metrics_on_separate_port() {
+        if let Some(metrics_addr) = state.config.metrics_socket_addr() {
+            info!(
+                "Metrics on buyer port disabled; scrape http://{}/metrics",
+                metrics_addr
+            );
         }
+    } else {
+        info!(
+            "Metrics endpoint available at {}://{}/metrics",
+            mgmt_scheme, addr
+        );
+    }
+    info!(
+        "Health endpoint available at {}://{}/health",
+        mgmt_scheme, addr
+    );
+
+    let mut accept_tasks = Vec::new();
+    for listener in listeners {
+        accept_tasks.push(tokio::spawn(run_buyer_accept_loop(
+            listener,
+            state.clone(),
+            connection_admission.clone(),
+            authenticator.clone(),
+            buyer_tls_acceptor.clone(),
+        )));
+    }
+
+    shutdown_signal().await;
+    info!("Shutting down Edge Gateway — draining active tunnels (max 30s)...");
+    pod_drain::set_draining(&state, true);
+    for task in accept_tasks {
+        task.abort();
     }
 
     // B-09: Drain active tunnels before exiting.

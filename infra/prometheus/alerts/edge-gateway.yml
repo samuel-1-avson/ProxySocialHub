@@ -1,0 +1,40 @@
+groups:
+  - name: edge_gateway_red
+    rules:
+      - alert: EdgeGatewayDown
+        expr: up{job="edge-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Edge gateway metrics target down
+          description: Prometheus cannot scrape edge-gateway:9090 for 2m.
+
+      - alert: EdgeGatewayNoHealthyProviders
+        expr: edge_gateway_healthy_providers == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: No healthy providers registered
+          description: HEALTHY_PROVIDERS gauge is 0 for 5m (expected briefly after deploy).
+
+      - alert: EdgeGatewayHighAuthFailureRate
+        expr: |
+          sum(rate(edge_gateway_session_auth_failures[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated session auth failures
+          description: More than 1 auth failure/sec (5m rate) for 10m.
+
+      - alert: EdgeGatewayAdmissionRejections
+        expr: |
+          sum(rate(edge_gateway_connection_errors{error_type="admission_rejected"}[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Admission control rejecting connections
+          description: Sustained admission errors — check MAX_CONCURRENT_CONNECTIONS and capacity.

@@ -42,9 +42,7 @@ pub type ClientTcpFd = ();
 /// `hyper::upgrade::Upgraded` does not implement `AsRawFd` today, so we return `None`
 /// and the Linux splice path falls back to the userspace bridge (see `bridge_tracked`).
 #[cfg(unix)]
-pub fn client_tcp_fd_from_upgrade(
-    upgraded: &hyper::upgrade::Upgraded,
-) -> Option<ClientTcpFd> {
+pub fn client_tcp_fd_from_upgrade(upgraded: &hyper::upgrade::Upgraded) -> Option<ClientTcpFd> {
     let _ = upgraded;
     None
 }
@@ -222,7 +220,10 @@ where
         if total - last_reval_total >= revalidate_every {
             last_reval_total = total;
             if !should_continue(stats).await {
-                debug!(total_bytes = total, "Bridge terminated by revalidation callback");
+                debug!(
+                    total_bytes = total,
+                    "Bridge terminated by revalidation callback"
+                );
                 break;
             }
         }
@@ -321,7 +322,10 @@ where
         if total - last_reval_total >= revalidate_every {
             last_reval_total = total;
             if !should_continue(stats).await {
-                debug!(total_bytes = total, "Bridge terminated by revalidation callback");
+                debug!(
+                    total_bytes = total,
+                    "Bridge terminated by revalidation callback"
+                );
                 break;
             }
         }

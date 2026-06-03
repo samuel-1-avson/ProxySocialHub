@@ -16,7 +16,8 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src benches \
     && printf 'fn main() {}\n' > src/main.rs \
     && printf 'fn main() {}\n' > benches/registry_bench.rs \
-    && printf 'fn main() {}\n' > benches/hotpath_bench.rs
+    && printf 'fn main() {}\n' > benches/hotpath_bench.rs \
+    && printf 'fn main() {}\n' > benches/transport_bench.rs
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
     CARGO_HTTP_MULTIPLEXING=false \

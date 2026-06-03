@@ -30,9 +30,6 @@ mod tests {
         let mut buf = [0u8; 256];
         let n = client.read(&mut buf).await.expect("read");
         let body = std::str::from_utf8(&buf[..n]).expect("utf8");
-        assert!(
-            body.contains("503"),
-            "expected 503 response, got: {body:?}"
-        );
+        assert!(body.contains("503"), "expected 503 response, got: {body:?}");
     }
 }
