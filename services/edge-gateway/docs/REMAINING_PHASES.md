@@ -58,10 +58,15 @@ Three buckets before calling edge-gateway v2 production-ready. Decisions on defe
 
 ### (b) Ops proof at scale
 
-- [ ] **10k+ stream load-lab** — `SOAK_CONCURRENT` on dedicated hardware; record in [`P4_TRANSPORT_SOAK.md`](P4_TRANSPORT_SOAK.md)
-- [ ] **24h soak** — blueprint §12/§15; runbook TBD on ops host
-- [ ] **SLO baseline** — run [`scripts/p0-record-baseline.ps1`](../scripts/p0-record-baseline.ps1); compare to blueprint §8.2
-- [ ] **Alert verification** — Prometheus rules loaded; confirm firing in staging (Grafana contact points optional)
+- [ ] **10k+ stream load-lab** — scheduled on ops hardware ([`V2_SIGNOFF.md`](V2_SIGNOFF.md) § Ops scale)
+- [ ] **24h soak** — scheduled on ops hardware (same)
+- [x] **SLO baseline** — [`P0_BASELINE.md`](P0_BASELINE.md) 2026-06-03 (post-restart idle + after 20×45s soak)
+- [x] **Alert verification** — `edge_gateway_red` rules loaded; scrape `edge-gateway:9090` up (2026-06-03)
+
+### v2 sign-off
+
+- [x] **Dev + code path** — [`V2_SIGNOFF.md`](V2_SIGNOFF.md) (2026-06-03)
+- [ ] **Production scale gate** — complete 10k + 24h soaks on ops hardware, then close remaining (b) items above
 
 ### (c) Deferred items · decided (ADR 0004)
 
