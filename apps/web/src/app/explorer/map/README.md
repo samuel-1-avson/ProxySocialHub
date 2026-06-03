@@ -13,8 +13,9 @@ Shared map engine: `@/components/map/ProxyMapCanvas.tsx` (also used by `/marketp
 
 ## Data sources
 
-- **Nodes:** `GET /v1/explorer/nodes/geo` + `WS /v1/explorer/ws` (`node_update`)
-- **Listings layer (2D):** `GET /v1/marketplace/map` via `getMarketplaceMapPoints` (proof fields, optional bbox)
+- **Nodes (globe or 2D without listings):** `GET /v1/explorer/nodes/geo` + `WS /v1/explorer/ws` (`node_update`)
+- **2D with listings layer:** single `GET /v1/marketplace/map?include_nodes=true` (nodes + listings, optional `bbox`) — skips duplicate geo fetch
+- **Listings only on 2D:** proof fields via `ListingSlaBadge`; bbox uses “Search this area”
 - **Buy in-map:** `NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=true` → `BuyListingModal` on purchasable pins
 
 Canonical purchase UX remains `/marketplace/map`.
