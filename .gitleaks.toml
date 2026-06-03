@@ -1,0 +1,32 @@
+title = "ProxyHubb gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "CI test credentials and documented placeholders"
+paths = [
+  '''\.github/workflows/proxyhubb-ci\.yml''',
+  '''\.github/workflows/security\.yml''',
+  '''config/docker/provider\.compose\.env\.example''',
+  '''\.env\.example''',
+  '''\.env\.docker\.example''',
+  '''infra/oracle-keypair\.json\.example''',
+  '''docs/reports/SECURITY_AUDIT\.md''',
+  '''docs/SECURITY_GATES\.md''',
+]
+regexes = [
+  '''test-jwt-secret-for-ci-min-32-chars-long''',
+  '''test-session-secret-for-ci-min-32-chars''',
+  '''test-token-hmac-secret-for-ci-32-chars''',
+  '''your-64-char-hex-provider-token''',
+  '''your-base58-ed25519-seed-or-keypair''',
+  '''PROVIDER_PRIVATE_KEY=00\.\.00''',
+]
+
+[[rules]]
+id = "proxyhubb-solana-keypair-json"
+description = "Solana 64-byte keypair JSON array in repo"
+regex = '''\[\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,'''
+path = '''\.json$'''
+tags = ["key", "solana"]

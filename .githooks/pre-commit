@@ -1,0 +1,45 @@
+#!/bin/sh
+# Pre-commit: block new/modified secrets; allow deletions (e.g. git rm --cached keypairs).
+
+set -e
+
+echo "🔍 Running pre-commit security checks..."
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+FOUND_ISSUES=0
+STAGED_ADD_MOD="$(git diff --cached --diff-filter=AM --name-only)"
+
+echo "Checking for .env files..."
+if echo "$STAGED_ADD_MOD" | grep -E '^\.env' | grep -v '\.example$' | grep -q .; then
+    echo "${RED}❌ ERROR: Attempting to commit .env file!${NC}"
+    FOUND_ISSUES=1
+fi
+
+echo "Checking for private keys..."
+if echo "$STAGED_ADD_MOD" | grep -E '\.(key|pem)$' | grep -q .; then
+    echo "${RED}❌ ERROR: Attempting to commit private key!${NC}"
+    FOUND_ISSUES=1
+fi
+
+echo "Checking for keypair files..."
+if echo "$STAGED_ADD_MOD" | grep -E 'keypair.*\.json$' | grep -v '\.example$' | grep -q .; then
+    echo "${RED}❌ ERROR: Attempting to commit keypair file!${NC}"
+    FOUND_ISSUES=1
+fi
+
+if [ -x "scripts/pre-commit-security.sh" ]; then
+    sh scripts/pre-commit-security.sh || FOUND_ISSUES=1
+fi
+
+if [ "$FOUND_ISSUES" -eq 1 ]; then
+    echo ""
+    echo "${RED}❌ Commit blocked due to security issues${NC}"
+    exit 1
+fi
+
+echo "${GREEN}✅ Pre-commit checks passed${NC}"
+exit 0

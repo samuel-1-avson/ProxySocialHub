@@ -7,7 +7,10 @@
 | **[PROJECT_STATE.md](./PROJECT_STATE.md)** | Canonical status: decentralization foundation, web/marketplace progress, risks, next steps |
 | **[reports/DECENTRALIZATION_STATUS_REPORT.md](./reports/DECENTRALIZATION_STATUS_REPORT.md)** | Saved decentralization layer report (D1–D4) for reviews |
 | **[reports/IMPROVEMENTS_AND_ROADMAP.md](./reports/IMPROVEMENTS_AND_ROADMAP.md)** | Saved achievements list and remaining work |
+| **[reports/COMPREHENSIVE_SYSTEM_ANALYSIS_REPORT.md](./reports/COMPREHENSIVE_SYSTEM_ANALYSIS_REPORT.md)** | Full architecture, subsystems, ecosystem, pros/cons, and workflows |
 | **[STAGING_ENFORCE_RUNBOOK.md](./STAGING_ENFORCE_RUNBOOK.md)** | Staging enforce, registry, D4 settlement, and live devnet E2E checklist |
+| **[SECURITY_GATES.md](./SECURITY_GATES.md)** | Pre-push secret/keypair checks and CI gates |
+| **[reports/SECURITY_AUDIT.md](./reports/SECURITY_AUDIT.md)** | Secrets audit findings and remediation (2026-06-03) |
 
 ## Decentralization & providers
 
