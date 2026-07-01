@@ -25,7 +25,8 @@ test.describe('marketplace listing detail buy', () => {
             waitUntil: 'domcontentloaded',
         });
 
-        await expect(page.getByRole('heading', { name: mockListingDetail().title as string })).toBeVisible({
+        const expectedTitle = mockListingDetail().catalog_product?.title || mockListingDetail().title;
+        await expect(page.getByRole('heading', { name: expectedTitle as string })).toBeVisible({
             timeout: 15000,
         });
 

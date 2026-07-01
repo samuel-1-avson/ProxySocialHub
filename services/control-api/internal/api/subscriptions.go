@@ -341,7 +341,7 @@ func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
 		switch limitType {
 		case "listings":
 			var count int64
-			db.DB.Model(&models.ProxyListing{}).Where("seller_id = ?", userID).Count(&count)
+			db.DB.Model(&models.ProxyListing{}).Where("seller_id = ? AND status != ?", userID, models.ListingStatusDeleted).Count(&count)
 			freeListingLimit := int64(2) // hard fallback if no free plan row exists
 			if freeLimitErr == nil && freePlan.ListingLimit > 0 {
 				freeListingLimit = int64(freePlan.ListingLimit)
@@ -362,7 +362,7 @@ func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
 			return true, nil // Unlimited
 		}
 		var count int64
-		db.DB.Model(&models.ProxyListing{}).Where("seller_id = ?", userID).Count(&count)
+		db.DB.Model(&models.ProxyListing{}).Where("seller_id = ? AND status != ?", userID, models.ListingStatusDeleted).Count(&count)
 		return count < int64(subscription.Plan.ListingLimit), nil
 	case "api_access":
 		return subscription.Plan.Features.APIAccess, nil

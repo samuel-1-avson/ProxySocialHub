@@ -54,6 +54,36 @@ test.describe('marketplace browse grid buy', () => {
         await expect(page.getByTestId('marketplace-facet-chips')).toBeVisible();
     });
 
+    test('requests catalog embed on listings index', async ({ page }) => {
+        await stubMarketplaceBrowse(page);
+
+        const listingsRequest = page.waitForRequest(
+            (request) => {
+                if (request.method() !== 'GET') return false;
+                try {
+                    const url = new URL(request.url());
+                    const isIndex =
+                        url.pathname === '/v1/listings' || url.pathname === '/api/v1/listings';
+                    return isIndex && url.searchParams.get('include') === 'product';
+                } catch {
+                    return false;
+                }
+            },
+            { timeout: 45_000 },
+        );
+
+        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
+        await listingsRequest;
+    });
+
+    test('shows catalog product badge on browse cards', async ({ page }) => {
+        await stubMarketplaceBrowse(page);
+
+        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
+        await expect(page.getByTestId('catalog-product-badge').first()).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('Premium Austin Pool').first()).toBeVisible();
+    });
+
     test('passes country filter to listings API', async ({ page }) => {
         await enableE2EMockBuy(page, BASE_URL);
         await stubMarketplaceBrowse(page);
