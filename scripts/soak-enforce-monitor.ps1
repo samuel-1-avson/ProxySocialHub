@@ -56,7 +56,7 @@ function Get-ServiceStatus {
         $stopped = docker ps -a --filter "name=$ContainerName" --format "{{.Status}}" 2>$null
         if ($stopped) { return "(not running) $($stopped | Select-Object -First 1)" }
     }
-    return "(not running — start with .\scripts\bootstrap-provider-docker.ps1 -StartProvider)"
+    return "(not running - start with .\scripts\bootstrap-provider-docker.ps1 -StartProvider)"
 }
 
 $apiBase = Resolve-ApiBaseUrl -Override $ApiBaseUrl
@@ -119,7 +119,7 @@ foreach ($path in $policyPaths) {
     }
 }
 if (-not $policyOk) {
-    Write-Host "proof-policy unavailable on all paths — rebuild control-api:" -ForegroundColor Yellow
+    Write-Host "proof-policy unavailable on all paths - rebuild control-api:" -ForegroundColor Yellow
     Write-Host "  docker compose build control-api" -ForegroundColor DarkGray
     Write-Host "  docker compose up -d --force-recreate control-api" -ForegroundColor DarkGray
 }
