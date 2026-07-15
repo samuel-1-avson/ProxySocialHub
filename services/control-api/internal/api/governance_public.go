@@ -10,6 +10,8 @@ import (
 // RegisterGovernancePublicRoutes exposes read-only governance readiness (no auth).
 func RegisterGovernancePublicRoutes(r *gin.RouterGroup) {
 	r.GET("/governance/execution-readiness", getGovernanceExecutionReadiness)
+	r.GET("/governance/proposals", getProposals)
+	r.GET("/governance/proposals/:id", getProposal)
 }
 
 func getGovernanceExecutionReadiness(c *gin.Context) {

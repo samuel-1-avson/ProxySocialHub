@@ -26,9 +26,7 @@ import (
 
 // RegisterGovernanceRoutes registers governance routes
 func RegisterGovernanceRoutes(rg *gin.RouterGroup) {
-	rg.GET("/governance/proposals", getProposals)
 	rg.POST("/governance/proposals", createProposal)
-	rg.GET("/governance/proposals/:id", getProposal)
 	rg.POST("/governance/proposals/:id/vote/build", buildGovernanceVoteTx)
 	rg.POST("/governance/proposals/:id/vote/relay", relayGovernanceVoteTx)
 	rg.POST("/governance/proposals/:id/vote", castVote)
@@ -614,8 +612,8 @@ func castVote(c *gin.Context) {
 			}
 		case err == nil:
 			if err := tx.Model(&existingVote).Updates(map[string]interface{}{
-				"choice": req.Choice,
-				"power":  float64(voteOnChain.VotingPower),
+				"vote":   req.Choice,
+				"weight": float64(voteOnChain.VotingPower),
 			}).Error; err != nil {
 				return err
 			}

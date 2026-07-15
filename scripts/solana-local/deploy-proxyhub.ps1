@@ -8,7 +8,7 @@ $programDir = Join-Path $repoRoot "services\solana-programs\proxyhub\target\depl
 $oracleKey = Join-Path $repoRoot "infra\oracle-keypair.json"
 
 if (-not (Test-Path (Join-Path $programDir "proxyhub.so"))) {
-    throw "Missing proxyhub.so — run: cd services/solana-programs/proxyhub && anchor build"
+    throw "Missing proxyhub.so - run: cd services/solana-programs/proxyhub; anchor build"
 }
 if (-not (Test-Path $oracleKey)) {
     throw "Missing $oracleKey (see infra/README.md)"

@@ -1,10 +1,13 @@
 export const ROUTES = {
     home: "/",
     marketplace: "/marketplace",
+    network: "/network",
     marketplaceMap: "/marketplace/map",
+    marketplaceCatalog: "/marketplace/manage/products",
     marketplaceCreate: "/marketplace/create",
     marketplaceManage: "/marketplace/manage",
     marketplaceOrders: "/marketplace/orders",
+    marketplaceOrder: (id: string) => `/marketplace/orders/${id}`,
     marketplaceSaved: "/marketplace/saved",
     marketplaceAgents: "/marketplace/agents",
     marketplaceAgentInstances: "/marketplace/agents/instances",
@@ -17,11 +20,13 @@ export const ROUTES = {
     dashboardMonitoring: "/dashboard/monitoring",
     dashboardProfile: "/dashboard/profile",
     dashboardProxy: "/dashboard/proxy",
+    dashboardOrder: (id: string) => `/dashboard/orders/${id}`,
     dashboardSecurity: "/dashboard/security",
     dashboardSessions: "/dashboard/sessions",
     dashboardUsage: "/dashboard/usage",
     dashboardTrustless: "/dashboard/trustless",
     dashboardWallet: "/dashboard/wallet",
+    dashboardBecomeProvider: "/dashboard/become-provider",
     dashboardProvider: "/dashboard/provider",
     dashboardProviderAnalytics: "/dashboard/provider/analytics",
     dashboardProviderNodes: "/dashboard/provider/nodes",
@@ -80,6 +85,20 @@ export const ROUTES = {
 } as const;
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
+export type StaticAppRoute = Exclude<AppRoute, (...args: never[]) => string>;
+export type StaticRouteKey = {
+    [K in keyof typeof ROUTES]: (typeof ROUTES)[K] extends string ? K : never;
+}[keyof typeof ROUTES];
+
+export function isStaticAppRoute(route: AppRoute): route is StaticAppRoute {
+    return typeof route === "string";
+}
+
+export function getStaticRouteEntries(): Array<[keyof typeof ROUTES, StaticAppRoute]> {
+    return Object.entries(ROUTES).filter((entry): entry is [keyof typeof ROUTES, StaticAppRoute] =>
+        isStaticAppRoute(entry[1]),
+    );
+}
 
 export function isNavigationRouteActive(pathname: string | null | undefined, route: string): boolean {
     if (!pathname) return false;
@@ -90,7 +109,8 @@ export function isNavigationRouteActive(pathname: string | null | undefined, rou
     if (currentPath === targetRoute) return true;
     if (targetRoute === "/" || !currentPath.startsWith(`${targetRoute}/`)) return false;
 
-    const hasMoreSpecificRegisteredRoute = Object.values(ROUTES)
+    const hasMoreSpecificRegisteredRoute = getStaticRouteEntries()
+        .map(([, candidate]) => candidate)
         .filter(candidate => candidate !== targetRoute && candidate.startsWith(`${targetRoute}/`))
         .some(candidate => {
             const normalizedCandidate = candidate.replace(/\/$/, "");
@@ -108,7 +128,9 @@ export interface RouteLabel {
 export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
     [ROUTES.marketplace]: { label: "Marketplace" },
-    [ROUTES.marketplaceMap]: { label: "Buy on map", breadcrumb: "Map" },
+    [ROUTES.network]: { label: "Network", breadcrumb: "Network" },
+    [ROUTES.marketplaceMap]: { label: "Marketplace map", breadcrumb: "Map" },
+    [ROUTES.marketplaceCatalog]: { label: "Catalog products", breadcrumb: "Catalog" },
     [ROUTES.marketplaceCreate]: { label: "Create Listing", breadcrumb: "Create" },
     [ROUTES.marketplaceManage]: { label: "My Listings", breadcrumb: "Listings" },
     [ROUTES.marketplaceAgents]: { label: "Rent agents", breadcrumb: "Agents" },
@@ -127,6 +149,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.dashboardUsage]: { label: "Usage & Billing", breadcrumb: "Usage" },
     [ROUTES.dashboardTrustless]: { label: "Usage proofs", breadcrumb: "Proofs" },
     [ROUTES.dashboardWallet]: { label: "Wallet" },
+    [ROUTES.dashboardBecomeProvider]: { label: "Become a Provider", breadcrumb: "Apply" },
     [ROUTES.dashboardProvider]: { label: "Provider" },
     [ROUTES.dashboardProviderAnalytics]: { label: "Provider Analytics", breadcrumb: "Analytics" },
     [ROUTES.dashboardProviderNodes]: { label: "Node Health", breadcrumb: "Nodes" },
@@ -154,7 +177,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.communityMessages]: { label: "Messages" },
     [ROUTES.communityBeta]: { label: "Beta program", breadcrumb: "Beta" },
     [ROUTES.explorer]: { label: "Explorer" },
-    [ROUTES.explorerMap]: { label: "Network map", breadcrumb: "Map" },
+    [ROUTES.explorerMap]: { label: "Infrastructure map", breadcrumb: "Map" },
     [ROUTES.explorerNodes]: { label: "Nodes" },
     [ROUTES.explorerNodeCompare]: { label: "Compare Nodes", breadcrumb: "Compare" },
     [ROUTES.explorerTransactions]: { label: "Transactions" },

@@ -114,7 +114,7 @@ func applyCollectionScope(slug string) (*gorm.DB, error) {
 	case "editors-pick":
 		return discovery.BaseQuery(db.DB).
 			Where("proxy_listings.quality_score >= ?", 85).
-			Where("(proxy_listings.orders_count > 0 OR proxy_listings.is_priority = ?)", true), nil
+			Where("proxy_listings.orders_count > 0"), nil
 	default:
 		return nil, fmt.Errorf("unknown collection")
 	}
@@ -123,7 +123,7 @@ func applyCollectionScope(slug string) (*gorm.DB, error) {
 func applyCollectionOrder(slug string, query *gorm.DB) *gorm.DB {
 	switch slug {
 	case "featured":
-		return query.Order("proxy_listings.is_priority DESC, proxy_listings.priority_rank ASC, proxy_listings.quality_score DESC")
+		return query.Order("proxy_listings.quality_score DESC, proxy_listings.orders_count DESC, proxy_listings.created_at DESC")
 	case "verified":
 		return query.Order("proxy_listings.quality_score DESC, proxy_listings.created_at DESC")
 	case "editors-pick":

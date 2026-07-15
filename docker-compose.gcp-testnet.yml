@@ -1,0 +1,54 @@
+# GCP Phase A — single Compute Engine VM overlay (lean testnet).
+#
+# Usage (on the VM, after config/gcp-testnet.env.example → .env):
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.testnet.yml \
+#     -f docker-compose.gcp-testnet.yml \
+#     up -d --build
+#
+# Optional observability (Prometheus/Grafana/redis-exporter):
+#   ... --profile observability up -d
+#
+# See docs/GCP_TESTNET_PHASE_A.md
+
+services:
+  control-api:
+    environment:
+      - APP_ENV=staging
+      - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-false}
+      - PROXYHUB_ALLOW_DEV_LISTING_SIGN=${PROXYHUB_ALLOW_DEV_LISTING_SIGN:-false}
+      - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-true}
+      - INDEXER_INDEX_ALL=${INDEXER_INDEX_ALL:-false}
+      - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  web:
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  edge-gateway:
+    ports:
+      - "${EDGE_GATEWAY_PORT:-8090}:8090"
+      - "${EDGE_GATEWAY_TUNNEL_PORT:-3128}:3128"
+      - "${EDGE_GATEWAY_TUNNEL_UDP_PORT:-3128}:3128/udp"
+
+  postgres:
+    ports: []
+
+  redis:
+    ports: []
+
+  redis-exporter:
+    profiles: [observability]
+
+  prometheus:
+    profiles: [observability]
+
+  grafana:
+    profiles: [observability]
+
+  zk-prover:
+    profiles: [zk]

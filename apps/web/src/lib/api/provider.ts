@@ -11,6 +11,7 @@ export interface CLIDownload {
     platform: string;
     arch: string;
     version: string;
+    package_type?: 'daemon' | 'wrapper' | 'bundle';
     download_url: string;
     file_size: number;
     checksum: string;
@@ -29,7 +30,49 @@ export interface ProviderToken {
     is_active: boolean;
     last_used: string;
     expires_at?: string;
+    expires_in_days?: number;
+    expires_soon?: boolean;
+    is_expired?: boolean;
     created_at: string;
+}
+
+export type ProviderReadinessStatus = 'ready' | 'attention' | 'action_required';
+export type ProviderReadinessCheckStatus = 'complete' | 'attention' | 'action_required';
+
+export interface ProviderReadinessCheck {
+    id: string;
+    label: string;
+    status: ProviderReadinessCheckStatus;
+    blocking: boolean;
+    message: string;
+    action_label?: string;
+    action_href?: string;
+}
+
+export interface ProviderReadinessSummary {
+    active_tokens: number;
+    nodes: number;
+    online_nodes: number;
+    proof_verified_nodes: number;
+    payout_wallet_nodes: number;
+    active_listings: number;
+    last_heartbeat_at?: string;
+    proof_mode: string;
+    ready_for_traffic: boolean;
+    ready_for_marketplace: boolean;
+    ready_for_payouts: boolean;
+}
+
+export interface ProviderReadinessResponse {
+    status: ProviderReadinessStatus;
+    summary: ProviderReadinessSummary;
+    checks: ProviderReadinessCheck[];
+    next?: {
+        check_id: string;
+        action_label: string;
+        action_href: string;
+        message: string;
+    };
 }
 
 export interface CreateTokenRequest {
@@ -68,11 +111,22 @@ export interface ProviderApplicationEligibility {
     current_sol?: number;
 }
 
+export interface ProviderDetectedGeo {
+    ip?: string;
+    isp: string;
+    location: string;
+    city?: string;
+    region?: string;
+    country?: string;
+    detected: boolean;
+}
+
 export interface ProviderApplicationResponse {
     message: string;
     application: ProviderApplication;
     auto_approved?: boolean;
     eligibility?: ProviderApplicationEligibility;
+    detected_geo?: ProviderDetectedGeo;
 }
 
 export interface ProviderStatusResponse {
@@ -80,6 +134,7 @@ export interface ProviderStatusResponse {
     application?: ProviderApplication;
     auto_approved?: boolean;
     eligibility?: ProviderApplicationEligibility;
+    detected_geo?: ProviderDetectedGeo;
 }
 
 export interface KYCStatusResponse {
@@ -111,9 +166,9 @@ export async function getLatestCLI(platform?: string, arch?: string): Promise<CL
  * Download CLI binary
  * Returns a URL that can be used to download the binary
  */
-export function getCLIDownloadUrl(platform: string, arch: string, version?: string): string {
+export function getCLIDownloadUrl(platform: string, arch: string, version?: string, packageType = 'daemon'): string {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-    let url = `${apiBase}/v1/cli/download?platform=${platform}&arch=${arch}`;
+    let url = `${apiBase}/v1/cli/download?platform=${platform}&arch=${arch}&package_type=${packageType}`;
     if (version) {
         url += `&version=${version}`;
     }
@@ -158,6 +213,10 @@ export async function getProviderTokens(): Promise<{ tokens: ProviderToken[] }> 
     return apiGet<{ tokens: ProviderToken[] }>('/v1/provider/tokens');
 }
 
+export async function getProviderReadiness(): Promise<ProviderReadinessResponse> {
+    return apiGet<ProviderReadinessResponse>('/v1/provider/readiness');
+}
+
 /**
  * Create a new provider token
  * WARNING: The raw token is ONLY returned once in the response
@@ -171,6 +230,10 @@ export async function createProviderToken(data: CreateTokenRequest): Promise<Cre
  */
 export async function revokeProviderToken(tokenId: string): Promise<{ message: string }> {
     return apiDelete<{ message: string }>(`/v1/provider/tokens/${tokenId}`);
+}
+
+export async function rotateProviderToken(tokenId: string): Promise<CreateTokenResponse> {
+    return apiPost<CreateTokenResponse>(`/v1/provider/tokens/${tokenId}/rotate`, {});
 }
 
 // ============ Provider Application & KYC API ============
@@ -223,6 +286,9 @@ export interface NodeRegistration {
     uptime_percent: number;
     latency_ms?: number;
     active_connections: number;
+    latest_heartbeat_verified?: boolean;
+    latest_heartbeat_signer?: string;
+    latest_heartbeat_verification_error?: string;
     created_at: string;
 }
 
@@ -389,4 +455,56 @@ export async function sendNodeHeartbeat(
     metrics?: { latency_ms?: number; active_connections?: number; uptime_percent?: number }
 ): Promise<{ status: string; server_time: number }> {
     return apiPost(`/v1/provider/nodes/${nodeId}/heartbeat`, metrics ?? {});
+}
+
+// ============ Provider service configurations ============
+
+export interface ProviderServiceNodeSummary {
+    ip_address?: string;
+    country_code?: string;
+    quality_score?: number;
+}
+
+export interface ProviderServiceConfig {
+    id: string;
+    node_id: string;
+    enable_http: boolean;
+    enable_https: boolean;
+    enable_socks5: boolean;
+    enable_ssh_tunnel: boolean;
+    max_bandwidth_mbps: number;
+    priority_tier: 'standard' | 'priority' | 'enterprise';
+    allowed_countries: string[];
+    blocked_countries: string[];
+    max_concurrent_connections: number;
+    max_daily_bandwidth_gb: number;
+    captcha_solving_enabled: boolean;
+    javascript_render_enabled: boolean;
+    browser_fingerprint_enabled: boolean;
+    screenshot_enabled: boolean;
+    price_multiplier_http: number;
+    price_multiplier_socks5: number;
+    is_active: boolean;
+    node?: ProviderServiceNodeSummary;
+}
+
+export interface ProviderServiceTemplate {
+    name: string;
+    description: string;
+    config: Partial<ProviderServiceConfig>;
+}
+
+export async function getProviderServiceConfigs(): Promise<ProviderServiceConfig[]> {
+    return apiGet<ProviderServiceConfig[]>('/v1/provider/services');
+}
+
+export async function getProviderServiceTemplates(): Promise<{ templates: ProviderServiceTemplate[] }> {
+    return apiGet<{ templates: ProviderServiceTemplate[] }>('/v1/provider/services/templates');
+}
+
+export async function updateProviderServiceConfig(
+    nodeId: string,
+    updates: Partial<ProviderServiceConfig>
+): Promise<ProviderServiceConfig> {
+    return apiPut<ProviderServiceConfig>(`/v1/provider/services/${nodeId}`, updates);
 }

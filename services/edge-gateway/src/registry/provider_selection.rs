@@ -28,6 +28,7 @@ pub async fn select_provider_route(
     authenticator: Arc<SessionAuthenticator>,
     target_geo: Option<&str>,
     target_domain: Option<&str>,
+    pinned_node_id: Option<&str>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let span = crate::observability::provider_select_span(session_id, target_domain);
     select_provider_route_inner(
@@ -37,6 +38,7 @@ pub async fn select_provider_route(
         authenticator,
         target_geo,
         target_domain,
+        pinned_node_id,
     )
     .instrument(span)
     .await
@@ -49,6 +51,7 @@ async fn select_provider_route_inner(
     authenticator: Arc<SessionAuthenticator>,
     target_geo: Option<&str>,
     target_domain: Option<&str>,
+    pinned_node_id: Option<&str>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let node_id = match select_provider_node_id(
         state.clone(),
@@ -57,6 +60,7 @@ async fn select_provider_route_inner(
         authenticator.clone(),
         target_geo,
         target_domain,
+        pinned_node_id,
     )
     .await?
     {
@@ -215,6 +219,26 @@ async fn pick_from_directory(
 }
 
 /// Local-registry-first node id selection (sticky / shard / ML / random).
+async fn pinned_node_available(
+    state: Arc<AppState>,
+    pinned_node_id: &str,
+) -> std::io::Result<bool> {
+    if state.registry.get_by_id(pinned_node_id).is_some() {
+        return Ok(true);
+    }
+    if !state.config.edge_mode.uses_multipod_directory() {
+        return Ok(false);
+    }
+    match state.provider_directory.lookup(pinned_node_id).await {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => Ok(false),
+        Err(e) => {
+            tracing::warn!(node_id = %pinned_node_id, error = %e, "Pinned node directory lookup failed");
+            Ok(false)
+        }
+    }
+}
+
 async fn select_provider_node_id(
     state: Arc<AppState>,
     session_id: &str,
@@ -222,7 +246,20 @@ async fn select_provider_node_id(
     authenticator: Arc<SessionAuthenticator>,
     target_geo: Option<&str>,
     target_domain: Option<&str>,
+    pinned_node_id: Option<&str>,
 ) -> std::io::Result<Option<String>> {
+    if let Some(pinned) = pinned_node_id.filter(|id| !id.is_empty()) {
+        if pinned_node_available(state.clone(), pinned).await? {
+            return Ok(Some(pinned.to_string()));
+        }
+        tracing::warn!(
+            node_id = %pinned,
+            session_id = %session_id,
+            "Pinned marketplace provider node is not available"
+        );
+        return Ok(None);
+    }
+
     let sticky_ttl_secs = state.config.sticky_ttl_secs;
 
     let needs_rotation = if !is_sticky && !session_id.is_empty() {
@@ -321,6 +358,7 @@ pub async fn attribution_node_id(
     authenticator: Arc<SessionAuthenticator>,
     target_geo: Option<&str>,
     target_domain: Option<&str>,
+    pinned_node_id: Option<&str>,
 ) -> Option<String> {
     select_provider_node_id(
         state,
@@ -329,6 +367,7 @@ pub async fn attribution_node_id(
         authenticator,
         target_geo,
         target_domain,
+        pinned_node_id,
     )
     .await
     .ok()

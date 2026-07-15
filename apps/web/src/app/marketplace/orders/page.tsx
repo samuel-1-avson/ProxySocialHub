@@ -5,6 +5,7 @@ import { cancelOrder, getOrders, marketplaceKeys, type Order } from "@/lib/api/m
 import { getErrorMessage } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2, Package } from "lucide-react";
 
@@ -103,7 +104,7 @@ export default function MarketplaceOrdersPage() {
                             <div>
                                 <h2 className="font-bold">{order.listing?.title ?? "Marketplace order"}</h2>
                                 <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                                    {order.bandwidth_gb} GB · ${orderTotal(order).toFixed(2)} USD
+                                    {order.bandwidth_gb} GB · {orderTotal(order).toFixed(6)} SOL
                                 </p>
                             </div>
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5">
@@ -126,12 +127,13 @@ export default function MarketplaceOrdersPage() {
                                     Cancel
                                 </button>
                             )}
-                            {order.status === "active" && (
+                            {(order.status === "active" || order.status === "completed") && (
                                 <Link
-                                    href="/dashboard/proxy"
+                                    href={ROUTES.dashboardOrder(order.id)}
                                     className="px-3 py-1.5 rounded-lg border border-purple-500/20 text-purple-400 text-[10px] font-bold uppercase tracking-widest"
+                                    data-testid={`order-credentials-link-${order.id}`}
                                 >
-                                    Open proxy
+                                    View credentials
                                 </Link>
                             )}
                         </div>

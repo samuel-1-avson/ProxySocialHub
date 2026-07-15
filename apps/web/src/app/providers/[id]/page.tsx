@@ -11,6 +11,8 @@ import {
 import Link from 'next/link';
 import { getListings, type Listing } from '@/lib/api/marketplace';
 import { getPublicProfile, type UserPublicProfile } from '@/lib/api/profile';
+import { fetchListingSocialContext } from '@/lib/api/listing-social';
+import { FollowFeedHint, FollowProviderButton } from '@/components/social/FollowProviderButton';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Loader2 } from 'lucide-react';
 
@@ -19,6 +21,7 @@ export default function ProviderProfilePage() {
     const id = params.id as string;
     const [profile, setProfile] = useState<UserPublicProfile | null>(null);
     const [listings, setListings] = useState<Listing[]>([]);
+    const [providerFollowed, setProviderFollowed] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -30,7 +33,14 @@ export default function ProviderProfilePage() {
                     getListings({ seller_id: id })
                 ]);
                 setProfile(profileData);
-                setListings(listingsData.listings || []);
+                const sellerListings = listingsData.listings || [];
+                setListings(sellerListings);
+                if (sellerListings[0]?.id) {
+                    const social = await fetchListingSocialContext(sellerListings[0].id);
+                    setProviderFollowed(Boolean(social?.is_followed));
+                } else {
+                    setProviderFollowed(false);
+                }
             } catch (err) {
                 console.error("Profile load error:", err);
                 setError("Failed to load provider profile.");
@@ -120,7 +130,18 @@ export default function ProviderProfilePage() {
                     </div>
 
                     <div className="w-full md:w-auto flex flex-col gap-3">
-                        <button className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(147,51,234,0.3)]">
+                        <FollowProviderButton
+                            providerId={profile.id}
+                            providerName={profile.display_name || profile.username}
+                            isFollowed={providerFollowed}
+                            onFollowChange={setProviderFollowed}
+                            className="w-full justify-center"
+                        />
+                        <FollowFeedHint />
+                        <button
+                            type="button"
+                            className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(147,51,234,0.3)]"
+                        >
                             Contact Provider
                         </button>
                     </div>
@@ -209,7 +230,7 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
             <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase">Rate</span>
-                    <span className="text-sm font-black text-emerald-400">${(listing.price_per_gb || 0.05).toFixed(3)}<span className="text-[10px] text-muted-foreground">/GB</span></span>
+                    <span className="text-sm font-black text-emerald-400">{(listing.price_per_gb || 0.05).toFixed(6)} SOL<span className="text-[10px] text-muted-foreground">/GB</span></span>
                 </div>
                 <Link href={`/marketplace/${listing.id}`} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground">
                     <ExternalLink size={16} />

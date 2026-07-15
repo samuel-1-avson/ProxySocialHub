@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { Activity, Wifi, Server, DollarSign, AlertCircle, RefreshCw, Zap, User, ExternalLink, Globe, ShieldCheck, Terminal } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +19,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 export default function DashboardPage() {
     const { user } = useAuth();
     const { isNewUser, isProvider, role, isConsumer } = useRole();
+    const searchParams = useSearchParams();
+    const accessError = searchParams.get("error");
 
     const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useQuery({
         queryKey: ['analytics-overview'],
@@ -46,6 +49,8 @@ export default function DashboardPage() {
     const dailyUsage = dailyUsageData?.data || [];
     const loading = analyticsLoading || walletLoading || usageLoading;
     const error = !user ? null : (!analytics && !analyticsLoading) ? 'Failed to load dashboard data. Please check your connection.' : null;
+
+    const showProviderAccessHint = accessError === "provider_required" && !isProvider;
 
     if (isNewUser) {
         return <NewUserDashboard />;
@@ -92,6 +97,23 @@ export default function DashboardPage() {
                     <StatusBadge status="online" label="Network Online" pulse />
                 </div>
             </div>
+
+            {showProviderAccessHint && (
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
+                    <div className="flex items-center gap-3">
+                        <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+                        <p className="text-sm text-amber-200/90">
+                            Provider tools unlock after you apply and are approved. Start on the provider hub — CLI, nodes, and earnings stay locked until then.
+                        </p>
+                    </div>
+                    <Link
+                        href={ROUTES.dashboardBecomeProvider}
+                        className="px-5 py-2.5 bg-amber-500 text-amber-950 font-bold rounded-xl text-sm whitespace-nowrap hover:bg-amber-400 transition-colors"
+                    >
+                        Apply to become a provider
+                    </Link>
+                </div>
+            )}
 
             {/* Role-Based Action Cards */}
             <div className="space-y-4">
@@ -262,7 +284,7 @@ export default function DashboardPage() {
                         </div>
                     </div>
                     <Link 
-                        href="/dashboard/provider/cli" 
+                        href={ROUTES.dashboardBecomeProvider} 
                         className="px-8 py-4 bg-primary text-primary-foreground font-black font-mono text-[11px] uppercase tracking-widest rounded-2xl shadow-[0_10px_20px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 transition-all"
                     >
                         Become a Provider

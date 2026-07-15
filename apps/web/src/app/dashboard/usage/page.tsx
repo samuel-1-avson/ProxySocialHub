@@ -24,6 +24,10 @@ interface SessionWithUsage extends Session {
     usage?: UsageStats;
 }
 
+function usageCostSOL(usage?: UsageStats): number {
+    return Number(usage?.cost_sol ?? 0);
+}
+
 export default function UsagePage() {
     const [sessions, setSessions] = useState<SessionWithUsage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -57,7 +61,7 @@ export default function UsagePage() {
             const totals = (sessionsWithUsage as SessionWithUsage[]).reduce(
                 (acc, s) => ({
                     gb: acc.gb + (s.usage?.gb_used || 0),
-                    cost: acc.cost + (s.usage?.cost_ghs || 0),
+                    cost: acc.cost + usageCostSOL(s.usage),
                 }),
                 { gb: 0, cost: 0 }
             );
@@ -130,7 +134,7 @@ export default function UsagePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
                     { label: "Total Data Flow", value: `${Number(totalUsage.gb || 0).toFixed(3)}`, unit: "GB", icon: Database, color: "text-primary", bg: "bg-primary/5" },
-                    { label: "Accrued Settlement", value: `₵${Number(totalUsage.cost || 0).toFixed(2)}`, icon: Coins, color: "text-emerald-400", bg: "bg-emerald-400/5" },
+                    { label: "Accrued Settlement", value: `${Number(totalUsage.cost || 0).toFixed(6)} SOL`, icon: Coins, color: "text-emerald-400", bg: "bg-emerald-400/5" },
                     { label: "Active Connections", value: activeSessionsCount, icon: Server, color: "text-amber-400", bg: "bg-amber-400/5" },
                 ].map((stat, i) => (
                     <motion.div key={i} variants={itemVariants} whileHover={{ y: -5 }}>
@@ -229,7 +233,7 @@ export default function UsagePage() {
                                             <div className="w-full md:w-1/4 text-right">
                                                 <div className="text-[9px] font-mono font-black text-muted-foreground uppercase mb-1 opacity-40">Accrued Flow</div>
                                                 <div className="text-xl font-black font-mono text-primary tracking-tighter">
-                                                    ₵{Number(usage?.cost_ghs || 0).toFixed(2)}
+                                                    {usageCostSOL(usage).toFixed(6)} SOL
                                                 </div>
                                             </div>
                                         </GlassCard>

@@ -12,13 +12,17 @@ import { useRole } from "@/hooks/useRole";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { AlertCircle, ArrowLeft, Check, Loader2, Shield, X } from "lucide-react";
+import { ForumReportsQueue } from "@/components/admin/ForumReportsQueue";
+import { AlertCircle, ArrowLeft, Check, Loader2, MessageSquare, Shield, X } from "lucide-react";
 import { getErrorMessage } from "@/lib/utils";
+
+type AdminTab = "listings" | "forum";
 
 export default function DashboardAdminModerationPage() {
     const { isAuthenticated } = useAuth();
     const { isAdmin } = useRole();
     const queryClient = useQueryClient();
+    const [tab, setTab] = useState<AdminTab>("listings");
     const [page, setPage] = useState(1);
     const limit = 20;
 
@@ -72,7 +76,7 @@ export default function DashboardAdminModerationPage() {
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return (
-        <div className="max-w-4xl mx-auto px-4 py-10 space-y-8" data-testid="admin-listing-moderation">
+        <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
             <div>
                 <Link
                     href="/dashboard"
@@ -80,13 +84,45 @@ export default function DashboardAdminModerationPage() {
                 >
                     <ArrowLeft size={12} /> Dashboard
                 </Link>
+                <h1 className="text-3xl font-black tracking-tighter uppercase italic">
+                    Moderation <span className="text-primary">console</span>
+                </h1>
+            </div>
+
+            <div className="flex gap-2 border-b border-white/10 pb-2">
+                <button
+                    type="button"
+                    onClick={() => setTab("listings")}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                        tab === "listings"
+                            ? "bg-primary/10 text-primary border border-primary/30"
+                            : "text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                    <Shield size={14} /> Listings
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setTab("forum")}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                        tab === "forum"
+                            ? "bg-primary/10 text-primary border border-primary/30"
+                            : "text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                    <MessageSquare size={14} /> Forum reports
+                </button>
+            </div>
+
+            {tab === "forum" ? (
+                <ForumReportsQueue enabled={isAuthenticated && isAdmin} />
+            ) : (
+            <div data-testid="admin-listing-moderation" className="space-y-8">
+            <div>
                 <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
                     <Shield size={14} />
-                    Marketplace moderation
+                    Marketplace listings
                 </div>
-                <h1 className="text-3xl font-black tracking-tighter uppercase italic">
-                    Pending <span className="text-primary">listings</span>
-                </h1>
                 <p className="text-sm text-muted-foreground mt-2">
                     Approve listings before they appear on browse, search, and map when{" "}
                     <code className="text-xs bg-white/5 px-1 rounded">MARKETPLACE_LISTING_MODERATION=enforce</code>{" "}
@@ -129,7 +165,7 @@ export default function DashboardAdminModerationPage() {
                                 {listing.description}
                             </p>
                             <p className="text-[10px] font-mono text-primary/80 mt-2">
-                                {listing.country} · {listing.proxy_type} · {listing.price_per_gb} USD/GB
+                                {listing.country} · {listing.proxy_type} · {Number(listing.price_per_gb || 0).toFixed(6)} SOL/GB
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -187,6 +223,8 @@ export default function DashboardAdminModerationPage() {
                         Next
                     </button>
                 </div>
+            )}
+            </div>
             )}
         </div>
     );

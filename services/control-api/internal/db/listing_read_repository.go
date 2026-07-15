@@ -12,7 +12,7 @@ import (
 
 func (r *marketplaceRepository) GetListingDetail(ctx context.Context, id uuid.UUID) (*domain.ListingEntity, *domain.SellerPublicProfile, error) {
 	var listing models.ProxyListing
-	if err := DB.WithContext(ctx).Preload("Seller").First(&listing, "id = ?", id).Error; err != nil {
+	if err := GetReadDB().WithContext(ctx).Preload("Seller").First(&listing, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, domain.ErrListingNotFound
 		}
@@ -35,7 +35,7 @@ func (r *marketplaceRepository) IncrementListingViews(ctx context.Context, id uu
 
 func (r *marketplaceRepository) IsListingSaved(ctx context.Context, userID, listingID uuid.UUID) (bool, error) {
 	var saved models.SavedListing
-	err := DB.WithContext(ctx).
+	err := GetReadDB().WithContext(ctx).
 		Where("user_id = ? AND listing_id = ?", userID, listingID).
 		First(&saved).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -65,7 +65,7 @@ func (r *marketplaceRepository) SearchListings(ctx context.Context, query string
 
 	if ftsErr != nil {
 		like := "%" + query + "%"
-		if err := DB.WithContext(ctx).
+		if err := GetReadDB().WithContext(ctx).
 			Preload("Seller").
 			Where("status = ? AND (title ILIKE ? OR description ILIKE ? OR country ILIKE ? OR isp ILIKE ?)",
 				models.ListingStatusActive, like, like, like, like).
@@ -80,7 +80,7 @@ func (r *marketplaceRepository) SearchListings(ctx context.Context, query string
 			ids[i] = l.ID
 		}
 		listings = nil
-		if err := DB.WithContext(ctx).Preload("Seller").Where("id IN ?", ids).Find(&listings).Error; err != nil {
+		if err := GetReadDB().WithContext(ctx).Preload("Seller").Where("id IN ?", ids).Find(&listings).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -93,10 +93,10 @@ func (r *marketplaceRepository) GetFeaturedListings(ctx context.Context, limit i
 		limit = 12
 	}
 	var listings []models.ProxyListing
-	if err := DB.WithContext(ctx).
+	if err := GetReadDB().WithContext(ctx).
 		Preload("Seller").
 		Where("status = ? AND quality_score > ?", models.ListingStatusActive, 70).
-		Order("is_priority DESC, priority_rank ASC, quality_score DESC").
+		Order("quality_score DESC, orders_count DESC, created_at DESC").
 		Limit(limit).
 		Find(&listings).Error; err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (r *marketplaceRepository) GetSellerListings(ctx context.Context, sellerID 
 	offset := (page - 1) * limit
 
 	var total int64
-	base := DB.WithContext(ctx).Model(&models.ProxyListing{}).
+	base := GetReadDB().WithContext(ctx).Model(&models.ProxyListing{}).
 		Where("seller_id = ? AND status != ?", sellerID, models.ListingStatusDeleted)
 	if err := base.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -137,12 +137,12 @@ func (r *marketplaceRepository) GetSavedListings(ctx context.Context, userID uui
 	offset := (page - 1) * limit
 
 	var total int64
-	if err := DB.WithContext(ctx).Model(&models.SavedListing{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
+	if err := GetReadDB().WithContext(ctx).Model(&models.SavedListing{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var saved []models.SavedListing
-	if err := DB.WithContext(ctx).
+	if err := GetReadDB().WithContext(ctx).
 		Preload("Listing").
 		Preload("Listing.Seller").
 		Where("user_id = ?", userID).

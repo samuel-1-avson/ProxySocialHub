@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -407,6 +409,49 @@ func AutoReleaseExpiredEscrows() {
 
 		for _, escrow := range claimed {
 			now := time.Now()
+			var order models.Order
+			if err := db.DB.First(&order, "id = ?", escrow.OrderID).Error; err != nil {
+				log.Printf("[escrow] AutoReleaseExpiredEscrows order lookup error for escrow %s: %v", escrow.ID, err)
+				continue
+			}
+
+			var settleTxHash string
+			if order.EscrowPDA != "" && order.SellerWallet != "" {
+				oracle := solanaClient.GetOracleClient()
+				if oracle == nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows oracle client not available, skipping escrow %s", escrow.ID)
+					continue
+				}
+
+				escrowPDA, parseErr := sol.PublicKeyFromBase58(order.EscrowPDA)
+				sellerKey, parseErr2 := sol.PublicKeyFromBase58(order.SellerWallet)
+				buyerKey, parseErr3 := sol.PublicKeyFromBase58(order.BuyerWallet)
+				if parseErr != nil || parseErr2 != nil || parseErr3 != nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid key for order %s: pda=%v seller=%v buyer=%v", order.ID, parseErr, parseErr2, parseErr3)
+					continue
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				var txErr error
+				settleTxHash, txErr = oracle.SettleEscrow(ctx, "api.escrow.auto_release", solanaClient.SettleEscrowParams{
+					EscrowPDA:       escrowPDA,
+					Seller:          sellerKey,
+					Buyer:           buyerKey,
+					BandwidthUsedGB: order.BandwidthLimitGB,
+				})
+				cancel()
+				if txErr != nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement failed for order %s: %v", order.ID, txErr)
+					alerts.Send(
+						alerts.Warning,
+						"Auto-release escrow settlement failed",
+						fmt.Sprintf("order=%s escrow=%s error=%v", order.ID, escrow.ID, txErr),
+					)
+					continue // Preserve safety: do NOT credit the seller in DB if on-chain failed
+				}
+				log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement succeeded for order %s: txHash=%s", order.ID, settleTxHash)
+			}
+
 			if txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 				var sellerWallet models.Wallet
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -428,18 +473,25 @@ func AutoReleaseExpiredEscrows() {
 					Description:  "Escrow auto-released after 7 days",
 					CreatedAt:    now,
 				}
+				if settleTxHash != "" {
+					ledger.TxHash = settleTxHash
+				}
 				if err := tx.Create(&ledger).Error; err != nil {
 					return err
 				}
-				var order models.Order
+				var lockedOrder models.Order
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-					First(&order, "id = ?", escrow.OrderID).Error; err != nil {
+					First(&lockedOrder, "id = ?", escrow.OrderID).Error; err != nil {
 					return err
 				}
-				if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+				if err := models.ValidateOrderStatusTransition(lockedOrder.Status, models.OrderStatusCompleted); err != nil {
 					return err
 				}
-				return tx.Model(&order).Update("status", models.OrderStatusCompleted).Error
+				updates := map[string]interface{}{"status": models.OrderStatusCompleted}
+				if settleTxHash != "" {
+					updates["tx_signature"] = settleTxHash
+				}
+				return tx.Model(&lockedOrder).Updates(updates).Error
 			}); txErr != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows credit error for escrow %s: %v", escrow.ID, txErr)
 			}

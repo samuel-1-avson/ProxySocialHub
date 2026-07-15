@@ -288,6 +288,12 @@ export function formatSuccessRate(value?: number | null, decimals = 1): string {
 }
 
 // Lightweight type returned by GET /nodes/geo — only what the map engine needs
+export interface MapGeoMeta {
+    source: string;
+    display_label: string;
+    estimated: boolean;
+}
+
 export interface NodeGeoPoint {
     node_id: string;
     lat: number;
@@ -300,11 +306,23 @@ export interface NodeGeoPoint {
     region: string;
     city?: string;
     isp?: string;
+    geo_source?: string;
+    geo?: MapGeoMeta;
 }
 
 export interface NodeGeoResponse {
     nodes: NodeGeoPoint[];
     total: number;
+}
+
+/** Payload for WebSocket `node_update` events (matches control-api explorer_ws.NodeUpdate). */
+export interface ExplorerNodeWsUpdate {
+    node_id: string;
+    is_active: boolean;
+    uptime_percent: number;
+    active_sessions: number;
+    lat: number;
+    lon: number;
 }
 
 /** Fetches the minimal geo dataset used exclusively by the map engine. */

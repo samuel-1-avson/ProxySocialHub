@@ -406,9 +406,7 @@ impl Config {
         let provider_transport = crate::provider_transport::ProviderTransportKind::from_env();
 
         if metrics_port == Some(port) {
-            panic!(
-                "METRICS_PORT ({port}) must differ from PORT (buyer proxy listener)"
-            );
+            panic!("METRICS_PORT ({port}) must differ from PORT (buyer proxy listener)");
         }
 
         Self {

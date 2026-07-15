@@ -4,33 +4,28 @@
  * Node Map Page — Proxy Explorer
  *
  * Data flow:
- *  1. GET /v1/explorer/nodes/geo  → provider nodes (2D/3D)
- *  2. GET /v1/marketplace/map     → listing pins with proofs (when layer on)
- *  3. WS  /v1/explorer/ws         → node_update events
- *  4. Optional in-map buy         → NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED
+ *  1. GET /v1/marketplace/map?include_nodes=true → server-resolved nodes + listings
+ *  2. WS  /v1/explorer/ws                        → node_update events
+ *  3. Optional in-map buy                        → NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED
  */
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
-import { getNodeGeo, type NodeGeoPoint } from '@/lib/services/explorer';
-import { useExplorerWS } from '@/lib/hooks/useExplorerWS';
-import type { ExplorerListingPin, MapNodeUpdate } from '@/components/map/types';
+import type { NodeGeoPoint } from '@/lib/services/explorer';
+import { useMapPoints } from '@/lib/hooks/useMapPoints';
+import { useMapLinks } from '@/lib/hooks/useMapLinks';
+import { globeTopologyEnabled } from '@/lib/feature-flags';
+import type { ExplorerListingPin } from '@/components/map/types';
+import { geoSourceLabel } from '@/lib/map/geo-labels';
 import {
     getListing,
-    getMarketplaceMapPoints,
-    marketplaceKeys,
     type Listing,
     type MarketplaceMapFilters,
 } from '@/lib/api/marketplace';
-import {
-    marketplacePointToListingPin,
-    marketplacePointToNode,
-    type MarketplaceListingMapPin,
-} from '@/lib/map/marketplace-map-adapters';
+import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 import { ROUTES } from '@/lib/navigation/routes';
 import { explorerMapBuyEnabled } from '@/lib/navigation/explorer-nav';
@@ -65,81 +60,6 @@ const LeafletMap = dynamic(() => import('@/components/map/ProxyMapCanvas'), {
     ),
 });
 
-// ─── Fallback coordinates (used only when backend lat/lon = 0) ────────────────
-// These place nodes at country / region centres. Real coordinates come from
-// the GeoIP backfill worker once it has resolved an IP.
-
-const COUNTRY_COORDS: Record<string, [number, number]> = {
-    'US': [38, -97], 'United States': [38, -97], 'USA': [38, -97],
-    'CA': [56, -106], 'Canada': [56, -106],
-    'MX': [23, -102], 'Mexico': [23, -102],
-    'GB': [52, -1], 'United Kingdom': [52, -1], 'UK': [52, -1],
-    'DE': [51, 10], 'Germany': [51, 10],
-    'FR': [46, 2], 'France': [46, 2],
-    'NL': [52, 5], 'Netherlands': [52, 5],
-    'SE': [60, 15], 'Sweden': [60, 15],
-    'NO': [64, 15], 'Norway': [64, 15],
-    'FI': [64, 26], 'Finland': [64, 26],
-    'CH': [47, 8], 'Switzerland': [47, 8],
-    'PL': [52, 20], 'Poland': [52, 20],
-    'UA': [49, 32], 'Ukraine': [49, 32],
-    'TR': [39, 35], 'Turkey': [39, 35],
-    'ES': [40, -4], 'Spain': [40, -4],
-    'IT': [42, 12], 'Italy': [42, 12],
-    'PT': [39, -8], 'Portugal': [39, -8],
-    'RO': [45, 25], 'Romania': [45, 25],
-    'CZ': [50, 15], 'Czech Republic': [50, 15],
-    'AT': [47, 14], 'Austria': [47, 14],
-    'BE': [51, 4], 'Belgium': [51, 4],
-    'GR': [39, 22], 'Greece': [39, 22],
-    'DK': [56, 10], 'Denmark': [56, 10],
-    'IE': [53, -8], 'Ireland': [53, -8],
-    'HU': [47, 20], 'Hungary': [47, 20],
-    'RU': [60, 90], 'Russia': [60, 90],
-    'JP': [35, 135], 'Japan': [35, 135],
-    'SG': [1, 104], 'Singapore': [1, 104],
-    'HK': [22, 114], 'Hong Kong': [22, 114],
-    'KR': [37, 127], 'South Korea': [37, 127],
-    'IN': [20, 77], 'India': [20, 77],
-    'CN': [35, 103], 'China': [35, 103],
-    'AU': [-25, 133], 'Australia': [-25, 133],
-    'NZ': [-40.9, 174.9], 'New Zealand': [-40.9, 174.9],
-    'BR': [-10, -55], 'Brazil': [-10, -55],
-    'AR': [-34, -64], 'Argentina': [-34, -64],
-    'ZA': [-29, 25], 'South Africa': [-29, 25],
-    'NG': [9, 8], 'Nigeria': [9, 8],
-    'AE': [24, 54], 'UAE': [24, 54],
-    'IL': [31, 35], 'Israel': [31, 35],
-    'ID': [-5, 120], 'Indonesia': [-5, 120],
-    'TH': [13, 101], 'Thailand': [13, 101],
-    'VN': [14, 108], 'Vietnam': [14, 108],
-    'MY': [3, 109], 'Malaysia': [3, 109],
-    'PH': [13, 122], 'Philippines': [13, 122],
-};
-
-const REGION_COORDS: Record<string, [number, number]> = {
-    'us-east': [39, -77], 'us-west': [37, -122], 'eu-west': [51, 0],
-    'eu-central': [50, 10], 'ap-southeast': [1, 104], 'ap-northeast': [35, 135],
-    'sa-east': [-23, -46], 'af-south': [-29, 25], 'me-south': [24, 54],
-    'north-america': [45, -100], 'europe': [50, 10], 'asia': [25, 90],
-    'oceania': [-25, 133], 'south-america': [-15, -60], 'africa': [5, 20],
-};
-
-function resolveCoords(n: NodeGeoPoint): NodeGeoPoint {
-    if (Math.abs(n.lat) > 0.01 || Math.abs(n.lon) > 0.01) return n;
-    if (n.country) {
-        const c = COUNTRY_COORDS[n.country];
-        if (c) return { ...n, lat: c[0], lon: c[1] };
-    }
-    if (n.region) {
-        const lc = n.region.toLowerCase();
-        for (const [k, v] of Object.entries(REGION_COORDS)) {
-            if (lc.includes(k) || k.includes(lc)) return { ...n, lat: v[0], lon: v[1] };
-        }
-    }
-    return n; // no coords — still included, supercluster will filter lat/lon ~0
-}
-
 // ─── Animations ───────────────────────────────────────────────────────────────
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } };
@@ -160,76 +80,53 @@ export default function NodeMapPage() {
     const [mapMode, setMapMode] = useState<'globe' | 'map'>('map'); // Default to Map (2D) for "Wide" feel
     const [searchQuery, setSearchQuery] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-    const [wsConnected, setWsConnected] = useState(false);
     const [viewport, setViewport] = useState<MapBBox | null>(null);
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
     const mapBuyEnabled = explorerMapBuyEnabled();
-    /** Listings render on Leaflet only (W12 — globe is nodes-only). */
+    /** Listings layer on 2D canvas (Leaflet). */
     const listingsPlottedOnMap = showListingsLayer && mapMode === 'map';
-    /** 2D + listings: one GET /v1/marketplace/map?include_nodes=true (nodes + listings). */
-    const unified2DMap = listingsPlottedOnMap;
-    const geoQueryEnabled = mapMode === 'globe' || (mapMode === 'map' && !showListingsLayer);
 
     const toggleListingsLayer = useCallback(() => {
-        setShowListingsLayer((on) => {
-            if (!on && mapMode === 'globe') {
-                setMapMode('map');
-                return true;
-            }
-            return !on;
-        });
-    }, [mapMode]);
-
-    // Accumulate WS node_update events; flushed to LeafletMap as a batch
-    const pendingUpdatesRef = useRef<MapNodeUpdate[]>([]);
-    const [liveUpdates, setLiveUpdates] = useState<MapNodeUpdate[]>([]);
+        setShowListingsLayer((on) => !on);
+    }, []);
 
     useEffect(() => { setMounted(true); }, []);
-
-    // ── Fetch lightweight geo data ──
-    const { data: geoData, isLoading: geoLoading, error, refetch } = useQuery({
-        queryKey: ['nodes-geo', showActiveOnly, showValidatorsOnly],
-        queryFn: () => getNodeGeo(showActiveOnly, showValidatorsOnly),
-        enabled: geoQueryEnabled,
-        refetchInterval: 60_000,   // background refresh every 60s
-        staleTime: 15_000,
-        retry: 3,
-    });
 
     const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
     const mapListingFilters = useMemo<MarketplaceMapFilters>(() => ({
         purchasable_only: false,
-        include_nodes: unified2DMap,
-        active_nodes_only: unified2DMap && showActiveOnly,
+        include_nodes: true,
+        active_nodes_only: showActiveOnly,
+        validator: showValidatorsOnly ? true : undefined,
         bbox: bboxParam,
-    }), [bboxParam, unified2DMap, showActiveOnly]);
+    }), [bboxParam, showActiveOnly, showValidatorsOnly]);
 
-    const { data: marketplaceMapData, isFetching: mapListingsFetching, refetch: refetchMapListings } = useQuery({
-        queryKey: marketplaceKeys.map(mapListingFilters),
-        queryFn: () => getMarketplaceMapPoints(mapListingFilters),
-        enabled: listingsPlottedOnMap,
-        staleTime: 30_000,
+    const {
+        nodes: mapNodes,
+        listingPins,
+        isLoading,
+        isFetching: mapFetching,
+        error,
+        refetch: refetchMap,
+        liveUpdates,
+        wsConnected,
+        data: marketplaceMapData,
+    } = useMapPoints({
+        filters: mapListingFilters,
+        enabled: mounted,
+        showListings: showListingsLayer,
+        live: true,
         refetchInterval: searchBBox ? false : 60_000,
     });
 
-    const mapNodes = useMemo((): NodeGeoPoint[] | null => {
-        if (!unified2DMap || !marketplaceMapData?.points) return null;
-        return marketplaceMapData.points
-            .filter((p) => p.kind === 'node')
-            .map(marketplacePointToNode);
-    }, [unified2DMap, marketplaceMapData?.points]);
-
-    const isLoading = unified2DMap ? mapListingsFetching && !marketplaceMapData : geoLoading;
-
-    const listingPins = useMemo((): MarketplaceListingMapPin[] => {
-        const raw = marketplaceMapData?.points ?? [];
-        return raw
-            .filter(p => p.kind === 'listing')
-            .map(marketplacePointToListingPin)
-            .filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
-    }, [marketplaceMapData?.points]);
+    const topologyFlagOn = globeTopologyEnabled();
+    const { links: topologyLinks, topologyAvailable } = useMapLinks({
+        enabled: mounted && mapMode === 'globe' && topologyFlagOn,
+        live: mounted && mapMode === 'globe' && topologyFlagOn,
+        refetchInterval: 60_000,
+    });
 
     const areaSearchStale = useMemo(() => {
         if (!viewport) return false;
@@ -248,50 +145,12 @@ export default function NodeMapPage() {
     }, []);
 
     useEffect(() => {
-        if (geoData && !isLoading) setLastUpdated(new Date());
-    }, [geoData, isLoading]);
+        if (isLoading) return;
+        if (marketplaceMapData) setLastUpdated(new Date());
+    }, [marketplaceMapData, isLoading]);
 
-    // Flush batched node_update events every 250ms (avoids re-render per WS message)
-    useEffect(() => {
-        if (!mounted) return;
-        const id = setInterval(() => {
-            if (pendingUpdatesRef.current.length === 0) return;
-            const batch = pendingUpdatesRef.current.splice(0);
-            setLiveUpdates(prev => [...prev.slice(-200), ...batch]);
-        }, 250);
-        return () => clearInterval(id);
-    }, [mounted]);
-
-    // ── WebSocket — subscribe only to node updates ──
-    useExplorerWS({
-        enabled: mounted,
-        topics: ['nodes'],
-        onOpen: useCallback(() => setWsConnected(true), []),
-        onNodeUpdate: useCallback((data: any) => {
-            pendingUpdatesRef.current.push({
-                node_id: data.node_id,
-                is_active: data.is_active,
-                uptime_percent: data.uptime_percent,
-                active_sessions: data.active_sessions,
-                lat: data.lat,
-                lon: data.lon,
-            });
-        }, []),
-        onInitial: useCallback(() => {
-            setWsConnected(true);
-        }, []),
-    });
-
-    // ── Resolve coords + apply filters ──
     const nodes = useMemo(() => {
-        const baseNodes = mapNodes ?? geoData?.nodes ?? [];
-        let list = baseNodes.map(resolveCoords);
-        if (showValidatorsOnly) {
-            list = list.filter((n) => n.is_validator);
-        }
-        if (showActiveOnly && !unified2DMap) {
-            list = list.filter((n) => n.is_active);
-        }
+        let list = mapNodes;
         if (selectedRegion !== 'all') {
             list = list.filter(n =>
                 n.region === selectedRegion || n.country === selectedRegion
@@ -307,7 +166,7 @@ export default function NodeMapPage() {
             );
         }
         return list;
-    }, [mapNodes, geoData?.nodes, showValidatorsOnly, showActiveOnly, unified2DMap, selectedRegion, searchQuery]);
+    }, [mapNodes, selectedRegion, searchQuery]);
 
     const totalActive = nodes.filter(n => n.is_active).length;
     const totalValidator = nodes.filter(n => n.is_validator).length;
@@ -328,15 +187,18 @@ export default function NodeMapPage() {
     }, [nodes, selectedRegion]);
 
     // ── Region breakdown ──
+    const regionBreakdownSource = mapNodes;
+
     const regionBreakdown = useMemo(() => {
         const acc: Record<string, number> = {};
-        const source = mapNodes ?? geoData?.nodes ?? [];
-        for (const n of source) {
+        for (const n of regionBreakdownSource) {
             const k = n.region || n.country || 'Unknown';
             acc[k] = (acc[k] || 0) + 1;
         }
         return Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    }, [mapNodes, geoData?.nodes]);
+    }, [regionBreakdownSource]);
+
+    const regionBreakdownTotal = regionBreakdownSource.length || 1;
 
     const handleSelectNode = useCallback((node: NodeGeoPoint) => {
         setSelectedNode(node);
@@ -441,23 +303,28 @@ export default function NodeMapPage() {
                         <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
                             {mapMode === 'globe'
                                 ? showListingsLayer
-                                    ? 'Node distribution on WebGL globe · marketplace listings use 2D map'
+                                    ? 'Nodes and marketplace listings on WebGL globe · checkout on 2D or marketplace map'
                                     : 'Live global relay node distribution · WebGL 3D globe'
                                 : 'High-resolution network topology · 2D interactive view'}
                         </p>
                     </div>
                     <div className="flex gap-3 flex-wrap">
-                        {[
+                        {([
                             { label: 'Total', value: nodes.length, color: 'text-white' },
                             { label: 'Active', value: totalActive, color: 'text-emerald-400' },
                             { label: 'Validators', value: totalValidator, color: 'text-purple-400' },
                             { label: 'Plotted', value: mappedCount, color: 'text-primary' },
-                            ...(listingsPlottedOnMap
-                                ? [{ label: 'Listings', value: listingPins.length, color: 'text-emerald-400' }]
+                            ...(showListingsLayer
+                                ? [{
+                                    label: 'Listings',
+                                    value: listingPins.length,
+                                    color: 'text-emerald-400',
+                                    testId: 'explorer-map-stat-listings',
+                                }]
                                 : []),
-                        ].map(s => (
+                        ] as Array<{ label: string; value: number; color: string; testId?: string }>).map(s => (
                             <GlassCard key={s.label} className="!p-4 border-white/5 bg-white/[0.01] rounded-2xl text-center min-w-[72px]">
-                                <div className={`text-xl font-black ${s.color}`}>{s.value}</div>
+                                <div className={`text-xl font-black ${s.color}`} data-testid={s.testId}>{s.value}</div>
                                 <div className="text-[8px] font-black text-white/30 uppercase tracking-widest mt-0.5">{s.label}</div>
                             </GlassCard>
                         ))}
@@ -473,8 +340,12 @@ export default function NodeMapPage() {
                     <div className={`flex items-center gap-2 ${wsConnected ? 'text-blue-400' : 'text-white/20'}`}>
                         <Zap size={9} /> {wsConnected ? 'WS Connected' : 'WS Connecting…'}
                     </div>
-                    {lastUpdated && <span className="text-white/20">Updated {lastUpdated.toLocaleTimeString()}</span>}
-                    <button onClick={() => refetch()} className="flex items-center gap-1.5 text-white/20 hover:text-primary transition-colors">
+                    {lastUpdated && (
+                        <span className="text-white/20" data-testid="explorer-map-updated">
+                            Updated {lastUpdated.toLocaleTimeString()}
+                        </span>
+                    )}
+                    <button onClick={() => refetchMap()} className="flex items-center gap-1.5 text-white/20 hover:text-primary transition-colors">
                         <RefreshCw size={10} /> Refresh
                     </button>
                 </div>
@@ -526,7 +397,7 @@ export default function NodeMapPage() {
                                     { color: 'bg-emerald-500', label: 'Active' },
                                     { color: 'bg-purple-500', label: 'Validator' },
                                     { color: 'bg-rose-500', label: 'Offline' },
-                                    ...(listingsPlottedOnMap ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
+                                    ...(showListingsLayer ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
                                 ].map(l => (
                                     <div key={l.label} className="flex items-center gap-1.5">
                                         <div className={`w-2 h-2 rounded-full ${l.color}`} />
@@ -545,10 +416,15 @@ export default function NodeMapPage() {
                                             nodes={nodes}
                                             onSelectNode={handleSelectNode}
                                             selectedNodeId={selectedNode?.node_id}
+                                            listingPins={showListingsLayer ? listingPins : []}
+                                            onSelectListing={handleSelectListing}
+                                            selectedListingId={selectedListing?.listing_id}
                                             showHeatmap={showHeatmap}
                                             mapStyle={mapStyle}
                                             focusBounds={focusBounds}
                                             liveUpdates={liveUpdates}
+                                            topologyLinks={topologyFlagOn ? topologyLinks : []}
+                                            topologyAvailable={topologyFlagOn && topologyAvailable}
                                         />
                                     ) : (
                                         <LeafletMap
@@ -568,32 +444,28 @@ export default function NodeMapPage() {
                             )}
 
                             {mapMode === 'globe' && showListingsLayer && (
-                                <div
-                                    data-testid="explorer-map-listings-2d-only"
-                                    className="absolute top-4 right-4 z-[1000] max-w-xs px-4 py-3 rounded-2xl bg-[#0a0a15]/90 border border-emerald-500/30 backdrop-blur-sm shadow-xl"
-                                >
+                                <div className="absolute top-4 right-4 z-[1000] max-w-xs px-4 py-3 rounded-2xl bg-[#0a0a15]/90 border border-emerald-500/30 backdrop-blur-sm shadow-xl">
                                     <p className="text-[9px] font-black text-emerald-300 uppercase tracking-widest leading-relaxed">
-                                        Marketplace listings are shown on the 2D map only.
+                                        Emerald pins are marketplace listings. Use 2D map or marketplace map to buy.
                                     </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setMapMode('map')}
-                                        className="mt-2 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80"
+                                    <Link
+                                        href={ROUTES.marketplaceMap}
+                                        className="mt-2 inline-block text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80"
                                     >
-                                        Switch to 2D map →
-                                    </button>
+                                        Open marketplace map →
+                                    </Link>
                                 </div>
                             )}
 
-                            {mapMode === 'map' && showListingsLayer && viewport && (areaSearchStale || !searchBBox) && (
+                            {mapMode === 'map' && viewport != null && (areaSearchStale || !searchBBox) ? (
                                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex gap-2">
                                     <button
                                         type="button"
                                         onClick={searchThisArea}
-                                        disabled={mapListingsFetching}
+                                        disabled={mapFetching}
                                         className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/30 shadow-lg disabled:opacity-50"
                                     >
-                                        {mapListingsFetching ? (
+                                        {mapFetching ? (
                                             <Loader2 size={12} className="animate-spin" />
                                         ) : (
                                             <Search size={12} />
@@ -610,7 +482,7 @@ export default function NodeMapPage() {
                                         </button>
                                     )}
                                 </div>
-                            )}
+                            ) : null}
 
                             {/* Engine Toggle Floating Button */}
                             <div className="absolute bottom-6 left-6 z-[1000] flex gap-2">
@@ -637,18 +509,18 @@ export default function NodeMapPage() {
                             </div>
 
                             {/* Error overlay */}
-                            {error && (
+                            {error != null ? (
                                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 px-5 py-3 bg-[#0a0a15]/90 border border-rose-500/40 rounded-2xl backdrop-blur-sm shadow-xl">
                                     <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />
                                     <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest whitespace-nowrap">API Unavailable</span>
-                                    <button onClick={() => refetch()} className="ml-2 px-2 py-1 bg-rose-500/15 border border-rose-500/30 rounded-lg text-[8px] font-black text-rose-400 uppercase tracking-wider hover:bg-rose-500/25 transition-all">
+                                    <button onClick={() => refetchMap()} className="ml-2 px-2 py-1 bg-rose-500/15 border border-rose-500/30 rounded-lg text-[8px] font-black text-rose-400 uppercase tracking-wider hover:bg-rose-500/25 transition-all">
                                         Retry
                                     </button>
                                 </div>
-                            )}
+                            ) : null}
 
                             {/* Empty state */}
-                            {!isLoading && !error && nodes.length === 0 && (
+                            {!isLoading && error == null && nodes.length === 0 ? (
                                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 px-6 py-4 bg-[#0a0a15]/90 border border-white/10 rounded-2xl backdrop-blur-sm text-center max-w-xs">
                                     <Globe size={20} className="text-white/20" />
                                     <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">
@@ -664,7 +536,7 @@ export default function NodeMapPage() {
                                         </button>
                                     )}
                                 </div>
-                            )}
+                            ) : null}
 
                             {isLoading && (
                                 <div className="absolute top-4 right-4 z-[1000] flex items-center gap-2 px-3 py-2 bg-[#0a0a15]/80 border border-white/10 rounded-xl backdrop-blur-sm">
@@ -711,10 +583,10 @@ export default function NodeMapPage() {
                             </div>
                             <h2 className="text-sm font-black text-white leading-tight">{selectedListing.title}</h2>
                             <p className="text-[9px] text-white/40 uppercase tracking-widest">
-                                {selectedListing.country || '—'} · ${selectedListing.price_per_gb.toFixed(2)}/GB
-                                {selectedListing.estimated && (
-                                    <span className="text-amber-400/80"> · est. location</span>
-                                )}
+                                {selectedListing.country || '—'} · {selectedListing.price_per_gb.toFixed(6)} SOL/GB
+                            </p>
+                            <p className="text-[8px] text-white/30 uppercase tracking-widest">
+                                {geoSourceLabel(selectedListing as MarketplaceListingMapPin)}
                             </p>
                             <ListingSlaBadge
                                 uptimePercent={selectedListing.uptime_percent ?? 0}
@@ -837,14 +709,9 @@ export default function NodeMapPage() {
                         >
                             <span>Marketplace listings</span>
                             <span className="text-[8px] opacity-60">
-                                {showListingsLayer ? (mapMode === 'globe' ? '2D ONLY' : 'ON') : 'OFF'}
+                                {showListingsLayer ? 'ON' : 'OFF'}
                             </span>
                         </button>
-                        {mapMode === 'globe' && showListingsLayer && (
-                            <p className="text-[8px] font-bold text-white/30 uppercase tracking-wider leading-relaxed">
-                                Layer enabled — switch to 2D map to plot listing pins.
-                            </p>
-                        )}
 
                         {/* Hex-bin heatmap toggle */}
                         <button
@@ -886,7 +753,7 @@ export default function NodeMapPage() {
                         ) : (
                             <div className="space-y-1.5 max-h-52 overflow-y-auto">
                                 {regionBreakdown.map(([region, count]) => {
-                                    const total = geoData?.nodes?.length ?? 1;
+                                    const total = regionBreakdownTotal;
                                     return (
                                         <div key={region}
                                             className="flex items-center gap-2 cursor-pointer hover:bg-white/5 px-1 py-1 rounded transition-colors"
@@ -895,7 +762,12 @@ export default function NodeMapPage() {
                                                 <div className={`h-full rounded-full transition-all ${selectedRegion === region ? 'bg-amber-400' : 'bg-primary'}`}
                                                     style={{ width: `${(count / total) * 100}%` }} />
                                             </div>
-                                            <span className={`text-[8px] font-black uppercase w-20 text-right truncate ${selectedRegion === region ? 'text-amber-400' : 'text-white/40'}`}>{region}</span>
+                                            <span
+                                                data-testid={`explorer-map-region-${region}`}
+                                                className={`text-[8px] font-black uppercase w-20 text-right truncate ${selectedRegion === region ? 'text-amber-400' : 'text-white/40'}`}
+                                            >
+                                                {region}
+                                            </span>
                                             <span className="text-[8px] font-black text-white w-4 text-right">{count}</span>
                                         </div>
                                     );
@@ -1001,8 +873,7 @@ export default function NodeMapPage() {
                     onClose={() => setBuyListing(null)}
                     onSuccess={() => {
                         setBuyListing(null);
-                        void refetch();
-                        void refetchMapListings();
+                        void refetchMap();
                     }}
                 />
             )}

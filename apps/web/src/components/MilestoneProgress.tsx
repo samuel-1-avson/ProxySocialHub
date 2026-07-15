@@ -118,7 +118,7 @@ export function MilestoneProgress({ className }: MilestoneProgressProps) {
                 {next_milestone.reward_amount > 0 && (
                     <div className="text-right">
                         <p className="text-xs text-emerald-400/60">Reward</p>
-                        <p className="text-emerald-400 font-bold">${next_milestone.reward_amount}</p>
+                        <p className="text-emerald-400 font-bold">{Number(next_milestone.reward_amount).toFixed(6)} SOL</p>
                     </div>
                 )}
             </div>

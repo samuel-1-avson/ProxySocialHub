@@ -4,27 +4,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Globe, Loader2, MapPin, Search, ShoppingCart, X } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
+import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
 import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import {
     getListing,
-    getMarketplaceMapPoints,
-    marketplaceKeys,
     type Listing,
     type MarketplaceMapFilters,
 } from '@/lib/api/marketplace';
+import { mapLiveOnMarketplaceEnabled } from '@/lib/feature-flags';
+import { useMapPoints } from '@/lib/hooks/useMapPoints';
 import { bboxNearlyEqual, bboxToParam, pinInBBox, type MapBBox } from '@/lib/geo/bbox';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
-import {
-    marketplacePointToListingPin,
-    marketplacePointToNode,
-    type MarketplaceListingMapPin,
-} from '@/lib/map/marketplace-map-adapters';
+import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
+import { geoSourceLabel } from '@/lib/map/geo-labels';
 
 const ProxyMapCanvas = dynamic(
     () => import('@/components/map/ProxyMapCanvas'),
@@ -40,21 +37,6 @@ const ProxyMapCanvas = dynamic(
     },
 );
 
-function geoSourceLabel(pin: MarketplaceListingMapPin) {
-    switch (pin.geo_source) {
-        case 'gateway':
-            return 'Gateway GPS';
-        case 'explorer':
-            return 'Explorer GPS';
-        case 'provider':
-            return 'Provider node';
-        case 'country_centroid':
-            return 'Estimated country';
-        default:
-            return pin.estimated ? 'Estimated location' : 'Resolved location';
-    }
-}
-
 export default function MarketplaceMapPage() {
     const searchParams = useSearchParams();
     const highlightListingId = searchParams.get('listing');
@@ -66,6 +48,7 @@ export default function MarketplaceMapPage() {
     const [minUptime, setMinUptime] = useState('');
     const [maxLatency, setMaxLatency] = useState('');
     const [selectedPin, setSelectedPin] = useState<MarketplaceListingMapPin | null>(null);
+    const [selectedCluster, setSelectedCluster] = useState<MarketplaceListingMapPin[] | null>(null);
     const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
@@ -75,6 +58,7 @@ export default function MarketplaceMapPage() {
     useEffect(() => {
         setSearchBBox(null);
         setSelectedPin(null);
+        setSelectedCluster(null);
         setSelectedNode(null);
     }, [proxyType, protocol, country, minPrice, maxPrice, minUptime, maxLatency]);
 
@@ -93,10 +77,18 @@ export default function MarketplaceMapPage() {
         bbox: bboxParam,
     }), [bboxParam, country, maxLatency, maxPrice, minPrice, minUptime, protocol, proxyType]);
 
-    const { data, isLoading, error, refetch, isFetching } = useQuery({
-        queryKey: marketplaceKeys.map(mapFilters),
-        queryFn: () => getMarketplaceMapPoints(mapFilters),
-        staleTime: 30_000,
+    const {
+        data,
+        listingPins: mapListingPins,
+        nodes: mapNodes,
+        isLoading,
+        error,
+        refetch,
+        isFetching,
+        liveUpdates,
+    } = useMapPoints({
+        filters: mapFilters,
+        live: mapLiveOnMarketplaceEnabled(),
         refetchInterval: searchBBox ? false : 60_000,
     });
 
@@ -110,21 +102,15 @@ export default function MarketplaceMapPage() {
         if (!viewport) return;
         setSearchBBox(viewport);
         setSelectedPin(null);
+        setSelectedCluster(null);
     }, [viewport]);
 
     const clearAreaSearch = useCallback(() => {
         setSearchBBox(null);
     }, []);
 
-    const pins = useMemo((): MarketplaceListingMapPin[] => {
-        const raw = data?.points ?? [];
-        return raw.filter(point => point.kind === 'listing').map(marketplacePointToListingPin);
-    }, [data?.points]);
-
-    const nodes = useMemo((): NodeGeoPoint[] => {
-        const raw = data?.points ?? [];
-        return raw.filter(point => point.kind === 'node').map(marketplacePointToNode);
-    }, [data?.points]);
+    const pins = mapListingPins;
+    const nodes = mapNodes;
 
     const plotted = pins.filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
 
@@ -133,6 +119,7 @@ export default function MarketplaceMapPage() {
         const pin = plotted.find(p => p.listing_id === highlightListingId);
         if (pin) {
             setSelectedPin(pin);
+            setSelectedCluster(null);
             setSelectedNode(null);
         }
     }, [highlightListingId, plotted]);
@@ -256,7 +243,7 @@ export default function MarketplaceMapPage() {
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
                 <div className="xl:col-span-3 relative">
                     <GlassCard className="!p-0 overflow-hidden border-white/5 min-h-[520px]">
-                        {viewport && (areaSearchStale || !searchBBox) && (
+                        {viewport != null && (areaSearchStale || !searchBBox) ? (
                             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
                                 <button
                                     type="button"
@@ -283,36 +270,46 @@ export default function MarketplaceMapPage() {
                                     </button>
                                 )}
                             </div>
-                        )}
+                        ) : null}
                         {(isLoading || isFetching) && (
                             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
                                 <Loader2 className="animate-spin text-primary" size={32} />
                             </div>
                         )}
-                        {error && (
+                        {error != null ? (
                             <div className="absolute top-4 left-4 z-10 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[10px] text-rose-400">
                                 Failed to load map data.{' '}
                                 <button type="button" onClick={() => refetch()} className="underline">
                                     Retry
                                 </button>
                             </div>
-                        )}
-                        <ProxyMapCanvas
+                        ) : null}
+                        <div className="h-[520px] min-h-[520px]">
+                            <ProxyMapCanvas
                             nodes={nodes}
                             onSelectNode={(node) => {
                                 setSelectedNode(node);
                                 setSelectedPin(null);
+                                setSelectedCluster(null);
                             }}
                             selectedNodeId={selectedNode?.node_id}
                             listingPins={plotted}
                             onSelectListing={(pin) => {
                                 setSelectedPin(pin as MarketplaceListingMapPin);
+                                setSelectedCluster(null);
+                                setSelectedNode(null);
+                            }}
+                            onSelectListingGroup={(pins) => {
+                                setSelectedCluster(pins as MarketplaceListingMapPin[]);
+                                setSelectedPin(null);
                                 setSelectedNode(null);
                             }}
                             selectedListingId={selectedPin?.listing_id}
                             focusBounds={focusBounds}
                             onBoundsChange={setViewport}
+                            liveUpdates={liveUpdates}
                         />
+                        </div>
                     </GlassCard>
                 </div>
 
@@ -411,7 +408,44 @@ export default function MarketplaceMapPage() {
                         </button>
                     </GlassCard>
 
-                    {selectedPin ? (
+                    {selectedCluster && selectedCluster.length > 1 ? (
+                        <GlassCard className="!p-6 space-y-4 border-amber-500/20 bg-amber-500/[0.02]">
+                            <div className="flex justify-between items-start">
+                                <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">
+                                    {selectedCluster.length} listings at this location
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedCluster(null)}
+                                    className="text-white/20 hover:text-white text-xs"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <p className="text-[8px] text-white/35 uppercase tracking-wider leading-relaxed">
+                                Same node or coordinates — pick a listing below or tap one in the map popup.
+                            </p>
+                            <ul className="space-y-2 max-h-[280px] overflow-y-auto">
+                                {selectedCluster.map(p => (
+                                    <li key={p.listing_id}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedPin(p);
+                                                setSelectedCluster(null);
+                                            }}
+                                            className="w-full text-left px-3 py-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-[9px] font-bold uppercase tracking-wide text-white/70 hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-white transition-all"
+                                        >
+                                            <span className="block truncate text-white">{p.title}</span>
+                                            <span className="text-white/35">
+                                                {p.price_per_gb.toFixed(6)} SOL · {(p.uptime_percent || 0).toFixed(1)}% up
+                                            </span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </GlassCard>
+                    ) : selectedPin ? (
                         <GlassCard className="!p-6 space-y-4 border-emerald-500/20 bg-emerald-500/[0.02]">
                             <div className="flex justify-between items-start">
                                 <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
@@ -426,6 +460,7 @@ export default function MarketplaceMapPage() {
                                 </button>
                             </div>
                             <h2 className="text-sm font-black text-white leading-tight">{selectedPin.title}</h2>
+                            <CatalogProductBadge product={selectedPin.catalog_product} className="mt-2" />
                             <div className="space-y-1 text-[9px]">
                                 <div className="flex justify-between">
                                     <span className="text-white/30">Location</span>
@@ -497,7 +532,7 @@ export default function MarketplaceMapPage() {
                                 )}
                                 {selectedPin.estimated && (
                                     <p className="text-amber-400/80 text-[8px] uppercase tracking-wider pt-1">
-                                        Approximate location (country centroid)
+                                        Pin shows a regional hub area (major city), not an exact street address.
                                     </p>
                                 )}
                                 {!selectedPin.purchasable && (
@@ -613,7 +648,10 @@ export default function MarketplaceMapPage() {
                                 <li key={p.listing_id}>
                                     <button
                                         type="button"
-                                        onClick={() => setSelectedPin(p)}
+                                        onClick={() => {
+                                            setSelectedPin(p);
+                                            setSelectedCluster(null);
+                                        }}
                                         className={`w-full text-left px-3 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wide transition-all ${
                                             selectedPin?.listing_id === p.listing_id
                                                 ? 'border-emerald-500/40 bg-emerald-500/10 text-white'
@@ -622,8 +660,9 @@ export default function MarketplaceMapPage() {
                                     >
                                         <span className="block truncate">{p.title}</span>
                                         <span className="text-white/30">
-                                            {p.country} · {p.price_per_gb.toFixed(6)} SOL
-                                            {p.estimated ? ' · est.' : ' · gps'}
+                                            {[p.city, p.country].filter(Boolean).join(', ') || p.country || '—'}
+                                            {' · '}
+                                            {p.price_per_gb.toFixed(6)} SOL
                                         </span>
                                     </button>
                                 </li>

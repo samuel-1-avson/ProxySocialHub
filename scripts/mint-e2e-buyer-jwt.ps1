@@ -49,29 +49,99 @@ if ($writeJson) {
     $goArgs += "-json"
 }
 
-Push-Location $apiDir
-try {
-    if ($writeJson) {
-        $outPath = if ([System.IO.Path]::IsPathRooted($OutFile)) { $OutFile } else { Join-Path $repoRoot $OutFile }
+function Get-BuyerDevTokenCliArgs {
+    $cli = @()
+    if ($EnvFile) { $cli += "-env-file", $EnvFile }
+    if ($UserId) { $cli += "-user", $UserId }
+    if ($EnsureBuyer) { $cli += "-ensure-buyer" }
+    if ($Wallet) {
+        $cli += "-wallet", $Wallet
+    } elseif ($WalletSecret) {
+        $cli += "-wallet-from-playwright-secret"
+    }
+    if ($writeJson) { $cli += "-json" }
+    return $cli
+}
+
+function Invoke-BuyerDevTokenDocker {
+    param([string[]]$CliArgs)
+    $binPath = Join-Path $repoRoot ".tmp-buyer_dev_token"
+    if (-not (Test-Path $binPath)) {
+        Write-Host "Building linux buyer_dev_token for Docker mint..."
+        Push-Location $apiDir
+        try {
+            $prevGoos = $env:GOOS
+            $prevGoarch = $env:GOARCH
+            $env:GOOS = "linux"
+            $env:GOARCH = "amd64"
+            & go build -o $binPath ./cmd/buyer_dev_token
+            if ($LASTEXITCODE -ne 0) { throw "go build buyer_dev_token failed (exit $LASTEXITCODE)" }
+        } finally {
+            if ($null -ne $prevGoos) { $env:GOOS = $prevGoos } else { Remove-Item env:GOOS -ErrorAction SilentlyContinue }
+            if ($null -ne $prevGoarch) { $env:GOARCH = $prevGoarch } else { Remove-Item env:GOARCH -ErrorAction SilentlyContinue }
+            Pop-Location
+        }
+    }
+    if (-not $env:JWT_SECRET) {
+        throw "JWT_SECRET missing from .env (required for Docker mint)"
+    }
+    $dockerEnv = @(
+        "-e", "DATABASE_URL=postgresql://proxyhubb:${pg}@postgres:5432/proxyhubb?sslmode=disable",
+        "-e", "JWT_SECRET=$($env:JWT_SECRET)"
+    )
+    if ($WalletSecret) {
+        $dockerEnv += "-e", "NEXT_PUBLIC_PLAYWRIGHT_SOLANA_WALLET_SECRET=$WalletSecret"
+    }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $all = docker run --rm --network proxyhubb_backend --entrypoint /buyer_dev_token `
+        -v "${binPath}:/buyer_dev_token:ro" @dockerEnv proxyhubb-control-api:latest @CliArgs 2>&1 | Out-String
+    $exit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($exit -ne 0) {
+        throw "buyer_dev_token (docker) failed (exit $exit): $all"
+    }
+    return $all
+}
+
+function Invoke-BuyerDevTokenHost {
+    param([string[]]$GoRunArgs)
+    Push-Location $apiDir
+    try {
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
-        $all = (go @goArgs 2>&1 | Out-String)
+        $all = (go @GoRunArgs 2>&1 | Out-String)
+        $exit = $LASTEXITCODE
         $ErrorActionPreference = $prevEap
-        if ($LASTEXITCODE -ne 0) {
-            throw "buyer_dev_token failed (exit $LASTEXITCODE): $all"
-        }
-        if ($all -notmatch '(?s)(\{[\s\S]*\})') {
-            throw "buyer_dev_token -json output did not contain JSON"
-        }
-        $jsonText = $matches[1].Trim()
-        [System.IO.File]::WriteAllText($outPath, $jsonText + "`n")
-        Write-Host "Wrote $outPath" -ForegroundColor Green
-    } else {
-        & go @goArgs
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        return @{ Exit = $exit; Output = $all }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
+}
+
+$cliArgs = Get-BuyerDevTokenCliArgs
+
+if ($writeJson) {
+    $outPath = if ([System.IO.Path]::IsPathRooted($OutFile)) { $OutFile } else { Join-Path $repoRoot $OutFile }
+    $result = Invoke-BuyerDevTokenHost -GoRunArgs $goArgs
+    if ($result.Exit -ne 0) {
+        Write-Host "Host buyer_dev_token failed; retrying via Docker network (postgres:5432)..." -ForegroundColor Yellow
+        $result.Output = Invoke-BuyerDevTokenDocker -CliArgs $cliArgs
+    }
+    if ($result.Output -notmatch '(?s)(\{[\s\S]*\})') {
+        throw "buyer_dev_token -json output did not contain JSON"
+    }
+    $jsonText = $matches[1].Trim()
+    [System.IO.File]::WriteAllText($outPath, $jsonText + "`n")
+    Write-Host "Wrote $outPath" -ForegroundColor Green
+} else {
+    $result = Invoke-BuyerDevTokenHost -GoRunArgs $goArgs
+    if ($result.Exit -ne 0) {
+        Write-Host "Host buyer_dev_token failed; retrying via Docker network (postgres:5432)..." -ForegroundColor Yellow
+        Invoke-BuyerDevTokenDocker -CliArgs $cliArgs | Write-Host
+    } else {
+        Write-Host $result.Output
+    }
 }
 
 Write-Host ""

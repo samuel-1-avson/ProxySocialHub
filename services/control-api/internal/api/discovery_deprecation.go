@@ -11,3 +11,13 @@ func deprecatedDiscoveryHeaders() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// deprecatedMarketplaceGeoHeaders marks legacy listing pin APIs superseded by /v1/marketplace/map.
+func deprecatedMarketplaceGeoHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Link", `</v1/marketplace/map>; rel="successor-version"`)
+		c.Header("Sunset", "Mon, 01 Sep 2026 23:59:59 GMT")
+		c.Next()
+	}
+}

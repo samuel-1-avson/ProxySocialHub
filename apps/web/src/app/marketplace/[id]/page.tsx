@@ -19,6 +19,11 @@ import { getErrorMessage } from '@/lib/utils';
 import { Loader2, Star, Shield, Signal, Activity, Globe, ShoppingCart, Share2, Heart, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { trackListingViewOnce } from '@/lib/analytics/marketplace-funnel';
+import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
+import {
+    displayListingTitle,
+    listingShowsCatalogSubtitle,
+} from '@/lib/listing-display';
 
 function isPurchasable(listing: Listing) {
     return listing.status === 'active' && listing.available_bandwidth_gb > 0;
@@ -167,9 +172,17 @@ function ListingDetailContent() {
                                             {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
                                         </div>
                                     </div>
-                                    <h1 className="text-3xl md:text-4xl font-bold font-mono uppercase tracking-tight leading-none mb-2">
-                                        {listing.title}
-                                    </h1>
+                                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                                        <h1 className="text-3xl md:text-4xl font-bold font-mono uppercase tracking-tight leading-none">
+                                            {displayListingTitle(listing)}
+                                        </h1>
+                                        <CatalogProductBadge product={listing.catalog_product} className="self-end mb-1" />
+                                    </div>
+                                    {listingShowsCatalogSubtitle(listing) && (
+                                        <p className="text-xs font-mono text-muted-foreground mb-2">
+                                            Listing: {listing.title}
+                                        </p>
+                                    )}
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
                                         <span>Node ID: {listing.id.slice(0, 8)}</span>
                                         <span>•</span>
@@ -252,7 +265,7 @@ function ListingDetailContent() {
                         <div className="flex justify-between items-baseline mb-6">
                             <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
                             <div className="text-right">
-                                <span className="text-4xl font-bold font-mono">${listing.price_per_gb}</span>
+                                <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
                                 <span className="text-sm text-muted-foreground font-mono">/GB</span>
                             </div>
                         </div>
@@ -293,7 +306,7 @@ function ListingDetailContent() {
 
                     <ListingSocialPanel
                         listingId={listing.id}
-                        listingTitle={listing.title}
+                        listingTitle={displayListingTitle(listing)}
                         pricePerGb={listing.price_per_gb}
                         location={listing.seller?.location}
                     />

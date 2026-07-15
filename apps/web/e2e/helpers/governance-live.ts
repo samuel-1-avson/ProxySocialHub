@@ -26,6 +26,7 @@ export function governanceApiBase(): string {
 
 export async function applyBuyerAuth(page: Page, token: string): Promise<void> {
     const baseUrl = governanceBaseUrl().replace('localhost', '127.0.0.1');
+    const walletSecret = process.env.NEXT_PUBLIC_PLAYWRIGHT_SOLANA_WALLET_SECRET ?? '';
     await page.context().addCookies([
         {
             name: 'proxyhubb_token',
@@ -33,7 +34,15 @@ export async function applyBuyerAuth(page: Page, token: string): Promise<void> {
             url: baseUrl,
         },
     ]);
-    await page.addInitScript((jwt) => {
-        sessionStorage.setItem('proxyhubb_token', jwt);
-    }, token);
+    await page.addInitScript(
+        ({ jwt, secret }) => {
+            sessionStorage.setItem('proxyhubb_token', jwt);
+            if (secret) {
+                window.__PLAYWRIGHT_SOLANA_TEST_WALLET__ = true;
+                window.__PLAYWRIGHT_SOLANA_WALLET_SECRET__ = secret;
+                localStorage.setItem('walletName', JSON.stringify('Playwright Devnet Wallet'));
+            }
+        },
+        { jwt: token, secret: walletSecret }
+    );
 }

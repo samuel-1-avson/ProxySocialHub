@@ -29,8 +29,8 @@ pub async fn dial_quic_bidi(config: &Config) -> Result<QuinnBidiStream> {
     let client_config = quinn::ClientConfig::new(Arc::new(quic_crypto));
 
     let bind: SocketAddr = "0.0.0.0:0".parse().expect("valid bind addr");
-    let mut endpoint = quinn::Endpoint::client(bind)
-        .map_err(|e| anyhow::anyhow!("QUIC client endpoint: {e}"))?;
+    let mut endpoint =
+        quinn::Endpoint::client(bind).map_err(|e| anyhow::anyhow!("QUIC client endpoint: {e}"))?;
     endpoint.set_default_client_config(client_config);
 
     debug!(%server_addr, %server_name, "QUIC connecting to gateway");
@@ -53,12 +53,65 @@ pub async fn dial_quic_bidi(config: &Config) -> Result<QuinnBidiStream> {
 }
 
 async fn resolve_gateway_socket(addr: &str) -> Result<SocketAddr> {
-    let mut addrs = tokio::net::lookup_host(addr)
+    let lookup = normalize_gateway_lookup_addr(addr);
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&lookup)
         .await
-        .with_context(|| format!("resolve gateway address {addr}"))?;
+        .with_context(|| format!("resolve gateway address {addr}"))?
+        .collect();
+    if addrs.is_empty() {
+        anyhow::bail!("no addresses for gateway {addr}");
+    }
+    // Prefer IPv4 (Docker publishes UDP on 0.0.0.0; Windows often picks ::1 for "localhost").
     addrs
-        .next()
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or_else(|| addrs.first())
+        .copied()
         .ok_or_else(|| anyhow::anyhow!("no addresses for gateway {addr}"))
+}
+
+/// Map localhost to IPv4 loopback for QUIC dial (avoids quinn `invalid remote address: [::1]:port`).
+fn normalize_gateway_lookup_addr(addr: &str) -> String {
+    let trimmed = addr.trim();
+    let (host, port) = match trimmed.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => (
+            h.trim_start_matches('[').trim_end_matches(']'),
+            p.to_string(),
+        ),
+        _ => (trimmed, "3128".to_string()),
+    };
+    if matches!(
+        host.to_ascii_lowercase().as_str(),
+        "localhost" | "::1" | "0:0:0:0:0:0:0:1"
+    ) {
+        return format!("127.0.0.1:{port}");
+    }
+    trimmed.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_gateway_lookup_addr;
+
+    #[test]
+    fn localhost_maps_to_ipv4_loopback() {
+        assert_eq!(
+            normalize_gateway_lookup_addr("localhost:3128"),
+            "127.0.0.1:3128"
+        );
+        assert_eq!(
+            normalize_gateway_lookup_addr("[::1]:3128"),
+            "127.0.0.1:3128"
+        );
+    }
+
+    #[test]
+    fn non_localhost_unchanged() {
+        assert_eq!(
+            normalize_gateway_lookup_addr("edge-gateway:3128"),
+            "edge-gateway:3128"
+        );
+    }
 }
 
 /// Join QUIC send/recv into one Tokio `AsyncRead + AsyncWrite` for `tokio_util::compat`.

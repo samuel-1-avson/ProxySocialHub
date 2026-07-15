@@ -78,6 +78,9 @@ type SessionData struct {
 	NodeHost   string  `json:"node_host,omitempty"`
 	NodePort   int     `json:"node_port,omitempty"`
 	PricePerGB float64 `json:"price_per_gb,omitempty"`
+
+	// SHA-256 hex of proxy password — edge-gateway validates Basic auth when set.
+	CredentialPasswordHash string `json:"credential_password_hash,omitempty"`
 }
 
 func Init() error {

@@ -32,6 +32,7 @@ func RegisterPlatformListingModerationRoutes(rg *gin.RouterGroup) {
 		mod.POST("/listings/:id/approve", approvePendingListing)
 		mod.POST("/listings/:id/reject", rejectPendingListing)
 	}
+	RegisterPlatformForumModerationRoutes(rg)
 }
 
 type pendingListingsResponse struct {

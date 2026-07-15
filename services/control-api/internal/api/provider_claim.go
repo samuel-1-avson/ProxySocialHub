@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const providerClaimMinSOL = 0.01
@@ -132,11 +133,12 @@ func confirmProviderClaim(c *gin.Context) {
 		return
 	}
 
-	var txHash string
 	var paidSOL float64
+	var earningIDs []uuid.UUID
 	err = db.DB.Transaction(func(tx *gorm.DB) error {
 		var locked []models.ProviderEarning
-		if err := tx.Where("provider_user_id = ? AND status = ? AND deleted_at IS NULL", userID, "pending").
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("provider_user_id = ? AND status = ? AND deleted_at IS NULL", userID, "pending").
 			Find(&locked).Error; err != nil {
 			return err
 		}
@@ -147,39 +149,65 @@ func confirmProviderClaim(c *gin.Context) {
 		var total float64
 		for _, e := range locked {
 			total += e.NetAmountSOL
+			earningIDs = append(earningIDs, e.ID)
 		}
 		if total < providerClaimMinSOL {
 			return fmt.Errorf("pending below minimum")
 		}
 		paidSOL = total
 
-		lamports := uint64(total * float64(solana.LamportsPerSOL))
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		hash, sendErr := oracle.SendSOL(ctx, recipient, lamports)
-		if sendErr != nil {
-			return sendErr
-		}
-		txHash = hash
-
-		now := time.Now().UTC()
+		// Lock status to claiming state to prevent duplicate claims
 		if err := tx.Model(&models.ProviderEarning{}).
-			Where("provider_user_id = ? AND status = ? AND deleted_at IS NULL", userID, "pending").
-			Updates(map[string]interface{}{
-				"status":  "paid",
-				"tx_hash": txHash,
-				"paid_at": now,
-			}).Error; err != nil {
+			Where("id IN ?", earningIDs).
+			Update("status", "claiming").Error; err != nil {
 			return err
 		}
 		return nil
 	})
 
 	if err != nil {
-		logging.Error(err).Str("claim_id", req.ClaimID).Msg("provider self-claim failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "claim failed", "details": err.Error()})
+		logging.Error(err).Str("claim_id", req.ClaimID).Msg("provider self-claim initialization failed")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "claim failed", "details": err.Error()})
 		return
+	}
+
+	// Trigger on-chain transfer outside db transaction
+	lamports := uint64(paidSOL * float64(solana.LamportsPerSOL))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	txHash, sendErr := oracle.SendSOL(ctx, recipient, lamports)
+	if sendErr != nil {
+		// Revert status to pending on error
+		revertErr := db.DB.Transaction(func(tx *gorm.DB) error {
+			return tx.Model(&models.ProviderEarning{}).
+				Where("id IN ?", earningIDs).
+				Update("status", "pending").Error
+		})
+		if revertErr != nil {
+			logging.Error(revertErr).Msg("CRITICAL: Failed to revert claiming status to pending after failed transfer")
+		}
+		logging.Error(sendErr).Str("claim_id", req.ClaimID).Msg("provider self-claim: blockchain transfer failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "claim failed", "details": "blockchain transfer failed: " + sendErr.Error()})
+		return
+	}
+
+	// Finalize status to paid
+	now := time.Now().UTC()
+	finalizeErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		return tx.Model(&models.ProviderEarning{}).
+			Where("id IN ?", earningIDs).
+			Updates(map[string]interface{}{
+				"status":  "paid",
+				"tx_hash": txHash,
+				"paid_at": now,
+			}).Error
+	})
+	if finalizeErr != nil {
+		logging.Error(finalizeErr).
+			Str("tx_hash", txHash).
+			Msg("CRITICAL: Failed to finalize claiming status to paid after successful transfer")
+		// The blockchain transaction succeeded, so notify the user.
 	}
 
 	c.JSON(http.StatusOK, gin.H{

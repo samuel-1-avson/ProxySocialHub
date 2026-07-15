@@ -96,6 +96,9 @@ func (m *MultiSigOracleClient) LoadMultiSigConfig(ctx context.Context) error {
 	
 	// Number of signers (u32)
 	numSigners := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+	if numSigners > 5 {
+		return fmt.Errorf("invalid multisig signers count: %d (max 5)", numSigners)
+	}
 	data = data[4:]
 
 	// Parse each signer
@@ -310,9 +313,39 @@ func (m *MultiSigOracleClient) SettleEscrowMultiSig(
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 
+	// Sort sigs to align with deterministic sorted signers list
+	sort.Slice(sigs, func(i, j int) bool {
+		return sigs[i].Signer.String() < sigs[j].Signer.String()
+	})
+
+	var instructions []sol.Instruction
+
+	// Build Ed25519 precompile instructions for each signature up to the threshold
+	threshold := int(m.config.Threshold)
+	for i := 0; i < len(sigs) && i < threshold; i++ {
+		sig := sigs[i]
+		msg := fmt.Sprintf(
+			"settle:%s:%s:%s:%d:%d",
+			req.EscrowPDA.String(),
+			req.Buyer.String(),
+			req.Seller.String(),
+			req.BandwidthUsedGB,
+			req.Nonce,
+		)
+
+		precompileIx, err := createEd25519Instruction(sig.Signer, sig.Signature, []byte(msg))
+		if err != nil {
+			return "", fmt.Errorf("failed to create Ed25519 precompile instruction: %w", err)
+		}
+		instructions = append(instructions, precompileIx)
+	}
+
+	// Append main settle_escrow_multisig instruction
+	instructions = append(instructions, instruction)
+
 	// Build transaction
 	tx, err := sol.NewTransaction(
-		[]sol.Instruction{instruction},
+		instructions,
 		recentBlockhash.Value.Blockhash,
 		sol.TransactionPayer(m.GetOraclePublicKey()),
 	)
@@ -345,6 +378,30 @@ func (m *MultiSigOracleClient) buildMultiSigSettleInstruction(
 	params SettleEscrowParams,
 	signers []sol.PublicKey,
 ) sol.Instruction {
+	// Derive PDAs
+	multisigPDA, _, _ := sol.FindProgramAddress(
+		[][]byte{[]byte("multisig_oracle")},
+		m.programID,
+	)
+
+	statePDA, _, _ := sol.FindProgramAddress(
+		[][]byte{[]byte("program_state")},
+		m.programID,
+	)
+
+	nonceBytes := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		nonceBytes[i] = byte(m.config.Nonce >> (8 * i))
+	}
+	oracleSigPDA, _, _ := sol.FindProgramAddress(
+		[][]byte{
+			[]byte("oracle_sig"),
+			params.EscrowPDA.Bytes(),
+			nonceBytes,
+		},
+		m.programID,
+	)
+
 	// Instruction discriminator for "settle_escrow_multisig"
 	// First 8 bytes of sha256("global:settle_escrow_multisig")
 	discriminator := []byte{211, 136, 78, 235, 181, 247, 45, 77}
@@ -375,10 +432,15 @@ func (m *MultiSigOracleClient) buildMultiSigSettleInstruction(
 	return &GenericInstruction{
 		programID: m.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: m.GetOraclePublicKey(), IsSigner: true, IsWritable: false},
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},
+			{PublicKey: multisigPDA, IsSigner: false, IsWritable: false},
+			{PublicKey: oracleSigPDA, IsSigner: false, IsWritable: true},
+			{PublicKey: m.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
+			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false},
 		},
 		data: data,
 	}
@@ -422,3 +484,55 @@ func InitMultiSigOracle(baseClient *OracleClient) error {
 func GetMultiSigOracle() *MultiSigOracleClient {
 	return globalMultiSigOracle
 }
+
+func createEd25519Instruction(pubkey sol.PublicKey, signature [64]byte, message []byte) (sol.Instruction, error) {
+	pubkeyBytes := pubkey.Bytes()
+	msgLen := len(message)
+
+	data := make([]byte, 16 + 32 + 64 + msgLen)
+
+	// num_signatures
+	data[0] = 1
+	// padding
+	data[1] = 0
+
+	// signature_offset (48)
+	data[2] = 48
+	data[3] = 0
+	// signature_instruction_index (0xffff)
+	data[4] = 255
+	data[5] = 255
+
+	// public_key_offset (16)
+	data[6] = 16
+	data[7] = 0
+	// public_key_instruction_index (0xffff)
+	data[8] = 255
+	data[9] = 255
+
+	// message_data_offset (112)
+	data[10] = 112
+	data[11] = 0
+	// message_data_size
+	data[12] = byte(msgLen)
+	data[13] = byte(msgLen >> 8)
+	// message_instruction_index (0xffff)
+	data[14] = 255
+	data[15] = 255
+
+	// Copy public key
+	copy(data[16:48], pubkeyBytes)
+	// Copy signature
+	copy(data[48:112], signature[:])
+	// Copy message
+	copy(data[112:], message)
+
+	programID := sol.MustPublicKeyFromBase58("Ed25519SigVerify111111111111111111111111111")
+
+	return &GenericInstruction{
+		programID: programID,
+		accounts:  []*sol.AccountMeta{}, // Precompiles have no accounts
+		data:      data,
+	}, nil
+}
+

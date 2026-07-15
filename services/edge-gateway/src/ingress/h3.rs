@@ -28,7 +28,12 @@ type H3Stream = RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
 pub fn enabled() -> bool {
     std::env::var("ENABLE_HTTP3_INGRESS")
         .ok()
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -40,7 +45,9 @@ pub fn listen_addr(default_host: &str) -> std::io::Result<SocketAddr> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))?;
     format!("{host}:{port}")
         .parse()
-        .map_err(|e: std::net::AddrParseError| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
+        .map_err(|e: std::net::AddrParseError| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+        })
 }
 
 pub async fn run_server(
@@ -157,7 +164,8 @@ async fn handle_request(
             }
         };
 
-        let addr = h3_connect_authority(&req).ok_or_else(|| anyhow::anyhow!("missing authority"))?;
+        let addr =
+            h3_connect_authority(&req).ok_or_else(|| anyhow::anyhow!("missing authority"))?;
         if let Err(reason) = policy::validate_destination(&addr) {
             metrics::record_policy_block(&reason);
             send_empty_response(&mut stream, StatusCode::FORBIDDEN).await?;
@@ -186,6 +194,11 @@ async fn handle_request(
             Some(resolved.session.target_geo.as_str())
         };
         let is_sticky = resolved.session.session_type == "sticky";
+        let pinned_node_id = if resolved.session.node_id.is_empty() {
+            None
+        } else {
+            Some(resolved.session.node_id.as_str())
+        };
         let route = provider_selection::select_provider_route(
             state.clone(),
             &resolved.session.session_id,
@@ -193,6 +206,7 @@ async fn handle_request(
             authenticator.clone(),
             target_geo,
             Some(dest_host),
+            pinned_node_id,
         )
         .await?;
 
@@ -313,11 +327,15 @@ async fn validate_node_policy(
     let dest_port = policy::parse_port(addr).unwrap_or(443) as i64;
     if ncfg.blocked_ports.contains(&dest_port) {
         metrics::record_policy_block("node_blocked_port");
-        return Err(anyhow::anyhow!("Destination port blocked by provider policy"));
+        return Err(anyhow::anyhow!(
+            "Destination port blocked by provider policy"
+        ));
     }
     if !ncfg.allowed_ports.is_empty() && !ncfg.allowed_ports.contains(&dest_port) {
         metrics::record_policy_block("node_port_not_whitelisted");
-        return Err(anyhow::anyhow!("Destination port not allowed by provider policy"));
+        return Err(anyhow::anyhow!(
+            "Destination port not allowed by provider policy"
+        ));
     }
     if policy::host_matches_any_domain_rule(dest_host, &ncfg.blocked_domains) {
         metrics::record_policy_block("node_blocked_domain");
@@ -368,7 +386,10 @@ async fn bridge_local_provider(
     Ok(stats)
 }
 
-async fn bridge_peer_stream(mut stream: H3Stream, peer: tokio::net::TcpStream) -> anyhow::Result<(u64, u64)> {
+async fn bridge_peer_stream(
+    mut stream: H3Stream,
+    peer: tokio::net::TcpStream,
+) -> anyhow::Result<(u64, u64)> {
     send_ok_response(&mut stream).await?;
     bridge_h3_to_async_io(stream, peer).await
 }
@@ -400,9 +421,7 @@ where
             if n == 0 {
                 break;
             }
-            h3_send
-                .send_data(Bytes::copy_from_slice(&buf[..n]))
-                .await?;
+            h3_send.send_data(Bytes::copy_from_slice(&buf[..n])).await?;
             bytes_down = bytes_down.saturating_add(n as u64);
         }
         let _ = h3_send.finish().await;
@@ -439,10 +458,16 @@ async fn record_successful_usage(
     bytes_down: u64,
 ) {
     let total_bytes = bytes_up.saturating_add(bytes_down);
-    state.usage_tracker.record(username, bytes_up, bytes_down).await;
+    state
+        .usage_tracker
+        .record(username, bytes_up, bytes_down)
+        .await;
     metrics::record_provider_bandwidth(node_id, bytes_up, bytes_down);
     metrics::record_bandwidth(bytes_up, bytes_down);
-    if let Err(e) = authenticator.report_usage(username, total_bytes as i64).await {
+    if let Err(e) = authenticator
+        .report_usage(username, total_bytes as i64)
+        .await
+    {
         error!(error = %e, %username, "Failed to report HTTP/3 usage");
     }
     crate::finalize_session_intent_ledger(

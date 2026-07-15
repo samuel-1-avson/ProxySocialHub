@@ -31,7 +31,7 @@ func (v ContentTypeValidator) Handle(c *gin.Context) {
 	}
 
 	contentType := c.ContentType()
-	
+
 	// Allow empty content-type for GET/DELETE
 	if contentType == "" {
 		c.Next()
@@ -46,7 +46,7 @@ func (v ContentTypeValidator) Handle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusUnsupportedMediaType, gin.H{
-		"error": "Content-Type not supported",
+		"error":   "Content-Type not supported",
 		"allowed": v,
 	})
 	c.Abort()
@@ -56,9 +56,9 @@ func (v ContentTypeValidator) Handle(c *gin.Context) {
 func StrictCORS(allowedOrigins []string, environment string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		
+
 		allowed := false
-		
+
 		// Check whitelist
 		for _, o := range allowedOrigins {
 			if strings.TrimSpace(o) == origin {
@@ -74,34 +74,68 @@ func StrictCORS(allowedOrigins []string, environment string) gin.HandlerFunc {
 				}
 			}
 		}
-		
+
 		// Development fallback (only in development)
 		if !allowed && environment == "development" && origin != "" {
 			allowed = true
 		}
-		
+
 		if allowed && origin != "" {
 			c.Header("Access-Control-Allow-Origin", origin)
 		}
-		
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", 
+		c.Header("Access-Control-Allow-Headers",
 			"Content-Type, Authorization, X-Requested-With, X-Session-ID, X-API-Key")
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Max-Age", "86400")
-		
+
 		// Security headers
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
-		
+
+		c.Next()
+	}
+}
+
+// HasProviderCapabilities reports whether the JWT role may access provider operations.
+func HasProviderCapabilities(role string) bool {
+	switch role {
+	case "provider", "admin", "superadmin", "moderator", "both":
+		return true
+	default:
+		return false
+	}
+}
+
+// RequireProviderRole ensures the caller has provider dashboard capabilities.
+func RequireProviderRole() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("userRole")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Authentication required",
+			})
+			return
+		}
+
+		roleStr, ok := role.(string)
+		if !ok || !HasProviderCapabilities(roleStr) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "Provider access required",
+				"code":  "provider_required",
+			})
+			return
+		}
+
 		c.Next()
 	}
 }
@@ -150,21 +184,21 @@ func SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Prevent clickjacking
 		c.Header("X-Frame-Options", "DENY")
-		
+
 		// Prevent MIME type sniffing
 		c.Header("X-Content-Type-Options", "nosniff")
-		
+
 		// XSS protection
 		c.Header("X-XSS-Protection", "1; mode=block")
-		
+
 		// Referrer policy
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		
+
 		// HSTS (only in production)
 		if os.Getenv("GO_ENV") == "production" {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
-		
+
 		// Content Security Policy
 		// NOTE: If the frontend requires inline scripts/styles, implement nonce-based
 		// CSP generation tied to the SSR render cycle instead of 'unsafe-inline'.
@@ -178,11 +212,11 @@ func SecurityHeaders() gin.HandlerFunc {
 			"base-uri 'self'; " +
 			"form-action 'self';"
 		c.Header("Content-Security-Policy", csp)
-		
+
 		// Permissions policy
-		c.Header("Permissions-Policy", 
+		c.Header("Permissions-Policy",
 			"accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
-		
+
 		c.Next()
 	}
 }
@@ -194,10 +228,10 @@ func RequestID() gin.HandlerFunc {
 		if requestID == "" {
 			requestID = generateRequestID()
 		}
-		
+
 		c.Set("requestID", requestID)
 		c.Header("X-Request-ID", requestID)
-		
+
 		c.Next()
 	}
 }

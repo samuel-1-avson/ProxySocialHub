@@ -331,7 +331,7 @@ export default function MarketplacePage() {
                     </label>
                     <label className="flex flex-col gap-2 min-w-[140px]">
                         <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
-                            Min USD/GB
+                            Min SOL/GB
                         </span>
                         <input
                             ref={minPriceInputRef}
@@ -350,7 +350,7 @@ export default function MarketplacePage() {
                     </label>
                     <label className="flex flex-col gap-2 min-w-[140px]">
                         <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
-                            Max USD/GB
+                            Max SOL/GB
                         </span>
                         <input
                             ref={maxPriceInputRef}

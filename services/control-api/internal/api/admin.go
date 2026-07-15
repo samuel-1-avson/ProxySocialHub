@@ -54,6 +54,10 @@ func RegisterAdminRoutes(r *gin.RouterGroup) {
 	// Audit Logs (Admins only)
 	r.GET("/audit-logs", RequirePermission("system:audit"), getAuditLogs)
 
+	// Escrow reconciliation queue (System Monitor or Admin)
+	r.GET("/escrow/reconciliation", RequirePermission("system:monitor"), listEscrowReconciliationEvents)
+	r.POST("/escrow/reconciliation/:id/retry", RequirePermission("system:monitor"), retryEscrowReconciliationEvent)
+
 	// Pricing Management (Admins/System)
 	r.POST("/pricing/adjust", triggerPricingAdjustment)
 }
