@@ -1,0 +1,3 @@
+-- Phase 3A catalog tables — mirror of migrations/000097_catalog_products_offers.up.sql
+-- Canonical apply: repo-root `migrations/000097_catalog_products_offers.{up,down}.sql` via db-migrate.
+-- Verification: docs/MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md

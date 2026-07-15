@@ -52,7 +52,11 @@ if (-not $ProviderNodeId) {
 }
 if (-not $ProviderNodeId) { throw "No provider_nodes row found in Postgres." }
 
-Write-Host "[post-signed-listing] node_id: $ProviderNodeId" -ForegroundColor Cyan
+$country = (docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres-1 `
+    psql -U $pgUser -d $pgDb -tAc `
+    "SELECT COALESCE(country, 'GH') FROM provider_nodes WHERE id = '$ProviderNodeId' LIMIT 1;" 2>$null | Out-String).Trim()
+
+Write-Host "[post-signed-listing] node_id: $ProviderNodeId, country: $country" -ForegroundColor Cyan
 
 $draftPath = Join-Path $env:TEMP "proxyhubb-listing-draft.json"
 $signedPath = Join-Path $env:TEMP "proxyhubb-listing-signed.json"
@@ -68,6 +72,8 @@ $draftJson = (@{
     available_bandwidth_gb = 25
     max_concurrency = 5
     listing_offer_expires_at = 0
+    country = $country
+    isp = ""
 } | ConvertTo-Json -Depth 5)
 [System.IO.File]::WriteAllText($draftPath, $draftJson, [System.Text.UTF8Encoding]::new($false))
 

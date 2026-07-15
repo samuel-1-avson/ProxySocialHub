@@ -19,10 +19,11 @@ var (
 type ListingStatus string
 
 const (
-	ListingActive  ListingStatus = "active"
-	ListingPaused  ListingStatus = "paused"
-	ListingSoldOut ListingStatus = "sold_out"
-	ListingDeleted ListingStatus = "deleted"
+	ListingActive        ListingStatus = "active"
+	ListingPendingReview ListingStatus = "pending_review"
+	ListingPaused        ListingStatus = "paused"
+	ListingSoldOut       ListingStatus = "sold_out"
+	ListingDeleted       ListingStatus = "deleted"
 )
 
 // ProxyType represents the network type
@@ -33,6 +34,33 @@ const (
 	Mobile      ProxyType = "mobile"
 	Datacenter  ProxyType = "datacenter"
 )
+
+// SellerPublicProfile is the seller subset exposed on listing reads.
+type SellerPublicProfile struct {
+	ID            uuid.UUID
+	DisplayName   *string
+	Username      *string
+	AvatarURL     *string
+	TrustTier     string
+	Role          string
+}
+
+// ListingDetail is a single listing read model for buyers.
+type ListingDetail struct {
+	Listing ListingEntity
+	Seller  *SellerPublicProfile
+	IsSaved bool
+}
+
+// SavedListingEntry is a user's bookmark with listing snapshot.
+type SavedListingEntry struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	ListingID uuid.UUID
+	Listing   ListingEntity
+	Seller    *SellerPublicProfile
+	CreatedAt time.Time
+}
 
 // ListingEntity represents the core marketplace product
 type ListingEntity struct {
@@ -70,6 +98,7 @@ type ListingEntity struct {
 	AllowDirectMessage   bool
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	Seller               *SellerPublicProfile `json:"-"`
 }
 
 type ListingUpdate struct {

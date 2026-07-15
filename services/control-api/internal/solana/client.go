@@ -166,6 +166,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		hsm = NewMockHSMSigner(k)
 	}
 
+	cfg.RPCEndpoints = NormalizeRPCEndpoints(cfg.RPCEndpoints)
 	if len(cfg.RPCEndpoints) == 0 {
 		return nil, fmt.Errorf("no RPC endpoints provided")
 	}
@@ -173,7 +174,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 	// Create RPC clients
 	rpcClients := make([]*rpc.Client, len(cfg.RPCEndpoints))
 	for i, endpoint := range cfg.RPCEndpoints {
-		rpcClients[i] = rpc.New(endpoint)
+		rpcClients[i] = NewRPCClient(endpoint)
 	}
 
 	return &OracleClient{
@@ -188,6 +189,9 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 
 // rpc returns the current active RPC client
 func (c *OracleClient) rpc() *rpc.Client {
+	if len(c.rpcClients) == 0 {
+		return nil
+	}
 	return c.rpcClients[c.currentIdx]
 }
 

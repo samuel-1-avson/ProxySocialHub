@@ -249,11 +249,8 @@ export function formatBandwidth(bytes: number): string {
     return `${gb.toFixed(2)} GB`;
 }
 
-export function formatCurrency(amount: number, currency = 'USD'): string {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency,
-    }).format(amount);
+export function formatCurrency(amount: number, currency = 'SOL'): string {
+    return `${amount.toFixed(amount >= 1 ? 3 : 6)} ${currency}`;
 }
 
 export function getUtilizationColor(percent: number): string {

@@ -4,6 +4,16 @@
  */
 
 import { apiGet, apiPost, apiPut, apiDelete, publicApiGet } from './client';
+import type { CatalogProductSummary } from './catalog';
+
+export type { CatalogProductSummary } from './catalog';
+
+/** Discovery embed for linked catalog merchandising (#11). */
+const LISTING_INCLUDE_PRODUCT = { include: 'product' } as const;
+
+function listingQueryParams(params: Record<string, string> = {}): Record<string, string> {
+    return { ...params, ...LISTING_INCLUDE_PRODUCT };
+}
 
 // ============ Types ============
 
@@ -19,7 +29,7 @@ export interface Listing {
     max_concurrency: number;
     proxy_type: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | 'both';
     protocol: string;
-    status: 'active' | 'paused' | 'sold_out' | string;
+    status: 'active' | 'paused' | 'sold_out' | 'pending_review' | string;
     country?: string;
     city?: string;
     isp?: string;
@@ -60,27 +70,75 @@ export interface Listing {
         total_bandwidth_sold?: number;
         response_time_min?: number;
     };
+    /** Present when fetched with ?include=product */
+    catalog_product?: CatalogProductSummary;
 }
+
+export type OrderStatus =
+    | 'pending'
+    | 'pending_payment'
+    | 'active'
+    | 'completed'
+    | 'disputed'
+    | 'cancelled'
+    | 'refunded'
+    | string;
 
 export interface Order {
     id: string;
     buyer_id: string;
     seller_id: string;
     listing_id: string;
-    node_id: string;
+    node_id?: string;
     bandwidth_gb: number;
-    price_total: number;
+    price_total?: number;
+    total_price?: number;
     amount?: number; // Legacy support
-    status: 'pending' | 'paid' | 'active' | 'completed' | 'cancelled' | 'refunded' | string;
-    session_type: 'rotating' | 'sticky';
+    status: OrderStatus;
+    session_type?: 'rotating' | 'sticky';
     session_id?: string;
     tx_hash?: string;
+    tx_signature?: string;
     created_at: string;
     completed_at?: string;
     listing?: {
         title: string;
     };
     escrow_status?: string;
+    escrow_pda?: string;
+}
+
+export interface FacetBucket {
+    value: string;
+    count: number;
+}
+
+export interface PriceBucket {
+    min: number;
+    max: number;
+    count: number;
+}
+
+export interface ListingFacets {
+    countries: FacetBucket[];
+    proxy_types: FacetBucket[];
+    isps: FacetBucket[];
+    price_buckets: PriceBucket[];
+}
+
+export interface ListingCollectionSummary {
+    slug: string;
+    title: string;
+    description: string;
+    count: number;
+}
+
+export interface ListingCollectionResponse {
+    collection: Pick<ListingCollectionSummary, 'slug' | 'title' | 'description'>;
+    listings: Listing[];
+    total: number;
+    page: number;
+    limit: number;
 }
 
 export interface ListingFilters {
@@ -90,10 +148,27 @@ export interface ListingFilters {
     proxy_type?: 'residential' | 'mobile' | 'datacenter' | 'rotating' | 'sticky' | string;
     min_rating?: number;
     seller_id?: string;
-    sort_by?: 'price' | 'rating' | 'sales' | 'uptime' | string;
+    sort_by?: 'newest' | 'price' | 'price_asc' | 'price_desc' | 'rating' | 'popular' | 'sales' | 'uptime' | 'latency' | 'quality' | string;
     sort_order?: 'asc' | 'desc';
     page?: number;
     limit?: number;
+}
+
+export interface UpdateListingRequest {
+    title?: string;
+    description?: string;
+    price_per_gb?: number;
+    min_purchase_gb?: number;
+    available_bandwidth_gb?: number;
+    max_concurrency?: number;
+    status?: 'active' | 'paused' | 'sold_out' | string;
+}
+
+export interface SavedListingEntry {
+    id: string;
+    listing_id: string;
+    created_at: string;
+    listing?: Listing;
 }
 
 export interface CreateOrderRequest {
@@ -160,6 +235,7 @@ export interface SessionFromListingRequest {
     listing_id: string;
     type?: 'rotating' | 'sticky';
     bandwidth_limit?: number; // bytes; 0 = use listing minimum
+    bandwidth_gb?: number;
 }
 
 export interface MarketplaceProxyCredentials {
@@ -253,11 +329,10 @@ export interface MarketplaceGeoResponse {
     total: number;
 }
 
-export interface MarketplaceGeoFilters {
-    country?: string;
-    proxy_type?: string;
-    /** west,south,east,north — filters listings with precise explorer coordinates */
-    bbox?: string;
+export interface MapGeoMeta {
+    source: string;
+    display_label: string;
+    estimated: boolean;
 }
 
 export interface MarketplaceMapPoint {
@@ -267,6 +342,7 @@ export interface MarketplaceMapPoint {
     lon: number;
     title: string;
     country?: string;
+    region?: string;
     city?: string;
     isp?: string;
     status: 'active' | 'offline' | 'paused' | 'sold_out' | 'unknown' | string;
@@ -283,7 +359,8 @@ export interface MarketplaceMapPoint {
     is_validator?: boolean;
     active_sessions?: number;
     sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
-    geo_source: 'gps' | 'gateway' | 'explorer' | 'provider' | 'country_centroid' | 'unknown' | string;
+    geo_source: 'gps' | 'gateway' | 'explorer' | 'provider' | 'country_centroid' | 'region_hub' | 'city_centroid' | 'unknown' | string;
+    geo?: MapGeoMeta;
     listing_offer_verified?: boolean;
     listing_offer_signer?: string;
     listing_offer_signed_at?: string;
@@ -292,6 +369,7 @@ export interface MarketplaceMapPoint {
     heartbeat_signer?: string;
     heartbeat_signed_at?: string;
     heartbeat_verification_error?: string;
+    catalog_product?: CatalogProductSummary;
 }
 
 export interface MarketplaceMapResponse {
@@ -314,16 +392,12 @@ export interface MarketplaceMapFilters {
     purchasable_only?: boolean;
     include_nodes?: boolean;
     active_nodes_only?: boolean;
+    /** When true, node points are validators only (mirrors GET /explorer/nodes/geo?validator=true). */
+    validator?: boolean;
     /** west,south,east,north */
     bbox?: string;
-}
-
-export function getMarketplaceGeo(filters?: MarketplaceGeoFilters) {
-    const params: Record<string, string> = {};
-    if (filters?.country) params.country = filters.country;
-    if (filters?.proxy_type) params.proxy_type = filters.proxy_type;
-    if (filters?.bbox) params.bbox = filters.bbox;
-    return publicApiGet<MarketplaceGeoResponse>('/v1/listings/geo', params);
+    /** Embed catalog_product on listing points (server-side enrich). */
+    include_catalog?: boolean;
 }
 
 export function getMarketplaceMapPoints(filters?: MarketplaceMapFilters) {
@@ -347,7 +421,10 @@ export function getListings(filters?: ListingFilters) {
             }
         });
     }
-    return publicApiGet<{ listings: Listing[]; total: number; page: number }>('/v1/listings', params);
+    return publicApiGet<{ listings: Listing[]; total: number; page: number }>(
+        '/v1/listings',
+        listingQueryParams(params),
+    );
 }
 
 /**
@@ -361,31 +438,56 @@ export function getProviderNodes() {
  * Get a specific listing
  */
 export function getListing(id: string) {
-    return publicApiGet<{ listing: Listing; is_saved: boolean }>(`/v1/listings/${id}`);
+    return publicApiGet<{ listing: Listing; is_saved: boolean }>(
+        `/v1/listings/${id}`,
+        LISTING_INCLUDE_PRODUCT,
+    );
 }
 
 /**
  * Get featured/top listings
  */
-export function getFeaturedListings() {
-    return publicApiGet<Listing[]>('/v1/listings/featured');
+export async function getFeaturedListings(): Promise<Listing[]> {
+    const data = await publicApiGet<{ listings: Listing[]; total: number }>(
+        '/v1/listings/featured',
+        LISTING_INCLUDE_PRODUCT,
+    );
+    return data.listings ?? [];
+}
+
+export function getListingFacets() {
+    return publicApiGet<ListingFacets>('/v1/listings/facets');
+}
+
+export function getListingCollections() {
+    return publicApiGet<{ collections: ListingCollectionSummary[] }>('/v1/listings/collections');
+}
+
+export function getListingCollection(slug: string, page = 1, limit = 20) {
+    return publicApiGet<ListingCollectionResponse>(`/v1/listings/collections/${slug}`, listingQueryParams({
+        page: String(page),
+        limit: String(limit),
+    }));
 }
 
 /**
  * Search listings
  */
 export function searchListings(query: string) {
-    return publicApiGet<{ listings: Listing[]; total: number }>('/v1/listings/search', { q: query });
+    return publicApiGet<{ listings: Listing[]; total: number }>(
+        '/v1/listings/search',
+        listingQueryParams({ q: query }),
+    );
 }
 
 /**
  * Get current provider/seller listings.
  */
 export function getMyListings(page = 1, limit = 20) {
-    return apiGet<MyListingsResponse>('/v1/listings/my', {
+    return apiGet<MyListingsResponse>('/v1/listings/my', listingQueryParams({
         page: String(page),
         limit: String(limit),
-    });
+    }));
 }
 
 export interface ListingProofPolicy {
@@ -429,6 +531,10 @@ export function createListing(data: CreateListingRequest) {
  */
 export function deleteListing(id: string) {
     return apiDelete<{ message: string }>(`/v1/listings/${id}`);
+}
+
+export function updateListing(id: string, data: UpdateListingRequest) {
+    return apiPut<{ listing: Listing }>(`/v1/listings/${id}`, data);
 }
 
 /**
@@ -497,8 +603,40 @@ export async function unstakeNode(data: UnstakeNodeRequest) {
 /**
  * Get a specific order
  */
-export function getOrder(id: string) {
-    return apiGet<Order>(`/v1/orders/${id}`);
+export async function getOrder(id: string) {
+    const data = await apiGet<Order | { order: Order }>(`/v1/orders/${id}`);
+    if (data && typeof data === 'object' && 'order' in data && data.order) {
+        return data.order;
+    }
+    return data as Order;
+}
+
+export function getOrderProxyCredentials(orderId: string) {
+    return apiGet<{ proxy_credentials: MarketplaceProxyCredentials }>(`/v1/orders/${orderId}/credentials`);
+}
+
+export async function waitForOrderActive(
+    orderId: string,
+    options?: { timeoutMs?: number; pollIntervalMs?: number },
+): Promise<Order> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const pollIntervalMs = options?.pollIntervalMs ?? 2000;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+        const order = await getOrder(orderId);
+        if (order.status === 'active' || order.status === 'completed') {
+            return order;
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    throw new Error('Timed out waiting for escrow confirmation. Check your wallet transaction and try again.');
+}
+
+export function getSavedListings(page = 1, limit = 20) {
+    return apiGet<{ saved: SavedListingEntry[]; total: number; page: number; limit: number }>(
+        '/v1/saved',
+        listingQueryParams({ page: String(page), limit: String(limit) }),
+    );
 }
 
 /**
@@ -537,12 +675,27 @@ export function cancelOrder(id: string) {
     return apiPost<{ message: string }>(`/v1/orders/${id}/cancel`);
 }
 
+export function createOrderFromListing(data: SessionFromListingRequest) {
+    const bandwidthGb =
+        data.bandwidth_gb ??
+        (data.bandwidth_limit && data.bandwidth_limit > 0
+            ? data.bandwidth_limit / (1024 * 1024 * 1024)
+            : 1);
+
+    return createOrderWithProvisioning({
+        listing_id: data.listing_id,
+        bandwidth_gb: bandwidthGb,
+        session_type: data.type,
+    });
+}
+
 /**
- * Create a P2P proxy session from a specific marketplace listing.
- * Returns the session and ready-to-use proxy credentials.
+ * @deprecated Direct session creation from listings has been removed from the
+ * public buyer flow. Use createOrderFromListing, then confirm escrow payment and
+ * fetch credentials from /v1/orders/:id/credentials.
  */
 export function createSessionFromListing(data: SessionFromListingRequest) {
-    return apiPost<SessionFromListingResponse>('/v1/sessions/from-listing', data);
+    return createOrderFromListing(data);
 }
 
 // ============ Query Keys ============
@@ -553,9 +706,16 @@ export const marketplaceKeys = {
     listing: (id: string) => [...marketplaceKeys.all, 'listing', id] as const,
     map: (filters?: MarketplaceMapFilters) => [...marketplaceKeys.all, 'map', filters] as const,
     featured: () => [...marketplaceKeys.all, 'featured'] as const,
+    facets: () => [...marketplaceKeys.all, 'facets'] as const,
+    collections: () => [...marketplaceKeys.all, 'collections'] as const,
+    collection: (slug: string, page?: number) =>
+        [...marketplaceKeys.all, 'collection', slug, page] as const,
     search: (query: string) => [...marketplaceKeys.all, 'search', query] as const,
     myListings: (page?: number) => [...marketplaceKeys.all, 'my-listings', page] as const,
     saved: () => [...marketplaceKeys.all, 'saved'] as const,
     orders: (status?: string) => [...marketplaceKeys.all, 'orders', status] as const,
     order: (id: string) => [...marketplaceKeys.all, 'order', id] as const,
+    orderCredentials: (id: string) => [...marketplaceKeys.all, 'order', id, 'credentials'] as const,
 };
+
+export { catalogKeys } from './catalog';

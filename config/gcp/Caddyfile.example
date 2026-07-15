@@ -1,0 +1,22 @@
+# Caddy on the GCE VM — TLS for app + api only.
+# Buyer CONNECT and provider tunnel use edge-gateway ports 8090 / 3128 directly (DNS → VM IP).
+#
+# Install: apt install caddy
+# Copy to /etc/caddy/Caddyfile and: systemctl reload caddy
+#
+# Replace example.com with your domain. Cloud DNS A records → VM external IP.
+
+app.testnet.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+api.testnet.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+# Optional: health-only HTTPS for proxy hostname (CONNECT still uses :8090, not this vhost)
+proxy.testnet.example.com {
+	respond "ProxyHubb edge — use port 8090 for CONNECT and 3128 for provider tunnel" 200
+}

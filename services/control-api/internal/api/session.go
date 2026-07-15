@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/sessionintent"
@@ -80,6 +82,36 @@ func generateCredentials() (string, string) {
 	cryptoRand.Read(user)
 	cryptoRand.Read(pass)
 	return hex.EncodeToString(user), hex.EncodeToString(pass)
+}
+
+func legacyDirectSessionCreationEnabled() bool {
+	if !isTruthyEnv(os.Getenv("PROXYHUB_ALLOW_LEGACY_DIRECT_SESSIONS")) {
+		return false
+	}
+
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	ginMode := strings.ToLower(strings.TrimSpace(os.Getenv("GIN_MODE")))
+	if appEnv == "production" || appEnv == "prod" || appEnv == "staging" || ginMode == "release" {
+		return isTruthyEnv(os.Getenv("PROXYHUB_ALLOW_LEGACY_DIRECT_SESSIONS_IN_PROD"))
+	}
+	return true
+}
+
+func blockDeprecatedDirectSessionCreation(c *gin.Context, flow string) bool {
+	if legacyDirectSessionCreationEnabled() {
+		return false
+	}
+
+	c.Header("Deprecation", "true")
+	c.JSON(http.StatusGone, gin.H{
+		"error":       "Direct legacy session creation is deprecated",
+		"deprecated":  true,
+		"flow":        flow,
+		"replacement": "Create a marketplace order, confirm Solana escrow payment, then fetch credentials from /v1/orders/:id/credentials.",
+		"intent_path": "/v1/sessions/intent",
+		"order_path":  "/v1/orders",
+	})
+	return true
 }
 
 // selectProviderNode picks the best available healthy provider node,
@@ -275,6 +307,10 @@ func createSessionIntent(c *gin.Context) {
 }
 
 func createSession(c *gin.Context) {
+	if blockDeprecatedDirectSessionCreation(c, "direct_session") {
+		return
+	}
+
 	var req createSessionRequestV4
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -666,6 +702,10 @@ type createInstantSessionRequest struct {
 
 // createInstantSession creates a "Pay-as-you-go" Universal Session
 func createInstantSession(c *gin.Context) {
+	if blockDeprecatedDirectSessionCreation(c, "instant_session") {
+		return
+	}
+
 	var req createInstantSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -710,7 +750,7 @@ func createInstantSession(c *gin.Context) {
 	session := models.Session{
 		UserID:          userUUID,
 		NodeID:          &nodeID,
-		Type:            "universal", // Special type
+		Type:            models.SessionUniversal,
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
@@ -746,12 +786,17 @@ func createInstantSession(c *gin.Context) {
 		return
 	}
 
+	buyerHost, buyerPort, buyerEndpoint := BuyerProxyConnectInfo()
+
 	c.JSON(http.StatusCreated, gin.H{
 		"session": session,
 		"proxy_credentials": gin.H{
 			"username": credUser,
 			"password": credPass,
-			"endpoint": "proxy.proxyhubb.com:3000",
+			"host":     buyerHost,
+			"port":     buyerPort,
+			"protocol": "http",
+			"endpoint": buyerEndpoint,
 		},
 		"strategy": req.Strategy,
 	})
@@ -849,6 +894,10 @@ type createSessionFromListingRequest struct {
 // linked to that listing and the provider's best node → billing worker credits
 // the provider on every settlement cycle.
 func createSessionFromListing(c *gin.Context) {
+	if blockDeprecatedDirectSessionCreation(c, "from_listing") {
+		return
+	}
+
 	var req createSessionFromListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1022,11 +1071,12 @@ func createSessionFromListing(c *gin.Context) {
 		ExpiresAt:      time.Now().Add(24 * time.Hour),
 		CreatedAt:      time.Now(),
 		// P2P routing fields — edge-gateway routes traffic to this exact node
-		ListingID:  listingID.String(),
-		NodeID:     node.ID.String(),
-		NodeHost:   node.IPAddress,
-		NodePort:   node.Port,
-		PricePerGB: listing.PricePerGB,
+		ListingID:              listingID.String(),
+		NodeID:                 marketplace.GatewayRoutingNodeID(&node),
+		NodeHost:               node.IPAddress,
+		NodePort:               node.Port,
+		PricePerGB:             listing.PricePerGB,
+		CredentialPasswordHash: marketplace.HashCredentialPassword(credPass),
 	}
 	if err := redisClient.StoreSession(credUser, sessionData, 24*time.Hour); err != nil {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("Redis sync failed for P2P session")

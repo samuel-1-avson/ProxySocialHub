@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/decentralization"
+	"github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/prices"
@@ -232,17 +233,19 @@ type NodeDetailResponse struct {
 // Only the fields the map engine actually needs are included to keep
 // the response small at large node counts.
 type NodeGeoPoint struct {
-	NodeID         string  `json:"node_id"`
-	Latitude       float64 `json:"lat"`
-	Longitude      float64 `json:"lon"`
-	IsActive       bool    `json:"is_active"`
-	IsValidator    bool    `json:"is_validator"`
-	UptimePercent  float64 `json:"uptime_percent"`
-	ActiveSessions int     `json:"active_sessions"`
-	Country        string  `json:"country"`
-	Region         string  `json:"region"`
-	City           string  `json:"city,omitempty"`
-	ISP            string  `json:"isp,omitempty"`
+	NodeID         string         `json:"node_id"`
+	Latitude       float64        `json:"lat"`
+	Longitude      float64        `json:"lon"`
+	IsActive       bool           `json:"is_active"`
+	IsValidator    bool           `json:"is_validator"`
+	UptimePercent  float64        `json:"uptime_percent"`
+	ActiveSessions int            `json:"active_sessions"`
+	Country        string         `json:"country"`
+	Region         string         `json:"region"`
+	City           string         `json:"city,omitempty"`
+	ISP            string         `json:"isp,omitempty"`
+	GeoSource      string         `json:"geo_source,omitempty"`
+	Geo            *geo.MapGeoMeta `json:"geo,omitempty"`
 }
 
 type NodeGeoResponse struct {
@@ -530,7 +533,7 @@ func enforceExplorerFullDecentralization() gin.HandlerFunc {
 func explorerDistinctActiveWallets(chain string, since time.Time) uint64 {
 	var count int64
 	now := time.Now()
-	db.DB.Raw(`
+	db.GetReadDB().Raw(`
 		SELECT COUNT(DISTINCT addr) FROM (
 			SELECT from_address AS addr FROM explorer_transactions
 			WHERE chain = ? AND is_orphaned = ? AND timestamp >= ? AND timestamp < ?
@@ -546,7 +549,7 @@ func explorerDistinctActiveWallets(chain string, since time.Time) uint64 {
 func explorerCompute24hTPS(chain string) float64 {
 	var tpsWindow int64
 	since := time.Now().Add(-24 * time.Hour)
-	db.DB.Model(&models.ExplorerTransaction{}).
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).
 		Where("chain = ? AND is_orphaned = ? AND timestamp > ?", chain, false, since).
 		Count(&tpsWindow)
 	return float64(tpsWindow) / (24 * 3600)
@@ -582,7 +585,7 @@ func getExplorerMetrics(c *gin.Context) {
 
 	// Get from database cache (hourly aggregated)
 	var metrics models.ExplorerMetrics
-	if err := db.DB.Where("chain = ? AND period = ?", chain, "hourly").
+	if err := db.GetReadDB().Where("chain = ? AND period = ?", chain, "hourly").
 		Order("period_start DESC").First(&metrics).Error; err == nil {
 		// Cache hit, return cached data
 		response := ExplorerMetricsResponse{
@@ -614,11 +617,11 @@ func getExplorerMetrics(c *gin.Context) {
 	var totalVolume float64
 	var totalBandwidthBytes int64
 
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&txCount)
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND status = ? AND is_orphaned = ?", "solana", "confirmed", false).Select("COALESCE(SUM(amount), 0)").Scan(&totalVolume)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&txCount)
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND status = ? AND is_orphaned = ?", "solana", "confirmed", false).Select("COALESCE(SUM(amount), 0)").Scan(&totalVolume)
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
 	// Bandwidth is cumulative telemetry from active provider nodes (lifetime counter).
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
 	activeWallets := explorerDistinctActiveWallets("solana", time.Now().Add(-24*time.Hour))
 
 	// Compute avg block time from the last 1000 indexed blocks (real chain data)
@@ -627,7 +630,7 @@ func getExplorerMetrics(c *gin.Context) {
 		BlockNumber uint64
 		Timestamp   time.Time
 	}
-	if err := db.DB.Model(&models.ExplorerBlock{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlock{}).
 		Where("is_orphaned = ?", false).
 		Order("block_number DESC").Limit(1000).
 		Select("block_number, timestamp").Scan(&blockTimes).Error; err == nil && len(blockTimes) >= 2 {
@@ -642,7 +645,7 @@ func getExplorerMetrics(c *gin.Context) {
 	// Block height from latest indexed block (real Solana chain height)
 	blockHeight := uint64(0)
 	var latestBlock models.ExplorerBlock
-	if err := db.DB.Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
+	if err := db.GetReadDB().Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
 		blockHeight = latestBlock.BlockNumber
 	}
 
@@ -651,7 +654,7 @@ func getExplorerMetrics(c *gin.Context) {
 		Region string
 		Count  int
 	}
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").
 		Select("region, count(*) as count").Group("region").Scan(&regionStats)
 
 	regionDist := make(map[string]int)
@@ -695,9 +698,9 @@ func getNetworkStats(c *gin.Context) {
 		ActiveNodes int64
 	}
 
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&stats.TotalTx)
-	db.DB.Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&stats.TotalTx)
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total_transactions": stats.TotalTx,
@@ -724,7 +727,7 @@ func listTransactions(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerTransaction{}).Where("is_orphaned = ?", false)
+	query := db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("is_orphaned = ?", false)
 
 	if chain != "" {
 		query = query.Where("chain = ?", chain)
@@ -782,7 +785,7 @@ func getTransactionByHash(c *gin.Context) {
 
 	// Try database cache first
 	var tx models.ExplorerTransaction
-	if err := db.DB.Where("tx_hash = ? AND is_orphaned = ?", hash, false).First(&tx).Error; err == nil {
+	if err := db.GetReadDB().Where("tx_hash = ? AND is_orphaned = ?", hash, false).First(&tx).Error; err == nil {
 		c.JSON(http.StatusOK, TransactionDetailResponse{
 			TxHash:        tx.TxHash,
 			Chain:         tx.Chain,
@@ -853,11 +856,11 @@ func getWalletDetails(c *gin.Context) {
 	walletTxArgs := []interface{}{false, address, address}
 
 	var txCount int64
-	db.DB.Model(&models.ExplorerTransaction{}).Where(walletTxWhere, walletTxArgs...).Count(&txCount)
+	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where(walletTxWhere, walletTxArgs...).Count(&txCount)
 
 	var firstTx, lastTx models.ExplorerTransaction
-	db.DB.Where(walletTxWhere, walletTxArgs...).Order("timestamp ASC").First(&firstTx)
-	db.DB.Where(walletTxWhere, walletTxArgs...).Order("timestamp DESC").First(&lastTx)
+	db.GetReadDB().Where(walletTxWhere, walletTxArgs...).Order("timestamp ASC").First(&firstTx)
+	db.GetReadDB().Where(walletTxWhere, walletTxArgs...).Order("timestamp DESC").First(&lastTx)
 
 	// Get SOL balance and PHB platform token balance from Solana RPC
 	var balanceSOL, balancePlatform float64
@@ -912,7 +915,7 @@ func getWalletTransactions(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.DB.Model(&models.ExplorerTransaction{}).
+	query := db.GetReadDB().Model(&models.ExplorerTransaction{}).
 		Where("is_orphaned = ? AND (from_address = ? OR to_address = ?)", false, address, address)
 	query.Count(&total)
 
@@ -961,7 +964,7 @@ func listBlocks(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.DB.Model(&models.ExplorerBlock{}).Where("chain = ? AND is_orphaned = ?", chain, false)
+	query := db.GetReadDB().Model(&models.ExplorerBlock{}).Where("chain = ? AND is_orphaned = ?", chain, false)
 	query.Count(&total)
 
 	var blocks []models.ExplorerBlock
@@ -1002,14 +1005,14 @@ func getBlockByIdentifier(c *gin.Context) {
 
 	// Try as block number first
 	if blockNum, err := strconv.ParseUint(identifier, 10, 64); err == nil {
-		if err := db.DB.Where("block_number = ? AND is_orphaned = ?", blockNum, false).First(&block).Error; err == nil {
+		if err := db.GetReadDB().Where("block_number = ? AND is_orphaned = ?", blockNum, false).First(&block).Error; err == nil {
 			returnBlockDetail(c, block)
 			return
 		}
 	}
 
 	// Try as block hash
-	if err := db.DB.Where("block_hash = ? AND is_orphaned = ?", identifier, false).First(&block).Error; err == nil {
+	if err := db.GetReadDB().Where("block_hash = ? AND is_orphaned = ?", identifier, false).First(&block).Error; err == nil {
 		returnBlockDetail(c, block)
 		return
 	}
@@ -1020,7 +1023,7 @@ func getBlockByIdentifier(c *gin.Context) {
 func returnBlockDetail(c *gin.Context, block models.ExplorerBlock) {
 	// Get transactions in this block
 	var transactions []models.ExplorerTransaction
-	db.DB.Where("block_hash = ? AND is_orphaned = ?", block.BlockHash, false).Limit(100).Find(&transactions)
+	db.GetReadDB().Where("block_hash = ? AND is_orphaned = ?", block.BlockHash, false).Limit(100).Find(&transactions)
 
 	txSummaries := make([]TransactionSummary, len(transactions))
 	for i, tx := range transactions {
@@ -1066,7 +1069,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerNode{}).Where("chain = ?", "solana")
+	query := db.GetReadDB().Model(&models.ExplorerNode{}).Where("chain = ?", "solana")
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
 	}
@@ -1086,7 +1089,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	var total, activeCount int64
 	query.Count(&total)
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&activeCount)
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&activeCount)
 
 	var nodes []models.ExplorerNode
 	if err := query.Order("uptime_percent DESC").Offset(offset).Limit(pageSize).Find(&nodes).Error; err != nil {
@@ -1126,7 +1129,7 @@ func getExplorerNodesGeo(c *gin.Context) {
 		}
 	}
 
-	query := db.DB.Model(&models.ExplorerNode{})
+	query := db.GetReadDB().Model(&models.ExplorerNode{})
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
 	}
@@ -1136,7 +1139,7 @@ func getExplorerNodesGeo(c *gin.Context) {
 
 	var nodes []models.ExplorerNode
 	if err := query.
-		Select("node_id, latitude, longitude, is_active, is_validator, uptime_percent, active_sessions, country, region, city, isp").
+		Select("node_id, latitude, longitude, geo_source, is_active, is_validator, uptime_percent, active_sessions, country, region, city, isp").
 		Order("is_active DESC, uptime_percent DESC").
 		Limit(5000).
 		Find(&nodes).Error; err != nil {
@@ -1146,10 +1149,14 @@ func getExplorerNodesGeo(c *gin.Context) {
 
 	points := make([]NodeGeoPoint, len(nodes))
 	for i, n := range nodes {
+		anchor := geo.MapGeoAnchor(n.NodeID, "", "")
+		lat, lon, fallbackGeo := geo.ApplyMapCoords(n.Latitude, n.Longitude, n.Country, n.City, anchor)
+		geoSource := nodeMapGeoSource(n.GeoSource, n.Country, n.City, n.Region, n.Latitude, n.Longitude, fallbackGeo)
+		meta := geo.BuildMapGeoMeta(geoSource)
 		points[i] = NodeGeoPoint{
 			NodeID:         n.NodeID,
-			Latitude:       n.Latitude,
-			Longitude:      n.Longitude,
+			Latitude:       lat,
+			Longitude:      lon,
 			IsActive:       n.IsActive,
 			IsValidator:    n.IsValidator,
 			UptimePercent:  n.UptimePercent,
@@ -1158,6 +1165,8 @@ func getExplorerNodesGeo(c *gin.Context) {
 			Region:         n.Region,
 			City:           n.City,
 			ISP:            n.ISP,
+			GeoSource:      geoSource,
+			Geo:            &meta,
 		}
 	}
 
@@ -1172,7 +1181,7 @@ func getExplorerNodeDetails(c *gin.Context) {
 	nodeID := c.Param("id")
 
 	var node models.ExplorerNode
-	if err := db.DB.Where("node_id = ?", nodeID).First(&node).Error; err != nil {
+	if err := db.GetReadDB().Where("node_id = ?", nodeID).First(&node).Error; err != nil {
 		explorerNotFound(c, "Node not found")
 		return
 	}
@@ -1184,7 +1193,7 @@ func getExplorerNodeDetails(c *gin.Context) {
 	var totalSessions int64
 	var bytesUp, bytesDown int64
 	var srcNode models.Node
-	if err := db.DB.Where("id = ?", node.NodeID).First(&srcNode).Error; err == nil {
+	if err := db.GetReadDB().Where("id = ?", node.NodeID).First(&srcNode).Error; err == nil {
 		latencyMs = srcNode.LatencyMs
 		qualityScore = srcNode.QualityScore
 		successRate = explorerSuccessRatePercent(srcNode.SuccessRate)
@@ -1192,7 +1201,7 @@ func getExplorerNodeDetails(c *gin.Context) {
 		bytesDown = srcNode.TotalBytesDown
 	}
 	// Count total sessions for this node
-	db.DB.Model(&models.Session{}).Where("node_id = ?", nodeID).Count(&totalSessions)
+	db.GetReadDB().Model(&models.Session{}).Where("node_id = ?", nodeID).Count(&totalSessions)
 
 	c.JSON(http.StatusOK, NodeDetailResponse{
 		NodeSummary:    publicNodeSummary(node),
@@ -1223,11 +1232,11 @@ func listExplorerValidators(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.DB.Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
+	query := db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
 	query.Count(&total)
 
 	var maxStake float64
-	db.DB.Model(&models.ExplorerNode{}).
+	db.GetReadDB().Model(&models.ExplorerNode{}).
 		Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana").
 		Select("COALESCE(MAX(stake_amount), 0)").
 		Scan(&maxStake)
@@ -1271,7 +1280,7 @@ func listContracts(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.ExplorerContract{}).Where("chain = ?", "solana")
+	query := db.GetReadDB().Model(&models.ExplorerContract{}).Where("chain = ?", "solana")
 	if contractType != "" {
 		query = query.Where("contract_type = ?", contractType)
 	}
@@ -1326,7 +1335,7 @@ func getContractDetails(c *gin.Context) {
 	address := c.Param("address")
 
 	var contract models.ExplorerContract
-	if err := db.DB.Where("address = ?", address).First(&contract).Error; err != nil {
+	if err := db.GetReadDB().Where("address = ?", address).First(&contract).Error; err != nil {
 		explorerNotFound(c, "Contract not found")
 		return
 	}
@@ -1369,18 +1378,18 @@ func getBandwidthStats(c *gin.Context) {
 
 	// Lifetime cumulative bandwidth across all indexed nodes.
 	var totalBandwidth uint64
-	db.DB.Model(&models.ExplorerNode{}).Where("chain = ?", "solana").
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("chain = ?", "solana").
 		Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidth)
 
 	// Period bandwidth from proxy usage records (bytes in window).
 	var periodBandwidthBytes int64
-	db.DB.Model(&models.UsageRecord{}).
+	db.GetReadDB().Model(&models.UsageRecord{}).
 		Where("created_at >= ?", since).
 		Select("COALESCE(SUM(bytes_used), 0)").Scan(&periodBandwidthBytes)
 
 	// Active connections count
 	var activeConnections int64
-	db.DB.Model(&models.ExplorerNode{}).
+	db.GetReadDB().Model(&models.ExplorerNode{}).
 		Where("is_active = ? AND active_sessions > 0", true).
 		Select("COALESCE(SUM(active_sessions), 0)").
 		Scan(&activeConnections)
@@ -1391,7 +1400,7 @@ func getBandwidthStats(c *gin.Context) {
 		Bandwidth float64 `json:"bandwidth"`
 	}
 	var regionStats []RegionBW
-	db.DB.Model(&models.ExplorerNode{}).
+	db.GetReadDB().Model(&models.ExplorerNode{}).
 		Select("region, SUM(total_bandwidth) as bandwidth").
 		Group("region").
 		Scan(&regionStats)
@@ -1408,7 +1417,7 @@ func getBandwidthStats(c *gin.Context) {
 
 	// Top providers
 	var topProviders []models.ExplorerNode
-	db.DB.Order("total_bandwidth DESC").Limit(10).Find(&topProviders)
+	db.GetReadDB().Order("total_bandwidth DESC").Limit(10).Find(&topProviders)
 
 	providerStats := make([]ProviderBWStats, len(topProviders))
 	for i, p := range topProviders {
@@ -1484,7 +1493,7 @@ func getNetworkHealth(c *gin.Context) {
 	}
 
 	// Check Database (ping latency exposed as avg_response_time_ms for dashboards)
-	sqlDB, err := db.DB.DB()
+	sqlDB, err := db.GetReadDB().DB()
 	if err == nil {
 		pingStart := time.Now()
 		if err = sqlDB.Ping(); err == nil {
@@ -1500,7 +1509,7 @@ func getNetworkHealth(c *gin.Context) {
 	}
 
 	// Active nodes
-	db.DB.Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
+	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
 
 	cacheResponse(c, cacheKey, health, 10*time.Second)
 	c.JSON(http.StatusOK, health)
@@ -1544,7 +1553,7 @@ func loadExplorerDecentralizationStatus(windowSlots uint64) (ExplorerDecentraliz
 	}
 
 	var latestSlot uint64
-	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlockAttestation{}).
 		Where("chain = ?", "solana").
 		Select("COALESCE(MAX(slot), 0)").
 		Scan(&latestSlot).Error; err != nil {
@@ -1567,21 +1576,21 @@ func loadExplorerDecentralizationStatus(windowSlots uint64) (ExplorerDecentraliz
 		fromSlot = latestSlot - windowSlots + 1
 	}
 
-	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlockAttestation{}).
 		Where("chain = ? AND slot >= ?", "solana", fromSlot).
 		Distinct("slot").
 		Count(&response.RecentSlotsAnalyzed).Error; err != nil {
 		return response, fmt.Errorf("recent slot count failed: %w", err)
 	}
 
-	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlockAttestation{}).
 		Where("chain = ? AND slot >= ?", "solana", fromSlot).
 		Distinct("writer_id").
 		Count(&response.UniqueWriters).Error; err != nil {
 		return response, fmt.Errorf("unique writer count failed: %w", err)
 	}
 
-	if err := db.DB.Raw(`
+	if err := db.GetReadDB().Raw(`
 		SELECT COUNT(*)
 		FROM (
 			SELECT slot, MAX(writer_count) AS max_count
@@ -1598,7 +1607,7 @@ func loadExplorerDecentralizationStatus(windowSlots uint64) (ExplorerDecentraliz
 		return response, fmt.Errorf("quorum slot count failed: %w", err)
 	}
 
-	if err := db.DB.Raw(`
+	if err := db.GetReadDB().Raw(`
 		SELECT COUNT(*)
 		FROM (
 			SELECT slot
@@ -1665,7 +1674,7 @@ func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentrali
 	}
 
 	var latestSlot uint64
-	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlockAttestation{}).
 		Where("chain = ?", "solana").
 		Select("COALESCE(MAX(slot), 0)").
 		Scan(&latestSlot).Error; err != nil {
@@ -1685,7 +1694,7 @@ func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentrali
 		fromSlot = latestSlot - windowSlots + 1
 	}
 
-	if err := db.DB.Model(&models.ExplorerBlockAttestation{}).
+	if err := db.GetReadDB().Model(&models.ExplorerBlockAttestation{}).
 		Where("chain = ? AND slot >= ?", "solana", fromSlot).
 		Distinct("slot").
 		Count(&response.RecentSlotsAnalyzed).Error; err != nil {
@@ -1693,7 +1702,7 @@ func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentrali
 	}
 
 	var writerRows []explorerWriterRollupRow
-	if err := db.DB.Raw(`
+	if err := db.GetReadDB().Raw(`
 		SELECT
 			writer_id,
 			MAX(rpc_endpoint) AS rpc_endpoint,
@@ -1716,7 +1725,7 @@ func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentrali
 		ConflictingSlots int64
 	}
 	var conflictRows []conflictRow
-	if err := db.DB.Raw(`
+	if err := db.GetReadDB().Raw(`
 		WITH slot_majority AS (
 			SELECT
 				slot,
@@ -1759,7 +1768,7 @@ func loadExplorerDecentralizationWriters(windowSlots uint64) (ExplorerDecentrali
 
 func loadLatestWriterIdentityEvidence(fromSlot uint64) (map[string]explorerWriterIdentityEvidence, error) {
 	var rows []explorerWriterIdentityEvidence
-	if err := db.DB.Raw(`
+	if err := db.GetReadDB().Raw(`
 		SELECT DISTINCT ON (writer_id)
 			writer_id,
 			chain,
@@ -2150,7 +2159,7 @@ func getExplorerAnalytics(c *gin.Context) {
 	}
 
 	var records []models.ExplorerMetrics
-	query := db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod)
+	query := db.GetReadDB().Where("chain = ? AND period = ?", "solana", dbPeriod)
 	if useCustomRange {
 		query = query.Where("period_start >= ? AND period_start < ?", fromTime, toTime)
 	}
@@ -2226,7 +2235,7 @@ func getExplorerLeaderboard(c *gin.Context) {
 		periodApplied = true
 	default:
 		var nodes []models.ExplorerNode
-		db.DB.Where("is_active = ?", true).
+		db.GetReadDB().Where("is_active = ?", true).
 			Order("uptime_percent DESC").
 			Limit(leaderboardLimit).
 			Find(&nodes)
@@ -2256,7 +2265,7 @@ type explorerLeaderboardAggRow struct {
 
 func explorerLeaderboardByPeriodBandwidth(since time.Time, limit int) []ExplorerLeaderboardEntry {
 	var rows []explorerLeaderboardAggRow
-	db.DB.Model(&models.UsageRecord{}).
+	db.GetReadDB().Model(&models.UsageRecord{}).
 		Select("node_id::text AS node_id, COALESCE(SUM(bytes_used), 0) AS score").
 		Where("created_at >= ? AND node_id IS NOT NULL", since).
 		Group("node_id").
@@ -2271,7 +2280,7 @@ func explorerLeaderboardByPeriodBandwidth(since time.Time, limit int) []Explorer
 
 func explorerLeaderboardByPeriodSessions(since time.Time, limit int) []ExplorerLeaderboardEntry {
 	var rows []explorerLeaderboardAggRow
-	db.DB.Model(&models.Session{}).
+	db.GetReadDB().Model(&models.Session{}).
 		Select("node_id::text AS node_id, COUNT(*) AS score").
 		Where("created_at >= ? AND node_id IS NOT NULL", since).
 		Group("node_id").
@@ -2298,7 +2307,7 @@ func explorerLeaderboardEntriesFromAgg(
 		}
 	}
 	var nodes []models.ExplorerNode
-	db.DB.Where("node_id IN ?", nodeIDs).Find(&nodes)
+	db.GetReadDB().Where("node_id IN ?", nodeIDs).Find(&nodes)
 	byID := make(map[string]models.ExplorerNode, len(nodes))
 	for _, n := range nodes {
 		byID[n.NodeID] = n
@@ -2383,7 +2392,7 @@ func listExplorerSessions(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	query := db.DB.Model(&models.Session{})
+	query := db.GetReadDB().Model(&models.Session{})
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -2398,7 +2407,7 @@ func listExplorerSessions(c *gin.Context) {
 	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&sessions)
 
 	var activeCount int64
-	db.DB.Model(&models.Session{}).Where("status = ?", "active").Count(&activeCount)
+	db.GetReadDB().Model(&models.Session{}).Where("status = ?", "active").Count(&activeCount)
 
 	summaries := make([]ExplorerSessionSummary, 0, len(sessions))
 	for _, s := range sessions {
@@ -2496,7 +2505,7 @@ func getExplorerProviderEarnings(c *gin.Context) {
 		LastTime       time.Time
 	}
 	var rows []providerRow
-	db.DB.Model(&models.ProviderEarning{}).
+	db.GetReadDB().Model(&models.ProviderEarning{}).
 		Where("created_at >= ?", since).
 		Select("node_id, provider_user_id, count(*) as count, coalesce(sum(bandwidth_gb), 0) as bandwidth_gb, coalesce(sum(net_amount_sol), 0) as total, max(coalesce(paid_at, created_at)) as last_time").
 		Group("node_id, provider_user_id").
@@ -2505,16 +2514,16 @@ func getExplorerProviderEarnings(c *gin.Context) {
 		Scan(&rows)
 
 	var totalCount int64
-	db.DB.Model(&models.ProviderEarning{}).
+	db.GetReadDB().Model(&models.ProviderEarning{}).
 		Where("created_at >= ?", since).
 		Select("count(distinct node_id)").Scan(&totalCount)
 
 	var totalPaid float64
 	var txCount int64
-	db.DB.Model(&models.ProviderEarning{}).
+	db.GetReadDB().Model(&models.ProviderEarning{}).
 		Where("created_at >= ?", since).
 		Select("coalesce(sum(net_amount_sol), 0)").Scan(&totalPaid)
-	db.DB.Model(&models.ProviderEarning{}).
+	db.GetReadDB().Model(&models.ProviderEarning{}).
 		Where("created_at >= ?", since).
 		Count(&txCount)
 
@@ -2528,7 +2537,7 @@ func getExplorerProviderEarnings(c *gin.Context) {
 		// Public explorer: never expose internal user IDs as addresses (EXP-P0-07).
 		var walletAddr string
 		var user models.User
-		if err := db.DB.Select("wallet_address").Where("id = ?", r.ProviderUserID).First(&user).Error; err == nil && user.WalletAddress != nil {
+		if err := db.GetReadDB().Select("wallet_address").Where("id = ?", r.ProviderUserID).First(&user).Error; err == nil && user.WalletAddress != nil {
 			walletAddr = *user.WalletAddress
 		}
 		providers = append(providers, ProviderEarningSummary{
@@ -2555,7 +2564,7 @@ func getExplorerProviderEarnings(c *gin.Context) {
 		bucketCount = 24
 	}
 	var metricsRecords []models.ExplorerMetrics
-	db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod).
+	db.GetReadDB().Where("chain = ? AND period = ?", "solana", dbPeriod).
 		Order("period_start DESC").Limit(bucketCount).Find(&metricsRecords)
 	for i, j := 0, len(metricsRecords)-1; i < j; i, j = i+1, j-1 {
 		metricsRecords[i], metricsRecords[j] = metricsRecords[j], metricsRecords[i]
@@ -2638,7 +2647,7 @@ func getHealthHistory(c *gin.Context) {
 	}
 
 	var records []models.ExplorerMetrics
-	db.DB.Where("chain = ? AND period = ?", "solana", dbPeriod).
+	db.GetReadDB().Where("chain = ? AND period = ?", "solana", dbPeriod).
 		Order("period_start DESC").Limit(bucketCount).Find(&records)
 	for i, j := 0, len(records)-1; i < j; i, j = i+1, j-1 {
 		records[i], records[j] = records[j], records[i]
@@ -2687,7 +2696,7 @@ func explorerMetricsAggregatorEnabled() bool {
 
 func explorerTimeSeriesAvailable(chain string) bool {
 	var count int64
-	db.DB.Model(&models.ExplorerMetrics{}).
+	db.GetReadDB().Model(&models.ExplorerMetrics{}).
 		Where("chain = ? AND period IN ?", chain, []string{"hourly", "daily"}).
 		Count(&count)
 	return count > 0
@@ -2707,3 +2716,4 @@ func explorerMetricsUnavailableMessage(customRange bool) string {
 func explorerNotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": message})
 }
+

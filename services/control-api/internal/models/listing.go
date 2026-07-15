@@ -12,10 +12,11 @@ import (
 type ListingStatus string
 
 const (
-	ListingStatusActive  ListingStatus = "active"
-	ListingStatusPaused  ListingStatus = "paused"
-	ListingStatusSoldOut ListingStatus = "sold_out"
-	ListingStatusDeleted ListingStatus = "deleted"
+	ListingStatusActive        ListingStatus = "active"
+	ListingStatusPendingReview ListingStatus = "pending_review"
+	ListingStatusPaused        ListingStatus = "paused"
+	ListingStatusSoldOut       ListingStatus = "sold_out"
+	ListingStatusDeleted       ListingStatus = "deleted"
 )
 
 // ProxyType represents the type of proxy
@@ -87,6 +88,9 @@ type ProxyListing struct {
 	// Preloaded relations
 	Seller *User   `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
 	Circle *Circle `gorm:"foreignKey:CircleID" json:"circle,omitempty"`
+
+	// Optional catalog projection (API-only; set when include=product)
+	CatalogProduct *CatalogProductSummary `gorm:"-" json:"catalog_product,omitempty"`
 }
 
 // TableName sets the table name for ProxyListing

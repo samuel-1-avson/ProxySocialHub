@@ -10,8 +10,8 @@ import { apiGet, apiPost, apiDelete } from './client';
 export interface Session {
     id: string;
     user_id: string;
-    type: 'rotating' | 'sticky';
-    status: 'active' | 'terminated' | 'expired';
+    type: 'rotating' | 'sticky' | 'universal';
+    status: 'active' | 'disabled' | 'activation_pending' | 'activation_failed' | 'terminated' | 'expired';
     node_id?: string;
     credentials_user: string;
     credentials_pass: string;
@@ -86,7 +86,8 @@ export interface SessionIntent {
     requests_per_minute: number;
     max_concurrency: number;
     max_price_per_gb?: number;
-    billing_price_per_gb_usd?: number;
+    billing_price_per_gb?: number;
+    billing_price_per_gb_sol?: number;
     billing_price_source?: string;
     provider_node_id?: string;
     target_host?: string;
@@ -110,13 +111,13 @@ export interface SessionIntentUsageSnapshot {
 }
 
 export interface SessionIntentBillingSnapshot {
-    currency: string;
+    currency: 'SOL';
     price_source: string;
-    unit_price_usd_per_gb: number;
+    unit_price_per_gb: number;
     unit_price_sol_per_gb: number;
-    estimated_cost_usd: number;
+    estimated_cost: number;
     estimated_cost_sol: number;
-    projected_full_limit_cost_usd: number;
+    projected_full_limit_cost: number;
     projected_full_limit_cost_sol: number;
 }
 
@@ -164,7 +165,7 @@ export interface UsageStats {
     bytes_limit: number;
     percent_used: number;
     gb_used: number;
-    cost_ghs: number;
+    cost_sol: number;
 }
 
 // ============ API Functions ============
@@ -188,7 +189,8 @@ export function getSession(id: string) {
 }
 
 /**
- * Create a new proxy session
+ * @deprecated Public direct session creation is disabled. Use createSessionIntent
+ * for short-lived gateway access or marketplace order APIs for paid sessions.
  */
 export function createSession(data: CreateSessionRequest) {
     return apiPost<CreateSessionResponse>('/v1/sessions', data);

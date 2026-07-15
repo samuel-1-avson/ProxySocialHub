@@ -113,7 +113,8 @@ if (Test-Path $bootstrap) {
 } else {
     Write-Host "[WARN] Missing $bootstrap" -ForegroundColor Yellow
 }
-$tomlPath = Join-Path $env:USERPROFILE ".proxyhubb\provider.toml"
+. (Join-Path $PSScriptRoot "provider-paths.ps1")
+$tomlPath = Resolve-ProviderConfigPath
 
 Write-Host ""
 Write-Host "--- Part A: Wallet (browser) ---" -ForegroundColor Cyan

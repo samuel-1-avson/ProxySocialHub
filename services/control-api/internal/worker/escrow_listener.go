@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace"
+	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
@@ -71,11 +74,32 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 			Str("escrow_pda", event.EscrowPDA).
 			Str("tx_signature", event.TxSignature).
 			Msg("CRITICAL: escrow initialized on-chain but no matching order found — manual reconciliation required")
+		recordEscrowReconciliation(escrowReconciliationRecord{
+			Source:      "escrow_listener",
+			EventType:   event.Type,
+			EscrowPDA:   event.EscrowPDA,
+			TxSignature: event.TxSignature,
+			Status:      models.EscrowReconciliationStatusUnmatched,
+			Reason:      "order_not_found",
+			LastError:   fmt.Sprintf("order not found after %d attempts", maxAttempts),
+			Payload:     event,
+		})
 		return
 	}
 
 	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusActive); err != nil {
 		logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow initialized event for non-activatable order")
+		recordEscrowReconciliation(escrowReconciliationRecord{
+			Source:      "escrow_listener",
+			EventType:   event.Type,
+			EscrowPDA:   event.EscrowPDA,
+			TxSignature: event.TxSignature,
+			OrderID:     &order.ID,
+			Status:      models.EscrowReconciliationStatusInvalidState,
+			Reason:      "invalid_order_transition",
+			LastError:   err.Error(),
+			Payload:     event,
+		})
 		return
 	}
 	db.DB.Model(&order).Updates(map[string]interface{}{
@@ -83,10 +107,27 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		"tx_signature": event.TxSignature,
 		"updated_at":   time.Now(),
 	})
+	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
+		logging.Error(err).
+			Str("order_id", order.ID.String()).
+			Msg("Order activated on-chain but session activation failed")
+	}
+	funnel.Record(context.Background(), funnel.RecordParams{
+		EventName: models.FunnelEscrowConfirmed,
+		UserID:    &order.BuyerID,
+		ListingID: &order.ListingID,
+		OrderID:   &order.ID,
+		Surface:   "escrow_worker",
+		Meta: map[string]interface{}{
+			"tx_signature": event.TxSignature,
+		},
+	})
+
 	logging.Info().
 		Str("order_id", order.ID.String()).
 		Str("tx_signature", event.TxSignature).
 		Msg("Order activated via Solana Escrow")
+	markEscrowReconciliationResolved(event.EscrowPDA, event.TxSignature, order.ID, "order_activated")
 }
 
 func handleEscrowSettled(event solana.EscrowEvent) {
@@ -94,6 +135,17 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 	if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err == nil {
 		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
 			logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow settled event for non-completable order")
+			recordEscrowReconciliation(escrowReconciliationRecord{
+				Source:      "escrow_listener",
+				EventType:   event.Type,
+				EscrowPDA:   event.EscrowPDA,
+				TxSignature: event.TxSignature,
+				OrderID:     &order.ID,
+				Status:      models.EscrowReconciliationStatusInvalidState,
+				Reason:      "invalid_order_transition",
+				LastError:   err.Error(),
+				Payload:     event,
+			})
 			return
 		}
 		db.DB.Model(&order).Updates(map[string]interface{}{
@@ -103,7 +155,19 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 		logging.Info().
 			Str("order_id", order.ID.String()).
 			Msg("Order completed via Solana Settlement")
+		markEscrowReconciliationResolved(event.EscrowPDA, event.TxSignature, order.ID, "order_completed")
+		return
 	}
+	recordEscrowReconciliation(escrowReconciliationRecord{
+		Source:      "escrow_listener",
+		EventType:   event.Type,
+		EscrowPDA:   event.EscrowPDA,
+		TxSignature: event.TxSignature,
+		Status:      models.EscrowReconciliationStatusUnmatched,
+		Reason:      "settled_order_not_found",
+		LastError:   "settled event has no matching order",
+		Payload:     event,
+	})
 }
 
 var treasuryAddress = os.Getenv("SOLANA_TREASURY_ADDRESS")

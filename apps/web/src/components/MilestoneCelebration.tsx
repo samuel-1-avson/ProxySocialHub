@@ -168,7 +168,7 @@ export function MilestoneCelebration({ milestone, onClose, onClaim, onShare }: M
                                 </div>
                                 <div className="flex-1">
                                     <p className="text-xs text-emerald-400/60 uppercase tracking-wider">Reward</p>
-                                    <p className="text-emerald-400 font-black text-lg">${milestone.reward_amount.toFixed(2)} Credit</p>
+                                    <p className="text-emerald-400 font-black text-lg">{milestone.reward_amount.toFixed(6)} SOL Credit</p>
                                 </div>
                             </motion.div>
                         )}

@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // LinkWalletRequest represents a request to link a wallet
@@ -299,8 +302,54 @@ func deleteLinkedWalletRows(tx *gorm.DB, userID uuid.UUID, chain models.Blockcha
 
 type cryptoDepositRequest struct {
 	TxHash string  `json:"tx_hash" binding:"required"`
-	Amount float64 `json:"amount" binding:"required,gt=0"`
+	Amount float64 `json:"amount" binding:"required,gt=0,lte=100000"`
 	Chain  string  `json:"chain" binding:"required"` // "solana"
+}
+
+const (
+	defaultMaxSingleDepositSOL = 10000.0
+	defaultMaxDailyDepositSOL  = 50000.0
+)
+
+func getMaxSingleDepositSOL() float64 {
+	if cm := GetConfigManager(); cm != nil {
+		if raw, err := cm.Get("max_single_deposit_sol"); err == nil {
+			if max, parseErr := strconv.ParseFloat(strings.TrimSpace(raw), 64); parseErr == nil && max > 0 {
+				return max
+			}
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("MAX_SINGLE_DEPOSIT_SOL")); raw != "" {
+		if max, err := strconv.ParseFloat(raw, 64); err == nil && max > 0 {
+			return max
+		}
+	}
+	return defaultMaxSingleDepositSOL
+}
+
+func getMaxDailyDepositSOL() float64 {
+	if cm := GetConfigManager(); cm != nil {
+		if raw, err := cm.Get("max_daily_deposit_sol"); err == nil {
+			if max, parseErr := strconv.ParseFloat(strings.TrimSpace(raw), 64); parseErr == nil && max > 0 {
+				return max
+			}
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("MAX_DAILY_DEPOSIT_SOL")); raw != "" {
+		if max, err := strconv.ParseFloat(raw, 64); err == nil && max > 0 {
+			return max
+		}
+	}
+	return defaultMaxDailyDepositSOL
+}
+
+func getWalletDepositsSince(tx *gorm.DB, walletID uuid.UUID, since time.Time) (float64, error) {
+	var total float64
+	err := tx.Model(&models.WalletLedgerEntry{}).
+		Where("wallet_id = ? AND type = ? AND created_at >= ?", walletID, "deposit", since).
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&total).Error
+	return total, err
 }
 
 // verifyCryptoDeposit verifies an external crypto transfer and credits the internal wallet
@@ -308,6 +357,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 	var req cryptoDepositRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	maxDepositSOL := getMaxSingleDepositSOL()
+	if req.Amount > maxDepositSOL {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Deposit exceeds maximum allowed amount", "max_sol": maxDepositSOL})
 		return
 	}
 
@@ -392,6 +446,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 		return
 	}
+	if verifiedAmount > maxDepositSOL {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Verified deposit exceeds maximum allowed amount", "max_sol": maxDepositSOL})
+		return
+	}
 
 	// 2. Prevent Double Spending (Atomic)
 	tx := db.DB.Begin()
@@ -426,14 +484,14 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	// 3. Credit Internal Wallet
 	var wallet models.Wallet
-	if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if err.Error() == "record not found" {
 			// Get user's trust tier for default limits
 			var userTrustTier models.TrustTier = models.TrustTierNew
 			db.DB.Model(&models.User{}).Select("trust_tier").Where("id = ?", userID).Scan(&userTrustTier)
 
 			wallet = models.Wallet{
-				UserID:     uuid.MustParse(userID),
+				UserID:     userUUID,
 				BalanceSOL: 0,
 			}
 			wallet.InitializeWithDefaultLimits(userTrustTier)
@@ -458,8 +516,32 @@ func verifyCryptoDeposit(c *gin.Context) {
 		// Native SOL deposit only (platform is SOL-only)
 		creditedAmount = verifiedAmount
 		currency = "SOL"
-		wallet.BalanceSOL += verifiedAmount
 	}
+
+	maxDailyDepositSOL := getMaxDailyDepositSOL()
+	depositedToday, err := getWalletDepositsSince(tx, wallet.ID, time.Now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		tx.Rollback()
+		logging.Error(err).Str("wallet_id", wallet.ID.String()).Str("user_id", userID).Msg("Failed to check daily deposit limit")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check deposit limit"})
+		return
+	}
+	if depositedToday+creditedAmount > maxDailyDepositSOL {
+		tx.Rollback()
+		remainingSOL := maxDailyDepositSOL - depositedToday
+		if remainingSOL < 0 {
+			remainingSOL = 0
+		}
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error":         "Daily deposit limit exceeded",
+			"max_sol":       maxDailyDepositSOL,
+			"used_sol":      depositedToday,
+			"remaining_sol": remainingSOL,
+		})
+		return
+	}
+
+	wallet.BalanceSOL += creditedAmount
 
 	if err := tx.Save(&wallet).Error; err != nil {
 		tx.Rollback()
@@ -473,7 +555,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 		Reference:      req.TxHash,
 		IdempotencyKey: req.TxHash,
 		Type:           "crypto_deposit",
-		Amount:         req.Amount,
+		Amount:         creditedAmount,
 		Currency:       currency,
 		Provider:       "blockchain",
 		Status:         "completed",

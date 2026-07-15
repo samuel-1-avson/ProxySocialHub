@@ -17,6 +17,7 @@ import (
 	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 )
 
 // EscrowEvent represents an on-chain escrow event
@@ -65,13 +66,14 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 		return nil, fmt.Errorf("invalid program ID: %w", err)
 	}
 
+	cfg.RPCEndpoints = NormalizeRPCEndpoints(cfg.RPCEndpoints)
 	if len(cfg.RPCEndpoints) == 0 {
 		return nil, fmt.Errorf("no RPC endpoints provided")
 	}
 
 	rpcClients := make([]*rpc.Client, len(cfg.RPCEndpoints))
 	for i, endpoint := range cfg.RPCEndpoints {
-		rpcClients[i] = rpc.New(endpoint)
+		rpcClients[i] = NewRPCClient(endpoint)
 	}
 
 	pollInterval := cfg.PollInterval
@@ -544,6 +546,18 @@ func (w *Watcher) withRetry(fn func() error, maxRetries int, baseDelay time.Dura
 
 // emitEvent sends an event to all registered handlers
 func (w *Watcher) emitEvent(event EscrowEvent) {
+	// Dedup using Redis SetNX to prevent WS + poll double-execution
+	if redis.Client != nil && event.TxSignature != "" {
+		dedupKey := fmt.Sprintf("watcher:event:%s:%s", event.Type, event.TxSignature)
+		ok, err := redis.Client.SetNX(context.Background(), dedupKey, "1", 10*time.Minute).Result()
+		if err != nil {
+			log.Printf("[Watcher] Redis error checking dedup for tx %s: %v", event.TxSignature, err)
+		} else if !ok {
+			// Already processed
+			return
+		}
+	}
+
 	w.mu.RLock()
 	handlers := make([]EventHandler, len(w.handlers))
 	copy(handlers, w.handlers)

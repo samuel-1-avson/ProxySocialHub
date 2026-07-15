@@ -583,7 +583,30 @@ func queueProviderPayout(providerID uuid.UUID) {
 	// Queue for batch processing
 	if globalBatchProcessor != nil {
 		if err := globalBatchProcessor.QueuePayout(providerID, walletAddress, payoutAmount, nil); err != nil {
-			logging.Error(err).Str("provider_id", providerID.String()).Msg("Failed to queue payout for batch processing")
+			logging.Error(err).Str("provider_id", providerID.String()).Msg("Failed to queue payout for batch processing, restoring balance and falling back to immediate payout")
+			// Restore balance first
+			restoreErr := db.DB.Transaction(func(tx *gorm.DB) error {
+				var wallet models.Wallet
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
+					return err
+				}
+				wallet.BalanceSOL += payoutAmount
+				if err := tx.Save(&wallet).Error; err != nil {
+					return err
+				}
+				return tx.Create(&models.WalletLedgerEntry{
+					WalletID:     wallet.ID,
+					Amount:       payoutAmount,
+					BalanceAfter: wallet.BalanceSOL,
+					Type:         "refund",
+					Description:  "Batch queue failed: balance restored for immediate payout fallback",
+					CreatedAt:    time.Now(),
+				}).Error
+			})
+			if restoreErr != nil {
+				logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance during batch queue fallback!")
+				return
+			}
 			// Fall back to immediate processing
 			go triggerProviderPayout(providerID)
 			return
@@ -595,6 +618,29 @@ func queueProviderPayout(providerID uuid.UUID) {
 	} else {
 		// Batch processor not initialized, use immediate processing
 		logging.Warn().Str("provider_id", providerID.String()).Msg("Batch processor not initialized, using immediate payout")
+		// Since we zeroed the balance inside queueProviderPayout tx, we must restore it before calling triggerProviderPayout
+		restoreErr := db.DB.Transaction(func(tx *gorm.DB) error {
+			var wallet models.Wallet
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
+				return err
+			}
+			wallet.BalanceSOL += payoutAmount
+			if err := tx.Save(&wallet).Error; err != nil {
+				return err
+			}
+			return tx.Create(&models.WalletLedgerEntry{
+				WalletID:     wallet.ID,
+				Amount:       payoutAmount,
+				BalanceAfter: wallet.BalanceSOL,
+				Type:         "refund",
+				Description:  "Batch processor not initialized: balance restored for immediate payout fallback",
+				CreatedAt:    time.Now(),
+			}).Error
+		})
+		if restoreErr != nil {
+			logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance when batch processor not initialized!")
+			return
+		}
 		go triggerProviderPayout(providerID)
 	}
 }

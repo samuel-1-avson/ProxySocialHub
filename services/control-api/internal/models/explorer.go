@@ -61,8 +61,10 @@ type ExplorerNode struct {
 	Country          string    `gorm:"type:varchar(50)" json:"country"`
 	City             string    `gorm:"type:varchar(100)" json:"city,omitempty"`
 	ISP              string    `gorm:"type:varchar(200)" json:"isp,omitempty"`
-	Latitude         float64   `gorm:"type:numeric(10,6);default:0" json:"latitude"`
-	Longitude        float64   `gorm:"type:numeric(10,6);default:0" json:"longitude"`
+	Latitude         float64    `gorm:"type:numeric(10,6);default:0" json:"latitude"`
+	Longitude        float64    `gorm:"type:numeric(10,6);default:0" json:"longitude"`
+	GeoSource        string     `gorm:"type:varchar(32);default:''" json:"geo_source,omitempty"`
+	GeoResolvedAt    *time.Time `json:"geo_resolved_at,omitempty"`
 	IsActive         bool      `gorm:"default:true" json:"is_active"`
 	IsValidator      bool      `gorm:"default:false" json:"is_validator"`
 	StakeAmount      float64   `gorm:"type:numeric(20,8)" json:"stake_amount"`

@@ -54,8 +54,10 @@ const (
 	AuditSecurityRateLimit AuditEventType = "security.rate_limited"
 
 	// Admin Events
-	AuditAdminAction     AuditEventType = "admin.action"
-	AuditDisputeResolved AuditEventType = "admin.dispute_resolved"
+	AuditAdminAction          AuditEventType = "admin.action"
+	AuditAdminListingApproved AuditEventType = "admin.listing_approved"
+	AuditAdminListingRejected AuditEventType = "admin.listing_rejected"
+	AuditDisputeResolved      AuditEventType = "admin.dispute_resolved"
 
 	// Financial Events — P2-13: Comprehensive financial audit trail.
 	AuditFinancialEscrowSettled  AuditEventType = "financial.escrow_settled"

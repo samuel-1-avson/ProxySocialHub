@@ -44,9 +44,9 @@ type Proposal struct {
 	// Quorum requirement (minimum total votes needed)
 	Quorum float64 `gorm:"default:100" json:"quorum"`
 
-	// Decentralized Storage
-	IPFSHash    string `gorm:"type:varchar(100)" json:"ipfs_hash"`
-	ArweaveTxID string `gorm:"type:varchar(64)" json:"arweave_tx_id,omitempty"`
+	// Decentralized Storage (explicit column names — GORM would map IPFSHash to ip_fs_hash)
+	IPFSHash    string `gorm:"column:ipfs_hash;type:varchar(100)" json:"ipfs_hash"`
+	ArweaveTxID string `gorm:"column:arweave_tx_id;type:varchar(64)" json:"arweave_tx_id,omitempty"`
 
 	// Vote Counts (Cached)
 	YesVotes float64 `gorm:"default:0" json:"yes_votes"`
@@ -79,8 +79,8 @@ type Vote struct {
 	ID         uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
 	ProposalID uuid.UUID `gorm:"type:uuid;not null;index" json:"proposal_id"`
 	VoterID    uuid.UUID `gorm:"type:uuid;not null;index" json:"voter_id"`
-	Choice     string    `gorm:"type:varchar(10);not null" json:"choice"` // "yes", "no", "abstain"
-	Power      float64   `gorm:"not null" json:"power"`                   // Voting power at time of vote
+	Choice     string    `gorm:"column:vote;type:varchar(10);not null" json:"choice"` // "yes", "no", "abstain"
+	Power      float64   `gorm:"column:weight;not null" json:"power"`                 // Voting power at time of vote
 	CreatedAt  time.Time `json:"created_at"`
 
 	Voter *User `gorm:"foreignKey:VoterID" json:"voter,omitempty"`

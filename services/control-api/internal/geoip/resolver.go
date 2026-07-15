@@ -1,5 +1,5 @@
 // Package geoip provides a lightweight IP-to-coordinates resolver that uses
-// the ip-api.com JSON endpoint over HTTPS. Results are cached in memory to avoid
+// the ip-api.com JSON endpoint. Results are cached in memory to avoid
 // hammering the upstream service.
 //
 // Usage:
@@ -13,11 +13,11 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -53,19 +53,9 @@ var (
 // Resolve looks up geographic data for the given IP address.
 // It returns (Result, true) on success, or (zero, false) on failure.
 // Results are cached for the process lifetime.
-func isLANIP(ip net.IP) bool {
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return false
-	}
-	return ip4[0] == 10 ||
-		(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
-		(ip4[0] == 192 && ip4[1] == 168)
-}
-
 func Resolve(ip string) (Result, bool) {
 	// Skip loopback and LAN only (allow RFC 5737 documentation/test nets used in dev).
-	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || isLANIP(parsed) {
+	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || IsLANIP(parsed) {
 		return Result{}, false
 	}
 
@@ -76,7 +66,7 @@ func Resolve(ip string) (Result, bool) {
 	}
 	cacheMu.RUnlock()
 
-	url := fmt.Sprintf("https://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,isp,message", ip)
+	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,isp,message", ip)
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return Result{}, false
@@ -108,17 +98,7 @@ func Resolve(ip string) (Result, bool) {
 }
 
 func normalizeCountryCode(country string) string {
-	switch country {
-	case "United States", "United States of America":
-		return "US"
-	case "United Kingdom":
-		return "GB"
-	default:
-		if len(country) == 2 {
-			return strings.ToUpper(country)
-		}
-		return country
-	}
+	return geo.NormalizeCountryCode(country)
 }
 
 // ResolveNextBatch fetches up to 45 nodes with missing coordinates and
@@ -146,7 +126,11 @@ func ResolveNextBatch() int {
 
 	updated := 0
 	for _, node := range nodes {
-		result, ok := Resolve(node.IP)
+		effectiveIP := NormalizeIPForGeo(node.IP)
+		if effectiveIP == "" {
+			continue
+		}
+		result, ok := Resolve(effectiveIP)
 		if !ok {
 			continue
 		}
@@ -155,14 +139,17 @@ func ResolveNextBatch() int {
 			"latitude":  result.Latitude,
 			"longitude": result.Longitude,
 		}
+		if effectiveIP != node.IP {
+			updates["ip"] = effectiveIP
+		}
 		if result.City != "" {
 			updates["city"] = result.City
 		}
 		if result.ISP != "" {
 			updates["isp"] = result.ISP
 		}
-		if result.Country != "" && node.Country == "" {
-			updates["country"] = result.Country
+		if countryCode := normalizeCountryCode(result.Country); countryCode != "" && node.Country == "" {
+			updates["country"] = countryCode
 		}
 		if result.Region != "" && node.Region == "" {
 			updates["region"] = result.Region

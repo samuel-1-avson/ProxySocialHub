@@ -16,6 +16,8 @@ const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
 type StubExplorerOptions = {
     /** When true, metrics returns 503 full-decentralization gate (overview pauses feeds). */
     gateActive?: boolean;
+    /** When true, mock explorer WS (initial + subscribe) instead of aborting. */
+    mockWebSocket?: boolean;
 };
 
 async function stubExplorerApis(page: import('@playwright/test').Page, options: StubExplorerOptions = {}) {
@@ -113,9 +115,30 @@ async function stubExplorerApis(page: import('@playwright/test').Page, options: 
         });
     });
 
-    await page.route('**/v1/explorer/ws**', async (route) => {
-        await route.abort();
-    });
+    if (options.mockWebSocket) {
+        await page.routeWebSocket('**/v1/explorer/ws**', (ws) => {
+            ws.onMessage((message) => {
+                try {
+                    const parsed = JSON.parse(String(message)) as { type?: string };
+                    if (parsed.type === 'subscribe') {
+                        ws.send(
+                            JSON.stringify({
+                                type: 'initial',
+                                data: { nodes: [] },
+                                timestamp: new Date().toISOString(),
+                            }),
+                        );
+                    }
+                } catch {
+                    /* ignore malformed client frames */
+                }
+            });
+        });
+    } else {
+        await page.route('**/v1/explorer/ws**', async (route) => {
+            await route.abort();
+        });
+    }
 
     await page.route('**/v1/explorer/nodes?**', async (route) => {
         if (route.request().method() !== 'GET') {
@@ -170,13 +193,63 @@ test.describe('explorer', () => {
         await globeToggle.click({ force: true });
         await expect(page.locator('.leaflet-container')).toBeHidden({ timeout: 60_000 });
         await expect(page.getByRole('heading', { name: 'Node Globe' })).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByTestId('explorer-map-listings-2d-only')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('explorer-globe-ready')).toBeVisible({ timeout: 60_000 });
+        await expect(page.locator('[data-globe-listings="true"]')).toBeVisible();
+        await expect(page.getByTestId('explorer-map-stat-listings')).toHaveText('1');
+        await expect(page.getByTestId('explorer-map-listings-2d-only')).toHaveCount(0);
+    });
+
+    test('globe mode loads self-hosted assets, toggles style, and selects a node', async ({ page }) => {
+        await stubExplorerApis(page);
+        await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
+        await page.getByRole('button', { name: '3D Globe' }).click();
+        await expect(page.getByTestId('explorer-globe-loading')).toBeHidden({ timeout: 5_000 });
+        await expect(page.getByTestId('explorer-globe-ready')).toBeVisible({ timeout: 60_000 });
+
+        const terrainStyle = page.getByRole('button', { name: 'Terrain' });
+        await terrainStyle.scrollIntoViewIfNeeded();
+        await terrainStyle.click();
+        await expect(terrainStyle).toHaveClass(/border-primary/);
+
+        const austinRow = page.locator('tbody tr').filter({ hasText: 'Austin' }).first();
+        await austinRow.click();
+        await expect(page.getByText('Austin', { exact: true })).toBeVisible();
     });
 
     test('nodes grid accepts q search query param', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/nodes?q=austin`, { waitUntil: 'domcontentloaded' });
         await expect(page).toHaveURL(/\/explorer\/nodes\?q=austin/);
+    });
+
+    test('node map shows WS connected with mocked websocket', async ({ page }) => {
+        await stubExplorerApis(page, { mockWebSocket: true });
+        await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
+        await expect(page.getByText('WS Connected')).toBeVisible({ timeout: 30_000 });
+    });
+
+    test('unified 2D map shows last updated timestamp and region distribution', async ({ page }) => {
+        await stubExplorerApis(page);
+        await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('explorer-map-updated')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText('Region Distribution')).toBeVisible();
+        await expect(page.getByTestId('explorer-map-region-us-central')).toBeVisible();
+        await expect(page.getByTestId('explorer-map-region-us-central')).toHaveText('us-central');
+    });
+
+    test('validators-only filter requests marketplace map with validator=true', async ({ page }) => {
+        await stubExplorerApis(page);
+        await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 30_000 });
+        const validatorReq = page.waitForRequest(
+            (req) =>
+                req.url().includes('/v1/marketplace/map') &&
+                req.url().includes('validator=true'),
+            { timeout: 30_000 },
+        );
+        await page.getByRole('button', { name: /Validators/i }).click();
+        await validatorReq;
     });
 
     test('layout trust badge reflects verified decentralization status', async ({ page }) => {

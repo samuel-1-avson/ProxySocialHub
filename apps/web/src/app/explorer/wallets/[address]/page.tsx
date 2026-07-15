@@ -112,9 +112,7 @@ export default function WalletInspectorPage() {
                                         {wallet?.balance_sol?.toLocaleString()} <span className="text-xl text-white/30">SOL</span>
                                     </div>
                                 )}
-                                <p className="text-[10px] text-white/20 mt-1">
-                                    ≈ ${(wallet?.balance_sol && wallet?.sol_price_usd ? wallet.balance_sol * wallet.sol_price_usd : 0).toFixed(2)} USD
-                                </p>
+                                <p className="text-[10px] text-white/20 mt-1">Native Solana balance</p>
                             </div>
                         </div>
 

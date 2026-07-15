@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { getListings, type Listing } from "@/lib/api/marketplace";
+import type { Listing, ListingFilters } from "@/lib/api/marketplace";
+import {
+    useFeaturedListings,
+    useListingFacets,
+    useListingCollections,
+    useListingCollection,
+    useListings,
+} from "@/lib/hooks/useApi";
+import { getErrorMessage } from "@/lib/utils";
+import { MarketplaceCatalogSections } from "@/components/marketplace/MarketplaceCatalogSections";
 import {
     Activity,
     Database,
@@ -31,47 +40,94 @@ import { GlassCard } from "@/components/ui/glass-card";
 
 export default function MarketplacePage() {
     const { user } = useAuth();
-    const [listings, setListings] = useState<Listing[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
     const [filters, setFilters] = useState({
         proxy_type: "",
         sort_by: "newest",
         country: "",
         min_price: "",
-        max_price: ""
+        max_price: "",
+        min_rating: "",
     });
+    const [debouncedCountry, setDebouncedCountry] = useState("");
     const [page, setPage] = useState(1);
-    const [total, setTotal] = useState(0);
     const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+    const [activeCollection, setActiveCollection] = useState<string | null>(null);
 
-    const fetchListings = useCallback(async () => {
-        setLoading(true);
-        setError("");
-        try {
-            const params: any = {
-                sort_by: filters.sort_by,
-                page,
-            };
-            if (filters.proxy_type) params.proxy_type = filters.proxy_type;
-            if (filters.country) params.country = filters.country;
-            if (filters.min_price) params.min_price = filters.min_price;
-            if (filters.max_price) params.max_price = filters.max_price;
+    const { data: featuredListings = [] } = useFeaturedListings();
+    const { data: facets } = useListingFacets();
+    const { data: collectionSummaries = [] } = useListingCollections();
+    const { data: collectionPage, isLoading: collectionLoading } = useListingCollection(
+        activeCollection,
+        page,
+    );
+    const countryInputRef = useRef<HTMLInputElement>(null);
+    const minPriceInputRef = useRef<HTMLInputElement>(null);
+    const maxPriceInputRef = useRef<HTMLInputElement>(null);
+    const minRatingInputRef = useRef<HTMLInputElement>(null);
 
-            const data = await getListings(params);
-            setListings(data?.listings || []);
-            setTotal(data?.total || 0);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load listings");
-            setListings([]);
-        } finally {
-            setLoading(false);
+    type BrowseFilters = typeof filters;
+
+    const listingQueryParams = useMemo((): ListingFilters => {
+        const params: ListingFilters = {
+            sort_by: filters.sort_by as ListingFilters["sort_by"],
+            page,
+            limit: 20,
+        };
+        if (filters.proxy_type) {
+            params.proxy_type = filters.proxy_type as ListingFilters["proxy_type"];
         }
-    }, [filters, page]);
+        const country = debouncedCountry.trim().toUpperCase();
+        if (country) params.country = country;
+        const minPrice = parseFloat(filters.min_price);
+        const maxPrice = parseFloat(filters.max_price);
+        if (!Number.isNaN(minPrice) && minPrice >= 0) params.min_price = minPrice;
+        if (!Number.isNaN(maxPrice) && maxPrice >= 0) params.max_price = maxPrice;
+        const minRating = parseFloat(filters.min_rating);
+        if (!Number.isNaN(minRating) && minRating >= 0) params.min_rating = minRating;
+        return params;
+    }, [filters, debouncedCountry, page]);
+
+    const {
+        data: listingsData,
+        isLoading: listingsLoading,
+        isError: listingsError,
+        error: listingsQueryError,
+        refetch: refetchListings,
+    } = useListings(listingQueryParams, { enabled: !activeCollection });
+
+    const readFilterInputs = (): BrowseFilters => {
+        const country = (countryInputRef.current?.value ?? filters.country).trim().toUpperCase();
+        const minPrice = minPriceInputRef.current?.value ?? filters.min_price;
+        const maxPrice = maxPriceInputRef.current?.value ?? filters.max_price;
+        const minRating = minRatingInputRef.current?.value ?? filters.min_rating;
+        return { ...filters, country, min_price: minPrice, max_price: maxPrice, min_rating: minRating };
+    };
+
+    const applyFilters = () => {
+        const next = readFilterInputs();
+        setFilters(next);
+        setDebouncedCountry(next.country);
+        setPage(1);
+    };
 
     useEffect(() => {
-        fetchListings();
-    }, [fetchListings]);
+        const handle = window.setTimeout(
+            () => setDebouncedCountry(filters.country.trim().toUpperCase()),
+            400,
+        );
+        return () => window.clearTimeout(handle);
+    }, [filters.country]);
+
+    const gridListings = activeCollection
+        ? (collectionPage?.listings ?? [])
+        : (listingsData?.listings ?? []);
+    const gridTotal = activeCollection ? (collectionPage?.total ?? 0) : (listingsData?.total ?? 0);
+    const gridLoading = activeCollection ? collectionLoading : listingsLoading;
+    const gridError = activeCollection
+        ? null
+        : listingsError
+          ? getErrorMessage(listingsQueryError)
+          : "";
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -108,7 +164,8 @@ export default function MarketplacePage() {
                             </div>
                             <h1 className="text-6xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary via-emerald-400 to-white">Node Market</h1>
                             <p className="text-muted-foreground/30 font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
-                                Total Grid Capacity: <span className="text-foreground/60">{total.toLocaleString()} Units</span>
+                                Total Grid Capacity:{" "}
+                                <span className="text-foreground/60">{gridTotal.toLocaleString()} Units</span>
                             </p>
                         </div>
                     </div>
@@ -153,6 +210,33 @@ export default function MarketplacePage() {
                 </div>
             </motion.section>
 
+            <motion.section variants={itemVariants}>
+                <MarketplaceCatalogSections
+                    featured={featuredListings}
+                    collections={collectionSummaries}
+                    countries={facets?.countries ?? []}
+                    proxyTypes={facets?.proxy_types ?? []}
+                    activeCountry={filters.country}
+                    activeProxyType={filters.proxy_type}
+                    activeCollection={activeCollection}
+                    onCountrySelect={(country) => {
+                        setActiveCollection(null);
+                        setFilters((prev) => ({ ...prev, country }));
+                        setPage(1);
+                    }}
+                    onProxyTypeSelect={(proxyType) => {
+                        setActiveCollection(null);
+                        setFilters((prev) => ({ ...prev, proxy_type: proxyType }));
+                        setPage(1);
+                    }}
+                    onCollectionSelect={(slug) => {
+                        setActiveCollection(slug);
+                        setPage(1);
+                    }}
+                    onListingSelect={setSelectedListing}
+                />
+            </motion.section>
+
             {/* Grid Control Interface */}
             <div className="space-y-10">
                 <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 items-center justify-between p-2 glass-card border border-white/10 !bg-white/[0.01] backdrop-blur-3xl rounded-[2.5rem] shadow-2xl">
@@ -166,6 +250,7 @@ export default function MarketplacePage() {
                             <button
                                 key={type.id}
                                 onClick={() => {
+                                    setActiveCollection(null);
                                     setFilters({ ...filters, proxy_type: type.id });
                                     setPage(1);
                                 }}
@@ -183,7 +268,15 @@ export default function MarketplacePage() {
                     <div className="flex items-center gap-4 p-2 pl-6 border-l border-white/5">
                         <button
                             onClick={() => {
-                                setFilters({ proxy_type: "", sort_by: "newest", country: "", min_price: "", max_price: "" });
+                                setActiveCollection(null);
+                                setFilters({
+                                    proxy_type: "",
+                                    sort_by: "newest",
+                                    country: "",
+                                    min_price: "",
+                                    max_price: "",
+                                    min_rating: "",
+                                });
                                 setPage(1);
                             }}
                             className="p-4 rounded-2xl bg-white/5 border border-white/5 text-muted-foreground/30 hover:text-primary hover:border-primary/40 transition-all"
@@ -204,16 +297,109 @@ export default function MarketplacePage() {
                                 <option value="price_asc">RATE_INT_ASCENDING</option>
                                 <option value="price_desc">RATE_INT_DESCENDING</option>
                                 <option value="popular">TRUST_CRED_RATING</option>
+                                <option value="sales">ORDER_VOLUME</option>
+                                <option value="latency">LATENCY_OPTIMAL</option>
+                                <option value="quality">QUALITY_SCORE</option>
                             </select>
                             <ChevronRight size={14} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-white/10 pointer-events-none" />
                         </div>
                     </div>
                 </motion.div>
 
+                <motion.div
+                    variants={itemVariants}
+                    className="flex flex-wrap items-end gap-4 p-6 glass-card border border-white/10 !bg-white/[0.01] rounded-[2rem]"
+                >
+                    <label className="flex flex-col gap-2 min-w-[120px]">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                            Country (ISO)
+                        </span>
+                        <input
+                            ref={countryInputRef}
+                            type="text"
+                            maxLength={2}
+                            placeholder="US"
+                            data-testid="marketplace-filter-country"
+                            aria-label="Country (ISO)"
+                            value={filters.country}
+                            onChange={(e) => {
+                                setFilters({ ...filters, country: e.target.value.toUpperCase() });
+                                setPage(1);
+                            }}
+                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono uppercase outline-none focus:border-primary/40"
+                        />
+                    </label>
+                    <label className="flex flex-col gap-2 min-w-[140px]">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                            Min SOL/GB
+                        </span>
+                        <input
+                            ref={minPriceInputRef}
+                            type="number"
+                            min={0}
+                            step="0.0001"
+                            placeholder="0"
+                            data-testid="marketplace-filter-min-price"
+                            value={filters.min_price}
+                            onChange={(e) => {
+                                setFilters({ ...filters, min_price: e.target.value });
+                                setPage(1);
+                            }}
+                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                        />
+                    </label>
+                    <label className="flex flex-col gap-2 min-w-[140px]">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                            Max SOL/GB
+                        </span>
+                        <input
+                            ref={maxPriceInputRef}
+                            type="number"
+                            min={0}
+                            step="0.0001"
+                            placeholder="Any"
+                            data-testid="marketplace-filter-max-price"
+                            value={filters.max_price}
+                            onChange={(e) => {
+                                setFilters({ ...filters, max_price: e.target.value });
+                                setPage(1);
+                            }}
+                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                        />
+                    </label>
+                    <label className="flex flex-col gap-2 min-w-[120px]">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                            Min rating
+                        </span>
+                        <input
+                            ref={minRatingInputRef}
+                            type="number"
+                            min={0}
+                            max={5}
+                            step="0.1"
+                            placeholder="4"
+                            data-testid="marketplace-filter-min-rating"
+                            value={filters.min_rating}
+                            onChange={(e) => {
+                                setFilters({ ...filters, min_rating: e.target.value });
+                                setPage(1);
+                            }}
+                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={applyFilters}
+                        className="px-6 py-3 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all"
+                    >
+                        Apply filters
+                    </button>
+                </motion.div>
+
                 {/* Grid Visualizer */}
                 <div className="min-h-[600px] relative">
                     <AnimatePresence mode="wait">
-                        {error && (
+                        {gridError && (
                             <motion.div
                                 initial={{ opacity: 0, y: -20 }}
                                 animate={{ opacity: 1, y: 0 }}
@@ -222,13 +408,19 @@ export default function MarketplacePage() {
                             >
                                 <div className="flex items-center gap-4">
                                     <Zap size={16} className="animate-pulse" />
-                                    SIGNAL INTERRUPTION: {error}
+                                    SIGNAL INTERRUPTION: {gridError}
                                 </div>
-                                <button onClick={fetchListings} className="px-6 py-2 bg-rose-500/10 rounded-xl hover:bg-rose-500/20 transition-all border border-rose-500/20">RESCAN_SECTOR</button>
+                                <button
+                                    type="button"
+                                    onClick={() => void refetchListings()}
+                                    className="px-6 py-2 bg-rose-500/10 rounded-xl hover:bg-rose-500/20 transition-all border border-rose-500/20"
+                                >
+                                    RESCAN_SECTOR
+                                </button>
                             </motion.div>
                         )}
 
-                        {loading ? (
+                        {gridLoading ? (
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
@@ -252,7 +444,7 @@ export default function MarketplacePage() {
                                 </div>
                                 <p className="text-[10px] font-black text-muted-foreground/20 uppercase tracking-[0.8em] animate-pulse">Syncing Grid Segments...</p>
                             </motion.div>
-                        ) : listings.length === 0 ? (
+                        ) : gridListings.length === 0 ? (
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
@@ -270,7 +462,7 @@ export default function MarketplacePage() {
                                 animate={{ opacity: 1 }}
                                 className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8"
                             >
-                                {listings.map((listing) => (
+                                {gridListings.map((listing) => (
                                     <ListingCardEnhanced
                                         key={listing.id}
                                         listing={listing}
@@ -283,7 +475,7 @@ export default function MarketplacePage() {
                 </div>
 
                 {/* Tactical Pagination */}
-                {total > 20 && (
+                {gridTotal > 20 && (
                     <motion.footer variants={itemVariants} className="flex justify-center items-center gap-10 pt-32">
                         <button
                             onClick={() => setPage(Math.max(1, page - 1))}
@@ -296,13 +488,13 @@ export default function MarketplacePage() {
                         <div className="flex flex-col items-center gap-2">
                             <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">Sector Access</div>
                             <div className="text-2xl font-black text-white px-10 py-3 rounded-2xl bg-white/5 border border-white/5">
-                                {page} <span className="opacity-10 mx-3">/</span> {Math.ceil(total / 20)}
+                                {page} <span className="opacity-10 mx-3">/</span> {Math.ceil(gridTotal / 20)}
                             </div>
                         </div>
 
                         <button
                             onClick={() => setPage(page + 1)}
-                            disabled={page >= Math.ceil(total / 20)}
+                            disabled={page >= Math.ceil(gridTotal / 20)}
                             className="w-16 h-16 rounded-[1.8rem] bg-primary/20 border border-primary/30 text-primary flex items-center justify-center font-black disabled:opacity-5 group shadow-2xl shadow-primary/10"
                         >
                             <ChevronRight size={24} className="group-hover:translate-x-1 transition-transform" />
@@ -316,6 +508,7 @@ export default function MarketplacePage() {
                 {selectedListing && (
                     <BuyListingModal
                         listing={selectedListing}
+                        surface="browse"
                         onClose={() => setSelectedListing(null)}
                         onSuccess={(orderId) => {
                             console.log("Order created:", orderId);

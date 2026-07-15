@@ -1,8 +1,10 @@
-import type { MarketplaceMapPoint } from '@/lib/api/marketplace';
+import type { CatalogProductSummary } from '@/lib/api/catalog';
+import type { MapGeoMeta, MarketplaceMapPoint } from '@/lib/api/marketplace';
 import type { ExplorerListingPin } from '@/components/map/types';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 
 /** Listing pin with marketplace map proof and purchase fields. */
+
 export type MarketplaceListingMapPin = ExplorerListingPin & {
     seller_id?: string;
     proxy_type?: string;
@@ -16,16 +18,22 @@ export type MarketplaceListingMapPin = ExplorerListingPin & {
     geo_resolved?: boolean;
     purchasable: boolean;
     geo_source?: string;
+    geo?: MapGeoMeta;
     status?: string;
     listing_offer_signed_at?: string;
     heartbeat_verified?: boolean;
     heartbeat_signer?: string;
     heartbeat_signed_at?: string;
     heartbeat_verification_error?: string;
+    catalog_product?: CatalogProductSummary;
 };
 
 export function marketplacePointToListingPin(point: MarketplaceMapPoint): MarketplaceListingMapPin {
-    const estimated = point.geo_source === 'country_centroid' || point.geo_source === 'unknown';
+    const estimated =
+        point.geo_source === 'country_centroid' ||
+        point.geo_source === 'city_centroid' ||
+        point.geo_source === 'region_hub' ||
+        point.geo_source === 'unknown';
     return {
         listing_id: point.listing_id ?? point.id.replace(/^listing:/, ''),
         title: point.title,
@@ -46,8 +54,9 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         sla_source: point.sla_source,
         geo_resolved: point.geo_source !== 'unknown',
         purchasable: point.purchasable,
-        estimated,
-        geo_source: point.geo_source,
+        estimated: point.geo?.estimated ?? estimated,
+        geo_source: point.geo?.source ?? point.geo_source,
+        geo: point.geo,
         status: point.status,
         listing_offer_verified: point.listing_offer_verified,
         listing_offer_signer: point.listing_offer_signer,
@@ -57,6 +66,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         heartbeat_signer: point.heartbeat_signer,
         heartbeat_signed_at: point.heartbeat_signed_at,
         heartbeat_verification_error: point.heartbeat_verification_error,
+        catalog_product: point.catalog_product,
     };
 }
 
@@ -70,8 +80,9 @@ export function marketplacePointToNode(point: MarketplaceMapPoint): NodeGeoPoint
         uptime_percent: point.uptime_percent ?? 0,
         active_sessions: point.active_sessions ?? 0,
         country: point.country ?? '',
-        region: point.country ?? '',
+        region: point.region ?? point.country ?? '',
         city: point.city,
         isp: point.isp,
+        geo_source: point.geo_source,
     };
 }

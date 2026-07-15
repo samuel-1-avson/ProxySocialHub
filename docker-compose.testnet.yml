@@ -1,0 +1,47 @@
+# Testnet overlay — public URLs, buyer credential host, remote provider hints.
+#
+# Usage on VPS (after copying config/testnet.env.example → .env):
+#   docker compose -f docker-compose.yml -f docker-compose.testnet.yml up -d --build
+#
+# Provider at home (not on VPS):
+#   .\scripts\bootstrap-remote-provider.ps1 -ControlApiUrl https://api.testnet.example.com -GatewayAddr proxy.testnet.example.com:3128
+
+services:
+  control-api:
+    environment:
+      - APP_ENV=staging
+      - API_BASE_URL=${API_BASE_URL:?API_BASE_URL must be set}
+      - FRONTEND_URL=${FRONTEND_URL:?FRONTEND_URL must be set}
+      - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS must be set}
+      - APP_URL=${APP_URL:-${FRONTEND_URL}}
+      - EDGE_GATEWAY_BUYER_HOST=${EDGE_GATEWAY_BUYER_HOST:-${TESTNET_PUBLIC_HOST:?TESTNET_PUBLIC_HOST must be set}}
+      - EDGE_GATEWAY_BUYER_PORT=${EDGE_GATEWAY_BUYER_PORT:-8090}
+      - PROVIDER_PUBLIC_CONTROL_API_URL=${PROVIDER_PUBLIC_CONTROL_API_URL:-${API_BASE_URL}}
+      - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:?PROVIDER_TUNNEL_PUBLIC_ADDR must be set}
+      - PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=${PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE:-false}
+      - PROVIDER_SIGNATURE_MODE=${PROVIDER_SIGNATURE_MODE:-enforce}
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.0}
+      - CLI_DIST_PATH=/app/cli-dist
+
+  edge-gateway:
+    ports:
+      - "${EDGE_GATEWAY_PORT:-8090}:8090"
+      - "${EDGE_GATEWAY_TUNNEL_PORT:-3128}:3128"
+      - "${EDGE_GATEWAY_TUNNEL_UDP_PORT:-3128}:3128/udp"
+
+  web:
+    build:
+      args:
+        - NEXT_PUBLIC_API_URL=${API_BASE_URL}
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:8090}
+        - NEXT_PUBLIC_PROXY_ENDPOINT=${NEXT_PUBLIC_PROXY_ENDPOINT}
+        - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+        - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID}
+        - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL}
+    environment:
+      - NEXT_PUBLIC_API_URL=${API_BASE_URL}
+      - NEXT_PUBLIC_PROXY_ENDPOINT=${NEXT_PUBLIC_PROXY_ENDPOINT}
+      - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL}
+      - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT}
+      - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID}

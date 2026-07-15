@@ -8,25 +8,21 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 )
 
 // RPC Endpoint (default to devnet, override with env)
-var rpcEndpoint = getEnvOrDefault("SOLANA_RPC_ENDPOINT", "https://api.devnet.solana.com")
+var rpcEndpoint = PrimaryRPCEndpointFromEnv()
 
 // SetRPCEndpoint overrides the Solana RPC endpoint (mainly for unit tests).
 func SetRPCEndpoint(url string) {
-	rpcEndpoint = url
-}
-
-func getEnvOrDefault(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+	if normalized, err := NormalizeRPCEndpoint(url); err == nil {
+		rpcEndpoint = normalized
+		return
 	}
-	return defaultVal
+	rpcEndpoint = url
 }
 
 // TransactionResult represents the structure of a Solana transaction
@@ -75,7 +71,7 @@ type rpcError struct {
 
 // VerifyTransaction verifies a Solana transaction exists and was successful
 func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := NewRPCHTTPClient()
 
 	reqBody := rpcRequest{
 		Jsonrpc: "2.0",

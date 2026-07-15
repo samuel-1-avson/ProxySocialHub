@@ -363,6 +363,8 @@ pub struct HeartbeatMessage {
     #[serde(default)]
     pub provider_node_id: String,
     #[serde(default)]
+    pub provider_run_id: String,
+    #[serde(default)]
     pub latency_ms: i32,
     pub active_connections: u32,
     pub bandwidth_usage: BandwidthUsage,
@@ -405,6 +407,7 @@ mod tests {
             node_id: "node-1".to_string(),
             timestamp: 0,
             provider_node_id: String::new(),
+            provider_run_id: String::new(),
             latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {
@@ -452,6 +455,7 @@ mod tests {
             node_id: "node-1".to_string(),
             timestamp: 0,
             provider_node_id: String::new(),
+            provider_run_id: String::new(),
             latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {
@@ -489,6 +493,7 @@ mod tests {
             node_id: "node-1".to_string(),
             timestamp: 1234567890,
             provider_node_id: String::new(),
+            provider_run_id: String::new(),
             latency_ms: 0,
             active_connections: 5,
             bandwidth_usage: BandwidthUsage {

@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_marketplace_funnel_events_listing_id;
+DROP INDEX IF EXISTS idx_marketplace_funnel_events_event_name_created_at;
+DROP INDEX IF EXISTS idx_marketplace_funnel_events_created_at;
+DROP TABLE IF EXISTS marketplace_funnel_events;

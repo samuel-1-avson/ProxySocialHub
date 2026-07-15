@@ -17,7 +17,7 @@ var ReplicaDB *gorm.DB
 // InitReadReplica initializes a connection to the read replica
 // This is optional and only used when READ_REPLICA_URL is set
 func InitReadReplica() error {
-	replicaURL := strings.TrimSpace(os.Getenv("READ_REPLICA_URL"))
+	replicaURL := normalizeReadReplicaURL(os.Getenv("READ_REPLICA_URL"))
 	if replicaURL == "" {
 		log.Println("READ_REPLICA_URL not set, using primary DB for reads")
 		ReplicaDB = DB // Fallback to primary
@@ -30,12 +30,16 @@ func InitReadReplica() error {
 		return fmt.Errorf("failed to connect to read replica: %w", err)
 	}
 
-	log.Println("Read replica connected successfully")
-
 	// Configure connection pool for read-heavy workloads
 	sqlDB, err := ReplicaDB.DB()
 	if err != nil {
 		return fmt.Errorf("failed to get replica database instance: %w", err)
+	}
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		log.Printf("Warning: read replica ping failed, using primary DB for reads: %v", err)
+		ReplicaDB = DB
+		return nil
 	}
 
 	// More connections for read-heavy analytics
@@ -44,7 +48,23 @@ func InitReadReplica() error {
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 
+	log.Println("Read replica connected successfully")
 	return nil
+}
+
+func normalizeReadReplicaURL(raw string) string {
+	replicaURL := strings.TrimSpace(raw)
+	if replicaURL == "" || strings.HasPrefix(replicaURL, "#") {
+		return ""
+	}
+	if strings.HasPrefix(replicaURL, "postgres://") || strings.HasPrefix(replicaURL, "postgresql://") {
+		return replicaURL
+	}
+	if strings.Contains(replicaURL, "host=") {
+		return replicaURL
+	}
+	log.Printf("Warning: ignoring malformed READ_REPLICA_URL %q; using primary DB for reads", replicaURL)
+	return ""
 }
 
 // GetReadDB returns the read replica or primary DB

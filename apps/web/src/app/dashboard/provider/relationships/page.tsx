@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     Users,
     Wifi,
-    DollarSign,
+    Coins,
     Clock,
     MessageSquare,
     Gift,
@@ -120,8 +120,8 @@ export default function ProviderRelationshipsPage() {
                     },
                     {
                         label: "Total Revenue",
-                        value: `$${(stats?.total_revenue || 0).toFixed(2)}`,
-                        icon: DollarSign,
+                        value: `${(stats?.total_revenue || 0).toFixed(6)} SOL`,
+                        icon: Coins,
                         color: "text-amber-500",
                         bg: "bg-amber-500/10",
                     },
@@ -241,7 +241,7 @@ export default function ProviderRelationshipsPage() {
                                 {/* Stats */}
                                 <div className="text-right">
                                     <div className="text-2xl font-black text-emerald-500">
-                                        ${(relationship.total_spent || 0).toFixed(2)}
+                                        {(relationship.total_spent || 0).toFixed(6)} SOL
                                     </div>
                                     <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
                                         Total Spent

@@ -24,39 +24,13 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
-
-interface ServiceConfig {
-    id: string;
-    node_id: string;
-    enable_http: boolean;
-    enable_https: boolean;
-    enable_socks5: boolean;
-    enable_ssh_tunnel: boolean;
-    max_bandwidth_mbps: number;
-    priority_tier: 'standard' | 'priority' | 'enterprise';
-    allowed_countries: string[];
-    blocked_countries: string[];
-    max_concurrent_connections: number;
-    max_daily_bandwidth_gb: number;
-    captcha_solving_enabled: boolean;
-    javascript_render_enabled: boolean;
-    browser_fingerprint_enabled: boolean;
-    screenshot_enabled: boolean;
-    price_multiplier_http: number;
-    price_multiplier_socks5: number;
-    is_active: boolean;
-    node?: {
-        ip_address: string;
-        country_code: string;
-        quality_score: number;
-    };
-}
-
-interface Template {
-    name: string;
-    description: string;
-    config: Partial<ServiceConfig>;
-}
+import {
+    getProviderServiceConfigs,
+    getProviderServiceTemplates,
+    updateProviderServiceConfig,
+    type ProviderServiceConfig,
+    type ProviderServiceTemplate,
+} from '@/lib/api/provider';
 
 const TIERS = [
     { value: 'standard', label: 'Standard', color: '#6b7280' },
@@ -79,46 +53,30 @@ const itemVariants = {
 
 export default function ProviderServicesPage() {
     const queryClient = useQueryClient();
-    const [selectedConfig, setSelectedConfig] = useState<ServiceConfig | null>(null);
+    const [selectedConfig, setSelectedConfig] = useState<ProviderServiceConfig | null>(null);
     const [saving, setSaving] = useState(false);
 
     const { data: configs = [], isLoading: loading } = useQuery({
         queryKey: ['provider-service-configs'],
-        queryFn: async () => {
-            const response = await fetch('/v1/provider/services', { credentials: 'include' });
-            if (!response.ok) throw new Error('Failed to fetch configs');
-            return response.json() as Promise<ServiceConfig[]>;
-        },
+        queryFn: getProviderServiceConfigs,
         retry: 2,
     });
 
     const { data: templatesData } = useQuery({
         queryKey: ['provider-service-templates'],
-        queryFn: async () => {
-            const response = await fetch('/v1/provider/services/templates', { credentials: 'include' });
-            if (!response.ok) throw new Error('Failed to fetch templates');
-            return response.json() as Promise<{ templates: Template[] }>;
-        },
+        queryFn: getProviderServiceTemplates,
         retry: 2,
     });
 
     const templates = templatesData?.templates || [];
 
-    const updateConfig = async (nodeId: string, updates: Partial<ServiceConfig>) => {
+    const updateConfig = async (nodeId: string, updates: Partial<ProviderServiceConfig>) => {
         setSaving(true);
         try {
-            const response = await fetch(`/v1/provider/services/${nodeId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(updates),
-            });
-            if (response.ok) {
-                queryClient.invalidateQueries({ queryKey: ['provider-service-configs'] });
-                // Update local state if selected
-                if (selectedConfig && selectedConfig.node_id === nodeId) {
-                    setSelectedConfig({ ...selectedConfig, ...updates });
-                }
+            const updated = await updateProviderServiceConfig(nodeId, updates);
+            queryClient.invalidateQueries({ queryKey: ['provider-service-configs'] });
+            if (selectedConfig && selectedConfig.node_id === nodeId) {
+                setSelectedConfig(updated);
             }
         } catch (err) {
             console.error('Failed to update config:', err);
@@ -127,7 +85,7 @@ export default function ProviderServicesPage() {
         }
     };
 
-    const applyTemplate = async (nodeId: string, template: Template) => {
+    const applyTemplate = async (nodeId: string, template: ProviderServiceTemplate) => {
         await updateConfig(nodeId, template.config);
     };
 

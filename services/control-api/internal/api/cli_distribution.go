@@ -47,7 +47,7 @@ func normalizeCLIArch(arch string) string {
 func RegisterCLIDistributionRoutes(rg *gin.RouterGroup) {
 	// Public endpoint - no auth required for downloads
 	rg.GET("/cli/download", getCLIDownload)
-	
+
 	// Protected endpoints - require authentication
 	protected := rg.Group("/cli")
 	{
@@ -62,37 +62,45 @@ type CLIPlatformInfo struct {
 	Platform    string `json:"platform"`
 	Arch        string `json:"arch"`
 	Version     string `json:"version"`
+	PackageType string `json:"package_type"`
 	DownloadURL string `json:"download_url"`
 	FileSize    int64  `json:"file_size"`
 	Checksum    string `json:"checksum"`
+	Filename    string `json:"filename"`
 }
 
 // listCLIDownloads returns available CLI downloads
 func listCLIDownloads(c *gin.Context) {
 	var downloads []models.CLIDownload
-	
+
 	// Get only latest active versions
 	if err := db.DB.Where("is_active = ? AND is_latest = ?", true, true).Find(&downloads).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch downloads"})
 		return
 	}
-	
+
 	// Group by platform
 	result := make(map[string]CLIPlatformInfo)
 	for _, d := range downloads {
+		packageType := normalizeCLIPackageType(d.PackageType)
 		key := fmt.Sprintf("%s_%s", d.Platform, d.Arch)
+		if packageType != "daemon" {
+			key = fmt.Sprintf("%s_%s_%s", d.Platform, d.Arch, packageType)
+		}
 		result[key] = CLIPlatformInfo{
 			Platform:    d.GetPlatformDisplayName(),
 			Arch:        d.GetArchDisplayName(),
 			Version:     d.Version,
+			PackageType: packageType,
 			DownloadURL: buildDownloadURL(c, d),
 			FileSize:    d.FileSize,
 			Checksum:    d.Checksum,
+			Filename:    d.Filename,
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"downloads": result,
+		"downloads":      result,
 		"latest_version": getLatestVersion(downloads),
 	})
 }
@@ -101,6 +109,7 @@ func listCLIDownloads(c *gin.Context) {
 func getLatestCLI(c *gin.Context) {
 	platform := normalizeCLIPlatform(c.Query("platform"))
 	arch := normalizeCLIArch(c.Query("arch"))
+	packageType := normalizeCLIPackageType(c.Query("package_type"))
 
 	// Auto-detect if not provided
 	if platform == "" {
@@ -109,22 +118,23 @@ func getLatestCLI(c *gin.Context) {
 	if arch == "" {
 		arch = detectArch()
 	}
-	
+
 	var download models.CLIDownload
-	if err := db.DB.Where("platform = ? AND arch = ? AND is_latest = ? AND is_active = ?",
-		platform, arch, true, true).First(&download).Error; err != nil {
+	if err := db.DB.Where("platform = ? AND arch = ? AND package_type = ? AND is_latest = ? AND is_active = ?",
+		platform, arch, packageType, true, true).First(&download).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "No CLI available for your platform",
+			"error":    "No CLI available for your platform",
 			"platform": platform,
-			"arch": arch,
+			"arch":     arch,
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"version":      download.Version,
 		"platform":     download.GetPlatformDisplayName(),
 		"arch":         download.GetArchDisplayName(),
+		"package_type": normalizeCLIPackageType(download.PackageType),
 		"download_url": buildDownloadURL(c, download),
 		"file_size":    download.FileSize,
 		"checksum":     download.Checksum,
@@ -136,6 +146,7 @@ func getLatestCLI(c *gin.Context) {
 func getCLIDownload(c *gin.Context) {
 	platform := normalizeCLIPlatform(c.Query("platform"))
 	arch := normalizeCLIArch(c.Query("arch"))
+	packageType := normalizeCLIPackageType(c.DefaultQuery("package_type", "daemon"))
 	version := c.Query("version")
 
 	// Validate platform to prevent path traversal
@@ -143,28 +154,28 @@ func getCLIDownload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid platform or architecture"})
 		return
 	}
-	
+
 	var download models.CLIDownload
-	query := db.DB.Where("platform = ? AND arch = ? AND is_active = ?", platform, arch, true)
-	
+	query := db.DB.Where("platform = ? AND arch = ? AND package_type = ? AND is_active = ?", platform, arch, packageType, true)
+
 	if version != "" {
 		query = query.Where("version = ?", version)
 	} else {
 		query = query.Where("is_latest = ?", true)
 	}
-	
+
 	if err := query.First(&download).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "CLI not found"})
 		return
 	}
-	
+
 	// Check if file exists on disk
 	filePath := filepath.Join(cliDistRoot(), download.FilePath)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Binary not found on server"})
 		return
 	}
-	
+
 	// Set appropriate headers
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
@@ -172,7 +183,7 @@ func getCLIDownload(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", download.Filename))
 	c.Header("X-Checksum-Sha256", download.Checksum)
 	c.Header("X-CLI-Version", download.Version)
-	
+
 	// Serve file
 	c.File(filePath)
 }
@@ -182,80 +193,90 @@ func uploadCLIBinary(c *gin.Context) {
 	platform := c.PostForm("platform")
 	arch := c.PostForm("arch")
 	version := c.PostForm("version")
-	
+	packageType := normalizeCLIPackageType(c.PostForm("package_type"))
+
 	if !isValidPlatform(platform) || !isValidArch(arch) || version == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid platform, arch, or version"})
 		return
 	}
-	
+
 	file, err := c.FormFile("binary")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No binary file provided"})
 		return
 	}
-	
+
 	// Create directory structure
 	dirPath := filepath.Join(cliDistRoot(), version)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
 		return
 	}
-	
+
 	// Generate filename
-	filename := fmt.Sprintf("provider-cli-%s-%s-%s", version, platform, arch)
-	if platform == "windows" {
+	prefix := "provider-node"
+	if packageType == "wrapper" {
+		prefix = "provider-cli"
+	} else if packageType == "bundle" {
+		prefix = "provider-bundle"
+	}
+	filename := fmt.Sprintf("%s-%s-%s-%s", prefix, version, platform, arch)
+	if packageType == "bundle" {
+		filename += ".zip"
+	} else if platform == "windows" {
 		filename += ".exe"
 	}
 	filePath := filepath.Join(dirPath, filename)
-	
+
 	// Save file
 	if err := c.SaveUploadedFile(file, filePath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
 		return
 	}
-	
+
 	// Calculate checksum
 	checksum, err := calculateChecksum(filePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate checksum"})
 		return
 	}
-	
+
 	// Get file info
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get file info"})
 		return
 	}
-	
+
 	// If this is marked as latest, unmark previous latest
 	if c.PostForm("is_latest") == "true" {
 		db.DB.Model(&models.CLIDownload{}).
 			Where("platform = ? AND arch = ?", platform, arch).
 			Update("is_latest", false)
 	}
-	
+
 	// Create database record
 	download := models.CLIDownload{
-		Version:  version,
-		Platform: platform,
-		Arch:     arch,
-		Filename: filename,
-		FilePath: filepath.Join(version, filename),
-		FileSize: fileInfo.Size(),
-		Checksum: checksum,
-		IsLatest: c.PostForm("is_latest") == "true",
-		IsActive: true,
+		Version:     version,
+		Platform:    platform,
+		Arch:        arch,
+		PackageType: packageType,
+		Filename:    filename,
+		FilePath:    filepath.Join(version, filename),
+		FileSize:    fileInfo.Size(),
+		Checksum:    checksum,
+		IsLatest:    c.PostForm("is_latest") == "true",
+		IsActive:    true,
 	}
-	
+
 	if err := db.DB.Create(&download).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save download record"})
 		return
 	}
-	
+
 	c.JSON(http.StatusCreated, gin.H{
-		"message":   "CLI binary uploaded successfully",
-		"download":  download,
+		"message":  "CLI binary uploaded successfully",
+		"download": download,
 	})
 }
 
@@ -301,20 +322,29 @@ func detectArch() string {
 	}
 }
 
+func normalizeCLIPackageType(packageType string) string {
+	switch strings.ToLower(strings.TrimSpace(packageType)) {
+	case "bundle", "wrapper":
+		return strings.ToLower(strings.TrimSpace(packageType))
+	default:
+		return "daemon"
+	}
+}
+
 func buildDownloadURL(c *gin.Context, download models.CLIDownload) string {
 	scheme := "http"
 	if c.Request.TLS != nil {
 		scheme = "https"
 	}
-	
+
 	// Use configured API base URL if available
 	apiBase := os.Getenv("API_BASE_URL")
 	if apiBase == "" {
 		apiBase = fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 	}
-	
-	return fmt.Sprintf("%s/v1/cli/download?platform=%s&arch=%s&version=%s",
-		apiBase, download.Platform, download.Arch, download.Version)
+
+	return fmt.Sprintf("%s/v1/cli/download?platform=%s&arch=%s&version=%s&package_type=%s",
+		apiBase, download.Platform, download.Arch, download.Version, normalizeCLIPackageType(download.PackageType))
 }
 
 func calculateChecksum(filePath string) (string, error) {
@@ -323,12 +353,12 @@ func calculateChecksum(filePath string) (string, error) {
 		return "", err
 	}
 	defer file.Close()
-	
+
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", err
 	}
-	
+
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 

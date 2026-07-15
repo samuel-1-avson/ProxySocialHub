@@ -2,27 +2,28 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getProposal, castVote, type Proposal } from "@/lib/services/governance";
-import { useAuth } from "@/lib/auth";
+import Link from "next/link";
+import { getProposal, castGovernanceVote, type Proposal } from "@/lib/services/governance";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Loader2, ArrowLeft, CheckCircle, XCircle, Slash, Activity, MessageSquare, Box, Wallet, Vote, ShieldCheck, Clock, Hexagon, ChevronRight, Zap, Target, BarChart3, Fingerprint, Terminal, FileText } from "lucide-react";
+import { Loader2, ArrowLeft, CheckCircle, XCircle, MessageSquare, Box, ShieldCheck, Clock, Hexagon, Zap, Target, BarChart3, Fingerprint, Terminal, FileText } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
+import { ProposalImpactPreview } from "@/components/governance/ProposalImpactPreview";
+import { ProposalTreasuryAudit } from "@/components/governance/ProposalTreasuryAudit";
 
 export default function ProposalDetailsPage() {
     const params = useParams();
     const router = useRouter();
-    const { user } = useAuth();
-
     const id = params?.id as string;
     const [proposal, setProposal] = useState<Proposal | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'discussion' | 'votes' | 'execution'>('votes');
     const [voting, setVoting] = useState(false);
-    const [voteChoice, setVoteChoice] = useState<'yes' | 'no' | 'abstain' | null>(null);
+    const [voteChoice, setVoteChoice] = useState<'yes' | 'no' | null>(null);
+    const [voteError, setVoteError] = useState("");
 
-    const { signMessage, publicKey } = useWallet();
+    const { signMessage, signTransaction, publicKey } = useWallet();
 
     useEffect(() => {
         if (id) {
@@ -36,30 +37,43 @@ export default function ProposalDetailsPage() {
     const handleVote = async () => {
         if (!voteChoice || !proposal) return;
 
-        if (!publicKey || !signMessage) {
-            alert("Connect your authority module (Wallet) to initialize voting sequence.");
+        if (!publicKey || !signMessage || !signTransaction) {
+            setVoteError(
+                "Connect your linked Solana wallet (with transaction signing) to vote on-chain."
+            );
             return;
         }
 
         setVoting(true);
+        setVoteError("");
         try {
-            const message = new TextEncoder().encode(
-                `Consensus initialization for proposal ${proposal.id} | Action: ${voteChoice.toUpperCase()}`
+            await castGovernanceVote(
+                proposal.id,
+                voteChoice,
+                publicKey.toBase58(),
+                signMessage,
+                signTransaction
             );
-            const signatureBytes = await signMessage(message);
-            const signature = Buffer.from(signatureBytes).toString('hex');
-
-            await castVote(proposal.id, voteChoice, signature, publicKey.toBase58());
 
             const updated = await getProposal(proposal.id);
             setProposal(updated);
         } catch (err) {
             console.error("Vote failed", err);
+            setVoteError(err instanceof Error ? err.message : "Vote failed");
         } finally {
             setVoting(false);
             setVoteChoice(null);
         }
     };
+
+    const executionPayload = (() => {
+        if (!proposal?.execution_data?.trim()) return {};
+        try {
+            return JSON.parse(proposal.execution_data) as Record<string, unknown>;
+        } catch {
+            return { raw: proposal.execution_data };
+        }
+    })();
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -92,7 +106,6 @@ export default function ProposalDetailsPage() {
     const voteData = [
         { name: 'SUPPORT', value: proposal.votes_for, color: '#10B981' },
         { name: 'REJECT', value: proposal.votes_against, color: '#F43F5E' },
-        { name: 'ABSTAIN', value: proposal.votes_abstain, color: '#64748B' },
     ].filter(d => d.value > 0);
 
     const chartData = voteData.length > 0 ? voteData : [{ name: 'EMPTY_CONSENSUS', value: 1, color: 'rgba(255,255,255,0.05)' }];
@@ -202,7 +215,6 @@ export default function ProposalDetailsPage() {
                                             {[
                                                 { label: 'SUPPORT_UNIT', votes: proposal.votes_for, color: 'bg-emerald-500' },
                                                 { label: 'REJECT_UNIT', votes: proposal.votes_against, color: 'bg-rose-500' },
-                                                { label: 'ABSTAIN_UNIT', votes: proposal.votes_abstain, color: 'bg-slate-500' }
                                             ].map((item, i) => (
                                                 <div key={i} className="group/stat">
                                                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
@@ -224,25 +236,34 @@ export default function ProposalDetailsPage() {
                                             ))}
                                         </div>
                                         <div className="pt-8 border-t border-white/5 flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/30">
-                                            <span>Consensus Requirement</span>
-                                            <span className="text-primary/60">66.7% Quorum</span>
+                                            <span>Quorum target (VP)</span>
+                                            <span className="text-primary/60">{proposal.quorum.toLocaleString()} VP</span>
                                         </div>
                                     </div>
                                 </GlassCard>
                             )}
 
                             {activeTab === 'discussion' && (
-                                <GlassCard className="!p-16 text-center space-y-8 grayscale border-dashed border-white/10 opacity-60">
+                                <GlassCard className="!p-16 text-center space-y-8 border-white/10">
                                     <div className="w-20 h-20 rounded-full bg-white/2 border border-white/5 flex items-center justify-center mx-auto">
-                                        <MessageSquare size={32} className="text-muted-foreground/20" />
+                                        <MessageSquare size={32} className="text-primary/40" />
                                     </div>
                                     <div className="space-y-3">
-                                        <h3 className="text-xl font-black uppercase tracking-tighter">Forum Link Establishing</h3>
+                                        <h3 className="text-xl font-black uppercase tracking-tighter">Community discussion</h3>
                                         <p className="text-[10px] font-black text-muted-foreground/40 uppercase tracking-widest leading-relaxed max-w-xs mx-auto">
-                                            Connecting to decentralized discussion layers. Protocol handshake in progress.
+                                            {proposal.thread_id
+                                                ? "A forum thread was created when this proposal was submitted."
+                                                : "No forum thread is linked to this proposal yet."}
                                         </p>
                                     </div>
-                                    <button className="px-8 py-3 glass-card border-white/10 text-[9px] font-black uppercase tracking-[0.2em] hover:border-primary/40 transition-all rounded-xl">View External Thread</button>
+                                    {proposal.thread_id ? (
+                                        <Link
+                                            href={`/community/forum/thread/${proposal.thread_id}`}
+                                            className="inline-block px-8 py-3 glass-card border-white/10 text-[9px] font-black uppercase tracking-[0.2em] hover:border-primary/40 transition-all rounded-xl"
+                                        >
+                                            Open forum thread
+                                        </Link>
+                                    ) : null}
                                 </GlassCard>
                             )}
 
@@ -254,7 +275,7 @@ export default function ProposalDetailsPage() {
                                         </div>
                                         <div className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/30 mb-6 border-b border-white/5 pb-4">On-Chain Payload Bytecode</div>
                                         <pre className="text-[11px] font-mono p-6 bg-white/2 border border-white/5 rounded-2xl overflow-x-auto text-primary/80 leading-relaxed max-h-[400px]">
-                                            <code>{JSON.stringify(JSON.parse(proposal.execution_data || '{}'), null, 2)}</code>
+                                            <code>{JSON.stringify(executionPayload, null, 2)}</code>
                                         </pre>
                                     </GlassCard>
                                     <div className="flex items-start gap-4 p-6 bg-primary/5 border border-primary/10 rounded-2xl">
@@ -282,6 +303,15 @@ export default function ProposalDetailsPage() {
 
                 {/* Sidebar - Control Module */}
                 <div className="lg:col-span-4 space-y-8">
+                    <motion.div variants={itemVariants}>
+                        <ProposalImpactPreview mode="proposal" proposalId={proposal.id} />
+                    </motion.div>
+                    <motion.div variants={itemVariants}>
+                        <ProposalTreasuryAudit
+                            proposalId={proposal.id}
+                            showWhenEmpty={proposal.type === 'treasury'}
+                        />
+                    </motion.div>
                     {proposal.status === 'active' && (
                         <motion.div variants={itemVariants}>
                             <GlassCard className="!p-8 border-primary/30 bg-primary/[0.03] shadow-[0_0_50px_rgba(16,185,129,0.1)] group">
@@ -294,7 +324,6 @@ export default function ProposalDetailsPage() {
                                     {[
                                         { id: 'yes', label: 'Support Unit', icon: CheckCircle, color: 'hover:border-emerald-500/50 hover:bg-emerald-500/5', active: 'border-emerald-500 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10' },
                                         { id: 'no', label: 'Reject Unit', icon: XCircle, color: 'hover:border-rose-500/50 hover:bg-rose-500/5', active: 'border-rose-500 bg-rose-500/10 text-rose-500 shadow-lg shadow-rose-500/10' },
-                                        { id: 'abstain', label: 'Abstain Unit', icon: Slash, color: 'hover:border-slate-500/50 hover:bg-slate-500/5', active: 'border-slate-500 bg-slate-500/10 text-slate-500 shadow-lg shadow-slate-500/10' }
                                     ].map((option) => (
                                         <button
                                             key={option.id}
@@ -315,8 +344,14 @@ export default function ProposalDetailsPage() {
                                         {voting ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
                                         {voting ? "INITIALIZING SIGNATURE..." : "Confirm Sequence"}
                                     </button>
+                                    {voteError && (
+                                        <p className="text-[9px] text-center font-black uppercase tracking-widest text-rose-400 leading-relaxed mt-4">
+                                            {voteError}
+                                        </p>
+                                    )}
                                     <p className="text-[9px] text-center font-black uppercase tracking-[0.3em] text-muted-foreground/20 leading-relaxed mt-4">
-                                        SEQUENCE REQUIRES VALID ED25519 SIGNATURE FROM REGISTERED OPERATOR WALLET.
+                                        Signs vote:{proposal.id}:yes|no, builds an on-chain tx, and mirrors after relay.
+                                        Abstain is not supported on-chain.
                                     </p>
                                 </div>
                             </GlassCard>
