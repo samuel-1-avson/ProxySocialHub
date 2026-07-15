@@ -35,15 +35,16 @@ fn init_otel(
     use opentelemetry_sdk::trace::TracerProvider;
     use opentelemetry_sdk::Resource;
 
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "edge-gateway".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "edge-gateway".to_string());
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)
         .build()?;
 
-    let resource = Resource::new_with_defaults([KeyValue::new("service.name", service_name.clone())]);
+    let resource =
+        Resource::new_with_defaults([KeyValue::new("service.name", service_name.clone())]);
 
     let provider = TracerProvider::builder()
         .with_simple_exporter(exporter)

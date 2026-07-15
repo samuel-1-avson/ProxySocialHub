@@ -1,39 +1,90 @@
 package geo
 
-import "strings"
+import (
+	"hash/fnv"
+	"strings"
+)
 
-// CountryCentroid returns a map pin fallback [lat, lon] for ISO or common country names.
-func CountryCentroid(country string, index int) (lat, lon float64, ok bool) {
+// CityCentroid returns coordinates for a known city name (optionally scoped by country).
+func CityCentroid(city, country string) (lat, lon float64, ok bool) {
+	key := strings.ToLower(strings.TrimSpace(city))
+	if key == "" {
+		return 0, 0, false
+	}
+	if c, found := cityCoords[key]; found {
+		return c[0], c[1], true
+	}
+	cc := strings.ToUpper(strings.TrimSpace(country))
+	if cc != "" {
+		if c, found := cityCoords[cc+":"+key]; found {
+			return c[0], c[1], true
+		}
+	}
+	return 0, 0, false
+}
+
+// CountryCentroid returns a stable map pin for a country. The anchor (node_id, seller_id, etc.)
+// ensures listings on the same node share one location instead of being spread by row index.
+func CountryCentroid(country, anchor string) (lat, lon float64, ok bool) {
 	key := strings.TrimSpace(country)
 	if key == "" {
 		return 0, 0, false
 	}
 	c, found := countryCoords[key]
-	if !found {
-		if len(key) == 2 {
-			if c2, ok2 := countryCoords[strings.ToUpper(key)]; ok2 {
-				c = c2
-				found = true
-			}
-		}
+	if !found && len(key) == 2 {
+		c, found = countryCoords[strings.ToUpper(key)]
 	}
 	if !found {
 		return 0, 0, false
 	}
-	jitter := float64((index%7)-3) * 0.35
-	jitterLon := float64((index%5)-2) * 0.45
+	jitter, jitterLon := stableJitter(anchor)
 	return c[0] + jitter, c[1] + jitterLon, true
 }
 
-// ApplyListingCoords uses explorer/gateway coords when present, else country centroid.
-func ApplyListingCoords(lat, lon float64, country string, index int) (outLat, outLon float64, resolved bool) {
-	if abs(lat) > 0.01 || abs(lon) > 0.01 {
-		return lat, lon, true
+// ApplyListingCoords uses GPS/explorer coords when present, else city centroid, else country centroid.
+func ApplyListingCoords(lat, lon float64, country, city, anchor string) (outLat, outLon float64, resolved bool) {
+	outLat, outLon, src := ApplyMapCoords(lat, lon, country, city, anchor)
+	return outLat, outLon, src != "unknown"
+}
+
+// ApplyMapCoords resolves map coordinates and reports how they were derived.
+// Pins use regional hubs (major city areas) when configured for the country.
+func ApplyMapCoords(lat, lon float64, country, city, anchor string) (outLat, outLon float64, geoSource string) {
+	if _, hLat, hLon, ok := ApplyRegionalHubCoords(country, city, "", lat, lon); ok {
+		return hLat, hLon, "region_hub"
 	}
-	if lat2, lon2, ok := CountryCentroid(country, index); ok {
-		return lat2, lon2, true
+	if lat2, lon2, ok := CityCentroid(city, country); ok {
+		return lat2, lon2, "city_centroid"
 	}
-	return lat, lon, false
+	if lat2, lon2, ok := CountryCentroid(country, anchor); ok {
+		return lat2, lon2, "country_centroid"
+	}
+	return lat, lon, "unknown"
+}
+
+// MapGeoAnchor picks a stable grouping key so co-located listings share coordinates.
+func MapGeoAnchor(nodeID, sellerID, listingID string) string {
+	if id := strings.TrimSpace(nodeID); id != "" {
+		return "node:" + id
+	}
+	if id := strings.TrimSpace(sellerID); id != "" {
+		return "seller:" + id
+	}
+	return "listing:" + strings.TrimSpace(listingID)
+}
+
+func stableJitter(anchor string) (lat, lon float64) {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return 0, 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(anchor))
+	v := h.Sum32()
+	// ~±0.06° (~7 km) separates different nodes in the same country; identical anchor = identical pin.
+	lat = float64(int(v%7)-3) * 0.02
+	lon = float64(int((v>>4)%5)-2) * 0.02
+	return lat, lon
 }
 
 func abs(v float64) float64 {
@@ -41,6 +92,31 @@ func abs(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// HasValidCoords reports whether lat/lon are non-trivial map coordinates.
+func HasValidCoords(lat, lon float64) bool {
+	return abs(lat) > 0.01 || abs(lon) > 0.01
+}
+
+var cityCoords = map[string][2]float64{
+	"accra":      {5.6037, -0.1870},
+	"kumasi":     {6.6885, -1.6244},
+	"tamale":     {9.4035, -0.8429},
+	"tema":       {5.6698, -0.0166},
+	"cape coast": {5.1053, -1.2466},
+	"takoradi":   {4.8845, -1.7554},
+	"gh:accra":   {5.6037, -0.1870},
+	"gh:kumasi":  {6.6885, -1.6244},
+	"gh:takoradi": {4.8845, -1.7554},
+	"new york":   {40.7128, -74.0060},
+	"london":     {51.5074, -0.1278},
+	"paris":      {48.8566, 2.3522},
+	"berlin":     {52.5200, 13.4050},
+	"amsterdam":  {52.3676, 4.9041},
+	"singapore":  {1.3521, 103.8198},
+	"tokyo":      {35.6762, 139.6503},
+	"los angeles": {34.0522, -118.2437},
 }
 
 var countryCoords = map[string][2]float64{
@@ -102,4 +178,8 @@ var countryCoords = map[string][2]float64{
 	"South Africa":    {-29, 25},
 	"AE":              {24, 54},
 	"UAE":             {24, 54},
+	"GH":              {7.9, -1.0},
+	"Ghana":           {7.9, -1.0},
+	"NG":              {9, 8},
+	"Nigeria":         {9, 8},
 }

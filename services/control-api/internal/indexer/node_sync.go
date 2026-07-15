@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -185,22 +186,86 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 
 	// P0-13: resolve real coordinates from the node's IP address instead of
 	// leaving them as the default (0, 0) forever.
+	effectiveIP := geoip.NormalizeIPForGeo(node.IPAddress)
+	if effectiveIP != "" && effectiveIP != node.IPAddress {
+		node.IPAddress = effectiveIP
+		_ = ns.db.Model(&node).Update("ip_address", effectiveIP).Error
+	}
+
+	country, cityHint := geo.NormalizeProviderLocation(
+		firstNonEmpty(node.Country, ns.getCountryFromRegion(region)),
+		node.City,
+	)
+	if country != "" && country != node.Country {
+		node.Country = country
+		_ = ns.db.Model(&node).Update("country", country).Error
+	}
+	if cityHint != "" && node.City == "" {
+		node.City = cityHint
+		_ = ns.db.Model(&node).Update("city", cityHint).Error
+	}
+
 	var (
 		lat, lon  float64
 		city, isp string
-		country   = ns.getCountryFromRegion(region)
 	)
+	providerUpdates := map[string]interface{}{}
+	ipRegion := region
 	if node.IPAddress != "" {
-		if geo, ok := geoip.Resolve(node.IPAddress); ok {
-			lat, lon = geo.Latitude, geo.Longitude
-			city = geo.City
-			isp = geo.ISP
-			if geo.Country != "" {
-				country = geo.Country
+		if geoResult, ok := geoip.Resolve(node.IPAddress); ok {
+			lat, lon = geoResult.Latitude, geoResult.Longitude
+			city = geoResult.City
+			isp = geoResult.ISP
+			if countryCode := geo.NormalizeCountryCode(geoResult.Country); countryCode != "" {
+				country = countryCode
 			}
-			if geo.Region != "" && region == "unknown" {
-				region = geo.Region
+			if geoResult.Region != "" {
+				ipRegion = geoResult.Region
+				if region == "unknown" {
+					region = geoResult.Region
+				}
+				if node.Region == "" {
+					providerUpdates["region"] = geoResult.Region
+					node.Region = geoResult.Region
+				}
 			}
+		}
+	}
+	if isp == "" {
+		isp = node.ISP
+	} else if isp != node.ISP {
+		providerUpdates["isp"] = isp
+		node.ISP = isp
+	}
+	if country != "" && country != node.Country {
+		providerUpdates["country"] = country
+		node.Country = country
+	}
+	if city == "" {
+		city = firstNonEmpty(node.City, cityHint)
+	}
+	hubCity, hubLat, hubLon, hubOK := geo.ApplyRegionalHubCoords(
+		firstNonEmpty(node.Country, country),
+		city,
+		ipRegion,
+		lat,
+		lon,
+	)
+	if hubOK {
+		city = hubCity
+		lat, lon = hubLat, hubLon
+	} else if (math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01) && city != "" {
+		if clat, clon, ok := geo.CityCentroid(city, firstNonEmpty(node.Country, country)); ok {
+			lat, lon = clat, clon
+		}
+	}
+	if city != "" && city != node.City {
+		providerUpdates["city"] = city
+		node.City = city
+	}
+	if len(providerUpdates) > 0 {
+		if err := ns.db.Model(&node).Updates(providerUpdates).Error; err != nil {
+			logging.Debug().Err(err).Str("node_id", node.ID.String()).Msg("[NodeSync] provider node geo update skipped")
 		}
 	}
 
@@ -223,7 +288,7 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 		Name:             ns.getNodeName(node),
 		IP:               node.IPAddress,
 		Region:           region,
-		Country:          firstNonEmpty(node.Country, country),
+		Country:          firstNonEmpty(node.Country, country, ns.getCountryFromRegion(region)),
 		City:             city,
 		ISP:              isp,
 		Latitude:         lat,
@@ -370,25 +435,25 @@ func (ns *NodeSync) getNodeName(node models.ProviderNode) string {
 	return node.ID.String()[:8]
 }
 
-// getCountryFromRegion maps a region to a country (simplified)
+// getCountryFromRegion maps a region to an ISO-3166 alpha-2 country code.
 func (ns *NodeSync) getCountryFromRegion(region string) string {
 	regionMap := map[string]string{
-		"us-east":      "United States",
-		"us-west":      "United States",
-		"eu-west":      "Ireland",
-		"eu-central":   "Germany",
-		"ap-south":     "India",
-		"ap-southeast": "Singapore",
-		"ap-northeast": "Japan",
-		"sa-east":      "Brazil",
-		"af-south":     "South Africa",
+		"us-east":      "US",
+		"us-west":      "US",
+		"eu-west":      "IE",
+		"eu-central":   "DE",
+		"ap-south":     "IN",
+		"ap-southeast": "SG",
+		"ap-northeast": "JP",
+		"sa-east":      "BR",
+		"af-south":     "ZA",
 	}
 
 	if country, ok := regionMap[region]; ok {
 		return country
 	}
 
-	return region
+	return geo.NormalizeCountryCode(region)
 }
 
 // SyncNodeNow immediately syncs a specific node (for use by other services)

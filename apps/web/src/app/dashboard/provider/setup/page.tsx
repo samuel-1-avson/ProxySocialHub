@@ -120,7 +120,6 @@ export default function SetupPage() {
                             onCreate={() => tokenMutation.mutate()}
                             loading={tokenMutation.isPending}
                             error={tokenMutation.error?.message}
-                            onSkip={() => setStep(2)}
                             onBack={prev}
                         />
                     )}
@@ -136,7 +135,6 @@ export default function SetupPage() {
                             onRegister={() => nodeMutation.mutate()}
                             loading={nodeMutation.isPending}
                             error={nodeMutation.error?.message}
-                            onSkip={() => setStep(3)}
                             onBack={prev}
                         />
                     )}
@@ -205,14 +203,13 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
 // ─────────────── Step 1: API Token ───────────────
 function TokenStep({
-    name, onNameChange, onCreate, loading, error, onSkip, onBack,
+    name, onNameChange, onCreate, loading, error, onBack,
 }: {
     name: string;
     onNameChange: (v: string) => void;
     onCreate: () => void;
     loading: boolean;
     error?: string;
-    onSkip: () => void;
     onBack: () => void;
 }) {
     return (
@@ -246,20 +243,15 @@ function TokenStep({
                     <button onClick={onBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-mono text-xs">
                         <ArrowLeft size={12} /> Back
                     </button>
-                    <div className="flex gap-3">
-                        <button onClick={onSkip} className="px-4 py-2 bg-white/5 rounded-xl font-mono text-xs hover:bg-white/10 transition-colors">
-                            Skip
-                        </button>
-                        <button
-                            onClick={onCreate}
-                            disabled={!name.trim() || loading}
-                            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold disabled:opacity-50"
-                        >
-                            {loading ? <Loader2 size={12} className="animate-spin" /> : null}
-                            Create Token
-                            <ArrowRight size={12} />
-                        </button>
-                    </div>
+                    <button
+                        onClick={onCreate}
+                        disabled={!name.trim() || loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold disabled:opacity-50"
+                    >
+                        {loading ? <Loader2 size={12} className="animate-spin" /> : null}
+                        Create Token
+                        <ArrowRight size={12} />
+                    </button>
                 </div>
             </div>
         </GlassCard>
@@ -270,7 +262,7 @@ function TokenStep({
 function NodeStep({
     token, name, country, city,
     onNameChange, onCountryChange, onCityChange,
-    onRegister, loading, error, onSkip, onBack,
+    onRegister, loading, error, onBack,
 }: {
     token: CreateTokenResponse | null;
     name: string;
@@ -282,7 +274,6 @@ function NodeStep({
     onRegister: () => void;
     loading: boolean;
     error?: string;
-    onSkip: () => void;
     onBack: () => void;
 }) {
     return (
@@ -357,20 +348,15 @@ function NodeStep({
                     <button onClick={onBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-mono text-xs">
                         <ArrowLeft size={12} /> Back
                     </button>
-                    <div className="flex gap-3">
-                        <button onClick={onSkip} className="px-4 py-2 bg-white/5 rounded-xl font-mono text-xs hover:bg-white/10 transition-colors">
-                            Skip
-                        </button>
-                        <button
-                            onClick={onRegister}
-                            disabled={!name.trim() || loading}
-                            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold disabled:opacity-50"
-                        >
-                            {loading ? <Loader2 size={12} className="animate-spin" /> : null}
-                            Register Node
-                            <ArrowRight size={12} />
-                        </button>
-                    </div>
+                    <button
+                        onClick={onRegister}
+                        disabled={!name.trim() || loading}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold disabled:opacity-50"
+                    >
+                        {loading ? <Loader2 size={12} className="animate-spin" /> : null}
+                        Register Node
+                        <ArrowRight size={12} />
+                    </button>
                 </div>
             </div>
         </GlassCard>

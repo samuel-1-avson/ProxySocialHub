@@ -16,6 +16,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
 
 // IndexerCallbacks holds optional notification hooks called after DB writes.
@@ -90,7 +91,7 @@ func NewBlockchainIndexer(cfg IndexerConfig) (*BlockchainIndexer, error) {
 		}
 	}
 
-	rpcClient := rpc.New(cfg.RPCEndpoint)
+	rpcClient := solanaClient.NewRPCClient(cfg.RPCEndpoint)
 
 	programID, err := solana.PublicKeyFromBase58(cfg.ProgramID)
 	if err != nil {

@@ -416,7 +416,7 @@ export default function CreateProposalPage() {
 
                             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">
 
-                                On-chain voting window: 1–14 days. Quorum uses PHB voting power (VP).
+                                On-chain voting window: 1–14 days. Quorum uses PHB voting power (VP). Abstain is recorded on-chain but does not add to For/Against bars.
 
                             </p>
 

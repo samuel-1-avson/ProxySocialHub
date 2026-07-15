@@ -16,6 +16,8 @@ import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
+import Link from 'next/link';
+import { ROUTES } from '@/lib/navigation/routes';
 import {
     trackMarketplaceEvent,
     type MarketplaceFunnelSurface,
@@ -36,6 +38,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
+    const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
     const [showPass, setShowPass] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
 
@@ -49,7 +52,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
     }, [listing.id, surface]);
 
     const bandwidthLimitBytes = bandwidth * 1024 * 1024 * 1024;
-    const estimatedCostUSD = listing.price_per_gb * bandwidth;
+    const estimatedCostSOL = listing.price_per_gb * bandwidth;
 
     const copyToClipboard = (text: string, key: string) => {
         navigator.clipboard.writeText(text).then(() => {
@@ -102,6 +105,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
                 throw new Error('Order created, but proxy credentials were not returned after escrow confirmation.');
             }
 
+            setCompletedOrderId(order.id);
             setCredentials(nextCredentials);
             void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
             onSuccess(order.id, nextCredentials);
@@ -178,6 +182,15 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
                         Configure your client using <span className="text-white/60">HTTP proxy</span> with the credentials above.
                         Billing is hourly — session auto-terminates when bandwidth quota is reached.
                     </p>
+
+                    {completedOrderId && (
+                        <Link
+                            href={ROUTES.dashboardOrder(completedOrderId)}
+                            className="block w-full py-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-300 font-black text-sm uppercase tracking-widest hover:bg-purple-500/20 transition-all text-center"
+                        >
+                            View order & credentials
+                        </Link>
+                    )}
 
                     <button
                         onClick={onClose}
@@ -259,7 +272,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
                         <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
                             <div>
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Estimated Total</p>
-                                <p className="font-mono text-2xl font-black text-emerald-400">{estimatedCostUSD.toFixed(6)} SOL</p>
+                                <p className="font-mono text-2xl font-black text-emerald-400">{estimatedCostSOL.toFixed(6)} SOL</p>
                             </div>
                             <div className="text-right">
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Rate</p>

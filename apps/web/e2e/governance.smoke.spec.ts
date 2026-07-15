@@ -33,7 +33,7 @@ test.describe('governance & community smoke (local)', () => {
     });
 
     test('beta program page renders task catalog', async ({ page }) => {
-        await page.goto('/community/beta', { waitUntil: 'networkidle' });
+        await page.goto('/community/beta', { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('heading', { name: /ProxyHubb Beta Testers/i })).toBeVisible({
             timeout: 30_000,
         });
@@ -60,6 +60,8 @@ test.describe('governance & community smoke (local)', () => {
         await expect(page.getByRole('heading', { name: /create proposal/i })).toBeVisible({
             timeout: 30_000,
         });
-        await expect(page.getByText(/Community signal/i)).toBeVisible({ timeout: 15_000 });
+        const templateSelect = page.locator('select').first();
+        await expect(templateSelect).toBeVisible({ timeout: 15_000 });
+        await expect(templateSelect).toHaveValue('signal');
     });
 });

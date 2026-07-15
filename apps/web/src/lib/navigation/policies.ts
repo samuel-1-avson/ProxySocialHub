@@ -1,5 +1,4 @@
-import { ROUTES } from "@/lib/navigation/routes";
-import type { AppRoute } from "@/lib/navigation/routes";
+import { getStaticRouteEntries, ROUTES } from "@/lib/navigation/routes";
 
 export type RouteKey = keyof typeof ROUTES;
 export type RoutePolicy = "public" | "authenticated" | "provider" | "admin";
@@ -7,10 +6,13 @@ export type RoutePolicy = "public" | "authenticated" | "provider" | "admin";
 export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     home: "public",
     marketplace: "public",
+    network: "public",
     marketplaceMap: "public",
+    marketplaceCatalog: "provider",
     marketplaceCreate: "provider",
     marketplaceManage: "provider",
     marketplaceOrders: "authenticated",
+    marketplaceOrder: "authenticated",
     marketplaceSaved: "authenticated",
     marketplaceAgents: "public",
     marketplaceAgentInstances: "authenticated",
@@ -23,12 +25,16 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     dashboardMonitoring: "authenticated",
     dashboardProfile: "authenticated",
     dashboardProxy: "authenticated",
+    dashboardOrder: "authenticated",
     dashboardSecurity: "authenticated",
     dashboardSessions: "authenticated",
     dashboardUsage: "authenticated",
     dashboardTrustless: "authenticated",
     dashboardWallet: "authenticated",
-    dashboardProvider: "provider",
+    /** Buyer onboarding — apply before provider role is granted. */
+    dashboardBecomeProvider: "authenticated",
+    /** Onboarding hub — buyers apply here; provider tools use child routes. */
+    dashboardProvider: "authenticated",
     dashboardProviderAnalytics: "provider",
     dashboardProviderNodes: "provider",
     dashboardProviderHealth: "provider",
@@ -103,9 +109,18 @@ export function getRoutePolicyByKey(routeKey: RouteKey): RoutePolicy {
     return ROUTE_POLICIES[routeKey];
 }
 
+/** Exact paths that must not inherit a parent route policy (e.g. /dashboard → authenticated). */
+const EXACT_PATH_POLICY_OVERRIDES: Record<string, RoutePolicy> = {
+    "/dashboard/provider": "authenticated",
+    "/dashboard/become-provider": "authenticated",
+};
+
 export function getRoutePolicyForPathname(pathname: string): RoutePolicy {
     const normalizedPath = normalizePath(pathname);
-    const routeEntries = Object.entries(ROUTES) as Array<[RouteKey, AppRoute]>;
+    const exactOverride = EXACT_PATH_POLICY_OVERRIDES[normalizedPath];
+    if (exactOverride) return exactOverride;
+
+    const routeEntries = getStaticRouteEntries();
     const exactEntry = routeEntries.find(([, route]) => normalizePath(route) === normalizedPath);
     if (exactEntry) return ROUTE_POLICIES[exactEntry[0]];
 

@@ -318,6 +318,7 @@ mod tests {
             base_price_per_gb: 0.20,
             lease_expires_at: 0,
             control_api_db_id: None,
+            provider_run_id: String::new(),
         }
     }
 

@@ -44,7 +44,7 @@ export function MilestoneWidget() {
             addNotification({
                 type: 'success',
                 title: 'Reward Claimed!',
-                message: `You received $${Number(data.reward_amount || 0).toFixed(2)} credit`,
+                message: `You received ${Number(data.reward_amount || 0).toFixed(6)} SOL credit`,
             });
             queryClient.invalidateQueries({ queryKey: milestoneKeys.all });
         },
@@ -124,7 +124,7 @@ export function MilestoneWidget() {
                         {nextMilestone.reward_amount > 0 && (
                             <div className="flex items-center gap-1 text-emerald-400">
                                 <Gift className="w-3 h-3" />
-                                <span className="text-xs font-bold">${nextMilestone.reward_amount}</span>
+                                <span className="text-xs font-bold">{Number(nextMilestone.reward_amount).toFixed(6)} SOL</span>
                             </div>
                         )}
                     </div>
@@ -172,7 +172,7 @@ export function MilestoneWidget() {
                                 {claimMutation.isPending ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                    `Claim $${milestone.reward_amount}`
+                                    `Claim ${Number(milestone.reward_amount).toFixed(6)} SOL`
                                 )}
                             </button>
                         </motion.div>

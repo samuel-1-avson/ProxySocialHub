@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var cliArtifactPattern = regexp.MustCompile(`^provider-(?:node|cli)-([\d.]+)-([a-z]+)-([a-z0-9]+)(\.exe)?$`)
+var cliArtifactPattern = regexp.MustCompile(`^provider-(node|cli|bundle)-([\d.]+)-([a-z]+)-([a-z0-9]+)(?:\.exe|\.zip|\.tar\.gz)?$`)
 
 // SeedCLIDownloads indexes binaries under CLI_DIST_PATH (default /app/cli-dist or repo cli-dist).
 func SeedCLIDownloads() {
@@ -62,11 +62,19 @@ func SeedCLIDownloads() {
 		if m == nil {
 			continue
 		}
-		fileVersion := m[1]
-		platform := m[2]
-		arch := m[3]
+		artifactKind := m[1]
+		fileVersion := m[2]
+		platform := m[3]
+		arch := m[4]
 		if platform == "darwin" {
 			platform = "macos"
+		}
+		packageType := "daemon"
+		switch artifactKind {
+		case "cli":
+			packageType = "wrapper"
+		case "bundle":
+			packageType = "bundle"
 		}
 
 		fullPath := filepath.Join(versionDir, ent.Name())
@@ -76,7 +84,7 @@ func SeedCLIDownloads() {
 			continue
 		}
 
-		if err := upsertCLIDownload(fileVersion, platform, arch, ent.Name(), fullPath, size, checksum); err != nil {
+		if err := upsertCLIDownload(fileVersion, platform, arch, packageType, ent.Name(), fullPath, size, checksum); err != nil {
 			log.Printf("CLI seed: failed %s: %v", ent.Name(), err)
 			continue
 		}
@@ -88,20 +96,21 @@ func SeedCLIDownloads() {
 	}
 }
 
-func upsertCLIDownload(version, platform, arch, filename, filePath string, size int64, checksum string) error {
+func upsertCLIDownload(version, platform, arch, packageType, filename, filePath string, size int64, checksum string) error {
 	var existing models.CLIDownload
-	err := DB.Where("platform = ? AND arch = ? AND version = ?", platform, arch, version).First(&existing).Error
+	err := DB.Where("platform = ? AND arch = ? AND version = ? AND package_type = ?", platform, arch, version, packageType).First(&existing).Error
 
 	record := models.CLIDownload{
-		Version:  version,
-		Platform: platform,
-		Arch:     arch,
-		Filename: filename,
-		FilePath: filepath.ToSlash(filepath.Join(version, filename)),
-		FileSize: size,
-		Checksum: checksum,
-		IsActive: true,
-		IsLatest: true,
+		Version:     version,
+		Platform:    platform,
+		Arch:        arch,
+		PackageType: packageType,
+		Filename:    filename,
+		FilePath:    filepath.ToSlash(filepath.Join(version, filename)),
+		FileSize:    size,
+		Checksum:    checksum,
+		IsActive:    true,
+		IsLatest:    true,
 	}
 
 	if err == gorm.ErrRecordNotFound {
@@ -113,12 +122,13 @@ func upsertCLIDownload(version, platform, arch, filename, filePath string, size 
 		return err
 	} else {
 		if err := DB.Model(&existing).Updates(map[string]interface{}{
-			"filename":    record.Filename,
-			"file_path":   record.FilePath,
-			"file_size":   record.FileSize,
-			"checksum":    record.Checksum,
-			"is_active":   true,
-			"is_latest":   true,
+			"filename":     record.Filename,
+			"file_path":    record.FilePath,
+			"file_size":    record.FileSize,
+			"checksum":     record.Checksum,
+			"package_type": record.PackageType,
+			"is_active":    true,
+			"is_latest":    true,
 			"download_url": "",
 		}).Error; err != nil {
 			return err
@@ -127,7 +137,7 @@ func upsertCLIDownload(version, platform, arch, filename, filePath string, size 
 
 	// Mark other versions for this platform/arch as not latest.
 	return DB.Model(&models.CLIDownload{}).
-		Where("platform = ? AND arch = ? AND version <> ?", platform, arch, version).
+		Where("platform = ? AND arch = ? AND package_type = ? AND version <> ?", platform, arch, packageType, version).
 		Update("is_latest", false).Error
 }
 

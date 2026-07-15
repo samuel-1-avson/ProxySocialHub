@@ -20,15 +20,23 @@ func RegisterListingSocialRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings/:id/qa", getListingQA)
 	rg.POST("/listings/:id/qa", askListingQuestion)
 
-	// Provider relationships
+	// Online presence
+	rg.POST("/presence/heartbeat", updatePresence)
+	rg.GET("/users/:id/presence", getUserPresence)
+}
+
+// RegisterProviderRelationshipRoutes registers provider-scoped relationship management routes.
+func RegisterProviderRelationshipRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/relationships", getProviderRelationships)
 	rg.GET("/provider/relationships/stats", getProviderRelationshipStats)
 	rg.GET("/provider/relationships/:buyerId", getProviderRelationshipDetail)
 	rg.POST("/provider/relationships/:buyerId/offer", sendRefillOffer)
+}
 
-	// Online presence
-	rg.POST("/presence/heartbeat", updatePresence)
-	rg.GET("/users/:id/presence", getUserPresence)
+// RegisterBuyerRelationshipRoutes registers buyer-scoped relationship read routes.
+func RegisterBuyerRelationshipRoutes(rg *gin.RouterGroup) {
+	rg.GET("/buyer/relationships", getBuyerRelationships)
+	rg.GET("/buyer/relationships/:providerId", getBuyerRelationshipDetail)
 }
 
 // ListingSocialContext represents social data for a listing
@@ -407,18 +415,6 @@ func getProviderRelationships(c *gin.Context) {
 		return
 	}
 
-	// Verify user is a provider
-	var user models.User
-	if err := db.DB.First(&user, "id = ?", providerID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	if user.Role != "provider" && user.Role != "admin" && user.Role != "superadmin" {
-		c.JSON(http.StatusOK, gin.H{"relationships": []RelationshipResponse{}, "count": 0})
-		return
-	}
-
 	status := c.DefaultQuery("status", "active")
 
 	var relationships []models.ProviderBuyerRelationship
@@ -486,6 +482,85 @@ func getProviderRelationshipDetail(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"relationship":    mapRelationship(relationship),
+		"sessions":        sessions,
+		"conversation_id": conversation.ID,
+	})
+}
+
+// getBuyerRelationships returns provider relationships for the current buyer.
+func getBuyerRelationships(c *gin.Context) {
+	buyerID, err := getCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	status := c.DefaultQuery("status", "active")
+
+	var relationships []models.ProviderBuyerRelationship
+	query := db.Social().
+		Preload("Provider").
+		Where("buyer_id = ?", buyerID)
+
+	if status != "all" {
+		query = query.Where("status = ?", status)
+	}
+
+	if err := query.Order("last_session_at DESC NULLS LAST").Find(&relationships).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch relationships"})
+		return
+	}
+
+	resp := make([]BuyerRelationshipResponse, len(relationships))
+	for i, r := range relationships {
+		resp[i] = mapBuyerRelationship(r)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"relationships": resp,
+		"count":         len(resp),
+	})
+}
+
+// getBuyerRelationshipDetail returns relationship info for a buyer with a specific provider.
+func getBuyerRelationshipDetail(c *gin.Context) {
+	buyerID, err := getCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	providerID, err := uuid.Parse(c.Param("providerId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
+		return
+	}
+
+	var relationship models.ProviderBuyerRelationship
+	if err := db.Social().
+		Preload("Provider").
+		Where("provider_id = ? AND buyer_id = ?", providerID, buyerID).
+		First(&relationship).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Relationship not found"})
+		return
+	}
+
+	var sessions []models.Session
+	db.DB.
+		Where("user_id = ? AND listing_id IN (SELECT id FROM proxy_listings WHERE seller_id = ?)",
+			buyerID, providerID).
+		Order("created_at DESC").
+		Limit(10).
+		Find(&sessions)
+
+	var conversation models.Conversation
+	db.Social().
+		Where("(participant1 = ? AND participant2 = ?) OR (participant1 = ? AND participant2 = ?)",
+			providerID, buyerID, buyerID, providerID).
+		First(&conversation)
+
+	c.JSON(http.StatusOK, gin.H{
+		"relationship":    mapBuyerRelationship(relationship),
 		"sessions":        sessions,
 		"conversation_id": conversation.ID,
 	})
@@ -746,6 +821,21 @@ type RelationshipResponse struct {
 	Status           string     `json:"status"`
 }
 
+// BuyerRelationshipResponse is the buyer-facing view of a provider relationship.
+type BuyerRelationshipResponse struct {
+	ProviderID       uuid.UUID  `json:"provider_id"`
+	ProviderName     string     `json:"provider_name"`
+	ProviderUsername string     `json:"provider_username"`
+	ProviderAvatar   string     `json:"provider_avatar"`
+	BuyerID          uuid.UUID  `json:"buyer_id"`
+	FirstSessionAt   time.Time  `json:"first_session_at"`
+	LastSessionAt    *time.Time `json:"last_session_at,omitempty"`
+	SessionCount     int        `json:"session_count"`
+	TotalBandwidthGB float64    `json:"total_bandwidth_gb"`
+	TotalSpent       float64    `json:"total_spent"`
+	Status           string     `json:"status"`
+}
+
 func mapRelationship(r models.ProviderBuyerRelationship) RelationshipResponse {
 	resp := RelationshipResponse{
 		BuyerID:          r.BuyerID,
@@ -778,23 +868,42 @@ func mapRelationship(r models.ProviderBuyerRelationship) RelationshipResponse {
 	return resp
 }
 
+func mapBuyerRelationship(r models.ProviderBuyerRelationship) BuyerRelationshipResponse {
+	resp := BuyerRelationshipResponse{
+		ProviderID:       r.ProviderID,
+		BuyerID:          r.BuyerID,
+		FirstSessionAt:   r.FirstSessionAt,
+		LastSessionAt:    r.LastSessionAt,
+		SessionCount:     r.TotalSessions,
+		TotalBandwidthGB: r.TotalBandwidthGB,
+		TotalSpent:       r.TotalSpent,
+		Status:           r.Status,
+	}
+
+	if r.Provider != nil {
+		if r.Provider.DisplayName != nil {
+			resp.ProviderName = *r.Provider.DisplayName
+		} else if r.Provider.Username != nil {
+			resp.ProviderName = *r.Provider.Username
+		} else {
+			resp.ProviderName = "Provider"
+		}
+		if r.Provider.Username != nil {
+			resp.ProviderUsername = *r.Provider.Username
+		}
+		if r.Provider.AvatarURL != nil {
+			resp.ProviderAvatar = *r.Provider.AvatarURL
+		}
+	}
+
+	return resp
+}
+
 // getProviderRelationshipStats returns relationship statistics for a provider
 func getProviderRelationshipStats(c *gin.Context) {
 	providerID, err := getCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	// Verify user is a provider
-	var user models.User
-	if err := db.DB.First(&user, "id = ?", providerID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	if user.Role != "provider" && user.Role != "admin" && user.Role != "superadmin" {
-		c.JSON(http.StatusOK, gin.H{"stats": RelationshipStats{}})
 		return
 	}
 

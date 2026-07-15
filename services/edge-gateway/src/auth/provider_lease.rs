@@ -140,6 +140,7 @@ mod tests {
             os: "linux".to_string(),
             client_version: "1.0.0".to_string(),
             features: vec!["ipv4".to_string(), "http_connect".to_string()],
+            provider_run_id: String::new(),
             provider_lease: String::new(),
         }
     }

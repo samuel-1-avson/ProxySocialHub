@@ -339,7 +339,7 @@ export default function CreateListingPage() {
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-mono font-bold uppercase">Price per GB (GHS)</label>
+                            <label className="text-[10px] font-mono font-bold uppercase">Price per GB (SOL)</label>
                             <input
                                 type="number"
                                 name="price_per_gb"

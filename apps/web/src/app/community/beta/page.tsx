@@ -137,7 +137,7 @@ export default function BetaProgramPage() {
                             Tracked rewards (guide)
                         </p>
                         <p className="text-lg font-black text-emerald-400">
-                            ${data.stats.earned_usdc.toFixed(0)} / ${data.stats.potential_usdc.toFixed(0)} USDC
+                            {data.stats.earned_usdc.toFixed(6)} / {data.stats.potential_usdc.toFixed(6)} SOL
                         </p>
                     </div>
                 </div>
@@ -209,7 +209,7 @@ export default function BetaProgramPage() {
                                                 </p>
                                                 {task.reward_usdc > 0 ? (
                                                     <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400/80 mt-1">
-                                                        Up to ${task.reward_usdc} USDC (guide)
+                                                        Up to {Number(task.reward_usdc).toFixed(6)} SOL (guide)
                                                     </p>
                                                 ) : null}
                                             </div>

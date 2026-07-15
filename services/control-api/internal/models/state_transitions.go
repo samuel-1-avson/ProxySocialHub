@@ -85,9 +85,13 @@ func CanTransitionSessionStatus(from, to SessionStatus) bool {
 	case "":
 		return to == SessionActive
 	case SessionActive:
-		return to == SessionDisabled || to == SessionTerminated
+		return to == SessionDisabled || to == SessionActivationPending || to == SessionActivationFailed || to == SessionTerminated
 	case SessionDisabled:
-		return to == SessionActive || to == SessionTerminated
+		return to == SessionActivationPending || to == SessionActive || to == SessionTerminated
+	case SessionActivationPending:
+		return to == SessionActive || to == SessionActivationFailed || to == SessionTerminated
+	case SessionActivationFailed:
+		return to == SessionActivationPending || to == SessionTerminated
 	default:
 		return false
 	}

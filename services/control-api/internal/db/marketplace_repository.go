@@ -27,7 +27,7 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 	var total int64
 
 	q := discovery.FromListingFilterMap(filters)
-	query := discovery.Apply(discovery.BaseQuery(DB.WithContext(ctx)), q).Preload("Seller")
+	query := discovery.Apply(discovery.BaseQuery(GetReadDB().WithContext(ctx)), q).Preload("Seller")
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -51,7 +51,7 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 
 func (r *marketplaceRepository) GetListingByID(ctx context.Context, id uuid.UUID) (*domain.ListingEntity, error) {
 	var l models.ProxyListing
-	if err := DB.WithContext(ctx).First(&l, "id = ?", id).Error; err != nil {
+	if err := GetReadDB().WithContext(ctx).First(&l, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrListingNotFound
 		}
@@ -230,7 +230,7 @@ func (r *marketplaceRepository) UnsaveListing(ctx context.Context, userID, listi
 
 func (r *marketplaceRepository) GetNodeByID(ctx context.Context, id uuid.UUID) (*domain.NodeEntity, error) {
 	var n models.Node
-	if err := DB.First(&n, "id = ?", id).Error; err != nil {
+	if err := GetReadDB().First(&n, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &domain.NodeEntity{
@@ -261,7 +261,7 @@ func (r *marketplaceRepository) GetLast24HoursChecks(ctx context.Context, nodeID
 	var checks []models.UptimeCheck
 	cutoff := time.Now().Add(-24 * time.Hour)
 
-	if err := DB.Where("node_id = ? AND checked_at > ?", nodeID, cutoff).Find(&checks).Error; err != nil {
+	if err := GetReadDB().Where("node_id = ? AND checked_at > ?", nodeID, cutoff).Find(&checks).Error; err != nil {
 		return nil, err
 	}
 
@@ -287,7 +287,7 @@ func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID u
 	// Since we strictly link Node -> Provider, and Listing -> Provider.
 	// We first get the node to find the provider (UserID).
 	var node models.Node
-	if err := DB.Select("user_id").First(&node, "id = ?", nodeID).Error; err != nil {
+	if err := GetReadDB().Select("user_id").First(&node, "id = ?", nodeID).Error; err != nil {
 		return err
 	}
 

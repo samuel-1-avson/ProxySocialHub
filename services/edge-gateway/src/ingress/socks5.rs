@@ -147,6 +147,11 @@ async fn handle_connection(
             Some(auth.session.target_geo.as_str())
         };
         let is_sticky = auth.session.session_type == "sticky";
+        let pinned_node_id = if auth.session.node_id.is_empty() {
+            None
+        } else {
+            Some(auth.session.node_id.as_str())
+        };
         let route = match provider_selection::select_provider_route(
             state.clone(),
             &auth.session.session_id,
@@ -154,6 +159,7 @@ async fn handle_connection(
             authenticator.clone(),
             target_geo,
             Some(dest_host),
+            pinned_node_id,
         )
         .await
         {
@@ -188,8 +194,14 @@ async fn handle_connection(
 
         let (bytes_up, bytes_down) = match route {
             ProviderTarget::Local { control, node_id } => {
-                bridge_local_provider(client, request.addr.clone(), control, node_id, state.clone())
-                    .await?
+                bridge_local_provider(
+                    client,
+                    request.addr.clone(),
+                    control,
+                    node_id,
+                    state.clone(),
+                )
+                .await?
             }
             ProviderTarget::Remote {
                 node_id,
@@ -310,7 +322,10 @@ async fn authenticate(
         Err(e) => {
             client.write_all(&[AUTH_VERSION, 0x01]).await?;
             metrics::record_auth_failure("socks5_auth_backend_error");
-            Err(io::Error::new(io::ErrorKind::PermissionDenied, e.to_string()))
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                e.to_string(),
+            ))
         }
     }
 }
@@ -516,10 +531,16 @@ async fn record_successful_usage(
     bytes_down: u64,
 ) {
     let total_bytes = bytes_up.saturating_add(bytes_down);
-    state.usage_tracker.record(&auth.username, bytes_up, bytes_down).await;
+    state
+        .usage_tracker
+        .record(&auth.username, bytes_up, bytes_down)
+        .await;
     metrics::record_provider_bandwidth(node_id, bytes_up, bytes_down);
     metrics::record_bandwidth(bytes_up, bytes_down);
-    if let Err(e) = authenticator.report_usage(&auth.username, total_bytes as i64).await {
+    if let Err(e) = authenticator
+        .report_usage(&auth.username, total_bytes as i64)
+        .await
+    {
         error!(error = %e, username = %auth.username, "Failed to report SOCKS5 usage");
     }
     crate::finalize_session_intent_ledger(
@@ -551,8 +572,7 @@ async fn send_reply(client: &mut TcpStream, reply: u8) -> io::Result<()> {
 async fn read_len_prefixed_string(client: &mut TcpStream, len: usize) -> io::Result<String> {
     let mut buf = vec![0u8; len];
     client.read_exact(&mut buf).await?;
-    String::from_utf8(buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    String::from_utf8(buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
 }
 
 fn current_utc_hour() -> u8 {

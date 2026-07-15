@@ -1,9 +1,12 @@
+import bs58 from 'bs58';
+
 /**
  * Build provider-node / proxyhubb-cli config for machines outside the repo.
  * Secrets (api_key) are only included when supplied from the current browser session.
  */
 
 const STORAGE_KEY = 'proxyhubb_provider_api_key';
+const SIGNING_KEY_STORAGE_KEY = 'proxyhubb_provider_signing_key';
 
 export interface ProviderEndpoints {
     controlApiUrl: string;
@@ -50,9 +53,43 @@ export function clearProviderApiKey() {
     }
 }
 
+export function generateProviderSigningKey(): string {
+    const seed = new Uint8Array(32);
+    crypto.getRandomValues(seed);
+    return bs58.encode(seed);
+}
+
+export function saveProviderSigningKey(key: string) {
+    if (typeof window === 'undefined' || !key) return;
+    try {
+        sessionStorage.setItem(SIGNING_KEY_STORAGE_KEY, key);
+    } catch {
+        /* quota / private mode */
+    }
+}
+
+export function loadProviderSigningKey(): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        return sessionStorage.getItem(SIGNING_KEY_STORAGE_KEY);
+    } catch {
+        return null;
+    }
+}
+
+export function getOrCreateProviderSigningKey(): string | null {
+    if (typeof window === 'undefined') return null;
+    const existing = loadProviderSigningKey();
+    if (existing) return existing;
+    const generated = generateProviderSigningKey();
+    saveProviderSigningKey(generated);
+    return generated;
+}
+
 export interface BuildProviderTomlInput {
     nodeId: string;
     apiKey?: string | null;
+    providerSigningKey?: string | null;
     connectionType?: string;
     endpoints?: ProviderEndpoints;
 }
@@ -71,6 +108,11 @@ export function buildProviderToml(input: BuildProviderTomlInput): string {
         lines.push(`api_key = "${input.apiKey}"`);
     } else {
         lines.push('# api_key = "<create a token in Dashboard → API Tokens>"');
+    }
+    if (input.providerSigningKey) {
+        lines.push(`provider_signing_key = "${input.providerSigningKey}"`);
+    } else {
+        lines.push('# provider_signing_key = "<run provider-node keygen>"');
     }
     return `${lines.join('\n')}\n`;
 }

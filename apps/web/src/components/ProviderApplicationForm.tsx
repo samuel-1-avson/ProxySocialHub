@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { applyForProvider } from '@/lib/api/provider';
+import { applyForProvider, getProviderStatus } from '@/lib/api/provider';
 import { getWallet } from '@/lib/api/wallet';
 import { ApiError } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
@@ -20,6 +20,11 @@ export function ProviderApplicationForm() {
         queryKey: ['wallet'],
         queryFn: getWallet,
     });
+    const { data: providerStatus, isLoading: providerStatusLoading } = useQuery({
+        queryKey: ['provider-status'],
+        queryFn: getProviderStatus,
+        staleTime: 60_000,
+    });
 
     const minBalance = 0.05;
     const hasLinkedWallet = !!user?.wallet_address;
@@ -30,6 +35,15 @@ export function ProviderApplicationForm() {
     const linkedWalletBalance = typeof wallet?.on_chain_sol === 'number' ? wallet.on_chain_sol : undefined;
     const hasOnChainBalance = typeof linkedWalletBalance === 'number';
     const hasEnoughSol = hasOnChainBalance ? linkedWalletBalance >= minBalance : true;
+    const detectedGeo = providerStatus?.detected_geo;
+    const applicationGeo = providerStatus?.application;
+    const detectedISP = applicationGeo?.isp && applicationGeo.isp !== 'Unknown ISP'
+        ? applicationGeo.isp
+        : detectedGeo?.isp;
+    const detectedLocation = applicationGeo?.location && applicationGeo.location !== 'Unknown'
+        ? applicationGeo.location
+        : detectedGeo?.location;
+    const hasDetectedGeo = !!detectedGeo?.detected || (!!detectedISP && detectedISP !== 'Unknown ISP') || (!!detectedLocation && detectedLocation !== 'Unknown');
 
     const mutation = useMutation({
         mutationFn: () => applyForProvider({ bandwidth }),
@@ -124,9 +138,28 @@ export function ProviderApplicationForm() {
                             </div>
                             <span className="text-[10px] font-mono uppercase font-bold text-muted-foreground">ISP & Location</span>
                             <div className="flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-xs font-bold">Auto-Detecting...</span>
+                                {providerStatusLoading ? (
+                                    <>
+                                        <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                                        <span className="text-xs font-bold">Detecting...</span>
+                                    </>
+                                ) : hasDetectedGeo ? (
+                                    <>
+                                        <CheckCircle2 size={12} className="text-emerald-500" />
+                                        <span className="text-xs font-bold text-emerald-500 truncate">{detectedISP || 'Network detected'}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertCircle size={12} className="text-amber-500" />
+                                        <span className="text-xs font-bold text-amber-500">Unavailable</span>
+                                    </>
+                                )}
                             </div>
+                            {!providerStatusLoading && hasDetectedGeo && (
+                                <p className="text-[10px] text-muted-foreground font-mono truncate">
+                                    {detectedLocation || 'Location pending'}
+                                </p>
+                            )}
                         </div>
                         <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col gap-2 relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">

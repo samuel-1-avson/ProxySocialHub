@@ -15,7 +15,11 @@ const middlewareSource = readFileSync(middlewareFile, "utf8");
 const routesObjectSource = source.match(/export const ROUTES = \{([\s\S]*?)\} as const;/)?.[1] ?? "";
 const policiesObjectSource = policiesSource.match(/export const ROUTE_POLICIES:[\s\S]*?= \{([\s\S]*?)\};/)?.[1] ?? "";
 const routeMatches = [...routesObjectSource.matchAll(/\b([a-zA-Z0-9_]+):\s*"([^"]+)"/g)];
+const dynamicRouteMatches = [...routesObjectSource.matchAll(/\b([a-zA-Z0-9_]+):\s*\([^)]*\)\s*=>/g)];
 const routesByKey = new Map(routeMatches.map(([, routeName, routePath]) => [routeName, routePath]));
+for (const [, routeName] of dynamicRouteMatches) {
+    routesByKey.set(routeName, `(dynamic:${routeName})`);
+}
 const missingPages = [];
 let validatedCount = 0;
 

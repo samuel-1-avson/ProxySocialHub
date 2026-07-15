@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { deleteListing, getMyListings, marketplaceKeys, updateListing, type Listing } from "@/lib/api/marketplace";
+import { displayListingTitle } from "@/lib/listing-display";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -17,6 +18,7 @@ import {
     Pause,
     Play,
     Pencil,
+    Package,
 } from "lucide-react";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -129,12 +131,20 @@ export default function ManageListingsPage() {
                         Create, review, and remove proxy listings tied to your provider nodes.
                     </p>
                 </div>
-                <Link
-                    href="/marketplace/create"
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
-                >
-                    <Plus size={14} /> New listing
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                    <Link
+                        href="/marketplace/manage/products"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                    >
+                        Catalog products
+                    </Link>
+                    <Link
+                        href="/marketplace/create"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                    >
+                        <Plus size={14} /> New listing
+                    </Link>
+                </div>
             </div>
 
             {submittedPendingReview && (
@@ -182,7 +192,7 @@ export default function ManageListingsPage() {
                     >
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="font-bold truncate">{listing.title}</h2>
+                                <h2 className="font-bold truncate">{displayListingTitle(listing)}</h2>
                                 <span
                                     className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
                                         listing.status === "pending_review"
@@ -195,7 +205,7 @@ export default function ManageListingsPage() {
                             </div>
                             <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{listing.description}</p>
                             <p className="text-[10px] font-mono text-purple-400/80 mt-2">
-                                {listing.price_per_gb} USD/GB · {listing.available_bandwidth_gb} GB avail ·{" "}
+                                {Number(listing.price_per_gb || 0).toFixed(6)} SOL/GB · {listing.available_bandwidth_gb} GB avail ·{" "}
                                 {listing.orders_count} orders
                             </p>
                         </div>
@@ -287,7 +297,7 @@ export default function ManageListingsPage() {
                         </label>
                         <div className="grid grid-cols-2 gap-4">
                             <label className="block space-y-1">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">USD / GB</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">SOL / GB</span>
                                 <input
                                     type="number"
                                     min={0}

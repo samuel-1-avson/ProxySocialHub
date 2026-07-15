@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -16,7 +17,12 @@ import (
 )
 
 func mockSolanaDepositRPC(t *testing.T, treasuryAddr, senderAddr, txSig string) {
+	mockSolanaDepositRPCAmount(t, treasuryAddr, senderAddr, txSig, 1_000_000_000)
+}
+
+func mockSolanaDepositRPCAmount(t *testing.T, treasuryAddr, senderAddr, txSig string, receivedLamports uint64) {
 	t.Helper()
+	senderPreBalance := uint64(10_000_000_000)
 	mockRPC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -24,8 +30,8 @@ func mockSolanaDepositRPC(t *testing.T, treasuryAddr, senderAddr, txSig string) 
 				"slot": 12345,
 				"meta": map[string]interface{}{
 					"err":          nil,
-					"preBalances":  []uint64{10000000000, 0},
-					"postBalances": []uint64{8900000000, 1000000000},
+					"preBalances":  []uint64{senderPreBalance, 0},
+					"postBalances": []uint64{senderPreBalance - receivedLamports, receivedLamports},
 				},
 				"transaction": map[string]interface{}{
 					"message": map[string]interface{}{
@@ -324,5 +330,216 @@ func TestVerifyCryptoDeposit_CreditsOnChainAmount(t *testing.T) {
 	db.DB.Where("user_id = ?", user.ID).First(&wallet)
 	if wallet.BalanceSOL != 1.0 {
 		t.Errorf("Expected on-chain credited balance 1.0 SOL, got %.6f", wallet.BalanceSOL)
+	}
+}
+
+func TestVerifyCryptoDeposit_RejectsRequestedAmountOverSingleCap(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+	t.Setenv("MAX_SINGLE_DEPOSIT_SOL", "0.5")
+
+	user, _ := createWalletTestUser(t)
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_requested_cap",
+		"amount":  1.0,
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400 for requested amount over cap, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var pendingCount int64
+	db.DB.Model(&models.PendingTransaction{}).Where("reference = ?", "mock_sig_requested_cap").Count(&pendingCount)
+	if pendingCount != 0 {
+		t.Fatalf("Expected no pending transaction for rejected deposit, got %d", pendingCount)
+	}
+}
+
+func TestVerifyCryptoDeposit_RejectsVerifiedAmountOverSingleCap(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+	t.Setenv("MAX_SINGLE_DEPOSIT_SOL", "0.75")
+
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
+
+	user, wallet := createWalletTestUser(t)
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+	wallet.BalanceSOL = 0
+	db.DB.Save(&wallet)
+
+	mockSolanaDepositRPC(t, treasuryAddr, senderAddr, "mock_sig_verified_cap")
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_verified_cap",
+		"amount":  0.5,
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400 for verified amount over cap, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	if err := db.DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+		t.Fatalf("Wallet not found: %v", err)
+	}
+	if wallet.BalanceSOL != 0 {
+		t.Fatalf("Expected wallet balance to remain 0, got %.6f", wallet.BalanceSOL)
+	}
+}
+
+func TestVerifyCryptoDeposit_RejectsDailyAggregateLimitUsingVerifiedAmount(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+	t.Setenv("MAX_SINGLE_DEPOSIT_SOL", "10")
+	t.Setenv("MAX_DAILY_DEPOSIT_SOL", "1.5")
+
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
+
+	user, wallet := createWalletTestUser(t)
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+	wallet.BalanceSOL = 0.75
+	db.DB.Save(&wallet)
+
+	existingLedger := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       0.75,
+		BalanceAfter: 0.75,
+		Type:         "deposit",
+		ReferenceID:  "existing_daily_deposit",
+		TxHash:       "existing_daily_deposit",
+		Description:  "Existing daily deposit",
+		CreatedAt:    time.Now().UTC().Add(-1 * time.Hour),
+	}
+	if err := db.DB.Create(&existingLedger).Error; err != nil {
+		t.Fatalf("Failed to create existing ledger entry: %v", err)
+	}
+
+	mockSolanaDepositRPC(t, treasuryAddr, senderAddr, "mock_sig_daily_cap")
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_daily_cap",
+		"amount":  0.1, // client claim is below the remaining cap; verified amount is 1 SOL
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("Expected status 429 for daily deposit cap, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	if err := db.DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+		t.Fatalf("Wallet not found: %v", err)
+	}
+	if wallet.BalanceSOL != 0.75 {
+		t.Fatalf("Expected wallet balance to remain 0.75, got %.6f", wallet.BalanceSOL)
+	}
+
+	var pendingCount int64
+	db.DB.Model(&models.PendingTransaction{}).Where("reference = ?", "mock_sig_daily_cap").Count(&pendingCount)
+	if pendingCount != 0 {
+		t.Fatalf("Expected no pending transaction for rejected daily cap deposit, got %d", pendingCount)
+	}
+
+	var ledgerCount int64
+	db.DB.Model(&models.WalletLedgerEntry{}).Where("tx_hash = ?", "mock_sig_daily_cap").Count(&ledgerCount)
+	if ledgerCount != 0 {
+		t.Fatalf("Expected no ledger entry for rejected daily cap deposit, got %d", ledgerCount)
+	}
+}
+
+func TestVerifyCryptoDeposit_AllowsDailyAggregateBelowLimit(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "pending_transactions", "wallet_ledger_entries")
+	t.Setenv("MAX_SINGLE_DEPOSIT_SOL", "10")
+	t.Setenv("MAX_DAILY_DEPOSIT_SOL", "1.5")
+
+	treasuryAddr := "TreasuryAddress111111111111111111111111111"
+	senderAddr := "SenderAddress11111111111111111111111111111"
+	os.Setenv("SOLANA_TREASURY_ADDRESS", treasuryAddr)
+
+	user, wallet := createWalletTestUser(t)
+	user.WalletAddress = &senderAddr
+	db.DB.Save(&user)
+	wallet.BalanceSOL = 0.25
+	db.DB.Save(&wallet)
+
+	existingLedger := models.WalletLedgerEntry{
+		WalletID:     wallet.ID,
+		Amount:       0.25,
+		BalanceAfter: 0.25,
+		Type:         "deposit",
+		ReferenceID:  "existing_below_daily_deposit",
+		TxHash:       "existing_below_daily_deposit",
+		Description:  "Existing daily deposit",
+		CreatedAt:    time.Now().UTC().Add(-1 * time.Hour),
+	}
+	if err := db.DB.Create(&existingLedger).Error; err != nil {
+		t.Fatalf("Failed to create existing ledger entry: %v", err)
+	}
+
+	mockSolanaDepositRPC(t, treasuryAddr, senderAddr, "mock_sig_daily_allowed")
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
+	r.POST("/deposit/verify", verifyCryptoDeposit)
+
+	payload := map[string]interface{}{
+		"tx_hash": "mock_sig_daily_allowed",
+		"amount":  0.5,
+		"chain":   "solana",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/deposit/verify", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 below daily cap, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	if err := db.DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+		t.Fatalf("Wallet not found: %v", err)
+	}
+	if wallet.BalanceSOL != 1.25 {
+		t.Fatalf("Expected wallet balance to be 1.25, got %.6f", wallet.BalanceSOL)
+	}
+
+	var pending models.PendingTransaction
+	if err := db.DB.Where("reference = ?", "mock_sig_daily_allowed").First(&pending).Error; err != nil {
+		t.Fatalf("Pending transaction not found: %v", err)
+	}
+	if pending.Amount != 1.0 {
+		t.Fatalf("Expected pending transaction amount to use verified amount 1.0, got %.6f", pending.Amount)
 	}
 }

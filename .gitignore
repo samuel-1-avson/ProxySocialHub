@@ -188,6 +188,10 @@ build_errors.txt
 !.env.example
 !*.example
 .vercel
+tmp-map.json
+
+# Local Docker runtime configuration may contain service credentials.
+config/docker/*.env
 .env*.local
 
 # Local Go build scratch binaries
@@ -213,3 +217,16 @@ web_endpoint_refs_raw.csv
 
 # Framework build artifacts
 **/.next/
+
+# Repository publication policy: retain only the root project README.
+# Documentation, notes, transcripts, and generated text belong outside Git.
+*.md
+*.txt
+!README.md
+
+# Local security and tooling material (including development TLS keypairs).
+certs/
+.history/
+.tmp-*
+.tmp-go-build/
+bootstrap-out.txt

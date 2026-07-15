@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
-	"github.com/proxyhubb/control-api/internal/indexer"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
@@ -22,6 +22,7 @@ import (
 
 // RegisterProviderNodeRoutes registers provider node management routes
 func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
+	rg.GET("/provider/readiness", getProviderReadiness)
 	rg.GET("/provider/nodes", getMyNodes)
 	rg.POST("/provider/nodes", createNode)
 	rg.PUT("/provider/nodes/:id", updateNode)
@@ -62,6 +63,8 @@ func createNode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	req.IPAddress, req.Country, req.City = normalizeProviderNodeGeo(req.IPAddress, req.Country, req.City)
 
 	// Duplicate IP detection — same IP cannot be registered by the same provider twice
 	if req.IPAddress != "" {
@@ -125,17 +128,17 @@ func createNode(c *gin.Context) {
 				updates["city"] = req.City
 			}
 			db.DB.Model(&existingNode).Updates(updates)
-			if ns := indexer.GetNodeSync(); ns != nil {
-				go ns.TriggerSync()
-			}
 		}
 	}
+	scheduleNodeGeoEnrich(node.ID.String())
 	reconcileProviderNodeRegistry(userID, node.ID, gatewayID, 0)
 
 	c.JSON(http.StatusCreated, node)
 }
 
-// autoPublishListing creates a default marketplace listing for a newly registered node.
+const autoProviderListingDescriptionPrefix = "Auto-created provider listing draft"
+
+// autoPublishListing creates a default hidden marketplace listing for a newly registered node.
 func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType string) {
 	if providerProofRequired() {
 		logging.Info().
@@ -144,17 +147,15 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 		return
 	}
 
-	svc := marketplaceServiceOrDefault()
-
 	// Map CLI connection type → marketplace proxy type
-	proxyType := domain.Residential
+	proxyType := models.ProxyTypeResidential
 	switch connType {
 	case "mobile":
-		proxyType = domain.Mobile
+		proxyType = models.ProxyTypeMobile
 	case "datacenter":
-		proxyType = domain.Datacenter
+		proxyType = models.ProxyTypeDatacenter
 	case "fiber":
-		proxyType = domain.Residential // fiber is residential-quality
+		proxyType = models.ProxyTypeResidential // fiber is residential-quality
 	}
 
 	title := node.Name + " Proxy"
@@ -170,24 +171,35 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 	}
 
 	nodeID := node.ID
-	listing := domain.ListingEntity{
+	listing := models.ProxyListing{
+		ID:                   uuid.New(),
+		SellerID:             userID,
 		ProviderNodeID:       &nodeID,
 		Title:                title,
-		Description:          "High-quality " + string(proxyType) + " proxy node. Auto-listed on registration.",
-		PricePerGB:           0.50, // default $0.50/GB — provider can adjust
-		AvailableBandwidthGB: 100,  // default 100 GB — provider can adjust
+		Description:          autoProviderListingDescriptionPrefix + ". It becomes public after the node sends a healthy heartbeat.",
+		PricePerGB:           0.50, // default SOL-denominated price per GB; provider can adjust
+		MinPurchaseGB:        1,
+		AvailableBandwidthGB: 100, // default 100 GB; provider can adjust
 		ProxyType:            proxyType,
 		Protocol:             "http",
+		RotationType:         "static",
 		Country:              node.Country,
+		Status:               models.ListingStatusPaused,
+		UptimePercent:        100,
+		SuccessRate:          100,
+		QualityScore:         100,
+		CurrentTier:          "Bronze",
+		AllowDirectMessage:   true,
 	}
 
-	published, err := svc.PublishListing(context.Background(), userID, listing)
-	if err != nil {
+	if err := db.DB.Create(&listing).Error; err != nil {
 		logging.Error(err).Str("node_id", node.ID.String()).Msg("autoPublishListing: failed")
 	} else {
 		invalidateMarketplaceReadModels()
-		publishNewListingFeedEvent(userID, *published)
-		logging.Info().Str("node_id", node.ID.String()).Msg("autoPublishListing: listing created")
+		logging.Info().
+			Str("node_id", node.ID.String()).
+			Str("listing_id", listing.ID.String()).
+			Msg("autoPublishListing: draft listing created")
 	}
 }
 
@@ -214,6 +226,8 @@ func updateNode(c *gin.Context) {
 		return
 	}
 
+	req.IPAddress, req.Country, req.City = normalizeProviderNodeGeo(req.IPAddress, req.Country, req.City)
+
 	updates := map[string]interface{}{
 		"name":    req.Name,
 		"country": req.Country,
@@ -226,6 +240,7 @@ func updateNode(c *gin.Context) {
 	}
 	db.DB.Model(&node).Updates(updates)
 	invalidateMarketplaceReadModels()
+	scheduleNodeGeoEnrich(nodeID.String())
 
 	c.JSON(http.StatusOK, node)
 }
@@ -402,9 +417,10 @@ func nodeHeartbeat(c *gin.Context) {
 	nodeName := currentNode.Name
 
 	var req struct {
-		LatencyMs         int     `json:"latency_ms"`
-		ActiveConnections int     `json:"active_connections"`
-		UptimePercent     float64 `json:"uptime_percent"`
+		LatencyMs         int                  `json:"latency_ms"`
+		ActiveConnections int                  `json:"active_connections"`
+		UptimePercent     float64              `json:"uptime_percent"`
+		ProviderRunID     string               `json:"provider_run_id"`
 		Proof             models.ProviderProof `json:"proof"`
 	}
 	_ = c.ShouldBindJSON(&req)
@@ -440,8 +456,8 @@ func nodeHeartbeat(c *gin.Context) {
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"last_seen_at": now,
-		"status":       models.NodeOnline,
+		"last_seen_at":                        now,
+		"status":                              models.NodeOnline,
 		"latest_heartbeat_hash":               proofResult.Hash,
 		"latest_heartbeat_signature":          proofResult.Signature,
 		"latest_heartbeat_signer":             proofResult.Signer,
@@ -456,6 +472,12 @@ func nodeHeartbeat(c *gin.Context) {
 	if req.UptimePercent > 0 {
 		updates["uptime_percent"] = req.UptimePercent
 	}
+	if strings.TrimSpace(req.ProviderRunID) != "" {
+		logging.Info().
+			Str("node_id", nodeID.String()).
+			Str("provider_run_id", strings.TrimSpace(req.ProviderRunID)).
+			Msg("nodeHeartbeat: provider run observed")
+	}
 
 	result := db.DB.Model(&models.ProviderNode{}).
 		Where("id = ? AND user_id = ?", nodeID, userID).
@@ -466,6 +488,7 @@ func nodeHeartbeat(c *gin.Context) {
 		return
 	}
 	reconcileProviderNodeRegistry(userID, nodeID, gatewayNodeID, req.LatencyMs)
+	activateProviderListingDraftIfReady(userID, nodeID, proofResult.Verified || !providerProofRequired())
 	invalidateMarketplaceReadModels()
 
 	// D-C1: Mirror heartbeat metrics to the on-chain ProviderRegistry.
@@ -507,6 +530,18 @@ func nodeHeartbeat(c *gin.Context) {
 		logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("nodeHeartbeat: on-chain heartbeat recorded")
 	}(nodeID, req.LatencyMs, req.UptimePercent)
 
+	// Re-resolve map coordinates when explorer still has no GPS (e.g. after LAN→WAN IP fix).
+	go func(id string) {
+		var explorer models.ExplorerNode
+		if err := db.DB.Where("node_id = ?", id).First(&explorer).Error; err != nil {
+			geoip.EnrichExplorerForProviderNode(id)
+			return
+		}
+		if explorer.Latitude*explorer.Latitude+explorer.Longitude*explorer.Longitude < 0.0001 {
+			geoip.EnrichExplorerForProviderNode(id)
+		}
+	}(nodeID.String())
+
 	// Trigger Social Feed Event if node transitioned to Online
 	if models.NodeStatus(currentStatus) != models.NodeOnline {
 		PublishFeedEvent(*models.CreateFeedEvent(
@@ -523,6 +558,34 @@ func nodeHeartbeat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "server_time": now.Unix()})
+}
+
+func activateProviderListingDraftIfReady(userID uuid.UUID, nodeID uuid.UUID, proofReady bool) {
+	if !proofReady {
+		return
+	}
+	result := db.DB.Model(&models.ProxyListing{}).
+		Where("seller_id = ? AND provider_node_id = ? AND status = ? AND description LIKE ?",
+			userID,
+			nodeID,
+			models.ListingStatusPaused,
+			autoProviderListingDescriptionPrefix+"%",
+		).
+		Update("status", models.ListingStatusActive)
+	if result.Error != nil {
+		logging.Warn().
+			Err(result.Error).
+			Str("node_id", nodeID.String()).
+			Msg("activateProviderListingDraftIfReady: failed")
+		return
+	}
+	if result.RowsAffected > 0 {
+		invalidateMarketplaceReadModels()
+		logging.Info().
+			Str("node_id", nodeID.String()).
+			Int64("listings", result.RowsAffected).
+			Msg("activateProviderListingDraftIfReady: provider listing published")
+	}
 }
 
 // UpdateNodeStatus updates a node's online status (called by gateway)

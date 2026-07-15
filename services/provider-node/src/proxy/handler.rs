@@ -4,9 +4,10 @@ use crate::config::Config;
 use crate::stats::Collector;
 
 use futures_util::{AsyncReadExt, AsyncWriteExt};
-use std::net::IpAddr;
-use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Duration;
+use tokio::net::{lookup_host, TcpStream};
+use tokio::time::timeout;
 use tracing::{debug, error, warn};
 
 /// Handles incoming proxy requests from the Edge Gateway.
@@ -14,6 +15,7 @@ use tracing::{debug, error, warn};
 pub struct ProxyHandler {
     allowed_ports: Vec<u16>,
     blocked_hosts: Vec<String>,
+    connect_timeout: Duration,
     stats: Collector,
 }
 
@@ -22,6 +24,7 @@ impl ProxyHandler {
         Self {
             allowed_ports: cfg.allowed_ports.clone(),
             blocked_hosts: cfg.blocked_hosts.clone(),
+            connect_timeout: cfg.connect_timeout,
             stats,
         }
     }
@@ -84,8 +87,18 @@ impl ProxyHandler {
     async fn handle_connect(&self, stream: &mut yamux::Stream, target: &str, leftover: &[u8]) {
         debug!(target, "CONNECT request");
 
-        // Validate target
-        if !self.is_valid_target(target) {
+        let parsed = match parse_target(target) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                warn!(target, error = %e, "Invalid target rejected");
+                let _ = stream
+                    .write_all(format!("ERROR Invalid target: {e}\n").as_bytes())
+                    .await;
+                return;
+            }
+        };
+
+        if !self.is_valid_target(&parsed) {
             warn!(target, "Invalid target rejected");
             let _ = stream
                 .write_all(b"ERROR Invalid target: access denied\n")
@@ -93,20 +106,30 @@ impl ProxyHandler {
             return;
         }
 
-        if !self.is_port_allowed(target) {
+        if !self.is_port_allowed(parsed.port) {
             warn!(target, "Port not allowed");
             let _ = stream.write_all(b"ERROR Port not allowed\n").await;
             return;
         }
 
-        if self.is_host_blocked(target) {
+        if self.is_host_blocked(&parsed.host) {
             warn!(target, "Host blocked");
             let _ = stream.write_all(b"ERROR Host blocked\n").await;
             return;
         }
 
-        // Connect to the target
-        let target_conn = match TcpStream::connect(target).await {
+        let addrs = match self.resolve_allowed_target(&parsed).await {
+            Ok(addrs) => addrs,
+            Err(e) => {
+                warn!(target, error = %e, "Resolved target rejected");
+                let _ = stream
+                    .write_all(format!("ERROR Invalid target: {e}\n").as_bytes())
+                    .await;
+                return;
+            }
+        };
+
+        let target_conn = match self.connect_resolved_target(&addrs).await {
             Ok(c) => c,
             Err(e) => {
                 error!(target, error = %e, "Failed to connect to target");
@@ -132,7 +155,7 @@ impl ProxyHandler {
 
     /// Bidirectional bridge between a yamux stream (futures I/O) and a tokio TcpStream.
     async fn bridge(&self, stream: &mut yamux::Stream, target: TcpStream, leftover: &[u8]) {
-        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        use tokio::io::AsyncWriteExt as _;
         use tokio_util::compat::FuturesAsyncReadCompatExt;
         use tracing::info;
 
@@ -179,58 +202,304 @@ impl ProxyHandler {
 
     // ── Validation helpers ──────────────────────────────────────────
 
-    fn is_valid_target(&self, target: &str) -> bool {
-        let Some((host, _port)) = target.rsplit_once(':') else {
-            return false;
-        };
-
-        if host.is_empty() {
-            return false;
-        }
-
-        // If it parses as an IP, check for reserved ranges
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            if ip.is_loopback() || ip.is_multicast() || ip.is_unspecified() {
-                return false;
-            }
-            match ip {
-                IpAddr::V4(v4) => {
-                    if v4.is_private() || v4.is_link_local() {
-                        return false;
-                    }
-                }
-                IpAddr::V6(v6) => {
-                    let segments = v6.segments();
-                    if (segments[0] & 0xfe00) == 0xfc00 {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        true
+    fn is_valid_target(&self, target: &ParsedTarget) -> bool {
+        target
+            .host
+            .parse::<IpAddr>()
+            .map(is_public_ip)
+            .unwrap_or(true)
     }
 
-    fn is_port_allowed(&self, target: &str) -> bool {
+    fn is_port_allowed(&self, port: u16) -> bool {
         if self.allowed_ports.is_empty() {
             return true;
         }
-        let Some(port_str) = target.rsplit_once(':').map(|(_, p)| p) else {
-            return false;
-        };
-        let Ok(port) = port_str.parse::<u16>() else {
-            return false;
-        };
         self.allowed_ports.contains(&port)
     }
 
-    fn is_host_blocked(&self, target: &str) -> bool {
-        let Some((host, _)) = target.rsplit_once(':') else {
-            return false;
-        };
+    fn is_host_blocked(&self, host: &str) -> bool {
         let host_lower = host.to_lowercase();
         self.blocked_hosts
             .iter()
             .any(|b| host_lower.contains(&b.to_lowercase()))
+    }
+
+    async fn resolve_allowed_target(
+        &self,
+        target: &ParsedTarget,
+    ) -> Result<Vec<SocketAddr>, TargetValidationError> {
+        let resolved = timeout(
+            self.connect_timeout,
+            lookup_host((target.host.as_str(), target.port)),
+        )
+        .await
+        .map_err(|_| TargetValidationError::ResolveTimeout)??;
+
+        let addrs: Vec<SocketAddr> = resolved.collect();
+        if addrs.is_empty() {
+            return Err(TargetValidationError::NoResolvedAddresses);
+        }
+
+        if let Some(addr) = addrs.iter().find(|addr| !is_public_ip(addr.ip())) {
+            return Err(TargetValidationError::UnsafeResolvedAddress(*addr));
+        }
+
+        Ok(addrs)
+    }
+
+    async fn connect_resolved_target(&self, addrs: &[SocketAddr]) -> std::io::Result<TcpStream> {
+        let mut last_err = None;
+        for addr in addrs {
+            match timeout(self.connect_timeout, TcpStream::connect(addr)).await {
+                Ok(Ok(stream)) => return Ok(stream),
+                Ok(Err(err)) => last_err = Some(err),
+                Err(_) => {
+                    last_err = Some(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("connect timeout after {:?}", self.connect_timeout),
+                    ));
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no target addresses")
+        }))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedTarget {
+    host: String,
+    port: u16,
+}
+
+#[derive(Debug)]
+enum TargetValidationError {
+    InvalidFormat,
+    EmptyHost,
+    InvalidPort,
+    PortZero,
+    ResolveTimeout,
+    Resolve(std::io::Error),
+    NoResolvedAddresses,
+    UnsafeResolvedAddress(SocketAddr),
+}
+
+impl std::fmt::Display for TargetValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidFormat => write!(f, "expected host:port"),
+            Self::EmptyHost => write!(f, "host is empty"),
+            Self::InvalidPort => write!(f, "port is invalid"),
+            Self::PortZero => write!(f, "port must be greater than zero"),
+            Self::ResolveTimeout => write!(f, "DNS resolution timed out"),
+            Self::Resolve(err) => write!(f, "DNS resolution failed: {err}"),
+            Self::NoResolvedAddresses => write!(f, "DNS resolution returned no addresses"),
+            Self::UnsafeResolvedAddress(addr) => {
+                write!(f, "resolved address {addr} is not allowed")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TargetValidationError {}
+
+impl From<std::io::Error> for TargetValidationError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Resolve(value)
+    }
+}
+
+fn parse_target(target: &str) -> Result<ParsedTarget, TargetValidationError> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err(TargetValidationError::InvalidFormat);
+    }
+
+    if let Ok(addr) = target.parse::<SocketAddr>() {
+        return Ok(ParsedTarget {
+            host: addr.ip().to_string(),
+            port: addr.port(),
+        });
+    }
+
+    if let Some(rest) = target.strip_prefix('[') {
+        let Some((host, port_part)) = rest.split_once("]:") else {
+            return Err(TargetValidationError::InvalidFormat);
+        };
+        return parsed_host_port(host, port_part);
+    }
+
+    let Some((host, port_part)) = target.rsplit_once(':') else {
+        return Err(TargetValidationError::InvalidFormat);
+    };
+    if host.contains(':') {
+        return Err(TargetValidationError::InvalidFormat);
+    }
+    parsed_host_port(host, port_part)
+}
+
+fn parsed_host_port(host: &str, port_part: &str) -> Result<ParsedTarget, TargetValidationError> {
+    let host = host.trim().trim_end_matches('.');
+    if host.is_empty() {
+        return Err(TargetValidationError::EmptyHost);
+    }
+    let port = port_part
+        .parse::<u16>()
+        .map_err(|_| TargetValidationError::InvalidPort)?;
+    if port == 0 {
+        return Err(TargetValidationError::PortZero);
+    }
+    Ok(ParsedTarget {
+        host: host.to_string(),
+        port,
+    })
+}
+
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_public_ipv4(v4),
+        IpAddr::V6(v6) => is_public_ipv6(v6),
+    }
+}
+
+fn is_public_ipv4(ip: Ipv4Addr) -> bool {
+    !(ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || is_ipv4_shared(ip)
+        || is_ipv4_documentation(ip)
+        || is_ipv4_reserved_benchmark(ip))
+}
+
+fn is_public_ipv6(ip: Ipv6Addr) -> bool {
+    !(ip.is_loopback()
+        || ip.is_multicast()
+        || ip.is_unspecified()
+        || is_ipv6_unique_local(ip)
+        || is_ipv6_unicast_link_local(ip)
+        || is_ipv6_documentation(ip))
+}
+
+fn is_ipv4_shared(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 100 && (64..=127).contains(&octets[1])
+}
+
+fn is_ipv4_documentation(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    matches!(
+        octets,
+        [192, 0, 2, _] | [198, 51, 100, _] | [203, 0, 113, _]
+    )
+}
+
+fn is_ipv4_reserved_benchmark(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 198 && matches!(octets[1], 18 | 19)
+}
+
+fn is_ipv6_unique_local(ip: Ipv6Addr) -> bool {
+    (ip.segments()[0] & 0xfe00) == 0xfc00
+}
+
+fn is_ipv6_unicast_link_local(ip: Ipv6Addr) -> bool {
+    (ip.segments()[0] & 0xffc0) == 0xfe80
+}
+
+fn is_ipv6_documentation(ip: Ipv6Addr) -> bool {
+    ip.segments()[0] == 0x2001 && ip.segments()[1] == 0x0db8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::Collector;
+
+    fn handler() -> ProxyHandler {
+        let mut cfg = Config::default();
+        cfg.allowed_ports = vec![80, 443];
+        cfg.connect_timeout = Duration::from_secs(1);
+        ProxyHandler::new(&cfg, Collector::new())
+    }
+
+    #[test]
+    fn parses_hostname_and_ipv6_targets() {
+        assert_eq!(
+            parse_target("example.com:443").unwrap(),
+            ParsedTarget {
+                host: "example.com".to_string(),
+                port: 443,
+            }
+        );
+        assert_eq!(
+            parse_target("[2606:4700:4700::1111]:443").unwrap(),
+            ParsedTarget {
+                host: "2606:4700:4700::1111".to_string(),
+                port: 443,
+            }
+        );
+        assert!(parse_target("2606:4700:4700::1111:443").is_err());
+        assert!(parse_target("example.com").is_err());
+        assert!(parse_target("example.com:0").is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_ip_literals() {
+        let handler = handler();
+        for target in [
+            "127.0.0.1:80",
+            "10.0.0.1:80",
+            "172.16.0.1:80",
+            "192.168.1.1:80",
+            "169.254.169.254:80",
+            "100.64.0.1:80",
+            "0.0.0.0:80",
+            "255.255.255.255:80",
+            "[::1]:443",
+            "[fc00::1]:443",
+            "[fd00::1]:443",
+            "[fe80::1]:443",
+        ] {
+            let parsed = parse_target(target).unwrap();
+            assert!(
+                !handler.is_valid_target(&parsed),
+                "{target} should be blocked"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_public_ip_literals() {
+        let handler = handler();
+        for target in ["1.1.1.1:443", "8.8.8.8:443", "[2606:4700:4700::1111]:443"] {
+            let parsed = parse_target(target).unwrap();
+            assert!(
+                handler.is_valid_target(&parsed),
+                "{target} should be allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn applies_allowed_ports_to_parsed_target() {
+        let handler = handler();
+        assert!(handler.is_port_allowed(parse_target("example.com:443").unwrap().port));
+        assert!(!handler.is_port_allowed(parse_target("example.com:25").unwrap().port));
+    }
+
+    #[tokio::test]
+    async fn rejects_hostname_that_resolves_to_localhost() {
+        let handler = handler();
+        let parsed = parse_target("localhost:80").unwrap();
+        let err = handler.resolve_allowed_target(&parsed).await.unwrap_err();
+        assert!(
+            matches!(err, TargetValidationError::UnsafeResolvedAddress(_)),
+            "unexpected error: {err}"
+        );
     }
 }

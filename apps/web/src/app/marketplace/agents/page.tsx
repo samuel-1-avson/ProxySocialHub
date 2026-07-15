@@ -82,7 +82,7 @@ export default function AgentsPage() {
                                 <div className="mt-auto pt-4 border-t border-dashed border-border flex items-center justify-between">
                                     <div className="flex flex-col">
                                         <span className="text-[10px] font-mono text-muted-foreground uppercase">Rate / Run</span>
-                                        <span className="font-bold font-mono text-primary">{agent.price_per_hour} Credits / HR</span>
+                                        <span className="font-bold font-mono text-primary">{Number(agent.price_per_hour || 0).toFixed(6)} SOL / HR</span>
                                     </div>
                                     <button
                                         onClick={() => handleRent(agent)}

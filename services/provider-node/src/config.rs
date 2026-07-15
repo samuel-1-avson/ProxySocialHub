@@ -172,10 +172,7 @@ impl Config {
 
     /// Platform-specific path for operator config (outside git repos).
     pub fn default_config_path() -> std::path::PathBuf {
-        if let Some(dir) = dirs::config_dir() {
-            return dir.join("proxyhubb").join("provider.toml");
-        }
-        std::path::PathBuf::from("provider.toml")
+        crate::paths::config_file()
     }
 
     pub fn effective_yamux_conns_per_node(&self) -> usize {
@@ -259,5 +256,51 @@ mod transport_tests {
         assert_eq!(ProviderTransport::from_env(), ProviderTransport::Quic);
 
         std::env::remove_var("PROVIDER_TRANSPORT");
+    }
+}
+
+#[cfg(test)]
+mod config_contract_tests {
+    use super::Config;
+
+    #[test]
+    fn register_config_serializes_required_provider_contract_fields() {
+        let generated = crate::proofs::ProviderSigner::generate().unwrap();
+        let mut cfg = Config::default();
+        cfg.control_api_url = "https://api.proxyhubb.test".to_string();
+        cfg.gateway_addr = "gw.proxyhubb.test:3128".to_string();
+        cfg.api_key = "provider-token-contract-test".to_string();
+        cfg.node_id = "node-contract-test".to_string();
+        cfg.provider_signing_key = generated.secret_base58.clone();
+        cfg.connection_type = "residential".to_string();
+        cfg.use_tls = true;
+
+        let body = toml::to_string_pretty(&cfg).unwrap();
+        let parsed: toml::Value = toml::from_str(&body).unwrap();
+
+        assert_eq!(
+            parsed["control_api_url"].as_str(),
+            Some("https://api.proxyhubb.test")
+        );
+        assert_eq!(
+            parsed["gateway_addr"].as_str(),
+            Some("gw.proxyhubb.test:3128")
+        );
+        assert_eq!(parsed["jwt_token"].as_str(), Some(""));
+        assert_eq!(
+            parsed["api_key"].as_str(),
+            Some("provider-token-contract-test")
+        );
+        assert_eq!(parsed["node_id"].as_str(), Some("node-contract-test"));
+        assert_eq!(
+            parsed["provider_signing_key"].as_str(),
+            Some(generated.secret_base58.as_str())
+        );
+        assert_eq!(parsed["connection_type"].as_str(), Some("residential"));
+        assert_eq!(parsed["use_tls"].as_bool(), Some(true));
+        assert_eq!(parsed["metrics_port"].as_integer(), Some(9090));
+
+        let parsed_cfg: Config = toml::from_str(&body).unwrap();
+        assert_eq!(parsed_cfg.provider_signing_key, generated.secret_base58);
     }
 }

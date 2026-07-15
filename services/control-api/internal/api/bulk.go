@@ -190,13 +190,14 @@ func GetPoolEndpoints(c *gin.Context) {
 		poolShort = poolShort[:8]
 	}
 
+	proxyHost, proxyPort, _ := BuyerProxyConnectInfo()
 	endpoints := make([]poolEndpoint, pool.Size)
 	for i := 0; i < pool.Size; i++ {
 		username := fmt.Sprintf("pool-%s-%03d", poolShort, i+1)
 		password := fmt.Sprintf("%s-proxy-%03d", pool.ID.String(), i+1)
 		endpoints[i] = poolEndpoint{
-			Host:        "proxy.proxyhubb.io",
-			Port:        8888,
+			Host:        proxyHost,
+			Port:        proxyPort,
 			Username:    username,
 			Password:    password,
 			SessionType: pool.SessionType,

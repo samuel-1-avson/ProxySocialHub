@@ -19,8 +19,10 @@ const nextConfig: NextConfig = {
   // when @next/swc-win32-x64-msvc is missing or arch-mismatched.
   reactCompiler: !isPlaywrightE2E,
   outputFileTracingRoot: path.join(configDir, "../.."),
+  // Only force WASM when native @next/swc-* is unavailable (see NEXT_FORCE_SWC_WASM).
+  // Unconditional useWasmBinary breaks some App Router pages on Windows dev:e2e.
   experimental: {
-    useWasmBinary: true,
+    ...(process.env.NEXT_FORCE_SWC_WASM === "1" ? { useWasmBinary: true } : {}),
   },
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   images: {
