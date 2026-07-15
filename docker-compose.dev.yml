@@ -1,0 +1,490 @@
+# docker-compose.dev.yml
+# Development Docker Compose — fast iteration with source builds and relaxed defaults.
+# Usage: docker compose -f docker-compose.dev.yml up -d
+# After web navigation / settings / explorer UI changes:
+#   .\scripts\docker-refresh-stack.ps1 -Services web
+#   .\scripts\verify-web-docker-nav.ps1
+
+services:
+  # ==================== DB MIGRATE (one-shot) ====================
+  db-migrate:
+    build:
+      context: .
+      dockerfile: services/control-api/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: proxyhubb-db-migrate
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - AUTO_MIGRATE=true
+      - FORCE_MIGRATE=true
+      - MIGRATE_ONLY=true
+      - MIGRATIONS_DIR=/app/migrations
+      - MIGRATE_CREDENTIALS=true
+      - SKIP_CREDENTIAL_CHECK=true
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      - PORT=8080
+      - APP_ENV=migration
+      - GIN_MODE=release
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - NATS_URL=nats://nats:4222
+    volumes:
+      - ./migrations:/app/migrations:ro
+    restart: "no"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ==================== CONTROL API ====================
+  control-api:
+    build:
+      context: .
+      dockerfile: services/control-api/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: proxyhubb-control-api
+    ports:
+      - "${CONTROL_API_PORT:-18080}:8080"
+    env_file:
+      - config/docker/control-api-explorer.env
+    environment:
+      # Core secrets
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-proxyhubb}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-proxyhubb}?sslmode=disable
+      - FORCE_MIGRATE=${FORCE_MIGRATE:-false}
+      - AUTO_MIGRATE=${AUTO_MIGRATE:-false}
+      - DB_LOG_LEVEL=${DB_LOG_LEVEL:-warn}
+      - DB_SLOW_QUERY_MS=${DB_SLOW_QUERY_MS:-500}
+      - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-30}
+      - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-5}
+      - MIGRATE_CREDENTIALS=${MIGRATE_CREDENTIALS:-false}
+      - READ_REPLICA_URL=${READ_REPLICA_URL:-}
+      - MV_LEADERBOARD_REFRESH_MINS=${MV_LEADERBOARD_REFRESH_MINS:-15}
+
+      # Redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+
+      # NATS
+      - NATS_URL=nats://nats:4222
+
+      # Application
+      - PORT=8080
+      - APP_ENV=${APP_ENV:-development}
+      - GIN_MODE=${GIN_MODE:-debug}
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:18080}
+      - FRONTEND_URL=http://localhost:3000
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:4001,http://127.0.0.1:4001}
+      # APP_URL: used for WebSocket CORS. Empty = allow all (dev mode).
+      - APP_URL=${APP_URL:-}
+
+      # Skip plaintext-credential block in dev (encrypt with MIGRATE_CREDENTIALS=true first)
+      - SKIP_CREDENTIAL_CHECK=${SKIP_CREDENTIAL_CHECK:-true}
+
+      # Blockchain
+      - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - SOLANA_RPC_ENDPOINTS=${SOLANA_RPC_ENDPOINTS:-https://api.devnet.solana.com}
+      - SOLANA_WS_ENDPOINT=${SOLANA_WS_ENDPOINT:-wss://api.devnet.solana.com}
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2}
+      - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS}
+      - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:-${SOLANA_TREASURY_ADDRESS}}
+      - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
+      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-0.1}
+      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-500}
+      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-200}
+      - TREASURY_MULTISIG_ADMIN_IDS=${TREASURY_MULTISIG_ADMIN_IDS:-}
+      - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
+      # PHB_TOKEN_MINT: platform SPL token mint address for wallet balance display
+      - PHB_TOKEN_MINT=${PHB_TOKEN_MINT:-}
+
+      # Price feeds
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - COINGECKO_API_URL=${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
+      - COINMARKETCAP_API_KEY=${COINMARKETCAP_API_KEY}
+
+      # Edge Gateway management
+      - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway:8090}
+      # Halo2 prover
+      - HALO2_PROVER_URL=${HALO2_PROVER_URL:-http://zk-prover:8095}
+      - HALO2_PROVER_TIMEOUT_MS=${HALO2_PROVER_TIMEOUT_MS:-15000}
+      - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-true}
+      # --- Explorer (public API, indexer, metrics — see config/docker/control-api-explorer.env) ---
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
+      - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      - EXPLORER_MIN_WRITERS=${EXPLORER_MIN_WRITERS:-2}
+      - EXPLORER_METRICS_ENABLED=${EXPLORER_METRICS_ENABLED:-true}
+      - EXPLORER_METRICS_INTERVAL=${EXPLORER_METRICS_INTERVAL:-10m}
+      - EXPLORER_INDEXER_ENABLED=${EXPLORER_INDEXER_ENABLED:-true}
+      - EXPLORER_INDEXER_POLL_INTERVAL_MS=${EXPLORER_INDEXER_POLL_INTERVAL_MS:-5000}
+
+      # Provider Engine
+      - PLATFORM_FEE_PERCENT=${PLATFORM_FEE_PERCENT:-0.10}
+      - MIN_PAYOUT_SOL=${MIN_PAYOUT_SOL:-0.01}
+      - PAYOUT_BATCH_SIZE=${PAYOUT_BATCH_SIZE:-20}
+
+      # --- Provider Token Auth (HMAC-SHA256) ---
+      - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      # --- Alert Channels ---
+      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL:-}
+      - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
+      # --- Oracle Velocity Guard ---
+      - ORACLE_MAX_SINGLE_TRANSFER_SOL=${ORACLE_MAX_SINGLE_TRANSFER_SOL:-50}
+      - ORACLE_MAX_HOURLY_OUTFLOW_SOL=${ORACLE_MAX_HOURLY_OUTFLOW_SOL:-500}
+      - ORACLE_TRANSFER_FREEZE=${ORACLE_TRANSFER_FREEZE:-false}
+      # --- Wallet anomaly detector (auto-freezes withdrawals on suspicious patterns) ---
+      - ANOMALY_DETECTOR_ENABLED=${ANOMALY_DETECTOR_ENABLED:-false}
+      # --- Emergency price fallback ---
+      - EMERGENCY_SOL_PRICE_USD=${EMERGENCY_SOL_PRICE_USD:-200}
+      # --- GeoIP Backfill Worker ---
+      # Resolves lat/lon for explorer nodes via ip-api.com (free, 45 req/min).
+      # Set to "false" in air-gapped environments or when coordinates are pre-populated.
+      - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
+      # Phase 5: aggregate session_intents → map_node_links for GET /v1/map/links
+      - MAP_TOPOLOGY_ENABLED=${MAP_TOPOLOGY_ENABLED:-true}
+      - CLI_DIST_PATH=/app/cli-dist
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.0}
+      - PROVIDER_NODE_STALE_AFTER=${PROVIDER_NODE_STALE_AFTER:-5m}
+      - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
+      - PROVIDER_PUBLIC_CONTROL_API_URL=${API_BASE_URL:-http://localhost:18080}
+      - ADMIN_API_ENABLED=${ADMIN_API_ENABLED:-false}
+
+    volumes:
+      # Use infra dev keypair (root ./oracle-keypair.json is often a placeholder "[]").
+      - ./infra/oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
+      - ./cli-dist:/app/cli-dist:ro
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 -O /dev/null http://localhost:8080/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    restart: unless-stopped
+    networks:
+      - backend
+
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      zk-prover:
+        condition: service_healthy
+
+  # ==================== ZK PROVER ====================
+  zk-prover:
+    build:
+      context: ./services/zk-prover
+      dockerfile: Dockerfile
+    container_name: proxyhubb-zk-prover
+    ports:
+      - "8095:8095"
+    environment:
+      - PORT=8095
+      - RUST_LOG=${ZK_PROVER_LOG:-info}
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8095/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ==================== WEB (Frontend) ====================
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        - API_URL=http://control-api:8080
+        - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:8090}
+        - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
+        - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
+        - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}
+        - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
+        - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+        - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2}
+        - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
+        - NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
+        - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
+        - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+        - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+        - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
+        - NEXT_PUBLIC_UNIFIED_NETWORK=${NEXT_PUBLIC_UNIFIED_NETWORK:-true}
+        - NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE=${NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE:-false}
+        - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-true}
+    container_name: proxyhubb-web
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://control-api:8080
+      - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
+      - NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
+      - NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS:-false}
+      - NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN:-sepolia}
+      - NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL:-}
+      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
+      # WebSocket URL for explorer real-time updates (useExplorerWS hook)
+      - NEXT_PUBLIC_WS_URL=${WS_PUBLIC_URL:-ws://localhost:18080}
+      - NEXT_PUBLIC_SOLANA_RPC=${SOLANA_RPC_ENDPOINT:-https://api.devnet.solana.com}
+      - NEXT_PUBLIC_SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2}
+      - NEXT_PUBLIC_SOLANA_TREASURY=${SOLANA_TREASURY_ADDRESS}
+      - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
+      - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
+      - NEXT_PUBLIC_UNIFIED_NETWORK=${NEXT_PUBLIC_UNIFIED_NETWORK:-true}
+      - NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE=${NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE:-false}
+      - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-true}
+    depends_on:
+      control-api:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:3000/" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - backend
+      - frontend
+
+  # ==================== POSTGRES ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: proxyhubb-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-proxyhubb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - POSTGRES_DB=${POSTGRES_DB:-proxyhubb}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-proxyhubb} -d ${POSTGRES_DB:-proxyhubb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ==================== REDIS ====================
+  redis:
+    image: redis:7-alpine
+    container_name: proxyhubb-redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --protected-mode yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ==================== NATS ====================
+  nats:
+    image: nats:2.10-alpine
+    container_name: proxyhubb-nats
+    command: [ "-js", "-m", "8222" ]
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8222/varz" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ==================== EDGE GATEWAY ====================
+  edge-gateway:
+    build:
+      context: ./services/edge-gateway
+      dockerfile: Dockerfile.dev
+      args:
+        ENABLE_OTEL: ${EDGE_GATEWAY_ENABLE_OTEL:-0}
+    container_name: proxyhubb-edge-gateway
+    ports:
+      - "3128:3128"
+      - "8090:8090"
+      - "9090:9090"
+    environment:
+      - APP_ENV=development
+      - RUST_LOG=debug
+      - HOST=0.0.0.0
+      - PORT=8090
+      - METRICS_PORT=9090
+      - TUNNEL_PORT=3128
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      - NATS_URL=nats://nats:4222
+      - CONTROL_API_URL=http://control-api:8080
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
+      - GEO_DENY_LIST=${GEO_DENY_LIST:-}
+      - GEO_ALLOW_LIST=${GEO_ALLOW_LIST:-}
+      - REGION=${REGION:-default}
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
+      - SESSION_CACHE_SIZE=${SESSION_CACHE_SIZE:-100000}
+      - SESSION_CACHE_TTL_SECS=${SESSION_CACHE_TTL_SECS:-300}
+      # P2-12: Per-operation timeouts
+      - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
+      - PROXY_IDLE_TIMEOUT_SECS=${PROXY_IDLE_TIMEOUT_SECS:-60}
+      - RPC_REQUEST_TIMEOUT_SECS=${RPC_REQUEST_TIMEOUT_SECS:-15}
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-false}
+      # P5: OTLP traces (requires image built with EDGE_GATEWAY_ENABLE_OTEL=1)
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-edge-gateway}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+    volumes:
+      - ./geoip:/app/geoip:ro
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8090/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+    restart: unless-stopped
+    networks:
+      - backend
+      - frontend
+
+    depends_on:
+      control-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # ==================== OTEL COLLECTOR (P5, optional traces) ====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: proxyhubb-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/otel/collector-dev.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+    networks:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - otel
+
+  # ==================== PROMETHEUS ====================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: proxyhubb-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==================== GRAFANA ====================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: proxyhubb-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - backend
+    restart: unless-stopped
+
+# ==================== NETWORKS ====================
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
+
+# ==================== VOLUMES ====================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
