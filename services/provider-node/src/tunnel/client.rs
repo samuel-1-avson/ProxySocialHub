@@ -28,6 +28,8 @@ pub struct CapabilityInfo {
     pub os: String,
     pub client_version: String,
     pub features: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider_run_id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub provider_lease: String,
 }
@@ -35,6 +37,7 @@ pub struct CapabilityInfo {
 pub struct TunnelClient {
     config: Config,
     stats: Collector,
+    provider_run_id: String,
     ctrl: Option<Control>,
     incoming_rx: Option<tokio::sync::mpsc::Receiver<yamux::Stream>>,
     _conn_task: Option<tokio::task::JoinHandle<()>>,
@@ -42,10 +45,11 @@ pub struct TunnelClient {
 }
 
 impl TunnelClient {
-    pub fn new(cfg: &Config, stats: Collector) -> Self {
+    pub fn new(cfg: &Config, stats: Collector, provider_run_id: String) -> Self {
         Self {
             config: cfg.clone(),
             stats,
+            provider_run_id,
             ctrl: None,
             incoming_rx: None,
             _conn_task: None,
@@ -140,6 +144,7 @@ impl TunnelClient {
                 self.incoming_rx = Some(rx);
                 self._conn_task = Some(conn_task);
                 info!("Handshake complete, tunnel established");
+                crate::runtime_state::RuntimeState::set_tunnel_connected(true, true);
                 Ok(())
             }
             Err(e) => {
@@ -209,7 +214,8 @@ impl TunnelClient {
             .open_stream()
             .await
             .context("failed to open capability stream")?;
-        let (mut caps, lease_request) = build_provider_capability_payload(&config);
+        let (mut caps, lease_request) =
+            build_provider_capability_payload(&config, &self.provider_run_id);
 
         match crate::ip::fetch_provider_lease(&config.control_api_url, &token, &lease_request).await
         {
@@ -262,7 +268,7 @@ impl TunnelClient {
     }
 
     pub fn provider_lease_request(&self) -> crate::ip::ProviderLeaseRequest {
-        build_provider_capability_payload(&self.config).1
+        build_provider_capability_payload(&self.config, &self.provider_run_id).1
     }
 
     pub async fn accept_streams(&mut self, handler: ProxyHandler) -> Result<()> {
@@ -413,6 +419,7 @@ struct RuntimeIdentityClaims {
 
 fn build_provider_capability_payload(
     config: &Config,
+    provider_run_id: &str,
 ) -> (CapabilityInfo, crate::ip::ProviderLeaseRequest) {
     let system = crate::sys::collect();
     let mut features = vec!["ipv4".to_string(), "http_connect".to_string()];
@@ -435,6 +442,7 @@ fn build_provider_capability_payload(
         os: std::env::consts::OS.to_string(),
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         features: features.clone(),
+        provider_run_id: provider_run_id.to_string(),
         provider_lease: String::new(),
     };
 

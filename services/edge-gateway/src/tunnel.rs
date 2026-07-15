@@ -50,6 +50,8 @@ pub struct ProviderCapabilities {
     pub client_version: String,
     pub features: Vec<String>, // Optional features like "ipv6", "udp_relay", etc.
     #[serde(default)]
+    pub provider_run_id: String,
+    #[serde(default)]
     pub provider_lease: String,
 }
 
@@ -67,6 +69,7 @@ impl Default for ProviderCapabilities {
             os: "unknown".to_string(),
             client_version: "1.0.0".to_string(),
             features: vec![],
+            provider_run_id: String::new(),
             provider_lease: String::new(),
         }
     }
@@ -183,8 +186,7 @@ pub async fn run_tunnel_server(
                             .record("tls.ja3_digest", tracing::field::display(digest));
                     }
                     if let Some(ref ja4) = tls_fp.ja4 {
-                        tracing::Span::current()
-                            .record("tls.ja4", tracing::field::display(ja4));
+                        tracing::Span::current().record("tls.ja4", tracing::field::display(ja4));
                     }
                     if tls_fp.ja3_digest.is_some() || tls_fp.ja4.is_some() {
                         trace!(
@@ -213,8 +215,11 @@ pub async fn run_tunnel_server(
 }
 
 /// Provider ingress after TCP/TLS or QUIC: yamux server + AUTH/CAPABILITY handshake.
-pub(crate) async fn handle_provider_mux_io<S>(stream: S, peer_addr: SocketAddr, state: Arc<AppState>)
-where
+pub(crate) async fn handle_provider_mux_io<S>(
+    stream: S,
+    peer_addr: SocketAddr,
+    state: Arc<AppState>,
+) where
     S: TokioAsyncRead + TokioAsyncWrite + Unpin + Send + 'static,
 {
     let mut cfg = Config::default();
@@ -401,6 +406,7 @@ where
                 .as_ref()
                 .map(|claims| claims.exp as u64)
                 .unwrap_or(0);
+            info.provider_run_id = persisted_caps.provider_run_id.clone();
             info
         }
         _ => NodeInfo::with_capabilities(
@@ -674,6 +680,15 @@ where
                                         bandwidth_rate_kbps,
                                         total_bytes_served,
                                     );
+                                    if !heartbeat_msg.provider_run_id.trim().is_empty() {
+                                        state.registry.update_node_info(
+                                            &heartbeat_msg.node_id,
+                                            |node_info| {
+                                                node_info.provider_run_id =
+                                                    heartbeat_msg.provider_run_id.clone();
+                                            },
+                                        );
+                                    }
                                     if lease_valid {
                                         state.registry.mark_healthy(&heartbeat_msg.node_id);
                                     } else {
@@ -716,6 +731,7 @@ where
                                         node_id: node_id.clone(),
                                         timestamp: 0,
                                         provider_node_id: String::new(),
+                                        provider_run_id: String::new(),
                                         latency_ms: 0,
                                         active_connections: 0,
                                         bandwidth_usage: crate::heartbeat::BandwidthUsage {
@@ -819,6 +835,7 @@ mod tests {
             node_id: "node_provider-large-heartbeat".to_string(),
             timestamp: 1_777_675_904,
             provider_node_id: String::new(),
+            provider_run_id: String::new(),
             latency_ms: 0,
             active_connections: 1,
             bandwidth_usage: crate::heartbeat::BandwidthUsage {

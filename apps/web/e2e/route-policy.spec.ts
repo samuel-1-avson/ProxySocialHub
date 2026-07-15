@@ -123,6 +123,19 @@ test.describe('route policy middleware', () => {
         expect(url.searchParams.get('error')).toBe('provider_required');
     });
 
+    test('allows a buyer onto provider onboarding routes', async ({ page }) => {
+        test.skip(!canRunSignedJwtPolicyTests, 'signed JWT policy tests require TEST_JWT_SECRET/JWT_SECRET when TEST_BASE_URL is used');
+
+        await seedSignedAuth(page, 'buyer');
+        for (const path of ['/dashboard/provider', '/dashboard/become-provider']) {
+            await page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded' });
+
+            const url = new URL(page.url());
+            expect(url.pathname).toBe(path);
+            expect(url.searchParams.get('error')).toBeNull();
+        }
+    });
+
     test('allows a provider onto provider routes', async ({ page }) => {
         test.skip(!canRunSignedJwtPolicyTests, 'signed JWT policy tests require TEST_JWT_SECRET/JWT_SECRET when TEST_BASE_URL is used');
 

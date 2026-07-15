@@ -28,6 +28,7 @@ if (Test-Path $envPath) {
     }
 }
 if (-not $script:pgPass) { $script:pgPass = 'admin' }
+# Legacy compose default; may not exist on public devnet — prefer -UseLocalSolana or set SOLANA_PROGRAM_ID in .env
 if (-not $script:solProgram) { $script:solProgram = '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2' }
 
 if ($UseLocalSolana) {

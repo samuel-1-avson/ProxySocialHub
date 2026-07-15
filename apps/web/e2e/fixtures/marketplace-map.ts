@@ -2,6 +2,13 @@
 
 export const verifiedMapListingId = 'verified-map-1';
 
+export const mockCatalogProduct = {
+    id: 'catalog-prod-e2e-1',
+    slug: 'premium-austin-pool',
+    title: 'Premium Austin Pool',
+    status: 'active' as const,
+};
+
 export const verifiedMapPoint = {
     id: `listing:${verifiedMapListingId}`,
     kind: 'listing' as const,
@@ -22,10 +29,16 @@ export const verifiedMapPoint = {
     latency_ms: 42,
     sla_source: 'gateway',
     geo_source: 'gateway',
+    geo: {
+        source: 'gateway',
+        display_label: 'Regional area',
+        estimated: false,
+    },
     listing_offer_verified: true,
     listing_offer_signer: 'GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF',
     heartbeat_verified: true,
     heartbeat_signer: 'GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF',
+    catalog_product: mockCatalogProduct,
 };
 
 export function mockListingDetail(overrides: Record<string, unknown> = {}) {
@@ -34,6 +47,7 @@ export function mockListingDetail(overrides: Record<string, unknown> = {}) {
         seller_id: 'seller-1',
         node_id: 'node-1',
         title: verifiedMapPoint.title,
+        catalog_product: mockCatalogProduct,
         description: 'Verified listing for map E2E',
         price_per_gb: verifiedMapPoint.price_per_gb,
         min_purchase_gb: 1,

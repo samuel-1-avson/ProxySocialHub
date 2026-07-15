@@ -21,17 +21,20 @@ import (
 const (
 	explorerWSMaxClientsDefault = 500
 	explorerWSMaxPerIPDefault   = 15
+	explorerWSMaxPerUserDefault = 5
 	explorerWSPollBatchSize     = 50
 )
 
 var (
 	explorerWSMaxClients = explorerWSMaxClientsDefault
 	explorerWSMaxPerIP   = explorerWSMaxPerIPDefault
+	explorerWSMaxPerUser = explorerWSMaxPerUserDefault
 	explorerWSPending    int32 // handshakes accepted but not yet registered in the hub
 )
 
 var (
-	explorerWSIPCounts sync.Map // ip -> *int32
+	explorerWSIPCounts   sync.Map // ip -> *int32
+	explorerWSUserCounts sync.Map // user_id -> *int32
 )
 
 func init() {
@@ -43,6 +46,11 @@ func init() {
 	if v := strings.TrimSpace(os.Getenv("EXPLORER_WS_MAX_PER_IP")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			explorerWSMaxPerIP = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EXPLORER_WS_MAX_PER_USER")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			explorerWSMaxPerUser = n
 		}
 	}
 }
@@ -120,11 +128,19 @@ type NodeUpdate struct {
 	Longitude      float64 `json:"lon"`
 }
 
+// LinkTopologyUpdate signals that map_node_links changed; clients should refetch GET /v1/map/links.
+type LinkTopologyUpdate struct {
+	Action             string `json:"action"`
+	LinkCount          int    `json:"link_count"`
+	TopologyAvailable  bool   `json:"topology_available"`
+}
+
 // clientEntry holds a connection alongside the topics it subscribed to.
 // An empty topics map means "all topics" (backwards-compatible default).
 type clientEntry struct {
 	conn     *websocket.Conn
 	clientIP string
+	userID   string          // empty if anonymous
 	topics   map[string]bool // nil = subscribe to everything
 }
 
@@ -165,9 +181,44 @@ func explorerWSReleaseIP(ip string) {
 	}
 }
 
-// tryAcceptExplorerWSConnection enforces global and per-IP connection caps before upgrade.
-func (h *ExplorerHub) tryAcceptExplorerWSConnection(ip string) bool {
+// explorerWSReserveUser atomically reserves a per-user connection slot.
+func explorerWSReserveUser(userID string) bool {
+	if userID == "" {
+		return true // anonymous connection
+	}
+	val, _ := explorerWSUserCounts.LoadOrStore(userID, new(int32))
+	count := val.(*int32)
+	for {
+		n := atomic.LoadInt32(count)
+		if n >= int32(explorerWSMaxPerUser) {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(count, n, n+1) {
+			return true
+		}
+	}
+}
+
+// explorerWSReleaseUser releases a user slot.
+func explorerWSReleaseUser(userID string) {
+	if userID == "" {
+		return
+	}
+	if val, ok := explorerWSUserCounts.Load(userID); ok {
+		n := atomic.AddInt32(val.(*int32), -1)
+		if n < 0 {
+			atomic.StoreInt32(val.(*int32), 0)
+		}
+	}
+}
+
+// tryAcceptExplorerWSConnection enforces global, per-IP, and per-user connection caps before upgrade.
+func (h *ExplorerHub) tryAcceptExplorerWSConnection(ip string, userID string) bool {
 	if !explorerWSReserveIP(ip) {
+		return false
+	}
+	if userID != "" && !explorerWSReserveUser(userID) {
+		explorerWSReleaseIP(ip)
 		return false
 	}
 
@@ -178,6 +229,9 @@ func (h *ExplorerHub) tryAcceptExplorerWSConnection(ip string) bool {
 	if atCapacity {
 		atomic.AddInt32(&explorerWSPending, -1)
 		explorerWSReleaseIP(ip)
+		if userID != "" {
+			explorerWSReleaseUser(userID)
+		}
 		return false
 	}
 	return true
@@ -230,6 +284,9 @@ func (h *ExplorerHub) run() {
 			h.mu.Lock()
 			if entry, ok := entries[client]; ok {
 				explorerWSReleaseIP(entry.clientIP)
+				if entry.userID != "" {
+					explorerWSReleaseUser(entry.userID)
+				}
 			}
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
@@ -270,6 +327,9 @@ func (h *ExplorerHub) run() {
 				for _, conn := range dead {
 					if entry, ok := entries[conn]; ok {
 						explorerWSReleaseIP(entry.clientIP)
+						if entry.userID != "" {
+							explorerWSReleaseUser(entry.userID)
+						}
 					}
 					delete(h.clients, conn)
 					delete(entries, conn)
@@ -467,8 +527,17 @@ func handleExplorerWebSocket(c *gin.Context) {
 		InitExplorerHub()
 	}
 
+	var userIDStr string
+	if uid, exists := c.Get("user_id"); exists {
+		if parsedUUID, ok := uid.(uuid.UUID); ok {
+			userIDStr = parsedUUID.String()
+		} else if parsedStr, ok := uid.(string); ok {
+			userIDStr = parsedStr
+		}
+	}
+
 	clientIP := c.ClientIP()
-	if !hub.tryAcceptExplorerWSConnection(clientIP) {
+	if !hub.tryAcceptExplorerWSConnection(clientIP, userIDStr) {
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 			"error": "too_many_websocket_connections",
 		})
@@ -479,11 +548,14 @@ func handleExplorerWebSocket(c *gin.Context) {
 	if err != nil {
 		explorerWSReleasePendingHandshake()
 		explorerWSReleaseIP(clientIP)
+		if userIDStr != "" {
+			explorerWSReleaseUser(userIDStr)
+		}
 		logging.Error(err).Msg("[ExplorerHub] Failed to upgrade WebSocket")
 		return
 	}
 
-	hub.register <- &clientEntry{conn: conn, clientIP: clientIP, topics: nil}
+	hub.register <- &clientEntry{conn: conn, clientIP: clientIP, userID: userIDStr, topics: nil}
 
 	// Keep connection alive and handle optional subscription messages from client
 	go func() {
@@ -528,9 +600,10 @@ func handleExplorerWebSocket(c *gin.Context) {
 				// map page topics → WS update types
 				topicMap := map[string][]string{
 					"nodes":        {"node_update"},
+					"links":        {"link_update"},
 					"transactions": {"new_transaction"},
 					"blocks":       {"new_block"},
-					"all":          {"node_update", "new_transaction", "new_block", "initial"},
+					"all":          {"node_update", "link_update", "new_transaction", "new_block", "initial"},
 				}
 				resolved := make(map[string]bool)
 				for _, t := range sub.Topics {
@@ -597,5 +670,17 @@ func NotifyNodeUpdate(node *models.ExplorerNode) {
 		ActiveSessions: node.ActiveSessions,
 		Latitude:       node.Latitude,
 		Longitude:      node.Longitude,
+	})
+}
+
+// NotifyLinkTopologyUpdate broadcasts a lightweight refresh hint after link aggregation.
+func NotifyLinkTopologyUpdate(linkCount int, topologyAvailable bool) {
+	if hub == nil {
+		return
+	}
+	hub.BroadcastUpdate("link_update", LinkTopologyUpdate{
+		Action:            "refresh",
+		LinkCount:         linkCount,
+		TopologyAvailable: topologyAvailable,
 	})
 }

@@ -3,6 +3,7 @@
 # Requires: docker dev stack (postgres + control-api on :18080)
 
 param(
+    [string]$PostgresContainer = "",
     [switch]$SkipDownload  # Step 3: only check DB metadata, do not pull the full binary
 )
 
@@ -28,21 +29,35 @@ $pgUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "proxyhubb" }
 $pgDb = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "proxyhubb" }
 $pgPass = $env:POSTGRES_PASSWORD
 
+if ([string]::IsNullOrWhiteSpace($PostgresContainer)) {
+    $PostgresContainer = docker ps --format "{{.Names}}" |
+        Where-Object { $_ -match '^proxyhubb-postgres' } |
+        Select-Object -First 1
+}
+if ([string]::IsNullOrWhiteSpace($PostgresContainer)) {
+    Write-Error "No running proxyhubb-postgres container found. Start stack: docker compose -f docker-compose.yml up -d postgres"
+}
+Write-Host "Using postgres container: $PostgresContainer" -ForegroundColor DarkGray
+
+function Invoke-PostgresQuery([string]$Sql) {
+    docker exec -e PGPASSWORD=$pgPass $PostgresContainer psql -U $pgUser -d $pgDb -tAc $Sql 2>&1
+}
+
 Write-Host "`n=== 1. API health ===" -ForegroundColor Cyan
 $health = Invoke-RestMethod "$apiBase/health"
 Write-Host "health: $($health.status)"
 
 Write-Host "`n=== 2. Schema 000085 (postgres) ===" -ForegroundColor Cyan
 $sql = "SELECT column_name FROM information_schema.columns WHERE table_name = 'provider_nodes' AND column_name = 'gateway_node_id' UNION ALL SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes' AND column_name = 'provider_node_id';"
-$cols = (docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc $sql 2>$null | Out-String)
+$cols = (Invoke-PostgresQuery $sql | Out-String)
 if ($cols -notlike "*gateway_node_id*" -or $cols -notlike "*provider_node_id*") {
-    Write-Error "Migration 085 columns missing. Run: docker compose -f docker-compose.dev.yml run --rm db-migrate"
+    Write-Error "Migration 085 columns missing on $PostgresContainer. Run: docker compose -f docker-compose.yml run --rm db-migrate"
 }
 Write-Host "columns OK: gateway_node_id, provider_node_id"
 
 Write-Host "`n=== 3. CLI downloads (public) ===" -ForegroundColor Cyan
 $metaSql = "SELECT filename, file_size FROM cli_downloads WHERE platform='windows' AND arch='amd64' AND is_latest=true AND is_active=true LIMIT 1;"
-$meta = (docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc $metaSql 2>$null | Out-String).Trim()
+$meta = (Invoke-PostgresQuery $metaSql | Out-String).Trim()
 if ($meta) {
     Write-Host "DB latest windows/amd64: $meta"
 }
@@ -63,17 +78,17 @@ if ($SkipDownload) {
     Write-Host "downloaded ($size bytes) -> $outFile"
 }
 
-$count = docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc "SELECT COUNT(*) FROM cli_downloads WHERE is_latest = true AND is_active = true;" 2>&1
+$count = Invoke-PostgresQuery "SELECT COUNT(*) FROM cli_downloads WHERE is_latest = true AND is_active = true;"
 Write-Host "cli_downloads latest rows: $($count.Trim())"
 
 Write-Host "`n=== 4. Registry link (gateway register smoke) ===" -ForegroundColor Cyan
 if (-not $env:GATEWAY_SHARED_SECRET) {
     Write-Warning "GATEWAY_SHARED_SECRET not set - skipping gateway register smoke"
 } else {
-    $userId = docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc 'SELECT id FROM profiles WHERE role = ''provider'' ORDER BY created_at DESC LIMIT 1;' 2>$null | Out-String
+    $userId = Invoke-PostgresQuery "SELECT id FROM profiles WHERE role = 'provider' ORDER BY created_at DESC LIMIT 1;" | Out-String
     $userId = $userId.Trim()
     if (-not $userId) {
-        $userId = docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc 'SELECT id FROM profiles ORDER BY created_at DESC LIMIT 1;' 2>$null | Out-String
+        $userId = Invoke-PostgresQuery "SELECT id FROM profiles ORDER BY created_at DESC LIMIT 1;" | Out-String
         $userId = $userId.Trim()
     }
     if (-not $userId) {
@@ -96,13 +111,13 @@ if (-not $env:GATEWAY_SHARED_SECRET) {
         Write-Host "gateway register status: $($reg.status) gateway_row=$($reg.id)"
 
         $linkSql = "SELECT pn.id::text, pn.gateway_node_id, n.id::text, n.provider_node_id::text FROM provider_nodes pn LEFT JOIN nodes n ON n.provider_node_id = pn.id WHERE pn.user_id = '$userId' ORDER BY pn.created_at DESC LIMIT 1;"
-        $link = (docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc $linkSql 2>$null | Out-String).Trim()
+        $link = (Invoke-PostgresQuery $linkSql | Out-String).Trim()
         if ($link) {
             Write-Host "latest provider_nodes row: $link"
         } else {
             Write-Host "no provider_nodes row yet for user (gateway nodes row created; create dashboard node to link)"
         }
-        $nodesLink = (docker exec -e PGPASSWORD=$pgPass proxyhubb-postgres psql -U $pgUser -d $pgDb -tAc "SELECT gateway_node_id, provider_node_id::text FROM nodes WHERE provider_user_id = '$userId' ORDER BY last_seen_at DESC LIMIT 1;" 2>$null | Out-String).Trim()
+        $nodesLink = (Invoke-PostgresQuery "SELECT gateway_node_id, provider_node_id::text FROM nodes WHERE provider_user_id = '$userId' ORDER BY last_seen_at DESC LIMIT 1;" | Out-String).Trim()
         Write-Host "latest nodes row: $nodesLink"
         $expectedGw = "node_$userId"
         if ($link -match [regex]::Escape($expectedGw) -and $nodesLink -match "provider_node_id") {

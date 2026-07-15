@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { getWallet, getMyProfile, Wallet as WalletType, UserPublicProfile } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Shield, Wallet, Zap, Activity, Info, AlertCircle, CheckCircle, Smartphone, Link as LinkIcon, ArrowUpRight, Coins, Loader2 } from 'lucide-react';
@@ -19,8 +19,6 @@ export default function AccountSettingsPage() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const { connected, publicKey, disconnect } = useSolanaWallet();
-    const [solPriceUSD, setSolPriceUSD] = useState(150);
-
     const { data: wallet, isLoading: walletLoading } = useQuery({
         queryKey: ['wallet'],
         queryFn: () => getWallet(),

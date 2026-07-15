@@ -115,7 +115,10 @@ func SetupTestDB(t *testing.T) {
 			&models.FriendRequest{},
 			&models.Friendship{},
 			&models.ProxyListing{},
+			&models.CatalogProduct{},
+			&models.CatalogOffer{},
 			&models.Order{},
+			&models.EscrowReconciliationEvent{},
 			&models.FeedEvent{},
 			&models.ProviderNode{},
 			&models.UptimeCheck{},
@@ -130,6 +133,8 @@ func SetupTestDB(t *testing.T) {
 			&models.UserSubscription{},
 			&models.LinkedWallet{},
 			&models.ProviderScore{},
+			&models.ProviderToken{},
+			&models.ProviderNodeRegistration{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)

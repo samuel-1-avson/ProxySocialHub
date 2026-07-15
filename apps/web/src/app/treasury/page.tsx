@@ -83,7 +83,7 @@ export default function TreasuryPage() {
                             {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '—'} SOL
                         </div>
                         <p className="text-[9px] text-white/30 mt-2">
-                            SOL/USD ${data?.sol_price_usd?.toFixed(2) ?? '—'} · {data?.network ?? '—'}
+                            Native settlement: SOL · {data?.network ?? '—'}
                         </p>
                     </GlassCard>
                 </div>

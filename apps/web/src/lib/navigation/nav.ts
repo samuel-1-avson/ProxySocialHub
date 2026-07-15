@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ROUTES } from "@/lib/navigation/routes";
-import type { AppRoute } from "@/lib/navigation/routes";
+import type { StaticAppRoute, StaticRouteKey } from "@/lib/navigation/routes";
 import { getRoutePolicyByKey, type RoutePolicy } from "@/lib/navigation/policies";
 import { buildExplorerSidebarNavItems } from "@/lib/navigation/explorer-nav";
 
@@ -42,7 +42,7 @@ export type RouteKey = keyof typeof ROUTES;
 export interface NavigationItem {
     id: string;
     routeKey: RouteKey;
-    href: AppRoute;
+    href: StaticAppRoute;
     label: string;
     icon: LucideIcon;
     description?: string;
@@ -57,7 +57,7 @@ export interface NavigationSection {
 }
 
 function navItem(
-    routeKey: RouteKey,
+    routeKey: StaticRouteKey,
     label: string,
     icon: LucideIcon,
     options: {
@@ -94,14 +94,26 @@ export const NAV_SECTIONS: NavigationSection[] = [
         id: "marketplace",
         title: "Market",
         items: [
+            navItem("network", "Network", Network, {
+                description: "Map preview + live activity",
+                policy: "public",
+            }),
             navItem("marketplace", "Browse listings", Store, { policy: "public" }),
-            navItem("marketplaceMap", "Buy on map", MapPin, { description: "Purchase by location", policy: "public" }),
+            navItem("marketplaceMap", "Marketplace map", MapPin, {
+                description: "Buy proxies by location",
+                policy: "public",
+            }),
             navItem("marketplaceOrders", "My orders", ListOrdered, { description: "Purchases & escrow status", policy: "authenticated" }),
             navItem("marketplaceSaved", "Saved listings", Bookmark, { description: "Bookmarked offers", policy: "authenticated" }),
             navItem("marketplaceAgents", "Rent agents", Bot, { policy: "public" }),
             navItem("marketplaceAgentInstances", "My agents", Cpu, { description: "Deployed instances" }),
             navItem("marketplaceCreate", "Create listing", Plus, { policy: "provider", providerBadge: true }),
             navItem("marketplaceManage", "Manage listings", ListChecks, { policy: "provider", providerBadge: true }),
+            navItem("marketplaceCatalog", "Catalog products", Store, {
+                description: "Merchandising layer",
+                policy: "provider",
+                providerBadge: true,
+            }),
         ],
     },
     {
@@ -118,9 +130,13 @@ export const NAV_SECTIONS: NavigationSection[] = [
         id: "provider",
         title: "Provider",
         items: [
+            navItem("dashboardBecomeProvider", "Become a provider", Server, {
+                description: "Apply to share bandwidth and earn SOL",
+                policy: "authenticated",
+            }),
             navItem("dashboardProvider", "Provider hub", Server, {
-                description: "Nodes, earnings, setup",
-                policy: "provider",
+                description: "Apply, nodes, earnings, setup",
+                policy: "authenticated",
                 providerBadge: true,
             }),
             navItem("dashboardProviderNodes", "My nodes", Radio, {
@@ -169,7 +185,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
     },
     {
         id: "explorer",
-        title: "Network",
+        title: "Explorer",
         items: buildExplorerSidebarNavItems().map(({ routeKey, label, icon }) =>
             navItem(routeKey, label, icon, { policy: "public" }),
         ),

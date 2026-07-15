@@ -77,10 +77,12 @@ export async function seedSignedAuth(page: Page, baseUrl: string, role: MockRole
     );
 
     await page.addInitScript(({ seededToken, seededUser }) => {
+        sessionStorage.setItem('proxyhubb_token', seededToken);
         localStorage.setItem('proxyhubb_token', seededToken);
         localStorage.setItem('proxyhubb_refresh_token', 'route-policy-refresh-token');
         localStorage.setItem('proxyhubb_e2e_user', JSON.stringify(seededUser));
-        document.cookie = 'proxyhubb_refresh_token=route-policy-refresh-token; path=/; samesite=lax';
+        document.cookie = `proxyhubb_token=${encodeURIComponent(seededToken)}; path=/; max-age=3600; samesite=lax`;
+        document.cookie = 'proxyhubb_refresh_token=route-policy-refresh-token; path=/; max-age=3600; samesite=lax';
     }, { seededToken: token, seededUser: user });
 
     await page.route('**/v1/auth/refresh', async (route) => {

@@ -79,8 +79,8 @@ type Vote struct {
 	ID         uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
 	ProposalID uuid.UUID `gorm:"type:uuid;not null;index" json:"proposal_id"`
 	VoterID    uuid.UUID `gorm:"type:uuid;not null;index" json:"voter_id"`
-	Choice     string    `gorm:"type:varchar(10);not null" json:"choice"` // "yes", "no", "abstain"
-	Power      float64   `gorm:"not null" json:"power"`                   // Voting power at time of vote
+	Choice     string    `gorm:"column:vote;type:varchar(10);not null" json:"choice"` // "yes", "no", "abstain"
+	Power      float64   `gorm:"column:weight;not null" json:"power"`                 // Voting power at time of vote
 	CreatedAt  time.Time `json:"created_at"`
 
 	Voter *User `gorm:"foreignKey:VoterID" json:"voter,omitempty"`

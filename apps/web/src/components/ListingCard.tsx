@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
+import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
+import { displayListingTitle } from '@/lib/listing-display';
 
 interface ListingCardProps {
     listing: Listing;
@@ -57,8 +59,11 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <div className="absolute inset-x-0 bottom-0 h-1 bg-primary/40 scale-x-0 group-hover:scale-x-100 transition-transform" />
                     </div>
                     <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                            <h3 className="font-black text-white text-[11px] uppercase tracking-wider group-hover:text-primary transition-colors">{listing.title}</h3>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-black text-white text-[11px] uppercase tracking-wider group-hover:text-primary transition-colors">
+                                {displayListingTitle(listing)}
+                            </h3>
+                            <CatalogProductBadge product={listing.catalog_product} />
                             {listing.is_priority && <Target size={10} className="text-primary animate-pulse" />}
                         </div>
                         <div className="flex items-center gap-3">
@@ -162,8 +167,8 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 <div className="space-y-1">
                     <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
                     <div className="flex items-baseline gap-1.5">
-                        <span className="text-2xl font-black text-white tracking-tighter">₵{Number(listing.price_per_gb || 0).toFixed(2)}</span>
-                        <span className="text-[10px] font-black text-white/20 uppercase">/ Gb</span>
+                        <span className="text-2xl font-black text-white tracking-tighter">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
+                        <span className="text-[10px] font-black text-white/20 uppercase">/ GB</span>
                     </div>
                 </div>
 

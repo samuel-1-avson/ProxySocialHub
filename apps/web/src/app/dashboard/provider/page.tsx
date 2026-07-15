@@ -2,14 +2,20 @@
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
 import {
     Server, Wallet, TrendingUp, Activity, AlertCircle, Fingerprint,
-    FileCode, ShieldCheck, ArrowRight, Settings, Plus, Network, Cpu,
-    Zap, Globe, Terminal, Coins
+    FileCode, ShieldCheck, ArrowRight, Plus, Network, Cpu,
+    Zap, Terminal, Coins, CheckCircle2, AlertTriangle, CircleDot
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
-import { getMyNodes, getProviderEarningsSummary } from '@/lib/api/provider';
+import {
+    getMyNodes,
+    getProviderEarningsSummary,
+    getProviderReadiness,
+    type NodeRegistration,
+    type ProviderReadinessResponse,
+} from '@/lib/api/provider';
 import { StatCard } from '@/components/ui/StatCard';
 import { ActionCard } from '@/components/ui/ActionCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -100,43 +106,61 @@ function ProviderApplicationStatusCard({
 }
 
 export default function ProviderDashboard() {
+    const { user, refreshUser } = useAuth();
+    const isProviderUser =
+        user?.role === 'provider' || user?.role === 'admin' || user?.role === 'both';
+
+    const { data: statusData, isLoading: statusLoading } = useQuery({
+        queryKey: ['provider-status'],
+        queryFn: getProviderStatus,
+        enabled: !!user && !isProviderUser,
+    });
+
+    const applicationStatus = statusData?.application?.status ?? statusData?.status;
+    const hasApprovedProviderApplication = applicationStatus === 'approved';
+    const canUseProviderWorkspace = isProviderUser || hasApprovedProviderApplication;
+
     const { data: summary, isLoading: summaryLoading } = useQuery({
         queryKey: ['provider-earnings-summary'],
         queryFn: getProviderEarningsSummary,
+        enabled: canUseProviderWorkspace,
     });
 
     const { data: nodesData, isLoading: nodesLoading } = useQuery({
         queryKey: ['my-nodes'],
         queryFn: getMyNodes,
         refetchInterval: 30_000,
+        enabled: canUseProviderWorkspace,
+    });
+
+    const { data: readiness } = useQuery({
+        queryKey: ['provider-readiness'],
+        queryFn: getProviderReadiness,
+        refetchInterval: 30_000,
+        enabled: canUseProviderWorkspace,
     });
 
     const nodes = nodesData?.nodes ?? [];
     const onlineNodes = nodes.filter((n) => n.status === 'online').length;
     const offlineNodes = nodes.filter((n) => n.status === 'offline').length;
 
-    const { user, refreshUser } = useAuth();
-    
-    const { data: statusData, isLoading: statusLoading } = useQuery({
-        queryKey: ['provider-status'],
-        queryFn: getProviderStatus,
-        enabled: !!user && user.role !== 'provider' && user.role !== 'admin',
-    });
-
     useEffect(() => {
-        if (statusData?.application?.status === 'approved' && user?.role !== 'provider' && user?.role !== 'admin') {
+        if (hasApprovedProviderApplication && user?.role !== 'provider' && user?.role !== 'admin' && user?.role !== 'both') {
             void refreshUser();
         }
-    }, [refreshUser, statusData?.application?.status, user?.role]);
+    }, [hasApprovedProviderApplication, refreshUser, user?.role]);
 
-    if (summaryLoading || nodesLoading || statusLoading) {
+    const isLoadingWorkspace =
+        (canUseProviderWorkspace && (summaryLoading || nodesLoading)) ||
+        (!canUseProviderWorkspace && !!user && statusLoading);
+
+    if (isLoadingWorkspace) {
         return <SkeletonDashboard />;
     }
 
     // Role-based access control
-    if (user?.role !== 'provider' && user?.role !== 'admin') {
-        const applicationStatus = statusData?.application?.status;
-        if (applicationStatus === 'pending' || applicationStatus === 'approved' || applicationStatus === 'rejected') {
+    if (!canUseProviderWorkspace) {
+        if (applicationStatus === 'pending' || applicationStatus === 'rejected') {
             return (
                 <ProviderApplicationStatusCard
                     status={applicationStatus}
@@ -154,7 +178,7 @@ export default function ProviderDashboard() {
     }
 
     if (nodes.length === 0) {
-        return <NewProviderLanding />;
+        return <NewProviderLanding readiness={readiness} />;
     }
 
     return (
@@ -182,6 +206,8 @@ export default function ProviderDashboard() {
                     )}
                 </div>
             </div>
+
+            <ProviderReadinessPanel readiness={readiness} />
 
             {/* Earnings & Node Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -260,7 +286,7 @@ export default function ProviderDashboard() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {nodes.slice(0, 5).map((node: any) => (
+                                            {nodes.slice(0, 5).map((node: NodeRegistration) => (
                                                 <tr key={node.id} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
                                                     <td className="px-6 py-4 font-medium text-foreground flex items-center gap-3">
                                                         <div className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`} />
@@ -276,7 +302,7 @@ export default function ProviderDashboard() {
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
-                                                        ${(node.base_price_per_gb || 0).toFixed(3)}
+                                                        {(node.base_price_per_gb || 0).toFixed(6)} SOL/GB
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center gap-2">
@@ -362,9 +388,81 @@ export default function ProviderDashboard() {
         </div>
     );
 }
-function NewProviderLanding() {
+function ProviderReadinessPanel({ readiness }: { readiness?: ProviderReadinessResponse }) {
+    const checks = readiness?.checks ?? [];
+    const next = readiness?.next;
+    const isReady = readiness?.status === 'ready';
+    const hasAction = readiness?.status === 'action_required';
+
+    return (
+        <div className={`glass-card p-5 border ${
+            isReady
+                ? 'border-emerald-500/20 bg-emerald-500/5'
+                : hasAction
+                ? 'border-amber-500/20 bg-amber-500/5'
+                : 'border-blue-500/20 bg-blue-500/5'
+        }`}>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {isReady ? (
+                            <CheckCircle2 size={14} className="text-emerald-400" />
+                        ) : hasAction ? (
+                            <AlertTriangle size={14} className="text-amber-400" />
+                        ) : (
+                            <CircleDot size={14} className="text-blue-400" />
+                        )}
+                        Provider readiness
+                    </div>
+                    <h2 className="text-lg font-bold">
+                        {isReady
+                            ? 'Ready for traffic and marketplace activity'
+                            : next?.message ?? 'Checking provider setup'}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                        {readiness
+                            ? `${readiness.summary.online_nodes}/${readiness.summary.nodes} nodes online · ${readiness.summary.active_tokens} active tokens · proof mode ${readiness.summary.proof_mode}`
+                            : 'Loading setup checks...'}
+                    </p>
+                </div>
+                {next?.action_href && (
+                    <Link
+                        href={next.action_href}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors"
+                    >
+                        {next.action_label || 'Continue setup'}
+                        <ArrowRight size={14} />
+                    </Link>
+                )}
+            </div>
+
+            {checks.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+                    {checks.map((check) => (
+                        <div key={check.id} className="rounded-xl bg-black/20 border border-white/10 px-3 py-2 min-h-[72px]">
+                            <div className="flex items-center gap-2">
+                                {check.status === 'complete' ? (
+                                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                                ) : check.status === 'action_required' ? (
+                                    <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+                                ) : (
+                                    <CircleDot size={13} className="text-blue-400 shrink-0" />
+                                )}
+                                <p className="text-[11px] font-bold uppercase tracking-wide truncate">{check.label}</p>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">{check.message}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessResponse }) {
     return (
         <div className="space-y-12 py-8">
+            <ProviderReadinessPanel readiness={readiness} />
             <div className="flex flex-col md:flex-row gap-12 items-center">
                 <div className="flex-1 space-y-6">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[10px] font-black uppercase tracking-widest">
@@ -438,7 +536,7 @@ function NewProviderLanding() {
     );
 }
 
-function StepCard({ num, title, desc, icon: Icon }: { num: string, title: string, desc: string, icon: any }) {
+function StepCard({ num, title, desc, icon: Icon }: { num: string, title: string, desc: string, icon: LucideIcon }) {
     return (
         <div className="relative group">
             <span className="absolute -top-6 -left-2 text-6xl font-black text-white/5 group-hover:text-purple-500/10 transition-colors z-0 select-none">{num}</span>

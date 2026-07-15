@@ -70,7 +70,7 @@ export default function Home() {
                 { value: "99.9%", label: "UPTIME" },
                 { value: "<50ms", label: "LATENCY" },
                 { value: "100%", label: "RESIDENTIAL" },
-                { value: "₵0.50", label: "PER GB" },
+                { value: "0.500000 SOL", label: "PER GB" },
               ].map((stat, i) => (
                 <div key={stat.label} className={`p-8 text-center group border-r border-border last:border-r-0 hover:bg-accent/50 transition-colors`}>
                   <div className="text-3xl md:text-4xl font-bold text-foreground mb-2 group-hover:text-primary transition-colors font-mono">{stat.value}</div>

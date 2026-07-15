@@ -1,11 +1,23 @@
 mod config;
+mod config_validate;
+mod doctor;
+mod install;
 mod ip;
 mod lease_policy;
+mod operator;
+mod paths;
+mod process_util;
 mod proofs;
 mod proxy;
+mod runtime_state;
+mod service;
 mod stats;
+mod status;
+mod support;
 mod sys;
+mod tui;
 mod tunnel;
+mod watch;
 
 use clap::{Parser, Subcommand};
 use tracing::info;
@@ -37,6 +49,32 @@ enum Commands {
         /// Declared connection type for initial node registration.
         #[arg(long, env = "PROXYHUB_CONNECTION_TYPE", default_value = "residential")]
         connection_type: String,
+
+        /// Existing base58 Ed25519 provider signing key to write into provider.toml.
+        /// If omitted, register generates a new key automatically.
+        #[arg(long, env = "PROXYHUB_PROVIDER_SIGNING_KEY")]
+        provider_signing_key: Option<String>,
+
+        /// Do not auto-generate provider_signing_key during registration.
+        #[arg(long, default_value_t = false)]
+        no_generate_signing_key: bool,
+
+        /// Write config to this path (default: platform config dir)
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+
+    /// Generate a provider heartbeat signing key for provider.toml
+    Keygen {
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Validate local provider-node configuration without network checks
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
     },
 
     /// Connect to the Edge Gateway and start serving proxy traffic
@@ -93,6 +131,123 @@ enum Commands {
 
     /// Stop a running provider node
     Stop,
+
+    /// Show local process, metrics, and Control API node registration state
+    Status {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Metrics port override (default: from config or 9090)
+        #[arg(long)]
+        metrics_port: Option<u16>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Pre-flight checks for config, auth, gateway, and local daemon
+    Doctor {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Interactive terminal dashboard (metrics + Control API nodes)
+    Dashboard {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// UI refresh interval in milliseconds
+        #[arg(long, default_value_t = 1000)]
+        refresh_ms: u64,
+    },
+
+    /// Refresh operator status in the terminal until Ctrl+C
+    Watch {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Refresh interval in milliseconds
+        #[arg(long, default_value_t = 2000)]
+        interval_ms: u64,
+    },
+
+    /// Print canonical paths and install hints
+    Install,
+
+    /// Manage provider-node as an OS service
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommands,
+    },
+
+    /// Export redacted diagnostics for provider support
+    Support {
+        #[command(subcommand)]
+        command: SupportCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Validate provider.toml and print fixes for blocking issues
+    Validate {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceCommands {
+    /// Install provider-node as a background service
+    Install {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+    /// Start the installed service
+    Start,
+    /// Stop the installed service
+    Stop,
+    /// Show service install/running status
+    Status {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+    /// Uninstall the service
+    Uninstall,
+}
+
+#[derive(Subcommand)]
+enum SupportCommands {
+    /// Write redacted config, doctor JSON, log tail, and runtime state to a JSON file
+    Bundle {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Output JSON path (default: ~/.proxyhubb/support-bundle-<timestamp>.json)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -105,6 +260,9 @@ async fn main() -> anyhow::Result<()> {
             api_url,
             api_key,
             connection_type,
+            provider_signing_key,
+            no_generate_signing_key,
+            config,
         } => {
             init_logging(false);
             info!("Starting interactive node registration");
@@ -141,16 +299,62 @@ async fn main() -> anyhow::Result<()> {
             cfg.api_key = key.clone();
             cfg.node_id = node_id.clone();
             cfg.connection_type = connection_type.clone();
+            cfg.provider_signing_key =
+                resolve_registration_signing_key(provider_signing_key, no_generate_signing_key)?;
 
-            let config_path = config::Config::default_config_path();
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::config_file);
             cfg.save(&config_path)?;
 
             println!("Node ID: {node_id}");
+            if !cfg.provider_signing_key.is_empty() {
+                let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
+                println!("Provider hotkey: {}", signer.public_key());
+            }
             println!();
             println!("Config written to: {}", config_path.display());
             println!();
             println!("Next steps:");
             println!("  provider-node start --config {}", config_path.display());
+        }
+
+        Commands::Keygen { json } => {
+            init_logging(false);
+            let generated = proofs::ProviderSigner::generate()?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "provider_signing_key": generated.secret_base58,
+                        "provider_hotkey": generated.public_key,
+                    })
+                );
+            } else {
+                println!("Provider signing key generated.");
+                println!("provider_signing_key = \"{}\"", generated.secret_base58);
+                println!("provider_hotkey = \"{}\"", generated.public_key);
+                println!();
+                println!("Add provider_signing_key to provider.toml to enable signed heartbeats.");
+            }
+        }
+
+        Commands::Config {
+            command: ConfigCommands::Validate { config, json },
+        } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = config_validate::run(config_path);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                config_validate::print_human(&report);
+            }
+            if !report.ok {
+                std::process::exit(1);
+            }
         }
 
         // ── Start ───────────────────────────────────────────────────
@@ -172,11 +376,16 @@ async fn main() -> anyhow::Result<()> {
                 env!("CARGO_PKG_VERSION")
             );
 
-            let config_path = config.unwrap_or_else(|| {
-                config::Config::default_config_path()
-                    .to_string_lossy()
-                    .into_owned()
-            });
+            let config_path =
+                config.unwrap_or_else(|| paths::config_file().to_string_lossy().into_owned());
+
+            let _ = paths::ensure_state_dirs();
+            let provider_run_id = runtime_state::new_provider_run_id();
+            paths::append_log(&format!(
+                "provider-node start run_id={} config={}",
+                provider_run_id, config_path
+            ));
+            info!(provider_run_id = %provider_run_id, "Provider run started");
 
             let mut cfg = config::Config::load(&config_path).unwrap_or_default();
 
@@ -229,8 +438,19 @@ async fn main() -> anyhow::Result<()> {
             }
             info!(gateways = ?gateway_list, "Multi-gateway failover list built");
 
-            // Write PID file
-            let pid_path = dirs_pid_file();
+            // PID file — refuse double-start; clear stale file from crashed runs.
+            let pid_path = paths::pid_file();
+            if let Some(live) = crate::process_util::read_pid_file()
+                .filter(|&pid| crate::process_util::process_alive(pid))
+            {
+                eprintln!("Error: provider-node already running (PID {live}).");
+                eprintln!("Stop it first: proxyhubb-cli stop");
+                std::process::exit(1);
+            }
+            if let Some(stale) = crate::process_util::remove_stale_pid_file() {
+                info!(stale_pid = stale, "Removed stale PID file before start");
+                paths::append_log(&format!("removed stale pid file ({stale})"));
+            }
             if let Err(e) = write_pid_file(&pid_path) {
                 tracing::warn!("Failed to write PID file: {e}");
             }
@@ -280,6 +500,11 @@ async fn main() -> anyhow::Result<()> {
             let lane_count = cfg.effective_yamux_conns_per_node();
             let gw_count = gateway_list.len();
             let mut gw_idx: usize = 0;
+            let transport_label = if transport.quic_requested() {
+                "quic"
+            } else {
+                "yamux"
+            };
             info!(
                 yamux_conns_per_node = lane_count,
                 "Provider transport: multi-yamux lanes to gateway"
@@ -297,11 +522,28 @@ async fn main() -> anyhow::Result<()> {
                     "Connecting to Edge Gateway..."
                 );
 
+                let rt = runtime_state::RuntimeState {
+                    provider_run_id: provider_run_id.clone(),
+                    active_gateway: addr.clone(),
+                    gateway_index: gw_idx % gw_count,
+                    gateway_total: gw_count,
+                    transport: transport_label.to_string(),
+                    tunnel_connected: false,
+                    last_session_error: None,
+                    updated_at_unix: runtime_state::unix_now(),
+                };
+                let _ = rt.write(&paths::runtime_state_file());
+                paths::append_log(&format!(
+                    "run_id={} connecting to gateway {addr}",
+                    provider_run_id
+                ));
+
                 match tunnel::mux::run_mux_lanes(
                     loop_cfg,
                     stats_collector.clone(),
                     provider_signer.clone(),
                     lane_count,
+                    provider_run_id.clone(),
                 )
                 .await
                 {
@@ -310,6 +552,22 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => {
                         tracing::warn!(addr = %addr, error = %e, "Gateway session lost");
+                        let msg = e.to_string();
+                        paths::append_log(&format!(
+                            "run_id={} gateway session lost {addr}: {msg}",
+                            provider_run_id
+                        ));
+                        let rt = runtime_state::RuntimeState {
+                            provider_run_id: provider_run_id.clone(),
+                            active_gateway: addr.clone(),
+                            gateway_index: gw_idx % gw_count,
+                            gateway_total: gw_count,
+                            transport: transport_label.to_string(),
+                            tunnel_connected: false,
+                            last_session_error: Some(msg),
+                            updated_at_unix: runtime_state::unix_now(),
+                        };
+                        let _ = rt.write(&paths::runtime_state_file());
                     }
                 }
 
@@ -347,29 +605,152 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        // ── Status ──────────────────────────────────────────────────
+        Commands::Status {
+            config,
+            metrics_port,
+            json,
+        } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = status::collect(config_path, metrics_port).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                status::print_human(&report);
+            }
+        }
+
+        Commands::Doctor { config, json } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = doctor::run(config_path).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                doctor::print_human(&report);
+            }
+            if !report.ok {
+                std::process::exit(1);
+            }
+        }
+
+        Commands::Dashboard { config, refresh_ms } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::config_file);
+            tui::dashboard::run(config_path, refresh_ms).await?;
+        }
+
+        Commands::Watch {
+            config,
+            interval_ms,
+        } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::config_file);
+            watch::run(config_path, interval_ms).await?;
+        }
+
+        Commands::Install => {
+            install::print_paths_and_hints();
+        }
+
+        Commands::Service { command } => match command {
+            ServiceCommands::Install { config } => {
+                let config_path = config.map(std::path::PathBuf::from);
+                service::install(config_path)?;
+            }
+            ServiceCommands::Start => {
+                service::start()?;
+            }
+            ServiceCommands::Stop => {
+                service::stop()?;
+            }
+            ServiceCommands::Status { config, json } => {
+                let config_path = config.map(std::path::PathBuf::from);
+                let report = service::status(config_path);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    service::print_status(&report);
+                }
+            }
+            ServiceCommands::Uninstall => {
+                service::uninstall()?;
+            }
+        },
+
+        Commands::Support {
+            command: SupportCommands::Bundle { config, output },
+        } => {
+            init_logging(false);
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let output_path = output.map(std::path::PathBuf::from);
+            let created = support::export(config_path, output_path).await?;
+            support::print_created(&created);
+        }
+
         // ── Stop ────────────────────────────────────────────────────
         Commands::Stop => {
-            let pid_path = dirs_pid_file();
+            let pid_path = paths::pid_file();
             match std::fs::read_to_string(&pid_path) {
                 Ok(pid_str) => {
-                    println!("Sending stop signal to PID {}", pid_str.trim());
+                    let pid_trim = pid_str.trim();
+                    let pid_num: u32 = pid_trim.parse().unwrap_or(0);
+                    let alive = pid_num > 0 && crate::process_util::process_alive(pid_num);
+                    if alive {
+                        println!("Sending stop signal to PID {pid_trim}");
+                    } else {
+                        println!("Removing stale PID file (process {pid_trim} not running)");
+                    }
                     // On Unix we'd send SIGTERM; on Windows we just inform the user.
                     #[cfg(unix)]
-                    {
-                        use nix::sys::signal::{kill, Signal};
-                        use nix::unistd::Pid;
-                        let pid: i32 = pid_str.trim().parse()?;
-                        kill(Pid::from_raw(pid), Signal::SIGTERM)?;
-                        println!("Stop signal sent successfully.");
+                    if alive {
+                        {
+                            use nix::sys::signal::{kill, Signal};
+                            use nix::unistd::Pid;
+                            let pid: i32 = pid_trim.parse()?;
+                            kill(Pid::from_raw(pid), Signal::SIGTERM)?;
+                            println!("Stop signal sent successfully.");
+                        }
                     }
-                    #[cfg(not(unix))]
-                    {
+                    #[cfg(windows)]
+                    if alive {
+                        match std::process::Command::new("taskkill")
+                            .args(["/PID", pid_trim, "/F"])
+                            .output()
+                        {
+                            Ok(output) if output.status.success() => {
+                                println!("Stop signal sent successfully.");
+                            }
+                            Ok(output) => {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                println!("Failed to stop process {pid_trim}: {}", stderr.trim());
+                            }
+                            Err(err) => {
+                                println!("Failed to run taskkill for PID {pid_trim}: {err}");
+                            }
+                        }
+                    }
+                    #[cfg(all(not(unix), not(windows)))]
+                    if alive {
                         println!(
-                            "On Windows, please terminate the process manually (PID: {})",
-                            pid_str.trim()
+                            "Please terminate the provider-node process manually (PID: {pid_trim})"
                         );
                     }
                     let _ = std::fs::remove_file(&pid_path);
+                    if !alive {
+                        println!("Stale PID file removed.");
+                    }
                 }
                 Err(_) => {
                     println!("No running node found (PID file not found).");
@@ -393,22 +774,30 @@ fn init_logging(debug: bool) {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-fn dirs_pid_file() -> std::path::PathBuf {
-    let home = dirs_home();
-    home.join(".proxyhubb").join("provider.pid")
-}
-
-fn dirs_home() -> std::path::PathBuf {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-}
-
 fn write_pid_file(path: &std::path::Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, std::process::id().to_string())?;
     Ok(())
+}
+
+fn resolve_registration_signing_key(
+    provider_signing_key: Option<String>,
+    no_generate_signing_key: bool,
+) -> anyhow::Result<String> {
+    if let Some(key) = provider_signing_key {
+        let key = key.trim().to_string();
+        if key.is_empty() {
+            return Ok(String::new());
+        }
+        proofs::ProviderSigner::from_base58(&key)?;
+        return Ok(key);
+    }
+
+    if no_generate_signing_key {
+        return Ok(String::new());
+    }
+
+    Ok(proofs::ProviderSigner::generate()?.secret_base58)
 }

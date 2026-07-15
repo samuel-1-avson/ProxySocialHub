@@ -64,13 +64,16 @@ type ListingsResponse struct {
 func getListings(c *gin.Context) {
 	filters := buildListingFilters(c)
 
-	// Try cache first
+	// Try cache first (catalog include changes response shape)
 	cacheKey := listingCacheKey(filters)
+	useCache := !includeCatalogProduct(c)
 
 	var cachedResponse ListingsResponse
-	if found, _ := cache.Get(cacheKey, &cachedResponse); found {
-		c.JSON(http.StatusOK, cachedResponse)
-		return
+	if useCache {
+		if found, _ := cache.Get(cacheKey, &cachedResponse); found {
+			c.JSON(http.StatusOK, cachedResponse)
+			return
+		}
 	}
 
 	entities, total, err := marketplaceServiceOrDefault().BrowseMarket(c.Request.Context(), filters)
@@ -95,6 +98,7 @@ func getListings(c *gin.Context) {
 	}
 
 	enrichListingsSLA(apiListings)
+	maybeEnrichListingsWithCatalog(c, apiListings)
 
 	response := ListingsResponse{
 		Listings: apiListings,
@@ -104,7 +108,9 @@ func getListings(c *gin.Context) {
 	}
 
 	// Cache result (60 seconds)
-	cache.Set(cacheKey, response, 60*time.Second)
+	if useCache {
+		cache.Set(cacheKey, response, 60*time.Second)
+	}
 
 	c.JSON(http.StatusOK, response)
 }
@@ -302,6 +308,10 @@ func getListing(c *gin.Context) {
 
 	sentry := privacy.NewZKMetadataSentry()
 	sentry.SanitizeListing(&listing)
+
+	batch := []models.ProxyListing{listing}
+	maybeEnrichListingsWithCatalog(c, batch)
+	listing = batch[0]
 
 	c.JSON(http.StatusOK, gin.H{
 		"listing":  listing,
@@ -770,16 +780,19 @@ func getSavedListings(c *gin.Context) {
 	}
 
 	saved := make([]models.SavedListing, len(entries))
+	listingsForEnrich := make([]models.ProxyListing, len(entries))
 	for i, entry := range entries {
 		listing := listingEntityToModel(entry.Listing)
 		listing.Seller = sellerProfileToModel(entry.Seller)
+		listingsForEnrich[i] = listing
 		saved[i] = models.SavedListing{
 			UserID:    entry.UserID,
 			ListingID: entry.ListingID,
 			CreatedAt: entry.CreatedAt,
-			Listing:   &listing,
+			Listing:   &listingsForEnrich[i],
 		}
 	}
+	maybeEnrichListingsWithCatalog(c, listingsForEnrich)
 
 	c.JSON(http.StatusOK, gin.H{
 		"saved": saved,
@@ -806,8 +819,11 @@ func getMyListings(c *gin.Context) {
 		return
 	}
 
+	listings := listingEntitiesToModels(entities)
+	maybeEnrichListingsWithCatalog(c, listings)
+
 	c.JSON(http.StatusOK, gin.H{
-		"listings": listingEntitiesToModels(entities),
+		"listings": listings,
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -847,6 +863,7 @@ func getFeaturedListings(c *gin.Context) {
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
 	}
+	maybeEnrichListingsWithCatalog(c, listings)
 
 	c.JSON(http.StatusOK, gin.H{"listings": listings, "total": len(listings)})
 }
@@ -871,6 +888,7 @@ func searchListings(c *gin.Context) {
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
 	}
+	maybeEnrichListingsWithCatalog(c, listings)
 
 	c.JSON(http.StatusOK, gin.H{"listings": listings, "total": len(listings)})
 }

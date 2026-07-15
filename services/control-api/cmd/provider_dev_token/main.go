@@ -280,10 +280,17 @@ func lookupProviderNodeID(userID uuid.UUID) string {
 }
 
 func defaultTomlPath() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".proxyhubb", "provider.toml")
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(xdg, "proxyhubb", "provider.toml")
 	}
-	return "provider.toml"
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		return filepath.Join(appData, "proxyhubb", "provider.toml")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "provider.toml"
+	}
+	return filepath.Join(home, ".config", "proxyhubb", "provider.toml")
 }
 
 func resolveSigningMaterial(explicit string, generate bool) (seed string, pub string, err error) {

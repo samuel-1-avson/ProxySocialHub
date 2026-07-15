@@ -114,6 +114,10 @@ func (c *OracleClient) UnstakeProvider(ctx context.Context, params UnstakeProvid
 	if err != nil {
 		return "", sol.PublicKey{}, fmt.Errorf("UnstakeProvider: program_state PDA: %w", err)
 	}
+	programConfigPDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_config")}, c.programID)
+	if err != nil {
+		return "", sol.PublicKey{}, fmt.Errorf("UnstakeProvider: program_config PDA: %w", err)
+	}
 
 	// Data: disc(8) + provider_wallet(32) + amount_lamports(8)
 	data := make([]byte, 8+32+8)
@@ -127,6 +131,7 @@ func (c *OracleClient) UnstakeProvider(ctx context.Context, params UnstakeProvid
 			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 			{PublicKey: stakePDA, IsSigner: false, IsWritable: true},
 			{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},
+			{PublicKey: programConfigPDA, IsSigner: false, IsWritable: false},
 		},
 		data: data,
 	}

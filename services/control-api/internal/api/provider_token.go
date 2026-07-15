@@ -21,6 +21,7 @@ func RegisterProviderTokenRoutes(rg *gin.RouterGroup) {
 	{
 		tokens.GET("", listProviderTokens)
 		tokens.POST("", createProviderToken)
+		tokens.POST("/:id/rotate", rotateProviderToken)
 		tokens.DELETE("/:id", revokeProviderToken)
 	}
 }
@@ -52,13 +53,16 @@ type TokenResponse struct {
 
 // TokenListItem is the safe version returned in lists
 type TokenListItem struct {
-	ID        uuid.UUID  `json:"id"`
-	Name      string     `json:"name"`
-	Masked    string     `json:"masked"`
-	IsActive  bool       `json:"is_active"`
-	LastUsed  time.Time  `json:"last_used"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID            uuid.UUID  `json:"id"`
+	Name          string     `json:"name"`
+	Masked        string     `json:"masked"`
+	IsActive      bool       `json:"is_active"`
+	LastUsed      time.Time  `json:"last_used"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	ExpiresInDays int        `json:"expires_in_days"`
+	ExpiresSoon   bool       `json:"expires_soon"`
+	IsExpired     bool       `json:"is_expired"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 const gatewayTokenTTL = 1 * time.Hour
@@ -83,18 +87,89 @@ func listProviderTokens(c *gin.Context) {
 	// Convert to safe response format
 	result := make([]TokenListItem, len(tokens))
 	for i, t := range tokens {
+		expiresInDays, expiresSoon, isExpired := tokenExpiryStatus(t.ExpiresAt)
 		result[i] = TokenListItem{
-			ID:        t.ID,
-			Name:      t.Name,
-			Masked:    maskToken(t.Token),
-			IsActive:  t.IsActive,
-			LastUsed:  t.LastUsed,
-			ExpiresAt: t.ExpiresAt,
-			CreatedAt: t.CreatedAt,
+			ID:            t.ID,
+			Name:          t.Name,
+			Masked:        maskToken(t.Token),
+			IsActive:      t.IsActive,
+			LastUsed:      t.LastUsed,
+			ExpiresAt:     t.ExpiresAt,
+			ExpiresInDays: expiresInDays,
+			ExpiresSoon:   expiresSoon,
+			IsExpired:     isExpired,
+			CreatedAt:     t.CreatedAt,
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"tokens": result})
+}
+
+// rotateProviderToken revokes an existing provider token and creates a fresh replacement.
+func rotateProviderToken(c *gin.Context) {
+	currentUserID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+	userID := currentUserID.(uuid.UUID)
+
+	tokenID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token ID"})
+		return
+	}
+
+	var oldToken models.ProviderToken
+	if err := db.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", tokenID, userID).First(&oldToken).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+		return
+	}
+
+	rawToken, err := models.GenerateRawToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+	hashedToken := models.HashToken(rawToken)
+	exp := time.Now().Add(30 * 24 * time.Hour)
+	name := oldToken.Name
+	if name == "" {
+		name = "Rotated provider token"
+	}
+
+	newToken := models.ProviderToken{
+		UserID:    userID,
+		Token:     hashedToken,
+		Name:      name,
+		IsActive:  true,
+		ExpiresAt: &exp,
+	}
+
+	tx := db.DB.Begin()
+	if err := tx.Delete(&oldToken).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke old token"})
+		return
+	}
+	if err := tx.Create(&newToken).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save new token"})
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rotate token"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, TokenResponse{
+		ID:        newToken.ID,
+		Name:      newToken.Name,
+		Token:     rawToken,
+		IsActive:  newToken.IsActive,
+		ExpiresAt: newToken.ExpiresAt,
+		CreatedAt: newToken.CreatedAt,
+	})
 }
 
 // CreateTokenRequest is the request to create a new token
@@ -128,12 +203,16 @@ func createProviderToken(c *gin.Context) {
 	// Hash token for storage using HMAC-SHA256 (keyed by TOKEN_HMAC_SECRET)
 	hashedToken := models.HashToken(rawToken)
 
-	// Calculate expiration
-	var expiresAt *time.Time
-	if req.ExpiresIn > 0 {
-		exp := time.Now().Add(time.Duration(req.ExpiresIn) * 24 * time.Hour)
-		expiresAt = &exp
+	// Calculate expiration (Token Auto-Rotation)
+	expiresInDays := req.ExpiresIn
+	if expiresInDays <= 0 {
+		expiresInDays = 30 // Default to 30 days
 	}
+	if expiresInDays > 90 {
+		expiresInDays = 90 // Cap at a maximum of 90 days
+	}
+	exp := time.Now().Add(time.Duration(expiresInDays) * 24 * time.Hour)
+	expiresAt := &exp
 
 	// Create token record
 	token := models.ProviderToken{
@@ -345,36 +424,109 @@ func maskToken(token string) string {
 	return token[:4] + "****" + token[len(token)-4:]
 }
 
-// getOrCreateNodeID returns an existing node ID or creates a new one
+func tokenExpiryStatus(expiresAt *time.Time) (int, bool, bool) {
+	if expiresAt == nil {
+		return 0, false, false
+	}
+	now := time.Now()
+	if now.After(*expiresAt) {
+		return 0, false, true
+	}
+	days := int(time.Until(*expiresAt).Hours() / 24)
+	if days < 1 {
+		days = 1
+	}
+	return days, days <= 7, false
+}
+
+// getOrCreateNodeID returns the canonical provider_nodes.id for a CLI token.
+// New registrations create provider_nodes rows only (P2); legacy registrations
+// that still point at nodes.id are resolved via provider_node_id or migration.
 func getOrCreateNodeID(token models.ProviderToken) uuid.UUID {
-	// Check if there's already a node registered with this token
 	var registration models.ProviderNodeRegistration
 	if err := db.DB.Where("token_id = ? AND is_active = ?", token.ID, true).
 		First(&registration).Error; err == nil {
-		return registration.NodeID
+		if id := resolveRegistrationNodeID(registration.NodeID, token.UserID); id != uuid.Nil {
+			return id
+		}
 	}
 
-	// Create new node
-	node := models.Node{
-		UserID:         token.UserID, // Required by DB constraint
-		ProviderUserID: token.UserID,
-		IsHealthy:      true,
+	return createProviderNodeForToken(token)
+}
+
+func resolveRegistrationNodeID(storedID, userID uuid.UUID) uuid.UUID {
+	if storedID == uuid.Nil {
+		return uuid.Nil
 	}
-	if err := db.DB.Create(&node).Error; err != nil {
-		// Fallback - return a new UUID that won't be persisted
+
+	var pn models.ProviderNode
+	if err := db.DB.Where("id = ? AND user_id = ?", storedID, userID).First(&pn).Error; err == nil {
+		return pn.ID
+	}
+
+	var legacy models.Node
+	if err := db.DB.Where("id = ? AND provider_user_id = ?", storedID, userID).First(&legacy).Error; err != nil {
+		return uuid.Nil
+	}
+	if legacy.ProviderNodeID != nil && *legacy.ProviderNodeID != uuid.Nil {
+		return *legacy.ProviderNodeID
+	}
+
+	return migrateLegacyNodeToProviderNode(legacy)
+}
+
+func migrateLegacyNodeToProviderNode(legacy models.Node) uuid.UUID {
+	gatewayID := legacy.GatewayNodeID
+	if gatewayID == "" {
+		gatewayID = providerGatewayNodeID(legacy.ProviderUserID)
+	}
+
+	pn := models.ProviderNode{
+		ID:             uuid.New(),
+		UserID:         legacy.ProviderUserID,
+		Name:           "Migrated CLI Node",
+		IPAddress:      legacy.IPAddress,
+		Country:        legacy.CountryCode,
+		City:           legacy.City,
+		Region:         legacy.Region,
+		ISP:            legacy.ISP,
+		ConnectionType: legacy.ConnectionType,
+		Port:           legacy.Port,
+		Status:         models.NodeOffline,
+		GatewayNodeID:  gatewayID,
+		IsHealthy:      legacy.IsHealthy,
+	}
+	if err := db.DB.Create(&pn).Error; err != nil {
+		return uuid.Nil
+	}
+
+	_ = db.DB.Model(&legacy).Update("provider_node_id", pn.ID).Error
+	return pn.ID
+}
+
+func createProviderNodeForToken(token models.ProviderToken) uuid.UUID {
+	gatewayID := providerGatewayNodeID(token.UserID)
+	pn := models.ProviderNode{
+		ID:            uuid.New(),
+		UserID:        token.UserID,
+		Name:          "CLI Node",
+		Status:        models.NodeOffline,
+		GatewayNodeID: gatewayID,
+		IsHealthy:     false,
+	}
+	if err := db.DB.Create(&pn).Error; err != nil {
 		return uuid.New()
 	}
 
-	// Create registration record
-	registration = models.ProviderNodeRegistration{
+	registration := models.ProviderNodeRegistration{
 		UserID:    token.UserID,
 		TokenID:   token.ID,
-		NodeID:    node.ID,
+		NodeID:    pn.ID,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 		IsActive:  true,
 	}
-	db.DB.Create(&registration)
+	_ = db.DB.Create(&registration).Error
 
-	return node.ID
+	return pn.ID
 }

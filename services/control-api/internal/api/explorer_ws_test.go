@@ -47,8 +47,28 @@ func TestExplorerHubTryAccept_EnforcesGlobalCap(t *testing.T) {
 	h := &ExplorerHub{clients: make(map[*websocket.Conn]bool)}
 	h.clients[(nil)] = true // occupy the single slot
 
-	if h.tryAcceptExplorerWSConnection("198.51.100.1") {
+	if h.tryAcceptExplorerWSConnection("198.51.100.1", "") {
 		t.Fatal("expected global cap to reject new handshake")
+	}
+}
+
+func TestExplorerWSReserveUser_EnforcesPerUserCap(t *testing.T) {
+	explorerWSMaxPerUser = 2
+	t.Cleanup(func() {
+		explorerWSMaxPerUser = explorerWSMaxPerUserDefault
+		explorerWSUserCounts = sync.Map{}
+	})
+
+	userID := "test-user-uuid"
+	if !explorerWSReserveUser(userID) || !explorerWSReserveUser(userID) {
+		t.Fatal("expected first two user reservations to succeed")
+	}
+	if explorerWSReserveUser(userID) {
+		t.Fatal("expected third user reservation to fail")
+	}
+	explorerWSReleaseUser(userID)
+	if !explorerWSReserveUser(userID) {
+		t.Fatal("expected user reservation after release to succeed")
 	}
 }
 

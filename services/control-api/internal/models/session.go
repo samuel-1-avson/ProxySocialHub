@@ -12,16 +12,19 @@ import (
 type SessionType string
 
 const (
-	SessionRotating SessionType = "rotating"
-	SessionSticky   SessionType = "sticky"
+	SessionRotating  SessionType = "rotating"
+	SessionSticky    SessionType = "sticky"
+	SessionUniversal SessionType = "universal"
 )
 
 type SessionStatus string
 
 const (
-	SessionActive     SessionStatus = "active"
-	SessionDisabled   SessionStatus = "disabled"
-	SessionTerminated SessionStatus = "terminated"
+	SessionActive            SessionStatus = "active"
+	SessionDisabled          SessionStatus = "disabled"
+	SessionActivationPending SessionStatus = "activation_pending"
+	SessionActivationFailed  SessionStatus = "activation_failed"
+	SessionTerminated        SessionStatus = "terminated"
 )
 
 type Session struct {
@@ -50,12 +53,12 @@ type Session struct {
 	// Universal Session Fields
 	Strategy string  `gorm:"size:50" json:"strategy,omitempty"` // e.g., "fastest", "cheapest", "random"
 	MaxPrice float64 `json:"max_price,omitempty"`               // Max price per GB user is willing to pay
-	
+
 	// Social/PAYG fields
 	ConversationID   *uuid.UUID `gorm:"type:uuid;index" json:"conversation_id,omitempty"`
 	ReviewPrompted   bool       `gorm:"default:false" json:"review_prompted"`
 	ReviewPromptedAt *time.Time `json:"review_prompted_at,omitempty"`
-	
+
 	// Preloaded relations
 	Conversation *Conversation `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
 }

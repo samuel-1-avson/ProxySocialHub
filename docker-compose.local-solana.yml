@@ -28,6 +28,7 @@ services:
       - SOLANA_RPC_ENDPOINTS=http://solana-local:8899
       - SOLANA_WS_ENDPOINT=ws://solana-local:8900
       - SOLANA_NETWORK=devnet
+      - SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-true}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
     depends_on:
@@ -39,6 +40,7 @@ services:
     environment:
       - NEXT_PUBLIC_SOLANA_RPC=http://127.0.0.1:8899
       - NEXT_PUBLIC_SOLANA_NETWORK=devnet
+      - NEXT_PUBLIC_SOLANA_PROGRAM_ID=${SOLANA_PROGRAM_ID:-2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7}
     depends_on:
       - solana-local
     networks:

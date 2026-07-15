@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { getSavedListings, marketplaceKeys, unsaveListing } from "@/lib/api/marketplace";
+import { displayListingTitle } from "@/lib/listing-display";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
@@ -92,11 +93,11 @@ export default function SavedListingsPage() {
                         >
                             <div className="min-w-0">
                                 <Link href={`/marketplace/${listing.id}`} className="font-bold hover:text-purple-400">
-                                    {listing.title}
+                                    {displayListingTitle(listing)}
                                 </Link>
                                 <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{listing.description}</p>
                                 <p className="text-[10px] font-mono text-purple-400/80 mt-2">
-                                    ${listing.price_per_gb}/GB · {listing.available_bandwidth_gb} GB avail
+                                    {Number(listing.price_per_gb || 0).toFixed(6)} SOL/GB · {listing.available_bandwidth_gb} GB avail
                                 </p>
                             </div>
                             <div className="flex gap-2 shrink-0">

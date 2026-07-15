@@ -180,6 +180,7 @@ func getListingCollectionBySlug(c *gin.Context) {
 
 	apiListings := make([]models.ProxyListing, len(listings))
 	copy(apiListings, listings)
+	maybeEnrichListingsWithCatalog(c, apiListings)
 
 	c.JSON(http.StatusOK, gin.H{
 		"collection": meta,

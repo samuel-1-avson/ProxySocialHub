@@ -235,6 +235,26 @@ function NodeCard({
                             }`}>
                                 {node.status}
                             </span>
+                            <span
+                                className={`text-[9px] font-mono uppercase font-black px-2 py-0.5 rounded-full ${
+                                    node.latest_heartbeat_verified
+                                        ? 'bg-emerald-500/15 text-emerald-400'
+                                        : node.latest_heartbeat_verification_error
+                                        ? 'bg-red-500/15 text-red-400'
+                                        : 'bg-blue-500/15 text-blue-300'
+                                }`}
+                                title={
+                                    node.latest_heartbeat_verified
+                                        ? `Heartbeat proof verified${node.latest_heartbeat_signer ? ` by ${node.latest_heartbeat_signer}` : ''}`
+                                        : node.latest_heartbeat_verification_error || 'Heartbeat proof not configured yet'
+                                }
+                            >
+                                {node.latest_heartbeat_verified
+                                    ? 'proof ok'
+                                    : node.latest_heartbeat_verification_error
+                                    ? 'proof error'
+                                    : 'unsigned'}
+                            </span>
                             {node.country && (
                                 <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
                                     <MapPin size={8} />

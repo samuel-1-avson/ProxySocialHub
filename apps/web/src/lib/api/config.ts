@@ -7,7 +7,9 @@ import { apiGet } from './client';
 
 export interface SystemConfig {
     treasury_solana: string;
-    [key: string]: any;
+    sol_price_usd: number;
+    large_withdraw_threshold_sol?: number;
+    [key: string]: unknown;
 }
 
 /**

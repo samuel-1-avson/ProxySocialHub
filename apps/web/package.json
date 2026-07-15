@@ -7,13 +7,18 @@
     "dev:e2e": "next dev -H 0.0.0.0 -p 4011 --webpack",
     "build": "next build",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test:provider-config": "node scripts/provider-config-contract.mjs",
     "validate:routes": "node scripts/validate-routes.mjs",
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test",
     "test:e2e:map": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts e2e/marketplace-listing-buy.spec.ts e2e/marketplace-browse-buy.spec.ts --project=chromium --workers=1",
     "test:e2e:moderation": "playwright test e2e/marketplace-moderation.spec.ts --project=chromium",
-    "test:e2e:marketplace": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts e2e/marketplace-listing-buy.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-moderation.spec.ts --project=chromium --workers=1",
+    "test:e2e:catalog": "playwright test e2e/marketplace-catalog.spec.ts --project=chromium",
+    "test:e2e:network": "node e2e/run-network-e2e.mjs",
+    "test:e2e:topology": "node e2e/run-globe-topology-e2e.mjs",
+    "test:e2e:marketplace": "playwright test e2e/marketplace-map-proof.spec.ts e2e/marketplace-map-buy.spec.ts e2e/marketplace-listing-buy.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-moderation.spec.ts e2e/marketplace-order-credentials.spec.ts --project=chromium --workers=1",
+    "test:e2e:order-credentials": "playwright test e2e/marketplace-order-credentials.spec.ts --project=chromium --workers=1",
     "test:e2e:map-buy": "playwright test e2e/marketplace-map-buy.spec.ts --project=chromium",
     "test:e2e:map-buy:devnet:check": "node e2e/check-live-map-buy-env.mjs",
     "test:e2e:map-buy:devnet": "npm run test:e2e:map-buy:devnet:check && playwright test e2e/marketplace-map-buy.devnet.spec.ts --project=chromium",
@@ -35,6 +40,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-phantom": "^0.9.29",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",
     "@solana/wallet-adapter-solflare": "^0.6.33",
@@ -56,7 +62,6 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-globe.gl": "^2.37.0",
-    "react-leaflet": "^5.0.0",
     "react-markdown": "^10.1.0",
     "react-virtualized-auto-sizer": "^2.0.3",
     "react-window": "^2.2.7",
@@ -85,5 +90,8 @@
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@next/swc-win32-x64-msvc": "^16.2.7"
   }
 }

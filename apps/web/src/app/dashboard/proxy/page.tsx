@@ -30,9 +30,9 @@ import {
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
+import { getBuyerProxyEndpoint } from '@/lib/proxy-endpoint';
 
-// Get proxy endpoint from environment or default
-const PROXY_ENDPOINT = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhub.io:3128';
+const PROXY_ENDPOINT = getBuyerProxyEndpoint();
 const terminalIntentStates = new Set<SessionIntentLifecycle>([
     'ledger_committed',
     'batched',

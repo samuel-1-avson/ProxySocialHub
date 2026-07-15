@@ -251,6 +251,138 @@ func TestCancelOrder_BlocksTerminalOrders(t *testing.T) {
 	}
 }
 
+func TestCancelOrder_BlocksEscrowBackedOrders(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "wallets", "users")
+
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_cancel_escrow"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_cancel_escrow"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Escrow Order Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	for _, status := range []models.OrderStatus{models.OrderStatusPendingPayment, models.OrderStatusActive} {
+		t.Run(string(status), func(t *testing.T) {
+			session := models.Session{
+				UserID:          buyer.ID,
+				ListingID:       &listing.ID,
+				Type:            models.SessionRotating,
+				Status:          models.SessionActive,
+				CredentialsUser: "cancel-escrow-user",
+				CredentialsPass: "cancel-escrow-pass",
+				Config:          "{}",
+			}
+			if err := db.DB.Create(&session).Error; err != nil {
+				t.Fatalf("failed to create session: %v", err)
+			}
+
+			order := models.Order{
+				BuyerID:       buyer.ID,
+				SellerID:      provider.ID,
+				ListingID:     listing.ID,
+				SessionID:     &session.ID,
+				Status:        status,
+				PaymentMethod: "solana_escrow",
+				EscrowPDA:     "11111111111111111111111111111111",
+				PricePerGB:    1,
+				TotalPrice:    1,
+			}
+			if err := db.DB.Create(&order).Error; err != nil {
+				t.Fatalf("failed to create order: %v", err)
+			}
+
+			r := setupTestRouter()
+			r.Use(func(c *gin.Context) {
+				c.Set("user_id", buyer.ID)
+			})
+			r.POST("/orders/:id/cancel", cancelOrder)
+
+			req := httptest.NewRequest("POST", "/orders/"+order.ID.String()+"/cancel", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusConflict {
+				t.Fatalf("expected 409 for cancelling %s escrow order, got %d: %s", status, w.Code, w.Body.String())
+			}
+
+			var refreshed models.Order
+			if err := db.DB.First(&refreshed, "id = ?", order.ID).Error; err != nil {
+				t.Fatalf("failed to reload order: %v", err)
+			}
+			if refreshed.Status != status {
+				t.Fatalf("expected order status to remain %s, got %s", status, refreshed.Status)
+			}
+
+			var refreshedSession models.Session
+			if err := db.DB.First(&refreshedSession, "id = ?", session.ID).Error; err != nil {
+				t.Fatalf("failed to reload session: %v", err)
+			}
+			if refreshedSession.Status != models.SessionActive {
+				t.Fatalf("expected session to remain active, got %s", refreshedSession.Status)
+			}
+		})
+	}
+}
+
+func TestCancelOrder_AllowsUnfundedPendingOrder(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "wallets", "users")
+
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_cancel_pending"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_cancel_pending"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Pending Order Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	order := models.Order{
+		BuyerID:    buyer.ID,
+		SellerID:   provider.ID,
+		ListingID:  listing.ID,
+		Status:     models.OrderStatusPending,
+		PricePerGB: 1,
+		TotalPrice: 1,
+	}
+	if err := db.DB.Create(&order).Error; err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", buyer.ID)
+	})
+	r.POST("/orders/:id/cancel", cancelOrder)
+
+	req := httptest.NewRequest("POST", "/orders/"+order.ID.String()+"/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cancelling unfunded pending order, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var refreshed models.Order
+	if err := db.DB.First(&refreshed, "id = ?", order.ID).Error; err != nil {
+		t.Fatalf("failed to reload order: %v", err)
+	}
+	if refreshed.Status != models.OrderStatusCancelled {
+		t.Fatalf("expected order status cancelled, got %s", refreshed.Status)
+	}
+}
+
 func TestGetMyOrders(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "orders", "proxy_listings")

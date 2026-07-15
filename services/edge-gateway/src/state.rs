@@ -46,6 +46,9 @@ pub struct NodeInfo {
     /// control-api `nodes.id` (UUID) returned from gateway register; used for offline status updates.
     #[serde(default)]
     pub control_api_db_id: Option<String>,
+    /// Provider daemon run/session ID for cross-service troubleshooting.
+    #[serde(default)]
+    pub provider_run_id: String,
 }
 
 fn default_bronze() -> String {
@@ -85,6 +88,7 @@ impl NodeInfo {
             base_price_per_gb: 0.20,
             lease_expires_at: 0,
             control_api_db_id: None,
+            provider_run_id: String::new(),
         }
     }
 
@@ -635,6 +639,7 @@ mod tests {
             base_price_per_gb: 0.20,
             lease_expires_at: 0,
             control_api_db_id: None,
+            provider_run_id: String::new(),
         }
     }
 

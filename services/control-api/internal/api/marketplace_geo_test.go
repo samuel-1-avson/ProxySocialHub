@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/testutil"
+	"gorm.io/datatypes"
 )
 
 func TestMarketplaceGeoRoutesRegistered(t *testing.T) {
@@ -20,7 +22,7 @@ func TestMarketplaceGeoRoutesRegistered(t *testing.T) {
 	RegisterMarketplaceGeoRoutes(v1)
 	RegisterListingRoutes(v1)
 
-	var hasListingsGeo, hasMarketplaceGeo, hasMarketplaceMap bool
+	var hasListingsGeo, hasMarketplaceGeo, hasMarketplaceMap, hasMapPoints bool
 	for _, route := range r.Routes() {
 		switch route.Method + " " + route.Path {
 		case http.MethodGet + " /v1/listings/geo":
@@ -29,6 +31,8 @@ func TestMarketplaceGeoRoutesRegistered(t *testing.T) {
 			hasMarketplaceGeo = true
 		case http.MethodGet + " /v1/marketplace/map":
 			hasMarketplaceMap = true
+		case http.MethodGet + " /v1/map/points":
+			hasMapPoints = true
 		}
 	}
 	if !hasListingsGeo {
@@ -39,6 +43,31 @@ func TestMarketplaceGeoRoutesRegistered(t *testing.T) {
 	}
 	if !hasMarketplaceMap {
 		t.Fatal("missing GET /v1/marketplace/map route")
+	}
+	if !hasMapPoints {
+		t.Fatal("missing GET /v1/map/points route")
+	}
+}
+
+func TestDeprecatedMarketplaceGeoHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/geo", deprecatedMarketplaceGeoHeaders(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/geo", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Header().Get("Deprecation") != "true" {
+		t.Fatal("expected Deprecation header")
+	}
+	if !strings.Contains(w.Header().Get("Link"), "/v1/marketplace/map") {
+		t.Fatalf("expected successor Link header, got %q", w.Header().Get("Link"))
+	}
+	if w.Header().Get("Sunset") == "" {
+		t.Fatal("expected Sunset header")
 	}
 }
 
@@ -139,6 +168,64 @@ func TestGetMarketplaceMap_DefaultPurchasableListingPoints(t *testing.T) {
 	}
 	if point.GeoSource != "country_centroid" {
 		t.Fatalf("expected country centroid geo source, got %q", point.GeoSource)
+	}
+}
+
+func TestGetMarketplaceMap_UsesProviderGeoWhenListingGeoBlank(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_market_provider_geo"), "provider")
+	nodeID := uuid.New()
+	node := models.ProviderNode{
+		ID:      nodeID,
+		UserID:  provider.ID,
+		Name:    "Accra Provider Node",
+		Country: "GH",
+		City:    "Accra",
+		ISP:     "MTN Ghana",
+		Status:  models.NodeOnline,
+	}
+	if err := db.DB.Create(&node).Error; err != nil {
+		t.Fatalf("failed to create provider node fixture: %v", err)
+	}
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		ProviderNodeID:       &nodeID,
+		Title:                "Provider Geo Listing",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		PricePerGB:           3,
+		AvailableBandwidthGB: 50,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing fixture: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map?country=GH", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Total != 1 {
+		t.Fatalf("expected provider-geo listing under GH filter, got total=%d points=%#v", resp.Total, resp.Points)
+	}
+	point := resp.Points[0]
+	if point.Country != "GH" || point.City != "Accra" || point.ISP != "MTN Ghana" {
+		t.Fatalf("expected provider geo on map point, got country=%q city=%q isp=%q", point.Country, point.City, point.ISP)
+	}
+	if point.GeoSource != "region_hub" {
+		t.Fatalf("expected region_hub geo source, got %q", point.GeoSource)
 	}
 }
 
@@ -323,8 +410,14 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	if activeNode.Purchasable || activeNode.Status != "active" || !activeNode.IsValidator || activeNode.ActiveSessions != 4 {
 		t.Fatalf("unexpected active node payload: %#v", activeNode)
 	}
-	if activeNode.GeoSource != "explorer" {
-		t.Fatalf("expected explorer geo source, got %q", activeNode.GeoSource)
+	if activeNode.GeoSource != "region_hub" {
+		t.Fatalf("expected region_hub geo source for NYC hub match, got %q", activeNode.GeoSource)
+	}
+	if activeNode.Geo == nil || activeNode.Geo.Source != "region_hub" {
+		t.Fatalf("expected geo metadata on node point, got %#v", activeNode.Geo)
+	}
+	if activeNode.Region != "us-east" {
+		t.Fatalf("expected region us-east on node point, got %q", activeNode.Region)
 	}
 }
 
@@ -376,5 +469,141 @@ func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 	}
 	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != "node-active-only" {
 		t.Fatalf("expected active node point, got %#v", resp.Points)
+	}
+}
+
+func TestGetMarketplaceMap_ValidatorsOnly(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings", "explorer_nodes")
+
+	nodes := []models.ExplorerNode{
+		{
+			NodeID:        "node-validator-only",
+			Latitude:      40,
+			Longitude:     -74,
+			IsActive:      true,
+			IsValidator:   true,
+			UptimePercent: 99,
+			Country:       "US",
+			Region:        "us-east",
+		},
+		{
+			NodeID:        "node-proxy-only",
+			Latitude:      41,
+			Longitude:     -75,
+			IsActive:      true,
+			IsValidator:   false,
+			UptimePercent: 98,
+			Country:       "US",
+			Region:        "us-east",
+		},
+	}
+	for _, node := range nodes {
+		if err := db.DB.Create(&node).Error; err != nil {
+			t.Fatalf("failed to create node fixture: %v", err)
+		}
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map?include_nodes=true&validator=true", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.NodeCount != 1 {
+		t.Fatalf("expected one validator node, got node_count=%d", resp.NodeCount)
+	}
+	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != "node-validator-only" || !resp.Points[0].IsValidator {
+		t.Fatalf("expected validator node point, got %#v", resp.Points[0])
+	}
+}
+
+func TestGetMarketplaceMap_IncludeCatalog(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "catalog_offers", "catalog_products", "proxy_listings")
+
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("map_catalog_seller"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             seller.ID,
+		Title:                "Catalog map listing",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		Country:              "US",
+		PricePerGB:           2,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatal(err)
+	}
+	product := models.CatalogProduct{
+		ID:       listing.ID,
+		SellerID: seller.ID,
+		Slug:     "map-catalog-slug",
+		Title:    "Map catalog title",
+		Status:   models.CatalogProductStatusActive,
+		Media:    datatypes.JSON([]byte("[]")),
+	}
+	if err := db.DB.Create(&product).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DB.Create(&models.CatalogOffer{
+		ProductID: product.ID,
+		ListingID: listing.ID,
+		IsPrimary: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map?include_catalog=true", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var withCatalog MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &withCatalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(withCatalog.Points) != 1 || withCatalog.Points[0].CatalogProduct == nil {
+		t.Fatalf("expected catalog_product on map point, got %#v", withCatalog.Points)
+	}
+	if withCatalog.Points[0].CatalogProduct.Slug != "map-catalog-slug" {
+		t.Fatalf("slug %q", withCatalog.Points[0].CatalogProduct.Slug)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/marketplace/map", nil)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w2.Code, w2.Body.String())
+	}
+	var withoutCatalog MarketplaceMapResponse
+	if err := json.Unmarshal(w2.Body.Bytes(), &withoutCatalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(withoutCatalog.Points) != 1 || withoutCatalog.Points[0].CatalogProduct != nil {
+		t.Fatalf("expected no catalog_product without include_catalog, got %#v", withoutCatalog.Points[0])
+	}
+}
+
+func TestMarketplaceGeoSource_RegionalHubNotGPS(t *testing.T) {
+	row := marketplaceGeoRow{City: "Accra", Country: "GH", SLASource: "gateway"}
+	if got := marketplaceGeoSource(row, "gps"); got != "region_hub" {
+		t.Fatalf("expected region_hub, got %q", got)
+	}
+	row = marketplaceGeoRow{Country: "GH", SLASource: "explorer"}
+	if got := marketplaceGeoSource(row, "gps"); got != "country_centroid" {
+		t.Fatalf("expected country_centroid, got %q", got)
 	}
 }

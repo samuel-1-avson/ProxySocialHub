@@ -204,7 +204,7 @@ export function QuickMessageModal({
                                     </span>
                                 )}
                                 {pricePerGb && (
-                                    <span>${pricePerGb}/GB</span>
+                                    <span>{Number(pricePerGb).toFixed(6)} SOL/GB</span>
                                 )}
                             </div>
                         </div>

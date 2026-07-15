@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -21,6 +22,7 @@ func RegisterShowcaseRoutes(rg *gin.RouterGroup) {
 	
 	// Provider-only routes
 	provider := rg.Group("/provider/showcase")
+	provider.Use(middleware.RequireProviderRole())
 	{
 		provider.GET("", getMyShowcases)
 		provider.POST("", createShowcase)

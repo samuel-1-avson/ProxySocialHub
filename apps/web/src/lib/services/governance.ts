@@ -99,7 +99,7 @@ export async function getProposals(status?: string): Promise<Proposal[]> {
     const url = status
         ? `${API_BASE_URL}/v1/governance/proposals?status=${encodeURIComponent(status)}`
         : `${API_BASE_URL}/v1/governance/proposals`;
-    const response = await fetchWithAuth(url);
+    const response = await fetch(url);
     if (!response.ok) {
         throw new Error('Failed to fetch proposals');
     }
@@ -109,7 +109,7 @@ export async function getProposals(status?: string): Promise<Proposal[]> {
 }
 
 export async function getProposal(id: string): Promise<Proposal> {
-    const response = await fetchWithAuth(`${API_BASE_URL}/v1/governance/proposals/${id}`);
+    const response = await fetch(`${API_BASE_URL}/v1/governance/proposals/${id}`);
     if (!response.ok) {
         throw new Error('Failed to fetch proposal');
     }
@@ -188,6 +188,10 @@ export async function createProposal(input: CreateProposalInput): Promise<Propos
     throw new Error('Proposal created but response did not include proposal details');
 }
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** @deprecated Use castGovernanceVote for on-chain voting. */
 export async function castVote(
     proposalId: string,
@@ -196,24 +200,41 @@ export async function castVote(
     walletAddress: string,
     onChainTxSig: string
 ): Promise<Vote> {
-    const response = await fetchWithAuth(
-        `${API_BASE_URL}/v1/governance/proposals/${proposalId}/vote`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                choice,
-                signature,
-                wallet_address: walletAddress,
-                on_chain_tx_sig: onChainTxSig,
-            }),
+    const mirrorDelaysMs = [400, 800, 1200, 2000, 3000, 4000, 5000];
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= mirrorDelaysMs.length; attempt++) {
+        const response = await fetchWithAuth(
+            `${API_BASE_URL}/v1/governance/proposals/${proposalId}/vote`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    choice,
+                    signature,
+                    wallet_address: walletAddress,
+                    on_chain_tx_sig: onChainTxSig,
+                }),
+            }
+        );
+        const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (response.ok) {
+            return data as unknown as Vote;
         }
-    );
-    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-        throw new Error(governanceErrorMessage(data, 'Failed to cast vote'));
+
+        const message = governanceErrorMessage(data, 'Failed to cast vote');
+        lastError = new Error(message);
+        const retryable =
+            response.status === 409 &&
+            /not finalized|not found for wallet/i.test(message);
+        if (retryable && attempt < mirrorDelaysMs.length) {
+            await sleep(mirrorDelaysMs[attempt]);
+            continue;
+        }
+        throw lastError;
     }
-    return data as unknown as Vote;
+
+    throw lastError ?? new Error('Failed to cast vote');
 }
 
 export async function castGovernanceVote(

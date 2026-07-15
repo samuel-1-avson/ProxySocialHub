@@ -12,6 +12,8 @@ use tracing::{debug, error};
 #[derive(Serialize)]
 struct HeartbeatMessage {
     node_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    provider_run_id: String,
     timestamp: i64,
     #[serde(skip_serializing_if = "String::is_empty")]
     provider_node_id: String,
@@ -60,6 +62,7 @@ pub struct HeartbeatManager {
     api_node_id: String,
     api_heartbeat_ticks: u32,
     provider_signer: Option<ProviderSigner>,
+    provider_run_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +82,7 @@ impl HeartbeatManager {
         lease_request: ProviderLeaseRequest,
         api_node_id: String,
         provider_signer: Option<ProviderSigner>,
+        provider_run_id: String,
     ) -> Self {
         Self {
             ctrl,
@@ -92,6 +96,7 @@ impl HeartbeatManager {
             api_node_id,
             api_heartbeat_ticks: 0,
             provider_signer,
+            provider_run_id,
         }
     }
 
@@ -192,6 +197,7 @@ impl HeartbeatManager {
 
         HeartbeatMessage {
             node_id: self.node_id.clone(),
+            provider_run_id: self.provider_run_id.clone(),
             timestamp,
             provider_node_id: self.api_node_id.clone(),
             latency_ms,
@@ -227,6 +233,7 @@ impl HeartbeatManager {
             &self.control_api_url,
             &self.auth_token,
             &self.api_node_id,
+            &self.provider_run_id,
             msg.latency_ms,
             msg.active_connections,
             100.0,

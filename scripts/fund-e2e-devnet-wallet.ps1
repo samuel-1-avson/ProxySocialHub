@@ -46,7 +46,7 @@ try {
 }
 
 if (-not (Test-Path $oracleKey)) {
-    throw "Airdrop failed and $oracleKey not found — fund $target manually on devnet."
+    throw "Airdrop failed and $oracleKey not found - fund $target manually on devnet."
 }
 
 $oraclePub = (& solana-keygen pubkey $oracleKey 2>&1 | Out-String).Trim()

@@ -8,7 +8,7 @@ import { apiGet } from './client';
 export interface UsageMetric {
     date: string;
     bandwidth_gb: number;
-    cost_ghs: number;
+    cost_sol: number;
     sessions_count: number;
 }
 
@@ -28,7 +28,7 @@ export async function getUserUsage() {
         total_sessions?: number;
         total_bytes?: number;
         total_gb?: number;
-        total_cost_ghs?: number;
+        total_cost_sol?: number;
         sessions?: any[];
     }>('/v1/usage/me');
 }
@@ -41,6 +41,9 @@ export async function getSessionUsage(sessionId: string) {
         current_bandwidth: number;
         elapsed_time: number;
         bytes_used?: number;
+        bytes_limit?: number;
+        percent_used?: number;
         gb_used?: number;
+        cost_sol?: number;
     }>(`/v1/usage/session/${sessionId}`);
 }

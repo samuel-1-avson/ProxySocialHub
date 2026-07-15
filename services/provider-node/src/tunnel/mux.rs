@@ -25,16 +25,17 @@ pub async fn run_mux_lanes(
     stats: Collector,
     provider_signer: Option<ProviderSigner>,
     lane_count: usize,
+    provider_run_id: String,
 ) -> Result<()> {
     let lane_count = normalize_lane_count(lane_count);
     if lane_count == 1 {
-        return run_single_lane(cfg, stats, provider_signer, 0).await;
+        return run_single_lane(cfg, stats, provider_signer, 0, provider_run_id).await;
     }
 
     info!(lane_count, gateway = %cfg.gateway_addr, "Starting multi-yamux provider session");
 
     // Primary lane first so the gateway registers before attach lanes connect.
-    let mut primary = TunnelClient::new(&cfg, stats.clone());
+    let mut primary = TunnelClient::new(&cfg, stats.clone(), provider_run_id.clone());
     primary.connect().await?;
     let mut shared_cfg = cfg.clone();
     if !primary.auth_token().is_empty() {
@@ -51,6 +52,7 @@ pub async fn run_mux_lanes(
         primary.provider_lease_request(),
         shared_cfg.node_id.clone(),
         provider_signer.clone(),
+        provider_run_id.clone(),
     );
     let hb_handle = tokio::spawn(async move { hb.run().await });
 
@@ -66,7 +68,7 @@ pub async fn run_mux_lanes(
     let mut lane_handles = vec![primary_handle];
 
     for lane in 1..lane_count {
-        let mut client = TunnelClient::new(&shared_cfg, stats.clone());
+        let mut client = TunnelClient::new(&shared_cfg, stats.clone(), provider_run_id.clone());
         match client.connect().await {
             Ok(()) => info!(lane, "Secondary yamux lane connected"),
             Err(err) => {
@@ -96,8 +98,9 @@ async fn run_single_lane(
     stats: Collector,
     provider_signer: Option<ProviderSigner>,
     lane: usize,
+    provider_run_id: String,
 ) -> Result<()> {
-    let mut client = TunnelClient::new(&cfg, stats.clone());
+    let mut client = TunnelClient::new(&cfg, stats.clone(), provider_run_id.clone());
     client.connect().await?;
 
     let hb = HeartbeatManager::new(
@@ -110,6 +113,7 @@ async fn run_single_lane(
         client.provider_lease_request(),
         cfg.node_id.clone(),
         provider_signer,
+        provider_run_id,
     );
     let hb_handle = tokio::spawn(async move { hb.run().await });
 

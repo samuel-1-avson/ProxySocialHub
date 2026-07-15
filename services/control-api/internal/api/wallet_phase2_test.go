@@ -268,6 +268,12 @@ func TestWithdrawSOL_OnChainFailureCompensates(t *testing.T) {
 	if err := db.DB.Where("wallet_id = ? AND type = ?", wallet.ID, "withdrawal_failed_refund").First(&refund).Error; err != nil {
 		t.Fatalf("expected withdrawal_failed_refund ledger: %v", err)
 	}
+
+	var spendingCount int64
+	db.DB.Model(&models.SpendingRecord{}).Where("wallet_id = ? AND type = ?", wallet.ID, models.SpendingWithdraw).Count(&spendingCount)
+	if spendingCount != 0 {
+		t.Fatalf("expected failed withdrawal to remove spending record, got %d", spendingCount)
+	}
 }
 
 func TestWithdrawSOL_SpendingLimitExceeded(t *testing.T) {

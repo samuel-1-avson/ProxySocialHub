@@ -43,11 +43,13 @@ func Init() error {
 	streams := []struct {
 		name     string
 		subjects []string
+		maxAge   time.Duration
+		maxBytes int64
 	}{
-		{name: "SESSIONS", subjects: []string{"proxy.sessions.v1.>"}},
-		{name: "SETTLEMENT", subjects: []string{"proxy.settlement.v1.>"}},
-		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}},
-		{name: "MESSAGING", subjects: []string{"proxy.messaging.v1.>"}},
+		{name: "SESSIONS", subjects: []string{"proxy.sessions.v1.>"}, maxAge: 7 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
+		{name: "SETTLEMENT", subjects: []string{"proxy.settlement.v1.>"}, maxAge: 30 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
+		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}, maxAge: 24 * time.Hour, maxBytes: 1024 * 1024 * 1024},
+		{name: "MESSAGING", subjects: []string{"proxy.messaging.v1.>"}, maxAge: 14 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -58,6 +60,9 @@ func Init() error {
 			Name:     s.name,
 			Subjects: s.subjects,
 			Storage:  jetstream.FileStorage,
+			MaxAge:   s.maxAge,
+			MaxBytes: s.maxBytes,
+			Discard:  jetstream.DiscardOld,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create JetStream stream %s: %w", s.name, err)

@@ -73,3 +73,56 @@ export async function stubModerationQueue(page: Page, options?: { emptyAfterAppr
         });
     });
 }
+
+export const pendingForumReportId = '33333333-3333-3333-3333-333333333303';
+export const pendingForumReportTitle = 'E2E Spam thread title';
+
+export const pendingForumReportPayload = {
+    id: pendingForumReportId,
+    reporter_id: '44444444-4444-4444-4444-444444444404',
+    thread_id: '55555555-5555-5555-5555-555555555505',
+    reason: 'spam',
+    details: 'Automated E2E report',
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    reporter_name: 'e2e-reporter',
+    thread_title: pendingForumReportTitle,
+};
+
+export async function stubForumReportsQueue(page: Page, options?: { emptyAfterResolve?: boolean }) {
+    let resolved = false;
+
+    await page.route('**/v1/moderation/forum/reports**', async (route) => {
+        const req = route.request();
+        if (req.method() === 'GET') {
+            const url = new URL(req.url());
+            const status = url.searchParams.get('status') ?? 'pending';
+            const body =
+                resolved && options?.emptyAfterResolve && status === 'pending'
+                    ? { reports: [], total: 0, page: 1, limit: 20 }
+                    : {
+                          reports: status === 'pending' || status === 'all' ? [pendingForumReportPayload] : [],
+                          total: status === 'pending' || status === 'all' ? 1 : 0,
+                          page: 1,
+                          limit: 20,
+                      };
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(body),
+            });
+            return;
+        }
+        if (req.method() === 'PATCH') {
+            resolved = true;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ message: 'Report updated', status: 'resolved' }),
+            });
+            return;
+        }
+        await route.continue();
+    });
+}

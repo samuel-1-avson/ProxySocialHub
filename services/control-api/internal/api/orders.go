@@ -27,6 +27,7 @@ func RegisterOrderRoutes(rg *gin.RouterGroup) {
 	rg.GET("/sales", getMySales)
 	rg.POST("/orders/:id/pay/solana", initiateSolanaPayment)
 	rg.GET("/orders/:id/credentials", getOrderCredentials)
+	rg.POST("/orders/:id/activate-dev", activateDevOrder)
 }
 
 // initiateSolanaPayment prepares a non-custodial escrow transaction
@@ -221,6 +222,13 @@ func createOrder(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Requested bandwidth exceeds listing availability"})
 		return
 	}
+
+	providerNode, err := marketplacepkg.ResolveListingProviderNode(&listing)
+	if err != nil || providerNode == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Provider has no available nodes for this listing. Try again shortly."})
+		return
+	}
+
 	requestedTotalPrice := listing.PricePerGB * req.BandwidthGB
 
 	requiredSOL, err := marketplacepkg.RequiredSOLForUSD(c.Request.Context(), requestedTotalPrice)
@@ -288,8 +296,10 @@ func createOrder(c *gin.Context) {
 
 	// Create a bandwidth-capped session for the buyer. This lets gateway usage
 	// reports trigger deterministic session finalization and proof settlement.
+	sessionNodeID := marketplacepkg.SessionNodeIDForProvider(providerNode)
 	session := models.Session{
 		UserID:          buyerID,
+		NodeID:          sessionNodeID,
 		ListingID:       &listing.ID,
 		Type:            sessionType,
 		Status:          models.SessionDisabled,
@@ -398,10 +408,14 @@ func orderCredentialsEligible(status models.OrderStatus) bool {
 }
 
 func buildProxyCredentialsResponse(session *models.Session) gin.H {
+	host, port, endpoint := BuyerProxyConnectInfo()
 	return gin.H{
 		"username": session.CredentialsUser,
 		"password": session.CredentialsPass,
-		"endpoint": "proxy.proxyhubb.com:8080",
+		"host":     host,
+		"port":     port,
+		"protocol": "http",
+		"endpoint": endpoint,
 	}
 }
 
@@ -458,6 +472,14 @@ func getOrderCredentials(c *gin.Context) {
 	var session models.Session
 	if err := db.DB.First(&session, "id = ?", *order.SessionID).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session not found"})
+		return
+	}
+	if session.Status != models.SessionActive {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":          "Proxy credentials are not ready yet",
+			"status":         order.Status,
+			"session_status": session.Status,
+		})
 		return
 	}
 
@@ -649,7 +671,16 @@ func getDisplayName(user *models.User) string {
 	return user.Email
 }
 
-// cancelOrder cancels an active or pending order owned by the caller
+func orderNeedsEscrowResolutionBeforeCancel(order models.Order) bool {
+	if order.PaymentMethod != "solana_escrow" && order.EscrowPDA == "" {
+		return false
+	}
+	return order.Status == models.OrderStatusPendingPayment || order.Status == models.OrderStatusActive
+}
+
+// cancelOrder cancels an unfunded pending order owned by the caller.
+// Escrow-backed orders must go through refund, settlement, or dispute handling
+// so local order state cannot diverge from on-chain escrow state.
 func cancelOrder(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
 
@@ -678,6 +709,15 @@ func cancelOrder(c *gin.Context) {
 	var order models.Order
 	if err := db.DB.First(&order, "id = ? AND buyer_id = ?", orderID, buyerID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	if orderNeedsEscrowResolutionBeforeCancel(order) {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "Escrow-backed orders require refund, settlement, or dispute resolution before cancellation",
+			"status":     order.Status,
+			"escrow_pda": order.EscrowPDA,
+		})
 		return
 	}
 

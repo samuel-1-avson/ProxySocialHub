@@ -14,6 +14,11 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
+import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
+import {
+    displayListingTitle,
+    listingShowsCatalogSubtitle,
+} from '@/lib/listing-display';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 import { QuickMessageModal } from './QuickMessageModal';
 import { FollowProviderButton } from '@/components/social/FollowProviderButton';
@@ -80,12 +85,18 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                             </div>
                         </div>
                         <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-black text-white text-[11px] uppercase tracking-wider group-hover:text-primary transition-colors">
-                                    {listing.title}
+                                    {displayListingTitle(listing)}
                                 </h3>
+                                <CatalogProductBadge product={listing.catalog_product} />
                                 {listing.is_priority && <span className="text-primary text-xs">★</span>}
                             </div>
+                            {listingShowsCatalogSubtitle(listing) && (
+                                <p className="text-[9px] text-white/30 font-mono truncate max-w-[200px]">
+                                    {listing.title}
+                                </p>
+                            )}
                             <div className="flex items-center gap-3 flex-wrap">
                                 <div className="flex items-center gap-1 text-[9px] font-black text-white/20 uppercase tracking-widest">
                                     <Star size={10} className="text-yellow-500 fill-yellow-500/20" />
@@ -184,8 +195,8 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                     <div className="space-y-1">
                         <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
                         <div className="flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-white tracking-tighter">₵{Number(listing.price_per_gb || 0).toFixed(2)}</span>
-                            <span className="text-[10px] font-black text-white/20 uppercase">/ Gb</span>
+                            <span className="text-2xl font-black text-white tracking-tighter">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
+                            <span className="text-[10px] font-black text-white/20 uppercase">/ GB</span>
                         </div>
                     </div>
 
@@ -246,7 +257,7 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                 isOpen={isMessageModalOpen}
                 onClose={() => setIsMessageModalOpen(false)}
                 listingId={listing.id}
-                listingTitle={listing.title}
+                listingTitle={displayListingTitle(listing)}
                 providerId={provider?.id || listing.seller_id}
                 providerName={provider?.display_name || provider?.username || 'Provider'}
                 providerAvatar={provider?.avatar_url}

@@ -222,6 +222,8 @@ func registerGatewayNode(c *gin.Context) {
 		return
 	}
 
+	req.IPAddress, req.CountryCode, req.City = normalizeGatewayGeo(req.IPAddress, req.CountryCode, req.City)
+
 	// Parse provider user ID
 	providerID, err := uuid.Parse(req.ProviderUserID)
 	if err != nil {
@@ -277,29 +279,19 @@ func registerGatewayNode(c *gin.Context) {
 			return
 		}
 
-		// Trigger immediate sync to explorer_nodes for real-time visibility
-		go func(nodeID string) {
-			if ns := indexer.GetNodeSync(); ns != nil {
-				if err := ns.SyncNodeNow(nodeID); err != nil {
-					logging.Warn().Err(err).Str("node_id", nodeID).Msg("Immediate node sync failed")
-				} else {
-					logging.Debug().Str("node_id", nodeID).Msg("Node synced to explorer immediately")
-				}
-			}
-		}(node.ID.String())
+		scheduleNodeGeoEnrich(canonicalNode.ID.String())
 
 		reconcileProviderNodeRegistry(providerID, canonicalNode.ID, req.NodeID, 0)
 
 		logging.Info().
 			Str("node_id", canonicalNode.ID.String()).
-			Str("legacy_node_id", node.ID.String()).
+			Str("gateway_row_id", node.ID.String()).
 			Str("provider_id", providerID.String()).
 			Str("gateway_node_id", req.NodeID).
 			Msg("Gateway node registered")
 
 		c.JSON(http.StatusCreated, gin.H{
 			"id":                canonicalNode.ID.String(),
-			"legacy_node_id":    node.ID.String(),
 			"node_id":           req.NodeID,
 			"status":            "created",
 			"is_healthy":        true,
@@ -332,20 +324,13 @@ func registerGatewayNode(c *gin.Context) {
 			return
 		}
 
-		// Trigger immediate sync to update explorer with reconnected node status
-		go func(nodeID string) {
-			if ns := indexer.GetNodeSync(); ns != nil {
-				if err := ns.SyncNodeNow(nodeID); err != nil {
-					logging.Warn().Err(err).Str("node_id", nodeID).Msg("Immediate node sync failed")
-				}
-			}
-		}(existingNode.ID.String())
+		scheduleNodeGeoEnrich(canonicalNode.ID.String())
 
 		reconcileProviderNodeRegistry(providerID, canonicalNode.ID, req.NodeID, 0)
 
 		logging.Info().
 			Str("node_id", canonicalNode.ID.String()).
-			Str("legacy_node_id", existingNode.ID.String()).
+			Str("gateway_row_id", existingNode.ID.String()).
 			Str("gateway_node_id", req.NodeID).
 			Msg("Gateway node reconnected")
 
@@ -355,7 +340,6 @@ func registerGatewayNode(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"id":                canonicalNode.ID.String(),
-			"legacy_node_id":    existingNode.ID.String(),
 			"node_id":           req.NodeID,
 			"status":            status,
 			"is_healthy":        true,
@@ -488,6 +472,8 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 	qualityScore := 0.0
 	currentTier := ""
 	basePricePerGB := 0.0
+	explorerSyncID := nodeID.String()
+
 	if !updatedProviderNode {
 		if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
 			logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update legacy node heartbeat")
@@ -520,6 +506,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 				if pn := resolveProviderNodeForGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID); pn != nil {
 					reconcileProviderNodeRegistry(legacyNode.ProviderUserID, pn.ID, legacyNode.GatewayNodeID, req.LatencyMs)
 					node = *pn
+					explorerSyncID = pn.ID.String()
 					qualityScore = node.QualityScore
 					currentTier = node.Tier
 					basePricePerGB = node.BasePricePerGB
@@ -532,17 +519,24 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 				currentTier = legacyNode.CurrentTier
 				basePricePerGB = legacyNode.BasePricePerGB
 			}
+			if explorerSyncID == nodeID.String() {
+				if legacyNode.ProviderNodeID != nil && *legacyNode.ProviderNodeID != uuid.Nil {
+					explorerSyncID = legacyNode.ProviderNodeID.String()
+				} else if pn := resolveProviderNodeForGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID); pn != nil {
+					explorerSyncID = pn.ID.String()
+				}
+			}
 		}
 	}
 
 	// Trigger immediate sync to update explorer with latest heartbeat data
-	go func(nodeID string) {
+	go func(syncID string) {
 		if ns := indexer.GetNodeSync(); ns != nil {
-			if err := ns.SyncNodeNow(nodeID); err != nil {
-				logging.Debug().Err(err).Str("node_id", nodeID).Msg("Heartbeat node sync skipped")
+			if err := ns.SyncNodeNow(syncID); err != nil {
+				logging.Debug().Err(err).Str("node_id", syncID).Msg("Heartbeat node sync skipped")
 			}
 		}
-	}(nodeID.String())
+	}(explorerSyncID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":            "ok",
