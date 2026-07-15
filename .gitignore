@@ -222,7 +222,7 @@ web_endpoint_refs_raw.csv
 # Documentation, notes, transcripts, and generated text belong outside Git.
 *.md
 *.txt
-!README.md
+!/README.md
 
 # Local security and tooling material (including development TLS keypairs).
 certs/

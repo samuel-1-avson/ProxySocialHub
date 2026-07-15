@@ -22,6 +22,7 @@ import (
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
