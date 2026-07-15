@@ -53,6 +53,11 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 	}
 }
 
+func isDevLoginEnabled() bool {
+	flag := strings.TrimSpace(os.Getenv("ENABLE_DEV_LOGIN"))
+	return strings.EqualFold(flag, "true") || flag == "1"
+}
+
 type ChallengeRequest struct {
 	Address string `json:"address" binding:"required"`
 }
