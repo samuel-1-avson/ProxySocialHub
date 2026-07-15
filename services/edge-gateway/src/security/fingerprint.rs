@@ -14,10 +14,7 @@
 //! TCP stream with `AsyncReadExt::read` before calling
 //! `TlsAcceptor::accept`.  Pass those bytes to `Ja3Fingerprint::from_bytes`.
 
-use std::{
-    net::IpAddr,
-    time::Instant,
-};
+use std::{net::IpAddr, time::Instant};
 
 use dashmap::DashMap;
 use sha2::{Digest, Sha256};
@@ -157,9 +154,7 @@ fn ja4_section_a(hello: &ParsedClientHello, protocol: char) -> String {
         .count()
         .min(99);
     let alpn = ja4_alpn_tag(hello.alpn_first.as_deref());
-    format!(
-        "{protocol}{version}{sni}{cipher_count:02}{ext_count:02}{alpn}"
-    )
+    format!("{protocol}{version}{sni}{cipher_count:02}{ext_count:02}{alpn}")
 }
 
 fn ja4_tls_version_label(hello: &ParsedClientHello) -> &'static str {
@@ -231,10 +226,7 @@ fn ja4_alpn_tag(alpn: Option<&[u8]>) -> String {
 }
 
 fn ja4_hex_list_sorted(values: &[u16]) -> String {
-    let mut parts: Vec<String> = values
-        .iter()
-        .map(|v| format!("{v:04x}"))
-        .collect();
+    let mut parts: Vec<String> = values.iter().map(|v| format!("{v:04x}")).collect();
     parts.sort();
     parts.join(",")
 }
@@ -891,7 +883,9 @@ mod tests {
         let hello = ParsedClientHello {
             handshake_version: 0x0303,
             cipher_suites: vec![0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc030],
-            extensions: vec![0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x000d, 0x0010, 0x002b],
+            extensions: vec![
+                0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x000d, 0x0010, 0x002b,
+            ],
             has_sni: true,
             alpn_first: Some(b"h2".to_vec()),
             supported_versions: vec![0x0304, 0x0303],

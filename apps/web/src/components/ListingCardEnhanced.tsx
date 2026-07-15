@@ -14,35 +14,20 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
+import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
+import {
+    displayListingTitle,
+    listingShowsCatalogSubtitle,
+} from '@/lib/listing-display';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 import { QuickMessageModal } from './QuickMessageModal';
-import { getAccessTokenSilently, useAuth } from '@/lib/auth';
+import { FollowProviderButton } from '@/components/social/FollowProviderButton';
+import { useAuth } from '@/lib/auth';
+import { fetchListingSocialContext, type ListingSocialContext } from '@/lib/api/listing-social';
 
 interface ListingCardEnhancedProps {
     listing: Listing;
     onSelect: (listing: Listing) => void;
-}
-
-interface ListingSocialContext {
-    listing_id: string;
-    active_sessions_count: number;
-    total_sessions_count: number;
-    allow_direct_message: boolean;
-    provider: {
-        id: string;
-        username: string;
-        display_name: string;
-        avatar_url: string;
-        is_online: boolean;
-        last_seen_at?: string;
-        avg_rating: number;
-        reviews_count: number;
-        total_bandwidth_sold: number;
-        response_time_min: number;
-    };
-    is_followed: boolean;
-    has_existing_session: boolean;
-    existing_session_id?: string;
 }
 
 export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedProps) {
@@ -55,30 +40,14 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
 
     // Fetch social context when component mounts
     useEffect(() => {
-        const fetchSocialContext = async () => {
-            if (!listing.id) return;
-            
-            try {
-                const token = await getAccessTokenSilently();
-                const headers: HeadersInit = {};
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-
-                const response = await fetch(`/v1/listings/${listing.id}/social`, { headers });
-                if (response.ok) {
-                    const data = await response.json();
-                    setSocialContext(data);
-                }
-            } catch (error) {
-                console.error('Failed to fetch social context:', error);
-            }
-        };
-
-        fetchSocialContext();
+        fetchListingSocialContext(listing.id)
+            .then(setSocialContext)
+            .catch((error) => console.error('Failed to fetch social context:', error));
     }, [listing.id]);
 
     const provider = socialContext?.provider || listing.seller;
+    const providerId = socialContext?.provider?.id || listing.seller_id;
+    const isFollowed = socialContext?.is_followed ?? false;
     const activeSessions = socialContext?.active_sessions_count || 0;
     const totalSessions = socialContext?.total_sessions_count || listing.orders_count || 0;
     const isOnline = socialContext?.provider?.is_online || false;
@@ -116,12 +85,18 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                             </div>
                         </div>
                         <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-black text-white text-[11px] uppercase tracking-wider group-hover:text-primary transition-colors">
-                                    {listing.title}
+                                    {displayListingTitle(listing)}
                                 </h3>
+                                <CatalogProductBadge product={listing.catalog_product} />
                                 {listing.is_priority && <span className="text-primary text-xs">★</span>}
                             </div>
+                            {listingShowsCatalogSubtitle(listing) && (
+                                <p className="text-[9px] text-white/30 font-mono truncate max-w-[200px]">
+                                    {listing.title}
+                                </p>
+                            )}
                             <div className="flex items-center gap-3 flex-wrap">
                                 <div className="flex items-center gap-1 text-[9px] font-black text-white/20 uppercase tracking-widest">
                                     <Star size={10} className="text-yellow-500 fill-yellow-500/20" />
@@ -220,12 +195,25 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                     <div className="space-y-1">
                         <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
                         <div className="flex items-baseline gap-1.5">
-                            <span className="text-2xl font-black text-white tracking-tighter">₵{Number(listing.price_per_gb || 0).toFixed(2)}</span>
-                            <span className="text-[10px] font-black text-white/20 uppercase">/ Gb</span>
+                            <span className="text-2xl font-black text-white tracking-tighter">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
+                            <span className="text-[10px] font-black text-white/20 uppercase">/ GB</span>
                         </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                        {isAuthenticated && providerId && (
+                            <FollowProviderButton
+                                providerId={providerId}
+                                providerName={provider?.display_name || provider?.username}
+                                isFollowed={isFollowed}
+                                compact
+                                onFollowChange={(followed) =>
+                                    setSocialContext((c) =>
+                                        c ? { ...c, is_followed: followed } : c
+                                    )
+                                }
+                            />
+                        )}
                         {/* Message Button */}
                         {allowMessage && (
                             <button
@@ -243,6 +231,8 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
 
                         {/* Main Action Button */}
                         <button
+                            type="button"
+                            data-testid="buy-listing-inject"
                             onClick={() => onSelect(listing)}
                             className="flex-1 group/btn relative py-4 px-6 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.95]"
                         >
@@ -267,7 +257,7 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                 isOpen={isMessageModalOpen}
                 onClose={() => setIsMessageModalOpen(false)}
                 listingId={listing.id}
-                listingTitle={listing.title}
+                listingTitle={displayListingTitle(listing)}
                 providerId={provider?.id || listing.seller_id}
                 providerName={provider?.display_name || provider?.username || 'Provider'}
                 providerAvatar={provider?.avatar_url}

@@ -6,6 +6,9 @@ control_api_url = "http://localhost:18080"
 gateway_addr = "localhost:3128"
 api_key = "<from Dashboard → API Tokens>"
 node_id = "<from Dashboard → My Nodes>"
+# Generate with: provider-node keygen
+provider_signing_key = "<base58 provider signing key>"
 connection_type = "residential"
 use_tls = false
 jwt_token = ""
+metrics_port = 9090

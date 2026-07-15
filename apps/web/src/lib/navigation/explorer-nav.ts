@@ -14,9 +14,7 @@ import {
     Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { ROUTES, type AppRoute } from '@/lib/navigation/routes';
-
-type ExplorerRouteKey = keyof typeof ROUTES;
+import { ROUTES, type StaticAppRoute, type StaticRouteKey } from '@/lib/navigation/routes';
 
 const EXPLORER_TAB_ICONS: Record<ExplorerTabId, LucideIcon> = {
     overview: Blocks,
@@ -51,8 +49,8 @@ export type ExplorerTabId =
 
 export interface ExplorerTab {
     id: ExplorerTabId;
-    routeKey: ExplorerRouteKey;
-    href: AppRoute;
+    routeKey: StaticRouteKey;
+    href: StaticAppRoute;
     label: string;
     /** When false, tab is hidden unless the public API flag is enabled. */
     requiresPublicApi?: 'sessions' | 'earnings';
@@ -88,7 +86,7 @@ const ALL_EXPLORER_TABS: ExplorerTab[] = [
     { id: 'earnings', routeKey: 'explorerEarnings', href: ROUTES.explorerEarnings, label: 'Earnings', requiresPublicApi: 'earnings' },
     { id: 'analytics', routeKey: 'explorerAnalytics', href: ROUTES.explorerAnalytics, label: 'Analytics' },
     { id: 'health', routeKey: 'explorerHealth', href: ROUTES.explorerHealth, label: 'Health' },
-    { id: 'map', routeKey: 'explorerMap', href: ROUTES.explorerMap, label: 'Network map' },
+    { id: 'map', routeKey: 'explorerMap', href: ROUTES.explorerMap, label: 'Infrastructure map' },
     { id: 'search', routeKey: 'explorerSearch', href: ROUTES.explorerSearch, label: 'Search' },
     { id: 'wallets', routeKey: 'explorerWallets', href: ROUTES.explorerWallets, label: 'Wallets' },
     { id: 'contracts', routeKey: 'explorerContracts', href: ROUTES.explorerContracts, label: 'Contracts' },
@@ -115,7 +113,7 @@ export function getExplorerSidebarTabs(): ExplorerTab[] {
 }
 
 export function buildExplorerSidebarNavItems(): Array<{
-    routeKey: ExplorerRouteKey;
+    routeKey: StaticRouteKey;
     label: string;
     icon: LucideIcon;
 }> {

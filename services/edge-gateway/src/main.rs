@@ -345,13 +345,8 @@ async fn run_buyer_accept_loop(
                     }
                 }
             } else {
-                serve_buyer_http_connection(
-                    TokioIo::new(stream),
-                    proxy_state,
-                    auth_clone,
-                    None,
-                )
-                .await;
+                serve_buyer_http_connection(TokioIo::new(stream), proxy_state, auth_clone, None)
+                    .await;
             }
         });
     }
@@ -695,9 +690,7 @@ async fn proxy(
             }
             warn!(
                 "🤖 Bot detected (score={:.2}) from {:?} ja3={:?}",
-                bot_score.0,
-                client_ip,
-                profile.ja3
+                bot_score.0, client_ip, profile.ja3
             );
             metrics::record_policy_block("bot_detected");
             let mut resp = Response::new(Full::new(Bytes::from("Forbidden")));
@@ -977,6 +970,13 @@ async fn proxy(
                     Some(session.target_geo.as_str())
                 }
             });
+            let pinned_node_id = session_data.as_ref().and_then(|session| {
+                if session.node_id.is_empty() {
+                    None
+                } else {
+                    Some(session.node_id.as_str())
+                }
+            });
 
             // 2.6 Security: Honeytokens (P4-W13)
             if let Some(token_type) = state.honeytoken.check(dest_host) {
@@ -987,11 +987,10 @@ async fn proxy(
                     authenticator.clone(),
                     target_geo,
                     Some(dest_host),
+                    pinned_node_id,
                 )
                 .await;
-                let provider_id = attributed_provider
-                    .as_deref()
-                    .unwrap_or("unknown_provider");
+                let provider_id = attributed_provider.as_deref().unwrap_or("unknown_provider");
                 let attribution_label = if attributed_provider.is_some() {
                     "resolved"
                 } else {
@@ -1054,8 +1053,7 @@ async fn proxy(
                     .unwrap());
             }
 
-            let connect_span =
-                observability::buyer_connect_span(&session_id, &addr);
+            let connect_span = observability::buyer_connect_span(&session_id, &addr);
             let provider_route = match async {
                 crate::registry::provider_selection::select_provider_route(
                     state.clone(),
@@ -1064,6 +1062,7 @@ async fn proxy(
                     authenticator.clone(),
                     target_geo,
                     Some(dest_host),
+                    pinned_node_id,
                 )
                 .await
             }
@@ -1205,11 +1204,8 @@ async fn proxy(
             // 4. Return 200 OK to establish tunnel, then bridge in background
             let session_type_clone = session_type.clone();
             let bridge_session_id = session_id.clone();
-            let bridge_span = observability::buyer_connect_bridge_span(
-                &bridge_session_id,
-                &node_id,
-                &addr,
-            );
+            let bridge_span =
+                observability::buyer_connect_bridge_span(&bridge_session_id, &node_id, &addr);
             tokio::task::spawn(
                 async move {
                 match hyper::upgrade::on(req).await {
@@ -2023,9 +2019,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let quic_state = state.clone();
         let quic_config = Arc::new(state.config.clone());
         tokio::spawn(async move {
-            if let Err(e) =
-                provider_transport::quic_listener::spawn_quic_tunnel_listener(quic_config, quic_state)
-                    .await
+            if let Err(e) = provider_transport::quic_listener::spawn_quic_tunnel_listener(
+                quic_config,
+                quic_state,
+            )
+            .await
             {
                 error!("QUIC tunnel listener error: {}", e);
             }
@@ -2037,7 +2035,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let socks5_state = state.clone();
         let socks5_auth = authenticator.clone();
         tokio::spawn(async move {
-            if let Err(e) = ingress::socks5::run_server(socks5_addr, socks5_state, socks5_auth).await
+            if let Err(e) =
+                ingress::socks5::run_server(socks5_addr, socks5_state, socks5_auth).await
             {
                 error!("SOCKS5 ingress error: {}", e);
             }
@@ -2086,7 +2085,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let listeners = net_listen::bind_buyer_listeners(addr).await?;
     if buyer_tls_acceptor.is_some() {
-        info!("Edge Gateway Proxy listening on https://{} (ALPN h2, http/1.1)", addr);
+        info!(
+            "Edge Gateway Proxy listening on https://{} (ALPN h2, http/1.1)",
+            addr
+        );
     } else {
         info!("Edge Gateway Proxy listening on http://{}", addr);
     }

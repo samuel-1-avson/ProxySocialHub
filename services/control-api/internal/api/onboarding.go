@@ -53,6 +53,16 @@ type ProviderAutoApprovalResult struct {
 	CurrentSOL    *float64 `json:"current_sol,omitempty"`
 }
 
+type ProviderDetectedGeo struct {
+	IP       string `json:"ip,omitempty"`
+	ISP      string `json:"isp"`
+	Location string `json:"location"`
+	City     string `json:"city,omitempty"`
+	Region   string `json:"region,omitempty"`
+	Country  string `json:"country,omitempty"`
+	Detected bool   `json:"detected"`
+}
+
 var evaluateProviderAutoApproval = defaultProviderAutoApproval
 
 func providerMinimumBalanceSOL(ctx context.Context, oracle *solana.OracleClient) float64 {
@@ -221,8 +231,48 @@ func upsertProviderApplication(tx *gorm.DB, app *models.ProviderApplication, use
 	return tx.Save(app).Error
 }
 
+func roleHasProviderAccess(role string) bool {
+	switch role {
+	case "provider", "admin", "superadmin", "moderator", "both":
+		return true
+	default:
+		return false
+	}
+}
+
 func ensureProviderRole(tx *gorm.DB, userID uuid.UUID) error {
-	return tx.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error
+	var user models.User
+	if err := tx.Select("id", "role").First(&user, "id = ?", userID).Error; err != nil {
+		return err
+	}
+
+	if roleHasProviderAccess(user.Role) {
+		return nil
+	}
+
+	return tx.Model(&models.User{}).Where("id = ?", userID).Update("role", "provider").Error
+}
+
+func syncApprovedProviderRole(user *models.User) error {
+	if user == nil || roleHasProviderAccess(user.Role) {
+		return nil
+	}
+
+	var approvedCount int64
+	if err := db.DB.Model(&models.ProviderApplication{}).
+		Where("user_id = ? AND status = ?", user.ID, "approved").
+		Count(&approvedCount).Error; err != nil {
+		return err
+	}
+	if approvedCount == 0 {
+		return nil
+	}
+
+	if err := ensureProviderRole(db.DB, user.ID); err != nil {
+		return err
+	}
+	user.Role = "provider"
+	return nil
 }
 
 // PromoteProviderApplicationAfterKYC re-evaluates a pending provider application after KYC approval (mainnet).
@@ -314,6 +364,70 @@ func syncApplicationDecision(user *models.User, app *models.ProviderApplication,
 	return tx.Commit().Error
 }
 
+func detectProviderGeo(c *gin.Context) ProviderDetectedGeo {
+	clientIP := providerClientIP(c)
+	effectiveIP := geoip.NormalizeIPForGeo(clientIP)
+	if result, ok := geoip.Resolve(effectiveIP); ok {
+		return ProviderDetectedGeo{
+			IP:       effectiveIP,
+			ISP:      firstNonEmpty(result.ISP, "Unknown ISP"),
+			Location: providerGeoLocation(result),
+			City:     result.City,
+			Region:   result.Region,
+			Country:  result.Country,
+			Detected: true,
+		}
+	}
+
+	return ProviderDetectedGeo{
+		IP:       effectiveIP,
+		ISP:      "Unknown ISP",
+		Location: "Unknown",
+		Detected: false,
+	}
+}
+
+func providerClientIP(c *gin.Context) string {
+	for _, header := range []string{"CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"} {
+		value := strings.TrimSpace(c.GetHeader(header))
+		if value == "" {
+			continue
+		}
+		for _, candidate := range strings.Split(value, ",") {
+			candidate = strings.TrimSpace(candidate)
+			if candidate != "" && !geoip.NeedsPublicIPLookup(candidate) {
+				return candidate
+			}
+		}
+	}
+	return c.ClientIP()
+}
+
+func providerGeoLocation(result geoip.Result) string {
+	parts := []string{}
+	if result.City != "" {
+		parts = append(parts, result.City)
+	} else if result.Region != "" {
+		parts = append(parts, result.Region)
+	}
+	if result.Country != "" {
+		parts = append(parts, result.Country)
+	}
+	if len(parts) == 0 {
+		return "Unknown"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // applyForProvider handles provider application submission
 func applyForProvider(c *gin.Context) {
 	userID, ok := GetUserID(c)
@@ -335,17 +449,9 @@ func applyForProvider(c *gin.Context) {
 		return
 	}
 
-	// ISP & Location Auto-Detection
-	clientIP := c.ClientIP()
-	geoResult, ok := geoip.Resolve(clientIP)
-
-	finalISP := "Unknown ISP"
-	finalLocation := "Unknown"
-
-	if ok {
-		finalISP = geoResult.ISP
-		finalLocation = fmt.Sprintf("%s, %s", geoResult.City, geoResult.Country)
-	}
+	detectedGeo := detectProviderGeo(c)
+	finalISP := detectedGeo.ISP
+	finalLocation := detectedGeo.Location
 
 	var app models.ProviderApplication
 	existingErr := db.DB.Where("user_id = ?", userID).First(&app).Error
@@ -356,7 +462,7 @@ func applyForProvider(c *gin.Context) {
 	}
 
 	if exists && app.Status == "approved" {
-		if err := db.DB.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error; err != nil {
+		if err := ensureProviderRole(db.DB, userID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to synchronize provider role"})
 			return
 		}
@@ -365,6 +471,7 @@ func applyForProvider(c *gin.Context) {
 			"message":       "Application already approved",
 			"application":   app,
 			"auto_approved": app.ReviewerID == nil,
+			"detected_geo":  detectedGeo,
 		})
 		return
 	}
@@ -403,6 +510,7 @@ func applyForProvider(c *gin.Context) {
 		"application":   app,
 		"auto_approved": decision.AutoApproved,
 		"eligibility":   decision,
+		"detected_geo":  detectedGeo,
 	})
 }
 
@@ -417,7 +525,11 @@ func getProviderStatus(c *gin.Context) {
 	var app models.ProviderApplication
 	if err := db.DB.Where("user_id = ?", userID).First(&app).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusOK, gin.H{"status": "none", "application": nil})
+			c.JSON(http.StatusOK, gin.H{
+				"status":       "none",
+				"application":  nil,
+				"detected_geo": detectProviderGeo(c),
+			})
 			return
 		}
 
@@ -445,11 +557,12 @@ func getProviderStatus(c *gin.Context) {
 			"application":   app,
 			"auto_approved": decision.AutoApproved,
 			"eligibility":   decision,
+			"detected_geo":  detectProviderGeo(c),
 		})
 		return
 	}
 
-	if err := db.DB.Model(&models.User{}).Where("id = ? AND role <> ?", userID, "provider").Update("role", "provider").Error; err != nil {
+	if err := ensureProviderRole(db.DB, userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to synchronize provider role"})
 		return
 	}
@@ -458,6 +571,7 @@ func getProviderStatus(c *gin.Context) {
 		"status":        app.Status,
 		"application":   app,
 		"auto_approved": app.ReviewerID == nil,
+		"detected_geo":  detectProviderGeo(c),
 	})
 }
 

@@ -1,4 +1,4 @@
-import { ProviderNode } from '@/lib/services/market';
+import { ProviderNode } from '@/lib/api/marketplace';
 import { Shield, Clock, Wifi, Award, TrendingUp, AlertTriangle } from 'lucide-react';
 
 interface ProviderScoreCardProps {

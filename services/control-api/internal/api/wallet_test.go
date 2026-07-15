@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -772,3 +774,75 @@ func TestGetKYCStatus_AdminCanAccessAny(t *testing.T) {
 		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
 	}
 }
+
+func TestTransferP2P_CompensatingRefundCorrectsBothBalances(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "spending_records")
+
+	sender, senderWallet := createWalletTestUser(t)
+	recipient, recipientWallet := createWalletTestUser(t)
+
+	// Seed sender wallet with balance and link solana address
+	senderWallet.BalanceSOL = 100.0
+	db.DB.Save(&senderWallet)
+	senderAddr := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G"
+	sender.WalletAddress = &senderAddr
+	db.DB.Save(&sender)
+
+	// Seed recipient wallet with balance and link solana address
+	recipientWallet.BalanceSOL = 20.0
+	db.DB.Save(&recipientWallet)
+	recipientAddr := "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9wYt5WGy"
+	recipient.WalletAddress = &recipientAddr
+	db.DB.Save(&recipient)
+
+	// Mock on-chain P2P send to fail with an error
+	withP2POnChainMocks(t, func(ctx context.Context, oracle *solana.OracleClient, dest solanaGo.PublicKey, lamports uint64) (string, error) {
+		return "", errors.New("simulated on-chain send failure")
+	})
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(sender.ID.String(), "buyer"))
+	r.POST("/wallet/transfer", transferP2P)
+
+	body := map[string]interface{}{
+		"recipient": recipient.Email,
+		"amount":    15.0,
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/wallet/transfer", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d. Body: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+
+	// Verify both balances are corrected in the database
+	var finalSenderWallet models.Wallet
+	db.DB.Where("user_id = ?", sender.ID).First(&finalSenderWallet)
+	if finalSenderWallet.BalanceSOL != 100.0 {
+		t.Errorf("Expected sender balance to be restored to 100.0, got %.2f", finalSenderWallet.BalanceSOL)
+	}
+
+	var finalRecipientWallet models.Wallet
+	db.DB.Where("user_id = ?", recipient.ID).First(&finalRecipientWallet)
+	if finalRecipientWallet.BalanceSOL != 20.0 {
+		t.Errorf("Expected recipient balance to be corrected back to 20.0, got %.2f", finalRecipientWallet.BalanceSOL)
+	}
+
+	// Verify ledger entries for correction were created
+	var refundLedger models.WalletLedgerEntry
+	if err := db.DB.Where("wallet_id = ? AND type = 'p2p_failed_refund'", senderWallet.ID).First(&refundLedger).Error; err != nil {
+		t.Errorf("Failed to find p2p_failed_refund ledger entry: %v", err)
+	}
+
+	var debitCorrectionLedger models.WalletLedgerEntry
+	if err := db.DB.Where("wallet_id = ? AND type = 'p2p_failed_debit'", recipientWallet.ID).First(&debitCorrectionLedger).Error; err != nil {
+		t.Errorf("Failed to find p2p_failed_debit ledger entry: %v", err)
+	}
+}
+

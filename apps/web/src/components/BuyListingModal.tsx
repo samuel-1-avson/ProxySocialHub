@@ -1,28 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
     Listing,
     createOrderWithProvisioning,
-    createSessionFromListing,
+    getOrderProxyCredentials,
     initiateSmartContractPayment,
     marketplaceKeys,
+    waitForOrderActive,
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
+import Link from 'next/link';
+import { ROUTES } from '@/lib/navigation/routes';
+import {
+    trackMarketplaceEvent,
+    type MarketplaceFunnelSurface,
+} from '@/lib/analytics/marketplace-funnel';
 
 interface BuyListingModalProps {
     listing: Listing;
     onClose: () => void;
     onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
+    surface?: MarketplaceFunnelSurface | string;
 }
 
-export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModalProps) {
+export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknown' }: BuyListingModalProps) {
     const { publicKey } = useWallet();
     const wallet = useAnchorWallet();
     const toast = useToast();
@@ -30,13 +38,21 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
+    const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
     const [showPass, setShowPass] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
 
     const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
 
+    useEffect(() => {
+        trackMarketplaceEvent('buy_modal_open', {
+            listing_id: listing.id,
+            surface,
+        });
+    }, [listing.id, surface]);
+
     const bandwidthLimitBytes = bandwidth * 1024 * 1024 * 1024;
-    const estimatedCostUSD = listing.price_per_gb * bandwidth;
+    const estimatedCostSOL = listing.price_per_gb * bandwidth;
 
     const copyToClipboard = (text: string, key: string) => {
         navigator.clipboard.writeText(text).then(() => {
@@ -79,20 +95,17 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
 
             console.log("Solana escrow tx:", tx);
 
-            let nextCredentials = orderResult.proxy_credentials;
+            await waitForOrderActive(order.id, {
+                timeoutMs: e2eMockBuy ? 15_000 : 60_000,
+                pollIntervalMs: e2eMockBuy ? 250 : 2000,
+            });
+            const credsResponse = await getOrderProxyCredentials(order.id);
+            const nextCredentials = credsResponse.proxy_credentials;
             if (!nextCredentials) {
-                // Fallback for older API responses that create the order but do not return credentials.
-                const sessionResult = await createSessionFromListing({
-                    listing_id: listing.id,
-                    type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
-                    bandwidth_limit: bandwidthLimitBytes,
-                });
-                nextCredentials = sessionResult.proxy_credentials;
-            }
-            if (!nextCredentials) {
-                throw new Error('Order created, but proxy credentials were not returned.');
+                throw new Error('Order created, but proxy credentials were not returned after escrow confirmation.');
             }
 
+            setCompletedOrderId(order.id);
             setCredentials(nextCredentials);
             void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
             onSuccess(order.id, nextCredentials);
@@ -169,6 +182,15 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
                         Configure your client using <span className="text-white/60">HTTP proxy</span> with the credentials above.
                         Billing is hourly — session auto-terminates when bandwidth quota is reached.
                     </p>
+
+                    {completedOrderId && (
+                        <Link
+                            href={ROUTES.dashboardOrder(completedOrderId)}
+                            className="block w-full py-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-300 font-black text-sm uppercase tracking-widest hover:bg-purple-500/20 transition-all text-center"
+                        >
+                            View order & credentials
+                        </Link>
+                    )}
 
                     <button
                         onClick={onClose}
@@ -250,7 +272,7 @@ export function BuyListingModal({ listing, onClose, onSuccess }: BuyListingModal
                         <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
                             <div>
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Estimated Total</p>
-                                <p className="font-mono text-2xl font-black text-emerald-400">{estimatedCostUSD.toFixed(6)} SOL</p>
+                                <p className="font-mono text-2xl font-black text-emerald-400">{estimatedCostSOL.toFixed(6)} SOL</p>
                             </div>
                             <div className="text-right">
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Rate</p>

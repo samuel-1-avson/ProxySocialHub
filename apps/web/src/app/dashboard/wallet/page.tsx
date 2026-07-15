@@ -56,23 +56,33 @@ import { GlassCard } from '@/components/ui/glass-card';
 
 type TabType = 'OVERVIEW' | 'LINKED_WALLETS';
 
-const LARGE_WITHDRAW_SOL = 10;
+const DEFAULT_LARGE_WITHDRAW_SOL = 10;
+const DEPOSIT_FEE_BUFFER_LAMPORTS = 50_000;
+
+function formatSOL(n: number): string {
+    if (n === 0) return '0.0000';
+    const absVal = Math.abs(n);
+    if (absVal >= 0.01) {
+        return n.toFixed(4);
+    }
+    return n.toFixed(6);
+}
 
 export default function UnifiedWalletPage() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<TabType>('OVERVIEW');
-    const [solPriceUSD, setSolPriceUSD] = useState<number>(150);
-
     // Common State
     const [processing, setProcessing] = useState(false);
-    const [result, setResult] = useState<{ success: boolean; message: string; solscanUrl?: string } | null>(null);
+    const [result, setResult] = useState<{ success: boolean; message: string; solscanUrl?: string; type?: 'info' | 'success' | 'error' } | null>(null);
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [depositAmount, setDepositAmount] = useState('');
     const [depositTxHash, setDepositTxHash] = useState('');
     const [showManualDeposit, setShowManualDeposit] = useState(false);
     const [whitelistDraft, setWhitelistDraft] = useState('');
     const [whitelistSaving, setWhitelistSaving] = useState(false);
+    const [showDepositConfirm, setShowDepositConfirm] = useState(false);
+    const [depositConfirmAmount, setDepositConfirmAmount] = useState<number | null>(null);
 
     // Solana Wallet
     const { connected, publicKey, signMessage, signTransaction, sendTransaction, disconnect } = useSolanaWallet();
@@ -88,7 +98,7 @@ export default function UnifiedWalletPage() {
         process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || '';
     const isLocalSolanaRpc = /localhost|127\.0\.0\.1/i.test(solanaRpc);
 
-    const { data: wallet, isLoading: loading } = useQuery({
+    const { data: wallet, isLoading: loading, error: walletError } = useQuery({
         queryKey: ['wallet'],
         queryFn: () => getWallet(),
         enabled: !!user,
@@ -119,20 +129,16 @@ export default function UnifiedWalletPage() {
     const { data: withdrawalSecurity, refetch: refetchWithdrawalSecurity } = useQuery({
         queryKey: ['withdrawal-security'],
         queryFn: getWithdrawalSecurity,
-        enabled: !!user && activeTab === 'LINKED_WALLETS',
+        enabled: !!user,
     });
+    const largeWithdrawThresholdSOL = treasuryConfig?.large_withdraw_threshold_sol ?? DEFAULT_LARGE_WITHDRAW_SOL;
+    const withdrawRequiresSignature = parseFloat(withdrawAmount) > largeWithdrawThresholdSOL;
 
     useEffect(() => {
         if (withdrawalSecurity?.withdrawal_whitelist) {
             setWhitelistDraft(withdrawalSecurity.withdrawal_whitelist.join('\n'));
         }
     }, [withdrawalSecurity?.withdrawal_whitelist]);
-
-    useEffect(() => {
-        if (treasuryConfig?.sol_price_usd && treasuryConfig.sol_price_usd > 0) {
-            setSolPriceUSD(treasuryConfig.sol_price_usd);
-        }
-    }, [treasuryConfig]);
 
     useEffect(() => {
         setMounted(true);
@@ -220,6 +226,20 @@ export default function UnifiedWalletPage() {
         }
     };
 
+    const initiateDeposit = () => {
+        const amt = parseFloat(depositAmount);
+        if (!amt || amt <= 0) {
+            setResult({ success: false, message: 'Enter a valid deposit amount' });
+            return;
+        }
+        if (!wallet?.linked_solana_address) {
+            setResult({ success: false, message: 'Link a Solana wallet first (Linked Wallets tab)' });
+            return;
+        }
+        setDepositConfirmAmount(amt);
+        setShowDepositConfirm(true);
+    };
+
     const handleDepositSol = async () => {
         const amt = parseFloat(depositAmount);
         if (!amt || amt <= 0) {
@@ -263,7 +283,7 @@ export default function UnifiedWalletPage() {
             }
 
             const balance = await connection.getBalance(publicKey);
-            const feeBuffer = 10_000;
+            const feeBuffer = DEPOSIT_FEE_BUFFER_LAMPORTS;
             if (balance < lamports + feeBuffer) {
                 setResult({
                     success: false,
@@ -272,14 +292,14 @@ export default function UnifiedWalletPage() {
                 return;
             }
 
-            setResult({ success: true, message: 'Approve the transfer in your wallet…' });
+            setResult({ success: true, message: 'Approve the transfer in your wallet…', type: 'info' });
             const signature = await sendSolTransfer(connection, {
                 publicKey,
                 signTransaction,
                 sendTransaction,
             }, treasuryPk, lamports);
 
-            setResult({ success: true, message: 'Transaction confirmed — crediting balance…' });
+            setResult({ success: true, message: 'Transaction confirmed — crediting balance…', type: 'info' });
             await creditDepositOnServer(amt, signature);
         } catch (err: unknown) {
             setResult({ success: false, message: formatSolanaWalletError(err) });
@@ -307,9 +327,9 @@ export default function UnifiedWalletPage() {
         setResult(null);
         try {
             let opts: { nonce?: string; signature?: string } | undefined;
-            if (amt > LARGE_WITHDRAW_SOL) {
+            if (amt > largeWithdrawThresholdSOL) {
                 if (!signMessage || !connected || !publicKey) {
-                    throw new Error(`Withdrawals over ${LARGE_WITHDRAW_SOL} SOL require wallet signature — connect Phantom/Solflare`);
+                    throw new Error(`Withdrawals over ${largeWithdrawThresholdSOL} SOL require wallet signature — connect Phantom/Solflare`);
                 }
                 const linked = wallet.linked_solana_address;
                 if (publicKey.toBase58() !== linked) {
@@ -498,7 +518,23 @@ export default function UnifiedWalletPage() {
                 </div>
             </motion.header>
 
-            {loading ? (
+            {walletError ? (
+                <div className="flex flex-col items-center justify-center py-32 space-y-6 max-w-md mx-auto text-center font-mono">
+                    <AlertCircle className="w-12 h-12 text-rose-500" />
+                    <div className="space-y-2">
+                        <p className="text-xs font-black uppercase tracking-widest text-foreground">Failed to Synchronize Ledger</p>
+                        <p className="text-[10px] text-muted-foreground leading-relaxed uppercase font-bold">
+                            {getErrorMessage(walletError) || 'The platform was unable to load your wallet and transaction history.'}
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ['wallet'] })}
+                        className="px-6 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
+                    >
+                        Retry Connection
+                    </button>
+                </div>
+            ) : loading ? (
                 <div className="flex flex-col items-center justify-center py-32 space-y-4">
                     <Loader2 className="w-10 h-10 animate-spin text-primary" />
                     <p className="font-mono text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synchronizing Ledger...</p>
@@ -573,7 +609,7 @@ export default function UnifiedWalletPage() {
                                             </div>
                                         </motion.div>
 
-                                        {/* SOL-only: USDT card removed */}
+                                        {/* SOL-only settlement card */}
                                         <motion.div
                                             whileHover={{ y: -5 }}
                                             className="glass-card p-8 border-emerald-500/20 bg-emerald-500/5 group relative overflow-hidden"
@@ -582,14 +618,13 @@ export default function UnifiedWalletPage() {
                                                 <Coins size={120} className="text-emerald-500" />
                                             </div>
                                             <div className="flex justify-between items-center mb-6">
-                                                <p className="text-[10px] font-mono font-black text-emerald-500 uppercase tracking-[0.2em]">USD Equivalent</p>
+                                                <p className="text-[10px] font-mono font-black text-emerald-500 uppercase tracking-[0.2em]">SOL Settlement</p>
                                                 <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                                                     <ShieldCheck size={14} className="text-emerald-500" />
                                                 </div>
                                             </div>
-                                            <div className="text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
-                                                <span className="text-xl opacity-40 font-black">~$</span>
-                                                {(Number(wallet?.balance_sol || 0) * Number(solPriceUSD || 0)).toFixed(2)}
+                                            <div className="text-3xl md:text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
+                                                {formatSOL(Number(wallet?.balance_sol || 0))} SOL
                                             </div>
                                             <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
                                                 <Activity size={12} className="text-emerald-500" />
@@ -636,12 +671,14 @@ export default function UnifiedWalletPage() {
                                         {result && activeTab === 'OVERVIEW' && (
                                             <div
                                                 className={`p-4 rounded-xl border text-[10px] font-mono uppercase font-black flex flex-wrap items-center gap-3 ${
-                                                    result.success
-                                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                                                        : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+                                                    result.type === 'info'
+                                                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+                                                        : result.success
+                                                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                                                            : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
                                                 }`}
                                             >
-                                                {result.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                                                {result.type === 'info' ? <Loader2 size={16} className="animate-spin" /> : result.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
                                                 <span>{result.message}</span>
                                                 {result.solscanUrl && (
                                                     <a
@@ -709,7 +746,7 @@ export default function UnifiedWalletPage() {
                                                 )}
                                                 <button
                                                     type="button"
-                                                    onClick={handleDepositSol}
+                                                    onClick={initiateDeposit}
                                                     disabled={processing || !wallet?.linked_solana_address}
                                                     className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest disabled:opacity-40"
                                                 >
@@ -763,8 +800,20 @@ export default function UnifiedWalletPage() {
                                                     {wallet?.linked_solana_address
                                                         ? ` (${wallet.linked_solana_address.slice(0, 4)}…${wallet.linked_solana_address.slice(-4)})`
                                                         : ''}
-                                                    . Amounts over {LARGE_WITHDRAW_SOL} SOL require a wallet signature.
+                                                    . Amounts over {largeWithdrawThresholdSOL} SOL require a wallet signature.
                                                 </p>
+                                                {withdrawalSecurity?.withdrawal_cooldown_active && (
+                                                    <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-mono uppercase font-black leading-relaxed flex items-start gap-2">
+                                                        <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                                                        <span>
+                                                            Withdrawal cooldown active until{' '}
+                                                            {withdrawalSecurity.withdrawal_cooldown_until
+                                                                ? new Date(withdrawalSecurity.withdrawal_cooldown_until).toLocaleString()
+                                                                : '24h after address change'}
+                                                            . You changed your withdrawal address recently.
+                                                        </span>
+                                                    </div>
+                                                )}
                                                 <input
                                                     type="number"
                                                     min="0"
@@ -774,16 +823,16 @@ export default function UnifiedWalletPage() {
                                                     onChange={(e) => setWithdrawAmount(e.target.value)}
                                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
                                                 />
-                                                {parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL && (
+                                                {withdrawRequiresSignature && (
                                                     <p className="text-[9px] font-mono text-amber-500/90 uppercase flex items-center gap-2">
                                                         <Shield size={12} />
                                                         {signMessage
                                                             ? 'Signature required — approve the message in your wallet when prompted'
-                                                            : 'Connect Phantom/Solflare below, then withdraw (required for amounts over 10 SOL)'}
+                                                            : `Connect Phantom/Solflare below, then withdraw (required for amounts over ${largeWithdrawThresholdSOL} SOL)`}
                                                     </p>
                                                 )}
                                                 {wallet?.linked_solana_address &&
-                                                    parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL &&
+                                                    withdrawRequiresSignature &&
                                                     !signMessage && (
                                                         <div className="space-y-2">
                                                             <p className="text-[9px] font-mono text-amber-500/80 uppercase">
@@ -799,7 +848,7 @@ export default function UnifiedWalletPage() {
                                                     disabled={
                                                         processing ||
                                                         !wallet?.linked_solana_address ||
-                                                        (parseFloat(withdrawAmount) > LARGE_WITHDRAW_SOL && !signMessage)
+                                                        (withdrawRequiresSignature && !signMessage)
                                                     }
                                                     className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest border-rose-500/30 hover:border-rose-500/50 disabled:opacity-40"
                                                 >
@@ -859,7 +908,7 @@ export default function UnifiedWalletPage() {
                                                                 )}
                                                             </td>
                                                             <td className={`px-8 py-5 font-black text-base tracking-tighter ${(tx.amount ?? 0) > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                {(Number(tx.amount || 0) > 0 ? '+' : '')}{Number(tx.amount || 0).toFixed(2)}
+                                                                {(Number(tx.amount || 0) > 0 ? '+' : '')}{formatSOL(Number(tx.amount || 0))}
                                                             </td>
                                                             <td className="px-8 py-5 text-center">
                                                                 <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${
@@ -1080,7 +1129,7 @@ export default function UnifiedWalletPage() {
                                 <div className="p-6 glass-card bg-white/5 border-white/10 rounded-2xl group transition-all hover:bg-white/10">
                                     <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">Estimated ROI (L2 Streaming)</p>
                                     <div className="text-2xl font-black font-mono text-emerald-500 flex items-baseline gap-1">
-                                        + $0.00000
+                                        + 0.000000 SOL
                                     </div>
                                     <div className="mt-4 h-0.5 bg-emerald-500/20 w-full overflow-hidden rounded-full">
                                         <div className="h-full w-full bg-emerald-500/10" />
@@ -1137,6 +1186,71 @@ export default function UnifiedWalletPage() {
                     </motion.div>
                 </div>
             )}
+
+            <AnimatePresence>
+                {showDepositConfirm && depositConfirmAmount !== null && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="glass-card max-w-md w-full p-6 border-white/10 bg-zinc-950/95 space-y-6 text-left"
+                        >
+                            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                                <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                                    <ArrowDownLeft className="text-primary" size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-mono text-xs font-black uppercase tracking-widest text-foreground">Confirm Deposit</h3>
+                                    <p className="text-[10px] font-mono text-muted-foreground uppercase">Please verify transaction details</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 font-mono text-[10px] uppercase">
+                                <div className="flex justify-between border-b border-white/5 pb-2">
+                                    <span className="text-muted-foreground">Deposit Amount</span>
+                                    <span className="font-bold text-foreground">{depositConfirmAmount} SOL</span>
+                                </div>
+                                <div className="flex justify-between border-b border-white/5 pb-2">
+                                    <span className="text-muted-foreground">Target Network</span>
+                                    <span className="font-bold text-primary">{solanaNetwork}</span>
+                                </div>
+                                <div className="space-y-1">
+                                    <span className="text-muted-foreground block">Treasury Destination</span>
+                                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/5 text-[9px] break-all select-all font-mono font-bold text-foreground leading-normal">
+                                        {treasuryConfig?.treasury_solana}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-primary/5 border border-primary/10 rounded-xl text-primary text-[9px] leading-relaxed uppercase">
+                                    ℹ️ You will approve one transaction in your linked wallet adapter to transfer SOL to the ProxyHub Treasury. Once confirmed, your custodial account is credited.
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4 pt-2">
+                                <button
+                                    onClick={() => {
+                                        setShowDepositConfirm(false);
+                                        setDepositConfirmAmount(null);
+                                    }}
+                                    className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-mono text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowDepositConfirm(false);
+                                        setDepositConfirmAmount(null);
+                                        handleDepositSol();
+                                    }}
+                                    className="flex-1 btn-retro !py-2.5 text-[9px] uppercase font-black tracking-widest"
+                                >
+                                    Confirm & Send
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

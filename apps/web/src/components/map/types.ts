@@ -16,6 +16,8 @@ export interface ExplorerListingPin {
     lon: number;
     price_per_gb: number;
     country?: string;
+    city?: string;
+    node_id?: string;
     estimated?: boolean;
     uptime_percent?: number;
     sla_source?: string;
@@ -40,6 +42,7 @@ export interface ProxyMapCanvasProps {
     liveUpdates?: MapNodeUpdate[];
     listingPins?: ExplorerListingPin[];
     onSelectListing?: (pin: ExplorerListingPin) => void;
+    onSelectListingGroup?: (pins: ExplorerListingPin[]) => void;
     selectedListingId?: string;
     onBoundsChange?: (bounds: MapViewportBounds) => void;
 }

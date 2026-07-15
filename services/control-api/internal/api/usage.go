@@ -560,7 +560,7 @@ func getUserUsage(c *gin.Context) {
 		query = query.Limit(100).Order("created_at DESC")
 	}
 
-	query.Find(&sessions)
+	query.Preload("Listing").Find(&sessions)
 
 	// 2. Batch get usage from Redis (Pipeline)
 	sessionIDs := make([]string, len(sessions))
@@ -579,28 +579,39 @@ func getUserUsage(c *gin.Context) {
 	}
 
 	var totalUsage int64 = 0
+	totalCostSOL := 0.0
 	sessionStats := make([]gin.H, 0, len(sessions))
 
 	// 3. Construct response
 	for _, session := range sessions {
 		usage := usageMap[session.CredentialsUser]
 		totalUsage += usage
+		gbUsed := float64(usage) / (1024 * 1024 * 1024)
+		costPerGBSOL := PricePerGBSOL
+		if session.Listing != nil && session.Listing.PricePerGB > 0 {
+			costPerGBSOL = billing.USDToSOL(session.Listing.PricePerGB)
+		}
+		costSOL := gbUsed * costPerGBSOL
+		totalCostSOL += costSOL
 
 		sessionStats = append(sessionStats, gin.H{
 			"session_id": session.ID,
 			"type":       session.Type,
 			"status":     session.Status,
 			"bytes_used": usage,
+			"gb_used":    gbUsed,
+			"cost_sol":   costSOL,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":     userID,
-		"total_bytes": totalUsage,
-		"total_gb":    float64(totalUsage) / (1024 * 1024 * 1024),
-		"sessions":    sessionStats,
-		"count":       len(sessions),
-		"filter":      status,
+		"user_id":        userID,
+		"total_bytes":    totalUsage,
+		"total_gb":       float64(totalUsage) / (1024 * 1024 * 1024),
+		"total_cost_sol": totalCostSOL,
+		"sessions":       sessionStats,
+		"count":          len(sessions),
+		"filter":         status,
 	})
 }
 

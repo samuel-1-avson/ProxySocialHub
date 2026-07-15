@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getProposals, type Proposal } from "@/lib/services/governance";
+import { GovernanceExecutionBanner } from "@/components/governance/GovernanceExecutionBanner";
 import { Vote, Hammer, Plus, Clock, CheckCircle, XCircle, FileText, Loader2, ArrowRight, Hexagon, ChevronRight, Shield, Award, Activity } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -79,6 +80,10 @@ export default function GovernancePage() {
                 </Link>
             </motion.div>
 
+            <motion.div variants={itemVariants}>
+                <GovernanceExecutionBanner />
+            </motion.div>
+
             {/* Premium Stats Grid */}
             <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <GlassCard className="!p-8 group overflow-hidden relative active:scale-[0.98] transition-all">
@@ -88,9 +93,11 @@ export default function GovernancePage() {
                     <div className="space-y-6 relative z-10">
                         <div className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/40 border-b border-white/5 pb-3">Voting Influence</div>
                         <div className="space-y-1">
-                            <div className="text-4xl font-black tracking-tighter text-primary group-hover:text-emerald-400 transition-colors">0 VP</div>
+                            <div className="text-2xl font-black tracking-tighter text-primary group-hover:text-emerald-400 transition-colors leading-tight">
+                                PHB-weighted
+                            </div>
                             <div className="text-[9px] font-black uppercase text-muted-foreground/20 flex items-center gap-2">
-                                <Shield size={10} /> Authorized Operator Stake
+                                <Shield size={10} /> VP applied when you vote on-chain
                             </div>
                         </div>
                     </div>

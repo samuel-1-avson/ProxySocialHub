@@ -186,25 +186,10 @@ func main() {
 	}
 
 	// --- Solana Initialization (Phase 5 Infrastructure) ---
-	endpointsStr := os.Getenv("SOLANA_RPC_ENDPOINTS")
-	var rpcEndpoints []string
-	if endpointsStr != "" {
-		rpcEndpoints = strings.Split(endpointsStr, ",")
-		for i := range rpcEndpoints {
-			rpcEndpoints[i] = strings.TrimSpace(rpcEndpoints[i])
-		}
-	} else {
-		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-		if rpcEndpoint == "" {
-			rpcEndpoint = "https://api.devnet.solana.com"
-		}
-		rpcEndpoints = []string{rpcEndpoint}
-	}
-
-	wsEndpoint := os.Getenv("SOLANA_WS_ENDPOINT")
-	if wsEndpoint == "" {
-		wsEndpoint = "wss://api.devnet.solana.com"
-	}
+	rpcEndpoints := solanaClient.RPCEndpointsFromEnv()
+	rpcEndpoints = solanaClient.HealthyRPCEndpoints(context.Background(), rpcEndpoints)
+	wsEndpoint := solanaClient.WSEndpointFromEnv(rpcEndpoints)
+	log.Printf("Solana RPC endpoints configured: %d", len(rpcEndpoints))
 
 	// 1. Initialize Global Oracle (API Handlers)
 	if err := solanaClient.InitOracleFromEnv(); err != nil {
@@ -408,25 +393,32 @@ func main() {
 		api.RegisterMonitoringRoutes(v1)
 		api.RegisterAuthRoutes(v1)
 		api.RegisterMarketplaceGeoRoutes(v1) // Before /listings/:id (map pins)
-		api.RegisterListingRoutes(v1)        // Mix of public/private
-		api.RegisterListingSocialRoutes(v1)  // Social integration for listings
-		api.RegisterMilestoneRoutes(v1)      // Usage milestones
-		api.RegisterUsageReviewRoutes(v1)    // Usage-based reviews
-		api.RegisterCirclePoolRoutes(v1)     // Circle bandwidth pooling
-		api.RegisterFeedRoutes(v1)           // Mix of public/private (Discover)
-		api.RegisterProfileRoutes(v1)        // Public profiles
+		api.RegisterMapTopologyRoutes(v1)
+		api.RegisterListingRoutes(v1)       // Mix of public/private
+		api.RegisterCatalogRoutes(v1)       // Phase 3A: catalog products / offers
+		api.RegisterListingSocialRoutes(v1) // Social integration for listings
+		api.RegisterMilestoneRoutes(v1)     // Usage milestones
+		api.RegisterUsageReviewRoutes(v1)   // Usage-based reviews
+		api.RegisterCirclePoolRoutes(v1)    // Circle bandwidth pooling
+		api.RegisterFeedRoutes(v1)          // Mix of public/private (Discover)
+		api.RegisterProfileRoutes(v1)       // Public profiles
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterKYCRoutes(v1)
-		api.RegisterReputationRoutes(v1)      // Phase 9.2 Trust Layer
-		api.RegisterExplorerRoutes(v1)        // System Explorer (Public blockchain explorer)
-		api.RegisterExplorerWSRoutes(v1)      // Explorer WebSocket for real-time updates
-		api.RegisterSDKRoutes(v1)             // P1-A5: SDK Examples API
-		api.RegisterGatewayRoutes(v1, cfg)    // Gateway node registration and heartbeat
-		api.RegisterTreasuryPublicRoutes(v1)  // Phase 4.3: public treasury transparency
-		api.RegisterForumPublicRoutes(v1)     // Public forum browse/search/read endpoints
-		api.RegisterAgentPublicRoutes(v1)     // Public agent marketplace browse
-		solanaClient.RegisterPublicRoutes(v1) // Oracle/RPC health (no auth)
+		api.RegisterReputationRoutes(v1)               // Phase 9.2 Trust Layer
+		api.RegisterExplorerRoutes(v1)                 // System Explorer (Public blockchain explorer)
+		api.RegisterExplorerWSRoutes(v1)               // Explorer WebSocket for real-time updates
+		api.RegisterSDKRoutes(v1)                      // P1-A5: SDK Examples API
+		api.RegisterGatewayRoutes(v1, cfg)             // Gateway node registration and heartbeat
+		api.RegisterTreasuryPublicRoutes(v1)           // Phase 4.3: public treasury transparency
+		api.RegisterGovernancePublicRoutes(v1)         // Public governance execution readiness
+		api.RegisterGovernanceImpactRoutes(v1)         // Public proposal impact previews
+		api.RegisterGovernanceTreasuryPublicRoutes(v1) // Treasury audit rows per proposal
+		api.RegisterBetaProgramPublicRoutes(v1)        // Public beta task catalog (+ progress when token present)
+		api.RegisterForumPublicRoutes(v1)              // Public forum browse/search/read endpoints
+		api.RegisterAgentPublicRoutes(v1)              // Public agent marketplace browse
+		api.RegisterMarketplaceFunnelRoutes(v1)        // WS-D: client funnel events (optional auth)
+		solanaClient.RegisterPublicRoutes(v1)          // Oracle/RPC health (no auth)
 	}
 
 	// Public Routes (No Authentication Required)
@@ -436,11 +428,19 @@ func main() {
 	protected := v1.Group("/")
 	protected.Use(middleware.RequireAuth())
 	{
-		api.RegisterProviderNodeRoutes(protected)
-		api.RegisterProviderTokenRoutes(protected)
-		api.RegisterProviderLeaseRoutes(protected)
-		api.RegisterProviderEarningsRoutes(protected)
-		api.RegisterProviderClaimRoutes(protected)
+		providerOps := protected.Group("/")
+		providerOps.Use(middleware.RequireProviderRole())
+		{
+			api.RegisterProviderNodeRoutes(providerOps)
+			api.RegisterProviderTokenRoutes(providerOps)
+			api.RegisterProviderLeaseRoutes(providerOps)
+			api.RegisterProviderEarningsRoutes(providerOps)
+			api.RegisterProviderClaimRoutes(providerOps)
+			api.RegisterProviderServicesRoutes(providerOps)
+			api.RegisterProviderRelationshipRoutes(providerOps)
+		}
+
+		api.RegisterBuyerRelationshipRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
 		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
 		api.RegisterGatewayTokenRoute(v1)     // Public: exchange provider token → gateway JWT
@@ -453,6 +453,7 @@ func main() {
 
 		api.RegisterSmartMatchingRoutes(protected)
 		api.RegisterGovernanceRoutes(protected)
+		api.RegisterBetaProgramRoutes(protected)
 		api.RegisterOnboardingRoutes(protected)
 		api.RegisterCircleRoutes(protected)
 
@@ -474,7 +475,6 @@ func main() {
 		api.RegisterGeoRoutes(protected)
 
 		// Proxy Engine Services (Phase 16)
-		api.RegisterProviderServicesRoutes(protected)
 		api.RegisterServiceDiscoveryRoutes(protected)
 
 		// Trustless Proofs (Phase 17)
@@ -511,6 +511,9 @@ func main() {
 
 		// Provider Verification Tiers (Phase 6)
 		api.RegisterTierRoutes(protected)
+
+		// Marketplace listing moderation (dashboard moderators)
+		api.RegisterPlatformListingModerationRoutes(protected)
 	}
 
 	if adminAPIEnabled {
@@ -521,6 +524,8 @@ func main() {
 		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
 		api.RegisterAdminRoutes(adminProtected)
 		api.RegisterAdminOnboardingRoutes(adminProtected)
+		api.RegisterAdminListingModerationRoutes(adminProtected)
+		api.RegisterAdminForumModerationRoutes(adminProtected)
 		api.RegisterAdminPayoutRoutes(adminProtected)
 		api.RegisterAdminMeRoute(adminProtected)
 		log.Println("Admin API enabled (ADMIN_API_ENABLED=true)")
@@ -542,10 +547,7 @@ func main() {
 			programID = "CVHGJx11kuEc4xD4vR6ey6W9wFXRpzUs7kChTK2E4QqD" // Default devnet program
 		}
 
-		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-		if rpcEndpoint == "" {
-			rpcEndpoint = "https://api.devnet.solana.com"
-		}
+		rpcEndpoint := rpcEndpoints[0]
 
 		pollInterval := 400 * time.Millisecond
 		if interval := os.Getenv("EXPLORER_INDEXER_POLL_INTERVAL_MS"); interval != "" {
@@ -636,7 +638,7 @@ func main() {
 	oracleConfig := solanaClient.Config{
 		RPCEndpoints:      rpcEndpoints,
 		OracleKeypairPath: os.Getenv("SOLANA_ORACLE_KEYPAIR"),
-		Network:           "devnet",
+		Network:           solanaClient.EffectiveSolanaNetwork(),
 	}
 	if oracleConfig.OracleKeypairPath == "" {
 		oracleConfig.OracleKeypairPath = "oracle-keypair.json"
@@ -820,6 +822,7 @@ func main() {
 
 	// Start Heartbeat Monitor — marks nodes offline after 5m without a heartbeat
 	worker.OnNodeOffline = api.NotifyNodeUpdate
+	worker.OnLinkTopologyAggregated = api.NotifyLinkTopologyUpdate
 	worker.StartHeartbeatMonitor()
 	log.Println("Heartbeat Monitor started")
 
@@ -833,6 +836,9 @@ func main() {
 	// but no coordinates yet (runs as a low-rate background worker)
 	worker.StartGeoIPWorker()
 	log.Println("GeoIP backfill worker started")
+
+	worker.StartMapTopologyWorker()
+	log.Println("Map topology aggregator started")
 
 	port := os.Getenv("PORT")
 	if port == "" {

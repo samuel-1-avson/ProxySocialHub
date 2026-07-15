@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"os"
 
-	"strings"
-
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/decentralization"
@@ -19,20 +17,7 @@ var oracleClient *OracleClient
 
 // InitOracleFromEnv initializes the oracle client from environment variables
 func InitOracleFromEnv() error {
-	endpointsStr := os.Getenv("SOLANA_RPC_ENDPOINTS")
-	var rpcEndpoints []string
-	if endpointsStr != "" {
-		rpcEndpoints = strings.Split(endpointsStr, ",")
-		for i := range rpcEndpoints {
-			rpcEndpoints[i] = strings.TrimSpace(rpcEndpoints[i])
-		}
-	} else {
-		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-		if rpcEndpoint == "" {
-			rpcEndpoint = "https://api.devnet.solana.com"
-		}
-		rpcEndpoints = []string{rpcEndpoint}
-	}
+	rpcEndpoints := HealthyRPCEndpoints(context.Background(), RPCEndpointsFromEnv())
 
 	keypairPath := os.Getenv("SOLANA_ORACLE_KEYPAIR")
 	if keypairPath == "" {

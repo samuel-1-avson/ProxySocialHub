@@ -4,10 +4,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/geoip"
+	"github.com/proxyhubb/control-api/internal/map/topology"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
@@ -17,8 +19,10 @@ func RegisterSystemRoutes(r *gin.RouterGroup) {
 	r.GET("/system/provider-proof-policy", getListingProofPolicy)
 	r.GET("/network/gateways", getFederatedGateways)
 	r.GET("/system/watchtower/status", getWatchtowerStatus)
-	if env := os.Getenv("APP_ENV"); env == "" || env == "development" {
+	r.GET("/system/map/health", getMapHealth)
+	if env := os.Getenv("APP_ENV"); env == "" || env == "development" || env == "staging" {
 		r.POST("/system/geoip/backfill", triggerGeoIPBackfill)
+		r.POST("/system/map/links/aggregate", triggerMapLinksAggregate)
 	}
 }
 
@@ -29,10 +33,39 @@ func triggerGeoIPBackfill(c *gin.Context) {
 		"message": "GeoIP backfill started in background (up to 45 nodes, ~1.4s each)",
 	})
 	go func() {
-		n := geoip.ResolveNextBatch()
+		n := geoip.BackfillAllProviderNodes()
 		if n > 0 {
-			log.Printf("[GeoIP] Manual backfill updated %d node(s)", n)
+			log.Printf("[GeoIP] Provider enrich updated %d node(s)", n)
 		}
+		total := 0
+		for i := 0; i < 10; i++ {
+			batch := geoip.ResolveNextBatch()
+			total += batch
+			if batch == 0 {
+				break
+			}
+		}
+		if total > 0 {
+			log.Printf("[GeoIP] Manual backfill updated %d explorer node(s)", total)
+		}
+		invalidateMarketplaceReadModels()
+	}()
+}
+
+// triggerMapLinksAggregate runs one topology aggregation pass (dev/staging only).
+func triggerMapLinksAggregate(c *gin.Context) {
+	c.JSON(http.StatusAccepted, gin.H{
+		"status":  "accepted",
+		"message": "map link aggregation started",
+	})
+	go func() {
+		count, err := topology.AggregateSessionLinks(time.Now())
+		if err != nil {
+			log.Printf("[MapTopology] manual aggregate failed: %v", err)
+			return
+		}
+		NotifyLinkTopologyUpdate(count, count > 0)
+		log.Printf("[MapTopology] manual aggregate upserted %d link(s)", count)
 	}()
 }
 
@@ -82,8 +115,9 @@ func getPublicSystemConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"treasury_solana": val,
-		"sol_price_usd":   billing.GetSOLPriceUSD(),
+		"treasury_solana":              val,
+		"sol_price_usd":                billing.GetSOLPriceUSD(),
+		"large_withdraw_threshold_sol": getLargeWithdrawalThresholdSOL(),
 	})
 }
 

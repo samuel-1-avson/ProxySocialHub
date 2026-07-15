@@ -2,9 +2,12 @@ package solana
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	sol "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
@@ -24,7 +27,7 @@ func TestGetGovernanceExecutionCapabilityReportOracleUnavailable(t *testing.T) {
 		t.Fatal("expected oracle to be reported as unavailable")
 	}
 	if report.Ready {
-		t.Fatal("expected report to be not ready when oracle is unavailable")
+		t.Fatal("expected report to not be ready when oracle is unavailable")
 	}
 	if report.Status != "oracle_unavailable" {
 		t.Fatalf("expected status oracle_unavailable, got %q", report.Status)
@@ -38,7 +41,30 @@ func TestGetGovernanceExecutionCapabilityReportReadyWithCompiledFallbackWithoutI
 	originalOracle := globalOracleClient
 	originalRedis := redisClient.Client
 
-	globalOracleClient = &OracleClient{programID: sol.PublicKey{1}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"jsonrpc": "2.0",
+			"result": {
+				"context": {"slot": 1},
+				"value": {
+					"data": ["", "base64"],
+					"executable": true,
+					"lamports": 1000000000,
+					"owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+					"rentEpoch": 0
+				}
+			},
+			"id": 1
+		}`))
+	}))
+	defer server.Close()
+
+	rpcClient := rpc.New(server.URL)
+	globalOracleClient = &OracleClient{
+		programID:  sol.PublicKey{1},
+		rpcClients: []*rpc.Client{rpcClient},
+	}
 	redisClient.Client = nil
 
 	t.Cleanup(func() {

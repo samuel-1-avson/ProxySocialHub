@@ -30,7 +30,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
 import { ReviewModal } from '@/components/ReviewModal';
 
-const PROXY_ENDPOINT = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhub.io:3128';
+import { getBuyerProxyEndpoint } from '@/lib/proxy-endpoint';
+
+const PROXY_ENDPOINT = getBuyerProxyEndpoint();
 
 type IntentLifecycleFilter = 'all' | SessionIntentLifecycle;
 
@@ -181,15 +183,6 @@ export default function SessionsPage() {
         return `${scaled.toFixed(precision)} ${units[unitIndex]}`;
     }
 
-    function formatUSD(value?: number) {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 4,
-        }).format(value ?? 0);
-    }
-
     function formatSOL(value?: number) {
         const resolved = value ?? 0;
         return `${resolved.toFixed(resolved >= 1 ? 3 : 6)} SOL`;
@@ -255,8 +248,8 @@ export default function SessionsPage() {
     const totalIntentBytes = intents.reduce((sum, intent) => {
         return sum + (intent.intent.total_bytes_up ?? 0) + (intent.intent.total_bytes_down ?? 0);
     }, 0);
-    const totalEstimatedIntentCostUSD = intents.reduce((sum, intent) => {
-        return sum + (intent.billing_snapshot?.estimated_cost_usd ?? 0);
+    const totalEstimatedIntentCostSOL = intents.reduce((sum, intent) => {
+        return sum + (intent.billing_snapshot?.estimated_cost_sol ?? 0);
     }, 0);
 
     return (
@@ -375,7 +368,7 @@ export default function SessionsPage() {
                     </GlassCard>
                     <GlassCard className="p-5 border-sky-500/20 bg-sky-500/5">
                         <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-sky-400/70">Estimated Spend</div>
-                        <div className="mt-3 text-3xl font-mono font-black text-sky-300">{formatUSD(totalEstimatedIntentCostUSD)}</div>
+                        <div className="mt-3 text-3xl font-mono font-black text-sky-300">{formatSOL(totalEstimatedIntentCostSOL)}</div>
                     </GlassCard>
                 </div>
 
@@ -571,13 +564,13 @@ export default function SessionsPage() {
                             <GlassCard className="p-5 border-white/10 bg-black/20">
                                 <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Billing</div>
                                 <div className="mt-3 text-[11px] font-black uppercase text-foreground">
-                                    {formatUSD(selectedIntent.billing_snapshot.estimated_cost_usd)} est.
+                                    {formatSOL(selectedIntent.billing_snapshot.estimated_cost_sol)} est.
                                 </div>
                                 <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
-                                    {formatUSD(selectedIntent.billing_snapshot.unit_price_usd_per_gb)} / GB
+                                    {formatSOL(selectedIntent.billing_snapshot.unit_price_sol_per_gb)} / GB
                                 </div>
                                 <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
-                                    {formatSOL(selectedIntent.billing_snapshot.estimated_cost_sol)} current
+                                    Native SOL settlement
                                 </div>
                             </GlassCard>
                             <GlassCard className="p-5 border-white/10 bg-black/20">
@@ -619,8 +612,6 @@ export default function SessionsPage() {
                                     <div className="text-muted-foreground/70">Price Source</div>
                                     <div className="text-right text-foreground">{selectedIntent.billing_snapshot.price_source}</div>
                                     <div className="text-muted-foreground/70">Projected Limit</div>
-                                    <div className="text-right text-foreground">{formatUSD(selectedIntent.billing_snapshot.projected_full_limit_cost_usd)}</div>
-                                    <div className="text-muted-foreground/70">Projected SOL</div>
                                     <div className="text-right text-foreground">{formatSOL(selectedIntent.billing_snapshot.projected_full_limit_cost_sol)}</div>
                                     <div className="text-muted-foreground/70">Target ISP</div>
                                     <div className="text-right text-foreground">{selectedIntent.intent.target_isp || 'any'}</div>

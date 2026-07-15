@@ -10,7 +10,7 @@ test.describe("Forum", () => {
     });
 
     test("should display forum page with categories", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         await expect(page.locator("h1")).toContainText("Community Forum");
         await expect(page.locator("[role='tablist']")).toBeVisible();
@@ -18,7 +18,7 @@ test.describe("Forum", () => {
     });
 
     test("should search forum threads", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         const searchInput = page.locator("input[placeholder*='Search']");
         await searchInput.fill("proxy");
@@ -35,33 +35,33 @@ test.describe("Forum", () => {
     });
 
     test("should navigate to category page", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Click first category
-        const firstCategory = page.locator("a[href^='/forum/category/']").first();
+        const firstCategory = page.locator("a[href^='/community/forum/category/']").first();
         await firstCategory.click();
         
         // Verify navigation
-        await expect(page).toHaveURL(/\/forum\/category\/.+/);
+        await expect(page).toHaveURL(/\/community/forum\/category\/.+/);
         await expect(page.locator("h1")).toBeVisible();
     });
 
     test("should navigate to thread detail", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Click first thread
-        const firstThread = page.locator("a[href^='/forum/thread/']").first();
+        const firstThread = page.locator("a[href^='/community/forum/thread/']").first();
         
         // Skip if no threads
         if (await firstThread.isVisible().catch(() => false)) {
             await firstThread.click();
-            await expect(page).toHaveURL(/\/forum\/thread\/.+/);
+            await expect(page).toHaveURL(/\/community/forum\/thread\/.+/);
             await expect(page.locator("h1")).toBeVisible();
         }
     });
 
     test("should create new thread with validation", async ({ page }) => {
-        await page.goto("/forum/new");
+        await page.goto("/community/forum/new");
         
         // Try to submit empty form
         await page.click("button[type='submit']");
@@ -82,10 +82,10 @@ test.describe("Forum", () => {
     });
 
     test("should vote on thread", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Navigate to a thread
-        const firstThread = page.locator("a[href^='/forum/thread/']").first();
+        const firstThread = page.locator("a[href^='/community/forum/thread/']").first();
         if (await firstThread.isVisible().catch(() => false)) {
             await firstThread.click();
             
@@ -102,7 +102,7 @@ test.describe("Forum", () => {
     });
 
     test("should have proper accessibility attributes", async ({ page }) => {
-        await page.goto("/forum");
+        await page.goto("/community/forum");
         
         // Check for proper heading hierarchy
         const h1 = page.locator("h1");
@@ -124,7 +124,7 @@ test.describe("Forum Keyboard Navigation", () => {
         await page.fill("[name='email']", process.env.TEST_USER_EMAIL || "");
         await page.fill("[name='password']", process.env.TEST_USER_PASSWORD || "");
         await page.click("button[type='submit']");
-        await page.goto("/forum");
+        await page.goto("/community/forum");
     });
 
     test("should navigate tabs with keyboard", async ({ page }) => {
@@ -150,7 +150,7 @@ test.describe("Forum Keyboard Navigation", () => {
             await page.keyboard.press("Enter");
             
             // Verify navigation
-            await expect(page).toHaveURL(/\/forum\/thread\/.+|\/forum\/category\/.+/);
+            await expect(page).toHaveURL(/\/community/forum\/thread\/.+|\/community/forum\/category\/.+/);
         }
     });
 });

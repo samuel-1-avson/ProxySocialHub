@@ -36,3 +36,17 @@ func TestInitReadReplicaTreatsWhitespaceAsUnset(t *testing.T) {
 		t.Fatal("InitReadReplica did not fall back to the primary DB for a blank DSN")
 	}
 }
+
+func TestNormalizeReadReplicaURLTreatsCommentPlaceholderAsUnset(t *testing.T) {
+	got := normalizeReadReplicaURL("                   # postgresql://user:pass@replica-host:5432/db?sslmode=disable")
+	if got != "" {
+		t.Fatalf("normalizeReadReplicaURL returned %q, want empty", got)
+	}
+}
+
+func TestNormalizeReadReplicaURLKeepsPostgresURL(t *testing.T) {
+	const dsn = "postgresql://user:pass@replica-host:5432/db?sslmode=disable"
+	if got := normalizeReadReplicaURL(dsn); got != dsn {
+		t.Fatalf("normalizeReadReplicaURL returned %q, want %q", got, dsn)
+	}
+}

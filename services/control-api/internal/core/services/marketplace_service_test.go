@@ -28,6 +28,37 @@ func (f *fakeMarketplaceRepo) GetListingByID(context.Context, uuid.UUID) (*domai
 	return &f.listing, nil
 }
 
+func (f *fakeMarketplaceRepo) GetListingDetail(context.Context, uuid.UUID) (*domain.ListingEntity, *domain.SellerPublicProfile, error) {
+	if f.listing.ID == uuid.Nil {
+		return nil, nil, domain.ErrListingNotFound
+	}
+	return &f.listing, nil, nil
+}
+
+func (f *fakeMarketplaceRepo) IncrementListingViews(context.Context, uuid.UUID) error {
+	return nil
+}
+
+func (f *fakeMarketplaceRepo) IsListingSaved(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeMarketplaceRepo) SearchListings(context.Context, string, int) ([]domain.ListingEntity, error) {
+	return nil, nil
+}
+
+func (f *fakeMarketplaceRepo) GetFeaturedListings(context.Context, int) ([]domain.ListingEntity, error) {
+	return nil, nil
+}
+
+func (f *fakeMarketplaceRepo) GetSellerListings(context.Context, uuid.UUID, int, int) ([]domain.ListingEntity, int64, error) {
+	return nil, 0, nil
+}
+
+func (f *fakeMarketplaceRepo) GetSavedListings(context.Context, uuid.UUID, int, int) ([]domain.SavedListingEntry, int64, error) {
+	return nil, 0, nil
+}
+
 func (f *fakeMarketplaceRepo) CreateListing(context.Context, *domain.ListingEntity) error {
 	return nil
 }

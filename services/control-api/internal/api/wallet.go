@@ -2,10 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net/http"
-	
-	"crypto/ed25519"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +22,24 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+const defaultLargeWithdrawalThresholdSOL = 10.0
+
+func getLargeWithdrawalThresholdSOL() float64 {
+	cm := GetConfigManager()
+	if cm == nil {
+		return defaultLargeWithdrawalThresholdSOL
+	}
+	raw, err := cm.Get("large_withdraw_threshold_sol")
+	if err != nil {
+		return defaultLargeWithdrawalThresholdSOL
+	}
+	threshold, err := strconv.ParseFloat(raw, 64)
+	if err != nil || threshold <= 0 {
+		return defaultLargeWithdrawalThresholdSOL
+	}
+	return threshold
+}
 
 func RegisterWalletRoutes(r *gin.RouterGroup) {
 	wallet := r.Group("/wallet")
@@ -120,6 +138,10 @@ func getWallet(c *gin.Context) {
 			logging.Warn().Str("user_id", userIDStr).Msg("getWallet: User missing in local DB, attempting fallback creation")
 
 			userEmail := c.GetString("userEmail")
+			if userEmail == "" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "User account not initialized"})
+				return
+			}
 			username := strings.Split(userEmail, "@")[0]
 			// Append part of UUID to username to ensure uniqueness and avoid collision errors
 			if len(userIDStr) >= 8 {
@@ -362,7 +384,7 @@ func initiateWithdrawal(c *gin.Context) {
 func refundWalletSOL(userID string, amount float64) {
 	var wallet models.Wallet
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 			return err
 		}
 		wallet.BalanceSOL += amount
@@ -576,7 +598,7 @@ func transferP2P(c *gin.Context) {
 	// platform ledger; the chain transfer is the verifiable settlement record.
 	// If the chain call fails we issue a compensating DB credit (no double-debit).
 	settle := func() {
-		settleP2POnChain(senderUser.WalletAddress, recipient.WalletAddress, req.Amount, senderUUID, senderWallet.ID, refID)
+		settleP2POnChain(senderUser.WalletAddress, recipient.WalletAddress, req.Amount, senderUUID, senderWallet.ID, recipient.ID, recipientWallet.ID, refID)
 	}
 	if testP2PSettleSynchronously {
 		settle()
@@ -676,9 +698,13 @@ func withdrawSOL(c *gin.Context) {
 	}
 
 	// Large withdrawal requires re-signature before balance/oracle work.
-	if req.Amount > 10.0 {
+	largeWithdrawalThresholdSOL := getLargeWithdrawalThresholdSOL()
+	if req.Amount > largeWithdrawalThresholdSOL {
 		if !verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Signature verification required for large withdrawals (>10 SOL)"})
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":         fmt.Sprintf("Signature verification required for large withdrawals (>%.6g SOL)", largeWithdrawalThresholdSOL),
+				"threshold_sol": largeWithdrawalThresholdSOL,
+			})
 			return
 		}
 	}
@@ -708,6 +734,7 @@ func withdrawSOL(c *gin.Context) {
 	}
 
 	// Atomically deduct from internal balance
+	withdrawalRef := uuid.NewString()
 	err = db.DB.Transaction(func(tx *gorm.DB) error {
 		// Reload wallet for update locking
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
@@ -725,7 +752,7 @@ func withdrawSOL(c *gin.Context) {
 		walletRecord.BalanceSOL -= req.Amount
 
 		// Record spending for limit tracking
-		if err := walletRecord.RecordSpending(tx, req.Amount, models.SpendingWithdraw, ""); err != nil {
+		if err := walletRecord.RecordSpending(tx, req.Amount, models.SpendingWithdraw, withdrawalRef); err != nil {
 			logging.Error(err).Msg("Failed to record spending for withdrawal, continuing")
 		}
 
@@ -737,6 +764,7 @@ func withdrawSOL(c *gin.Context) {
 			Amount:       -req.Amount,
 			BalanceAfter: walletRecord.BalanceSOL,
 			Type:         models.TransactionPayout,
+			ReferenceID:  withdrawalRef,
 			Description:  fmt.Sprintf("SOL withdrawal to %s", destAddress),
 			CreatedAt:    time.Now(),
 		}).Error
@@ -765,15 +793,24 @@ func withdrawSOL(c *gin.Context) {
 	if sendErr != nil {
 		// Compensating refund with proper audit trail.
 		refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.Wallet{}).Where("user_id = ?", userUUID).
-				Update("balance_sol", gorm.Expr("balance_sol + ?", req.Amount)).Error; err != nil {
+			var refundWallet models.Wallet
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
+				return err
+			}
+			refundWallet.BalanceSOL += req.Amount
+			if err := tx.Save(&refundWallet).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
+				Delete(&models.SpendingRecord{}).Error; err != nil {
 				return err
 			}
 			return tx.Create(&models.WalletLedgerEntry{
-				WalletID:     walletRecord.ID,
+				WalletID:     refundWallet.ID,
 				Amount:       req.Amount,
-				BalanceAfter: walletRecord.BalanceSOL + req.Amount,
+				BalanceAfter: refundWallet.BalanceSOL,
 				Type:         "withdrawal_failed_refund",
+				ReferenceID:  withdrawalRef,
 				Description:  "Withdrawal failed: " + summarizeOnChainSendError(sendErr) + " — balance restored",
 				CreatedAt:    time.Now(),
 			}).Error
@@ -985,7 +1022,7 @@ var testP2PSettleSynchronously bool
 // sendSOLOnChainHook is overridden in tests to mock treasury payouts without a live oracle.
 var sendSOLOnChainHook = sendSOLOnChain
 
-func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount float64, senderUserID, senderWalletID uuid.UUID, ref string) {
+func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount float64, senderUserID, senderWalletID, recipientUserID, recipientWalletID uuid.UUID, ref string) {
 	if senderWalletAddr == nil || *senderWalletAddr == "" ||
 		recipientWalletAddr == nil || *recipientWalletAddr == "" {
 		return // custodial-only path; no on-chain transfer
@@ -1005,18 +1042,63 @@ func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount floa
 	}
 	txHash, err := oracle.SendSOL(ctx2, recipPubkey, lamports)
 	if err != nil {
-		// Compensating refund — restore the sender's DB balance.
+		// Compensating refund — restore the sender's DB balance and debit the recipient's DB balance.
 		refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
-			if dbErr := tx.Model(&models.Wallet{}).Where("user_id = ?", senderUserID).
-				Update("balance_sol", gorm.Expr("balance_sol + ?", amount)).Error; dbErr != nil {
-				return dbErr
+			var firstUserID, secondUserID string
+			if senderUserID.String() < recipientUserID.String() {
+				firstUserID, secondUserID = senderUserID.String(), recipientUserID.String()
+			} else {
+				firstUserID, secondUserID = recipientUserID.String(), senderUserID.String()
 			}
+
+			var senderWallet, recipientWallet models.Wallet
+
+			var w1 models.Wallet
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", firstUserID).First(&w1).Error; err != nil {
+				return err
+			}
+			if firstUserID == senderUserID.String() {
+				senderWallet = w1
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", secondUserID).First(&recipientWallet).Error; err != nil {
+					return err
+				}
+			} else {
+				recipientWallet = w1
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", secondUserID).First(&senderWallet).Error; err != nil {
+					return err
+				}
+			}
+
+			senderWallet.BalanceSOL += amount
+			recipientWallet.BalanceSOL -= amount
+
+			if err := tx.Save(&senderWallet).Error; err != nil {
+				return err
+			}
+			if err := tx.Save(&recipientWallet).Error; err != nil {
+				return err
+			}
+
+			if err := tx.Create(&models.WalletLedgerEntry{
+				WalletID:     senderWallet.ID,
+				Amount:       amount,
+				BalanceAfter: senderWallet.BalanceSOL,
+				Type:         "p2p_failed_refund",
+				ReferenceID:  ref,
+				Description:  "On-chain transfer failed — balance restored",
+				CreatedAt:    time.Now(),
+			}).Error; err != nil {
+				return err
+			}
+
 			return tx.Create(&models.WalletLedgerEntry{
-				WalletID:    senderWalletID,
-				Amount:      amount,
-				Type:        "p2p_failed_refund",
-				ReferenceID: ref,
-				Description: "On-chain transfer failed — balance restored",
+				WalletID:     recipientWallet.ID,
+				Amount:       -amount,
+				BalanceAfter: recipientWallet.BalanceSOL,
+				Type:         "p2p_failed_debit",
+				ReferenceID:  ref,
+				Description:  "On-chain transfer failed — balance corrected",
+				CreatedAt:    time.Now(),
 			}).Error
 		})
 		if refundErr != nil {
@@ -1028,7 +1110,7 @@ func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount floa
 			alerts.Send(alerts.Critical, "P2P Compensating Refund Failed",
 				fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", senderUserID, amount, ref, refundErr))
 		}
-		logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded")
+		logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded and recipient debited")
 		return
 	}
 	// Persist the chain tx_hash in the sender ledger entry.

@@ -1,5 +1,5 @@
 # One-shot local provider dev setup without dashboard copy/paste.
-# Mints an API token (same HMAC as control-api), writes ~/.proxyhubb/provider.toml,
+# Mints an API token (same HMAC as control-api), writes ~/.config/proxyhubb/provider.toml,
 # validates auth, optionally downloads CLI and starts the node.
 #
 # Usage:
@@ -7,24 +7,26 @@
 #   .\scripts\bootstrap-provider-dev.ps1 -StartNode -RegistryCheck
 #   .\scripts\bootstrap-provider-dev.ps1 -ForceNewToken
 #
-# By default reuses ~/.proxyhubb/provider.toml if auth still works (no new DB token).
+# By default reuses existing provider.toml (canonical or legacy path) if auth still works.
 #
 # Requires: docker dev stack (postgres on localhost:5433), .env with POSTGRES_* and TOKEN_HMAC_SECRET
 
 param(
     [string]$ProfileId = "",
     [string]$ApiBaseUrl = "http://localhost:18080",
-    [string]$GatewayAddr = "localhost:3128",
+    [string]$GatewayAddr = "127.0.0.1:3128",
     [switch]$StartNode,
     [switch]$TokenOnly,
     [switch]$SkipAuthTest,
     [switch]$RegistryCheck,
-    [switch]$ForceNewToken
+    [switch]$ForceNewToken,
+    [switch]$SkipSigningKey
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+. (Join-Path $PSScriptRoot "provider-paths.ps1")
 
 if ($ApiBaseUrl -match 'your-staging|example\.com|\.\.\.|^https?://\.\.\.$') {
     Write-Error @"
@@ -49,15 +51,8 @@ function Load-DotEnv([string]$path) {
 }
 
 function Test-ProviderAuthQuiet([string]$baseUrl, [string]$tomlPath) {
-    $key = ""
-    if (Test-Path $tomlPath) {
-        $content = Get-Content $tomlPath -Raw
-        $keyMatch = [regex]::Match($content, 'api_key\s*=\s*"([a-fA-F0-9]+)"')
-        if ($keyMatch.Success) {
-            $key = $keyMatch.Groups[1].Value
-        }
-    }
-    if (-not $key -or $key -match '<' -or $key.Length -lt 32) { return $false }
+    if (-not (Test-ProviderTomlHasUsableKey $tomlPath)) { return $false }
+    $key = Get-ProviderApiKeyFromToml $tomlPath
     try {
         $body = @{ token = $key } | ConvertTo-Json
         $resp = Invoke-RestMethod -Uri ($baseUrl.TrimEnd('/') + "/v1/provider/auth") -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
@@ -107,27 +102,58 @@ Load-DotEnv (Join-Path $repoRoot ".env")
 $script:pgUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "proxyhubb" }
 $script:pgDb = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "proxyhubb" }
 $script:pgPass = $env:POSTGRES_PASSWORD
+function Resolve-PostgresHostPort {
+    if ($env:POSTGRES_PORT) { return $env:POSTGRES_PORT }
+    if ($env:POSTGRES_HOST_PORT) { return $env:POSTGRES_HOST_PORT }
+    foreach ($name in @("proxyhubb-postgres-1", "proxyhubb-postgres")) {
+        try {
+            $mapped = docker port $name 5432/tcp 2>$null | Select-Object -First 1
+            if ($mapped -match ':(\d+)->') { return $matches[1] }
+            if ($mapped -match ':(\d+)$') { return $matches[1] }
+        }
+        catch { }
+    }
+    return "5433"
+}
+
 $pgHost = if ($env:POSTGRES_HOST) { $env:POSTGRES_HOST } else { "localhost" }
-$pgPort = if ($env:POSTGRES_PORT) { $env:POSTGRES_PORT } else { "5433" }
+$pgPort = Resolve-PostgresHostPort
 
 if (-not $script:pgPass) { throw "POSTGRES_PASSWORD not set in .env" }
 if (-not $env:TOKEN_HMAC_SECRET) { throw "TOKEN_HMAC_SECRET not set in .env (must match running control-api)" }
 
 $env:DATABASE_URL = "postgresql://${script:pgUser}:${script:pgPass}@${pgHost}:${pgPort}/${script:pgDb}?sslmode=disable"
 
-$script:tomlPath = Join-Path $env:USERPROFILE ".proxyhubb\provider.toml"
+Migrate-ProviderConfigToCanonical
+$script:tomlPath = Resolve-ProviderConfigPath
 
 Write-Host "=== Bootstrap provider (local dev) ===" -ForegroundColor Cyan
+Write-Host "Config: $script:tomlPath" -ForegroundColor DarkGray
 Write-Host "API: $ApiBaseUrl  Gateway: $GatewayAddr  DB: ${pgHost}:${pgPort}" -ForegroundColor DarkGray
+$gatewayTransport = Get-GatewayTransport
+Write-Host "Gateway transport: $gatewayTransport (set PROVIDER_TRANSPORT to match for host provider-node)" -ForegroundColor DarkGray
+if (Test-DockerProviderNodeRunning) {
+    Write-Host '[WARN] Docker provider-node is running - stop it before starting a host node:' -ForegroundColor Yellow
+    Write-Host '  docker stop proxyhubb-provider-node' -ForegroundColor DarkGray
+}
 
-try {
-    $h = Invoke-RestMethod "$ApiBaseUrl/health" -TimeoutSec 10
-    if ($h.status -ne "ok") { throw "API health not ok" }
-    Write-Host "[OK] control-api reachable" -ForegroundColor Green
+$healthOk = $false
+for ($i = 1; $i -le 3; $i++) {
+    try {
+        $h = Invoke-RestMethod "$ApiBaseUrl/health" -TimeoutSec 10
+        if ($h.status -eq "ok") {
+            $healthOk = $true
+            break
+        }
+    }
+    catch {
+        if ($i -lt 3) { Start-Sleep -Seconds 2 }
+    }
 }
-catch {
-    throw "control-api not reachable at $ApiBaseUrl. Run: docker compose -f docker-compose.dev.yml up -d"
+if (-not $healthOk) {
+    throw "control-api not reachable at $ApiBaseUrl. Ensure proxyhubb-control-api is up (docker compose -f docker-compose.dev.yml up -d control-api)."
 }
+Write-Host "[OK] control-api reachable" -ForegroundColor Green
 
 $mintOut = ""
 $reused = $false
@@ -140,10 +166,14 @@ else {
         "run", "./cmd/provider_dev_token",
         "-env-file", (Join-Path $repoRoot ".env"),
         "-api-url", $ApiBaseUrl.TrimEnd('/'),
-        "-gateway", $GatewayAddr
+        "-gateway", $GatewayAddr,
+        "-ensure-profile"
     )
     if ($ProfileId) {
         $mintArgs += @("-user", $ProfileId)
+    }
+    if (-not $SkipSigningKey) {
+        $mintArgs += @("-generate-signing-key", "-sync-hotkey")
     }
 
     Push-Location (Join-Path $repoRoot "services\control-api")
@@ -165,8 +195,20 @@ else {
     if ($mintOut -match 'Config:\s+(.+)') {
         $script:tomlPath = $matches[1].Trim()
     }
+    else {
+        Ensure-ProviderConfigDir
+        $script:tomlPath = Get-ProviderConfigPath
+    }
     Write-Host $mintOut
     Write-Host "[OK] Wrote $script:tomlPath" -ForegroundColor Green
+}
+
+if ($gatewayTransport -in @("quic", "http3")) {
+    Write-Host ""
+    Write-Host "Host provider-node must use QUIC (matches docker-compose.provider.yml):" -ForegroundColor Cyan
+    Write-Host "  `$env:PROVIDER_TRANSPORT = 'quic'" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\proxyhubb-cli.ps1 doctor" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\proxyhubb-cli.ps1 start" -ForegroundColor DarkGray
 }
 
 if ($TokenOnly) { exit 0 }

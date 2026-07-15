@@ -3,8 +3,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache git python3 make g++ linux-headers eudev-dev
+# Install dependencies (retry apk on transient CDN/extract failures).
+RUN set -eux; \
+  for attempt in 1 2 3 4 5; do \
+    if apk add --no-cache git python3 make g++ linux-headers eudev-dev; then break; fi; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    apk cache clean || true; \
+    sleep $((attempt * 5)); \
+  done
 
 # Copy package files
 COPY package.json package-lock.json* ./

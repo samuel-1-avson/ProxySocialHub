@@ -26,6 +26,11 @@ pub struct ProviderSigner {
     public_key: String,
 }
 
+pub struct GeneratedProviderKey {
+    pub secret_base58: String,
+    pub public_key: String,
+}
+
 pub struct HeartbeatPayload<'a> {
     pub provider_node_id: &'a str,
     pub gateway_node_id: &'a str,
@@ -36,6 +41,26 @@ pub struct HeartbeatPayload<'a> {
 }
 
 impl ProviderSigner {
+    pub fn generate() -> Result<GeneratedProviderKey> {
+        let mut seed = [0_u8; 32];
+        getrandom::getrandom(&mut seed)
+            .map_err(|err| anyhow::anyhow!("failed to generate provider signing seed: {err}"))?;
+        let signer = Self::from_seed(seed);
+        Ok(GeneratedProviderKey {
+            secret_base58: bs58::encode(seed).into_string(),
+            public_key: signer.public_key,
+        })
+    }
+
+    fn from_seed(seed: [u8; 32]) -> Self {
+        let signing_key = SigningKey::from_bytes(&seed);
+        let public_key = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
+        Self {
+            signing_key,
+            public_key,
+        }
+    }
+
     pub fn from_base58(secret: &str) -> Result<Self> {
         let bytes = bs58::decode(secret.trim())
             .into_vec()
@@ -50,12 +75,7 @@ impl ProviderSigner {
                 .context("invalid provider signing keypair")?,
             n => anyhow::bail!("provider signing key must be 32 or 64 bytes, got {n}"),
         };
-        let signing_key = SigningKey::from_bytes(&seed);
-        let public_key = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
-        Ok(Self {
-            signing_key,
-            public_key,
-        })
+        Ok(Self::from_seed(seed))
     }
 
     pub fn public_key(&self) -> &str {
@@ -137,5 +157,15 @@ mod tests {
         assert_eq!(proof.version, PROOF_VERSION);
         assert_eq!(proof.provider_hotkey, signer.public_key());
         assert!(!proof.signature.is_empty());
+    }
+
+    #[test]
+    fn generated_key_round_trips_through_signer() {
+        let generated = ProviderSigner::generate().unwrap();
+        let signer = ProviderSigner::from_base58(&generated.secret_base58).unwrap();
+
+        assert_eq!(generated.public_key, signer.public_key());
+        assert!(!generated.secret_base58.is_empty());
+        assert!(!generated.public_key.is_empty());
     }
 }

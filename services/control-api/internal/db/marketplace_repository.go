@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/core/ports"
+	"github.com/proxyhubb/control-api/internal/marketplace/discovery"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
 )
@@ -25,99 +26,16 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 	var listings []models.ProxyListing
 	var total int64
 
-	query := DB.WithContext(ctx).
-		Model(&models.ProxyListing{}).
-		Preload("Seller").
-		Where("proxy_listings.status = ?", models.ListingStatusActive)
-
-	sellerJoined := false
-	ensureSellerJoin := func() {
-		if sellerJoined {
-			return
-		}
-		query = query.Joins("LEFT JOIN profiles seller_profiles ON seller_profiles.id = proxy_listings.seller_id")
-		sellerJoined = true
-	}
-
-	if proxyType := stringFilter(filters, "proxy_type"); proxyType != "" {
-		query = query.Where("proxy_listings.proxy_type = ?", proxyType)
-	}
-	if protocol := stringFilter(filters, "protocol"); protocol != "" {
-		query = query.Where("LOWER(proxy_listings.protocol) = LOWER(?)", protocol)
-	}
-	if rotationType := stringFilter(filters, "rotation_type"); rotationType != "" {
-		query = query.Where("LOWER(proxy_listings.rotation_type) = LOWER(?)", rotationType)
-	}
-	if country := stringFilter(filters, "country"); country != "" {
-		query = query.Where("LOWER(proxy_listings.country) = LOWER(?)", country)
-	}
-	if isp := stringFilter(filters, "isp"); isp != "" {
-		query = query.Where("proxy_listings.isp ILIKE ?", "%"+isp+"%")
-	}
-	if sellerID := uuidFilter(filters, "seller_id"); sellerID != uuid.Nil {
-		query = query.Where("proxy_listings.seller_id = ?", sellerID)
-	}
-	if minPrice, ok := floatFilter(filters, "min_price"); ok {
-		query = query.Where("proxy_listings.price_per_gb >= ?", minPrice)
-	}
-	if maxPrice, ok := floatFilter(filters, "max_price"); ok {
-		query = query.Where("proxy_listings.price_per_gb <= ?", maxPrice)
-	}
-	if minRating, ok := floatFilter(filters, "min_rating"); ok {
-		if minRating <= 5 {
-			ensureSellerJoin()
-			query = query.Where("COALESCE(seller_profiles.avg_rating, 0) >= ?", minRating)
-		} else {
-			query = query.Where("proxy_listings.quality_score >= ?", minRating)
-		}
-	}
+	q := discovery.FromListingFilterMap(filters)
+	query := discovery.Apply(discovery.BaseQuery(GetReadDB().WithContext(ctx)), q).Preload("Seller")
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	sortBy := strings.ToLower(stringFilter(filters, "sort_by"))
-	sortOrder := normalizeSortOrder(stringFilter(filters, "sort_order"), "desc")
-	switch sortBy {
-	case "price_asc":
-		query = query.Order("proxy_listings.price_per_gb ASC, proxy_listings.created_at DESC")
-	case "price_desc":
-		query = query.Order("proxy_listings.price_per_gb DESC, proxy_listings.created_at DESC")
-	case "price":
-		query = query.Order("proxy_listings.price_per_gb " + sortOrder + ", proxy_listings.created_at DESC")
-	case "rating", "popular":
-		ensureSellerJoin()
-		query = query.Order("COALESCE(seller_profiles.avg_rating, 0) " + sortOrder + ", proxy_listings.quality_score " + sortOrder + ", proxy_listings.orders_count DESC")
-	case "sales":
-		query = query.Order("proxy_listings.orders_count " + sortOrder + ", proxy_listings.created_at DESC")
-	case "uptime":
-		query = query.Order("proxy_listings.uptime_percent " + sortOrder + ", proxy_listings.avg_latency_ms ASC, proxy_listings.created_at DESC")
-	case "latency":
-		query = query.Order("proxy_listings.avg_latency_ms ASC, proxy_listings.uptime_percent DESC, proxy_listings.created_at DESC")
-	case "quality":
-		query = query.Order("proxy_listings.quality_score " + sortOrder + ", proxy_listings.created_at DESC")
-	case "newest", "":
-		if sortOrder == "ASC" {
-			query = query.Order("proxy_listings.created_at ASC")
-		} else {
-			query = query.Order("proxy_listings.created_at DESC")
-		}
-	default:
-		query = query.Order("proxy_listings.created_at DESC")
-	}
-
-	page := intFilter(filters, "page", 1)
-	limit := intFilter(filters, "limit", 20)
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	query = query.Offset((page - 1) * limit).Limit(limit)
+	query = discovery.ApplySort(query, q).
+		Offset(discovery.Offset(q.Page, q.Limit)).
+		Limit(q.Limit)
 
 	if err := query.Find(&listings).Error; err != nil {
 		return nil, 0, err
@@ -133,7 +51,7 @@ func (r *marketplaceRepository) GetListings(ctx context.Context, filters map[str
 
 func (r *marketplaceRepository) GetListingByID(ctx context.Context, id uuid.UUID) (*domain.ListingEntity, error) {
 	var l models.ProxyListing
-	if err := DB.WithContext(ctx).First(&l, "id = ?", id).Error; err != nil {
+	if err := GetReadDB().WithContext(ctx).First(&l, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrListingNotFound
 		}
@@ -312,7 +230,7 @@ func (r *marketplaceRepository) UnsaveListing(ctx context.Context, userID, listi
 
 func (r *marketplaceRepository) GetNodeByID(ctx context.Context, id uuid.UUID) (*domain.NodeEntity, error) {
 	var n models.Node
-	if err := DB.First(&n, "id = ?", id).Error; err != nil {
+	if err := GetReadDB().First(&n, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &domain.NodeEntity{
@@ -343,7 +261,7 @@ func (r *marketplaceRepository) GetLast24HoursChecks(ctx context.Context, nodeID
 	var checks []models.UptimeCheck
 	cutoff := time.Now().Add(-24 * time.Hour)
 
-	if err := DB.Where("node_id = ? AND checked_at > ?", nodeID, cutoff).Find(&checks).Error; err != nil {
+	if err := GetReadDB().Where("node_id = ? AND checked_at > ?", nodeID, cutoff).Find(&checks).Error; err != nil {
 		return nil, err
 	}
 
@@ -369,7 +287,7 @@ func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID u
 	// Since we strictly link Node -> Provider, and Listing -> Provider.
 	// We first get the node to find the provider (UserID).
 	var node models.Node
-	if err := DB.Select("user_id").First(&node, "id = ?", nodeID).Error; err != nil {
+	if err := GetReadDB().Select("user_id").First(&node, "id = ?", nodeID).Error; err != nil {
 		return err
 	}
 
@@ -379,7 +297,7 @@ func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID u
 }
 
 func listingModelToEntity(l models.ProxyListing) domain.ListingEntity {
-	return domain.ListingEntity{
+	entity := domain.ListingEntity{
 		ID:                   l.ID,
 		SellerID:             l.SellerID,
 		ProviderNodeID:       l.ProviderNodeID,
@@ -415,6 +333,10 @@ func listingModelToEntity(l models.ProxyListing) domain.ListingEntity {
 		CreatedAt:            l.CreatedAt,
 		UpdatedAt:            l.UpdatedAt,
 	}
+	if l.Seller != nil {
+		entity.Seller = sellerProfileFromUser(l.Seller)
+	}
+	return entity
 }
 
 func stringFilter(filters map[string]interface{}, key string) string {

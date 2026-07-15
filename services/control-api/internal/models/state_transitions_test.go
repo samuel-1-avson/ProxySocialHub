@@ -52,6 +52,9 @@ func TestListingStatusTransitions(t *testing.T) {
 		want bool
 	}{
 		{"new active", "", ListingStatusActive, true},
+		{"new pending review", "", ListingStatusPendingReview, true},
+		{"pending approve", ListingStatusPendingReview, ListingStatusActive, true},
+		{"pending reject", ListingStatusPendingReview, ListingStatusDeleted, true},
 		{"active paused", ListingStatusActive, ListingStatusPaused, true},
 		{"active sold out", ListingStatusActive, ListingStatusSoldOut, true},
 		{"active deleted", ListingStatusActive, ListingStatusDeleted, true},
@@ -90,9 +93,18 @@ func TestSessionStatusTransitions(t *testing.T) {
 	}{
 		{"new active", "", SessionActive, true},
 		{"active disabled", SessionActive, SessionDisabled, true},
+		{"active activation pending", SessionActive, SessionActivationPending, true},
+		{"active activation failed", SessionActive, SessionActivationFailed, true},
 		{"active terminated", SessionActive, SessionTerminated, true},
+		{"disabled activation pending", SessionDisabled, SessionActivationPending, true},
 		{"disabled active", SessionDisabled, SessionActive, true},
 		{"disabled terminated", SessionDisabled, SessionTerminated, true},
+		{"activation pending active", SessionActivationPending, SessionActive, true},
+		{"activation pending failed", SessionActivationPending, SessionActivationFailed, true},
+		{"activation pending terminated", SessionActivationPending, SessionTerminated, true},
+		{"activation failed pending", SessionActivationFailed, SessionActivationPending, true},
+		{"activation failed active blocked", SessionActivationFailed, SessionActive, false},
+		{"activation failed terminated", SessionActivationFailed, SessionTerminated, true},
 		{"terminated active blocked", SessionTerminated, SessionActive, false},
 		{"terminated disabled blocked", SessionTerminated, SessionDisabled, false},
 		{"terminated terminated blocked", SessionTerminated, SessionTerminated, false},

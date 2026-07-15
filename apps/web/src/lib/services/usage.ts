@@ -6,7 +6,7 @@ export interface UsageStats {
     bytes_limit: number;
     percent_used: number;
     gb_used: number;
-    cost_ghs: number;
+    cost_sol: number;
 }
 
 export async function getSessionUsage(sessionId: string): Promise<UsageStats> {
@@ -15,7 +15,7 @@ export async function getSessionUsage(sessionId: string): Promise<UsageStats> {
     return response.json();
 }
 
-export async function getUserUsage(): Promise<{ total_bytes: number; total_gb: number; total_cost_ghs: number; sessions: UsageStats[] }> {
+export async function getUserUsage(): Promise<{ total_bytes: number; total_gb: number; total_cost_sol: number; sessions: UsageStats[] }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/usage/me`);
     if (!response.ok) throw new Error('Failed to fetch user usage');
     return response.json();

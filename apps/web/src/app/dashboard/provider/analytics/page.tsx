@@ -1,6 +1,6 @@
 "use client";
 
-import { getProviderNodes, ProviderNode } from '@/lib/services/market';
+import { getProviderNodes, ProviderNode } from '@/lib/api/marketplace';
 import { ProviderScoreCard } from '@/components/ProviderScoreCard';
 import { ProviderSetupGuide } from '@/components/ProviderSetupGuide';
 import { Loader2, Server, BarChart2, Coins, TrendingUp, Activity } from 'lucide-react';

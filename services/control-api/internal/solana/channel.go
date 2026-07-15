@@ -157,6 +157,45 @@ func (c *OracleClient) CloseChannelOnChain(
 		return "", fmt.Errorf("CloseChannelOnChain: program_state PDA: %w", err)
 	}
 
+	multisigPDA, _, err := sol.FindProgramAddress([][]byte{[]byte("multisig_oracle")}, c.programID)
+	if err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: multisig PDA: %w", err)
+	}
+
+	// Fetch current multisig nonce
+	var nonce uint64 = 0
+	multisig := GetMultiSigOracle()
+	if multisig != nil && multisig.config != nil {
+		nonce = multisig.config.Nonce
+	}
+
+	// Format hyphenated UUID representation
+	var uuidStr string
+	uuidStr = fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		sessionID[0], sessionID[1], sessionID[2], sessionID[3],
+		sessionID[4], sessionID[5],
+		sessionID[6], sessionID[7],
+		sessionID[8], sessionID[9],
+		sessionID[10], sessionID[11], sessionID[12], sessionID[13], sessionID[14], sessionID[15],
+	)
+
+	// Format close message
+	msg := fmt.Sprintf("close:%s:%d:%d:%d", uuidStr, finalNonce, earnedLamports, nonce)
+
+	// Sign close message
+	sigBytes, err := c.oracleKey.Sign([]byte(msg))
+	if err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: sign message: %w", err)
+	}
+	var signature [64]byte
+	copy(signature[:], sigBytes[:])
+
+	// Create Ed25519 precompile instruction
+	precompileIx, err := createEd25519Instruction(c.oracleKey.PublicKey(), signature, []byte(msg))
+	if err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: create Ed25519 instruction: %w", err)
+	}
+
 	// Instruction data: disc(8) + session_id(16) + final_nonce(8) + earned_lamports(8)
 	data := make([]byte, 8+16+8+8)
 	copy(data[0:8], discCloseChannel[:])
@@ -171,13 +210,48 @@ func (c *OracleClient) CloseChannelOnChain(
 		{PublicKey: buyerWallet, IsSigner: false, IsWritable: true},
 		{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 		{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},
+		{PublicKey: multisigPDA, IsSigner: false, IsWritable: false},
+		{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false},
 	}
 
-	txSig, err := c.buildAndSendInstruction(ctx, data, accounts)
-	if err != nil {
-		return "", fmt.Errorf("CloseChannelOnChain: %w", err)
+	instr := &GenericInstruction{
+		programID: c.programID,
+		accounts:  accounts,
+		data:      data,
 	}
-	return txSig, nil
+
+	// Build and sign transaction
+	var recentBlockhash *rpc.GetLatestBlockhashResult
+	if err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var e error
+		recentBlockhash, e = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+		return e
+	}); err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: blockhash: %w", err)
+	}
+
+	tx, err := sol.NewTransaction(
+		[]sol.Instruction{precompileIx, instr},
+		recentBlockhash.Value.Blockhash,
+		sol.TransactionPayer(c.GetOraclePublicKey()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: build tx: %w", err)
+	}
+
+	if err = c.SignTransaction(ctx, tx); err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: sign: %w", err)
+	}
+
+	var txSig sol.Signature
+	if err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var e error
+		txSig, e = client.SendTransaction(ctx, tx)
+		return e
+	}); err != nil {
+		return "", fmt.Errorf("CloseChannelOnChain: send: %w", err)
+	}
+	return txSig.String(), nil
 }
 
 // IsChannelOpen returns true if the on-chain channel PDA exists and is not yet closed.
