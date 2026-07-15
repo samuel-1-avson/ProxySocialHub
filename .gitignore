@@ -191,6 +191,12 @@ build_errors.txt
 tmp-map.json
 
 # Local Docker runtime configuration may contain service credentials.
+
+# Files containing test or deployment credentials are local-only.
+docker-compose.test.yml
+gen_token.go
+infra/k8s/nginx-ingress.yaml
+infra/k8s/postgresql-cluster.yaml
 config/docker/*.env
 .env*.local
 
