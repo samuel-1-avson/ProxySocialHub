@@ -25,6 +25,7 @@ regexes = [
   '''your-64-char-hex-provider-token''',
   '''your-base58-ed25519-seed-or-keypair''',
   '''PROVIDER_PRIVATE_KEY=00\.\.00''',
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
 ]
 
 [[rules]]
