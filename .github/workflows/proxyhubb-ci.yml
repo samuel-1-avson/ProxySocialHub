@@ -58,6 +58,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       edge: ${{ steps.filter.outputs.edge }}
+      provider: ${{ steps.filter.outputs.provider }}
       solana: ${{ steps.filter.outputs.solana }}
       contracts: ${{ steps.filter.outputs.contracts }}
     steps:
@@ -68,11 +69,14 @@ jobs:
           filters: |
             backend:
               - 'services/control-api/**'
+              - 'services/provider-node/**'
               - 'proto/**'
             frontend:
               - 'apps/web/**'
             edge:
               - 'services/edge-gateway/**'
+            provider:
+              - 'services/provider-node/**'
             solana:
               - 'services/solana-programs/**'
             contracts:
@@ -239,8 +243,8 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
-    - name: Fast map E2E
-      run: npm run test:e2e:map
+    - name: Marketplace E2E (map, browse, moderation)
+      run: npm run test:e2e:marketplace
       env:
         JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
         TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
@@ -293,23 +297,153 @@ jobs:
       run: |
         cargo bench --bench registry_bench -- --test
         cargo bench --bench hotpath_bench -- --test
-      # Sign-off: services/edge-gateway/docs/P1_SIGNOFF.md
+      # Tracker: services/edge-gateway/docs/REMAINING_PHASES.md
 
     - name: P2 unit tests (admission, session limits, circuit config)
       run: |
         cargo test --bin edge-gateway session_within_time_limit -- --nocapture
         cargo test --bin edge-gateway writes_http_503_and_closes -- --nocapture
         cargo test --bin edge-gateway circuit_config_from_env -- --nocapture
-      # Sign-off: services/edge-gateway/docs/P2_SIGNOFF.md
+      # Tracker: services/edge-gateway/docs/REMAINING_PHASES.md (P2)
 
     - name: P3 unit tests (directory, admission)
       run: |
         cargo test --bin edge-gateway ownership_key -- --nocapture
         cargo test --bin edge-gateway writes_http_503_and_closes -- --nocapture
-      # Sign-off: services/edge-gateway/docs/P3_SIGNOFF.md
+      # Tracker: services/edge-gateway/docs/REMAINING_PHASES.md (P3)
 
     - name: Check optional feature bundles compile
       run: cargo check --features legacy-zk,blockchain,pricing,ml,otel
+
+  # ==================== Provider CLI distribution ====================
+  cli-dist-build:
+    name: Build & verify CLI download API
+    needs: [secrets-gate, changes]
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.provider == 'true' ||
+      needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLI_DIST_VERSION: ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node"
+
+      - name: Build provider-node into cli-dist
+        run: |
+          chmod +x scripts/build-cli-dist.sh
+          ./scripts/build-cli-dist.sh
+
+      - name: Write CI .env for Docker Compose
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          {
+            echo "JWT_SECRET=test-jwt-secret-for-ci-min-32-chars-long"
+            echo "GATEWAY_SHARED_SECRET=test-gateway-shared-secret-ci-32chars"
+            echo "SESSION_SECRET=test-session-secret-for-ci-min-32-chars"
+            echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
+            echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
+            echo "POSTGRES_PASSWORD=proxyhubb"
+            echo "CLI_DIST_VERSION=ci-${{ github.run_id }}"
+            echo "PROVIDER_SIGNATURE_MODE=observe"
+          } >> .env
+
+      - name: Start control-api with CLI dist mounted
+        run: |
+          docker compose -f docker-compose.yml up -d postgres redis nats zk-prover db-migrate control-api
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo "control-api healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "control-api failed to become healthy"
+          docker compose -f docker-compose.yml logs control-api --tail 80
+          exit 1
+
+      - name: Verify public CLI download endpoint
+        run: |
+          chmod +x scripts/verify-cli-download.sh
+          ./scripts/verify-cli-download.sh --api-base http://127.0.0.1:18080 --platform linux --arch amd64
+
+  # ==================== Provider Node (Rust) ====================
+  provider-node-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.provider == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/provider-node
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "./services/provider-node"
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run unit tests
+      run: cargo test --verbose
+
+    - name: Run Clippy
+      run: cargo clippy -- -D warnings
+
+  # ==================== Provider Docker E2E ====================
+  provider-docker-e2e:
+    name: Provider Docker E2E
+    needs: changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.provider == 'true' ||
+      needs.changes.outputs.edge == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Write CI .env for Docker Compose
+      run: |
+        set -euo pipefail
+        cp .env.example .env
+        {
+          echo "JWT_SECRET=test-jwt-secret-for-ci-min-32-chars-long"
+          echo "GATEWAY_SHARED_SECRET=test-gateway-shared-secret-ci-32chars"
+          echo "SESSION_SECRET=test-session-secret-for-ci-min-32-chars"
+          echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
+          echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
+          echo "POSTGRES_PASSWORD=proxyhubb"
+          echo "PROVIDER_SIGNATURE_MODE=observe"
+        } >> .env
+
+    - name: Provider stack E2E (gateway + provider-node)
+      run: |
+        chmod +x scripts/provider-docker-e2e.sh
+        PROVIDER_E2E_SKIP_HEAL=1 ./scripts/provider-docker-e2e.sh
 
   # ==================== Solana Programs ====================
   solana-check:

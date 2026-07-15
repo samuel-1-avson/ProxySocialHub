@@ -6,10 +6,10 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Fingerprint, Plus, Trash2, Copy, CheckCircle2, Eye, EyeOff,
-    Clock, Loader2, AlertTriangle, ShieldCheck, X
+    Clock, Loader2, AlertTriangle, ShieldCheck, X, RefreshCw
 } from 'lucide-react';
 import {
-    getProviderTokens, createProviderToken, revokeProviderToken,
+    getProviderTokens, createProviderToken, revokeProviderToken, rotateProviderToken,
     type ProviderToken, type CreateTokenResponse,
 } from '@/lib/api/provider';
 import { saveProviderApiKey } from '@/lib/provider-config';
@@ -45,7 +45,17 @@ export default function TokensPage() {
         onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-tokens'] }),
     });
 
+    const rotateMutation = useMutation({
+        mutationFn: rotateProviderToken,
+        onSuccess: (res) => {
+            setNewToken(res);
+            saveProviderApiKey(res.token);
+            qc.invalidateQueries({ queryKey: ['provider-tokens'] });
+        },
+    });
+
     const tokens = data?.tokens ?? [];
+    const expiringTokens = tokens.filter((token) => token.expires_soon || token.is_expired);
 
     function copyToken(value: string) {
         navigator.clipboard.writeText(value);
@@ -90,7 +100,7 @@ export default function TokensPage() {
                                 <ShieldCheck size={20} className="text-emerald-400 mt-0.5 shrink-0" />
                                 <div className="min-w-0">
                                     <p className="text-sm font-bold text-emerald-400 mb-1">
-                                        Token created — copy it now
+                                        Token ready — copy it now
                                     </p>
                                     <p className="text-xs text-muted-foreground mb-3">
                                         This is the <strong>only time</strong> the raw token is shown. Store it securely.
@@ -116,6 +126,21 @@ export default function TokensPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {expiringTokens.length > 0 && (
+                <GlassCard hoverEffect={false} className="border-amber-500/30 bg-amber-500/5">
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle size={16} className="text-amber-400 mt-0.5 shrink-0" />
+                        <div>
+                            <p className="text-xs font-bold font-mono mb-1">Token rotation recommended</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                                {expiringTokens.length} provider token{expiringTokens.length === 1 ? '' : 's'} expired or expire soon.
+                                Rotate the token, update provider.toml with the new api_key, then restart provider-node.
+                            </p>
+                        </div>
+                    </div>
+                </GlassCard>
+            )}
 
             {/* Create form */}
             <AnimatePresence>
@@ -152,7 +177,7 @@ export default function TokensPage() {
                                         onChange={(e) => setExpiresIn(Number(e.target.value))}
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-primary/50 transition-colors"
                                     >
-                                        <option value={0}>Never expires</option>
+                                        <option value={0}>Default (30 days)</option>
                                         <option value={30}>30 days</option>
                                         <option value={90}>90 days</option>
                                         <option value={365}>1 year</option>
@@ -209,7 +234,13 @@ export default function TokensPage() {
                                     revokeMutation.mutate(token.id);
                                 }
                             }}
+                            onRotate={() => {
+                                if (confirm(`Rotate token "${token.name}"? Copy the new token and update provider.toml before restarting nodes using it.`)) {
+                                    rotateMutation.mutate(token.id);
+                                }
+                            }}
                             revoking={revokeMutation.isPending && revokeMutation.variables === token.id}
+                            rotating={rotateMutation.isPending && rotateMutation.variables === token.id}
                         />
                     ))}
                 </div>
@@ -234,17 +265,20 @@ export default function TokensPage() {
 }
 
 function TokenRow({
-    token, index, revealed, onToggleReveal, onRevoke, revoking,
+    token, index, revealed, onToggleReveal, onRevoke, onRotate, revoking, rotating,
 }: {
     token: ProviderToken;
     index: number;
     revealed: boolean;
     onToggleReveal: () => void;
     onRevoke: () => void;
+    onRotate: () => void;
     revoking: boolean;
+    rotating: boolean;
 }) {
     const active = token.is_active;
-    const expired = token.expires_at && new Date(token.expires_at) < new Date();
+    const expired = Boolean(token.is_expired || (token.expires_at && new Date(token.expires_at) < new Date()));
+    const expiresSoon = Boolean(!expired && token.expires_soon);
 
     return (
         <motion.div
@@ -268,11 +302,13 @@ function TokenRow({
                             <span className={`text-[9px] font-mono uppercase font-black px-2 py-0.5 rounded-full ${
                                 expired
                                     ? 'bg-red-500/20 text-red-400'
+                                    : expiresSoon
+                                    ? 'bg-amber-500/20 text-amber-400'
                                     : active
                                     ? 'bg-emerald-500/20 text-emerald-400'
                                     : 'bg-gray-500/20 text-gray-400'
                             }`}>
-                                {expired ? 'Expired' : active ? 'Active' : 'Inactive'}
+                                {expired ? 'Expired' : expiresSoon ? 'Expiring' : active ? 'Active' : 'Inactive'}
                             </span>
                             <span className="text-[9px] font-mono text-muted-foreground">
                                 {token.masked}
@@ -300,11 +336,24 @@ function TokenRow({
                                 {new Date(token.expires_at).toLocaleDateString()}
                             </p>
                             <p className="uppercase tracking-wider">Expires</p>
+                            {typeof token.expires_in_days === 'number' && token.expires_in_days >= 0 && (
+                                <p className={expiresSoon ? 'text-amber-400' : 'text-muted-foreground'}>
+                                    {token.expires_in_days}d left
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>
 
                 <div className="flex items-center gap-2">
+                    <button
+                        onClick={onRotate}
+                        disabled={rotating || revoking}
+                        title="Rotate token"
+                        className="p-2 rounded-lg hover:bg-amber-500/10 transition-colors text-muted-foreground hover:text-amber-400 disabled:opacity-50"
+                    >
+                        {rotating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    </button>
                     <button
                         onClick={onToggleReveal}
                         title={revealed ? 'Hide' : 'Show masked token'}

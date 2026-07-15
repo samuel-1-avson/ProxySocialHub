@@ -14,7 +14,16 @@ import (
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
+func allowLegacyDirectSessions(t *testing.T) {
+	t.Helper()
+	t.Setenv("PROXYHUB_ALLOW_LEGACY_DIRECT_SESSIONS", "true")
+	t.Setenv("PROXYHUB_ALLOW_LEGACY_DIRECT_SESSIONS_IN_PROD", "")
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("GIN_MODE", "test")
+}
+
 func TestCreateSession_Rotating(t *testing.T) {
+	allowLegacyDirectSessions(t)
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
@@ -60,7 +69,25 @@ func TestCreateSession_Rotating(t *testing.T) {
 	}
 }
 
+func TestCreateSession_BlockedByDefault(t *testing.T) {
+	r := setupTestRouter()
+	r.POST("/sessions", createSession)
+
+	body := map[string]interface{}{"type": "rotating"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/sessions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 for deprecated direct session creation, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateSession_Sticky(t *testing.T) {
+	allowLegacyDirectSessions(t)
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions")
@@ -93,6 +120,23 @@ func TestCreateSession_Sticky(t *testing.T) {
 	session := response["session"].(map[string]interface{})
 	if session["type"] != "sticky" {
 		t.Errorf("Expected type 'sticky', got '%v'", session["type"])
+	}
+}
+
+func TestCreateInstantSession_BlockedByDefault(t *testing.T) {
+	r := setupTestRouter()
+	r.POST("/sessions/instant", createInstantSession)
+
+	body := createInstantSessionRequest{Strategy: "fastest"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/sessions/instant", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 for deprecated instant session creation, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -302,6 +346,7 @@ func TestTerminateSession_BlocksAlreadyTerminated(t *testing.T) {
 }
 
 func TestCreateSessionFromListing_SuccessLinksListingAndNode(t *testing.T) {
+	allowLegacyDirectSessions(t)
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions", "proxy_listings", "nodes")
@@ -371,7 +416,25 @@ func TestCreateSessionFromListing_SuccessLinksListingAndNode(t *testing.T) {
 	}
 }
 
+func TestCreateSessionFromListing_BlockedByDefault(t *testing.T) {
+	r := setupTestRouter()
+	r.POST("/sessions/from-listing", createSessionFromListing)
+
+	body := createSessionFromListingRequest{ListingID: uuid.NewString()}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/sessions/from-listing", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 for deprecated from-listing session creation, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateSessionFromListing_BlocksUnavailableListings(t *testing.T) {
+	allowLegacyDirectSessions(t)
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "wallets", "sessions", "proxy_listings")

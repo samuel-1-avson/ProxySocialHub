@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
+	governanceexec "github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/ipfs"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -24,9 +26,7 @@ import (
 
 // RegisterGovernanceRoutes registers governance routes
 func RegisterGovernanceRoutes(rg *gin.RouterGroup) {
-	rg.GET("/governance/proposals", getProposals)
 	rg.POST("/governance/proposals", createProposal)
-	rg.GET("/governance/proposals/:id", getProposal)
 	rg.POST("/governance/proposals/:id/vote/build", buildGovernanceVoteTx)
 	rg.POST("/governance/proposals/:id/vote/relay", relayGovernanceVoteTx)
 	rg.POST("/governance/proposals/:id/vote", castVote)
@@ -34,9 +34,28 @@ func RegisterGovernanceRoutes(rg *gin.RouterGroup) {
 }
 
 type CreateProposalRequest struct {
-	Title        string `json:"title" binding:"required,min=5,max=255"`
-	Description  string `json:"description" binding:"required,min=20"`
-	DurationDays int    `json:"duration_days" binding:"required,min=1,max=14"`
+	Title         string          `json:"title" binding:"required,min=5,max=255"`
+	Description   string          `json:"description" binding:"required,min=20"`
+	DurationDays  int             `json:"duration_days" binding:"required,min=1,max=14"`
+	Type          string          `json:"type" binding:"omitempty"`
+	ExecutionData json.RawMessage `json:"execution_data,omitempty"`
+}
+
+func mapFrontendProposalType(t string) models.ProposalType {
+	switch t {
+	case "treasury":
+		return models.ProposalTypeTreasury
+	case "parameter_change":
+		return models.ProposalTypeParameter
+	case "upgrade":
+		return models.ProposalTypeUpgrade
+	case "slash":
+		return models.ProposalTypeSlash
+	case "text", "signal":
+		return models.ProposalTypeGeneral
+	default:
+		return models.ProposalTypeGeneral
+	}
 }
 
 type GovernanceVoteRequest struct {
@@ -127,6 +146,12 @@ func createProposal(c *gin.Context) {
 		}
 	}
 
+	proposalType := mapFrontendProposalType(req.Type)
+	if err := governanceexec.ValidateExecutionPayload(proposalType, req.ExecutionData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	ipfsClient := ipfs.NewClient()
 	cid, err := ipfsClient.UploadText(req.Description)
 	if err != nil {
@@ -187,17 +212,23 @@ func createProposal(c *gin.Context) {
 		}
 	}
 
+	executionData := ""
+	if len(req.ExecutionData) > 0 && string(req.ExecutionData) != "null" {
+		executionData = string(req.ExecutionData)
+	}
+
 	proposal := models.Proposal{
-		ID:          proposalID,
-		Title:       req.Title,
-		Description: req.Description,
-		ProposerID:  userID,
-		Type:        models.ProposalTypeGeneral,
-		StartTime:   now,
-		EndTime:     endTime,
-		Status:      models.ProposalActive,
-		IPFSHash:    cid,
-		ThreadID:    threadID,
+		ID:            proposalID,
+		Title:         req.Title,
+		Description:   req.Description,
+		ProposerID:    userID,
+		Type:          proposalType,
+		StartTime:     now,
+		EndTime:       endTime,
+		Status:        models.ProposalActive,
+		ExecutionData: executionData,
+		IPFSHash:      cid,
+		ThreadID:      threadID,
 	}
 
 	if err := db.Social().Create(&proposal).Error; err != nil {
@@ -581,8 +612,8 @@ func castVote(c *gin.Context) {
 			}
 		case err == nil:
 			if err := tx.Model(&existingVote).Updates(map[string]interface{}{
-				"choice": req.Choice,
-				"power":  float64(voteOnChain.VotingPower),
+				"vote":   req.Choice,
+				"weight": float64(voteOnChain.VotingPower),
 			}).Error; err != nil {
 				return err
 			}

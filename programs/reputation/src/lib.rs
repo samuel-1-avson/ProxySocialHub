@@ -15,9 +15,30 @@ pub mod proxy_reputation {
         Ok(())
     }
 
+    /// Initialize program config with oracle authority.
+    pub fn initialize_config(ctx: Context<InitializeConfig>, oracle_authority: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.oracle_config;
+        config.oracle_authority = oracle_authority;
+        config.admin = ctx.accounts.admin.key();
+        config.bump = ctx.bumps.oracle_config;
+        Ok(())
+    }
+
+    /// Update the oracle authority. Only the admin can do this.
+    pub fn update_oracle_authority(ctx: Context<UpdateConfig>, new_oracle_authority: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.oracle_config;
+        config.oracle_authority = new_oracle_authority;
+        Ok(())
+    }
+
     /// Slash a provider for malicious behavior (Honeytoken hit or Anomaly).
     /// This can only be called by the verified Gateway Oracle.
     pub fn slash_provider(ctx: Context<SlashProvider>, amount: u64) -> Result<()> {
+        require!(
+            ctx.accounts.oracle_signer.key() == ctx.accounts.oracle_config.oracle_authority,
+            ReputationError::Unauthorized
+        );
+
         let stake = &mut ctx.accounts.stake_account;
         let reputation = &mut ctx.accounts.provider_reputation;
         
@@ -63,6 +84,22 @@ pub mod proxy_reputation {
 }
 
 #[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(init, payer = admin, space = 8 + 32 + 32 + 1, seeds = [b"oracle_config"], bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(mut, seeds = [b"oracle_config"], bump = oracle_config.bump, has_one = admin)]
+    pub oracle_config: Account<'info, OracleConfig>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct StakeTokens<'info> {
     #[account(init_if_needed, payer = signer, space = 8 + 32 + 8, seeds = [b"stake", signer.key().as_ref()], bump)]
     pub stake_account: Account<'info, StakeAccount>,
@@ -78,6 +115,8 @@ pub struct SlashProvider<'info> {
     #[account(mut)]
     pub provider_reputation: Account<'info, ProviderReputation>,
     pub oracle_signer: Signer<'info>, // Only the gateway oracle can slash
+    #[account(seeds = [b"oracle_config"], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 }
 
 #[derive(Accounts)]
@@ -97,6 +136,14 @@ pub struct InitializeProvider<'info> {
 }
 
 #[account]
+#[derive(Default)]
+pub struct OracleConfig {
+    pub oracle_authority: Pubkey,
+    pub admin: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
 pub struct ProviderReputation {
     pub score: u64,
     pub total_bytes_proven: u64,
@@ -108,3 +155,10 @@ pub struct StakeAccount {
     pub owner: Pubkey,
     pub amount: u64,
 }
+
+#[error_code]
+pub enum ReputationError {
+    #[msg("Unauthorized access")]
+    Unauthorized,
+}
+

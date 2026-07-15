@@ -40,7 +40,7 @@ export default function AgentsPage() {
     };
 
     const handleRent = async (agent: MarketAgent) => {
-        if (!confirm(`Rent ${agent.name} for ${agent.price_per_hour} credits/hour?`)) return;
+        if (!confirm(`Rent ${agent.name} for ${Number(agent.price_per_hour || 0).toFixed(6)} SOL/hour?`)) return;
         try {
             await rentAgent(agent.id);
             alert('Agent rented successfully!');
@@ -151,7 +151,7 @@ export default function AgentsPage() {
 
                                 <div className="mt-auto pt-6 border-t border-dashed border-white/5 flex items-center justify-between relative z-10">
                                     <div className="space-y-1">
-                                        <div className="text-[10px] font-black text-primary tracking-[0.2em]">{agent.price_per_hour} CREDITS</div>
+                                        <div className="text-[10px] font-black text-primary tracking-[0.2em]">{Number(agent.price_per_hour || 0).toFixed(6)} SOL</div>
                                         <div className="text-[8px] text-muted-foreground/20 uppercase font-black">PER HOUR CYCLE</div>
                                     </div>
                                     <motion.button

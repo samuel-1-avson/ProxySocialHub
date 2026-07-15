@@ -71,6 +71,7 @@ type ForumThread struct {
 	Downvotes    int        `gorm:"default:0" json:"downvotes"`
 	LastReplyAt  *time.Time `json:"last_reply_at,omitempty"`
 	LastReplyBy  *uuid.UUID `gorm:"type:uuid" json:"last_reply_by,omitempty"`
+	ListingID    *uuid.UUID `gorm:"type:uuid;index:idx_forum_threads_listing" json:"listing_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 

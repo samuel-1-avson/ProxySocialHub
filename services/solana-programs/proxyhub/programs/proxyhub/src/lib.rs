@@ -57,6 +57,8 @@ pub enum EscrowError {
     InvalidProposalPayload,
     #[msg("Signer not found in the oracle signer list")]
     SignerNotFound,
+    #[msg("Staking lockup period is active")]
+    LockupPeriodActive,
 }
 
 // =============================================================================
@@ -706,6 +708,7 @@ pub struct ProgramConfig {
     pub platform_fee_bps:          u16,  // Platform fee in basis points (100 = 1%)
     pub max_daily_spend_lamports:  u64,  // Daily spending cap (0 = no cap)
     pub max_session_bw_bytes:      u64,  // Maximum session bandwidth per tier=new
+    pub unstake_cooldown_seconds:  i64,  // Staking cooldown period in seconds
     pub updated_at:                i64,
     pub bump:                      u8,
 }
@@ -716,8 +719,9 @@ impl ProgramConfig {
         2 +  // platform_fee_bps
         8 +  // max_daily_spend_lamports
         8 +  // max_session_bw_bytes
+        8 +  // unstake_cooldown_seconds
         8 +  // updated_at
-        1;   // bump (total = 43)
+        1;   // bump (total = 51)
 }
 
 // =============================================================================
@@ -1471,18 +1475,95 @@ pub mod proxyhub {
             EscrowError::InsufficientSignatures
         );
 
-        // Verify each signer is authorized and unique
+        // Verify Ed25519 signatures using instruction introspection
+        let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
+            &ctx.accounts.instructions,
+        ).map_err(|_| error!(EscrowError::InvalidSignatureVerification))?;
+
+        let threshold = multisig.threshold as usize;
+        require!(
+            current_index as usize >= threshold,
+            EscrowError::MissingSignatureVerification
+        );
+
+        let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
+
+        // Reconstruct message: "settle:{escrow}:{buyer}:{seller}:{usage}:{nonce}"
+        let msg = format!(
+            "settle:{}:{}:{}:{}:{}",
+            escrow.key().to_string(),
+            escrow.buyer.to_string(),
+            escrow.seller.to_string(),
+            bandwidth_used_gb,
+            multisig.nonce,
+        );
+        let msg_bytes = msg.as_bytes();
+
         let mut verified_signers = Vec::new();
-        for signer in &oracle_signers {
+
+        for i in 0..threshold {
+            let verify_ix_idx = (current_index as usize) - threshold + i;
+            let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
+                verify_ix_idx,
+                &ctx.accounts.instructions,
+            ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+
             require!(
-                multisig.signers.contains(signer),
+                preceding_ix.program_id == ed25519_program_id,
+                EscrowError::MissingSignatureVerification
+            );
+
+            let data = preceding_ix.data;
+            require!(data.len() >= 16, EscrowError::InvalidSignatureVerification);
+
+            let num_sigs = data[0];
+            require!(num_sigs >= 1, EscrowError::InvalidSignatureVerification);
+
+            let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
+            let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
+            let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
+            let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
+            let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
+            let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
+            let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
+
+            require!(
+                signature_inst_idx == 0xffff && public_key_inst_idx == 0xffff && message_inst_idx == 0xffff,
+                EscrowError::InvalidSignatureVerification
+            );
+
+            require!(
+                public_key_offset + 32 <= data.len() &&
+                signature_offset + 64 <= data.len() &&
+                message_data_offset + message_data_size <= data.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+
+            // Extract public key and verify it matches the oracle list
+            let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
+            let signer_pubkey = Pubkey::new_from_array(pubkey_bytes.try_into().unwrap());
+            
+            require!(
+                multisig.signers.contains(&signer_pubkey),
                 EscrowError::InvalidOracleSignature
             );
             require!(
-                !verified_signers.contains(signer),
+                oracle_signers.contains(&signer_pubkey),
+                EscrowError::InvalidOracleSignature
+            );
+            require!(
+                !verified_signers.contains(&signer_pubkey),
                 EscrowError::DuplicateSignature
             );
-            verified_signers.push(*signer);
+            verified_signers.push(signer_pubkey);
+
+            // Verify message matches the expected settlement payload
+            require!(
+                message_data_size == msg_bytes.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+            let parsed_msg = &data[message_data_offset..message_data_offset + message_data_size];
+            require!(parsed_msg == msg_bytes, EscrowError::InvalidSignatureVerification);
         }
 
         // Calculate proportional payout
@@ -1827,6 +1908,24 @@ pub mod proxyhub {
         require!(stake.owner == provider_wallet, EscrowError::Unauthorized);
         require!(stake.amount >= amount, EscrowError::InsufficientFunds);
 
+        // COOLDOWN LOGIC:
+        // Phase 1: Request unstake
+        if stake.unstake_request_time == 0 {
+            stake.unstake_request_time = clock.unix_timestamp;
+            msg!("Unstake request registered at {}. Call unstake again after cooldown.", stake.unstake_request_time);
+            return Ok(());
+        }
+
+        // Phase 2: Execute unstake after cooldown (dynamically fetched from program config)
+        let mut cooldown_period = ctx.accounts.program_config.unstake_cooldown_seconds;
+        if cooldown_period <= 0 {
+            cooldown_period = 5; // Fallback default
+        }
+        require!(
+            clock.unix_timestamp >= stake.unstake_request_time + cooldown_period,
+            EscrowError::LockupPeriodActive
+        );
+
         // Keep stake PDA rent-exempt after transferring out lamports.
         let rent = Rent::get()?;
         let min_balance = rent.minimum_balance(StakeAccount::LEN);
@@ -1845,7 +1944,7 @@ pub mod proxyhub {
             .ok_or(EscrowError::InsufficientFunds)?;
 
         stake.amount = stake.amount.saturating_sub(amount);
-        stake.unstake_request_time = clock.unix_timestamp;
+        stake.unstake_request_time = 0; // Reset request time after successful withdraw
 
         emit!(ProviderUnstaked {
             provider: provider_wallet,
@@ -1986,7 +2085,16 @@ pub mod proxyhub {
         ctx: Context<SettleEscrow>,
         bandwidth_used_gb: u64,
     ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let authority = ctx.accounts.authority.key();
         let escrow = &mut ctx.accounts.escrow;
+
+        require!(
+            authority == escrow.buyer || authority == escrow.seller || authority == state.admin,
+            EscrowError::Unauthorized
+        );
         
         require!(
             escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
@@ -2130,6 +2238,7 @@ pub mod proxyhub {
 
         let state = &ctx.accounts.program_state;
         require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
 
         let registry = &mut ctx.accounts.provider_registry;
         let clock = Clock::get()?;
@@ -2535,6 +2644,7 @@ pub mod proxyhub {
         platform_fee_bps: u16,
         max_daily_spend_lamports: u64,
         max_session_bw_bytes: u64,
+        unstake_cooldown_seconds: i64,
     ) -> Result<()> {
         require!(platform_fee_bps <= 5000, EscrowError::InvalidPercentage); // max 50%
 
@@ -2545,6 +2655,7 @@ pub mod proxyhub {
         cfg.platform_fee_bps = platform_fee_bps;
         cfg.max_daily_spend_lamports = max_daily_spend_lamports;
         cfg.max_session_bw_bytes = max_session_bw_bytes;
+        cfg.unstake_cooldown_seconds = unstake_cooldown_seconds;
         cfg.updated_at = clock.unix_timestamp;
         cfg.bump = ctx.bumps.program_config;
 
@@ -2554,7 +2665,7 @@ pub mod proxyhub {
             updated_at: cfg.updated_at,
         });
 
-        msg!("Program config updated: kyc_min={}, fee_bps={}", kyc_min_sol_lamports, platform_fee_bps);
+        msg!("Program config updated: kyc_min={}, fee_bps={}, cooldown={}", kyc_min_sol_lamports, platform_fee_bps, unstake_cooldown_seconds);
         Ok(())
     }
 
@@ -2646,68 +2757,69 @@ pub mod proxyhub {
         period_end: i64,
         proof_hash: [u8; 32],
     ) -> Result<()> {
-        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
+
         require!(session_count > 0, EscrowError::InsufficientFunds);
         require!(total_bytes > 0, EscrowError::InsufficientFunds);
 
-        if proof_hash != [0u8; 32] {
-            let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
-                &ctx.accounts.instructions,
-            ).map_err(|_| error!(EscrowError::InvalidSignatureVerification))?;
+        let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
+            &ctx.accounts.instructions,
+        ).map_err(|_| error!(EscrowError::InvalidSignatureVerification))?;
 
-            if current_index == 0 {
-                return err!(EscrowError::MissingSignatureVerification);
-            }
+        if current_index == 0 {
+            return err!(EscrowError::MissingSignatureVerification);
+        }
 
-            let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
-                (current_index - 1) as usize,
-                &ctx.accounts.instructions,
-            ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+        let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
+            (current_index - 1) as usize,
+            &ctx.accounts.instructions,
+        ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
 
-            let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
-            if preceding_ix.program_id != ed25519_program_id {
-                return err!(EscrowError::MissingSignatureVerification);
-            }
+        let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
+        if preceding_ix.program_id != ed25519_program_id {
+            return err!(EscrowError::MissingSignatureVerification);
+        }
 
-            let data = preceding_ix.data;
-            if data.len() < 16 {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        let data = preceding_ix.data;
+        if data.len() < 16 {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
 
-            let num_sigs = data[0];
-            if num_sigs < 1 {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        let num_sigs = data[0];
+        if num_sigs < 1 {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
 
-            let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
-            let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
-            let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
-            let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
-            let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
-            let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
-            let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
+        let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
+        let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
+        let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
+        let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
+        let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
+        let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
+        let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
 
-            if signature_inst_idx != 0xffff || public_key_inst_idx != 0xffff || message_inst_idx != 0xffff {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        if signature_inst_idx != 0xffff || public_key_inst_idx != 0xffff || message_inst_idx != 0xffff {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
 
-            if public_key_offset + 32 > data.len() || signature_offset + 64 > data.len() || message_data_offset + message_data_size > data.len() {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        if public_key_offset + 32 > data.len() || signature_offset + 64 > data.len() || message_data_offset + message_data_size > data.len() {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
 
-            let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
-            let oracle_key = ctx.accounts.oracle.key().to_bytes();
-            if pubkey_bytes != oracle_key {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
+        let oracle_key = ctx.accounts.oracle.key().to_bytes();
+        if pubkey_bytes != oracle_key {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
 
-            if message_data_size != 32 {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
-            let msg_bytes = &data[message_data_offset..message_data_offset + 32];
-            if msg_bytes != batch_root {
-                return err!(EscrowError::InvalidSignatureVerification);
-            }
+        if message_data_size != 32 {
+            return err!(EscrowError::InvalidSignatureVerification);
+        }
+        let msg_bytes = &data[message_data_offset..message_data_offset + 32];
+        if msg_bytes != batch_root {
+            return err!(EscrowError::InvalidSignatureVerification);
         }
 
         let batch = &mut ctx.accounts.zk_batch;
@@ -2804,6 +2916,108 @@ pub mod proxyhub {
         if clock.unix_timestamp < ch.expires_at {
             // Within TTL — oracle must provide a valid nonce advancement.
             require!(final_nonce > ch.nonce || earned_lamports == 0, EscrowError::InvalidStatus);
+        }
+
+        // =====================================================================
+        // MULTISIG SIGNATURE AGGREGATION CHECK
+        // =====================================================================
+        let multisig = &ctx.accounts.multisig_oracle;
+        let threshold = multisig.threshold as usize;
+        let oracle_signers = &multisig.signers;
+
+        let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
+            &ctx.accounts.instructions,
+        ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+
+        require!(
+            current_index >= threshold as u16,
+            EscrowError::MissingSignatureVerification
+        );
+
+        let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
+
+        // Format hyphenated UUID representation
+        let session_id_str = format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            session_id[0], session_id[1], session_id[2], session_id[3],
+            session_id[4], session_id[5],
+            session_id[6], session_id[7],
+            session_id[8], session_id[9],
+            session_id[10], session_id[11], session_id[12], session_id[13], session_id[14], session_id[15]
+        );
+
+        let msg = format!(
+            "close:{}:{}:{}:{}",
+            session_id_str,
+            final_nonce,
+            earned_lamports,
+            multisig.nonce,
+        );
+        let msg_bytes = msg.as_bytes();
+
+        let mut verified_signers = Vec::new();
+
+        for i in 0..threshold {
+            let verify_ix_idx = (current_index as usize) - threshold + i;
+            let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
+                verify_ix_idx,
+                &ctx.accounts.instructions,
+            ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+
+            require!(
+                preceding_ix.program_id == ed25519_program_id,
+                EscrowError::MissingSignatureVerification
+            );
+
+            let data = preceding_ix.data;
+            require!(data.len() >= 16, EscrowError::InvalidSignatureVerification);
+
+            let num_sigs = data[0];
+            require!(num_sigs >= 1, EscrowError::InvalidSignatureVerification);
+
+            let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
+            let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
+            let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
+            let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
+            let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
+            let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
+            let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
+
+            require!(
+                signature_inst_idx == 0xffff && public_key_inst_idx == 0xffff && message_inst_idx == 0xffff,
+                EscrowError::InvalidSignatureVerification
+            );
+
+            require!(
+                public_key_offset + 32 <= data.len() &&
+                signature_offset + 64 <= data.len() &&
+                message_data_offset + message_data_size <= data.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+
+            let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
+            let signer_pubkey = Pubkey::new_from_array(pubkey_bytes.try_into().unwrap());
+            
+            require!(
+                multisig.signers.contains(&signer_pubkey),
+                EscrowError::InvalidOracleSignature
+            );
+            require!(
+                oracle_signers.contains(&signer_pubkey),
+                EscrowError::InvalidOracleSignature
+            );
+            require!(
+                !verified_signers.contains(&signer_pubkey),
+                EscrowError::DuplicateSignature
+            );
+            verified_signers.push(signer_pubkey);
+
+            require!(
+                message_data_size == msg_bytes.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+            let parsed_msg = &data[message_data_offset..message_data_offset + message_data_size];
+            require!(parsed_msg == msg_bytes, EscrowError::InvalidSignatureVerification);
         }
 
         ch.spent_lamports = earned_lamports;
@@ -3079,6 +3293,9 @@ pub struct SettleEscrowMultiSig<'info> {
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
     pub system_program: Program<'info, System>,
+    /// CHECK: Instructions sysvar account for precompile verification
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -3196,6 +3413,7 @@ pub struct InitializeEscrow<'info> {
 #[derive(Accounts)]
 #[instruction(bandwidth_used_gb: u64)]
 pub struct SettleEscrow<'info> {
+    pub authority: Signer<'info>,
     #[account(mut, seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()], bump = escrow.bump)]
     pub escrow: Account<'info, Escrow>,
     #[account(mut)]
@@ -3204,6 +3422,8 @@ pub struct SettleEscrow<'info> {
     #[account(mut)]
     /// CHECK: Seller account
     pub seller: AccountInfo<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }
 
 // ── Provider staking ──────────────────────────────────────────────────────────
@@ -3239,6 +3459,8 @@ pub struct UnstakeProvider<'info> {
     pub stake_account: Account<'info, StakeAccount>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
+    #[account(seeds = [b"program_config"], bump = program_config.bump)]
+    pub program_config: Account<'info, ProgramConfig>,
 }
 
 // ── Usage Proof anchoring ─────────────────────────────────────────────────────
@@ -3617,8 +3839,8 @@ pub struct OpenChannel<'info> {
 #[derive(Accounts)]
 #[instruction(session_id: [u8; 16])]
 pub struct CloseChannel<'info> {
-    /// Oracle signs the close — verifies final nonce + earned amount off-chain.
-    #[account(mut, address = program_state.admin)]
+    /// Payer of the transaction fee.
+    #[account(mut)]
     pub oracle: Signer<'info>,
     #[account(
         mut,
@@ -3635,5 +3857,10 @@ pub struct CloseChannel<'info> {
     pub system_program: Program<'info, System>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
+    #[account(seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
+    pub multisig_oracle: Account<'info, MultiSigOracle>,
+    /// CHECK: Instructions sysvar account for precompile verification
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
 }
 

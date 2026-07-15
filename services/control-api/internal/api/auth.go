@@ -200,15 +200,13 @@ func walletLogin(c *gin.Context) {
 	}
 
 	// 3. Find or Create User
-	var user models.User
-	result := db.DB.Where("wallet_address = ?", req.Address).First(&user)
-	if result.Error != nil {
-		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			log.Printf("[AUTH] DB error looking up wallet %s: %v", req.Address, result.Error)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Database error"})
-			return
-		}
-
+	user, found, lookupErr := findUserForWalletLogin(req.Address)
+	if lookupErr != nil {
+		log.Printf("[AUTH] DB error looking up wallet %s: %v", req.Address, lookupErr)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Database error"})
+		return
+	}
+	if !found {
 		// User not found → Create new user
 		tx := db.DB.Begin()
 
@@ -256,18 +254,27 @@ func walletLogin(c *gin.Context) {
 			return
 		}
 
-		// Create Wallet immediately with default spending limits
-		wallet := models.Wallet{
-			UserID:     user.ID,
-			BalanceSOL: 0,
-		}
-		wallet.InitializeWithDefaultLimits(models.TrustTierNew)
-
-		if err := tx.Create(&wallet).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[AUTH] Failed to create wallet for %s: %v", req.Address, err)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
-			return
+		// Create wallet only when missing (retries / email conflict can reuse an existing user_id).
+		var existingWallet models.Wallet
+		walletErr := tx.Where("user_id = ?", user.ID).First(&existingWallet).Error
+		if walletErr != nil {
+			if !errors.Is(walletErr, gorm.ErrRecordNotFound) {
+				tx.Rollback()
+				log.Printf("[AUTH] Failed to look up wallet for %s: %v", req.Address, walletErr)
+				c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
+				return
+			}
+			wallet := models.Wallet{
+				UserID:     user.ID,
+				BalanceSOL: 0,
+			}
+			wallet.InitializeWithDefaultLimits(models.TrustTierNew)
+			if err := tx.Create(&wallet).Error; err != nil {
+				tx.Rollback()
+				log.Printf("[AUTH] Failed to create wallet for %s: %v", req.Address, err)
+				c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
+				return
+			}
 		}
 
 		if err := tx.Commit().Error; err != nil {
@@ -279,6 +286,14 @@ func walletLogin(c *gin.Context) {
 
 		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
 	} else {
+		// Reconcile wallet_address when user was found via email/linked wallet but profile was stale.
+		if user.WalletAddress == nil || *user.WalletAddress != req.Address {
+			if err := db.DB.Model(&user).Update("wallet_address", req.Address).Error; err != nil {
+				log.Printf("[AUTH] Failed to update wallet_address for user %s: %v", user.ID, err)
+			} else {
+				user.WalletAddress = &req.Address
+			}
+		}
 		// User exists -> Check if account has scheduled deletion and cancel it
 		if user.ScheduledDeletionAt != nil {
 			db.DB.Model(&user).Update("scheduled_deletion_at", nil)
@@ -305,6 +320,25 @@ func walletLogin(c *gin.Context) {
 	c.JSON(http.StatusOK, authSession)
 }
 
+// findUserForWalletLogin resolves a profile by wallet_address or wallet signup email.
+func findUserForWalletLogin(address string) (models.User, bool, error) {
+	var user models.User
+	if err := db.DB.Where("wallet_address = ?", address).First(&user).Error; err == nil {
+		return user, true, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.User{}, false, err
+	}
+
+	email := address + "@wallet.proxyhubb.com"
+	if err := db.DB.Where("email = ?", email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.User{}, false, nil
+		}
+		return models.User{}, false, err
+	}
+	return user, true, nil
+}
+
 // maskAddress masks an address for safe logging (shows first 6 and last 4 chars)
 func maskAddress(addr string) string {
 	if len(addr) <= 10 {
@@ -324,6 +358,10 @@ func GetMe(c *gin.Context) {
 	var user models.User
 	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if err := syncApprovedProviderRole(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to synchronize provider role"})
 		return
 	}
 
@@ -370,6 +408,10 @@ func getMe(c *gin.Context) {
 	var user models.User
 	if err := db.DB.Where("id = ?", userIDValue).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
+		return
+	}
+	if err := syncApprovedProviderRole(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to synchronize provider role"})
 		return
 	}
 

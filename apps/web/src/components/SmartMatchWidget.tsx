@@ -314,7 +314,7 @@ export function SmartMatchWidget() {
                                 {/* Price + Bandwidth */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-white/30">Max $/GB</label>
+                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-white/30">Max SOL/GB</label>
                                         <input
                                             type="number" placeholder="0.10" min="0" step="0.01"
                                             value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)}
@@ -570,9 +570,9 @@ export function SmartMatchWidget() {
                                                             </div>
                                                             <div className="p-2 rounded-xl bg-white/[0.02] border border-white/5">
                                                                 <div className="text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center justify-center gap-1">
-                                                                    <Wifi size={8} /> $/GB
+                                                                    <Wifi size={8} /> SOL/GB
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">${Number(r.price_per_gb || 0).toFixed(2)}</div>
+                                                                <div className="text-[11px] font-black text-white/70 mt-0.5">{Number(r.price_per_gb || 0).toFixed(6)}</div>
                                                             </div>
                                                         </div>
 
@@ -650,7 +650,7 @@ export function SmartMatchWidget() {
                                                                 <div className="w-5 h-5 rounded-lg bg-black/40 border border-white/5 flex items-center justify-center">
                                                                     <Wifi size={10} className="text-white/20" />
                                                                 </div>
-                                                                <span className="text-[9px] font-black text-white/40">{rec.listing?.price_per_gb} / GB</span>
+                                                                <span className="text-[9px] font-black text-white/40">{Number(rec.listing?.price_per_gb || 0).toFixed(6)} SOL/GB</span>
                                                             </div>
                                                             <ChevronRight size={14} className="text-white/10 group-hover:text-primary group-hover:translate-x-1 transition-all" />
                                                         </div>

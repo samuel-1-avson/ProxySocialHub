@@ -49,6 +49,7 @@ $webPort = if ($ComposeFile -eq 'docker-compose.yml') { '3009' } else { '3000' }
 Write-Host ""
 Write-Host "Stack refreshed." -ForegroundColor Green
 Write-Host "  API:  http://localhost:$apiPort/health"
+Write-Host "  Map links: http://localhost:$apiPort/v1/map/links"
 Write-Host "  Web:  http://localhost:${webPort}/explorer"
 Write-Host "  Settings hub: http://localhost:${webPort}/dashboard/settings/identity"
 Write-Host "  Verify explorer: .\scripts\explorer-verification.ps1 -ApiBaseUrl http://localhost:$apiPort"

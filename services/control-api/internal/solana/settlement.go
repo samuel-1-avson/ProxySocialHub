@@ -260,6 +260,11 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, source string, ba
 
 // buildSettleInstruction creates the settle_escrow instruction
 func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Instruction {
+	statePDA, _, _ := sol.FindProgramAddress(
+		[][]byte{[]byte("program_state")},
+		c.programID,
+	)
+
 	// Encode bandwidth_used_gb as little-endian u64
 	data := make([]byte, 8+8) // discriminator + u64
 	copy(data[0:8], discSettleEscrow[:])
@@ -274,6 +279,7 @@ func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Ins
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},        // escrow
 			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},            // buyer
 			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},           // seller
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},               // program_state
 		},
 		data: data,
 	}
@@ -461,7 +467,7 @@ func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lam
 	instruction := &GenericInstruction{
 		programID: sol.SystemProgramID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 			{PublicKey: recipient, IsSigner: false, IsWritable: true},
 		},
 		data: data,

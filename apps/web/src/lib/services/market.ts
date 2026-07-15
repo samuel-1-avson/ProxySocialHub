@@ -1,10 +1,13 @@
+/**
+ * @deprecated Prefer `@/lib/api/marketplace` for orders/listings and `@/lib/api/sessions` for sessions.
+ */
 import { API_BASE_URL, fetchWithAuth } from './client';
 import type { CreateSessionIntentResponse } from '../api/sessions';
 
 export interface Session {
     id: string;
-    type: 'rotating' | 'sticky';
-    status: 'active' | 'terminated';
+    type: 'rotating' | 'sticky' | 'universal';
+    status: 'active' | 'disabled' | 'activation_pending' | 'activation_failed' | 'terminated' | 'expired';
     credentials_user: string;
     credentials_pass: string;
     created_at: string;

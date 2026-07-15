@@ -72,6 +72,9 @@ services:
       - EXPLORER_METRICS_INTERVAL=${EXPLORER_METRICS_INTERVAL:-10m}
       - EXPLORER_INDEXER_ENABLED=${EXPLORER_INDEXER_ENABLED:-true}
       - EXPLORER_INDEXER_POLL_INTERVAL_MS=${EXPLORER_INDEXER_POLL_INTERVAL_MS:-5000}
+      # GeoIP backfill + Phase 5 map topology worker
+      - GEOIP_ENABLED=${GEOIP_ENABLED:-true}
+      - MAP_TOPOLOGY_ENABLED=${MAP_TOPOLOGY_ENABLED:-true}
 
     # Mount oracle keypair as a read-only secret file.
     # Before running: create ./oracle-keypair.json (64-byte Solana keypair array).
@@ -222,6 +225,9 @@ services:
         - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
         - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
         - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
+        - NEXT_PUBLIC_UNIFIED_NETWORK=${NEXT_PUBLIC_UNIFIED_NETWORK:-false}
+        - NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE=${NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE:-false}
+        - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-false}
     environment:
       # Server-side only — used by Next.js API routes, never sent to the browser
       - API_URL=http://control-api:8080
@@ -240,16 +246,19 @@ services:
       - NEXT_PUBLIC_EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
       - NEXT_PUBLIC_EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
       - NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED=${EXPLORER_MAP_BUY_ENABLED:-false}
+      - NEXT_PUBLIC_UNIFIED_NETWORK=${NEXT_PUBLIC_UNIFIED_NETWORK:-false}
+      - NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE=${NEXT_PUBLIC_MAP_LIVE_ON_MARKETPLACE:-false}
+      - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-false}
 
     ports:
       - "3000:3000"
-    
+
     restart: unless-stopped
-    
+
     networks:
       - backend
       - frontend
-    
+
     depends_on:
       control-api:
         condition: service_started

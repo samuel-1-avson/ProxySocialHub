@@ -31,11 +31,11 @@ type sessionIntentUsageSnapshot struct {
 type sessionIntentBillingSnapshot struct {
 	Currency              string  `json:"currency"`
 	PriceSource           string  `json:"price_source"`
-	UnitPriceUSDPerGB     float64 `json:"unit_price_usd_per_gb"`
+	UnitPricePerGB        float64 `json:"unit_price_per_gb"`
 	UnitPriceSOLPerGB     float64 `json:"unit_price_sol_per_gb"`
-	EstimatedCostUSD      float64 `json:"estimated_cost_usd"`
+	EstimatedCost         float64 `json:"estimated_cost"`
 	EstimatedCostSOL      float64 `json:"estimated_cost_sol"`
-	ProjectedLimitCostUSD float64 `json:"projected_full_limit_cost_usd"`
+	ProjectedLimitCost    float64 `json:"projected_full_limit_cost"`
 	ProjectedLimitCostSOL float64 `json:"projected_full_limit_cost_sol"`
 }
 
@@ -213,13 +213,13 @@ func buildSessionIntentStatusResponse(record *models.SessionIntentRecord) sessio
 			Unlimited:          unlimited,
 		},
 		BillingSnapshot: sessionIntentBillingSnapshot{
-			Currency:              "USD",
+			Currency:              "SOL",
 			PriceSource:           priceSource,
-			UnitPriceUSDPerGB:     unitPriceUSD,
+			UnitPricePerGB:        unitPriceSOL,
 			UnitPriceSOLPerGB:     unitPriceSOL,
-			EstimatedCostUSD:      estimatedCostUSD,
+			EstimatedCost:         estimatedCostSOL,
 			EstimatedCostSOL:      estimatedCostSOL,
-			ProjectedLimitCostUSD: projectedLimitCostUSD,
+			ProjectedLimitCost:    projectedLimitCostSOL,
 			ProjectedLimitCostSOL: projectedLimitCostSOL,
 		},
 		Intent: gin.H{
@@ -241,7 +241,8 @@ func buildSessionIntentStatusResponse(record *models.SessionIntentRecord) sessio
 			"requests_per_minute":       record.RequestsPerMinute,
 			"max_concurrency":           record.MaxConcurrency,
 			"max_price_per_gb":          record.MaxPricePerGB,
-			"billing_price_per_gb_usd":  record.BillingPricePerGBUSD,
+			"billing_price_per_gb":      unitPriceSOL,
+			"billing_price_per_gb_sol":  unitPriceSOL,
 			"billing_price_source":      record.BillingPriceSource,
 			"provider_node_id":          record.ProviderNodeID,
 			"target_host":               record.TargetHost,

@@ -8,6 +8,7 @@ import {
     buildStartCommand,
     defaultProviderConfigPath,
     downloadProviderToml,
+    getOrCreateProviderSigningKey,
     getProviderEndpoints,
     loadProviderApiKey,
 } from '@/lib/provider-config';
@@ -37,6 +38,7 @@ export function ProviderNodeConnectPanel({
     });
 
     const apiKey = apiKeyProp ?? loadProviderApiKey();
+    const providerSigningKey = useMemo(() => getOrCreateProviderSigningKey(), []);
     const endpoints = useMemo(() => {
         if (connectInfo) {
             return {
@@ -51,6 +53,7 @@ export function ProviderNodeConnectPanel({
     const toml = buildProviderToml({
         nodeId,
         apiKey,
+        providerSigningKey,
         connectionType: connectInfo?.connection_type,
         endpoints,
     });
@@ -100,6 +103,16 @@ export function ProviderNodeConnectPanel({
                             API Tokens
                         </Link>
                         {' '}or rerun the setup wizard token step.
+                    </p>
+                </div>
+            )}
+
+            {providerSigningKey && (
+                <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
+                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-[10px] font-mono text-emerald-200/90">
+                        This config includes <code className="text-emerald-100">provider_signing_key</code> so
+                        heartbeats can be cryptographically verified.
                     </p>
                 </div>
             )}

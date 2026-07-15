@@ -16,15 +16,15 @@ var TokenHashFn func(rawToken string) string
 
 // ProviderToken represents an access token for the Provider CLI
 type ProviderToken struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	UserID    uuid.UUID `gorm:"type:uuid;index;not null" json:"user_id"`
-	Token     string    `gorm:"type:varchar(64);uniqueIndex;not null" json:"-"` // Hashed token, never return raw
-	Name      string    `gorm:"type:varchar(100)" json:"name"`                   // Optional name for the token
-	LastUsed  time.Time `json:"last_used"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"` // Optional expiration
-	IsActive  bool      `gorm:"default:true" json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID      `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	UserID    uuid.UUID      `gorm:"type:uuid;index;not null" json:"user_id"`
+	Token     string         `gorm:"type:varchar(64);uniqueIndex;not null" json:"-"` // Hashed token, never return raw
+	Name      string         `gorm:"type:varchar(100)" json:"name"`                  // Optional name for the token
+	LastUsed  time.Time      `json:"last_used"`
+	ExpiresAt *time.Time     `json:"expires_at,omitempty"` // Optional expiration
+	IsActive  bool           `gorm:"default:true" json:"is_active"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
@@ -73,12 +73,13 @@ func (pt *ProviderToken) MaskToken() string {
 type CLIDownload struct {
 	ID          uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
 	Version     string    `gorm:"type:varchar(20);not null" json:"version"`
-	Platform    string    `gorm:"type:varchar(20);not null" json:"platform"` // windows, macos, linux
-	Arch        string    `gorm:"type:varchar(20);not null" json:"arch"`     // amd64, arm64
+	Platform    string    `gorm:"type:varchar(20);not null" json:"platform"`                   // windows, macos, linux
+	Arch        string    `gorm:"type:varchar(20);not null" json:"arch"`                       // amd64, arm64
+	PackageType string    `gorm:"type:varchar(20);default:'daemon';index" json:"package_type"` // daemon, wrapper, bundle
 	Filename    string    `gorm:"type:varchar(255);not null" json:"filename"`
-	FilePath    string    `gorm:"type:varchar(500);not null" json:"-"`        // Internal path, not exposed
+	FilePath    string    `gorm:"type:varchar(500);not null" json:"-"` // Internal path, not exposed
 	FileSize    int64     `json:"file_size"`
-	Checksum    string    `gorm:"type:varchar(64)" json:"checksum"`          // SHA256
+	Checksum    string    `gorm:"type:varchar(64)" json:"checksum"` // SHA256
 	DownloadURL string    `gorm:"type:varchar(500)" json:"download_url"`
 	IsLatest    bool      `gorm:"default:false;index" json:"is_latest"`
 	IsActive    bool      `gorm:"default:true" json:"is_active"`
@@ -119,16 +120,16 @@ func (c CLIDownload) GetArchDisplayName() string {
 
 // ProviderNodeRegistration tracks nodes registered via CLI
 type ProviderNodeRegistration struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	UserID       uuid.UUID `gorm:"type:uuid;index;not null" json:"user_id"`
-	TokenID      uuid.UUID `gorm:"type:uuid;index;not null" json:"token_id"` // Token used to register
-	NodeID       uuid.UUID `gorm:"type:uuid;index;not null" json:"node_id"`  // Reference to nodes table
-	IPAddress    string    `gorm:"type:varchar(45)" json:"ip_address"`
-	Hostname     string    `gorm:"type:varchar(100)" json:"hostname"`
-	CLIVersion   string    `gorm:"type:varchar(20)" json:"cli_version"`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
-	IsActive     bool      `gorm:"default:true" json:"is_active"`
+	ID         uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	UserID     uuid.UUID `gorm:"type:uuid;index;not null" json:"user_id"`
+	TokenID    uuid.UUID `gorm:"type:uuid;index;not null" json:"token_id"` // Token used to register
+	NodeID     uuid.UUID `gorm:"type:uuid;index;not null" json:"node_id"`  // Reference to nodes table
+	IPAddress  string    `gorm:"type:varchar(45)" json:"ip_address"`
+	Hostname   string    `gorm:"type:varchar(100)" json:"hostname"`
+	CLIVersion string    `gorm:"type:varchar(20)" json:"cli_version"`
+	FirstSeen  time.Time `json:"first_seen"`
+	LastSeen   time.Time `json:"last_seen"`
+	IsActive   bool      `gorm:"default:true" json:"is_active"`
 }
 
 // TableName specifies the table name

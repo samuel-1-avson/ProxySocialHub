@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 export async function GET() {
     try {
         // For now, just return success - in production this would actually test the proxy
-        const proxyEndpoint = process.env.NEXT_PUBLIC_PROXY_ENDPOINT || 'localhost:3128';
+        const proxyEndpoint =
+            process.env.NEXT_PUBLIC_PROXY_ENDPOINT?.trim() || 'localhost:8090';
 
         // Check if edge-gateway is reachable (via control-api health check)
         // Use server-side API_URL (Docker internal) — NEXT_PUBLIC_API_URL is browser-only

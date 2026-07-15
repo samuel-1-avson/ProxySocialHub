@@ -27,12 +27,13 @@ $repoRoot = $PSScriptRoot
 $distDir = Join-Path $repoRoot "cli-dist\$version"
 
 $nodeDir = Join-Path $repoRoot "services\provider-node"
+$cliDir = Join-Path $repoRoot "cli"
 
 
 
 Write-Host "==========================================" -ForegroundColor Cyan
 
-Write-Host "  Building ProxyHub provider-node" -ForegroundColor Cyan
+Write-Host "  Building ProxyHub provider-node + proxyhubb-cli" -ForegroundColor Cyan
 
 Write-Host "  version $version" -ForegroundColor Cyan
 
@@ -140,6 +141,52 @@ foreach ($t in $targets) {
 
     Build-Target $t.goos $t.goarch $t.out
 
+}
+
+function Build-CliWrapper($goos, $goarch, $outName) {
+    Write-Host "Building $outName ($goos/$goarch)..." -ForegroundColor Yellow
+    $target = Get-CargoTarget $goos $goarch
+    Push-Location $cliDir
+    try {
+        rustup target add $target 2>$null | Out-Null
+        cargo build --release --target $target
+        if ($LASTEXITCODE -ne 0) { throw "cargo build failed for proxyhubb-cli $target" }
+        $builtName = if ($goos -eq "windows") { "proxyhubb-cli.exe" } else { "proxyhubb-cli" }
+        $built = Join-Path $cliDir "target\$target\release\$builtName"
+        if (-not (Test-Path $built)) { throw "Binary not found at $built" }
+        $dest = Join-Path $distDir $outName
+        Copy-Item $built $dest -Force
+        Write-Host "  -> $outName" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+}
+
+$cliTargets = @(
+    @{ goos = "windows"; goarch = "amd64"; out = "provider-cli-$version-windows-amd64.exe" }
+)
+if ($All) {
+    $cliTargets += @(
+        @{ goos = "linux"; goarch = "amd64"; out = "provider-cli-$version-linux-amd64" },
+        @{ goos = "linux"; goarch = "arm64"; out = "provider-cli-$version-linux-arm64" },
+        @{ goos = "macos"; goarch = "amd64"; out = "provider-cli-$version-macos-amd64" },
+        @{ goos = "macos"; goarch = "arm64"; out = "provider-cli-$version-macos-arm64" }
+    )
+}
+
+foreach ($t in $cliTargets) {
+    Build-CliWrapper $t.goos $t.goarch $t.out
+}
+
+# Place wrapper next to provider-node binaries for portable zip bundles
+Get-ChildItem $distDir -Filter "provider-node-*" | ForEach-Object {
+    $dir = $_.DirectoryName
+    $wrapper = Join-Path $distDir "provider-cli-$version-windows-amd64.exe"
+    if ($_.Name -match "windows-amd64" -and (Test-Path $wrapper)) {
+        $sidecarName = ($_.BaseName -replace "provider-node", "provider-cli") + ".exe"
+        $sidecar = Join-Path $dir $sidecarName
+        Copy-Item $wrapper $sidecar -Force -ErrorAction SilentlyContinue
+    }
 }
 
 

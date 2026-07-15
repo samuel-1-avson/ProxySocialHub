@@ -52,7 +52,9 @@ func CanTransitionListingStatus(from, to ListingStatus) bool {
 	}
 	switch from {
 	case "":
-		return to == ListingStatusActive || to == ListingStatusPaused
+		return to == ListingStatusActive || to == ListingStatusPendingReview || to == ListingStatusPaused
+	case ListingStatusPendingReview:
+		return to == ListingStatusActive || to == ListingStatusDeleted
 	case ListingStatusActive:
 		return to == ListingStatusPaused || to == ListingStatusSoldOut || to == ListingStatusDeleted
 	case ListingStatusPaused:
@@ -83,9 +85,13 @@ func CanTransitionSessionStatus(from, to SessionStatus) bool {
 	case "":
 		return to == SessionActive
 	case SessionActive:
-		return to == SessionDisabled || to == SessionTerminated
+		return to == SessionDisabled || to == SessionActivationPending || to == SessionActivationFailed || to == SessionTerminated
 	case SessionDisabled:
-		return to == SessionActive || to == SessionTerminated
+		return to == SessionActivationPending || to == SessionActive || to == SessionTerminated
+	case SessionActivationPending:
+		return to == SessionActive || to == SessionActivationFailed || to == SessionTerminated
+	case SessionActivationFailed:
+		return to == SessionActivationPending || to == SessionTerminated
 	default:
 		return false
 	}

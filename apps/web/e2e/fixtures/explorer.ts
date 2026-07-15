@@ -115,6 +115,7 @@ export function mockExplorerUnifiedMapResponse() {
         lon: n.lon,
         title: n.city || n.node_id,
         country: n.country,
+        region: n.region,
         city: n.city,
         isp: n.isp,
         status: n.is_active ? 'active' : 'offline',

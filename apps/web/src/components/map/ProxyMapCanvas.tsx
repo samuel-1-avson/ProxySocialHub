@@ -4,7 +4,7 @@
  * LeafletMap — Map Engine for the ProxyHubb Node Explorer
  *
  * Architecture:
- *  - react-leaflet MapContainer with CARTO dark tiles
+ *  - Leaflet map with CARTO dark tiles (vanilla leaflet, dynamic import)
  *  - supercluster for zoom-adaptive, radius-based clustering
  *  - Native canvas heatmap layer (no extra dependency)
  *  - Markers are DivIcon HTML — no DOM library dependencies
@@ -84,21 +84,81 @@ function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     </div>`;
 }
 
-function listingMarkerHtml(price: number, selected: boolean, estimated: boolean): string {
+function listingLocationKey(pin: ExplorerListingPin): string {
+    if (pin.node_id?.trim()) return `node:${pin.node_id.trim()}`;
+    return `coord:${pin.lat.toFixed(4)},${pin.lon.toFixed(4)}`;
+}
+
+function groupListingPins(pins: ExplorerListingPin[]): ExplorerListingPin[][] {
+    const groups = new Map<string, ExplorerListingPin[]>();
+    for (const pin of pins) {
+        const key = listingLocationKey(pin);
+        const bucket = groups.get(key) ?? [];
+        bucket.push(pin);
+        groups.set(key, bucket);
+    }
+    return Array.from(groups.values());
+}
+
+function listingMarkerHtml(price: number, selected: boolean, estimated: boolean, count: number): string {
     const color = selected ? '#f59e0b' : estimated ? '#d97706' : '#10b981';
     const border = estimated ? '2px dashed rgba(251,191,36,.85)' : '2px solid rgba(255,255,255,.35)';
-    return `<div style="width:24px;height:24px;border-radius:6px;background:${color};border:${border};box-shadow:0 0 14px ${color}88;display:flex;align-items:center;justify-content:center;cursor:pointer;">
-        <span style="font-size:7px;font-weight:900;color:#fff;">${price.toFixed(4)}</span>
+    const size = count > 1 ? 30 : 24;
+    const label = count > 1
+        ? `<span style="font-size:11px;font-weight:900;color:#fff;line-height:1;">${count}</span>`
+        : `<span style="font-size:7px;font-weight:900;color:#fff;">${price.toFixed(4)}</span>`;
+    const sublabel = count > 1
+        ? `<span style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);font-size:6px;font-weight:800;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;">listings</span>`
+        : '';
+    return `<div style="position:relative;width:${size}px;height:${size}px;">
+        <div style="width:100%;height:100%;border-radius:${count > 1 ? '50%' : '6px'};background:${color};border:${border};box-shadow:0 0 14px ${color}88;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+            ${label}
+        </div>
+        ${sublabel}
     </div>`;
 }
 
-function listingPopup(pin: ExplorerListingPin): string {
-    const loc = esc(pin.country || '—');
+function listingLocationLabel(pin: ExplorerListingPin & { city?: string }): string {
+    const parts = [pin.city, pin.country].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : (pin.country || '—');
+}
+
+function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: string } }): string {
+    const title = pin.catalog_product?.title?.trim();
+    if (!title) return '';
+    const slug = pin.catalog_product?.slug?.trim();
+    const label = slug ? `/${slug}` : 'Catalog';
+    return `<div style="font-size:8px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px;">Catalog · ${esc(label)} · ${esc(title)}</div>`;
+}
+
+function listingPopup(pin: ExplorerListingPin & { city?: string; catalog_product?: { title?: string; slug?: string } }): string {
+    const loc = esc(listingLocationLabel(pin));
+    const catalogLine = catalogPopupLine(pin);
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:200px;font-family:monospace;color:#fff;">
         <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
+        ${catalogLine}
         <div style="font-size:11px;font-weight:700;margin-bottom:6px;">${esc(pin.title)}</div>
         <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · ${pin.price_per_gb.toFixed(6)} SOL/GB</div>
         <a href="/marketplace/${esc(pin.listing_id)}" style="display:block;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;text-transform:uppercase;text-decoration:none;">Buy →</a>
+    </div>`;
+}
+
+function listingClusterPopup(pins: (ExplorerListingPin & { city?: string })[]): string {
+    const loc = esc(listingLocationLabel(pins[0]));
+    const minPrice = Math.min(...pins.map(p => p.price_per_gb));
+    const rows = pins.map(p => {
+        const verified = p.listing_offer_verified ? 'signed' : 'unsigned';
+        return `<button type="button" data-listing-id="${esc(p.listing_id)}" class="ph-listing-cluster-row" style="display:block;width:100%;text-align:left;padding:8px 0;border:none;border-bottom:1px solid rgba(255,255,255,.06);background:transparent;cursor:pointer;font-family:monospace;">
+            <div style="font-size:10px;font-weight:700;color:#fff;margin-bottom:2px;">${esc(p.title)}</div>
+            <div style="font-size:8px;color:rgba(255,255,255,.45);">${p.price_per_gb.toFixed(6)} SOL/GB · ${verified}</div>
+        </button>`;
+    }).join('');
+
+    return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:240px;max-width:280px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+        <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">${pins.length} listings here</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.45);margin-bottom:8px;">📍 ${loc} · from ${minPrice.toFixed(6)} SOL/GB</div>
+        <div style="max-height:220px;overflow-y:auto;scrollbar-width:thin;">${rows}</div>
+        <div style="font-size:7px;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.12em;margin-top:8px;text-align:center;">Tap a listing to select</div>
     </div>`;
 }
 
@@ -152,6 +212,7 @@ export default function LeafletMapComponent({
     liveUpdates = [],
     listingPins = [],
     onSelectListing,
+    onSelectListingGroup,
     selectedListingId,
     onBoundsChange,
 }: ProxyMapCanvasProps) {
@@ -343,22 +404,59 @@ export default function LeafletMapComponent({
 
         if (!listingPins.length) return;
 
-        for (const pin of listingPins) {
-            if (Math.abs(pin.lat) < 0.01 && Math.abs(pin.lon) < 0.01) continue;
-            const selected = pin.listing_id === selectedListingId;
+        const groups = groupListingPins(
+            listingPins.filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01),
+        );
+
+        for (const group of groups) {
+            const pin = group[0];
+            const count = group.length;
+            const selected = count === 1
+                ? group[0].listing_id === selectedListingId
+                : group.some(p => p.listing_id === selectedListingId);
+            const minPrice = Math.min(...group.map(p => p.price_per_gb));
+            const size = count > 1 ? 30 : 24;
             const icon = L.divIcon({
-                html: listingMarkerHtml(pin.price_per_gb, selected, !!pin.estimated),
+                html: listingMarkerHtml(minPrice, selected, !!pin.estimated, count),
                 className: '',
-                iconSize: [24, 24],
-                iconAnchor: [12, 12],
+                iconSize: [size, size + (count > 1 ? 10 : 0)],
+                iconAnchor: [size / 2, size / 2],
             });
             const marker = L.marker([pin.lat, pin.lon], { icon, zIndexOffset: 500 });
-            marker.bindPopup(listingPopup(pin), { className: 'leaflet-custom-popup', maxWidth: 260 });
-            marker.on('click', () => onSelectListing?.(pin));
+
+            const popupHtml = count === 1 ? listingPopup(pin) : listingClusterPopup(group);
+            const popup = L.popup({ className: 'leaflet-custom-popup', maxWidth: 280 }).setContent(popupHtml);
+            marker.bindPopup(popup);
+
+            marker.on('popupopen', () => {
+                if (count === 1) return;
+                const el = popup.getElement();
+                if (!el) return;
+                el.querySelectorAll<HTMLButtonElement>('.ph-listing-cluster-row').forEach(btn => {
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        const id = btn.getAttribute('data-listing-id');
+                        const picked = group.find(p => p.listing_id === id);
+                        if (picked) {
+                            onSelectListing?.(picked);
+                            map.closePopup();
+                        }
+                    };
+                });
+            });
+
+            marker.on('click', () => {
+                if (count === 1) {
+                    onSelectListing?.(pin);
+                    return;
+                }
+                onSelectListingGroup?.(group);
+            });
+
             marker.addTo(map);
             listingMarkersRef.current.push(marker);
         }
-    }, [listingPins, onSelectListing, selectedListingId]);
+    }, [listingPins, onSelectListing, onSelectListingGroup, selectedListingId]);
 
     // Re-render markers on zoom/pan so clusters update to the new zoom level
     useEffect(() => {
@@ -507,8 +605,8 @@ export default function LeafletMapComponent({
     }, [showHeatmap, drawHeatmap]);
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 'inherit' }}>
-            <div ref={containerRef} style={{ width: '100%', height: '100%', borderRadius: 'inherit' }} />
+        <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}>
+            <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }} />
             <canvas
                 ref={canvasRef}
                 style={{

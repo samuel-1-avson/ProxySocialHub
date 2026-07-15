@@ -13,9 +13,18 @@ const webServer = process.env.TEST_BASE_URL
         TEST_JWT_SECRET: e2eJwtSecret,
         PLAYWRIGHT_E2E_AUTH_BYPASS: '1',
         NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: '1',
+        ...(process.env.PLAYWRIGHT_UNIFIED_NETWORK === '1' || process.env.NEXT_PUBLIC_UNIFIED_NETWORK === '1'
+          ? { NEXT_PUBLIC_UNIFIED_NETWORK: '1' }
+          : {}),
+        ...(process.env.PLAYWRIGHT_GLOBE_TOPOLOGY === '1' || process.env.NEXT_PUBLIC_GLOBE_TOPOLOGY === '1'
+          ? { NEXT_PUBLIC_GLOBE_TOPOLOGY: '1' }
+          : {}),
       },
       url: localDevURL,
-      reuseExistingServer: !process.env.CI,
+      // Default: start fresh dev:e2e (JWT_SECRET + bypass env). Opt in with PLAYWRIGHT_REUSE_SERVER=1 only when
+      // you already run `npm run dev:e2e` on :4011 — plain `npm run dev` breaks signed-auth / moderation E2E.
+      reuseExistingServer:
+        !process.env.CI && process.env.PLAYWRIGHT_REUSE_SERVER === '1',
       stdout: 'pipe' as const,
       timeout: 420 * 1000,
     };

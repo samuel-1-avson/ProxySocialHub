@@ -139,9 +139,13 @@ export default function CreateListingPage() {
                 }
             }
 
-            await createListing(payload);
+            const listing = await createListing(payload);
             queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-            router.push("/marketplace");
+            if (listing.status === "pending_review") {
+                router.push("/marketplace/manage?submitted=pending_review");
+            } else {
+                router.push("/marketplace");
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
         } finally {
@@ -335,7 +339,7 @@ export default function CreateListingPage() {
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-mono font-bold uppercase">Price per GB (GHS)</label>
+                            <label className="text-[10px] font-mono font-bold uppercase">Price per GB (SOL)</label>
                             <input
                                 type="number"
                                 name="price_per_gb"

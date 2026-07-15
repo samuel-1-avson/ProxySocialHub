@@ -107,6 +107,39 @@ pub struct SessionData {
     pub auth_source: String,
     #[serde(default)]
     pub intent_expires_at: i64,
+
+    // P2P marketplace listing fields (control-api session sync)
+    #[serde(default)]
+    pub listing_id: String,
+    #[serde(default)]
+    pub node_id: String,
+    #[serde(default)]
+    pub node_host: String,
+    #[serde(default)]
+    pub node_port: i32,
+    #[serde(default)]
+    pub price_per_gb: f64,
+    #[serde(default)]
+    pub credential_password_hash: String,
+}
+
+fn verify_credential_password(expected_hex: &str, password: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    let computed = hex::encode(hasher.finalize());
+    constant_time_eq(computed.as_bytes(), expected_hex.as_bytes())
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 pub struct SessionAuthenticator {
@@ -197,8 +230,8 @@ impl SessionAuthenticator {
                     return Ok(None);
                 }
 
-                // Check bandwidth limit
-                if session_data.bandwidth_used >= session_data.bandwidth_limit {
+                // A non-positive bandwidth limit means unlimited. Positive limits are hard caps.
+                if !session_data.has_remaining_bandwidth() {
                     return Ok(None);
                 }
 
@@ -246,8 +279,16 @@ impl SessionAuthenticator {
             }));
         }
 
-        let session = self.validate_session(username, false).await?;
-        Ok(session.map(|session| ResolvedProxySession {
+        let session = match self.validate_session(username, false).await? {
+            Some(session) => session,
+            None => return Ok(None),
+        };
+
+        if !session.legacy_credentials_match(password) {
+            return Ok(None);
+        }
+
+        Ok(Some(ResolvedProxySession {
             username: username.to_string(),
             session,
             source: ProxyAuthSource::LegacySession,
@@ -405,6 +446,15 @@ impl SessionData {
         self.auth_source == "session_intent"
     }
 
+    pub fn has_remaining_bandwidth(&self) -> bool {
+        self.bandwidth_limit <= 0 || self.bandwidth_used < self.bandwidth_limit
+    }
+
+    fn legacy_credentials_match(&self, password: &str) -> bool {
+        !self.credential_password_hash.trim().is_empty()
+            && verify_credential_password(&self.credential_password_hash, password)
+    }
+
     pub fn intent_still_valid(&self) -> bool {
         if !self.is_session_intent() || self.intent_expires_at <= 0 {
             return true;
@@ -504,6 +554,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_verify_credential_password() {
+        use sha2::{Digest, Sha256};
+        let password = "marketplace-secret";
+        let mut hasher = Sha256::new();
+        hasher.update(password.as_bytes());
+        let hash = hex::encode(hasher.finalize());
+        assert!(verify_credential_password(&hash, password));
+        assert!(!verify_credential_password(&hash, "wrong"));
+    }
+
+    #[test]
+    fn test_session_data_p2p_fields_deserialization() {
+        let json = r#"{
+            "user_id": "user-123",
+            "session_id": "sess-456",
+            "type": "sticky",
+            "status": "active",
+            "bandwidth_limit": 1000,
+            "bandwidth_used": 0,
+            "listing_id": "listing-1",
+            "node_id": "node_abc",
+            "credential_password_hash": "deadbeef"
+        }"#;
+        let session: SessionData = serde_json::from_str(json).expect("Failed to parse");
+        assert_eq!(session.listing_id, "listing-1");
+        assert_eq!(session.node_id, "node_abc");
+        assert_eq!(session.credential_password_hash, "deadbeef");
+    }
+
+    #[test]
     fn test_session_data_deserialization() {
         let json = r#"{
             "user_id": "user-123",
@@ -576,7 +656,91 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(session.bandwidth_used >= session.bandwidth_limit);
+        assert!(!session.has_remaining_bandwidth());
+    }
+
+    #[test]
+    fn zero_bandwidth_limit_is_unlimited_for_legacy_session_contract() {
+        let session = SessionData {
+            user_id: "u1".to_string(),
+            session_id: "s1".to_string(),
+            session_type: "rotating".to_string(),
+            status: "active".to_string(),
+            bandwidth_limit: 0,
+            bandwidth_used: i64::MAX,
+            credential_password_hash: credential_hash("correct-password"),
+            ..Default::default()
+        };
+
+        assert!(session.has_remaining_bandwidth());
+        assert!(session.legacy_credentials_match("correct-password"));
+    }
+
+    #[test]
+    fn negative_bandwidth_limit_is_unlimited_for_legacy_session_contract() {
+        let session = SessionData {
+            bandwidth_limit: -1,
+            bandwidth_used: i64::MAX,
+            ..Default::default()
+        };
+
+        assert!(session.has_remaining_bandwidth());
+    }
+
+    #[test]
+    fn legacy_credential_sessions_require_password_hash() {
+        let session = SessionData {
+            credential_password_hash: String::new(),
+            ..Default::default()
+        };
+
+        assert!(!session.legacy_credentials_match("any-password"));
+    }
+
+    #[test]
+    fn legacy_credential_sessions_require_matching_password_hash() {
+        let session = SessionData {
+            credential_password_hash: credential_hash("correct-password"),
+            ..Default::default()
+        };
+
+        assert!(session.legacy_credentials_match("correct-password"));
+        assert!(!session.legacy_credentials_match("wrong-password"));
+    }
+
+    #[test]
+    fn zero_bandwidth_limit_is_unlimited_for_session_intent_contract() {
+        let claims = session_intent::SessionIntentClaims {
+            sub: "user-123".to_string(),
+            listing_id: "listing-123".to_string(),
+            session_type: "sticky".to_string(),
+            trust_tier: "verified".to_string(),
+            bandwidth_limit: 0,
+            target_geo: "GH".to_string(),
+            target_isp: "FiberCo".to_string(),
+            routing_profile: "default".to_string(),
+            allowed_domains: Vec::new(),
+            blocked_domains: Vec::new(),
+            rotation_type: "none".to_string(),
+            rotation_interval_seconds: 0,
+            time_limit_minutes: 0,
+            preferred_tier: "verified".to_string(),
+            requests_per_minute: 120,
+            max_concurrency: 4,
+            max_price_per_gb: 0.01,
+            aud: session_intent::AudienceClaim::One("proxyhubb-edge-gateway".to_string()),
+            exp: usize::MAX,
+            iat: 1,
+            iss: "proxyhubb-control-api".to_string(),
+            jti: "intent-123".to_string(),
+            nbf: 1,
+        };
+        let mut session = SessionData::from_session_intent(&claims);
+        session.bandwidth_used = i64::MAX;
+
+        assert!(session.is_session_intent());
+        assert_eq!(session.bandwidth_limit, 0);
+        assert!(session.has_remaining_bandwidth());
     }
 
     #[test]
@@ -606,5 +770,12 @@ mod tests {
             ..Default::default()
         };
         assert!(!session.session_within_time_limit());
+    }
+
+    fn credential_hash(password: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(password.as_bytes());
+        hex::encode(hasher.finalize())
     }
 }

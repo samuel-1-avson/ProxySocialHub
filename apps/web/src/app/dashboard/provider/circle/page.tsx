@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     CircleDot,
     Wifi,
-    DollarSign,
+    Coins,
     Users,
     TrendingUp,
     Plus,
@@ -120,7 +120,7 @@ export default function CirclePoolingPage() {
             addNotification({
                 type: "success",
                 title: "REVENUE ACCESSED",
-                message: `$${data.amount.toFixed(2)} credited to your local balance.`,
+                message: `${data.amount.toFixed(6)} SOL credited to your local balance.`,
             });
             queryClient.invalidateQueries({ queryKey: circlePoolingKeys.all });
         },
@@ -328,7 +328,7 @@ export default function CirclePoolingPage() {
                             <div className="flex justify-between items-start mb-8">
                                 <div>
                                     <h3 className="text-xs font-black font-mono uppercase tracking-[0.2em] flex items-center gap-2 mb-1">
-                                        <DollarSign size={16} className="text-amber-400" /> Economic Center
+                                        <Coins size={16} className="text-amber-400" /> Economic Center
                                     </h3>
                                     <p className="text-[10px] font-mono font-black uppercase opacity-30">Revenue settlement engine</p>
                                 </div>
@@ -339,7 +339,7 @@ export default function CirclePoolingPage() {
                                         className="px-6 py-2 bg-amber-500 text-black rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
                                     >
                                         {claimRevenueMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap size={14} />} 
-                                        Claim ${revenueData.available.toFixed(2)}
+                                        Claim {revenueData.available.toFixed(6)} SOL
                                     </button>
                                 )}
                             </div>
@@ -347,15 +347,15 @@ export default function CirclePoolingPage() {
                             <div className="grid grid-cols-3 gap-6 mb-8 pb-8 border-b border-white/5">
                                 <div className="space-y-1">
                                     <p className="text-[8px] font-black font-mono uppercase opacity-30">Lifetime</p>
-                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums text-emerald-400">${revenueData.total_earned.toFixed(2)}</p>
+                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums text-emerald-400">{revenueData.total_earned.toFixed(6)} SOL</p>
                                 </div>
                                 <div className="space-y-1">
                                     <p className="text-[8px] font-black font-mono uppercase opacity-30">Extracted</p>
-                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums opacity-60">${revenueData.total_claimed.toFixed(2)}</p>
+                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums opacity-60">{revenueData.total_claimed.toFixed(6)} SOL</p>
                                 </div>
                                 <div className="space-y-1 text-right">
                                     <p className="text-[8px] font-black font-mono uppercase opacity-30">Floating</p>
-                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums text-amber-400">${revenueData.available.toFixed(2)}</p>
+                                    <p className="text-xl font-black font-mono tracking-tighter tabular-nums text-amber-400">{revenueData.available.toFixed(6)} SOL</p>
                                 </div>
                             </div>
 
@@ -375,7 +375,7 @@ export default function CirclePoolingPage() {
                                                 </p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-[11px] font-black font-mono text-emerald-400">${revenue.provider_revenue.toFixed(2)}</p>
+                                                <p className="text-[11px] font-black font-mono text-emerald-400">{revenue.provider_revenue.toFixed(6)} SOL</p>
                                                 <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">{revenue.status}</p>
                                             </div>
                                         </div>
@@ -420,7 +420,7 @@ export default function CirclePoolingPage() {
                                         <p className="text-[11px] font-black font-mono uppercase truncate group-hover/member:text-blue-400 transition-colors">{member.provider_name || 'Anonymous Operator'}</p>
                                         <div className="flex items-center gap-3 mt-1 opacity-40">
                                             <span className="text-[8px] font-mono font-black uppercase tracking-tighter">{member.share_percent.toFixed(1)}% Share</span>
-                                            <span className="text-[8px] font-mono font-black uppercase tracking-tighter group-hover/member:text-emerald-400 transition-all">${member.revenue_earned.toFixed(2)} total</span>
+                                            <span className="text-[8px] font-mono font-black uppercase tracking-tighter group-hover/member:text-emerald-400 transition-all">{member.revenue_earned.toFixed(6)} SOL total</span>
                                         </div>
                                     </div>
                                     <div className="p-2 bg-white/5 rounded-lg opacity-0 group-hover/member:opacity-100 transition-opacity">

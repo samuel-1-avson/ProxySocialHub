@@ -1,8 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { getExplorerWsUrl } from '../ws-url';
+import type { ExplorerNodeWsUpdate } from '../services/explorer';
+
+export interface LinkTopologyWsUpdate {
+    action: string;
+    link_count: number;
+    topology_available: boolean;
+}
 
 export interface WSUpdate {
-    type: 'initial' | 'new_transaction' | 'new_block' | 'node_update';
+    type: 'initial' | 'new_transaction' | 'new_block' | 'node_update' | 'link_update';
     data: any;
     timestamp: string;
 }
@@ -10,7 +17,8 @@ export interface WSUpdate {
 export interface UseExplorerWSOptions {
     onNewTransaction?: (data: any) => void;
     onNewBlock?: (data: any) => void;
-    onNodeUpdate?: (data: any) => void;
+    onNodeUpdate?: (data: ExplorerNodeWsUpdate) => void;
+    onLinkUpdate?: (data: LinkTopologyWsUpdate) => void;
     onInitial?: (data: any) => void;
     /** Fired when the socket opens (before initial payload). */
     onOpen?: () => void;
@@ -82,6 +90,9 @@ export function useExplorerWS(options: UseExplorerWSOptions = {}) {
                         break;
                     case 'node_update':
                         cbs.onNodeUpdate?.(update.data);
+                        break;
+                    case 'link_update':
+                        cbs.onLinkUpdate?.(update.data);
                         break;
                 }
             } catch (err) {

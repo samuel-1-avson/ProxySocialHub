@@ -54,7 +54,13 @@ impl TrafficShaper {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let quota = Quota::per_second(NonZeroU32::new(bytes_per_sec.max(1)).unwrap());
+        // 0 means unlimited (see bridge_to_provider); do not clamp to 1 B/s.
+        let cap = if bytes_per_sec == 0 {
+            u32::MAX / 2
+        } else {
+            bytes_per_sec
+        };
+        let quota = Quota::per_second(NonZeroU32::new(cap.max(1)).unwrap());
         let limiter = Arc::new(RateLimiter::keyed(quota));
         ShapedStream {
             inner: stream,

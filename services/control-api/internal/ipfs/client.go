@@ -2,12 +2,15 @@ package ipfs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -47,8 +50,24 @@ func getEnvOrDefault(key, defaultVal string) string {
 	return defaultVal
 }
 
+func ipfsStubEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOVERNANCE_IPFS_STUB")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// stubCID returns a deterministic pseudo-CID for dev/E2E when Pinata and local IPFS are unavailable.
+func stubCID(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return "bafye2e" + hex.EncodeToString(sum[:16])
+}
+
 // UploadText uploads text content to IPFS and returns the CID
 func (c *IPFSClient) UploadText(content string) (string, error) {
+	if ipfsStubEnabled() {
+		cid := stubCID(content)
+		logging.Debug().Str("cid", cid).Msg("GOVERNANCE_IPFS_STUB: using deterministic pseudo-CID")
+		return cid, nil
+	}
 	if c.UsePinata {
 		return c.uploadToPinata(content)
 	}

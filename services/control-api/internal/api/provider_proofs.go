@@ -27,8 +27,26 @@ func providerProofMode() string {
 	switch mode {
 	case "enforce", "strict", "required":
 		return "enforce"
+	case "observe", "off", "disabled":
+		return "observe"
+	case "":
+		if productionProofEnforceDefault() {
+			return "enforce"
+		}
+		return "observe"
 	default:
 		return "observe"
+	}
+}
+
+// productionProofEnforceDefault enables signed proofs when PROVIDER_SIGNATURE_MODE
+// is unset in production-like environments (explicit observe still wins).
+func productionProofEnforceDefault() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))) {
+	case "production", "prod":
+		return true
+	default:
+		return false
 	}
 }
 
