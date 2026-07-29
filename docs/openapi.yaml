@@ -72,6 +72,8 @@ tags:
     description: Marketplace discovery and intelligent routing matches
   - name: Listings
     description: Marketplace listing browse, management, search, and bookmarks
+  - name: Catalog
+    description: Seller catalog products and offer linkage (Phase 3A)
   - name: Crypto
     description: Treasury, batch settlement, and chain-operation controls
   - name: Trustless
@@ -1187,6 +1189,253 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceMatchResponse'
+
+  # ==================== Catalog (Phase 3A) ====================
+  /v1/catalog/products/my:
+    get:
+      tags: [Catalog]
+      summary: List the authenticated seller's catalog products
+      operationId: listMyCatalogProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated seller products with offers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CatalogProduct'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+        '401':
+          description: Authentication required
+
+  /v1/catalog/products:
+    post:
+      tags: [Catalog]
+      summary: Create a catalog product
+      operationId: createCatalogProduct
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '400':
+          description: Validation error
+        '401':
+          description: Authentication required
+        '409':
+          description: Slug already taken for this seller
+
+  /v1/catalog/products/{id}:
+    get:
+      tags: [Catalog]
+      summary: Get a catalog product by id
+      description: Active products are public. Draft/archived are visible only to the owning seller.
+      operationId: getCatalogProductById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product with offers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogProductView'
+        '404':
+          description: Product not found or not visible
+    put:
+      tags: [Catalog]
+      summary: Update a catalog product (full/partial fields)
+      operationId: putCatalogProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogProductRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '401':
+          description: Authentication required
+        '404':
+          description: Product not found for seller
+    patch:
+      tags: [Catalog]
+      summary: Partially update a catalog product
+      operationId: patchCatalogProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogProductRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '401':
+          description: Authentication required
+        '404':
+          description: Product not found for seller
+
+  /v1/catalog/products/{id}/offers:
+    post:
+      tags: [Catalog]
+      summary: Link a seller-owned listing as a catalog offer
+      operationId: linkCatalogOffer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkCatalogOfferRequest'
+      responses:
+        '201':
+          description: Offer linked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offer:
+                    $ref: '#/components/schemas/CatalogOffer'
+        '403':
+          description: Listing not owned by seller or already linked to another product
+        '404':
+          description: Product not found for seller
+
+  /v1/catalog/products/{id}/offers/{offer_id}:
+    delete:
+      tags: [Catalog]
+      summary: Unlink a catalog offer from a product
+      operationId: unlinkCatalogOffer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: offer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Offer unlinked
+        '404':
+          description: Product or offer not found
+
+  /v1/catalog/sellers/{seller_id}/products/{slug}:
+    get:
+      tags: [Catalog]
+      summary: Public product lookup by seller id and slug
+      operationId: getCatalogProductBySellerSlug
+      parameters:
+        - name: seller_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active product with offers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogProductView'
+        '404':
+          description: Product not found or not active
 
   # ==================== Listings ====================
   /v1/listings:
@@ -4829,6 +5078,133 @@ components:
         page:
           type: integer
         limit:
+          type: integer
+
+    CatalogProduct:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        offers:
+          type: array
+          description: Present when preloaded (seller list endpoint)
+          items:
+            $ref: '#/components/schemas/CatalogOffer'
+
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        display_name:
+          type: string
+        is_primary:
+          type: boolean
+        sort_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CatalogProductView:
+      type: object
+      properties:
+        product:
+          $ref: '#/components/schemas/CatalogProduct'
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogOffer'
+
+    CreateCatalogProductRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        slug:
+          type: string
+          maxLength: 120
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    UpdateCatalogProductRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        slug:
+          type: string
+          maxLength: 120
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    LinkCatalogOfferRequest:
+      type: object
+      required: [listing_id]
+      properties:
+        listing_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          maxLength: 64
+        display_name:
+          type: string
+          maxLength: 200
+        is_primary:
+          type: boolean
+        sort_order:
           type: integer
 
     ServiceMatchResponse:

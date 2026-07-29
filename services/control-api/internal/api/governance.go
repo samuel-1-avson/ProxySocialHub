@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
