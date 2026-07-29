@@ -142,6 +142,48 @@ func TestCatalogProductCRUDAndOfferLink(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner draft get: %d %s", rec.Code, rec.Body.String())
 	}
+
+	// Unlink offer
+	var linked models.CatalogOffer
+	if err := db.DB.Where("product_id = ? AND listing_id = ?", productID, listing.ID).First(&linked).Error; err != nil {
+		t.Fatalf("load linked offer: %v", err)
+	}
+	req = httptest.NewRequest(
+		http.MethodDelete,
+		"/catalog/products/"+productID.String()+"/offers/"+linked.ID.String(),
+		nil,
+	)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unlink offer: %d %s", rec.Code, rec.Body.String())
+	}
+	var gone models.CatalogOffer
+	if err := db.DB.Where("id = ?", linked.ID).First(&gone).Error; err == nil {
+		t.Fatal("expected offer row deleted after unlink")
+	}
+
+	// PUT update (alias of PATCH)
+	putBody, _ := json.Marshal(map[string]interface{}{
+		"title":  "Premium US Pool v2",
+		"status": "active",
+	})
+	req = httptest.NewRequest(http.MethodPut, "/catalog/products/"+productID.String(), bytes.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put update: %d %s", rec.Code, rec.Body.String())
+	}
+	var updated struct {
+		Product models.CatalogProduct `json:"product"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Product.Title != "Premium US Pool v2" {
+		t.Fatalf("title after put=%q", updated.Product.Title)
+	}
 }
 
 func authAs(userID uuid.UUID) gin.HandlerFunc {

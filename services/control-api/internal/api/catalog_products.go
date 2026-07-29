@@ -17,6 +17,7 @@ func RegisterCatalogRoutes(rg *gin.RouterGroup) {
 	rg.GET("/catalog/products/:id", getCatalogProductByID)
 	rg.POST("/catalog/products", createCatalogProduct)
 	rg.PATCH("/catalog/products/:id", updateCatalogProduct)
+	rg.PUT("/catalog/products/:id", updateCatalogProduct)
 	rg.POST("/catalog/products/:id/offers", linkCatalogOffer)
 	rg.DELETE("/catalog/products/:id/offers/:offer_id", unlinkCatalogOffer)
 }
