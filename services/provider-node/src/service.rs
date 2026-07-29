@@ -60,7 +60,7 @@ pub fn install(config: Option<PathBuf>) -> Result<()> {
         std::fs::write(&plist_path, macos_plist(&exe, &config_path))?;
         println!("Installed LaunchAgent: {}", plist_path.display());
         println!("Start with: provider-node service start");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -78,7 +78,7 @@ pub fn install(config: Option<PathBuf>) -> Result<()> {
             .status();
         println!("Installed systemd user service: {}", unit_path.display());
         println!("Start with: provider-node service start");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(windows, target_os = "macos", all(unix, not(target_os = "macos")))))]
@@ -108,7 +108,7 @@ pub fn uninstall() -> Result<()> {
         let plist_path = launch_agent_path();
         let _ = std::fs::remove_file(&plist_path);
         println!("Removed LaunchAgent: {}", plist_path.display());
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -123,7 +123,7 @@ pub fn uninstall() -> Result<()> {
             .args(["--user", "daemon-reload"])
             .status();
         println!("Removed systemd user service: {}", unit_path.display());
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(windows, target_os = "macos", all(unix, not(target_os = "macos")))))]
@@ -275,11 +275,11 @@ fn macos_plist(exe: &Path, config: &Path) -> String {
 fn platform_unit_path() -> Option<String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        return Some(systemd_unit_path().display().to_string());
+        Some(systemd_unit_path().display().to_string())
     }
     #[cfg(target_os = "macos")]
     {
-        return Some(launch_agent_path().display().to_string());
+        Some(launch_agent_path().display().to_string())
     }
     #[cfg(windows)]
     {
