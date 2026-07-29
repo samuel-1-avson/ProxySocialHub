@@ -64,9 +64,15 @@ pub struct GatewayAccess {
 
 impl GatewayAccess {
     /// Refresh this token when less than `skew` remains before expiry.
+    #[allow(dead_code)] // exercised in unit tests; runtime uses `gateway_token_needs_refresh`
     pub fn needs_refresh(&self, skew: Duration) -> bool {
-        std::time::Instant::now() + skew >= self.expires_at
+        gateway_token_needs_refresh(self.expires_at, skew)
     }
+}
+
+/// True when `expires_at` is within `skew` of now (or already past).
+pub fn gateway_token_needs_refresh(expires_at: std::time::Instant, skew: Duration) -> bool {
+    std::time::Instant::now() + skew >= expires_at
 }
 
 /// Exchange a provider API key for a short-lived tunnel JWT (`/v1/provider/gateway-token`).
@@ -185,6 +191,7 @@ pub async fn register_node(
 }
 
 /// POST /v1/provider/nodes/:id/heartbeat — keeps dashboard `provider_nodes` online.
+#[allow(clippy::too_many_arguments)]
 pub async fn send_provider_node_heartbeat(
     api_url: &str,
     jwt: &str,
@@ -288,4 +295,3 @@ mod tests {
         assert!(!access.needs_refresh(Duration::from_secs(30)));
     }
 }
-
