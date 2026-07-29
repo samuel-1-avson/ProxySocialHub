@@ -1,12 +1,12 @@
 //! Heartbeat manager: sends periodic telemetry to the Edge Gateway.
 
-use crate::ip::{fetch_provider_lease, ProviderLeaseGrant, ProviderLeaseRequest};
+use crate::ip::{exchange_gateway_token, fetch_provider_lease, ProviderLeaseGrant, ProviderLeaseRequest};
 use crate::proofs::{HeartbeatPayload, ProviderProofEnvelope, ProviderSigner};
 use crate::stats::Collector;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use serde::Serialize;
 use std::time::{Duration, Instant};
-use tracing::{debug, error};
+use tracing::{debug, error, info, warn};
 
 /// Heartbeat payload sent to the gateway.
 #[derive(Serialize)]
@@ -55,7 +55,10 @@ pub struct HeartbeatManager {
     interval: Duration,
     stats: Collector,
     control_api_url: String,
+    /// Long-lived provider API key used to refresh gateway JWTs. Empty = jwt-only mode.
+    api_key: String,
     auth_token: String,
+    auth_expires_at: Option<Instant>,
     lease_request: ProviderLeaseRequest,
     current_lease: Option<CachedLease>,
     /// UUID from `provider.toml` `node_id` (POST /v1/provider/nodes); gateway uses `node_id` above.
@@ -71,6 +74,9 @@ struct CachedLease {
     fetched_at: Instant,
 }
 
+/// Refresh gateway JWT this far before expiry.
+const GATEWAY_TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
+
 impl HeartbeatManager {
     pub fn new(
         ctrl: yamux::Control,
@@ -79,18 +85,23 @@ impl HeartbeatManager {
         stats: Collector,
         control_api_url: String,
         auth_token: String,
+        api_key: String,
+        auth_expires_in: Option<u64>,
         lease_request: ProviderLeaseRequest,
         api_node_id: String,
         provider_signer: Option<ProviderSigner>,
         provider_run_id: String,
     ) -> Self {
+        let auth_expires_at = auth_expires_in.map(|secs| Instant::now() + Duration::from_secs(secs));
         Self {
             ctrl,
             node_id,
             interval,
             stats,
             control_api_url,
+            api_key,
             auth_token,
+            auth_expires_at,
             lease_request,
             current_lease: None,
             api_node_id,
@@ -116,14 +127,61 @@ impl HeartbeatManager {
         }
     }
 
+    async fn ensure_gateway_auth(&mut self, force: bool) -> anyhow::Result<()> {
+        if self.api_key.trim().is_empty() {
+            return Ok(());
+        }
+        let needs = force
+            || self
+                .auth_expires_at
+                .map(|exp| Instant::now() + GATEWAY_TOKEN_REFRESH_SKEW >= exp)
+                .unwrap_or(true);
+        if !needs {
+            return Ok(());
+        }
+        let access = exchange_gateway_token(&self.control_api_url, self.api_key.trim()).await?;
+        self.auth_token = access.token;
+        self.auth_expires_at = Some(access.expires_at);
+        info!(
+            expires_in_secs = access.expires_in,
+            "Refreshed gateway JWT for Control API heartbeats"
+        );
+        Ok(())
+    }
+
     async fn send(&mut self) -> anyhow::Result<()> {
-        let provider_lease = self.ensure_provider_lease().await.unwrap_or_else(|e| {
-            error!("Provider lease renewal failed: {e}");
-            self.current_lease
-                .as_ref()
-                .map(|lease| lease.grant.token.clone())
-                .unwrap_or_default()
-        });
+        if let Err(e) = self.ensure_gateway_auth(false).await {
+            warn!("Gateway JWT refresh failed (will retry with current token): {e}");
+        }
+
+        let provider_lease = match self.ensure_provider_lease().await {
+            Ok(token) => token,
+            Err(e) => {
+                let msg = e.to_string();
+                let mut recovered = None;
+                if msg.contains("401") || msg.contains("Unauthorized") {
+                    match self.ensure_gateway_auth(true).await {
+                        Ok(()) => match self.ensure_provider_lease().await {
+                            Ok(token) => recovered = Some(token),
+                            Err(retry_err) => {
+                                error!("Provider lease renewal failed after JWT refresh: {retry_err}")
+                            }
+                        },
+                        Err(refresh_err) => {
+                            error!("Gateway JWT force-refresh failed: {refresh_err}");
+                        }
+                    }
+                } else {
+                    error!("Provider lease renewal failed: {e}");
+                }
+                recovered.unwrap_or_else(|| {
+                    self.current_lease
+                        .as_ref()
+                        .map(|lease| lease.grant.token.clone())
+                        .unwrap_or_default()
+                })
+            }
+        };
 
         let mut stream = self
             .ctrl
@@ -241,7 +299,27 @@ impl HeartbeatManager {
         )
         .await
         {
-            error!("Control API heartbeat failed: {e}");
+            let err_msg = e.to_string();
+            if (err_msg.contains("401") || err_msg.contains("Unauthorized"))
+                && self.ensure_gateway_auth(true).await.is_ok()
+            {
+                if let Err(retry) = crate::ip::send_provider_node_heartbeat(
+                    &self.control_api_url,
+                    &self.auth_token,
+                    &self.api_node_id,
+                    &self.provider_run_id,
+                    msg.latency_ms,
+                    msg.active_connections,
+                    100.0,
+                    msg.proof.clone(),
+                )
+                .await
+                {
+                    error!("Control API heartbeat failed after JWT refresh: {retry}");
+                }
+            } else {
+                error!("Control API heartbeat failed: {e}");
+            }
         }
     }
 

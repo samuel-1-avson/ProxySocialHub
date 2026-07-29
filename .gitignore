@@ -23,6 +23,9 @@ geoip/*.mmdb
 .e2e-buyer-token.json
 .e2e-dev-server.log
 
+# Live testnet QA artifact (scripts/qa-live-testnet.mjs)
+qa-live-results.json
+
 # Provider operator config with live API keys (use Dashboard download instead)
 cli/provider.local.toml
 **/provider.local.toml

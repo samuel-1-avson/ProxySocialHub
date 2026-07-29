@@ -37,12 +37,15 @@ pub async fn detect_public_ip() -> Option<String> {
     None
 }
 
-// ── API Key Validation ──────────────────────────────────────────────
+// ── API Key Validation / Gateway JWT ────────────────────────────────
 
 #[derive(Deserialize)]
 struct GatewayTokenResponse {
     gateway_token: String,
     user_id: String,
+    /// Seconds until expiry (control-api defaults to 3600).
+    #[serde(default)]
+    expires_in: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -50,8 +53,24 @@ struct GatewayTokenError {
     error: Option<String>,
 }
 
-/// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.
-pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, String)> {
+/// Short-lived gateway access minted from a long-lived provider `api_key`.
+#[derive(Clone, Debug)]
+pub struct GatewayAccess {
+    pub user_id: String,
+    pub token: String,
+    pub expires_at: std::time::Instant,
+    pub expires_in: u64,
+}
+
+impl GatewayAccess {
+    /// Refresh this token when less than `skew` remains before expiry.
+    pub fn needs_refresh(&self, skew: Duration) -> bool {
+        std::time::Instant::now() + skew >= self.expires_at
+    }
+}
+
+/// Exchange a provider API key for a short-lived tunnel JWT (`/v1/provider/gateway-token`).
+pub async fn exchange_gateway_token(api_url: &str, api_key: &str) -> Result<GatewayAccess> {
     let url = format!("{api_url}/v1/provider/gateway-token");
     let payload = serde_json::json!({ "token": api_key });
 
@@ -72,7 +91,13 @@ pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, S
         if body.gateway_token.is_empty() || body.user_id.is_empty() {
             anyhow::bail!("gateway-token response missing user_id or gateway_token");
         }
-        return Ok((body.user_id, body.gateway_token));
+        let expires_in = body.expires_in.unwrap_or(3600).max(60);
+        return Ok(GatewayAccess {
+            user_id: body.user_id,
+            token: body.gateway_token,
+            expires_at: std::time::Instant::now() + Duration::from_secs(expires_in),
+            expires_in,
+        });
     }
 
     let err: GatewayTokenError = resp
@@ -81,6 +106,12 @@ pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, S
         .unwrap_or(GatewayTokenError { error: None });
     let msg = err.error.unwrap_or_else(|| format!("HTTP {status}"));
     anyhow::bail!("Authentication failed: {msg}");
+}
+
+/// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.
+pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, String)> {
+    let access = exchange_gateway_token(api_url, api_key).await?;
+    Ok((access.user_id, access.token))
 }
 
 // ── Node Registration ───────────────────────────────────────────────
@@ -240,3 +271,21 @@ pub async fn fetch_provider_lease(
         renew_after_secs,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gateway_access_needs_refresh_respects_skew() {
+        let access = GatewayAccess {
+            user_id: "u".into(),
+            token: "t".into(),
+            expires_at: std::time::Instant::now() + Duration::from_secs(120),
+            expires_in: 120,
+        };
+        assert!(access.needs_refresh(Duration::from_secs(180)));
+        assert!(!access.needs_refresh(Duration::from_secs(30)));
+    }
+}
+
