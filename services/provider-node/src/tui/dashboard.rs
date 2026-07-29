@@ -378,8 +378,9 @@ fn clamp_node_cursor(app: &mut DashboardApp, snapshot: &Option<OperatorSnapshot>
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn schedule_refreshes(
-    config_path: &PathBuf,
+    config_path: &std::path::Path,
     tx: &mpsc::UnboundedSender<RefreshMsg>,
     in_flight: &mut RefreshInFlight,
     snapshot: &Option<OperatorSnapshot>,
@@ -396,7 +397,7 @@ fn schedule_refreshes(
     if !in_flight.local && (force || now.duration_since(*last_local) >= local_refresh) {
         in_flight.local = true;
         *last_local = now;
-        let path = config_path.clone();
+        let path = config_path.to_path_buf();
         let tx = tx.clone();
         tokio::spawn(async move {
             let msg = match crate::operator::collect_local(path).await {
@@ -413,7 +414,7 @@ fn schedule_refreshes(
     {
         in_flight.remote = true;
         *last_remote = now;
-        let path = config_path.clone();
+        let path = config_path.to_path_buf();
         let tx = tx.clone();
         let snap = snapshot.clone().expect("checked is_some");
         tokio::spawn(async move {
@@ -431,7 +432,7 @@ fn schedule_refreshes(
     {
         in_flight.doctor = true;
         *last_doctor = now;
-        let path = config_path.clone();
+        let path = config_path.to_path_buf();
         let tx = tx.clone();
         tokio::spawn(async move {
             let msg = match crate::doctor::run(path).await {
@@ -486,7 +487,7 @@ fn handle_key_event(
             app.tab = app.tab.prev();
             set_hint(app, format!("Tab → {}", app.tab.label().trim()));
         }
-        KeyCode::Char(c) if c >= '1' && c <= '5' => {
+        KeyCode::Char(c) if ('1'..='5').contains(&c) => {
             app.tab = Tab::ALL[(c as usize) - ('1' as usize)];
             set_hint(app, format!("Tab → {}", app.tab.label().trim()));
         }
@@ -960,12 +961,12 @@ fn render_tunnel_card(
                     "MISSING"
                 },
             ),
-            line_kv("PORT", &format!(":{}", s.config.metrics_port)),
+            line_kv("PORT", format!(":{}", s.config.metrics_port)),
         ];
         if let Some(rt) = &s.runtime {
             lines.push(line_kv(
                 "GWAY",
-                &format!(
+                format!(
                     "{} ({}/{})",
                     rt.active_gateway,
                     rt.gateway_index + 1,
@@ -1098,11 +1099,7 @@ fn render_spark_card(
 
     let max = data.iter().copied().max().unwrap_or(1).max(1);
     let spark = Sparkline::default()
-        .data(
-            data.iter()
-                .map(|v| (v * 100 / max) as u64)
-                .collect::<Vec<_>>(),
-        )
+        .data(data.iter().map(|v| v * 100 / max).collect::<Vec<_>>())
         .style(Style::default().fg(theme::PHOSPHOR));
     frame.render_widget(spark, inner);
 }
@@ -1117,14 +1114,14 @@ fn render_earnings(
         if let Some(e) = &s.earnings {
             vec![
                 Line::from(""),
-                line_kv("TOTAL", &format!("{:.4} SOL", e.total_earned_sol)),
-                line_kv("PEND", &format!("{:.4} SOL", e.pending_sol)),
-                line_kv("PAID", &format!("{:.4} SOL", e.paid_sol)),
-                line_kv("7D", &format!("{:.4} SOL", e.last_7_days_sol)),
-                line_kv("30D", &format!("{:.4} SOL", e.last_30_days_sol)),
+                line_kv("TOTAL", format!("{:.4} SOL", e.total_earned_sol)),
+                line_kv("PEND", format!("{:.4} SOL", e.pending_sol)),
+                line_kv("PAID", format!("{:.4} SOL", e.paid_sol)),
+                line_kv("7D", format!("{:.4} SOL", e.last_7_days_sol)),
+                line_kv("30D", format!("{:.4} SOL", e.last_30_days_sol)),
                 line_kv(
                     "SESS",
-                    &format!("{} · {:.2} GB", e.total_sessions, e.total_bandwidth_gb),
+                    format!("{} · {:.2} GB", e.total_sessions, e.total_bandwidth_gb),
                 ),
             ]
         } else {

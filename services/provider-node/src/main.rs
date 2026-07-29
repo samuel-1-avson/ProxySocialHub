@@ -294,13 +294,17 @@ async fn main() -> anyhow::Result<()> {
             println!("║              ✓ NODE REGISTERED SUCCESSFULLY              ║");
             println!("╚══════════════════════════════════════════════════════════╝");
             println!();
-            let mut cfg = config::Config::default();
-            cfg.control_api_url = api_url.clone();
-            cfg.api_key = key.clone();
-            cfg.node_id = node_id.clone();
-            cfg.connection_type = connection_type.clone();
-            cfg.provider_signing_key =
-                resolve_registration_signing_key(provider_signing_key, no_generate_signing_key)?;
+            let cfg = config::Config {
+                control_api_url: api_url.clone(),
+                api_key: key.clone(),
+                node_id: node_id.clone(),
+                connection_type: connection_type.clone(),
+                provider_signing_key: resolve_registration_signing_key(
+                    provider_signing_key,
+                    no_generate_signing_key,
+                )?,
+                ..config::Config::default()
+            };
 
             let config_path = config
                 .map(std::path::PathBuf::from)

@@ -473,6 +473,7 @@ async fn check_gateways(cfg: &Config, transport: ProviderTransport, checks: &mut
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn check_tcp_gateway(
     checks: &mut Vec<Check>,
     label: &str,
@@ -631,8 +632,10 @@ async fn check_tls_handshake(
     tls_skip_verify: bool,
     timeout_duration: Duration,
 ) -> Result<(), String> {
-    let mut cfg = Config::default();
-    cfg.tls_skip_verify = tls_skip_verify;
+    let cfg = Config {
+        tls_skip_verify,
+        ..Config::default()
+    };
     let connector = TlsConnector::from(
         crate::tunnel::client::build_rustls_client_config(&cfg).map_err(|err| err.to_string())?,
     );

@@ -16,7 +16,7 @@ use tracing::{info, warn};
 const MAX_YAMUX_LANES: usize = 16;
 
 pub fn normalize_lane_count(n: usize) -> usize {
-    n.max(1).min(MAX_YAMUX_LANES)
+    n.clamp(1, MAX_YAMUX_LANES)
 }
 
 /// Run `lane_count` yamux sessions to `cfg.gateway_addr` until the bundle drops.
