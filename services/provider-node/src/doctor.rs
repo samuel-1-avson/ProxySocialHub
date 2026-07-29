@@ -153,7 +153,9 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
                         "provider_auth",
                         true,
                         "info",
-                        format!("Provider token valid (user {user_id})"),
+                        format!(
+                            "Provider api_key valid (user {user_id}); runtime uses POST /v1/provider/gateway-token (~1h JWT, auto-refreshed)"
+                        ),
                     );
                 }
                 Err(e) => {
@@ -168,13 +170,29 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
                     );
                 }
             }
-        } else if !cfg.jwt_token.trim().is_empty() {
             push(
+                &mut checks,
+                "auth_model",
+                true,
+                "info",
+                "Auth model: api_key (long-lived) → /v1/provider/gateway-token (short JWT for tunnel + Control API). Leave jwt_token empty.",
+            );
+        } else if !cfg.jwt_token.trim().is_empty() {
+            push_fix(
                 &mut checks,
                 "provider_auth",
                 true,
                 "warn",
-                "Using jwt_token in config; prefer api_key for long-running nodes",
+                "Using static jwt_token only; it cannot be refreshed and typically expires in ~1 hour",
+                "Prefer api_key from dashboard → API tokens. join/register leave jwt_token empty on purpose.",
+                "jwt_token_only",
+            );
+            push(
+                &mut checks,
+                "auth_model",
+                true,
+                "warn",
+                "Auth model: jwt_token is for legacy/debug. Production nodes should use api_key + gateway-token refresh.",
             );
         }
     }

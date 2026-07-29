@@ -42,6 +42,7 @@ pub struct TunnelClient {
     incoming_rx: Option<tokio::sync::mpsc::Receiver<yamux::Stream>>,
     _conn_task: Option<tokio::task::JoinHandle<()>>,
     runtime_node_id: Option<String>,
+    gateway_token_expires_in: Option<u64>,
 }
 
 impl TunnelClient {
@@ -54,6 +55,7 @@ impl TunnelClient {
             incoming_rx: None,
             _conn_task: None,
             runtime_node_id: None,
+            gateway_token_expires_in: None,
         }
     }
 
@@ -121,19 +123,33 @@ impl TunnelClient {
         let mut ctrl = conn.control();
         let conn_task = tokio::spawn(Self::drive_only(conn, tx));
 
-        // Perform AUTH/CAPABILITY on the main task
-        let (token, provider_user_id) = if !self.config.jwt_token.is_empty() {
+        // Prefer api_key → gateway-token so reconnects and long runs always get a fresh JWT.
+        // Legacy jwt_token-only configs still work but cannot refresh (1h TTL).
+        let (token, provider_user_id) = if !self.config.api_key.trim().is_empty() {
+            let access = crate::ip::exchange_gateway_token(
+                &self.config.control_api_url,
+                self.config.api_key.trim(),
+            )
+            .await?;
+            self.config.jwt_token = access.token.clone();
+            self.gateway_token_expires_in = Some(access.expires_in);
+            info!(
+                expires_in_secs = access.expires_in,
+                "Exchanged api_key for gateway JWT"
+            );
+            let provider_user_id = normalize_user_id(&access.user_id)
+                .or_else(|| resolve_runtime_provider_user_id(&access.token));
+            (access.token, provider_user_id)
+        } else if !self.config.jwt_token.is_empty() {
+            warn!(
+                "Using static jwt_token from config; prefer api_key so the node can refresh gateway access"
+            );
+            self.gateway_token_expires_in = None;
             let token = self.config.jwt_token.clone();
             let provider_user_id = resolve_runtime_provider_user_id(&token);
             (token, provider_user_id)
         } else {
-            let (user_id, jwt) =
-                crate::ip::validate_api_key(&self.config.control_api_url, &self.config.api_key)
-                    .await?;
-            self.config.jwt_token = jwt.clone();
-            let provider_user_id =
-                normalize_user_id(&user_id).or_else(|| resolve_runtime_provider_user_id(&jwt));
-            (jwt, provider_user_id)
+            anyhow::bail!("config has no api_key or jwt_token for gateway AUTH");
         };
 
         self.runtime_node_id = Some(resolve_runtime_node_id(&self.config, provider_user_id)?);
@@ -257,6 +273,14 @@ impl TunnelClient {
 
     pub fn auth_token(&self) -> String {
         self.config.jwt_token.clone()
+    }
+
+    pub fn api_key(&self) -> String {
+        self.config.api_key.clone()
+    }
+
+    pub fn gateway_token_expires_in(&self) -> Option<u64> {
+        self.gateway_token_expires_in
     }
 
     pub fn control_api_url(&self) -> String {

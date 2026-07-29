@@ -250,10 +250,23 @@ metrics_port = 9090`;
                 </h2>
                 <p className="text-xs text-muted-foreground font-mono mb-3">
                     Save as <code className="text-primary">provider.toml</code>. The dashboard connect flow or{' '}
-                    <code className="text-primary">proxyhubb-cli join</code> can generate this file. At runtime,{' '}
-                    <code className="text-primary">provider-node</code> exchanges <code className="text-primary">api_key</code> for a gateway JWT via{' '}
-                    <code className="text-primary">/v1/provider/gateway-token</code>.
+                    <code className="text-primary">proxyhubb-cli join</code> can generate this file.
                 </p>
+                <div className="mb-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 space-y-1.5">
+                    <p className="text-[11px] font-mono text-foreground">
+                        Auth split (do not confuse these):
+                    </p>
+                    <p className="text-[11px] font-mono text-muted-foreground">
+                        <code className="text-primary">api_key</code> — long-lived provider token from dashboard. Preferred.
+                        Runtime exchanges it via <code className="text-primary">POST /v1/provider/gateway-token</code> for a ~1h JWT (auto-refreshed).
+                    </p>
+                    <p className="text-[11px] font-mono text-muted-foreground">
+                        <code className="text-primary">jwt_token</code> — leave empty. Only for legacy/debug; cannot refresh and expires with the gateway JWT TTL.
+                    </p>
+                    <p className="text-[11px] font-mono text-muted-foreground">
+                        <code className="text-primary">POST /v1/provider/auth</code> — used by <code className="text-primary">join</code>/<code className="text-primary">register</code> for Control API CRUD during onboarding, not by the running daemon tunnel.
+                    </p>
+                </div>
                 <CodeBlock
                     code={configTemplate}
                     id="config"
