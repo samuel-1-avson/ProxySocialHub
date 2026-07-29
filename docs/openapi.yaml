@@ -1569,6 +1569,13 @@ paths:
       tags: [Listings]
       summary: Get featured active listings ranked by quality and priority
       operationId: getFeaturedListings
+      parameters:
+        - name: include
+          in: query
+          description: Optional `product` embed for `catalog_product` on each listing
+          schema:
+            type: string
+            example: product
       responses:
         '200':
           description: Featured listings
