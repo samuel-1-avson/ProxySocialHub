@@ -63,5 +63,7 @@ GET /v1/listings/collections/featured?include=product&page=1&limit=20
 
 ### Related
 
+- ADR: [adr/0005-marketplace-catalog-layer.md](./adr/0005-marketplace-catalog-layer.md) — Phase 3A-5
 - Catalog CRUD: OpenAPI tag **Catalog** (`/v1/catalog/*`) — Phase 3A-2
 - Schema / backfill: migration `000097`, runbook above — Phase 3A-1
+- Track status: [reports/MARKETPLACE_PHASE3A_STATUS.md](./reports/MARKETPLACE_PHASE3A_STATUS.md)

@@ -73,7 +73,11 @@ tags:
   - name: Listings
     description: Marketplace listing browse, management, search, and bookmarks
   - name: Catalog
-    description: Seller catalog products and offer linkage (Phase 3A)
+    description: |
+      Seller catalog products and offer linkage (Phase 3A).
+      Architecture: docs/adr/0005-marketplace-catalog-layer.md
+      Backfill: docs/MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md
+      Discovery embed (?include=product): docs/MARKETPLACE_DISCOVERY_API.md
   - name: Crypto
     description: Treasury, batch settlement, and chain-operation controls
   - name: Trustless
