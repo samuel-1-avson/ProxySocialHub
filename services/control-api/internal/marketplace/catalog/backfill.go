@@ -64,17 +64,49 @@ WHERE pl.status <> 'deleted'
 ON CONFLICT (listing_id) DO NOTHING
 `
 
+// Promote projected draft products when the source listing left pending_review.
+// Does not overwrite seller-edited active/archived products.
+const repairProductStatusSQL = `
+UPDATE catalog_products cp
+SET status = 'active',
+    updated_at = NOW()
+FROM proxy_listings pl
+WHERE cp.id = pl.id
+  AND pl.status <> 'deleted'
+  AND pl.status <> 'pending_review'
+  AND cp.status = 'draft'
+`
+
+// Promote one existing non-primary offer when a product has no primary.
+const repairMissingPrimarySQL = `
+UPDATE catalog_offers o
+SET is_primary = TRUE
+FROM (
+    SELECT DISTINCT ON (product_id) id
+    FROM catalog_offers
+    WHERE is_primary = FALSE
+    ORDER BY product_id, sort_order ASC, created_at ASC
+) pick
+WHERE o.id = pick.id
+  AND NOT EXISTS (
+      SELECT 1 FROM catalog_offers o2
+      WHERE o2.product_id = o.product_id AND o2.is_primary = TRUE
+  )
+`
+
 // BackfillResult summarizes an idempotent catalog projection backfill.
 type BackfillResult struct {
-	EligibleListings int64
-	Products         int64
-	Offers           int64
-	MissingPrimary   int64
-	OrphanOffers     int64
+	EligibleListings  int64
+	Products          int64
+	Offers            int64
+	MissingPrimary    int64
+	OrphanOffers      int64
+	DuplicatePrimaries int64
 }
 
 // BackfillFromListings projects non-deleted proxy_listings into catalog_products +
-// primary catalog_offers. Safe to re-run (ON CONFLICT DO NOTHING).
+// primary catalog_offers. Safe to re-run; also repairs draft→active status drift and
+// missing primary flags when an offer row already exists.
 func BackfillFromListings() (*BackfillResult, error) {
 	if db.DB == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -84,11 +116,23 @@ func BackfillFromListings() (*BackfillResult, error) {
 
 // BackfillFromListingsTx is the transactional form used by tests and operators.
 func BackfillFromListingsTx(tx *gorm.DB) (*BackfillResult, error) {
+	if tx == nil {
+		tx = db.DB
+	}
+	if tx == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
 	if err := tx.Exec(backfillProductsSQL).Error; err != nil {
 		return nil, fmt.Errorf("backfill catalog_products: %w", err)
 	}
 	if err := tx.Exec(backfillOffersSQL).Error; err != nil {
 		return nil, fmt.Errorf("backfill catalog_offers: %w", err)
+	}
+	if err := tx.Exec(repairProductStatusSQL).Error; err != nil {
+		return nil, fmt.Errorf("repair catalog product status: %w", err)
+	}
+	if err := tx.Exec(repairMissingPrimarySQL).Error; err != nil {
+		return nil, fmt.Errorf("repair missing primary offers: %w", err)
 	}
 	return VerifyBackfill(tx)
 }
@@ -98,7 +142,10 @@ func VerifyBackfill(tx *gorm.DB) (*BackfillResult, error) {
 	if tx == nil {
 		tx = db.DB
 	}
-	var eligible, products, offers, missingPrimary, orphans int64
+	if tx == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var eligible, products, offers, missingPrimary, orphans, dupPrimaries int64
 
 	if err := tx.Model(&models.ProxyListing{}).
 		Where("status <> ?", models.ListingStatusDeleted).
@@ -132,11 +179,24 @@ func VerifyBackfill(tx *gorm.DB) (*BackfillResult, error) {
 		return nil, err
 	}
 
+	if err := tx.Raw(`
+		SELECT COUNT(*) FROM (
+			SELECT product_id
+			FROM catalog_offers
+			WHERE is_primary = TRUE
+			GROUP BY product_id
+			HAVING COUNT(*) > 1
+		) d
+	`).Scan(&dupPrimaries).Error; err != nil {
+		return nil, err
+	}
+
 	return &BackfillResult{
-		EligibleListings: eligible,
-		Products:         products,
-		Offers:           offers,
-		MissingPrimary:   missingPrimary,
-		OrphanOffers:     orphans,
+		EligibleListings:   eligible,
+		Products:           products,
+		Offers:             offers,
+		MissingPrimary:     missingPrimary,
+		OrphanOffers:       orphans,
+		DuplicatePrimaries: dupPrimaries,
 	}, nil
 }

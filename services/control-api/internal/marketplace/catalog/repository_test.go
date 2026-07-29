@@ -18,11 +18,20 @@ func TestCountsAfterMigration(t *testing.T) {
 	if got.EligibleListings > 0 && (got.Products == 0 || got.Offers == 0) {
 		t.Skipf("migration 000097 not applied: %+v", got)
 	}
+	if got.Products != got.Offers {
+		t.Errorf("products=%d offers=%d, want equal", got.Products, got.Offers)
+	}
+	if got.EligibleListings > 0 && got.Products < got.EligibleListings {
+		t.Errorf("products=%d eligible=%d, want products >= eligible", got.Products, got.EligibleListings)
+	}
 	if got.MissingPrimary != 0 {
 		t.Errorf("missing primary offers=%d", got.MissingPrimary)
 	}
 	if got.OrphanOffers != 0 {
 		t.Errorf("orphan offers=%d", got.OrphanOffers)
+	}
+	if got.DuplicatePrimaries != 0 {
+		t.Errorf("duplicate primaries=%d", got.DuplicatePrimaries)
 	}
 }
 

@@ -92,6 +92,26 @@ func TestBackfillFromListingsIdempotentAndParity(t *testing.T) {
 		t.Fatalf("idempotent re-run changed counts: first=%+v second=%+v", first, second)
 	}
 
+	// Listing leaves pending_review → product should promote draft → active on re-run.
+	if err := db.DB.Model(&models.ProxyListing{}).
+		Where("id = ?", listings[2].ID).
+		Update("status", models.ListingStatusActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := catalog.BackfillFromListings()
+	if err != nil {
+		t.Fatalf("repair backfill: %v", err)
+	}
+	if repaired.MissingPrimary != 0 || repaired.DuplicatePrimaries != 0 {
+		t.Fatalf("integrity after repair: %+v", repaired)
+	}
+	if err := db.DB.First(&pendingProduct, "id = ?", listings[2].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if pendingProduct.Status != models.CatalogProductStatusActive {
+		t.Fatalf("after listing activate, product status=%q want active", pendingProduct.Status)
+	}
+
 	var primaryCount int64
 	if err := db.DB.Model(&models.CatalogOffer{}).
 		Where("is_primary = TRUE").
