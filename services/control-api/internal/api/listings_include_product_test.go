@@ -117,3 +117,108 @@ func TestGetListingWithoutIncludeOmitsProduct(t *testing.T) {
 		t.Fatal("catalog_product should be omitted without include=product")
 	}
 }
+
+func TestGetListingIncludeProductUnlinkedStillOK(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "catalog_offers", "catalog_products", "proxy_listings")
+
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("unlinked_inc"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             seller.ID,
+		Title:                "No catalog link",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		PricePerGB:           1.2,
+		AvailableBandwidthGB: 8,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/listings/:id", getListing)
+	req := httptest.NewRequest(http.MethodGet, "/listings/"+listing.ID.String()+"?include=product", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Listing models.ProxyListing `json:"listing"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Listing.CatalogProduct != nil {
+		t.Fatal("unlinked listing must not embed catalog_product")
+	}
+}
+
+func TestListListingsIncludeProduct(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "catalog_offers", "catalog_products", "proxy_listings")
+
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("list_inc_seller"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             seller.ID,
+		Title:                "Browse listing",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		PricePerGB:           2.5,
+		AvailableBandwidthGB: 40,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatal(err)
+	}
+	product := models.CatalogProduct{
+		ID:       listing.ID,
+		SellerID: seller.ID,
+		Slug:     "browse-product-" + listing.ID.String()[:8],
+		Title:    "Browse merch title",
+		Status:   models.CatalogProductStatusActive,
+		Media:    datatypes.JSON([]byte("[]")),
+	}
+	if err := db.DB.Create(&product).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DB.Create(&models.CatalogOffer{
+		ProductID: product.ID,
+		ListingID: listing.ID,
+		IsPrimary: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/listings", getListings)
+
+	req := httptest.NewRequest(http.MethodGet, "/listings?include=product&seller_id="+seller.ID.String(), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ListingsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range resp.Listings {
+		if item.ID != listing.ID {
+			continue
+		}
+		found = true
+		if item.CatalogProduct == nil {
+			t.Fatal("expected catalog_product on list item")
+		}
+		if item.CatalogProduct.Title != product.Title {
+			t.Fatalf("title %q", item.CatalogProduct.Title)
+		}
+	}
+	if !found {
+		t.Fatalf("listing %s not in browse response (%d items)", listing.ID, len(resp.Listings))
+	}
+}
