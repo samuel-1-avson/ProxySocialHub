@@ -1528,6 +1528,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: include
+          in: query
+          description: |
+            Optional embeds. Use `product` (aliases `catalog`, `catalog_product`) to attach
+            `catalog_product` when a catalog offer links the listing. Comma-separated values allowed.
+            Responses with product include bypass the short listings cache.
+          schema:
+            type: string
+            example: product
       responses:
         '200':
           description: Listings page
@@ -1619,6 +1628,12 @@ paths:
             minimum: 1
             maximum: 100
             default: 20
+        - name: include
+          in: query
+          description: Optional `product` embed (see GET /v1/listings include docs)
+          schema:
+            type: string
+            example: product
       responses:
         '200':
           description: Collection page
@@ -1770,6 +1785,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: include
+          in: query
+          description: Optional `product` embed for `catalog_product` on the listing
+          schema:
+            type: string
+            example: product
       responses:
         '200':
           description: Listing detail
@@ -4345,6 +4366,31 @@ components:
           format: date-time
         seller:
           $ref: '#/components/schemas/ListingSellerSummary'
+        catalog_product:
+          allOf:
+            - $ref: '#/components/schemas/CatalogProductSummary'
+          nullable: true
+          description: Present when requested via include=product and an offer links this listing
+
+    CatalogProductSummary:
+      type: object
+      description: Lightweight catalog projection embedded on listings
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
 
     CreateListingRequest:
       type: object
