@@ -11,22 +11,18 @@ import (
 func TestCountsAfterMigration(t *testing.T) {
 	testutil.SetupTestDB(t)
 
-	products, offers, err := catalog.Counts()
+	got, err := catalog.VerifyBackfill(nil)
 	if err != nil {
-		t.Fatalf("Counts: %v", err)
+		t.Fatalf("VerifyBackfill: %v", err)
 	}
-	eligible, err := catalog.ListingsEligibleForBackfill()
-	if err != nil {
-		t.Fatalf("ListingsEligibleForBackfill: %v", err)
+	if got.EligibleListings > 0 && (got.Products == 0 || got.Offers == 0) {
+		t.Skipf("migration 000097 not applied: %+v", got)
 	}
-	if eligible > 0 && (products == 0 || offers == 0) {
-		t.Skipf("migration 000097 not applied: eligible=%d products=%d offers=%d", eligible, products, offers)
+	if got.MissingPrimary != 0 {
+		t.Errorf("missing primary offers=%d", got.MissingPrimary)
 	}
-	if products != offers {
-		t.Errorf("products=%d offers=%d, want equal", products, offers)
-	}
-	if eligible > 0 && products < eligible {
-		t.Errorf("products=%d eligible=%d, want products >= eligible after backfill", products, eligible)
+	if got.OrphanOffers != 0 {
+		t.Errorf("orphan offers=%d", got.OrphanOffers)
 	}
 }
 
