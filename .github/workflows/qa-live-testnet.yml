@@ -1,0 +1,41 @@
+name: QA Live Testnet
+
+# Deeper live-testnet smoke than uptime-probe.yml.
+# Probes https://proxyhubb.com + https://api.proxyhubb.com (+ optional auth via QA_LIVE_JWT).
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  qa-live:
+    name: Live testnet QA smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run live QA probes
+        id: qa
+        env:
+          WEB_BASE: https://proxyhubb.com
+          API_BASE: https://api.proxyhubb.com
+          PROXY_BASE: https://proxy.proxyhubb.com
+          QA_LIVE_JSON: '1'
+          QA_LIVE_JWT: ${{ secrets.QA_LIVE_JWT }}
+        run: node scripts/qa-live-testnet.mjs
+
+      - name: Upload results artifact
+        if: always() && hashFiles('qa-live-results.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-live-results
+          path: qa-live-results.json
+          retention-days: 14

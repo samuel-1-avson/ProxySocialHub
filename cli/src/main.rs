@@ -444,6 +444,11 @@ async fn handle_join(
         format!("proxyhubb-cli doctor --config {}", out_path.display()).cyan()
     );
     println!(
+        "  - Auth: {}",
+        "api_key set; jwt_token left empty (daemon refreshes via /v1/provider/gateway-token)"
+            .dimmed()
+    );
+    println!(
         "  - Start: {}",
         format!("proxyhubb-cli start --config {}", out_path.display())
             .cyan()

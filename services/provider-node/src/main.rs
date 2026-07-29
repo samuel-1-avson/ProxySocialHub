@@ -314,6 +314,7 @@ async fn main() -> anyhow::Result<()> {
             }
             println!();
             println!("Config written to: {}", config_path.display());
+            println!("Auth: api_key stored; jwt_token left empty (runtime refreshes gateway JWT).");
             println!();
             println!("Next steps:");
             println!("  provider-node start --config {}", config_path.display());
