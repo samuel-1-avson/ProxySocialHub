@@ -5109,8 +5109,12 @@ components:
         updated_at:
           type: string
           format: date-time
+        offers:
+          type: array
+          description: Present when preloaded (seller list endpoint)
+          items:
+            $ref: '#/components/schemas/CatalogOffer'
 
-    CatalogOffer:
       type: object
       properties:
         id:
