@@ -33,12 +33,10 @@ pub fn remove_stale_pid_file() -> Option<u32> {
         return Some(stale);
     }
     // Docker restarts reuse PID 1; a leftover provider.pid blocks unless-stopped loops.
-    if std::path::Path::new("/.dockerenv").exists() {
-        if read_pid_file() == Some(1) {
-            let path = crate::paths::pid_file();
-            let _ = std::fs::remove_file(path);
-            return Some(1);
-        }
+    if std::path::Path::new("/.dockerenv").exists() && read_pid_file() == Some(1) {
+        let path = crate::paths::pid_file();
+        let _ = std::fs::remove_file(path);
+        return Some(1);
     }
     None
 }
