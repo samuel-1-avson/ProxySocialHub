@@ -1,6 +1,9 @@
 //! Heartbeat manager: sends periodic telemetry to the Edge Gateway.
 
-use crate::ip::{exchange_gateway_token, fetch_provider_lease, ProviderLeaseGrant, ProviderLeaseRequest};
+use crate::ip::{
+    exchange_gateway_token, fetch_provider_lease, gateway_token_needs_refresh, ProviderLeaseGrant,
+    ProviderLeaseRequest,
+};
 use crate::proofs::{HeartbeatPayload, ProviderProofEnvelope, ProviderSigner};
 use crate::stats::Collector;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
@@ -78,6 +81,7 @@ struct CachedLease {
 const GATEWAY_TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
 
 impl HeartbeatManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctrl: yamux::Control,
         node_id: String,
@@ -92,7 +96,8 @@ impl HeartbeatManager {
         provider_signer: Option<ProviderSigner>,
         provider_run_id: String,
     ) -> Self {
-        let auth_expires_at = auth_expires_in.map(|secs| Instant::now() + Duration::from_secs(secs));
+        let auth_expires_at =
+            auth_expires_in.map(|secs| Instant::now() + Duration::from_secs(secs));
         Self {
             ctrl,
             node_id,
@@ -134,7 +139,7 @@ impl HeartbeatManager {
         let needs = force
             || self
                 .auth_expires_at
-                .map(|exp| Instant::now() + GATEWAY_TOKEN_REFRESH_SKEW >= exp)
+                .map(|exp| gateway_token_needs_refresh(exp, GATEWAY_TOKEN_REFRESH_SKEW))
                 .unwrap_or(true);
         if !needs {
             return Ok(());
@@ -164,7 +169,9 @@ impl HeartbeatManager {
                         Ok(()) => match self.ensure_provider_lease().await {
                             Ok(token) => recovered = Some(token),
                             Err(retry_err) => {
-                                error!("Provider lease renewal failed after JWT refresh: {retry_err}")
+                                error!(
+                                    "Provider lease renewal failed after JWT refresh: {retry_err}"
+                                )
                             }
                         },
                         Err(refresh_err) => {
@@ -204,10 +211,8 @@ impl HeartbeatManager {
         {
             if n > 0 {
                 let resp_str = String::from_utf8_lossy(&response_buf[..n]);
-                if resp_str.starts_with("PONG ") {
-                    if let Ok(pong_data) =
-                        serde_json::from_str::<PongResponse>(&resp_str[5..].trim())
-                    {
+                if let Some(pong_body) = resp_str.strip_prefix("PONG ") {
+                    if let Ok(pong_data) = serde_json::from_str::<PongResponse>(pong_body.trim()) {
                         self.stats.update_latency(pong_data.latency_ms as u64);
                     }
                 }
@@ -283,7 +288,7 @@ impl HeartbeatManager {
             return;
         }
         self.api_heartbeat_ticks += 1;
-        if self.api_heartbeat_ticks % 4 != 0 {
+        if !self.api_heartbeat_ticks.is_multiple_of(4) {
             return;
         }
 

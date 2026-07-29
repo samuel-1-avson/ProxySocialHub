@@ -48,7 +48,7 @@ pub fn install(config: Option<PathBuf>) -> Result<()> {
         }
         println!("Installed Windows service: {SERVICE_NAME}");
         println!("Start with: provider-node service start");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -99,7 +99,7 @@ pub fn uninstall() -> Result<()> {
             anyhow::bail!("sc.exe delete failed for {SERVICE_NAME}");
         }
         println!("Uninstalled Windows service: {SERVICE_NAME}");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -283,7 +283,7 @@ fn platform_unit_path() -> Option<String> {
     }
     #[cfg(windows)]
     {
-        return None;
+        None
     }
     #[cfg(not(any(windows, target_os = "macos", all(unix, not(target_os = "macos")))))]
     {
@@ -294,11 +294,11 @@ fn platform_unit_path() -> Option<String> {
 fn windows_service_installed() -> bool {
     #[cfg(windows)]
     {
-        return Command::new("sc.exe")
+        Command::new("sc.exe")
             .args(["query", SERVICE_NAME])
             .status()
             .map(|status| status.success())
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
     #[cfg(not(windows))]
     {

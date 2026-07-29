@@ -153,7 +153,7 @@ pub fn yamux_conns_per_node_from_env() -> Option<usize> {
     let raw = std::env::var("YAMUX_CONNS_PER_NODE").ok()?;
     match raw.trim().parse::<usize>() {
         Ok(0) => Some(1),
-        Ok(n) => Some(n.min(MAX).max(1)),
+        Ok(n) => Some(n.clamp(1, MAX)),
         Err(_) => None,
     }
 }

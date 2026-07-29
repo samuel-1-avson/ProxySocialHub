@@ -522,24 +522,18 @@ fn dev_cargo_manifest_path() -> Option<PathBuf> {
         PathBuf::from("services/provider-node/Cargo.toml"),
         PathBuf::from("../services/provider-node/Cargo.toml"),
     ];
-    for path in candidates {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    None
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn provider_transport_wants_quic() -> bool {
-    match std::env::var("PROVIDER_TRANSPORT")
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "quic" | "http3" => true,
-        _ => false,
-    }
+    matches!(
+        std::env::var("PROVIDER_TRANSPORT")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "quic" | "http3"
+    )
 }
 
 fn handle_start(config_file: &str) -> anyhow::Result<()> {
