@@ -77,6 +77,9 @@ jobs:
               - 'services/edge-gateway/**'
             provider:
               - 'services/provider-node/**'
+              - 'cli/**'
+              - 'scripts/build-cli-dist.sh'
+              - 'rebuild-cli.ps1'
             solana:
               - 'services/solana-programs/**'
             contracts:
@@ -336,13 +339,15 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "./services/provider-node"
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
 
-      - name: Build provider-node into cli-dist
+      - name: Build provider-node + proxyhubb-cli into cli-dist
         run: |
           chmod +x scripts/build-cli-dist.sh
           ./scripts/build-cli-dist.sh
-
+          test -x "cli-dist/${CLI_DIST_VERSION}/provider-node-${CLI_DIST_VERSION}-linux-amd64"
+          test -x "cli-dist/${CLI_DIST_VERSION}/provider-cli-${CLI_DIST_VERSION}-linux-amd64"
       - name: Write CI .env for Docker Compose
         run: |
           set -euo pipefail
@@ -397,6 +402,36 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: "./services/provider-node"
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run unit tests
+      run: cargo test --verbose
+
+    - name: Run Clippy
+      run: cargo clippy -- -D warnings
+
+  proxyhubb-cli-check:
+    name: proxyhubb-cli check
+    needs: changes
+    if: ${{ needs.changes.outputs.provider == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cli
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "./cli"
 
     - name: Check formatting
       run: cargo fmt -- --check

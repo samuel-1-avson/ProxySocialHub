@@ -185,3 +185,75 @@ pub fn tail_log_file(path: &Path, max_lines: usize) -> Vec<String> {
         .map(|s| (*s).to_string())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("proxyhubb-optest-{nanos}-{name}"))
+    }
+
+    #[test]
+    fn config_summary_dedupes_gateways_and_flags_signing() {
+        let mut cfg = Config::default();
+        cfg.gateway_addr = "gw1:3128".into();
+        cfg.gateway_addrs = vec!["gw1:3128".into(), "gw2:3128".into()];
+        cfg.metrics_port = 9091;
+        cfg.provider_signing_key = "ed25519:test".into();
+
+        let summary = config_summary_from(&cfg);
+        assert_eq!(summary.gateways, vec!["gw1:3128", "gw2:3128"]);
+        assert_eq!(summary.metrics_port, 9091);
+        assert!(summary.signing_configured);
+        assert!(!summary.transport.is_empty());
+    }
+
+    #[test]
+    fn tail_log_file_returns_last_n_lines() {
+        let path = unique_temp_path("provider.log");
+        let mut f = std::fs::File::create(&path).expect("create");
+        writeln!(f, "one").unwrap();
+        writeln!(f, "two").unwrap();
+        writeln!(f, "three").unwrap();
+        writeln!(f, "four").unwrap();
+
+        let tail = tail_log_file(&path, 2);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(tail, vec!["three".to_string(), "four".to_string()]);
+    }
+
+    #[test]
+    fn collect_local_smoke_builds_snapshot_without_remote() {
+        let cfg_path = unique_temp_path("provider.toml");
+        let toml = r#"
+control_api_url = "http://127.0.0.1:18080"
+gateway_addr = "127.0.0.1:3128"
+api_key = "pk_test"
+jwt_token = ""
+node_id = ""
+metrics_port = 9090
+"#;
+        std::fs::write(&cfg_path, toml).expect("write config");
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let snap = rt
+            .block_on(collect_local(cfg_path.clone()))
+            .expect("collect_local");
+        let _ = std::fs::remove_file(&cfg_path);
+
+        assert_eq!(snap.config.gateways, vec!["127.0.0.1:3128".to_string()]);
+        assert!(snap.earnings.is_none());
+        assert!(!snap.status.config_path.is_empty());
+    }
+}
