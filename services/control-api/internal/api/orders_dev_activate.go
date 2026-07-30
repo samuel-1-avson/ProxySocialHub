@@ -66,7 +66,7 @@ func activateDevOrder(c *gin.Context) {
 	}
 
 	if order.Status != models.OrderStatusActive && order.Status != models.OrderStatusCompleted {
-		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, nil); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, "api.orders.activate_dev", nil); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

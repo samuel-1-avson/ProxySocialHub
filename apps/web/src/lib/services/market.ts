@@ -76,7 +76,7 @@ export interface Order {
     listing_id: string;
     bandwidth_gb: number;
     total_price: number;
-    status: 'pending' | 'active' | 'completed' | 'disputed' | 'cancelled';
+    status: import('@/lib/order-status').OrderStatus;
     escrow_pda?: string;
     tx_signature?: string;
     created_at: string;

@@ -8,13 +8,12 @@ import {
     getOrder,
     getOrderProxyCredentials,
     marketplaceKeys,
+    orderCredentialsEligible,
+    orderStatusDescription,
+    orderStatusLabel,
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { MarketplaceOrderCredentials } from '@/components/marketplace/MarketplaceOrderCredentials';
-
-function formatStatus(status: string) {
-    return status.replace(/_/g, ' ');
-}
 
 function orderTotal(order: { total_price?: number; price_total?: number }) {
     return order.total_price ?? order.price_total ?? 0;
@@ -39,8 +38,7 @@ export function MarketplaceOrderDetailView({
         enabled: isAuthenticated && Boolean(orderId),
     });
 
-    const credentialsEligible =
-        orderQuery.data?.status === 'active' || orderQuery.data?.status === 'completed';
+    const credentialsEligible = orderCredentialsEligible(orderQuery.data?.status ?? '');
 
     const credentialsQuery = useQuery({
         queryKey: marketplaceKeys.orderCredentials(orderId),
@@ -102,12 +100,13 @@ export function MarketplaceOrderDetailView({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-[10px] font-mono text-muted-foreground break-all">{order.id}</p>
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5">
-                                {formatStatus(order.status)}
+                                {orderStatusLabel(order.status)}
                             </span>
                         </div>
                         <p className="text-sm text-muted-foreground">
                             {order.bandwidth_gb} GB · {orderTotal(order).toFixed(6)} SOL
                         </p>
+                        <p className="text-xs text-muted-foreground">{orderStatusDescription(order.status)}</p>
                     </div>
 
                     {credentialsEligible && credentialsQuery.isLoading && (

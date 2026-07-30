@@ -5,8 +5,18 @@
 
 import { apiGet, apiPost, apiPut, apiDelete, publicApiGet } from './client';
 import type { CatalogProductSummary } from './catalog';
+import type { OrderStatus } from '@/lib/order-status';
 
 export type { CatalogProductSummary } from './catalog';
+export type { OrderStatus };
+export {
+    ORDER_STATUSES,
+    isOrderStatus,
+    orderStatusLabel,
+    orderStatusDescription,
+    orderCredentialsEligible,
+    orderCancelEligible,
+} from '@/lib/order-status';
 
 /** Discovery embed for linked catalog merchandising (#11). */
 const LISTING_INCLUDE_PRODUCT = { include: 'product' } as const;
@@ -73,16 +83,6 @@ export interface Listing {
     /** Present when fetched with ?include=product */
     catalog_product?: CatalogProductSummary;
 }
-
-export type OrderStatus =
-    | 'pending'
-    | 'pending_payment'
-    | 'active'
-    | 'completed'
-    | 'disputed'
-    | 'cancelled'
-    | 'refunded'
-    | string;
 
 export interface Order {
     id: string;

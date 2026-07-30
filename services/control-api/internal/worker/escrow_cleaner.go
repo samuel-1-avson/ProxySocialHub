@@ -106,7 +106,7 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 			markEscrowReconciliationResolved(order.EscrowPDA, sig, order.ID, "expiry_refund_succeeded")
 
 			// 4. Update Database
-			if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, nil); err != nil {
+			if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, "worker.escrow_cleaner", nil); err != nil {
 				log.Printf("[EscrowCleaner] Invalid refund transition for order %s: %v", order.ID, err)
 				recordEscrowReconciliation(escrowReconciliationRecord{
 					Source:      "escrow_cleaner",
