@@ -1,42 +1,210 @@
 # ProxyHubb
 
-Decentralized residential proxy marketplace: buyers fund sessions via Solana; providers run `provider-node` and `edge-gateway` tunnels; **control-api** (Go) is the control plane; **apps/web** (Next.js) is the product UI.
+Solana-settled residential proxy marketplace. Buyers discover listings, fund escrow, and pull traffic through the edge gateway. Providers run a tunnel daemon that advertises capacity and earns from usage.
 
-## Documentation
+| Surface | URL |
+|---------|-----|
+| Web | https://proxyhubb.com |
+| API | https://api.proxyhubb.com |
+| Buyer proxy | `proxy.proxyhubb.com:8090` |
 
-| Start here | Purpose |
-|------------|---------|
-| [docs/README.md](docs/README.md) | Full documentation index |
-| [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | Canonical live status (D1–D4, risks, next steps) |
-| [docs/reports/PHASE_IMPLEMENTATION_STATUS.md](docs/reports/PHASE_IMPLEMENTATION_STATUS.md) | Phase checklist (governance, marketplace catalog, network) |
-| [docs/openapi.yaml](docs/openapi.yaml) | Authoritative HTTP contract for `/v1` |
+Repo: [samuel-1-avson/ProxySocialHub](https://github.com/samuel-1-avson/ProxySocialHub)
 
-## Quick start (local Docker)
+---
 
-```powershell
-# From repo root — see docs/STAGING_ENFORCE_RUNBOOK.md for full checklist
-docker compose up -d --build
+## Architecture
+
+```
+┌─────────────┐     JWT / X-API-Key      ┌──────────────────┐
+│  apps/web   │ ───────────────────────► │  control-api     │
+│  (Next.js)  │                          │  (Go, /v1)       │
+└─────────────┘                          └────────┬─────────┘
+                                                  │
+     ┌────────────────┬───────────────────────────┼──────────────┐
+     ▼                ▼                           ▼              ▼
+┌──────────┐   ┌─────────────┐            ┌─────────────┐  ┌──────────┐
+│ Postgres │   │ Redis/NATS  │            │edge-gateway │  │ Solana   │
+└──────────┘   └─────────────┘            │   (Rust)    │  │ programs │
+                                          └──────┬──────┘  └──────────┘
+                                                 │ Yamux/QUIC
+                                          ┌──────▼──────┐
+                                          │provider-node│
+                                          │   (Rust)    │
+                                          └─────────────┘
 ```
 
-Typical local URLs: API **18080**, web **3009** (compose) or **4011** (`npm run dev` in `apps/web`), edge gateway host **18090** when `EDGE_GATEWAY_PORT=18090`.
+- **control-api** — auth, marketplace, orders/escrow FSM, wallets, bulk pools, subscriptions, governance, explorer
+- **edge-gateway** — buyer HTTP CONNECT admission and provider tunnels
+- **provider-node** — provider daemon (heartbeats, capacity, tunnel)
+- **apps/web** — marketplace, provider dashboard, agents, explorer UI
+
+---
 
 ## Monorepo layout
 
 | Path | Role |
 |------|------|
-| `apps/web` | Next.js frontend |
-| `services/control-api` | REST API, auth, listings, orders, wallet, governance |
-| `services/edge-gateway` | Buyer CONNECT, provider tunnels, admission |
-| `provider-node` | Yamux/QUIC tunnel client, signed heartbeats |
-| `migrations/` | Postgres schema (repo root) |
-| `docs/` | Runbooks, ADRs, API notes |
-| `scripts/` | Bootstrap, verify, E2E helpers |
+| `apps/web` | Next.js product UI |
+| `services/control-api` | Go REST control plane (`/v1`) |
+| `services/edge-gateway` | Buyer CONNECT + provider tunnels |
+| `services/provider-node` | Provider tunnel client |
+| `services/solana-programs` | On-chain escrow / registry programs |
+| `services/zk-prover` | Optional Halo2 prover (compose profile) |
+| `cli/` | Provider CLI binaries (GitHub Releases; not crates.io) |
+| `sdks/nodejs` | `@proxyhubb/sdk` (npm) |
+| `sdks/python` | `proxyhubb` (PyPI) |
+| `sdks/go` | Go module `github.com/samuel-1-avson/ProxySocialHub/sdks/go` |
+| `migrations/` | Postgres schema (numbered migrations) |
+| `docs/` | OpenAPI, ADRs, marketplace/B2B/subscription runbooks |
+| `scripts/` | Local verify + GCP provision/deploy helpers |
+| `infra/` | Observability and infra helpers |
+| `config/` | Env templates (e.g. GCP testnet) |
 
-## Verification
+---
 
-```powershell
-.\scripts\verify-provider-phase1.ps1
-.\scripts\local-verification.ps1
+## Features
+
+- **Marketplace** — listings, catalog products/offers, map discovery, Solana escrow orders
+- **Provider ops** — setup wizard, CLI downloads, node heartbeats, earnings
+- **Bulk proxy pools** — machine API with `phub_` keys (`proxy:read` / `proxy:write`)
+- **B2B purchase** — API keys scoped `orders:create` + optional sandbox buy
+- **Buyer subscriptions** — wallet-SOL plan SKUs (`free` / `pro` / `scale`) with listing & bandwidth entitlements
+- **Agents** — top-level `/agents` marketplace and instances
+- **Funnel analytics** — admin/seller dashboards on `marketplace_funnel_events`
+- **Network explorer & governance** — transparency and on-chain related surfaces
+
+Marketplace Phase 3 (catalog, order FSM, growth) is complete — see [docs/reports/MARKETPLACE_PHASE3_COMPLETE.md](docs/reports/MARKETPLACE_PHASE3_COMPLETE.md).
+
+---
+
+## Authentication
+
+| Method | How |
+|--------|-----|
+| Wallet session | `POST /v1/auth/wallet/challenge` → `wallet/login` → `Authorization: Bearer <access_token>` |
+| API key | `X-API-Key: phub_…` (or Bearer `phub_` / legacy `pk_`) |
+
+Mint partner keys with a user JWT:
+
+```http
+POST /v1/bulk/api-keys
+Authorization: Bearer <access_token>
+{ "name": "partner", "scopes": "orders:create" }
 ```
 
-See [docs/SECURITY_GATES.md](docs/SECURITY_GATES.md) before pushing secrets or keypairs.
+Email/password login is not an active runtime flow. Supabase Auth is not used.
+
+---
+
+## SDKs
+
+```bash
+npm install @proxyhubb/sdk@0.1.0
+pip install proxyhubb==0.1.0
+```
+
+```go
+import "github.com/samuel-1-avson/ProxySocialHub/sdks/go"
+```
+
+Default API base: `https://api.proxyhubb.com`. Publish workflow: `.github/workflows/sdk-publish.yml`.
+
+---
+
+## Quick start (local)
+
+```bash
+cp .env.example .env
+# Fill required secrets (see below), then:
+docker compose up -d --build
+```
+
+**Required in `.env` (compose):** `POSTGRES_PASSWORD`, `JWT_SECRET`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `TOKEN_HMAC_SECRET`, `REDIS_PASSWORD`, `GATEWAY_SHARED_SECRET`
+
+| Service | Default URL / port |
+|---------|-------------------|
+| API | http://localhost:18080 |
+| Web (compose) | http://localhost:3009 |
+| Web (`npm run dev` in `apps/web`) | http://localhost:4011 |
+| Edge buyer CONNECT | localhost:8090 |
+| Provider tunnel | localhost:3128 |
+
+Migrations run via the `db-migrate` service (`AUTO_MIGRATE` / `MIGRATE_ONLY`). Schema lives in `migrations/`.
+
+Optional overlays: `docker-compose.dev.yml`, `docker-compose.minimal.yml`, `docker-compose.full.yml`, `docker-compose.local-solana.yml`, `docker-compose.web-dev.yml`.
+
+### Verification
+
+```powershell
+.\scripts\local-verification.ps1
+.\scripts\verify-provider-phase1.ps1
+```
+
+---
+
+## Live stack (GCP testnet)
+
+Production traffic for this project runs on GCE (`proxyhubb-testnet`), not Vercel.
+
+```text
+docker-compose.yml
++ docker-compose.testnet.yml
++ docker-compose.gcp-testnet.yml
+(+ docker-compose.gcp-images.yml for GHCR pulls)
+```
+
+Useful scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/gcp-testnet-provision.sh` | VM / IP / firewall |
+| `scripts/gcp-compose-pull-deploy.sh` | Pull pinned images + migrate + roll |
+| `scripts/gcp-testnet-verify.sh` | Smoke checks |
+| `scripts/gcp-postgres-backup.sh` | DB backups |
+
+Env template: `config/gcp-testnet.env.example`.
+
+---
+
+## API contract
+
+Authoritative OpenAPI: [docs/openapi.yaml](docs/openapi.yaml)
+
+Selected `/v1` areas:
+
+- Auth & sessions — `/v1/auth/*`, `/v1/sessions/*`
+- Marketplace — `/v1/listings`, `/v1/catalog/*`, `/v1/orders/*`
+- Bulk — `/v1/bulk/pools`, `/v1/bulk/api-keys`
+- Subscriptions — `/v1/subscriptions/*`
+- Analytics funnel — `/v1/moderation/marketplace/funnel`, `/v1/analytics/marketplace/funnel`
+- Provider — `/v1/provider/*`
+
+---
+
+## Documentation
+
+| Doc | Topic |
+|-----|-------|
+| [docs/openapi.yaml](docs/openapi.yaml) | HTTP contract |
+| [docs/adr/0005-marketplace-catalog-layer.md](docs/adr/0005-marketplace-catalog-layer.md) | Catalog projection |
+| [docs/adr/0006-order-status-fsm.md](docs/adr/0006-order-status-fsm.md) | Order status FSM |
+| [docs/MARKETPLACE_DISCOVERY_API.md](docs/MARKETPLACE_DISCOVERY_API.md) | Discovery / listings |
+| [docs/MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md](docs/MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md) | Catalog migrate/backfill |
+| [docs/BUYER_SUBSCRIPTION_PLANS.md](docs/BUYER_SUBSCRIPTION_PLANS.md) | Plan SKUs & entitlements |
+| [docs/B2B_SANDBOX_PURCHASE.md](docs/B2B_SANDBOX_PURCHASE.md) | Partner purchase + sandbox |
+| [docs/reports/MARKETPLACE_PHASE3_COMPLETE.md](docs/reports/MARKETPLACE_PHASE3_COMPLETE.md) | Phase 3 soak / exit |
+
+---
+
+## Development notes
+
+- Prefer JWT or `phub_` API keys for machine access; never mint keys with another API key.
+- Sandbox escrow activation requires `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` (off in production/testnet by default).
+- Do not commit `.env`, keypairs, or secrets — hooks run gitleaks on commit/push.
+- Provider CLI artifacts ship via GitHub Releases / `/v1/cli/download`, not crates.io.
+
+---
+
+## License
+
+See repository license file. SDKs under `sdks/` are MIT unless noted otherwise in package metadata.
