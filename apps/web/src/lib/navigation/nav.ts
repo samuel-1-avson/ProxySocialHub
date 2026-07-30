@@ -139,6 +139,18 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 policy: "authenticated",
                 providerBadge: true,
             }),
+            navItem("dashboardProviderSetup", "Setup", Compass, {
+                description: "Token + first node",
+                policy: "provider",
+            }),
+            navItem("dashboardProviderTokens", "API tokens", Fingerprint, {
+                description: "CLI authentication",
+                policy: "provider",
+            }),
+            navItem("dashboardProviderCli", "CLI & download", Terminal, {
+                description: "Provider software",
+                policy: "provider",
+            }),
             navItem("dashboardProviderNodes", "My nodes", Radio, {
                 description: "Register & manage nodes",
                 policy: "provider",
@@ -151,23 +163,20 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 description: "Performance & revenue",
                 policy: "provider",
             }),
-            navItem("dashboardProviderServices", "Services", Network, { policy: "provider" }),
-            navItem("dashboardProviderSetup", "Setup", Compass, { policy: "provider" }),
-            navItem("dashboardProviderCircle", "Circle pool", CircleDot, {
-                description: "Enterprise pooling",
-                policy: "provider",
-            }),
-            navItem("dashboardProviderRelationships", "Customers", Users, { policy: "provider" }),
             navItem("dashboardProviderEarnings", "Income", Coins, {
                 description: "Earnings & payouts",
                 policy: "provider",
             }),
-            navItem("dashboardProviderTokens", "API tokens", Fingerprint, {
-                description: "CLI authentication",
+            navItem("dashboardProviderServices", "Services", Network, {
+                description: "Advanced service configs",
                 policy: "provider",
             }),
-            navItem("dashboardProviderCli", "CLI & download", Terminal, {
-                description: "Provider software",
+            navItem("dashboardProviderCircle", "Circle pool", CircleDot, {
+                description: "Enterprise pooling",
+                policy: "provider",
+            }),
+            navItem("dashboardProviderRelationships", "Customers", Users, {
+                description: "Buyer relationships",
                 policy: "provider",
             }),
         ],

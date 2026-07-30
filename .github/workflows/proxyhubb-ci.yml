@@ -319,8 +319,8 @@ jobs:
       run: cargo check --features legacy-zk,blockchain,pricing,ml,otel
 
   # ==================== Provider CLI distribution ====================
-  cli-dist-build:
-    name: Build & verify CLI download API
+  cli-dist-linux:
+    name: Build CLI (linux/amd64)
     needs: [secrets-gate, changes]
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -329,7 +329,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      CLI_DIST_VERSION: ci-${{ github.run_id }}
+      CLI_DIST_VERSION: 1.0.0
     steps:
       - uses: actions/checkout@v4
 
@@ -342,12 +342,145 @@ jobs:
           workspaces: "./services/provider-node -> target
             ./cli -> target"
 
-      - name: Build provider-node + proxyhubb-cli into cli-dist
+      - name: Build provider-node + proxyhubb-cli (linux)
         run: |
           chmod +x scripts/build-cli-dist.sh
           ./scripts/build-cli-dist.sh
           test -x "cli-dist/${CLI_DIST_VERSION}/provider-node-${CLI_DIST_VERSION}-linux-amd64"
           test -x "cli-dist/${CLI_DIST_VERSION}/provider-cli-${CLI_DIST_VERSION}-linux-amd64"
+
+      - name: Upload linux CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-linux
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
+
+  cli-dist-windows:
+    name: Build CLI (windows/amd64)
+    needs: [secrets-gate, changes]
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.provider == 'true' ||
+      needs.changes.outputs.backend == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CLI_DIST_VERSION: 1.0.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
+
+      - name: Build provider-node + proxyhubb-cli (windows)
+        shell: pwsh
+        run: |
+          .\rebuild-cli.ps1
+          $node = "cli-dist\${env:CLI_DIST_VERSION}\provider-node-${env:CLI_DIST_VERSION}-windows-amd64.exe"
+          $cli = "cli-dist\${env:CLI_DIST_VERSION}\provider-cli-${env:CLI_DIST_VERSION}-windows-amd64.exe"
+          if (-not (Test-Path $node)) { throw "Missing $node" }
+          if (-not (Test-Path $cli)) { throw "Missing $cli" }
+
+      - name: Upload windows CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-windows
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
+
+  cli-dist-macos:
+    name: Build CLI (macos)
+    needs: [secrets-gate, changes]
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.provider == 'true' ||
+      needs.changes.outputs.backend == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CLI_DIST_VERSION: 1.0.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
+
+      - name: Build provider-node + proxyhubb-cli (macos amd64+arm64)
+        run: |
+          chmod +x scripts/build-cli-dist.sh
+          # build-cli-dist.sh always builds linux first; on macOS we only need darwin targets.
+          VERSION="${CLI_DIST_VERSION}"
+          DIST_DIR="cli-dist/${VERSION}"
+          mkdir -p "$DIST_DIR"
+          build_one() {
+            local crate_dir="$1" bin_name="$2" goos="$3" goarch="$4" target="$5" out_name="$6"
+            echo "Building $out_name ($target)..."
+            (cd "$crate_dir" && cargo build --release --target "$target")
+            local built="$crate_dir/target/$target/release/$bin_name"
+            cp -f "$built" "$DIST_DIR/$out_name"
+            chmod +x "$DIST_DIR/$out_name"
+          }
+          build_one services/provider-node provider-node macos amd64 x86_64-apple-darwin "provider-node-${VERSION}-macos-amd64"
+          build_one cli proxyhubb-cli macos amd64 x86_64-apple-darwin "provider-cli-${VERSION}-macos-amd64"
+          build_one services/provider-node provider-node macos arm64 aarch64-apple-darwin "provider-node-${VERSION}-macos-arm64"
+          build_one cli proxyhubb-cli macos arm64 aarch64-apple-darwin "provider-cli-${VERSION}-macos-arm64"
+          ls -la "$DIST_DIR"
+
+      - name: Upload macos CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-macos
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
+
+  cli-dist-build:
+    name: Verify CLI download API
+    needs: [cli-dist-linux, cli-dist-windows, cli-dist-macos]
+    if: |
+      always() &&
+      needs.cli-dist-linux.result == 'success' &&
+      needs.cli-dist-windows.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLI_DIST_VERSION: 1.0.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist-linux
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}
+
+      - name: Download windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist-windows
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}
+
+      - name: Download macos artifacts
+        if: needs.cli-dist-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist-macos
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}
+
       - name: Write CI .env for Docker Compose
         run: |
           set -euo pipefail
@@ -359,7 +492,7 @@ jobs:
             echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
             echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
             echo "POSTGRES_PASSWORD=proxyhubb"
-            echo "CLI_DIST_VERSION=ci-${{ github.run_id }}"
+            echo "CLI_DIST_VERSION=${CLI_DIST_VERSION}"
             echo "PROVIDER_SIGNATURE_MODE=observe"
           } >> .env
 
@@ -377,10 +510,24 @@ jobs:
           docker compose -f docker-compose.yml logs control-api --tail 80
           exit 1
 
-      - name: Verify public CLI download endpoint
+      - name: Verify public CLI download endpoints
         run: |
           chmod +x scripts/verify-cli-download.sh
           ./scripts/verify-cli-download.sh --api-base http://127.0.0.1:18080 --platform linux --arch amd64
+          ./scripts/verify-cli-download.sh --api-base http://127.0.0.1:18080 --platform windows --arch amd64
+          if [[ -f "cli-dist/${CLI_DIST_VERSION}/provider-node-${CLI_DIST_VERSION}-macos-arm64" ]]; then
+            ./scripts/verify-cli-download.sh --api-base http://127.0.0.1:18080 --platform macos --arch arm64
+          fi
+          if [[ -f "cli-dist/${CLI_DIST_VERSION}/provider-node-${CLI_DIST_VERSION}-macos-amd64" ]]; then
+            ./scripts/verify-cli-download.sh --api-base http://127.0.0.1:18080 --platform macos --arch amd64
+          fi
+
+      - name: Upload combined CLI dist for release sync
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-all
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
 
   # ==================== Provider Node (Rust) ====================
   provider-node-check:

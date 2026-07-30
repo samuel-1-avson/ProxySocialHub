@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { applyForProvider, getProviderStatus } from '@/lib/api/provider';
+import { applyForProvider, getProviderStatus, type ProviderApplicationResponse } from '@/lib/api/provider';
 import { getWallet } from '@/lib/api/wallet';
 import { ApiError } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
@@ -11,7 +11,13 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { AlertCircle, CheckCircle2, Loader2, Send, ShieldCheck, Globe, Zap, Wallet } from 'lucide-react';
 
-export function ProviderApplicationForm() {
+export function ProviderApplicationForm({
+    onApplied,
+    embedded = false,
+}: {
+    onApplied?: (result: ProviderApplicationResponse) => void | Promise<void>;
+    embedded?: boolean;
+} = {}) {
     const { user, refreshUser } = useAuth();
     const qc = useQueryClient();
     const [bandwidth, setBandwidth] = useState('');
@@ -54,6 +60,10 @@ export function ProviderApplicationForm() {
                 await refreshUser();
                 await qc.invalidateQueries({ queryKey: ['provider-earnings-summary'] });
                 await qc.invalidateQueries({ queryKey: ['my-nodes'] });
+            }
+
+            if (onApplied) {
+                await onApplied(result);
             }
         },
         onError: async (error) => {
@@ -113,14 +123,19 @@ export function ProviderApplicationForm() {
     }
 
     return (
-        <GlassCard className="max-w-xl mx-auto border-purple-500/20 bg-purple-500/5">
+        <GlassCard className={embedded
+            ? "max-w-xl mx-auto border-border bg-card"
+            : "max-w-xl mx-auto border-emerald-500/20 bg-emerald-500/5"
+        }>
             <div className="space-y-8 p-2">
                 <div>
-                    <div className="flex items-center gap-2 text-purple-400 font-bold uppercase tracking-widest text-[10px] mb-2">
+                    <div className={`flex items-center gap-2 font-bold uppercase tracking-widest text-[10px] mb-2 ${embedded ? 'text-primary' : 'text-primary'}`}>
                         <ShieldCheck size={14} />
                         Automated Onboarding
                     </div>
-                    <h2 className="text-2xl font-black font-sans uppercase italic tracking-tight">Become a Provider</h2>
+                    <h2 className={`text-2xl font-black font-sans uppercase italic tracking-tight ${embedded ? 'font-mono not-italic' : ''}`}>
+                        Become a Provider
+                    </h2>
                     <p className="text-sm text-muted-foreground mt-1">
                         Submit your bandwidth capacity and the system will decide automatically from objective on-chain constraints.
                     </p>
@@ -203,7 +218,7 @@ export function ProviderApplicationForm() {
                             placeholder="e.g. 1Gbps Fiber, 500Mbps Starlink"
                             value={bandwidth}
                             onChange={(e) => setBandwidth(e.target.value)}
-                            className="h-12 bg-white/5 border-white/10 rounded-xl focus:ring-purple-500/50"
+                            className="h-12 bg-white/5 border-white/10 rounded-xl focus:ring-primary/50"
                         />
                     </div>
 
@@ -246,7 +261,7 @@ export function ProviderApplicationForm() {
                 )}
 
                 <Button 
-                    className="w-full h-14 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black uppercase italic tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.2)] disabled:opacity-50 disabled:grayscale transition-all"
+                    className="w-full h-14 rounded-2xl bg-primary hover:bg-emerald-500 text-white font-black uppercase italic tracking-widest  disabled:opacity-50 disabled:grayscale transition-all"
                     disabled={!bandwidth || !hasLinkedWallet || !hasEnoughSol || mutation.isPending}
                     onClick={() => mutation.mutate()}
                 >

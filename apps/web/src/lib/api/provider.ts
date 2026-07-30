@@ -139,8 +139,22 @@ export interface ProviderStatusResponse {
 
 export interface KYCStatusResponse {
     user_id: string;
-    kyc_status: 'none' | 'pending' | 'approved' | 'rejected';
+    kyc_status: 'none' | 'not_started' | 'pending' | 'approved' | 'rejected' | 'insufficient_funds';
     trust_tier: string;
+    on_chain_trust_tier?: number;
+    on_chain_kyc_status?: number;
+    on_chain_attested_at?: number;
+}
+
+export interface KYCActionResponse {
+    message?: string;
+    kyc_status: 'none' | 'not_started' | 'pending' | 'approved' | 'rejected' | 'insufficient_funds';
+    trust_tier?: string;
+    solana_network?: string;
+    awaiting_vendor?: boolean;
+    required_sol?: number;
+    current_sol?: number;
+    error?: string;
 }
 
 // ============ CLI Download API ============
@@ -269,6 +283,16 @@ export async function getKYCStatus(userId: string): Promise<KYCStatusResponse> {
     return apiGet<KYCStatusResponse>(`/v1/kyc/status/${userId}`);
 }
 
+/** Begin KYC (testnet may approve via wallet+SOL; mainnet enters pending). */
+export async function startKYC(): Promise<KYCActionResponse> {
+    return apiPost<KYCActionResponse>('/v1/kyc/start', {});
+}
+
+/** Re-run balance/attestation check for pending or insufficient_funds. */
+export async function recheckKYC(): Promise<KYCActionResponse> {
+    return apiPost<KYCActionResponse>('/v1/kyc/recheck', {});
+}
+
 // ============ Node Registration API ============
 
 export interface NodeRegistration {
@@ -279,6 +303,7 @@ export interface NodeRegistration {
     city?: string;
     hotkey?: string;
     gateway_node_id?: string;
+    wallet_address?: string;
     status: 'online' | 'offline' | 'pending';
     quality_score: number;
     current_tier: string;

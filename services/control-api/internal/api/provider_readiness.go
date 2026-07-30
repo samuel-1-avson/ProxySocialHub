@@ -62,6 +62,7 @@ func getProviderReadiness(c *gin.Context) {
 		return
 	}
 
+	ensureUserNodesPayoutWallets(userID)
 	summary := collectProviderReadinessSummary(userID)
 	checks := buildProviderReadinessChecks(summary)
 	status := providerReadinessOverallStatus(checks)
