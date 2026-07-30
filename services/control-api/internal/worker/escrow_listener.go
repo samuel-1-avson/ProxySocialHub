@@ -108,7 +108,16 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
 		logging.Error(err).
 			Str("order_id", order.ID.String()).
-			Msg("Order activated on-chain but session activation failed")
+			Msg("Order active but session sync failed; scheduling immediate retry (retry worker is also active)")
+		orderID := order.ID
+		go func() {
+			time.Sleep(2 * time.Second)
+			if retryErr := marketplace.ActivateOrderSession(context.Background(), orderID); retryErr != nil {
+				logging.Warn().Err(retryErr).
+					Str("order_id", orderID.String()).
+					Msg("Immediate session activation retry failed; background worker will continue")
+			}
+		}()
 	}
 	funnel.Record(context.Background(), funnel.RecordParams{
 		EventName: models.FunnelEscrowConfirmed,
@@ -242,7 +251,7 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}
 
 	solAmount := float64(event.Amount) / 1e9
-	wallet.BalanceSOL += solAmount
+	wallet.CreditSOL(solAmount)
 	if err := tx.Save(&wallet).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Worker] Auto-Deposit: Failed to credit user %s: %v", userID, err)

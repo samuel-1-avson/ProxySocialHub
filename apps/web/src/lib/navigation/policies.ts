@@ -29,6 +29,7 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     dashboardSecurity: "authenticated",
     dashboardSessions: "authenticated",
     dashboardUsage: "authenticated",
+    dashboardSubscriptions: "authenticated",
     dashboardTrustless: "authenticated",
     dashboardWallet: "authenticated",
     /** Buyer onboarding — apply before provider role is granted. */

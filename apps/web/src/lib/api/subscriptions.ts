@@ -3,23 +3,43 @@
  * Managing recurring plans and member access levels
  */
 
-import { apiDeleteWithBody, apiGet, apiPost } from './client';
+import { apiDeleteWithBody, apiGet, apiPost, apiPut } from './client';
+
+export interface SubscriptionPlanFeatures {
+    api_access?: boolean;
+    analytics?: boolean;
+    custom_pricing?: boolean;
+    team_members?: number;
+    dedicated_support?: boolean;
+}
 
 export interface SubscriptionPlan {
     id: string;
     name: string;
+    description?: string;
     price_monthly: number;
-    features: string[];
+    price_yearly?: number;
+    features: SubscriptionPlanFeatures | string[];
     listing_limit: number;
-    bandwidth_limit_gb: number;
+    bandwidth_limit_gb: number | null;
+    priority_support?: boolean;
+    is_active?: boolean;
 }
 
 export interface UserSubscription {
     id: string;
     plan_id: string;
     status: string;
-    current_period_end: string;
-    plan: SubscriptionPlan;
+    billing_cycle?: string;
+    current_period_start?: string;
+    current_period_end: string | null;
+    cancelled_at?: string | null;
+    plan?: SubscriptionPlan;
+}
+
+export interface MySubscriptionResponse {
+    subscription: UserSubscription | null;
+    current_plan: SubscriptionPlan | null;
 }
 
 /**
@@ -31,11 +51,14 @@ export async function getSubscriptionPlans() {
 }
 
 /**
- * Get active subscription for the authenticated user
+ * Get active subscription + entitled plan for the authenticated user
  */
-export async function getMySubscription() {
-    const data = await apiGet<{ subscription: UserSubscription }>('/v1/subscriptions/my');
-    return data.subscription || null;
+export async function getMySubscription(): Promise<MySubscriptionResponse> {
+    const data = await apiGet<MySubscriptionResponse>('/v1/subscriptions/my');
+    return {
+        subscription: data.subscription || null,
+        current_plan: data.current_plan || null,
+    };
 }
 
 /**
@@ -50,7 +73,19 @@ export async function subscribeToPlan(planId: string, billingCycle: 'monthly' | 
 }
 
 /**
- * Cancel the current active subscription
+ * Change plan with prorated charge/credit
+ */
+export async function changePlan(newPlanId: string) {
+    return apiPut<{
+        message: string;
+        new_plan: SubscriptionPlan;
+        prorated_charge: number;
+        remaining_days: number;
+    }>('/v1/subscriptions', { new_plan_id: newPlanId });
+}
+
+/**
+ * Cancel the current active subscription (access until period end; stops auto-renew)
  */
 export async function cancelSubscription(reason?: string) {
     return apiDeleteWithBody<{ message: string; access_until?: string }, { reason?: string }>(

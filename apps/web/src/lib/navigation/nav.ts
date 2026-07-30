@@ -30,6 +30,7 @@ import {
     Vote,
     Wallet,
     Wifi,
+    Layers,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -88,6 +89,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
             navItem("dashboardProxy", "Connect", Globe, { description: "Create proxy sessions" }),
             navItem("dashboardSessions", "Sessions", Wifi, { description: "Active & history" }),
             navItem("dashboardUsage", "Usage & billing", BarChart3, { description: "Bandwidth & billing" }),
+            navItem("dashboardSubscriptions", "Plans", Layers, { description: "Subscription & renewals" }),
         ],
     },
     {

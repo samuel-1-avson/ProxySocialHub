@@ -387,7 +387,7 @@ func refundWalletSOL(userID string, amount float64) {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 			return err
 		}
-		wallet.BalanceSOL += amount
+		wallet.CreditSOL(amount)
 		if err := tx.Save(&wallet).Error; err != nil {
 			return err
 		}
@@ -528,13 +528,17 @@ func transferP2P(c *gin.Context) {
 	}
 
 	// 4. Check SOL Balance & Transfer
-	if senderWallet.BalanceSOL < req.Amount {
+	if !senderWallet.CanAffordSOL(req.Amount) {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL funds"})
 		return
 	}
-	senderWallet.BalanceSOL -= req.Amount
-	recipientWallet.BalanceSOL += req.Amount
+	if !senderWallet.DebitSOL(req.Amount) {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL funds"})
+		return
+	}
+	recipientWallet.CreditSOL(req.Amount)
 
 	// Record spending for limit tracking
 	if err := senderWallet.RecordSpending(tx, req.Amount, models.SpendingTransfer, ""); err != nil {
@@ -746,10 +750,12 @@ func withdrawSOL(c *gin.Context) {
 			return err
 		}
 
-		if walletRecord.BalanceSOL < req.Amount {
+		if !walletRecord.CanAffordSOL(req.Amount) {
 			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
 		}
-		walletRecord.BalanceSOL -= req.Amount
+		if !walletRecord.DebitSOL(req.Amount) {
+			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
+		}
 
 		// Record spending for limit tracking
 		if err := walletRecord.RecordSpending(tx, req.Amount, models.SpendingWithdraw, withdrawalRef); err != nil {
@@ -797,7 +803,7 @@ func withdrawSOL(c *gin.Context) {
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
 				return err
 			}
-			refundWallet.BalanceSOL += req.Amount
+			refundWallet.CreditSOL(req.Amount)
 			if err := tx.Save(&refundWallet).Error; err != nil {
 				return err
 			}
@@ -1069,8 +1075,10 @@ func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount floa
 				}
 			}
 
-			senderWallet.BalanceSOL += amount
-			recipientWallet.BalanceSOL -= amount
+			senderWallet.CreditSOL(amount)
+			if !recipientWallet.DebitSOL(amount) {
+				return fmt.Errorf("recipient balance too low to reverse P2P credit")
+			}
 
 			if err := tx.Save(&senderWallet).Error; err != nil {
 				return err
