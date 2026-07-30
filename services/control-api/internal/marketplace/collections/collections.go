@@ -104,17 +104,48 @@ func Fetch(ctx context.Context, slug string, page, limit int) ([]models.ProxyLis
 
 func applyCollectionScope(slug string) (*gorm.DB, error) {
 	slug = strings.ToLower(strings.TrimSpace(slug))
+	base, err := ApplyListingCollectionFilter(db.DB.Model(&models.ProxyListing{}), slug)
+	if err != nil {
+		return nil, err
+	}
 	switch slug {
-	case "featured":
-		return db.DB.Model(&models.ProxyListing{}).
-			Where("status = ? AND quality_score > ?", models.ListingStatusActive, 70), nil
 	case "verified":
+		// Preserve discovery BaseQuery join semantics used by the public collections API.
 		return discovery.Apply(discovery.BaseQuery(db.DB), discovery.Query{}).
 			Where("proxy_listings.listing_offer_verified = ?", true), nil
 	case "editors-pick":
 		return discovery.BaseQuery(db.DB).
 			Where("proxy_listings.quality_score >= ?", 85).
 			Where("proxy_listings.orders_count > 0"), nil
+	default:
+		return base, nil
+	}
+}
+
+// ApplyListingCollectionFilter scopes a query that already references proxy_listings
+// (including joins from marketplace_funnel_events) to a curated collection slug.
+// Empty slug leaves the query unchanged. Unknown slug returns an error.
+func ApplyListingCollectionFilter(query *gorm.DB, slug string) (*gorm.DB, error) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return query, nil
+	}
+	switch slug {
+	case "featured":
+		return query.Where(
+			"proxy_listings.status = ? AND proxy_listings.quality_score > ?",
+			models.ListingStatusActive, 70,
+		), nil
+	case "verified":
+		return query.Where(
+			"proxy_listings.status = ? AND proxy_listings.listing_offer_verified = ?",
+			models.ListingStatusActive, true,
+		), nil
+	case "editors-pick":
+		return query.Where(
+			"proxy_listings.status = ? AND proxy_listings.quality_score >= ? AND proxy_listings.orders_count > 0",
+			models.ListingStatusActive, 85,
+		), nil
 	default:
 		return nil, fmt.Errorf("unknown collection")
 	}

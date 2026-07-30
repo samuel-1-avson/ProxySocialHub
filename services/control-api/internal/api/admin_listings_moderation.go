@@ -31,6 +31,7 @@ func RegisterPlatformListingModerationRoutes(rg *gin.RouterGroup) {
 		mod.GET("/listings/pending", getPendingListingsForModeration)
 		mod.POST("/listings/:id/approve", approvePendingListing)
 		mod.POST("/listings/:id/reject", rejectPendingListing)
+		mod.GET("/marketplace/funnel", getAdminMarketplaceFunnel)
 	}
 	RegisterPlatformForumModerationRoutes(rg)
 }

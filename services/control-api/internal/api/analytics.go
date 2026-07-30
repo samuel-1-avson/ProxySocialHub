@@ -26,6 +26,7 @@ func RegisterAnalyticsRoutes(r *gin.RouterGroup) {
 		analytics.GET("/performance/benchmarks", getZKBenchmarks)
 		analytics.GET("/earnings/export", exportProviderEarnings)
 	}
+	RegisterMarketplaceFunnelAnalyticsRoutes(r)
 }
 
 // exportProviderEarnings streams a CSV of the calling provider's earnings.
