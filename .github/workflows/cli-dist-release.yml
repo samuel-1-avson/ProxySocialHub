@@ -1,0 +1,96 @@
+name: CLI Dist Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: CLI_DIST_VERSION
+        required: false
+        default: '1.0.0'
+
+jobs:
+  linux:
+    name: Build CLI (linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLI_DIST_VERSION: ${{ github.event.inputs.version || '1.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
+      - name: Build
+        run: |
+          chmod +x scripts/build-cli-dist.sh
+          ./scripts/build-cli-dist.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-linux
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
+
+  windows:
+    name: Build CLI (windows/amd64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CLI_DIST_VERSION: ${{ github.event.inputs.version || '1.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
+      - name: Build
+        shell: pwsh
+        run: |
+          .\rebuild-cli.ps1
+          $node = "cli-dist\${env:CLI_DIST_VERSION}\provider-node-${env:CLI_DIST_VERSION}-windows-amd64.exe"
+          if (-not (Test-Path $node)) { throw "Missing $node" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-windows
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error
+
+  macos:
+    name: Build CLI (macos)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CLI_DIST_VERSION: ${{ github.event.inputs.version || '1.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./services/provider-node -> target
+            ./cli -> target"
+      - name: Build macos amd64 + arm64
+        run: |
+          VERSION="${CLI_DIST_VERSION}"
+          DIST_DIR="cli-dist/${VERSION}"
+          mkdir -p "$DIST_DIR"
+          build_one() {
+            local crate_dir="$1" bin_name="$2" target="$3" out_name="$4"
+            echo "Building $out_name ($target)..."
+            (cd "$crate_dir" && cargo build --release --target "$target")
+            cp -f "$crate_dir/target/$target/release/$bin_name" "$DIST_DIR/$out_name"
+            chmod +x "$DIST_DIR/$out_name"
+          }
+          build_one services/provider-node provider-node x86_64-apple-darwin "provider-node-${VERSION}-macos-amd64"
+          build_one cli proxyhubb-cli x86_64-apple-darwin "provider-cli-${VERSION}-macos-amd64"
+          build_one services/provider-node provider-node aarch64-apple-darwin "provider-node-${VERSION}-macos-arm64"
+          build_one cli proxyhubb-cli aarch64-apple-darwin "provider-cli-${VERSION}-macos-arm64"
+          ls -la "$DIST_DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-macos
+          path: cli-dist/${{ env.CLI_DIST_VERSION }}/
+          if-no-files-found: error

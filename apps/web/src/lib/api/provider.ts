@@ -181,7 +181,13 @@ export async function getLatestCLI(platform?: string, arch?: string): Promise<CL
  * Returns a URL that can be used to download the binary
  */
 export function getCLIDownloadUrl(platform: string, arch: string, version?: string, packageType = 'daemon'): string {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    const raw = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+    const apiBase =
+        !raw || raw.includes('example.com')
+            ? (typeof window !== 'undefined' && window.location.hostname.endsWith('proxyhubb.com')
+                ? 'https://api.proxyhubb.com'
+                : raw || '')
+            : raw;
     let url = `${apiBase}/v1/cli/download?platform=${platform}&arch=${arch}&package_type=${packageType}`;
     if (version) {
         url += `&version=${version}`;

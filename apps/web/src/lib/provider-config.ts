@@ -15,11 +15,17 @@ export interface ProviderEndpoints {
 }
 
 export function getProviderEndpoints(): ProviderEndpoints {
-    const controlApiUrl =
+    const raw =
         process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:18080';
+    const controlApiUrl =
+        raw.includes('example.com')
+            ? (typeof window !== 'undefined' && window.location.hostname.endsWith('proxyhubb.com')
+                ? 'https://api.proxyhubb.com'
+                : 'https://api.proxyhubb.com')
+            : raw;
     const gatewayTunnelAddr =
         process.env.NEXT_PUBLIC_PROVIDER_TUNNEL_ADDR?.replace(/^https?:\/\//, '') ||
-        'localhost:3128';
+        (controlApiUrl.includes('proxyhubb.com') ? 'proxy.proxyhubb.com:3128' : 'localhost:3128');
     const useTls =
         gatewayTunnelAddr.includes('proxyhubb.com') ||
         controlApiUrl.startsWith('https://');
