@@ -14,6 +14,9 @@ jobs:
   go-security:
     name: Go Vulnerability Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     defaults:
       run:
         working-directory: ./services/control-api
@@ -38,14 +41,18 @@ jobs:
     
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: success() && hashFiles('services/control-api/gosec.sarif') != ''
       with:
         sarif_file: ./services/control-api/gosec.sarif
+        category: 'gosec-control-api'
 
   # ==================== Node.js Security Scan ====================
   node-security:
     name: Node.js Dependency Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - uses: actions/checkout@v4
     
@@ -67,9 +74,10 @@ jobs:
     
     - name: Upload Trivy scan results
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: success() && hashFiles('trivy-results.sarif') != ''
       with:
         sarif_file: 'trivy-results.sarif'
+        category: 'trivy-fs'
 
   # ==================== Rust Security Scan ====================
   rust-security:
@@ -116,6 +124,9 @@ jobs:
   solidity-security:
     name: Solidity Security Analysis
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     defaults:
       run:
         working-directory: ./packages/contracts
@@ -141,48 +152,57 @@ jobs:
     
     - name: Upload Slither SARIF
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: success() && hashFiles('packages/contracts/slither.sarif') != ''
       with:
         sarif_file: ./packages/contracts/slither.sarif
+        category: 'slither-contracts'
 
   # ==================== Container Security ====================
   container-scan:
     name: Container Image Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - uses: actions/checkout@v4
-    
+
+    # control-api Dockerfile expects repo-root context (same as proxyhubb-ci / compose).
     - name: Build Control API image
-      run: docker build -t control-api:scan ./services/control-api
-    
+      run: docker build -f services/control-api/Dockerfile -t control-api:scan .
+
     - name: Build Web image
       run: docker build -t web:scan ./apps/web
-    
+
     - name: Run Trivy on Control API
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'control-api:scan'
         format: 'sarif'
         output: 'trivy-control-api.sarif'
-    
+        exit-code: '0'
+
     - name: Run Trivy on Web
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'web:scan'
         format: 'sarif'
         output: 'trivy-web.sarif'
-    
+        exit-code: '0'
+
     - name: Upload Trivy results
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: success() && hashFiles('trivy-control-api.sarif') != ''
       with:
         sarif_file: 'trivy-control-api.sarif'
-    
+        category: 'trivy-control-api'
+
     - name: Upload Trivy results (Web)
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: success() && hashFiles('trivy-web.sarif') != ''
       with:
         sarif_file: 'trivy-web.sarif'
+        category: 'trivy-web'
 
   # ==================== CodeQL Analysis ====================
   codeql:
