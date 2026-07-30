@@ -11,7 +11,9 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"gorm.io/gorm"
 )
 
@@ -105,12 +107,19 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		return
 	}
 
-	// Find pending orders that match this escrow
+	// Prefer PDA match (same as escrow_listener); fall back to wallet + pre-active statuses.
 	var order models.Order
-	result := a.db.Where("buyer_wallet = ? AND seller_wallet = ? AND status = ?",
-		event.Buyer, event.Seller, "pending_escrow").First(&order)
+	err := a.db.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error
+	if err != nil {
+		err = a.db.Where(
+			"buyer_wallet = ? AND seller_wallet = ? AND status IN ?",
+			event.Buyer,
+			event.Seller,
+			[]models.OrderStatus{models.OrderStatusPending, models.OrderStatusPendingPayment},
+		).Order("created_at DESC").First(&order).Error
+	}
 
-	if result.Error != nil {
+	if err != nil {
 		// No matching pending order - create a new one
 		log.Printf("[SessionActivator] No pending order found, escrow may be direct on-chain")
 
@@ -130,12 +139,17 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 
 		// Find a listing from this seller (default to first active one)
 		var listing models.ProxyListing
-		if err := a.db.Where("provider_id = ? AND status = ?", seller.ID, "active").First(&listing).Error; err != nil {
+		if err := a.db.Where("seller_id = ? AND status = ?", seller.ID, models.ListingStatusActive).First(&listing).Error; err != nil {
 			log.Printf("[SessionActivator] No active listing for seller: %s", event.Seller)
 			return
 		}
 
-		// Create order from escrow
+		if err := fsm.AssertCreatableStatus(models.OrderStatusActive); err != nil {
+			log.Printf("[SessionActivator] Refusing create with status active: %v", err)
+			return
+		}
+
+		// Create order from escrow (initial status validated as "" → active)
 		order = models.Order{
 			ID:               uuid.New(),
 			BuyerID:          buyer.ID,
@@ -166,26 +180,38 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		return
 	}
 
-	// Update existing order with escrow details
-	updates := map[string]interface{}{
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusActive, map[string]interface{}{
 		"escrow_pda":        event.EscrowPDA,
 		"tx_signature":      event.TxSignature,
 		"amount_locked_sol": float64(event.Amount) / 1e9,
-		"status":            models.OrderStatusActive,
-	}
-
-	if err := a.db.Model(&order).Updates(updates).Error; err != nil {
-		log.Printf("[SessionActivator] Failed to update order: %v", err)
+		"buyer_wallet":      event.Buyer,
+		"seller_wallet":     event.Seller,
+		"payment_method":    "solana_escrow",
+	}); err != nil {
+		log.Printf("[SessionActivator] Invalid/failed activate transition for order %s: %v", order.ID, err)
 		return
 	}
+	order.EscrowPDA = event.EscrowPDA
+	order.TxSignature = event.TxSignature
+	order.AmountLockedSOL = float64(event.Amount) / 1e9
+	order.BuyerWallet = event.Buyer
+	order.SellerWallet = event.Seller
+	order.PaymentMethod = "solana_escrow"
 
 	log.Printf("[SessionActivator] Activated order %s (Escrow: %s)", order.ID, event.EscrowPDA)
 
-	// Phase 3: NFT Access Check
-	// If buyer has the Premium NFT, we could grant them bonus bandwidth or lower tiers.
-	// For now, we log the status and potentially upgrade the session.
+	// Existing marketplace orders already have a linked (disabled) session from createOrder.
+	// Activate that session — do not create a replacement that orphans credentials.
+	if order.SessionID != nil {
+		if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
+			log.Printf("[SessionActivator] Order %s activated but session activation failed: %v", order.ID, err)
+		}
+		return
+	}
+
+	// Phase 3: NFT Access Check (direct on-chain orders without a pre-created session)
 	hasPremium := false
-	oracle := GetOracleClient() // Assuming a global getter exists or adding it
+	oracle := GetOracleClient()
 	if oracle != nil {
 		premiumMintStr := os.Getenv("MINT_PREMIUM_PASS")
 		if premiumMintStr == "" {
@@ -207,7 +233,6 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		}
 	}
 
-	// Create a session for this order
 	var seller models.User
 	if err := a.db.First(&seller, order.SellerID).Error; err == nil {
 		a.createSessionForOrder(&order, &seller, event, hasPremium)
@@ -229,10 +254,8 @@ func (a *SessionActivator) onEscrowSettled(event EscrowEvent) {
 		return
 	}
 
-	// Update order status
-	order.Status = models.OrderStatusCompleted
-	if err := a.db.Save(&order).Error; err != nil {
-		log.Printf("[SessionActivator] Failed to update order: %v", err)
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusCompleted, nil); err != nil {
+		log.Printf("[SessionActivator] Invalid/failed complete transition for order %s: %v", order.ID, err)
 		return
 	}
 
@@ -261,10 +284,8 @@ func (a *SessionActivator) onEscrowRefunded(event EscrowEvent) {
 		return
 	}
 
-	// Update order status
-	order.Status = models.OrderStatusRefunded
-	if err := a.db.Save(&order).Error; err != nil {
-		log.Printf("[SessionActivator] Failed to update order: %v", err)
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusRefunded, nil); err != nil {
+		log.Printf("[SessionActivator] Invalid/failed refund transition for order %s: %v", order.ID, err)
 		return
 	}
 

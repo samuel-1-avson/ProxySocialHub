@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
 	"gorm.io/gorm"
@@ -87,7 +88,9 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		return
 	}
 
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusActive); err != nil {
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, map[string]interface{}{
+		"tx_signature": event.TxSignature,
+	}); err != nil {
 		logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow initialized event for non-activatable order")
 		recordEscrowReconciliation(escrowReconciliationRecord{
 			Source:      "escrow_listener",
@@ -102,11 +105,6 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		})
 		return
 	}
-	db.DB.Model(&order).Updates(map[string]interface{}{
-		"status":       models.OrderStatusActive,
-		"tx_signature": event.TxSignature,
-		"updated_at":   time.Now(),
-	})
 	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
 		logging.Error(err).
 			Str("order_id", order.ID.String()).
@@ -133,7 +131,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 func handleEscrowSettled(event solana.EscrowEvent) {
 	var order models.Order
 	if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err == nil {
-		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCompleted, nil); err != nil {
 			logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow settled event for non-completable order")
 			recordEscrowReconciliation(escrowReconciliationRecord{
 				Source:      "escrow_listener",
@@ -148,10 +146,6 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 			})
 			return
 		}
-		db.DB.Model(&order).Updates(map[string]interface{}{
-			"status":     models.OrderStatusCompleted,
-			"updated_at": time.Now(),
-		})
 		logging.Info().
 			Str("order_id", order.ID.String()).
 			Msg("Order completed via Solana Settlement")
