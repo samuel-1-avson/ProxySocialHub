@@ -27,7 +27,12 @@ var TierMints = map[SubscriptionTier]string{
 	TierGold:   os.Getenv("MINT_GOLD_PASS"),
 }
 
-// SubscriptionMiddleware gates routes based on NFT ownership
+// SubscriptionMiddleware gates routes based on NFT ownership.
+//
+// DEPRECATED / ORPHAN: Buyer entitlements are driven by DB subscription_plans +
+// user_subscriptions (see api/subscription_entitlements.go). This NFT-pass gate
+// is not wired into main.go routing. Do not attach it to new routes unless the
+// product intentionally reintroduces NFT passes alongside (or instead of) plans.
 func SubscriptionMiddleware(client *solana.OracleClient, requiredTier SubscriptionTier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get user's wallet address from context (set by auth middleware)
