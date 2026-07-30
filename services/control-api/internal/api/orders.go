@@ -11,6 +11,7 @@ import (
 	marketplacepkg "github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/prices"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
@@ -64,11 +65,6 @@ func initiateSolanaPayment(c *gin.Context) {
 
 	if order.BuyerID != buyerID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not your order"})
-		return
-	}
-
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusPendingPayment); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -148,15 +144,17 @@ func initiateSolanaPayment(c *gin.Context) {
 
 	// Update Order with Intent — move to pending_payment so the order is not
 	// treated as active until the on-chain escrow deposit is confirmed.
-	db.DB.Model(&order).Updates(map[string]interface{}{
-		"status":             models.OrderStatusPendingPayment,
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, map[string]interface{}{
 		"payment_method":     "solana_escrow",
 		"escrow_pda":         pda.String(),
 		"buyer_wallet":       buyerWallet.Address,
 		"seller_wallet":      sellerWallet.Address,
 		"amount_locked_sol":  amountSOL,
 		"bandwidth_limit_gb": uint64(order.BandwidthGB),
-	})
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	funnel.Record(c.Request.Context(), funnel.RecordParams{
 		EventName: models.FunnelEscrowInitiated,
@@ -260,6 +258,10 @@ func createOrder(c *gin.Context) {
 	}
 
 	// Create order. It remains pending until the buyer funds the Solana escrow.
+	if err := fsm.AssertCreatableStatus(models.OrderStatusPending); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	order := models.Order{
 		BuyerID:          buyerID,
 		SellerID:         listing.SellerID,
@@ -721,10 +723,6 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCancelled); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	if order.SessionID != nil {
 		var session models.Session
 		if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
@@ -735,8 +733,8 @@ func cancelOrder(c *gin.Context) {
 		}
 	}
 
-	if err := db.DB.Model(&order).Update("status", models.OrderStatusCancelled).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel order"})
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCancelled, nil); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
