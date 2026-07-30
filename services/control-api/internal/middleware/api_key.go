@@ -3,13 +3,16 @@ package middleware
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // extractAPIKey returns a bulk/general API key from X-API-Key or
@@ -66,6 +69,7 @@ func authenticateAPIKey(c *gin.Context) (ok bool, aborted bool) {
 	c.Set("user_id", apiKey.UserID)
 	c.Set("userID", apiKey.UserID.String())
 	c.Set("api_key_id", apiKey.ID)
+	c.Set("api_key_prefix", apiKey.KeyPrefix)
 	c.Set("api_key_permissions", []string(apiKey.Permissions))
 	c.Set("api_key_rate_limit", apiKey.RateLimitPerMin)
 	c.Set("auth_type", "api_key")
@@ -83,6 +87,63 @@ func authenticateAPIKey(c *gin.Context) (ok bool, aborted bool) {
 	return true, false
 }
 
+// EnforceAPIKeyRateLimit applies the per-key rate_limit_per_minute for API-key callers.
+func EnforceAPIKeyRateLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("auth_type") != "api_key" {
+			c.Next()
+			return
+		}
+
+		max := 100
+		if v, exists := c.Get("api_key_rate_limit"); exists {
+			switch n := v.(type) {
+			case int:
+				if n > 0 {
+					max = n
+				}
+			case int64:
+				if n > 0 {
+					max = int(n)
+				}
+			}
+		}
+
+		bucket := c.GetString("api_key_prefix")
+		if bucket == "" {
+			if id, ok := c.Get("api_key_id"); ok {
+				switch v := id.(type) {
+				case uuid.UUID:
+					bucket = v.String()
+				case string:
+					bucket = v
+				default:
+					bucket = fmt.Sprintf("%v", v)
+				}
+			}
+		}
+		if bucket == "" {
+			bucket = "unknown"
+		}
+
+		allowed, remaining, err := redisClient.CheckAPIKeyRateLimit(bucket, max)
+		if err == nil && !allowed {
+			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", max))
+			c.Header("X-RateLimit-Remaining", "0")
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "API key rate limit exceeded",
+				"code":  "rate_limit_exceeded",
+			})
+			return
+		}
+		if err == nil {
+			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", max))
+			c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+		}
+		c.Next()
+	}
+}
+
 // APIKeyAuth requires a valid X-API-Key (or Bearer phub_/pk_) header.
 func APIKeyAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -96,7 +157,7 @@ func APIKeyAuth() gin.HandlerFunc {
 			})
 			return
 		}
-		c.Next()
+		EnforceAPIKeyRateLimit()(c)
 	}
 }
 
@@ -105,6 +166,10 @@ func APIKeyAuth() gin.HandlerFunc {
 func RequireAuthOrAPIKey() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := c.Get("user_id"); exists {
+			if c.GetString("auth_type") == "api_key" {
+				EnforceAPIKeyRateLimit()(c)
+				return
+			}
 			c.Next()
 			return
 		}
@@ -119,6 +184,6 @@ func RequireAuthOrAPIKey() gin.HandlerFunc {
 			})
 			return
 		}
-		c.Next()
+		EnforceAPIKeyRateLimit()(c)
 	}
 }

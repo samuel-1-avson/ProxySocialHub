@@ -424,11 +424,12 @@ func main() {
 	// Public Routes (No Authentication Required)
 	api.RegisterProviderAuthRoute(v1) // CLI auth endpoint must be public
 
-	// Bulk Proxy API: JWT session or X-API-Key (phub_ / pk_)
+	// Bulk Proxy + B2B purchase API: JWT session or X-API-Key (phub_ / pk_)
 	bulkAuth := v1.Group("/")
 	bulkAuth.Use(middleware.RequireAuthOrAPIKey())
 	{
 		api.RegisterBulkRoutes(bulkAuth)
+		api.RegisterPartnerPurchaseRoutes(bulkAuth)
 	}
 
 	// Protected Routes (Require Authentication)
