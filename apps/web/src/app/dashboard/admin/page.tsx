@@ -13,10 +13,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { ForumReportsQueue } from "@/components/admin/ForumReportsQueue";
-import { AlertCircle, ArrowLeft, Check, Loader2, MessageSquare, Shield, X } from "lucide-react";
+import { MarketplaceFunnelDashboard } from "@/components/admin/MarketplaceFunnelDashboard";
+import { AlertCircle, ArrowLeft, BarChart3, Check, Loader2, MessageSquare, Shield, X } from "lucide-react";
 import { getErrorMessage } from "@/lib/utils";
 
-type AdminTab = "listings" | "forum";
+type AdminTab = "listings" | "forum" | "funnel";
 
 export default function DashboardAdminModerationPage() {
     const { isAuthenticated } = useAuth();
@@ -29,7 +30,7 @@ export default function DashboardAdminModerationPage() {
     const { data, isLoading, error, refetch } = useQuery({
         queryKey: moderationKeys.pending(page),
         queryFn: () => getPendingListings(page, limit),
-        enabled: isAuthenticated && isAdmin,
+        enabled: isAuthenticated && isAdmin && tab === "listings",
     });
 
     const approveMutation = useMutation({
@@ -89,7 +90,7 @@ export default function DashboardAdminModerationPage() {
                 </h1>
             </div>
 
-            <div className="flex gap-2 border-b border-white/10 pb-2">
+            <div className="flex gap-2 border-b border-white/10 pb-2 flex-wrap">
                 <button
                     type="button"
                     onClick={() => setTab("listings")}
@@ -112,10 +113,23 @@ export default function DashboardAdminModerationPage() {
                 >
                     <MessageSquare size={14} /> Forum reports
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setTab("funnel")}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                        tab === "funnel"
+                            ? "bg-primary/10 text-primary border border-primary/30"
+                            : "text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                    <BarChart3 size={14} /> Funnel
+                </button>
             </div>
 
             {tab === "forum" ? (
                 <ForumReportsQueue enabled={isAuthenticated && isAdmin} />
+            ) : tab === "funnel" ? (
+                <MarketplaceFunnelDashboard mode="admin" enabled={isAuthenticated && isAdmin} />
             ) : (
             <div data-testid="admin-listing-moderation" className="space-y-8">
             <div>
