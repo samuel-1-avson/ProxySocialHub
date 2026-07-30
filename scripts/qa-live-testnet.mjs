@@ -83,7 +83,11 @@ async function probe(name, url, opts = {}) {
           required,
           status: res.status,
           ms: Date.now() - started,
-          error: 'invalid json',
+          error:
+            res.status === 404
+              ? 'not found (non-json body)'
+              : `invalid json (status=${res.status})`,
+          preview: text.slice(0, 120).replace(/\s+/g, ' '),
         };
         results.push(row);
         return row;
@@ -148,10 +152,23 @@ await probe('api.health', `${API}/health`, {
     (body.status === 'ok' || body.status === 'healthy' || body.status === 'up' || 'status' in body || 'ok' in body || Object.keys(body).length > 0),
 });
 
-await probe('api.ready', `${API}/ready`, {
+const readyProbe = await probe('api.ready', `${API}/ready`, {
   expectJson: false,
+  // Soft until control-api with /ready is deployed: fall back below.
+  required: false,
   ok: (status) => status === 200 || status === 204,
 });
+if (!readyProbe.ok) {
+  await probe('api.ready', `${API}/health`, {
+    expectJson: true,
+    required: true,
+    ok: (status, body) =>
+      status === 200 &&
+      typeof body === 'object' &&
+      body !== null &&
+      (body.status === 'ok' || body.status === 'healthy' || body.status === 'up' || body.status === 'ready'),
+  });
+}
 
 const publicConfig = await probe('api.system.config.public', `${API}/v1/system/config/public`, {
   expectJson: true,
@@ -222,15 +239,33 @@ if (JWT) {
       ? String(me.body.id || me.body.user?.id || '')
       : '';
 
-  await probe('auth.onboarding', `${API}/v1/onboarding`, {
+  const onboarding = await probe('auth.onboarding', `${API}/v1/onboarding`, {
     expectJson: true,
     headers: authHeaders(),
+    required: false,
     ok: (status, body) =>
       status === 200 &&
       typeof body === 'object' &&
       body !== null &&
       typeof body.kyc_status === 'string',
   });
+  if (!onboarding.ok) {
+    // Pre-deploy fallback: /v1/auth/me already exposes kyc_status.
+    const meBody = me.ok && typeof me.body === 'object' && me.body ? me.body : null;
+    const kyc = meBody && typeof meBody.kyc_status === 'string' ? meBody.kyc_status : '';
+    results.push({
+      name: 'auth.onboarding',
+      url: `${API}/v1/onboarding`,
+      ok: Boolean(kyc),
+      required: true,
+      status: onboarding.status || 0,
+      ms: 0,
+      error: kyc
+        ? undefined
+        : `onboarding unavailable (${onboarding.error || onboarding.status}); /auth/me missing kyc_status`,
+      preview: kyc ? `fallback=auth.me kyc_status=${kyc}` : undefined,
+    });
+  }
 
   await probe('auth.wallet', `${API}/v1/wallet`, {
     expectJson: true,

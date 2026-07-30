@@ -23,8 +23,45 @@ import (
 
 // RegisterOnboardingRoutes registers onboarding routes
 func RegisterOnboardingRoutes(rg *gin.RouterGroup) {
+	rg.GET("/onboarding", getBuyerOnboarding)
 	rg.POST("/provider/apply", applyForProvider)
 	rg.GET("/provider/status", getProviderStatus)
+}
+
+// getBuyerOnboarding returns buyer onboarding progress + KYC snapshot for the
+// authenticated user. Live QA and the web onboarding surface expect kyc_status.
+func getBuyerOnboarding(c *gin.Context) {
+	currentUserID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	uid, err := uuid.Parse(fmt.Sprint(currentUserID))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+		return
+	}
+
+	var user models.User
+	if err := db.DB.Select("id, kyc_status, role, trust_tier, wallet_address, email_verified").
+		First(&user, "id = ?", uid).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load onboarding state"})
+		return
+	}
+
+	walletLinked := user.WalletAddress != nil && strings.TrimSpace(*user.WalletAddress) != ""
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":        user.ID,
+		"kyc_status":     user.KYCStatus,
+		"trust_tier":     user.TrustTier,
+		"role":           user.Role,
+		"email_verified": user.EmailVerified,
+		"wallet_linked":  walletLinked,
+	})
 }
 
 // RegisterAdminOnboardingRoutes registers admin onboarding routes

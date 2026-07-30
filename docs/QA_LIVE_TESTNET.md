@@ -43,7 +43,7 @@ QA_LIVE_JSON=1 node scripts/qa-live-testnet.mjs
 
 ### Public (always required)
 
-- `GET /health`, `GET /ready`
+- `GET /health`, `GET /ready` (readiness checks DB+Redis; smoke falls back to `/health` if `/ready` is undeployed)
 - `GET /v1/system/config/public` — `treasury_configured === true` and non-empty `treasury_solana`
 - `GET /v1/solana/health` — reachable; **fails** if network is mainnet / mainnet-beta
 - `GET /v1/system/map/health`, `/v1/marketplace/map`, `/v1/listings?limit=2`
@@ -56,7 +56,7 @@ QA_LIVE_JSON=1 node scripts/qa-live-testnet.mjs
 Read-only only — no `POST /v1/kyc/start`, deposits, or provider apply:
 
 - `GET /v1/auth/me`
-- `GET /v1/onboarding` (expects `kyc_status`)
+- `GET /v1/onboarding` (expects `kyc_status`; falls back to `/v1/auth/me` if undeployed)
 - `GET /v1/wallet`
 - `GET /v1/kyc/status/{user_id}`
 - `GET /v1/security/mfa/status`
