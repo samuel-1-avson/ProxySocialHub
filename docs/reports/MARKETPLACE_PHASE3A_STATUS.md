@@ -34,5 +34,5 @@ This page updates **§12 Recommended phased plan → Phase 3** from the marketpl
 ## Next after 3A
 
 1. Staging backfill verify (runbook SQL) and soak notes.
-2. Product pick: **3B** (order FSM) vs **3C** growth slice — update epic #8 planning checklist.
+2. **Selected:** Track **3B** order FSM — see [MARKETPLACE_PHASE3B_STATUS.md](./MARKETPLACE_PHASE3B_STATUS.md) and [ADR 0006](../adr/0006-order-status-fsm.md).
 3. Optional: collections v2 that target catalog slugs (explicitly out of 3A).
