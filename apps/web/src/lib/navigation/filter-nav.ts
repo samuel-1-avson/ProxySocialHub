@@ -20,6 +20,13 @@ export function filterNavigationItem(item: NavigationItem, options: NavigationFi
     if (ADMIN_ONLY_ROUTE_KEYS.has(item.routeKey) && !options.isAdmin) {
         return false;
     }
+    // Hide apply CTA once the user is already a provider.
+    if (
+        item.routeKey === "dashboardBecomeProvider" &&
+        (options.isProvider || options.isDualRole)
+    ) {
+        return false;
+    }
     if (item.policy === "provider" && !options.isProvider && !options.isDualRole) {
         return false;
     }

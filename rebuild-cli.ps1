@@ -18,8 +18,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-
-
 $version = if ($env:CLI_DIST_VERSION) { $env:CLI_DIST_VERSION } else { "1.0.0" }
 
 $repoRoot = $PSScriptRoot
@@ -83,7 +81,10 @@ function Build-Target($goos, $goarch, $outName) {
 
     try {
 
-        rustup target add $target 2>$null | Out-Null
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        rustup target add $target | Out-Null
+        $ErrorActionPreference = $prevEap
 
         cargo build --release --target $target
 
@@ -148,7 +149,10 @@ function Build-CliWrapper($goos, $goarch, $outName) {
     $target = Get-CargoTarget $goos $goarch
     Push-Location $cliDir
     try {
-        rustup target add $target 2>$null | Out-Null
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        rustup target add $target | Out-Null
+        $ErrorActionPreference = $prevEap
         cargo build --release --target $target
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed for proxyhubb-cli $target" }
         $builtName = if ($goos -eq "windows") { "proxyhubb-cli.exe" } else { "proxyhubb-cli" }

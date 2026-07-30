@@ -518,6 +518,8 @@ func createProviderNodeForToken(token models.ProviderToken) uuid.UUID {
 		return uuid.New()
 	}
 
+	ensureNodePayoutWallet(pn.ID, token.UserID)
+
 	registration := models.ProviderNodeRegistration{
 		UserID:    token.UserID,
 		TokenID:   token.ID,
