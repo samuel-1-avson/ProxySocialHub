@@ -7,11 +7,11 @@
   "homepage": "https://proxyhubb.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/proxyhubb/proxyhubb.git",
+    "url": "https://github.com/samuel-1-avson/ProxySocialHub.git",
     "directory": "sdks/nodejs"
   },
   "bugs": {
-    "url": "https://github.com/proxyhubb/proxyhubb/issues"
+    "url": "https://github.com/samuel-1-avson/ProxySocialHub/issues"
   },
   "main": "index.js",
   "types": "index.d.ts",
