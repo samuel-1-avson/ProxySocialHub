@@ -144,12 +144,12 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 			return
 		}
 
-		if err := fsm.AssertCreatableStatus(models.OrderStatusActive); err != nil {
+		if err := fsm.AssertCreatableStatus(models.OrderStatusActive, "solana.activator.create"); err != nil {
 			log.Printf("[SessionActivator] Refusing create with status active: %v", err)
 			return
 		}
 
-		// Create order from escrow (initial status validated as "" → active)
+		// Create order from escrow (initial status validated as "" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ active)
 		order = models.Order{
 			ID:               uuid.New(),
 			BuyerID:          buyer.ID,
@@ -180,7 +180,7 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		return
 	}
 
-	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusActive, map[string]interface{}{
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusActive, "solana.activator.init", map[string]interface{}{
 		"escrow_pda":        event.EscrowPDA,
 		"tx_signature":      event.TxSignature,
 		"amount_locked_sol": float64(event.Amount) / 1e9,
@@ -201,7 +201,7 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 	log.Printf("[SessionActivator] Activated order %s (Escrow: %s)", order.ID, event.EscrowPDA)
 
 	// Existing marketplace orders already have a linked (disabled) session from createOrder.
-	// Activate that session — do not create a replacement that orphans credentials.
+	// Activate that session ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â do not create a replacement that orphans credentials.
 	if order.SessionID != nil {
 		if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
 			log.Printf("[SessionActivator] Order %s activated but session activation failed: %v", order.ID, err)
@@ -254,7 +254,7 @@ func (a *SessionActivator) onEscrowSettled(event EscrowEvent) {
 		return
 	}
 
-	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusCompleted, nil); err != nil {
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusCompleted, "solana.activator.settled", nil); err != nil {
 		log.Printf("[SessionActivator] Invalid/failed complete transition for order %s: %v", order.ID, err)
 		return
 	}
@@ -284,7 +284,7 @@ func (a *SessionActivator) onEscrowRefunded(event EscrowEvent) {
 		return
 	}
 
-	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusRefunded, nil); err != nil {
+	if err := fsm.TransitionOrder(a.db, &order, models.OrderStatusRefunded, "solana.activator.refunded", nil); err != nil {
 		log.Printf("[SessionActivator] Invalid/failed refund transition for order %s: %v", order.ID, err)
 		return
 	}

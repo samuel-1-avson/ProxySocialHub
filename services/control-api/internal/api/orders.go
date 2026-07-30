@@ -142,9 +142,9 @@ func initiateSolanaPayment(c *gin.Context) {
 		return
 	}
 
-	// Update Order with Intent — move to pending_payment so the order is not
+	// Update Order with Intent ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â move to pending_payment so the order is not
 	// treated as active until the on-chain escrow deposit is confirmed.
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, map[string]interface{}{
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, "api.orders.pay_solana", map[string]interface{}{
 		"payment_method":     "solana_escrow",
 		"escrow_pda":         pda.String(),
 		"buyer_wallet":       buyerWallet.Address,
@@ -258,7 +258,7 @@ func createOrder(c *gin.Context) {
 	}
 
 	// Create order. It remains pending until the buyer funds the Solana escrow.
-	if err := fsm.AssertCreatableStatus(models.OrderStatusPending); err != nil {
+	if err := fsm.AssertCreatableStatus(models.OrderStatusPending, "api.orders.create"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -347,7 +347,7 @@ func createOrder(c *gin.Context) {
 	tx.Commit()
 	invalidateMarketplaceReadModels()
 
-	// Real-time Broadcast & Cache (credentials activate after escrow — see docs/MARKETPLACE_CREDENTIAL_GATING.md)
+	// Real-time Broadcast & Cache (credentials activate after escrow ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see docs/MARKETPLACE_CREDENTIAL_GATING.md)
 	go func() {
 		// Populate Actor for feed
 		var fullEvent models.FeedEvent
@@ -733,7 +733,7 @@ func cancelOrder(c *gin.Context) {
 		}
 	}
 
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCancelled, nil); err != nil {
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCancelled, "api.orders.cancel", nil); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

@@ -1,17 +1,21 @@
 "use client";
 
 import { useAuth } from "@/lib/auth";
-import { cancelOrder, getOrders, marketplaceKeys, type Order } from "@/lib/api/marketplace";
+import {
+    cancelOrder,
+    getOrders,
+    marketplaceKeys,
+    orderCancelEligible,
+    orderCredentialsEligible,
+    orderStatusLabel,
+    type Order,
+} from "@/lib/api/marketplace";
 import { getErrorMessage } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2, Package } from "lucide-react";
-
-function formatStatus(status: string) {
-    return status.replace(/_/g, " ");
-}
 
 function orderTotal(order: Order) {
     return order.total_price ?? order.price_total ?? 0;
@@ -108,11 +112,11 @@ export default function MarketplaceOrdersPage() {
                                 </p>
                             </div>
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5">
-                                {formatStatus(order.status)}
+                                {orderStatusLabel(order.status)}
                             </span>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {(order.status === "pending" || order.status === "pending_payment") && (
+                            {orderCancelEligible(order.status) && (
                                 <button
                                     type="button"
                                     disabled={cancelMutation.isPending}
@@ -127,7 +131,7 @@ export default function MarketplaceOrdersPage() {
                                     Cancel
                                 </button>
                             )}
-                            {(order.status === "active" || order.status === "completed") && (
+                            {orderCredentialsEligible(order.status) && (
                                 <Link
                                     href={ROUTES.dashboardOrder(order.id)}
                                     className="px-3 py-1.5 rounded-lg border border-purple-500/20 text-purple-400 text-[10px] font-bold uppercase tracking-widest"
