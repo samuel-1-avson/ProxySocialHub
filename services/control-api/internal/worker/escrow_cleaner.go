@@ -8,6 +8,7 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -105,7 +106,7 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 			markEscrowReconciliationResolved(order.EscrowPDA, sig, order.ID, "expiry_refund_succeeded")
 
 			// 4. Update Database
-			if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusRefunded); err != nil {
+			if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, nil); err != nil {
 				log.Printf("[EscrowCleaner] Invalid refund transition for order %s: %v", order.ID, err)
 				recordEscrowReconciliation(escrowReconciliationRecord{
 					Source:      "escrow_cleaner",
@@ -119,27 +120,6 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 					Payload: map[string]interface{}{
 						"order_id": order.ID,
 						"status":   order.Status,
-						"tx":       sig,
-					},
-				})
-				continue
-			}
-			if err := db.DB.Model(&order).Updates(map[string]interface{}{
-				"status":     models.OrderStatusRefunded,
-				"updated_at": time.Now(),
-			}).Error; err != nil {
-				log.Printf("[EscrowCleaner] Failed to mark refunded order %s: %v", order.ID, err)
-				recordEscrowReconciliation(escrowReconciliationRecord{
-					Source:      "escrow_cleaner",
-					EventType:   "expiry_refund",
-					EscrowPDA:   order.EscrowPDA,
-					TxSignature: sig,
-					OrderID:     &order.ID,
-					Status:      models.EscrowReconciliationStatusInvalidState,
-					Reason:      "refunded_db_update_failed",
-					LastError:   err.Error(),
-					Payload: map[string]interface{}{
-						"order_id": order.ID,
 						"tx":       sig,
 					},
 				})
