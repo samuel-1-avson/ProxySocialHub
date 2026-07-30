@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { getProviderNodes, ProviderNode } from '@/lib/api/marketplace';
 import { getProviderEarningsSummary } from '@/lib/api/provider';
 import { ProviderScoreCard } from '@/components/ProviderScoreCard';
+import { MarketplaceFunnelDashboard } from '@/components/admin/MarketplaceFunnelDashboard';
 import { Loader2, Server, BarChart2, Coins, TrendingUp, Activity, Plus } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/auth';
 
 async function fetchProviderNodes(): Promise<ProviderNode[]> {
     const data = await getProviderNodes();
@@ -15,6 +17,7 @@ async function fetchProviderNodes(): Promise<ProviderNode[]> {
 }
 
 export default function ProviderAnalyticsPage() {
+    const { isAuthenticated } = useAuth();
     const { data: nodes = [], isLoading: loading } = useQuery({
         queryKey: ['provider-nodes-analytics'],
         queryFn: fetchProviderNodes,
@@ -51,6 +54,10 @@ export default function ProviderAnalyticsPage() {
                     Real-time trust metrics, node performance, and earnings.
                 </p>
             </div>
+
+            <GlassCard hoverEffect={false} className="p-6">
+                <MarketplaceFunnelDashboard mode="seller" enabled={isAuthenticated} />
+            </GlassCard>
 
             {!hasActiveNodes ? (
                 <GlassCard hoverEffect={false}>
