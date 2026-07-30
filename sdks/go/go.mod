@@ -1,7 +1,3 @@
-module github.com/proxyhubb/sdk-go
+module github.com/samuel-1-avson/ProxySocialHub/sdks/go
 
 go 1.21
-
-// Official Go client for the ProxyHubb Bulk Proxy Pool API.
-// Default Control API: https://api.proxyhubb.com
-// Auth: X-API-Key with a phub_ (or pk_) key.
