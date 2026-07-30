@@ -10,11 +10,13 @@ pub fn print_paths_and_hints() {
     println!("Log file:     {}", paths::log_file().display());
     println!();
     println!("Recommended flow:");
+    println!("  provider-node                 # interactive console (double-click friendly)");
     println!("  provider-node register --api-key <TOKEN>");
     println!("  provider-node doctor");
     println!("  provider-node start");
     println!("  provider-node dashboard");
     println!();
+    println!("Windows: unzip a GitHub Release and double-click Launch-Provider-Console.cmd");
 
     if let Ok(path) = which_provider_node() {
         println!("provider-node binary: {}", path.display());
