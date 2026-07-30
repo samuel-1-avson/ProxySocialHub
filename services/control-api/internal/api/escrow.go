@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
 	"gorm.io/gorm"
@@ -185,11 +186,15 @@ func releaseEscrow(c *gin.Context) {
 	now := time.Now()
 	tx := db.DB.Begin()
 
-	updates := map[string]interface{}{"status": models.OrderStatusCompleted}
+	extras := map[string]interface{}{}
 	if settleTxHash != "" {
-		updates["tx_signature"] = settleTxHash
+		extras["tx_signature"] = settleTxHash
 	}
-	tx.Model(&order).Updates(updates)
+	if err := fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, extras); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Also update internal escrow transaction record if it exists (legacy/sync)
 	tx.Model(&models.EscrowTransaction{}).Where("order_id = ?", orderID).Updates(map[string]interface{}{
@@ -197,7 +202,10 @@ func releaseEscrow(c *gin.Context) {
 		"released_at": now,
 	})
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit escrow release"})
+		return
+	}
 
 	// P2-13: Financial audit trail — escrow settled.
 	audit.Log(c, models.AuditFinancialEscrowSettled, "order", order.ID.String(),
@@ -274,9 +282,12 @@ func createEscrowDispute(c *gin.Context) {
 		return
 	}
 
-	// Update escrow status
+	// Update escrow + order status
 	db.DB.Model(&escrow).Update("status", models.EscrowDisputed)
-	db.DB.Model(&order).Update("status", models.OrderStatusDisputed)
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, nil); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// D-E1: Automatically convene a 3-juror jury from reputation-weighted
 	// validators, excluding the two parties.  If fewer than 3 validators are
@@ -484,14 +495,11 @@ func AutoReleaseExpiredEscrows() {
 					First(&lockedOrder, "id = ?", escrow.OrderID).Error; err != nil {
 					return err
 				}
-				if err := models.ValidateOrderStatusTransition(lockedOrder.Status, models.OrderStatusCompleted); err != nil {
-					return err
-				}
-				updates := map[string]interface{}{"status": models.OrderStatusCompleted}
+				extras := map[string]interface{}{}
 				if settleTxHash != "" {
-					updates["tx_signature"] = settleTxHash
+					extras["tx_signature"] = settleTxHash
 				}
-				return tx.Model(&lockedOrder).Updates(updates).Error
+				return fsm.TransitionOrder(tx, &lockedOrder, models.OrderStatusCompleted, extras)
 			}); txErr != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows credit error for escrow %s: %v", escrow.ID, txErr)
 			}
