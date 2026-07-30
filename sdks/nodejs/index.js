@@ -1,17 +1,20 @@
 "use strict";
 
 /**
- * ProxyHub Node.js SDK
+ * ProxyHubb Node.js SDK
  *
  * Requires Node 18+ (uses the built-in fetch API).
  */
 
 class ProxyHubClient {
   /**
-   * @param {string} apiKey   A ProxyHub API key starting with `phub_`.
-   * @param {string} [baseUrl] Base URL of the ProxyHub API.
+   * @param {string} apiKey   A ProxyHubb API key starting with `phub_` (or `pk_`).
+   * @param {string} [baseUrl] Base URL of the ProxyHubb Control API.
    */
-  constructor(apiKey, baseUrl = "https://api.proxyhubb.io") {
+  constructor(apiKey, baseUrl = "https://api.proxyhubb.com") {
+    if (!apiKey || typeof apiKey !== "string") {
+      throw new TypeError("apiKey is required");
+    }
     this._apiKey = apiKey;
     this._baseUrl = baseUrl.replace(/\/$/, "");
   }
@@ -38,17 +41,23 @@ class ProxyHubClient {
 
     if (res.status === 204) return null;
 
-    const data = await res.json();
+    const text = await res.text();
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text };
+      }
+    }
 
     if (!res.ok) {
       const message = data?.error || res.statusText;
-      throw new Error(`ProxyHub API error ${res.status}: ${message}`);
+      throw new Error(`ProxyHubb API error ${res.status}: ${message}`);
     }
 
     return data;
   }
-
-  // ── Pool methods ──────────────────────────────────────────────────────────
 
   /**
    * Create a new proxy pool.
@@ -76,6 +85,14 @@ class ProxyHubClient {
       description,
       bytes_limit: bytesLimit,
     });
+  }
+
+  /**
+   * List proxy pools for the authenticated account.
+   * @returns {Promise<object>} Object with `pools` and `total`.
+   */
+  async listPools() {
+    return this._request("GET", "/v1/bulk/pools");
   }
 
   /**

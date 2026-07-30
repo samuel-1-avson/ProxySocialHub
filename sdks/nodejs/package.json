@@ -1,6 +1,40 @@
 {
   "name": "@proxyhubb/sdk",
   "version": "0.1.0",
+  "description": "Official Node.js SDK for the ProxyHubb Bulk Proxy Pool API",
+  "license": "MIT",
+  "author": "ProxyHubb",
+  "homepage": "https://proxyhubb.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/proxyhubb/proxyhubb.git",
+    "directory": "sdks/nodejs"
+  },
+  "bugs": {
+    "url": "https://github.com/proxyhubb/proxyhubb/issues"
+  },
   "main": "index.js",
-  "engines": {"node": ">=18.0.0"}
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "proxyhubb",
+    "proxy",
+    "sdk",
+    "bulk",
+    "api"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
 }

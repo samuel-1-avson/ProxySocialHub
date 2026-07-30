@@ -121,7 +121,7 @@ func generateProxyCode(c *gin.Context) {
 	
 	// Set defaults
 	if req.ProxyHost == "" {
-		req.ProxyHost = "proxy.proxyhub.io"
+		req.ProxyHost = "proxy.proxyhubb.com"
 	}
 	if req.ProxyPort == 0 {
 		_, req.ProxyPort, _ = BuyerProxyConnectInfo()
@@ -624,21 +624,21 @@ for url in urls:
 func getInstallationInstructions(lang SDKLanguage) string {
 	switch lang {
 	case LanguagePython:
-		return "pip install proxyhub-sdk"
+		return "pip install proxyhubb"
 	case LanguageNodeJS:
-		return "npm install @proxyhub/sdk"
+		return "npm install @proxyhubb/sdk"
 	case LanguageGolang:
 		return "go get github.com/proxyhubb/sdk-go"
 	case LanguageRuby:
-		return "gem install proxyhub"
+		return "See documentation at https://proxyhubb.com (Ruby gem not published yet)"
 	case LanguagePHP:
-		return "composer require proxyhub/sdk"
+		return "See documentation at https://proxyhubb.com (PHP package not published yet)"
 	case LanguageJava:
-		return "<dependency>\n  <groupId>io.proxyhub</groupId>\n  <artifactId>sdk</artifactId>\n</dependency>"
+		return "See documentation at https://proxyhubb.com (Java SDK not published yet)"
 	case LanguageDotNet:
-		return "dotnet add package ProxyHub.SDK"
+		return "See documentation at https://proxyhubb.com (.NET SDK not published yet)"
 	default:
-		return "See documentation at https://docs.proxyhub.io"
+		return "See documentation at https://proxyhubb.com"
 	}
 }
 

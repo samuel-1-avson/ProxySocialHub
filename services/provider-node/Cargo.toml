@@ -2,6 +2,7 @@
 name = "provider-node"
 version = "1.0.0"
 edition = "2021"
+publish = false
 description = "ProxyHubb Provider Node — high-performance Rust daemon for sharing bandwidth"
 
 [dependencies]
