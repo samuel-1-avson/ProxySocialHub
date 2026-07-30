@@ -2,6 +2,7 @@ mod config;
 mod config_validate;
 mod doctor;
 mod install;
+mod interactive;
 mod ip;
 mod lease_policy;
 mod operator;
@@ -23,11 +24,14 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 
 /// ProxyHubb Provider Node — share your bandwidth and earn rewards.
+///
+/// Running with no subcommand opens an interactive console (useful when
+/// double-clicking the Windows binary so a window stays open).
 #[derive(Parser)]
 #[command(name = "provider-node", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -254,7 +258,11 @@ enum SupportCommands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
+    let Some(command) = cli.command else {
+        return interactive::run().await;
+    };
+
+    match command {
         // ── Register ────────────────────────────────────────────────
         Commands::Register {
             api_url,
