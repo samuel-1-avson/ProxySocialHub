@@ -190,7 +190,6 @@ build_errors.txt
 .env.secrets
 !.env.example
 !*.example
-.vercel
 tmp-map.json
 
 # Local Docker runtime configuration may contain service credentials.
