@@ -5,14 +5,22 @@ import { useQuery } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
 import {
     FileCode, Download, Copy, CheckCircle2, Terminal, Monitor,
-    Apple, Server, Loader2, AlertCircle, ExternalLink, Link2
+    Apple, Server, Loader2, AlertCircle, ExternalLink, Link2, Github, Activity
 } from 'lucide-react';
 import Link from 'next/link';
-import { getCLIDownloads, getCLIDownloadUrl, detectPlatform, type CLIDownload } from '@/lib/api/provider';
+import {
+    getCLIDownloads,
+    getCLIDownloadUrl,
+    getProviderCliReleasesUrl,
+    detectPlatform,
+    type CLIDownload,
+} from '@/lib/api/provider';
+import { getProviderNodes } from '@/lib/api/marketplace';
 import {
     defaultProviderConfigPath,
     getProviderEndpoints,
 } from '@/lib/provider-config';
+import { useToast } from '@/stores';
 
 const PLATFORMS = [
     { id: 'linux', label: 'Linux', icon: Terminal, archs: ['amd64', 'arm64'] },
@@ -35,7 +43,6 @@ function resolveDownload(
     for (const key of keys) {
         if (downloads[key]) return downloads[key];
     }
-    // Fall back to any matching platform/arch entry
     return Object.values(downloads).find(
         (d) => d.platform === platform && d.arch === arch && (d.package_type === 'daemon' || d.package_type === 'bundle' || !d.package_type),
     );
@@ -50,11 +57,14 @@ function platformHasBuild(
 }
 
 export default function CLIPage() {
+    const toast = useToast();
     const [selectedPlatform, setSelectedPlatform] = useState('linux');
     const [selectedArch, setSelectedArch] = useState('amd64');
     const [copied, setCopied] = useState<string | null>(null);
+    const [downloadStarted, setDownloadStarted] = useState(false);
     const endpoints = useMemo(() => getProviderEndpoints(), []);
     const configPath = useMemo(() => defaultProviderConfigPath(), []);
+    const releasesUrl = useMemo(() => getProviderCliReleasesUrl(), []);
     const exe = selectedPlatform === 'windows' ? 'provider-node.exe' : 'provider-node';
 
     const { data, isLoading, error } = useQuery({
@@ -63,13 +73,25 @@ export default function CLIPage() {
         staleTime: 5 * 60_000,
     });
 
+    const {
+        data: nodesData,
+        isLoading: nodesLoading,
+        refetch: refetchNodes,
+        dataUpdatedAt,
+    } = useQuery({
+        queryKey: ['provider-nodes-cli-console'],
+        queryFn: getProviderNodes,
+        refetchInterval: downloadStarted ? 15_000 : 60_000,
+        staleTime: 10_000,
+        retry: 1,
+    });
+
     useEffect(() => {
         const { platform, arch } = detectPlatform();
         setSelectedPlatform(platform);
         setSelectedArch(arch);
     }, []);
 
-    // If selected platform has no build, jump to first available
     useEffect(() => {
         if (!data?.downloads) return;
         if (platformHasBuild(data.downloads, selectedPlatform, selectedArch)) return;
@@ -89,12 +111,32 @@ export default function CLIPage() {
     const downloadInfo = resolveDownload(data?.downloads, selectedPlatform, selectedArch);
     const packageType = downloadInfo?.package_type ?? 'daemon';
     const binaryHint = downloadInfo?.filename ?? (selectedPlatform === 'windows' ? 'provider-node.exe' : 'provider-node');
+    const nodes = nodesData?.nodes ?? [];
+    const onlineCount = nodes.filter((n) => /online|active|healthy/i.test(n.status)).length;
 
     function copy(text: string, key: string) {
         navigator.clipboard.writeText(text);
         setCopied(key);
         setTimeout(() => setCopied(null), 2000);
     }
+
+    function handleDownloadClick() {
+        if (!downloadInfo) return;
+        setDownloadStarted(true);
+        toast.success(
+            'Download started',
+            selectedPlatform === 'windows'
+                ? 'Open the .exe (or Launch-Provider-Console.cmd from a GitHub Release zip) — a console window stays open with the interactive menu.'
+                : 'Run the binary in a terminal with no arguments to open the interactive Provider console.',
+        );
+        requestAnimationFrame(() => {
+            document.getElementById('cli-next-steps')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    const openConsoleCmd = selectedPlatform === 'windows'
+        ? `# After download (browser Downloads folder):\n# Option A — double-click the .exe (opens interactive console window)\n# Option B — from a Release zip, double-click Launch-Provider-Console.cmd\n\ncd $env:USERPROFILE\\Downloads\n.\\${binaryHint}\n\n# Inside the console menu:\n#   [1] live dashboard TUI\n#   [2] doctor\n#   [4] start daemon\n# Put provider.toml at:\n#   ${configPath}`
+        : `# After download:\nchmod +x ./${binaryHint}\n./${binaryHint}\n\n# No-args opens the interactive console menu.\n# Or jump straight to the TUI:\n./${binaryHint} dashboard --config ${configPath}`;
 
     const installCmd = selectedPlatform === 'windows'
         ? `# Recommended (after Setup wizard downloaded provider.toml):\n# Do NOT run register again — that creates a second node.\n${exe} config validate --config provider.toml\n${exe} doctor --config provider.toml\n${exe} service install --config provider.toml\n${exe} service start\n${exe} service status\n\n# CLI-only path (new node, no wizard):\n${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\n${exe} start --config provider.toml`
@@ -115,12 +157,12 @@ metrics_port = 9090`;
 
     const steps = downloadInfo
         ? [
-            { step: '1', label: 'Download binary', desc: 'Use the platform build above' },
-            { step: '2', label: 'Get config', desc: 'Setup wizard or My nodes → Connect (preferred over register)' },
-            { step: '3', label: 'Validate config', desc: `${exe} config validate --config provider.toml` },
-            { step: '4', label: 'Pre-flight', desc: `${exe} doctor --config provider.toml` },
-            { step: '5', label: 'Start daemon', desc: `${exe} start --config provider.toml` },
-            { step: '6', label: 'Confirm online', desc: 'Dashboard → My nodes within ~2 minutes' },
+            { step: '1', label: 'Download binary', desc: 'Use the platform build above (or GitHub Release zip)' },
+            { step: '2', label: 'Open console window', desc: selectedPlatform === 'windows' ? 'Double-click .exe / Launch-Provider-Console.cmd' : `Run ./${binaryHint} (no args)` },
+            { step: '3', label: 'Get config', desc: 'Setup wizard or My nodes → Connect' },
+            { step: '4', label: 'Doctor + start', desc: 'Menu [2] then [4], or service install' },
+            { step: '5', label: 'Live TUI', desc: 'Menu [1] dashboard in a second window' },
+            { step: '6', label: 'Confirm online', desc: 'Operator console below / My nodes (~2 min)' },
         ]
         : [];
 
@@ -134,8 +176,8 @@ metrics_port = 9090`;
                 <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Provider Node CLI</h1>
                 <p className="text-muted-foreground font-mono text-xs max-w-2xl">
                     Download <strong className="text-foreground">provider-node</strong> for your OS.
-                    Default config path: <code className="text-primary">{configPath}</code>.
-                    API: <code className="text-primary">{endpoints.controlApiUrl}</code>.
+                    Opening it with no arguments launches an <strong className="text-foreground">interactive console window</strong>.
+                    Default config: <code className="text-primary">{configPath}</code>.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                     <Link
@@ -150,6 +192,14 @@ metrics_port = 9090`;
                     >
                         My nodes
                     </Link>
+                    <a
+                        href={releasesUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
+                    >
+                        <Github size={12} /> GitHub Releases
+                    </a>
                 </div>
             </div>
 
@@ -242,6 +292,7 @@ metrics_port = 9090`;
                             <a
                                 href={getCLIDownloadUrl(selectedPlatform, selectedArch, downloadInfo.version, packageType)}
                                 download={downloadInfo.filename}
+                                onClick={handleDownloadClick}
                                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase hover:bg-primary/90 transition-colors"
                             >
                                 <Download size={12} />
@@ -266,16 +317,116 @@ metrics_port = 9090`;
                                 </div>
                             </div>
                         )}
+
+                        <p className="text-[10px] font-mono text-muted-foreground">
+                            Prefer a zip with launcher?{' '}
+                            <a href={releasesUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+                                GitHub Releases (provider-v*)
+                            </a>
+                            {selectedPlatform === 'windows' && ' includes Launch-Provider-Console.cmd'}
+                            .
+                        </p>
                     </div>
                 ) : (
-                    <div className="py-4 text-center space-y-2">
+                    <div className="py-4 text-center space-y-3">
                         <p className="text-muted-foreground font-mono text-sm">
-                            No build published for {selectedPlatform}/{selectedArch} in this environment.
+                            No in-app build for {selectedPlatform}/{selectedArch} on this environment yet.
                         </p>
-                        <p className="text-[10px] font-mono text-muted-foreground">
-                            Switch to an available OS tab, or ask an admin to publish via{' '}
-                            <code className="text-primary">scripts/publish-cli-dist.sh</code>.
+                        <a
+                            href={releasesUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setDownloadStarted(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase"
+                        >
+                            <Github size={12} />
+                            Download from GitHub Releases
+                        </a>
+                    </div>
+                )}
+            </GlassCard>
+
+            {(downloadStarted || downloadInfo) && (
+                <GlassCard hoverEffect={false}>
+                    <div id="cli-next-steps" className="scroll-mt-24">
+                        <h2 className="text-sm font-bold font-mono mb-2 flex items-center gap-2">
+                            {downloadStarted ? (
+                                <CheckCircle2 size={14} className="text-emerald-400" />
+                            ) : (
+                                <Terminal size={14} className="text-primary" />
+                            )}
+                            {downloadStarted ? 'Download started — open your console' : 'Open the interactive console'}
+                        </h2>
+                        <p className="text-[11px] font-mono text-muted-foreground mb-3">
+                            The binary is a console app, not a silent installer. Running it with no arguments keeps a window open
+                            with a menu (dashboard, doctor, start).
                         </p>
+                        <CodeBlock
+                            code={openConsoleCmd}
+                            id="open-console"
+                            copied={copied === 'open-console'}
+                            onCopy={() => copy(openConsoleCmd, 'open-console')}
+                        />
+                    </div>
+                </GlassCard>
+            )}
+
+            <GlassCard hoverEffect={false}>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <h2 className="text-sm font-bold font-mono flex items-center gap-2">
+                        <Activity size={14} className="text-primary" />
+                        Operator console
+                    </h2>
+                    <button
+                        type="button"
+                        onClick={() => refetchNodes()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-mono text-[10px] font-bold uppercase text-muted-foreground hover:text-foreground"
+                    >
+                        Refresh
+                    </button>
+                </div>
+                <p className="text-[11px] font-mono text-muted-foreground mb-4">
+                    Live view of your provider nodes from Control API. After the daemon heartbeats, status should flip online here.
+                </p>
+                {nodesLoading && !nodesData ? (
+                    <div className="flex items-center gap-3 py-6">
+                        <Loader2 className="animate-spin text-primary" size={18} />
+                        <span className="font-mono text-xs text-muted-foreground">Loading nodes…</span>
+                    </div>
+                ) : nodes.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center space-y-2">
+                        <p className="font-mono text-sm text-muted-foreground">No provider nodes yet.</p>
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                            Finish Setup wizard, start the daemon from the console menu, then refresh.
+                        </p>
+                        <Link href="/dashboard/provider/setup" className="inline-flex text-primary font-mono text-[10px] uppercase font-bold">
+                            Open setup wizard →
+                        </Link>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                            {onlineCount}/{nodes.length} online
+                            {dataUpdatedAt ? ` · updated ${new Date(dataUpdatedAt).toLocaleTimeString()}` : ''}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {nodes.map((node) => {
+                                const online = /online|active|healthy/i.test(node.status);
+                                return (
+                                    <div key={node.id} className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 space-y-1">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="font-mono text-xs font-bold truncate">{node.name || node.id}</p>
+                                            <span className={`font-mono text-[10px] uppercase font-bold ${online ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                                {node.status}
+                                            </span>
+                                        </div>
+                                        <p className="font-mono text-[10px] text-muted-foreground truncate">
+                                            {node.country || '—'} · {node.connection_type || 'node'} · {node.latency_ms != null ? `${node.latency_ms}ms` : 'latency n/a'}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
             </GlassCard>
@@ -363,6 +514,8 @@ metrics_port = 9090`;
                 </h2>
                 <div className="space-y-2">
                     {[
+                        { cmd: `${exe}`, desc: 'Interactive console menu (no args)' },
+                        { cmd: `${exe} dashboard --config provider.toml`, desc: 'Live TUI window' },
                         { cmd: `${exe} start --config provider.toml`, desc: 'Start daemon (preferred after wizard)' },
                         { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: create a new node' },
                         { cmd: `${exe} keygen`, desc: 'Generate provider_signing_key' },
