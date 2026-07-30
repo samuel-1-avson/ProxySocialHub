@@ -11,6 +11,7 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"gorm.io/gorm"
@@ -199,11 +200,18 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 
 	log.Printf("[SessionActivator] Activated order %s (Escrow: %s)", order.ID, event.EscrowPDA)
 
-	// Phase 3: NFT Access Check
-	// If buyer has the Premium NFT, we could grant them bonus bandwidth or lower tiers.
-	// For now, we log the status and potentially upgrade the session.
+	// Existing marketplace orders already have a linked (disabled) session from createOrder.
+	// Activate that session — do not create a replacement that orphans credentials.
+	if order.SessionID != nil {
+		if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
+			log.Printf("[SessionActivator] Order %s activated but session activation failed: %v", order.ID, err)
+		}
+		return
+	}
+
+	// Phase 3: NFT Access Check (direct on-chain orders without a pre-created session)
 	hasPremium := false
-	oracle := GetOracleClient() // Assuming a global getter exists or adding it
+	oracle := GetOracleClient()
 	if oracle != nil {
 		premiumMintStr := os.Getenv("MINT_PREMIUM_PASS")
 		if premiumMintStr == "" {
@@ -225,7 +233,6 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 		}
 	}
 
-	// Create a session for this order
 	var seller models.User
 	if err := a.db.First(&seller, order.SellerID).Error; err == nil {
 		a.createSessionForOrder(&order, &seller, event, hasPremium)
