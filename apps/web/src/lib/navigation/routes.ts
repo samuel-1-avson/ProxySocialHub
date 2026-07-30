@@ -9,8 +9,9 @@ export const ROUTES = {
     marketplaceOrders: "/marketplace/orders",
     marketplaceOrder: (id: string) => `/marketplace/orders/${id}`,
     marketplaceSaved: "/marketplace/saved",
-    marketplaceAgents: "/marketplace/agents",
-    marketplaceAgentInstances: "/marketplace/agents/instances",
+    /** Canonical agents IA (legacy `/marketplace/agents*` redirects here). */
+    marketplaceAgents: "/agents",
+    marketplaceAgentInstances: "/agents/instances",
     dashboard: "/dashboard",
     dashboardAdmin: "/dashboard/admin",
     dashboardAgents: "/dashboard/agents",
