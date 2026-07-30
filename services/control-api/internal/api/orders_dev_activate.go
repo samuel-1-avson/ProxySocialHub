@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 )
 
 // devEscrowActivateEnabled gates POST /v1/orders/:id/activate-dev (local/docker E2E only).
@@ -66,18 +66,10 @@ func activateDevOrder(c *gin.Context) {
 	}
 
 	if order.Status != models.OrderStatusActive && order.Status != models.OrderStatusCompleted {
-		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusActive); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, nil); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := db.DB.Model(&order).Updates(map[string]interface{}{
-			"status":     models.OrderStatusActive,
-			"updated_at": time.Now(),
-		}).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate order"})
-			return
-		}
-		order.Status = models.OrderStatusActive
 	}
 
 	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {

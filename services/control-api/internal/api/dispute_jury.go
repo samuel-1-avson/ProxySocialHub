@@ -12,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -64,10 +65,6 @@ func createDisputeJury(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a party to this order"})
 		return
 	}
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 
 	// Check if dispute already exists
 	var existing models.DisputeJury
@@ -117,8 +114,8 @@ func createDisputeJury(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Model(&order).Update("status", models.OrderStatusDisputed).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status"})
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, nil); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -437,11 +434,9 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 
 	// For pay-as-you-go orders there is no on-chain escrow; nothing to settle.
 	if order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
-		if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusRefunded); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, nil); err != nil {
 			logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid refund transition")
-			return
 		}
-		db.DB.Model(&order).Update("status", models.OrderStatusRefunded)
 		return
 	}
 
@@ -504,15 +499,14 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		logging.Error(err).Str("jury_id", jury.ID.String()).Msg("dispute settlement: blockchain call failed")
 		return
 	}
-	if err := models.ValidateOrderStatusTransition(order.Status, nextStatus); err != nil {
+	extras := map[string]interface{}{}
+	if txHash != "" {
+		extras["tx_hash"] = txHash
+	}
+	if err := fsm.TransitionOrder(db.DB, &order, nextStatus, extras); err != nil {
 		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid final transition")
 		return
 	}
-
-	db.DB.Model(&order).Updates(map[string]interface{}{
-		"status":  nextStatus,
-		"tx_hash": txHash,
-	})
 
 	logging.Info().
 		Str("jury_id", jury.ID.String()).
