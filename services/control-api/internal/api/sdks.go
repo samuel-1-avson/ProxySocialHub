@@ -628,7 +628,7 @@ func getInstallationInstructions(lang SDKLanguage) string {
 	case LanguageNodeJS:
 		return "npm install @proxyhubb/sdk"
 	case LanguageGolang:
-		return "go get github.com/proxyhubb/sdk-go"
+		return "go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.1.0"
 	case LanguageRuby:
 		return "See documentation at https://proxyhubb.com (Ruby gem not published yet)"
 	case LanguagePHP:
