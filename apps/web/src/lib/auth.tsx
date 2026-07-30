@@ -76,15 +76,6 @@ function isTokenExpired(token: string, leewayMs = 0): boolean {
   return Date.now() >= expiryMs - leewayMs;
 }
 
-function writeCookie(name: string, value: string, maxAgeSeconds: number) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const secure = window.location.protocol === 'https:' ? '; secure' : '';
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${Math.max(0, maxAgeSeconds)}; samesite=lax${secure}`;
-}
-
 function clearCookie(name: string) {
   if (typeof window === 'undefined') {
     return;
@@ -112,6 +103,10 @@ function readCookie(name: string): string | null {
   return decodeURIComponent(cookie.slice(prefix.length));
 }
 
+function hasSessionMarker(): boolean {
+  return readCookie('proxyhubb_session') === '1' || hasCookie(REFRESH_TOKEN_STORAGE_KEY);
+}
+
 function hasCookie(name: string): boolean {
   return readCookie(name) !== null;
 }
@@ -124,19 +119,17 @@ function removeLegacyLocalStorageAuth() {
   localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
   localStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
 }
 
 function rememberAccessToken(token: string) {
-  if (typeof window === 'undefined') {
-    accessTokenCache = token;
-    return;
-  }
-
+  // Memory-only access token — never write secrets to document.cookie / sessionStorage.
   accessTokenCache = token;
-  sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-  syncAccessTokenCookie(token);
-  localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  localStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  }
 }
 
 function migrateLegacyAccessToken(): string | null {
@@ -144,7 +137,10 @@ function migrateLegacyAccessToken(): string | null {
     return null;
   }
 
-  const legacyToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || localStorage.getItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
+  const legacyToken =
+    sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ||
+    localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ||
+    localStorage.getItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY);
   if (!legacyToken) {
     return null;
   }
@@ -158,13 +154,15 @@ function migrateLegacyRefreshToken(): string | null {
     return null;
   }
 
-  const legacyRefreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+  // One-time migration: send body refresh once, then rely on HttpOnly Set-Cookie.
+  const legacyRefreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || readCookie(REFRESH_TOKEN_STORAGE_KEY);
   if (!legacyRefreshToken) {
     return null;
   }
 
-  writeCookie(REFRESH_TOKEN_STORAGE_KEY, legacyRefreshToken, 30 * 24 * 60 * 60);
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  // Clear any legacy non-HttpOnly refresh cookie written by older clients.
+  clearCookie(REFRESH_TOKEN_STORAGE_KEY);
   return legacyRefreshToken;
 }
 
@@ -177,19 +175,6 @@ export function getStoredAccessTokenSync(): string | null {
     return null;
   }
 
-  const sessionToken = sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
-  if (sessionToken) {
-    accessTokenCache = sessionToken;
-    return sessionToken;
-  }
-
-  const cookieToken = readCookie(ACCESS_TOKEN_STORAGE_KEY);
-  if (cookieToken) {
-    accessTokenCache = cookieToken;
-    sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, cookieToken);
-    return cookieToken;
-  }
-
   return migrateLegacyAccessToken();
 }
 
@@ -197,26 +182,14 @@ export async function getAccessTokenSilently(): Promise<string | null> {
   return refreshAccessToken();
 }
 
-function syncAccessTokenCookie(token: string) {
-  const expiryMs = getTokenExpiryMs(token);
-  const maxAgeSeconds = expiryMs
-    ? Math.floor(Math.max(0, expiryMs - Date.now()) / 1000)
-    : 24 * 60 * 60;
-
-  writeCookie(ACCESS_TOKEN_STORAGE_KEY, token, maxAgeSeconds);
-}
-
-function persistAuthTokens(token: string, refreshToken?: string) {
+function persistAuthTokens(token: string, _refreshToken?: string) {
   if (typeof window === 'undefined') {
+    accessTokenCache = token;
     return;
   }
 
   rememberAccessToken(token);
-
-  if (refreshToken) {
-    writeCookie(REFRESH_TOKEN_STORAGE_KEY, refreshToken, 30 * 24 * 60 * 60);
-  }
-
+  // Refresh token is stored as HttpOnly by the API Set-Cookie; do not mirror in JS.
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
 }
 
@@ -227,10 +200,10 @@ function clearStoredAuth() {
   }
 
   accessTokenCache = null;
-  sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
   removeLegacyLocalStorageAuth();
   clearCookie(ACCESS_TOKEN_STORAGE_KEY);
   clearCookie(REFRESH_TOKEN_STORAGE_KEY);
+  clearCookie('proxyhubb_session');
 }
 
 async function refreshAccessToken(force = false): Promise<string | null> {
@@ -245,8 +218,12 @@ async function refreshAccessToken(force = false): Promise<string | null> {
   }
 
   const migratedRefreshToken = migrateLegacyRefreshToken();
-  const hasRefreshToken = hasCookie(REFRESH_TOKEN_STORAGE_KEY) || !!migratedRefreshToken;
-  if (!hasRefreshToken) {
+  // HttpOnly refresh cookie is invisible to JS; try refresh whenever a session marker
+  // exists, a legacy token was migrated, or we simply have no valid access token.
+  const shouldAttemptRefresh =
+    !!migratedRefreshToken || hasSessionMarker() || !existingToken || isTokenExpired(existingToken);
+
+  if (!shouldAttemptRefresh) {
     if (existingToken && !isTokenExpired(existingToken)) {
       rememberAccessToken(existingToken);
       return existingToken;
@@ -461,6 +438,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    try {
+      await fetch(apiUrl('/v1/auth/logout'), { method: 'POST', credentials: 'include' });
+    } catch {
+      // Best-effort cookie clear; local state still wiped below.
+    }
     clearStoredAuth();
     setUser(null);
     router.push('/login');

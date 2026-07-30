@@ -49,6 +49,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
 		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
 		auth.POST("/refresh", StrictRateLimit(), refreshSession)
+		auth.POST("/logout", StrictRateLimit(), logoutSession)
 		log.Printf("[AUTH] Wallet-only mode enabled (/auth/dev/login disabled)")
 		auth.GET("/me", getMe)
 	}
@@ -323,6 +324,7 @@ func walletLogin(c *gin.Context) {
 	}
 
 	authSession.User = user
+	applyAuthSessionCookies(c, authSession)
 	c.JSON(http.StatusOK, authSession)
 }
 

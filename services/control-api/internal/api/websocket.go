@@ -3,6 +3,8 @@ package api
 import (
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,12 +12,62 @@ import (
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
+func allowedWebSocketOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		// Non-browser clients (CLI, native apps) typically omit Origin.
+		return true
+	}
+
+	allowed := websocketAllowedOrigins()
+	if len(allowed) == 0 {
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT")))
+		if env == "" {
+			env = strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		}
+		if env == "development" || env == "dev" || env == "local" {
+			return true
+		}
+		return false
+	}
+
+	normalise := func(s string) string {
+		return strings.TrimRight(strings.ToLower(strings.TrimSpace(s)), "/")
+	}
+	want := normalise(origin)
+	for _, candidate := range allowed {
+		if normalise(candidate) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func websocketAllowedOrigins() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(raw string) {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if _, ok := seen[part]; ok {
+				continue
+			}
+			seen[part] = struct{}{}
+			out = append(out, part)
+		}
+	}
+	add(os.Getenv("APP_URL"))
+	add(os.Getenv("CORS_ORIGINS"))
+	return out
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Rely on CORS middleware
-	},
+	CheckOrigin:     allowedWebSocketOrigin,
 }
 
 // HandleWebSocket upgrades HTTP to WebSocket and registers with neutral Hub
