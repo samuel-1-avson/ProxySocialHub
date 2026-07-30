@@ -41,9 +41,13 @@ func RegisterBulkRoutes(protected *gin.RouterGroup) {
 const maxBulkAPIKeys = 10
 
 var allowedBulkScopes = map[string]struct{}{
-	"proxy:read":  {},
-	"proxy:write": {},
+	"proxy:read":    {},
+	"proxy:write":   {},
+	"orders:create": {},
 }
+
+const defaultOrdersCreateRateLimitPerMin = 20
+
 
 // requireSessionAuthForKeyManagement blocks API-key auth from minting/listing/revoking keys.
 func requireSessionAuthForKeyManagement() gin.HandlerFunc {
@@ -110,7 +114,7 @@ func parseAllowedBulkScopes(scopes string) ([]string, error) {
 			continue
 		}
 		if _, ok := allowedBulkScopes[tok]; !ok {
-			return nil, fmt.Errorf("unsupported scope %q (allowed: proxy:read, proxy:write)", tok)
+			return nil, fmt.Errorf("unsupported scope %q (allowed: proxy:read, proxy:write, orders:create)", tok)
 		}
 		if _, ok := seen[tok]; ok {
 			continue
@@ -403,13 +407,14 @@ func CreateAPIKey(c *gin.Context) {
 	keyPrefix := plaintextKey[5:13] // first 8 hex chars of the random part
 
 	apiKey := models.APIKey{
-		ID:          uuid.New(),
-		UserID:      userID,
-		Name:        req.Name,
-		KeyHash:     keyHash,
-		KeyPrefix:   keyPrefix,
-		Permissions: permissions,
-		ExpiresAt:   req.ExpiresAt,
+		ID:              uuid.New(),
+		UserID:          userID,
+		Name:            req.Name,
+		KeyHash:         keyHash,
+		KeyPrefix:       keyPrefix,
+		Permissions:     permissions,
+		RateLimitPerMin: rateLimitForBulkScopes(permissions),
+		ExpiresAt:       req.ExpiresAt,
 	}
 
 	if err := db.DB.Create(&apiKey).Error; err != nil {
@@ -417,16 +422,30 @@ func CreateAPIKey(c *gin.Context) {
 		return
 	}
 
+	actor := userID
+	RecordAuditLog(c, models.AuditAPIKeyCreated, models.AuditSeverityInfo, &actor, "api_key", apiKey.ID.String(),
+		fmt.Sprintf("Created API key %q scopes=%v rate=%d/min", apiKey.Name, permissions, apiKey.RateLimitPerMin), true)
+
 	// Return the full key exactly once
 	c.JSON(http.StatusCreated, gin.H{
-		"key":        plaintextKey,
-		"id":         apiKey.ID,
-		"name":       apiKey.Name,
-		"prefix":     keyPrefix,
-		"scopes":     permissions,
-		"expires_at": apiKey.ExpiresAt,
-		"created_at": apiKey.CreatedAt,
+		"key":                   plaintextKey,
+		"id":                    apiKey.ID,
+		"name":                  apiKey.Name,
+		"prefix":                keyPrefix,
+		"scopes":                permissions,
+		"rate_limit_per_minute": apiKey.RateLimitPerMin,
+		"expires_at":            apiKey.ExpiresAt,
+		"created_at":            apiKey.CreatedAt,
 	})
+}
+
+func rateLimitForBulkScopes(scopes []string) int {
+	for _, s := range scopes {
+		if s == "orders:create" {
+			return defaultOrdersCreateRateLimitPerMin
+		}
+	}
+	return 100
 }
 
 // ListAPIKeys godoc
@@ -506,6 +525,10 @@ func RevokeAPIKey(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "API key not found"})
 		return
 	}
+
+	actor := userID
+	RecordAuditLog(c, models.AuditAPIKeyRevoked, models.AuditSeverityInfo, &actor, "api_key", keyID.String(),
+		"Revoked API key", true)
 
 	c.Status(http.StatusNoContent)
 }

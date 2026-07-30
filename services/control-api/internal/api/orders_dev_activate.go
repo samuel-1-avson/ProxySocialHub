@@ -83,6 +83,10 @@ func activateDevOrder(c *gin.Context) {
 		return
 	}
 
+	actor := userID
+	RecordAuditLog(c, models.AuditOrderDevActivated, models.AuditSeverityInfo, &actor, "order", order.ID.String(),
+		"Dev escrow activation completed", true)
+
 	c.JSON(http.StatusOK, gin.H{
 		"order":             order,
 		"proxy_credentials": buildProxyCredentialsResponse(&session),

@@ -5,10 +5,18 @@ info:
     API for wallet-authenticated proxy access, session intent routing, wallet operations, and settlement telemetry in the ProxyHub residential proxy network.
     
     ## Authentication
-    All protected endpoints require a Bearer token in the Authorization header:
+    Protected endpoints accept either:
     ```
     Authorization: Bearer <access_token>
     ```
+    or partner API keys:
+    ```
+    X-API-Key: phub_<hex>
+    ```
+    (also `Authorization: Bearer phub_…` / `pk_…`).
+
+    Mint purchase keys with JWT via `POST /v1/bulk/api-keys` using scope `orders:create`.
+    See `docs/B2B_SANDBOX_PURCHASE.md` for the mocked sandbox buy flow.
 
     Public auth is wallet-first:
     - `POST /v1/auth/wallet/challenge`
@@ -19,7 +27,8 @@ info:
     Email/password registration and login are not active runtime flows.
     
     ## Rate Limiting
-    - 100 requests per minute per user/IP
+    - 100 requests per minute per user/IP (general)
+    - API keys with `orders:create` default to **20/min** (per key)
     - Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
 
     ## Authority Headers
@@ -1763,6 +1772,162 @@ paths:
         '403':
           description: Provider access required
 
+  /v1/bulk/api-keys:
+    post:
+      tags: [Bulk, B2B]
+      summary: Create partner API key (JWT session only)
+      operationId: createBulkAPIKey
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                scopes:
+                  type: string
+                  description: Comma-separated. Allowed proxy:read, proxy:write, orders:create
+                  example: orders:create
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Key created (plaintext returned once)
+        '400':
+          description: Invalid scopes or max keys reached
+        '401':
+          description: Unauthorized
+        '403':
+          description: API key auth cannot mint keys
+    get:
+      tags: [Bulk, B2B]
+      summary: List active partner API keys
+      operationId: listBulkAPIKeys
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Key metadata (no plaintext)
+
+  /v1/bulk/api-keys/{key_id}:
+    delete:
+      tags: [Bulk, B2B]
+      summary: Revoke partner API key
+      operationId: revokeBulkAPIKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: Not found
+
+  /v1/orders:
+    post:
+      tags: [Orders, B2B]
+      summary: Create marketplace order (JWT or API key with orders:create)
+      operationId: createOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listing_id, bandwidth_gb]
+              properties:
+                listing_id: { type: string, format: uuid }
+                bandwidth_gb: { type: number }
+                session_type:
+                  type: string
+                  enum: [rotating, sticky]
+      responses:
+        '201':
+          description: Order created (pending escrow unless sandbox flow)
+        '400':
+          description: Validation or insufficient wallet balance
+        '401':
+          description: Unauthorized
+        '403':
+          description: Missing orders:create scope
+
+  /v1/orders/sandbox-buy:
+    post:
+      tags: [Orders, B2B]
+      summary: Sandbox mocked buy (create + activate-dev in one call)
+      description: |
+        Requires PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true. Skips wallet SOL preflight.
+        See docs/B2B_SANDBOX_PURCHASE.md.
+      operationId: sandboxBuyOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listing_id, bandwidth_gb]
+              properties:
+                listing_id: { type: string, format: uuid }
+                bandwidth_gb: { type: number }
+      responses:
+        '201':
+          description: Order active with proxy_credentials
+        '404':
+          description: Sandbox buy not enabled
+
+  /v1/orders/{id}/activate-dev:
+    post:
+      tags: [Orders, B2B]
+      summary: Simulate escrow confirmation (dev/sandbox only)
+      operationId: activateDevOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Order activated with credentials
+        '404':
+          description: Dev activate not enabled
+
+  /v1/orders/{id}/credentials:
+    get:
+      tags: [Orders, B2B]
+      summary: Fetch proxy credentials after escrow activation
+      operationId: getOrderCredentials
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Credentials
+        '409':
+          description: Order not yet active
+
   /v1/moderation/listings/pending:
     get:
       tags: [Moderation]
@@ -2780,6 +2945,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Partner API key (`phub_…`). Create with JWT via POST /v1/bulk/api-keys.
 
   headers:
     ProxyHubbAuthorityMode:
