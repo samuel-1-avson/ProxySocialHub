@@ -21,4 +21,4 @@
 3. DB has no CHECK/enum on `orders.status` (optional follow-up).
 4. ~~Observability (#24) and web sync (#25).~~ Done.
 
-**Track 3B exit:** implementation complete on `main` pending staging alert scrape wiring.
+**Track 3B exit:** implementation complete on `main`. GCP testnet Phase 3 soak notes: [MARKETPLACE_PHASE3_COMPLETE.md](./MARKETPLACE_PHASE3_COMPLETE.md).

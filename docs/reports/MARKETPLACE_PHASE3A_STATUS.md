@@ -9,9 +9,10 @@ This page updates **§12 Recommended phased plan → Phase 3** from the marketpl
 ## Phase 3 — Strategic (checkboxes)
 
 - [x] **Option B — full catalog tables** (Track 3A): products + offers projection above `proxy_listings`
-- [ ] **Option C — order state machine extraction** (Track 3B) — deferred; next candidate after 3A soak
-- [ ] Buyer subscription SKUs (Track 3C) — product decision
-- [ ] Split agents nav to **`/agents`** top-level (IA cleanup)
+- [x] **Option C — order state machine extraction** (Track 3B) — [MARKETPLACE_PHASE3B_STATUS.md](./MARKETPLACE_PHASE3B_STATUS.md)
+- [x] Buyer subscription SKUs (Track 3C-1) — [MARKETPLACE_PHASE3C_STATUS.md](./MARKETPLACE_PHASE3C_STATUS.md)
+- [x] Split agents nav to **`/agents`** top-level (IA cleanup) — #32
+- [x] B2B purchase API keys (3C-2) + funnel analytics (3C-4) — see 3C status
 
 ## Track 3A workstreams
 
@@ -29,10 +30,11 @@ This page updates **§12 Recommended phased plan → Phase 3** from the marketpl
 2. [x] OpenAPI updated for catalog CRUD + discovery `include`
 3. [x] Staging migration runbook with product/offer/orphan SQL
 4. [x] Go backfill/integration tests + Playwright catalog path
-5. [ ] Staging soak: run verification SQL after `000097` on staging (ops)
+5. [x] Staging soak: run verification SQL after `000097` on GCP testnet (2026-07-30) — see [MARKETPLACE_PHASE3_COMPLETE.md](./MARKETPLACE_PHASE3_COMPLETE.md) (0 eligible listings; orphans 0)
 
 ## Next after 3A
 
-1. Staging backfill verify (runbook SQL) and soak notes.
-2. **Selected:** Track **3B** order FSM — see [MARKETPLACE_PHASE3B_STATUS.md](./MARKETPLACE_PHASE3B_STATUS.md) and [ADR 0006](../adr/0006-order-status-fsm.md).
-3. Optional: collections v2 that target catalog slugs (explicitly out of 3A).
+1. [x] Staging backfill verify (runbook SQL) and soak notes — [MARKETPLACE_PHASE3_COMPLETE.md](./MARKETPLACE_PHASE3_COMPLETE.md).
+2. [x] Track **3B** order FSM — [MARKETPLACE_PHASE3B_STATUS.md](./MARKETPLACE_PHASE3B_STATUS.md).
+3. [x] Track **3C** growth — [MARKETPLACE_PHASE3C_STATUS.md](./MARKETPLACE_PHASE3C_STATUS.md).
+4. Optional: collections v2 that target catalog slugs (explicitly out of 3A).
