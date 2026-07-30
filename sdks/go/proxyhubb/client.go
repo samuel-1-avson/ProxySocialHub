@@ -10,7 +10,7 @@ import (
 	"net/http"
 )
 
-const defaultBaseURL = "https://api.proxyhubb.io"
+const defaultBaseURL = "https://api.proxyhubb.com"
 
 // Endpoint represents a single proxy endpoint returned by the API.
 type Endpoint struct {
@@ -121,6 +121,17 @@ func (c *Client) CreatePool(ctx context.Context, name string, size int) (*Pool, 
 	return &pool, nil
 }
 
+// ListPools returns pools for the authenticated account.
+func (c *Client) ListPools(ctx context.Context) ([]Pool, error) {
+	var result struct {
+		Pools []Pool `json:"pools"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/bulk/pools", nil, &result); err != nil {
+		return nil, err
+	}
+	return result.Pools, nil
+}
+
 // GetProxies returns the list of endpoints for the given pool.
 func (c *Client) GetProxies(ctx context.Context, poolID string) ([]Endpoint, error) {
 	var result struct {
@@ -133,4 +144,10 @@ func (c *Client) GetProxies(ctx context.Context, poolID string) ([]Endpoint, err
 	}
 
 	return result.Endpoints, nil
+}
+
+// RevokePool soft-deletes a proxy pool.
+func (c *Client) RevokePool(ctx context.Context, poolID string) error {
+	path := fmt.Sprintf("/v1/bulk/pools/%s", poolID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }

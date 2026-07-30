@@ -424,6 +424,13 @@ func main() {
 	// Public Routes (No Authentication Required)
 	api.RegisterProviderAuthRoute(v1) // CLI auth endpoint must be public
 
+	// Bulk Proxy API: JWT session or X-API-Key (phub_ / pk_)
+	bulkAuth := v1.Group("/")
+	bulkAuth.Use(middleware.RequireAuthOrAPIKey())
+	{
+		api.RegisterBulkRoutes(bulkAuth)
+	}
+
 	// Protected Routes (Require Authentication)
 	protected := v1.Group("/")
 	protected.Use(middleware.RequireAuth())
@@ -505,9 +512,6 @@ func main() {
 
 		// Phase 4: Real-time session stream (SSE)
 		api.RegisterSessionStreamRoutes(protected)
-
-		// Bulk Proxy API (Phase 5)
-		api.RegisterBulkRoutes(protected)
 
 		// Provider Verification Tiers (Phase 6)
 		api.RegisterTierRoutes(protected)

@@ -2,6 +2,8 @@
 name = "proxyhubb-cli"
 version = "0.1.0"
 edition = "2021"
+publish = false
+description = "ProxyHubb provider CLI (distributed via GitHub Releases, not crates.io)"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
