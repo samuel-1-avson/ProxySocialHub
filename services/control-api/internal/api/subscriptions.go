@@ -112,17 +112,19 @@ func subscribe(c *gin.Context) {
 				Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 				return fmt.Errorf("no wallet found")
 			}
-			if wallet.BalanceSOL < priceSOL {
+			if !wallet.CanAffordSOL(priceSOL) {
 				return fmt.Errorf("insufficient SOL balance")
 			}
-			newBalance := wallet.BalanceSOL - priceSOL
-			if err := tx.Model(&wallet).Update("balance_sol", newBalance).Error; err != nil {
+			if !wallet.DebitSOL(priceSOL) {
+				return fmt.Errorf("insufficient SOL balance")
+			}
+			if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL).Error; err != nil {
 				return err
 			}
 			if err := tx.Create(&models.WalletLedgerEntry{
 				WalletID:     wallet.ID,
 				Amount:       -priceSOL,
-				BalanceAfter: newBalance,
+				BalanceAfter: wallet.BalanceSOL,
 				Type:         "subscription",
 				ReferenceID:  req.PlanID.String(),
 				Description:  fmt.Sprintf("Subscription to %s (%.4f SOL)", plan.Name, priceSOL),
@@ -235,17 +237,19 @@ func changePlan(c *gin.Context) {
 		}
 
 		if netSOL > 0 {
-			if wallet.BalanceSOL < netSOL {
+			if !wallet.CanAffordSOL(netSOL) {
 				return fmt.Errorf("insufficient balance: need %.6f SOL, have %.6f SOL", netSOL, wallet.BalanceSOL)
 			}
-			newBal := wallet.BalanceSOL - netSOL
-			if err := tx.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
+			if !wallet.DebitSOL(netSOL) {
+				return fmt.Errorf("insufficient balance: need %.6f SOL, have %.6f SOL", netSOL, wallet.BalanceSOL)
+			}
+			if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL).Error; err != nil {
 				return fmt.Errorf("failed to debit wallet: %w", err)
 			}
 			if err := tx.Create(&models.WalletLedgerEntry{
 				WalletID:     wallet.ID,
 				Amount:       -netSOL,
-				BalanceAfter: newBal,
+				BalanceAfter: wallet.BalanceSOL,
 				Type:         "subscription_upgrade",
 				Description:  fmt.Sprintf("Prorated upgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, netSOL),
 			}).Error; err != nil {
@@ -253,14 +257,14 @@ func changePlan(c *gin.Context) {
 			}
 		} else if netSOL < 0 {
 			creditAmount := -netSOL
-			newBal := wallet.BalanceSOL + creditAmount
-			if err := tx.Model(&wallet).Update("balance_sol", newBal).Error; err != nil {
+			wallet.CreditSOL(creditAmount)
+			if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL).Error; err != nil {
 				return fmt.Errorf("failed to credit wallet: %w", err)
 			}
 			if err := tx.Create(&models.WalletLedgerEntry{
 				WalletID:     wallet.ID,
 				Amount:       creditAmount,
-				BalanceAfter: newBal,
+				BalanceAfter: wallet.BalanceSOL,
 				Type:         "subscription_downgrade_credit",
 				Description:  fmt.Sprintf("Prorated credit for downgrade from %s to %s (%.4f SOL)", subscription.Plan.Name, newPlan.Name, creditAmount),
 			}).Error; err != nil {

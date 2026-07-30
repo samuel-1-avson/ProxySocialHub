@@ -21,31 +21,43 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const platformFeeRate = 0.10 // 10% platform fee on all escrow releases
+// escrowOnChainSkimsPlatformFee documents whether settle_escrow / settle_escrow_multisig
+// deduct platform_fee_bps to a treasury account. Today the Solana program pays only
+// seller_payout + buyer_refund (no treasury skim). Keep DB helpers aligned until a
+// program upgrade lands; otherwise release accounting drifts from on-chain balances.
+const escrowOnChainSkimsPlatformFee = false
+
+// legacyPlatformFeeRate is retained for non-escrow custodial paths and documentation.
+// Do not apply this to PDA settlement amounts while escrowOnChainSkimsPlatformFee is false.
+const legacyPlatformFeeRate = 0.10
 
 // usageProportionalSellerAmount calculates the seller's share of an escrow
 // based on actual bandwidth delivered (P3-03).
 //
-// Resolves via: EscrowTransaction.OrderID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Order.SessionID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Session.BytesUsed.
-// If any lookup fails or the order has no session, falls back to 100% delivery
-// (i.e. full escrow minus platform fee) so as not to under-pay a seller due to
-// a missing data link.
+// Matches on-chain settle_escrow math: seller_payout = amount * min(used, limit) / limit
+// with NO platform fee skim while escrowOnChainSkimsPlatformFee is false.
+//
+// Resolves via: EscrowTransaction.OrderID → Order.SessionID → Session.BytesUsed.
+// If any lookup fails or the order has no session, falls back to full escrow amount
+// so as not to under-pay a seller due to a missing data link.
 func usageProportionalSellerAmount(tx *gorm.DB, escrow models.EscrowTransaction) float64 {
+	feeFactor := 1.0
+	if escrowOnChainSkimsPlatformFee {
+		feeFactor = 1 - legacyPlatformFeeRate
+	}
+
 	var order models.Order
 	if err := tx.Preload("Session").First(&order, "id = ?", escrow.OrderID).Error; err != nil {
-		// Order not found ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fall back to full release
-		return escrow.Amount * (1 - platformFeeRate)
+		return escrow.Amount * feeFactor
 	}
 
 	if order.SessionID == nil || order.Session == nil || order.BandwidthGB <= 0 {
-		// No session link or no bandwidth quota ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full release
-		return escrow.Amount * (1 - platformFeeRate)
+		return escrow.Amount * feeFactor
 	}
 
-	bytesLimit := order.BandwidthGB * 1024 * 1024 * 1024 // GB ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ bytes
+	bytesLimit := order.BandwidthGB * 1024 * 1024 * 1024
 	bytesUsed := float64(order.Session.BytesUsed)
 
-	// Cap at 1.0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never pay more than the full amount.
 	usageRatio := bytesUsed / bytesLimit
 	if usageRatio > 1.0 {
 		usageRatio = 1.0
@@ -54,7 +66,7 @@ func usageProportionalSellerAmount(tx *gorm.DB, escrow models.EscrowTransaction)
 		usageRatio = 0
 	}
 
-	return escrow.Amount * usageRatio * (1 - platformFeeRate)
+	return escrow.Amount * usageRatio * feeFactor
 }
 
 // RegisterEscrowRoutes registers escrow-related routes

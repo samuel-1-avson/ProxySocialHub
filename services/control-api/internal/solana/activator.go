@@ -204,7 +204,14 @@ func (a *SessionActivator) onEscrowInitialized(event EscrowEvent) {
 	// Activate that session ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â do not create a replacement that orphans credentials.
 	if order.SessionID != nil {
 		if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
-			log.Printf("[SessionActivator] Order %s activated but session activation failed: %v", order.ID, err)
+			log.Printf("[SessionActivator] Order %s active but session sync failed (retry worker will reattempt): %v", order.ID, err)
+			orderID := order.ID
+			go func() {
+				time.Sleep(2 * time.Second)
+				if retryErr := marketplace.ActivateOrderSession(context.Background(), orderID); retryErr != nil {
+					log.Printf("[SessionActivator] Immediate retry failed for order %s: %v", orderID, retryErr)
+				}
+			}()
 		}
 		return
 	}

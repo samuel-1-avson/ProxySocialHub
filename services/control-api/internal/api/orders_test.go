@@ -21,11 +21,21 @@ func TestCreateOrder_Success(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	// Delete children (orders, ledger, listings, wallets) before parents (users)
-	testutil.CleanupTestData(t, "wallet_ledger_entries", "feed_events", "sessions", "orders", "proxy_listings", "wallets", "users")
+	testutil.CleanupTestData(t, "wallet_ledger_entries", "feed_events", "sessions", "orders", "proxy_listings", "linked_wallets", "wallets", "users")
 
 	// 1. Setup Users
 	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_order_success"), "provider")
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_order_success"), "buyer")
+
+	if err := db.DB.Create(&models.LinkedWallet{
+		UserID:    buyer.ID,
+		Chain:     models.ChainSolana,
+		Address:   "Buyer111111111111111111111111111111111111111",
+		Verified:  true,
+		IsPrimary: true,
+	}).Error; err != nil {
+		t.Fatalf("failed to link buyer wallet: %v", err)
+	}
 
 	// 2. Setup Listing ($10/GB)
 	listing := models.ProxyListing{
@@ -65,7 +75,7 @@ func TestCreateOrder_Success(t *testing.T) {
 	}
 
 	// 7. Verify Database State
-	// 7a. Buyer Wallet is only preflight-checked here; funds move via escrow/settlement.
+	// 7a. Marketplace create does not debit custodial balance; funds move via on-chain escrow.
 	var updatedWallet models.Wallet
 	db.DB.First(&updatedWallet, "user_id = ?", buyer.ID)
 	if updatedWallet.BalanceSOL != 100.0 {
@@ -112,36 +122,35 @@ func TestCreateOrder_Success(t *testing.T) {
 	}
 }
 
-func TestCreateOrder_InsufficientFunds(t *testing.T) {
+func TestCreateOrder_RequiresLinkedSolanaWallet(t *testing.T) {
 	prices.SetTestSOLPrice(100)
 	defer prices.SetTestSOLPrice(0)
 
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
-	testutil.CleanupTestData(t, "users", "wallets", "proxy_listings")
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "linked_wallets", "wallets", "users")
 
-	// 1. Setup
-	provider := testutil.CreateTestUser(t, "p@test.com", "provider")
-	buyer := testutil.CreateTestUser(t, "b_broke@test.com", "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_order_nolink"), "provider")
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_order_nolink"), "buyer")
 
 	listing := models.ProxyListing{
-		SellerID:   provider.ID,
-		PricePerGB: 50.0,
-		Status:     models.ListingStatusActive,
+		SellerID:             provider.ID,
+		Title:                "Test Listing",
+		PricePerGB:           50.0,
+		AvailableBandwidthGB: 100,
+		Status:               models.ListingStatusActive,
 	}
 	db.DB.Create(&listing)
 
-	// 0.1 SOL is below ~0.5 SOL required for a $50 order at $100/SOL
-	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.1)
+	// Custodial balance is irrelevant for marketplace create — only linked wallet matters.
+	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.0)
 
-	// 2. Router
 	r := setupTestRouter()
 	r.Use(func(c *gin.Context) {
 		c.Set("user_id", buyer.ID)
 	})
 	r.POST("/orders", createOrder)
 
-	// 3. Request (Buy 1GB -> $50)
 	reqBody := models.CreateOrderRequest{
 		ListingID:   listing.ID,
 		BandwidthGB: 1.0,
@@ -152,9 +161,59 @@ func TestCreateOrder_InsufficientFunds(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 
-	// 4. Verify
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected 400 Bad Request, got %d", w.Code)
+		t.Errorf("Expected 400 Bad Request without linked wallet, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateOrder_SucceedsWithZeroCustodialBalance(t *testing.T) {
+	prices.SetTestSOLPrice(100)
+	defer prices.SetTestSOLPrice(0)
+
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "feed_events", "sessions", "orders", "proxy_listings", "linked_wallets", "wallets", "users")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_order_zero_cust"), "provider")
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_order_zero_cust"), "buyer")
+
+	if err := db.DB.Create(&models.LinkedWallet{
+		UserID:    buyer.ID,
+		Chain:     models.ChainSolana,
+		Address:   "Buyer222222222222222222222222222222222222222",
+		Verified:  true,
+		IsPrimary: true,
+	}).Error; err != nil {
+		t.Fatalf("failed to link buyer wallet: %v", err)
+	}
+
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Escrow Listing",
+		PricePerGB:           50.0,
+		AvailableBandwidthGB: 100,
+		Status:               models.ListingStatusActive,
+	}
+	db.DB.Create(&listing)
+	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.0)
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", buyer.ID)
+	})
+	r.POST("/orders", createOrder)
+
+	reqBody := models.CreateOrderRequest{
+		ListingID:   listing.ID,
+		BandwidthGB: 1.0,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/orders", bytes.NewBuffer(jsonBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 with linked wallet + zero custodial balance, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

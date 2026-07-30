@@ -82,13 +82,15 @@ func PlanBandwidthRemainingGB(userID uuid.UUID) (remaining float64, unlimited bo
 		periodStart = sub.CurrentPeriodStart
 	}
 
+	// Only count escrow-confirmed consumption. Pending drafts, abandoned
+	// pending_payment, and refunded orders must not burn plan quota.
 	var orderedGB float64
 	if err := db.DB.Model(&models.Order{}).
 		Select("COALESCE(SUM(bandwidth_gb), 0)").
 		Where("buyer_id = ? AND created_at >= ?", userID, periodStart).
-		Where("status NOT IN ?", []models.OrderStatus{
-			models.OrderStatusCancelled,
-			models.OrderStatusDisputed,
+		Where("status IN ?", []models.OrderStatus{
+			models.OrderStatusActive,
+			models.OrderStatusCompleted,
 		}).
 		Scan(&orderedGB).Error; err != nil {
 		return 0, false, limitGB, err

@@ -139,6 +139,17 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 		return
 	}
 
+	// Escrow PDA settle pays the full proportional seller share on-chain with no
+	// treasury skim. Keep PlatformFeeSOL at 0 for those rows so DB matches chain.
+	var linkedOrder models.Order
+	escrowBacked := false
+	if err := db.DB.Select("escrow_pda").Where("session_id = ?", session.ID).First(&linkedOrder).Error; err == nil {
+		escrowBacked = linkedOrder.EscrowPDA != ""
+	}
+	if escrowBacked {
+		platformFeePercent = 0
+	}
+
 	multiplier := node.GetEarningsMultiplier()
 	platformFeeSOL := grossSOL * platformFeePercent
 	netSOL := (grossSOL - platformFeeSOL) * multiplier
@@ -160,15 +171,8 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 		return
 	}
 
-	// Determine whether this session is backed by an on-chain escrow.
-	// If it is, anchorUsageProofAndSettle handles the SOL transfer — skip the
-	// batch-payout queue to avoid paying the provider twice.
-	var linkedOrder models.Order
-	escrowBacked := false
-	if err := db.DB.Select("escrow_pda").Where("session_id = ?", session.ID).First(&linkedOrder).Error; err == nil {
-		escrowBacked = linkedOrder.EscrowPDA != ""
-	}
-
+	// If escrow-backed, anchorUsageProofAndSettle handles the SOL transfer — skip
+	// the batch-payout queue to avoid paying the provider twice.
 	if !escrowBacked && node.WalletAddress != "" {
 		if bp := GetBatchPayoutProcessor(); bp != nil {
 			_ = bp.QueuePayout(node.UserID, node.WalletAddress, netSOL, []string{session.ID.String()})

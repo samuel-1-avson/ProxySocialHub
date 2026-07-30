@@ -622,12 +622,28 @@ export async function waitForOrderActive(
     const timeoutMs = options?.timeoutMs ?? 60_000;
     const pollIntervalMs = options?.pollIntervalMs ?? 2000;
     const started = Date.now();
+    let sawActiveOrder = false;
     while (Date.now() - started < timeoutMs) {
         const order = await getOrder(orderId);
         if (order.status === 'active' || order.status === 'completed') {
-            return order;
+            sawActiveOrder = true;
+            // Order can be active while Redis session sync is still catching up.
+            // Poll credentials until ready so callers do not race a 409.
+            try {
+                const creds = await getOrderProxyCredentials(orderId);
+                if (creds?.proxy_credentials) {
+                    return order;
+                }
+            } catch {
+                // retryable — session still activating
+            }
         }
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    if (sawActiveOrder) {
+        throw new Error(
+            'Escrow confirmed but proxy credentials are not ready yet. Wait a moment and open the order again.',
+        );
     }
     throw new Error('Timed out waiting for escrow confirmation. Check your wallet transaction and try again.');
 }
