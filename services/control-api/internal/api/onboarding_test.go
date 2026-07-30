@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -283,5 +284,46 @@ func TestGetProviderStatus_AutoApprovesLegacyPendingApplication(t *testing.T) {
 
 	if updatedUser.Role != "provider" {
 		t.Fatalf("Expected applicant role provider, got %s", updatedUser.Role)
+	}
+}
+
+func TestGetBuyerOnboarding_ReturnsKYCStatus(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "wallets", "profiles")
+
+	user := testutil.CreateTestUser(t, testutil.UniqueEmail("onboarding-get"), "buyer")
+	if err := db.DB.Model(&models.User{}).Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"kyc_status":     models.KYCStatusNone,
+			"email_verified": true,
+		}).Error; err != nil {
+		t.Fatalf("update user: %v", err)
+	}
+
+	r := setupTestRouter()
+	protected := r.Group("/")
+	protected.Use(func(c *gin.Context) {
+		c.Set("user_id", user.ID)
+		c.Next()
+	})
+	RegisterOnboardingRoutes(protected)
+
+	req := httptest.NewRequest(http.MethodGet, "/onboarding", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := fmt.Sprint(resp["kyc_status"]); got != string(models.KYCStatusNone) {
+		t.Fatalf("kyc_status=%v", resp["kyc_status"])
+	}
+	if resp["email_verified"] != true {
+		t.Fatalf("email_verified=%v", resp["email_verified"])
 	}
 }
