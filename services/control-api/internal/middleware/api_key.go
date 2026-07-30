@@ -66,6 +66,8 @@ func authenticateAPIKey(c *gin.Context) (ok bool, aborted bool) {
 	c.Set("user_id", apiKey.UserID)
 	c.Set("userID", apiKey.UserID.String())
 	c.Set("api_key_id", apiKey.ID)
+	c.Set("api_key_permissions", []string(apiKey.Permissions))
+	c.Set("api_key_rate_limit", apiKey.RateLimitPerMin)
 	c.Set("auth_type", "api_key")
 
 	gdb := db.DB

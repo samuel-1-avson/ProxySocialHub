@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -98,12 +96,11 @@ func validateJWT(tokenStr string) (string, error) {
 
 // validateProviderToken validates a provider token against the database.
 func validateProviderToken(rawToken string) (*models.ProviderToken, error) {
-	hash := sha256.Sum256([]byte(rawToken))
-	hashedToken := hex.EncodeToString(hash[:])
+	hash := models.HashToken(rawToken)
 
 	var token models.ProviderToken
 	if err := db.DB.Where("token = ? AND is_active = ? AND deleted_at IS NULL",
-		hashedToken, true).First(&token).Error; err != nil {
+		hash, true).First(&token).Error; err != nil {
 		return nil, err
 	}
 

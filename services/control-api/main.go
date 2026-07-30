@@ -304,7 +304,7 @@ func main() {
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE, PATCH")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Session-ID, X-User-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Session-ID, X-API-Key")
 		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Trace-ID, X-ProxyHub-CORS")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
