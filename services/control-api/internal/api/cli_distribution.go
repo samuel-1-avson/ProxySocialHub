@@ -333,14 +333,22 @@ func normalizeCLIPackageType(packageType string) string {
 
 func buildDownloadURL(c *gin.Context, download models.CLIDownload) string {
 	scheme := "http"
-	if c.Request.TLS != nil {
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
 
-	// Use configured API base URL if available
-	apiBase := os.Getenv("API_BASE_URL")
-	if apiBase == "" {
-		apiBase = fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	apiBase := strings.TrimRight(strings.TrimSpace(os.Getenv("API_BASE_URL")), "/")
+	// Ignore placeholder/example hosts so listed download links stay usable in production.
+	if apiBase == "" || strings.Contains(apiBase, "example.com") || strings.Contains(apiBase, "localhost") {
+		host := c.Request.Host
+		if fwd := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); fwd != "" {
+			host = strings.Split(fwd, ",")[0]
+			host = strings.TrimSpace(host)
+		}
+		if host == "" {
+			host = "localhost:18080"
+		}
+		apiBase = fmt.Sprintf("%s://%s", scheme, host)
 	}
 
 	return fmt.Sprintf("%s/v1/cli/download?platform=%s&arch=%s&version=%s&package_type=%s",
