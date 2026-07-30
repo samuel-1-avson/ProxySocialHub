@@ -1,20 +1,37 @@
 # ProxyHubb Go SDK
 
+Official Go client for the ProxyHubb Bulk Proxy Pool API.
+
+## Install
+
 ```bash
-go get github.com/proxyhubb/sdk-go@latest
+go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.1.0
 ```
+
+## Usage
 
 ```go
+package main
+
 import (
-  "context"
-  "github.com/proxyhubb/sdk-go/proxyhubb"
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/samuel-1-avson/ProxySocialHub/sdks/go/proxyhubb"
 )
 
-client := proxyhubb.NewClient("phub_...")
-pool, err := client.CreatePool(context.Background(), "scrapers", 5)
+func main() {
+	client := proxyhubb.NewClient("phub_...") // default: https://api.proxyhubb.com
+	pool, err := client.CreatePool(context.Background(), "scrapers", 5)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(pool.ID)
+}
 ```
 
-Default API host: `https://api.proxyhubb.com`.
+Auth: `X-API-Key` with a `phub_` (or `pk_`) key from the dashboard.
 
 ## License
 
