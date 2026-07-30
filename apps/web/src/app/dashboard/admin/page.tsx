@@ -179,7 +179,7 @@ export default function DashboardAdminModerationPage() {
                                 {listing.description}
                             </p>
                             <p className="text-[10px] font-mono text-primary/80 mt-2">
-                                {listing.country} · {listing.proxy_type} · {Number(listing.price_per_gb || 0).toFixed(6)} SOL/GB
+                                {listing.country} · {listing.proxy_type} · ${Number(listing.price_per_gb || 0).toFixed(4)}/GB
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">

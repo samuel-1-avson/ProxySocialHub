@@ -14,6 +14,7 @@ import {
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { MarketplaceOrderCredentials } from '@/components/marketplace/MarketplaceOrderCredentials';
+import { formatListingTotalUSD } from '@/lib/listing-price';
 
 function orderTotal(order: { total_price?: number; price_total?: number }) {
     return order.total_price ?? order.price_total ?? 0;
@@ -104,7 +105,7 @@ export function MarketplaceOrderDetailView({
                             </span>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                            {order.bandwidth_gb} GB · {orderTotal(order).toFixed(6)} SOL
+                            {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
                         </p>
                         <p className="text-xs text-muted-foreground">{orderStatusDescription(order.status)}</p>
                     </div>

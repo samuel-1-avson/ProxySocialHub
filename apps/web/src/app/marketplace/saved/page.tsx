@@ -97,7 +97,7 @@ export default function SavedListingsPage() {
                                 </Link>
                                 <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{listing.description}</p>
                                 <p className="text-[10px] font-mono text-purple-400/80 mt-2">
-                                    {Number(listing.price_per_gb || 0).toFixed(6)} SOL/GB · {listing.available_bandwidth_gb} GB avail
+                                    {Number(listing.price_per_gb || 0).toFixed(4)} USD/GB · {listing.available_bandwidth_gb} GB avail
                                 </p>
                             </div>
                             <div className="flex gap-2 shrink-0">

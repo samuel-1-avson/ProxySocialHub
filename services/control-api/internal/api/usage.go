@@ -451,9 +451,11 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 				// Escrow PDA settle pays the full proportional seller share on-chain
 				// (no treasury fee skim). Record fee as 0 so earnings match chain;
 				// platform_fee_bps collection requires a program upgrade.
+				// Order.PricePerGB is USD — convert to SOL for gross/net columns.
 				const platformFee = 0.0
 				bandwidthGBf := float64(bandwidthUsedGB)
-				gross := bandwidthGBf * order.PricePerGB
+				grossUSD := bandwidthGBf * order.PricePerGB
+				gross := billing.USDToSOL(grossUSD)
 				fee := gross * platformFee
 				net := (gross - fee) * node.GetEarningsMultiplier()
 				earning := models.ProviderEarning{
@@ -465,7 +467,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 					PlatformFeeSOL:     fee,
 					NetAmountSOL:       net,
 					EarningsMultiplier: node.GetEarningsMultiplier(),
-					PricePerGB:         order.PricePerGB,
+					PricePerGB:         billing.USDToSOL(order.PricePerGB),
 					Status:             "paid",
 					TxHash:             settleSig,
 					PaidAt:             &now,

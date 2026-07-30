@@ -680,9 +680,10 @@ func terminateSession(c *gin.Context) {
 			UpdateColumn("total_sessions_served", gorm.Expr("total_sessions_served + 1"))
 
 		// Record provider earning asynchronously.
-		// CONFIG-001: Platform fee read from on-chain ProgramConfig (falls back to 10%).
+		// Prefer order/listing USD rate converted to SOL; fall back to PricePerGBSOL.
 		platformFee := resolvePlatformFee()
-		go recordProviderEarning(session, session.BytesUsed, 0.002, platformFee)
+		pricePerGBSOL := resolveSessionEarningPricePerGBSOL(session)
+		go recordProviderEarning(session, session.BytesUsed, pricePerGBSOL, platformFee)
 	}
 
 	if _, escrowBacked, err := ensureUsageProofForSessionSettlement(session, now); err != nil {
@@ -1258,6 +1259,26 @@ func normalizedRotationSettings(req createSessionRequestV4) (string, int) {
 		rotationInterval = 60
 	}
 	return rotationType, rotationInterval
+}
+
+// resolveSessionEarningPricePerGBSOL returns the SOL/GB rate used for provider
+// earning rows. Marketplace order/listing prices are USD and must be converted.
+func resolveSessionEarningPricePerGBSOL(session models.Session) float64 {
+	var order models.Order
+	if err := db.DB.Select("price_per_gb").Where("session_id = ?", session.ID).First(&order).Error; err == nil && order.PricePerGB > 0 {
+		if sol := billing.USDToSOL(order.PricePerGB); sol > 0 {
+			return sol
+		}
+	}
+	if session.ListingID != nil {
+		var listing models.ProxyListing
+		if err := db.DB.Select("price_per_gb").First(&listing, "id = ?", *session.ListingID).Error; err == nil && listing.PricePerGB > 0 {
+			if sol := billing.USDToSOL(listing.PricePerGB); sol > 0 {
+				return sol
+			}
+		}
+	}
+	return PricePerGBSOL
 }
 
 // resolvePlatformFee returns the platform fee as a fraction (0.0–1.0).

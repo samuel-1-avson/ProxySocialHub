@@ -349,7 +349,7 @@ export default function FeedPage() {
                                                         <div className="mt-auto pt-6 border-t border-white/5 border-dashed flex justify-between items-end">
                                                             <div className="space-y-1">
                                                                 <div className="text-[10px] text-muted-foreground/30 uppercase font-black tracking-widest">Rate</div>
-                                                                <div className="text-2xl font-black tracking-tighter">{Number(listing.price_per_gb || 0).toFixed(6)} SOL<span className="text-[10px] opacity-20">/GB</span></div>
+                                                                <div className="text-2xl font-black tracking-tighter">${Number(listing.price_per_gb || 0).toFixed(4)}<span className="text-[10px] opacity-20">/GB</span></div>
                                                             </div>
                                                             <div className="text-right space-y-1">
                                                                 <div className="text-[9px] font-black text-primary uppercase tracking-widest">{listing.available_bandwidth_gb} GB</div>
@@ -419,7 +419,7 @@ export default function FeedPage() {
                                                 <div className="min-w-0 space-y-1">
                                                     <div className="font-black text-[11px] uppercase tracking-tighter truncate group-hover/item:text-primary transition-colors">{listing.title}</div>
                                                     <div className="flex justify-between items-center">
-                                                        <div className="font-black text-[9px] text-muted-foreground/30 uppercase tracking-widest">{Number(listing.price_per_gb || 0).toFixed(6)} SOL / GB</div>
+                                                        <div className="font-black text-[9px] text-muted-foreground/30 uppercase tracking-widest">${Number(listing.price_per_gb || 0).toFixed(4)} / GB</div>
                                                         <div className="flex items-center gap-1.5">
                                                             <div className="w-1 h-3 bg-emerald-500/50 rounded-full"></div>
                                                             <div className="w-1 h-2 bg-emerald-500/30 rounded-full"></div>

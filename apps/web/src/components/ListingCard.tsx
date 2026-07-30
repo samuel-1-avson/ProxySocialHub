@@ -23,6 +23,7 @@ import { motion } from 'framer-motion';
 import { Listing } from '@/lib/api/marketplace';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
+import { formatListingPricePerGB } from '@/lib/listing-price';
 import { displayListingTitle } from '@/lib/listing-display';
 
 interface ListingCardProps {
@@ -167,7 +168,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 <div className="space-y-1">
                     <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.4em]">Settlement Rate</div>
                     <div className="flex items-baseline gap-1.5">
-                        <span className="text-2xl font-black text-white tracking-tighter">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
+                        <span className="text-2xl font-black text-white tracking-tighter">{formatListingPricePerGB(listing.price_per_gb).replace(' / GB', '')}</span>
                         <span className="text-[10px] font-black text-white/20 uppercase">/ GB</span>
                     </div>
                 </div>
