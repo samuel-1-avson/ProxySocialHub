@@ -23,6 +23,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
 	"github.com/proxyhubb/control-api/internal/governance"
+	"github.com/proxyhubb/control-api/internal/health"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/middleware"
@@ -316,9 +317,25 @@ func main() {
 		c.Next()
 	})
 
-	// Health endpoint BEFORE security middleware (for Docker healthchecks)
+	// Health / readiness BEFORE security middleware (Docker + load balancer probes)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/ready", func(c *gin.Context) {
+		h := health.CheckSystem()
+		if !h.Healthy {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":   "not_ready",
+				"database": h.Database.Healthy,
+				"redis":    h.Redis.Healthy,
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "ready",
+			"database": true,
+			"redis":    true,
+		})
 	})
 
 	// Emergency Circuit Breaker (Industrial Security)
@@ -728,6 +745,8 @@ func main() {
 		billing.StartSettlementWorker()
 		billing.StartPayoutRetryWorker()
 		log.Println("Payout retry worker started")
+		api.StartCompensationOutboxWorker()
+		log.Println("Compensation outbox worker started")
 
 		// Wire the batch processor into the earnings API so recordProviderEarning can queue payouts
 		api.SetBatchPayoutProcessor(billing.GetBatchProcessor())
