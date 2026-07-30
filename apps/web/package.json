@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:provider-config": "node scripts/provider-config-contract.mjs",
     "test:listing-display": "node scripts/listing-display-contract.mjs",
+    "test:order-status": "node scripts/order-status-contract.mjs",
     "validate:routes": "node scripts/validate-routes.mjs",
     "start": "next start",
     "lint": "eslint",

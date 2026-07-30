@@ -16,7 +16,7 @@ func TestAssertCreatableStatus(t *testing.T) {
 		models.OrderStatusActive,
 	}
 	for _, s := range ok {
-		if err := AssertCreatableStatus(s); err != nil {
+		if err := AssertCreatableStatus(s, "test.assert"); err != nil {
 			t.Fatalf("AssertCreatableStatus(%q): %v", s, err)
 		}
 	}
@@ -27,7 +27,7 @@ func TestAssertCreatableStatus(t *testing.T) {
 		models.OrderStatusCancelled,
 	}
 	for _, s := range blocked {
-		if err := AssertCreatableStatus(s); err == nil {
+		if err := AssertCreatableStatus(s, "test.assert"); err == nil {
 			t.Fatalf("AssertCreatableStatus(%q) expected error", s)
 		}
 	}
@@ -35,7 +35,7 @@ func TestAssertCreatableStatus(t *testing.T) {
 
 func TestTransitionOrderRejectsIllegal(t *testing.T) {
 	order := &models.Order{Status: models.OrderStatusCompleted}
-	err := TransitionOrder(nil, order, models.OrderStatusActive, nil)
+	err := TransitionOrder(nil, order, models.OrderStatusActive, "test.reject", nil)
 	if err == nil {
 		t.Fatal("expected illegal transition error")
 	}
@@ -48,7 +48,7 @@ func TestTransitionOrderRejectsIllegal(t *testing.T) {
 }
 
 func TestTransitionOrderNilOrder(t *testing.T) {
-	if err := TransitionOrder(nil, nil, models.OrderStatusActive, nil); err == nil {
+	if err := TransitionOrder(nil, nil, models.OrderStatusActive, "test.nil", nil); err == nil {
 		t.Fatal("expected nil order error")
 	}
 }
@@ -67,7 +67,7 @@ func TestTransitionOrderFullMatrix(t *testing.T) {
 		for _, to := range statuses {
 			want := models.CanTransitionOrderStatus(from, to)
 			order := &models.Order{Status: from}
-			err := TransitionOrder(nil, order, to, nil)
+			err := TransitionOrder(nil, order, to, "test.matrix", nil)
 			if want {
 				if err == nil || !strings.Contains(err.Error(), "tx is nil") {
 					t.Fatalf("%s -> %s: want tx is nil, got %v", from, to, err)
@@ -112,7 +112,7 @@ func TestTransitionOrderPersists(t *testing.T) {
 	}
 
 	sig := "fsm-test-sig"
-	if err := TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, map[string]interface{}{
+	if err := TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, "test.persist", map[string]interface{}{
 		"tx_signature": sig,
 	}); err != nil {
 		t.Fatalf("transition: %v", err)
@@ -132,13 +132,20 @@ func TestTransitionOrderPersists(t *testing.T) {
 		t.Fatalf("tx_signature=%q", reloaded.TxSignature)
 	}
 
-	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusActive, nil); err != nil {
+	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusActive, "test.persist", nil); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
-	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusCompleted, nil); err != nil {
+	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusCompleted, "test.persist", nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusActive, nil); err == nil {
+	if err := TransitionOrder(db.DB, &reloaded, models.OrderStatusActive, "test.persist", nil); err == nil {
 		t.Fatal("expected completed -> active to fail")
+	}
+}
+
+func TestValidateMetersIllegal(t *testing.T) {
+	err := Validate(models.OrderStatusCompleted, models.OrderStatusActive, "test.validate")
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
