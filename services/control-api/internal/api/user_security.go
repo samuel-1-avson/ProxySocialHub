@@ -417,6 +417,8 @@ func revokeAllSessions(c *gin.Context) {
 		return
 	}
 
+	revokeAllRefreshTokenFamilies(userID)
+
 	c.JSON(http.StatusOK, gin.H{"message": "All sessions revoked"})
 }
 

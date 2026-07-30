@@ -300,6 +300,21 @@ func revokeRefreshTokenFamily(familyID string) {
 	}
 }
 
+func revokeAllRefreshTokenFamilies(userID uuid.UUID) {
+	if userID == uuid.Nil || db.DB == nil {
+		return
+	}
+	now := time.Now()
+	if err := db.DB.Model(&models.RefreshTokenFamily{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Updates(map[string]interface{}{
+			"revoked_at": now,
+			"is_current": false,
+		}).Error; err != nil {
+		log.Printf("[AUTH] Failed to revoke all refresh token families for user %s: %v", userID, err)
+	}
+}
+
 func newRefreshTokenRecord(userID uuid.UUID, familyID string, parentTokenID string, ttl time.Duration) (string, models.RefreshTokenFamily, error) {
 	randomPart, err := randomHex(32)
 	if err != nil {
