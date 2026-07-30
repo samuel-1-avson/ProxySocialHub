@@ -136,6 +136,11 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	if order.EscrowPDA != "" && order.SellerWallet != "" {
 		setAuthorityHeaders(c, authorityModeChainAuthoritative, "write", "mirror")
 	} else {
@@ -255,6 +260,10 @@ func createEscrowDispute(c *gin.Context) {
 
 	if escrow.Status != models.EscrowHeld {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot dispute - escrow not held"})
+		return
+	}
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

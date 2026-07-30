@@ -65,6 +65,10 @@ func createDisputeJury(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a party to this order"})
 		return
 	}
+	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Check if dispute already exists
 	var existing models.DisputeJury
@@ -440,6 +444,23 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		return
 	}
 
+	decision, _ := jury.GetMajority()
+
+	nextStatus := models.OrderStatusCompleted
+	switch decision {
+	case models.VoteBuyerWins:
+		nextStatus = models.OrderStatusRefunded
+	case models.VoteSellerWins, models.VoteSplitFunds:
+		nextStatus = models.OrderStatusCompleted
+	default:
+		logging.Warn().Int("decision", int(decision)).Msg("dispute settlement: unhandled vote decision")
+		return
+	}
+	if err := models.ValidateOrderStatusTransition(order.Status, nextStatus); err != nil {
+		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid final transition")
+		return
+	}
+
 	oracle := solana.GetOracle()
 	if oracle == nil {
 		logging.Warn().Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: oracle not configured, skipping blockchain call")
@@ -462,13 +483,9 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		return
 	}
 
-	decision, _ := jury.GetMajority()
-
-	nextStatus := models.OrderStatusCompleted
 	var txHash string
 	switch decision {
 	case models.VoteBuyerWins:
-		nextStatus = models.OrderStatusRefunded
 		// Return all locked SOL to buyer.
 		txHash, err = oracle.EmergencyRefund(ctx, solana.RefundEscrowParams{
 			Buyer:     buyerPubKey,
@@ -490,9 +507,6 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 			EscrowPDA:       escrowPDA,
 			BandwidthUsedGB: order.BandwidthLimitGB / 2,
 		})
-	default:
-		logging.Warn().Int("decision", int(decision)).Msg("dispute settlement: unhandled vote decision")
-		return
 	}
 
 	if err != nil {
@@ -504,7 +518,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		extras["tx_hash"] = txHash
 	}
 	if err := fsm.TransitionOrder(db.DB, &order, nextStatus, extras); err != nil {
-		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid final transition")
+		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: failed to persist final transition")
 		return
 	}
 
