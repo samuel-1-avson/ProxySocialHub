@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxyhubb"
+version = "0.1.0"
+description = "Official Python SDK for the ProxyHubb Bulk Proxy Pool API"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "ProxyHubb" }]
+keywords = ["proxyhubb", "proxy", "sdk", "api"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "requests>=2.31.0",
+  "urllib3>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://proxyhubb.com"
+Repository = "https://github.com/proxyhubb/proxyhubb"
+Issues = "https://github.com/proxyhubb/proxyhubb/issues"
+
+[tool.setuptools.packages.find]
+include = ["proxyhubb*"]
