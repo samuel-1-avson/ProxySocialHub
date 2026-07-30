@@ -193,7 +193,29 @@ Get-ChildItem $distDir -Filter "provider-node-*" | ForEach-Object {
     }
 }
 
-
+# Windows double-click launcher: opens a console that stays open with the interactive menu.
+$launcher = Join-Path $distDir "Launch-Provider-Console.cmd"
+@"
+@echo off
+title ProxyHubb Provider Node
+cd /d "%~dp0"
+echo.
+echo  ProxyHubb Provider Node — launching console...
+echo  (Close this window to exit.)
+echo.
+if exist "provider-node.exe" (
+  "provider-node.exe"
+  goto :end
+)
+for %%F in (provider-node-*-windows-amd64.exe) do (
+  "%%F"
+  goto :end
+)
+echo ERROR: provider-node binary not found in this folder.
+pause
+:end
+"@ | Set-Content -Path $launcher -Encoding ASCII
+Write-Host "  -> Launch-Provider-Console.cmd" -ForegroundColor Green
 
 Write-Host ""
 
