@@ -127,8 +127,9 @@ Even when `pending_payment` → `cancelled` or `active` → `cancelled` is **mat
 
 - **Positive:** Shared vocabulary for eng/product; 3B-2+ can enforce without redesign.
 - **Positive:** Credential and cancel policies documented relative to statuses.
-- **Negative:** Until 3B-2, illegal activator writes can still land in DB.
-- **Follow-ups:** #22 central Transition + activator fix; #23 handler sweep; #24 metrics; #25 TS sync.
+- **Positive (3B-2):** `orders/fsm.TransitionOrder` is the validated write helper; activator + escrow_listener + escrow_cleaner use it.
+- **Negative:** API handlers (`orders.go`, `escrow.go`, `dispute_jury.go`) still validate then `Updates` ad hoc until 3B-3.
+- **Follow-ups:** #23 handler sweep; #24 metrics; #25 TS sync; optional DB CHECK on `orders.status`.
 
 ## Sign-off checklist (#21)
 
