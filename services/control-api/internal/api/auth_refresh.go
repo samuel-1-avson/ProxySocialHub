@@ -209,6 +209,7 @@ func refreshSession(c *gin.Context) {
 		return
 	}
 
+	writeAuthCookies(c, accessToken, newRawRefreshToken, accessTTL, time.Until(nextRecord.ExpiresAt))
 	c.JSON(http.StatusOK, authSessionResponse{
 		Token:                 accessToken,
 		RefreshToken:          newRawRefreshToken,
@@ -220,6 +221,67 @@ func refreshSession(c *gin.Context) {
 
 func refreshTokenStorageReady() bool {
 	return db.DB != nil && db.DB.Migrator().HasTable(&models.RefreshTokenFamily{})
+}
+
+func writeAuthCookies(c *gin.Context, accessToken, refreshToken string, accessTTL, refreshTTL time.Duration) {
+	secure := cookieSecure(c)
+	if accessToken != "" && accessTTL > 0 {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(accessTokenStorageKey, accessToken, int(accessTTL.Seconds()), "/", "", secure, true)
+	}
+	if refreshToken != "" && refreshTTL > 0 {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(refreshTokenStorageKey, refreshToken, int(refreshTTL.Seconds()), "/", "", secure, true)
+	}
+	// Non-HttpOnly marker so the SPA knows a refresh session exists without reading the secret.
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("proxyhubb_session", "1", int(refreshTTL.Seconds()), "/", "", secure, false)
+}
+
+func clearAuthCookies(c *gin.Context) {
+	secure := cookieSecure(c)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(accessTokenStorageKey, "", -1, "/", "", secure, true)
+	c.SetCookie(refreshTokenStorageKey, "", -1, "/", "", secure, true)
+	c.SetCookie("proxyhubb_session", "", -1, "/", "", secure, false)
+}
+
+func cookieSecure(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	if proto := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))); proto == "https" {
+		return true
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT")))
+	return env == "production" || env == "prod" || env == "testnet"
+}
+
+func applyAuthSessionCookies(c *gin.Context, session authSessionResponse) {
+	accessTTL := time.Until(session.AccessTokenExpiresAt)
+	if accessTTL <= 0 {
+		accessTTL = authAccessTokenTTL()
+	}
+	refreshTTL := authRefreshTokenTTL()
+	if session.RefreshTokenExpiresAt != nil {
+		refreshTTL = time.Until(*session.RefreshTokenExpiresAt)
+	}
+	writeAuthCookies(c, session.Token, session.RefreshToken, accessTTL, refreshTTL)
+}
+
+func logoutSession(c *gin.Context) {
+	if cookieValue, err := c.Cookie(refreshTokenStorageKey); err == nil {
+		raw := strings.TrimSpace(cookieValue)
+		if raw != "" {
+			refreshHash := hashRefreshToken(raw)
+			var current models.RefreshTokenFamily
+			if err := db.DB.Where("token_hash = ?", refreshHash).First(&current).Error; err == nil {
+				revokeRefreshTokenFamily(current.FamilyID)
+			}
+		}
+	}
+	clearAuthCookies(c)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func revokeRefreshTokenFamily(familyID string) {

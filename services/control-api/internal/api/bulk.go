@@ -1,11 +1,14 @@
 package api
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,17 +21,107 @@ import (
 func RegisterBulkRoutes(protected *gin.RouterGroup) {
 	bulk := protected.Group("/bulk")
 	{
-		// Proxy pool management
-		bulk.POST("/pools", CreatePool)
-		bulk.GET("/pools", ListPools)
-		bulk.GET("/pools/:pool_id/endpoints", GetPoolEndpoints)
-		bulk.DELETE("/pools/:pool_id", DeletePool)
+		// Proxy pool management (API keys must carry proxy:read / proxy:write)
+		bulk.POST("/pools", requireBulkScope("proxy:write"), CreatePool)
+		bulk.GET("/pools", requireBulkScope("proxy:read"), ListPools)
+		bulk.GET("/pools/:pool_id/endpoints", requireBulkScope("proxy:read"), GetPoolEndpoints)
+		bulk.DELETE("/pools/:pool_id", requireBulkScope("proxy:write"), DeletePool)
 
-		// API key management
-		bulk.POST("/api-keys", CreateAPIKey)
-		bulk.GET("/api-keys", ListAPIKeys)
-		bulk.DELETE("/api-keys/:key_id", RevokeAPIKey)
+		// API key lifecycle is JWT/session only — never via another API key
+		keys := bulk.Group("/api-keys")
+		keys.Use(requireSessionAuthForKeyManagement())
+		{
+			keys.POST("", CreateAPIKey)
+			keys.GET("", ListAPIKeys)
+			keys.DELETE("/:key_id", RevokeAPIKey)
+		}
 	}
+}
+
+const maxBulkAPIKeys = 10
+
+var allowedBulkScopes = map[string]struct{}{
+	"proxy:read":  {},
+	"proxy:write": {},
+}
+
+// requireSessionAuthForKeyManagement blocks API-key auth from minting/listing/revoking keys.
+func requireSessionAuthForKeyManagement() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("auth_type") == "api_key" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "API key management requires a user session (JWT), not an API key",
+				"code":  "session_required",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
+// requireBulkScope enforces proxy:* scopes for API-key callers. JWT/session callers pass.
+func requireBulkScope(required string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("auth_type") != "api_key" {
+			c.Next()
+			return
+		}
+		raw, exists := c.Get("api_key_permissions")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
+			return
+		}
+		perms, _ := raw.([]string)
+		if bulkKeyHasScope(perms, required) {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error":    "API key does not have required permission",
+			"required": required,
+		})
+	}
+}
+
+func bulkKeyHasScope(perms []string, required string) bool {
+	for _, p := range perms {
+		p = strings.TrimSpace(p)
+		if p == required || p == "admin" || p == string(models.PermissionAdmin) {
+			return true
+		}
+		// write implies read for bulk pool operations
+		if required == "proxy:read" && p == "proxy:write" {
+			return true
+		}
+	}
+	return false
+}
+
+func parseAllowedBulkScopes(scopes string) ([]string, error) {
+	if strings.TrimSpace(scopes) == "" {
+		return []string{"proxy:read", "proxy:write"}, nil
+	}
+	parts := strings.Split(scopes, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		tok := strings.TrimSpace(part)
+		if tok == "" {
+			continue
+		}
+		if _, ok := allowedBulkScopes[tok]; !ok {
+			return nil, fmt.Errorf("unsupported scope %q (allowed: proxy:read, proxy:write)", tok)
+		}
+		if _, ok := seen[tok]; ok {
+			continue
+		}
+		seen[tok] = struct{}{}
+		out = append(out, tok)
+	}
+	if len(out) == 0 {
+		return []string{"proxy:read", "proxy:write"}, nil
+	}
+	return out, nil
 }
 
 // ─── Request / response types ────────────────────────────────────────────────
@@ -81,6 +174,22 @@ func currentUserID(c *gin.Context) (uuid.UUID, bool) {
 func sha256hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+// bulkEndpointPassword derives a stable per-endpoint secret from a server-side
+// HMAC key so knowing only the pool UUID is not enough to reconstruct passwords.
+func bulkEndpointPassword(poolID uuid.UUID, index int) string {
+	secret := strings.TrimSpace(os.Getenv("BULK_ENDPOINT_HMAC_SECRET"))
+	if secret == "" {
+		secret = strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	}
+	if secret == "" {
+		// Last-resort local/dev fallback — still not UUID-only.
+		secret = "proxyhubb-dev-bulk-endpoint-secret"
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = fmt.Fprintf(mac, "%s:%d", poolID.String(), index)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // ─── Pool handlers ────────────────────────────────────────────────────────────
@@ -194,12 +303,11 @@ func GetPoolEndpoints(c *gin.Context) {
 	endpoints := make([]poolEndpoint, pool.Size)
 	for i := 0; i < pool.Size; i++ {
 		username := fmt.Sprintf("pool-%s-%03d", poolShort, i+1)
-		password := fmt.Sprintf("%s-proxy-%03d", pool.ID.String(), i+1)
 		endpoints[i] = poolEndpoint{
 			Host:        proxyHost,
 			Port:        proxyPort,
 			Username:    username,
-			Password:    password,
+			Password:    bulkEndpointPassword(pool.ID, i+1),
 			SessionType: pool.SessionType,
 		}
 	}
@@ -260,10 +368,25 @@ func CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Build permission list
-	scopes := req.Scopes
-	if scopes == "" {
-		scopes = "proxy:read,proxy:write"
+	var activeCount int64
+	if err := db.DB.Model(&models.APIKey{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Count(&activeCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check API key limit"})
+		return
+	}
+	if activeCount >= maxBulkAPIKeys {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Maximum of %d active API keys allowed. Please revoke an existing key first.", maxBulkAPIKeys),
+			"code":  "max_keys_reached",
+		})
+		return
+	}
+
+	permissions, err := parseAllowedBulkScopes(req.Scopes)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	// Use the existing helper which generates a pk_<hex> key.
@@ -278,25 +401,6 @@ func CreateAPIKey(c *gin.Context) {
 	keyHash := sha256hex(plaintextKey)
 	// Key prefix: "phub_" (5 chars) + first 8 hex chars = 13 chars total; store only 8 chars after prefix
 	keyPrefix := plaintextKey[5:13] // first 8 hex chars of the random part
-
-	permissions := []string{"proxy:read", "proxy:write"}
-	if scopes != "" {
-		// Parse comma-separated scopes
-		perms := []string{}
-		start := 0
-		for i := 0; i <= len(scopes); i++ {
-			if i == len(scopes) || scopes[i] == ',' {
-				tok := scopes[start:i]
-				if tok != "" {
-					perms = append(perms, tok)
-				}
-				start = i + 1
-			}
-		}
-		if len(perms) > 0 {
-			permissions = perms
-		}
-	}
 
 	apiKey := models.APIKey{
 		ID:          uuid.New(),
