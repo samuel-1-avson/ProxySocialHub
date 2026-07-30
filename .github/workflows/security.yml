@@ -175,7 +175,7 @@ jobs:
       run: docker build -t web:scan ./apps/web
 
     - name: Run Trivy on Control API
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'control-api:scan'
         format: 'sarif'
@@ -183,7 +183,7 @@ jobs:
         exit-code: '0'
 
     - name: Run Trivy on Web
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: 'web:scan'
         format: 'sarif'
