@@ -235,6 +235,13 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
+	if !sandboxBuy {
+		if err := EnsureBuyerBandwidthQuota(buyerID, req.BandwidthGB); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error(), "code": "plan_bandwidth_quota"})
+			return
+		}
+	}
+
 	providerNode, err := marketplacepkg.ResolveListingProviderNode(&listing)
 	if err != nil || providerNode == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Provider has no available nodes for this listing. Try again shortly."})

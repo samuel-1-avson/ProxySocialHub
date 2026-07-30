@@ -239,7 +239,7 @@ func createSessionIntent(c *gin.Context) {
 		}
 	}
 
-	bandwidthLimit := computeBandwidthLimit(req.BandwidthLimit, tierConfig)
+	bandwidthLimit := computeBandwidthLimitForUser(userUUID, req.BandwidthLimit, tierConfig)
 	rotationType, rotationInterval := normalizedRotationSettings(req.createSessionRequestV4)
 
 	secret, err := sessionintent.ResolveSigningSecret()
@@ -377,8 +377,15 @@ func createSession(c *gin.Context) {
 	// Generate secure credentials
 	credUser, credPass := generateCredentials()
 
-	// Apply tier-based bandwidth limit
-	bandwidthLimit := computeBandwidthLimit(req.BandwidthLimit, tierConfig)
+	// Apply tier + plan bandwidth limit
+	bandwidthLimit := computeBandwidthLimitForUser(userUUID, req.BandwidthLimit, tierConfig)
+	if bandwidthLimit == 0 {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Plan bandwidth quota exhausted. Upgrade your subscription or wait for the next billing period.",
+			"code":  "plan_bandwidth_quota",
+		})
+		return
+	}
 
 	// Pick the best available canonical provider node. Runtime fields are now
 	// carried on provider_nodes; nodes remains only a compatibility mirror.
@@ -1222,6 +1229,23 @@ func computeBandwidthLimit(requestedLimit int64, tierConfig models.TierConfig) i
 		return maxTierBytes
 	}
 	return bandwidthLimit
+}
+
+// computeBandwidthLimitForUser applies trust-tier caps and remaining plan bandwidth quota.
+func computeBandwidthLimitForUser(userID uuid.UUID, requestedLimit int64, tierConfig models.TierConfig) int64 {
+	limit := computeBandwidthLimit(requestedLimit, tierConfig)
+	remainingGB, unlimited, _, err := PlanBandwidthRemainingGB(userID)
+	if err != nil || unlimited {
+		return limit
+	}
+	remainingBytes := int64(remainingGB * 1024 * 1024 * 1024)
+	if remainingBytes <= 0 {
+		return 0
+	}
+	if limit <= 0 || limit > remainingBytes {
+		return remainingBytes
+	}
+	return limit
 }
 
 func normalizedRotationSettings(req createSessionRequestV4) (string, int) {
