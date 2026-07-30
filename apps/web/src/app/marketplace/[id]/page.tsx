@@ -265,8 +265,8 @@ function ListingDetailContent() {
                         <div className="flex justify-between items-baseline mb-6">
                             <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
                             <div className="text-right">
-                                <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(6)} SOL</span>
-                                <span className="text-sm text-muted-foreground font-mono">/GB</span>
+                                <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(4)}</span>
+                                <span className="text-sm text-muted-foreground font-mono"> USD/GB</span>
                             </div>
                         </div>
 

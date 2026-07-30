@@ -16,6 +16,7 @@ import Link from "next/link";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2, Package } from "lucide-react";
+import { formatListingTotalUSD } from "@/lib/listing-price";
 
 function orderTotal(order: Order) {
     return order.total_price ?? order.price_total ?? 0;
@@ -108,7 +109,7 @@ export default function MarketplaceOrdersPage() {
                             <div>
                                 <h2 className="font-bold">{order.listing?.title ?? "Marketplace order"}</h2>
                                 <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                                    {order.bandwidth_gb} GB · {orderTotal(order).toFixed(6)} SOL
+                                    {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
                                 </p>
                             </div>
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/5">
