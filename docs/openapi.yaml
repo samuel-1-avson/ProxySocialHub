@@ -1772,6 +1772,96 @@ paths:
         '403':
           description: Provider access required
 
+  /v1/subscriptions/plans:
+    get:
+      tags: [Subscriptions]
+      summary: List active buyer subscription plans
+      operationId: getSubscriptionPlans
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Active plans (free, pro, scale)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionPlan'
+
+  /v1/subscriptions/my:
+    get:
+      tags: [Subscriptions]
+      summary: Current subscription and entitled plan
+      operationId: getMySubscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscription (nullable) and current_plan
+        '401':
+          description: Unauthorized
+
+  /v1/subscriptions:
+    post:
+      tags: [Subscriptions]
+      summary: Purchase or activate a plan SKU (wallet SOL debit)
+      description: |
+        Debits wallet SOL for paid plans. Free plan activates without charge.
+        See docs/BUYER_SUBSCRIPTION_PLANS.md. Stripe deferred.
+      operationId: subscribeToPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, billing_cycle]
+              properties:
+                plan_id: { type: string, format: uuid }
+                billing_cycle: { type: string, enum: [monthly, yearly] }
+      responses:
+        '201':
+          description: Subscribed
+        '402':
+          description: Insufficient SOL
+        '400':
+          description: Already subscribed or invalid body
+    put:
+      tags: [Subscriptions]
+      summary: Change plan with proration
+      operationId: changeSubscriptionPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_plan_id]
+              properties:
+                new_plan_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Plan changed
+        '402':
+          description: Insufficient SOL for upgrade
+    delete:
+      tags: [Subscriptions]
+      summary: Cancel subscription (access until period end)
+      operationId: cancelSubscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cancelled; entitlements until access_until
+
   /v1/bulk/api-keys:
     post:
       tags: [Bulk, B2B]
@@ -3001,6 +3091,32 @@ components:
           type: array
           items: { type: string }
           description: Distinct listing countries present in the filtered window
+
+    SubscriptionPlan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: pro }
+        description: { type: string }
+        price_monthly: { type: number }
+        price_yearly: { type: number }
+        features:
+          type: object
+          properties:
+            api_access: { type: boolean }
+            analytics: { type: boolean }
+            custom_pricing: { type: boolean }
+            team_members: { type: integer, description: "-1 = unlimited" }
+            dedicated_support: { type: boolean }
+        bandwidth_limit_gb:
+          type: integer
+          nullable: true
+          description: NULL = unlimited
+        listing_limit:
+          type: integer
+          description: 0 = unlimited
+        priority_support: { type: boolean }
+        is_active: { type: boolean }
 
     WalletChallengeRequest:
       type: object
