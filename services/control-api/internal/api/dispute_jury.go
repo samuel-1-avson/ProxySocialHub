@@ -65,7 +65,7 @@ func createDisputeJury(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not a party to this order"})
 		return
 	}
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+	if err := fsm.Validate(order.Status, models.OrderStatusDisputed, "api.dispute_jury.create"); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -118,7 +118,7 @@ func createDisputeJury(c *gin.Context) {
 		return
 	}
 
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, nil); err != nil {
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, "api.dispute_jury.create", nil); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -425,7 +425,7 @@ func submitSellerEvidence(c *gin.Context) {
 }
 
 // settleDisputeOnChain submits the jury resolution to the Solana blockchain.
-// It is always called in a goroutine — failures are logged but do not affect the HTTP response.
+// It is always called in a goroutine ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â failures are logged but do not affect the HTTP response.
 func settleDisputeOnChain(jury models.DisputeJury) {
 	ctx := context.Background()
 
@@ -438,7 +438,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 
 	// For pay-as-you-go orders there is no on-chain escrow; nothing to settle.
 	if order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
-		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, nil); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusRefunded, "api.dispute_jury.settle_no_escrow", nil); err != nil {
 			logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid refund transition")
 		}
 		return
@@ -456,7 +456,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		logging.Warn().Int("decision", int(decision)).Msg("dispute settlement: unhandled vote decision")
 		return
 	}
-	if err := models.ValidateOrderStatusTransition(order.Status, nextStatus); err != nil {
+	if err := fsm.Validate(order.Status, nextStatus, "api.dispute_jury.settle"); err != nil {
 		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: invalid final transition")
 		return
 	}
@@ -517,7 +517,7 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 	if txHash != "" {
 		extras["tx_hash"] = txHash
 	}
-	if err := fsm.TransitionOrder(db.DB, &order, nextStatus, extras); err != nil {
+	if err := fsm.TransitionOrder(db.DB, &order, nextStatus, "api.dispute_jury.settle", extras); err != nil {
 		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: failed to persist final transition")
 		return
 	}

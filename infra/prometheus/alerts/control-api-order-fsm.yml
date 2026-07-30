@@ -1,0 +1,15 @@
+groups:
+  - name: control_api_order_fsm
+    rules:
+      - alert: OrderStatusIllegalTransitions
+        expr: |
+          sum(rate(proxyhubb_order_status_transitions_total{result="invalid"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated illegal order status transitions
+          description: >
+            control-api is rejecting order FSM transitions at >0.05/s (5m rate) for 10m.
+            Check logs for "order status transition rejected" and metric labels from/to/source.
+            Runbook: docs/ORDER_FSM_OBSERVABILITY.md

@@ -26,26 +26,26 @@ const platformFeeRate = 0.10 // 10% platform fee on all escrow releases
 // usageProportionalSellerAmount calculates the seller's share of an escrow
 // based on actual bandwidth delivered (P3-03).
 //
-// Resolves via: EscrowTransaction.OrderID → Order.SessionID → Session.BytesUsed.
+// Resolves via: EscrowTransaction.OrderID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Order.SessionID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Session.BytesUsed.
 // If any lookup fails or the order has no session, falls back to 100% delivery
 // (i.e. full escrow minus platform fee) so as not to under-pay a seller due to
 // a missing data link.
 func usageProportionalSellerAmount(tx *gorm.DB, escrow models.EscrowTransaction) float64 {
 	var order models.Order
 	if err := tx.Preload("Session").First(&order, "id = ?", escrow.OrderID).Error; err != nil {
-		// Order not found — fall back to full release
+		// Order not found ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fall back to full release
 		return escrow.Amount * (1 - platformFeeRate)
 	}
 
 	if order.SessionID == nil || order.Session == nil || order.BandwidthGB <= 0 {
-		// No session link or no bandwidth quota — full release
+		// No session link or no bandwidth quota ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full release
 		return escrow.Amount * (1 - platformFeeRate)
 	}
 
-	bytesLimit := order.BandwidthGB * 1024 * 1024 * 1024 // GB → bytes
+	bytesLimit := order.BandwidthGB * 1024 * 1024 * 1024 // GB ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ bytes
 	bytesUsed := float64(order.Session.BytesUsed)
 
-	// Cap at 1.0 — never pay more than the full amount.
+	// Cap at 1.0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never pay more than the full amount.
 	usageRatio := bytesUsed / bytesLimit
 	if usageRatio > 1.0 {
 		usageRatio = 1.0
@@ -136,7 +136,7 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusCompleted); err != nil {
+	if err := fsm.Validate(order.Status, models.OrderStatusCompleted, "api.escrow.release"); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -190,7 +190,7 @@ func releaseEscrow(c *gin.Context) {
 	if settleTxHash != "" {
 		extras["tx_signature"] = settleTxHash
 	}
-	if err := fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, extras); err != nil {
+	if err := fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, "api.escrow.release", extras); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -207,7 +207,7 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
-	// P2-13: Financial audit trail — escrow settled.
+	// P2-13: Financial audit trail ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â escrow settled.
 	audit.Log(c, models.AuditFinancialEscrowSettled, "order", order.ID.String(),
 		fmt.Sprintf("Escrow settled for order %s (tx: %s)", order.ID, settleTxHash),
 		map[string]interface{}{
@@ -262,7 +262,7 @@ func createEscrowDispute(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot dispute - escrow not held"})
 		return
 	}
-	if err := models.ValidateOrderStatusTransition(order.Status, models.OrderStatusDisputed); err != nil {
+	if err := fsm.Validate(order.Status, models.OrderStatusDisputed, "api.escrow.dispute"); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -284,7 +284,7 @@ func createEscrowDispute(c *gin.Context) {
 
 	// Update escrow + order status
 	db.DB.Model(&escrow).Update("status", models.EscrowDisputed)
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, nil); err != nil {
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, "api.escrow.dispute", nil); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -499,7 +499,7 @@ func AutoReleaseExpiredEscrows() {
 				if settleTxHash != "" {
 					extras["tx_signature"] = settleTxHash
 				}
-				return fsm.TransitionOrder(tx, &lockedOrder, models.OrderStatusCompleted, extras)
+				return fsm.TransitionOrder(tx, &lockedOrder, models.OrderStatusCompleted, "api.escrow.auto_release", extras)
 			}); txErr != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows credit error for escrow %s: %v", escrow.ID, txErr)
 			}
