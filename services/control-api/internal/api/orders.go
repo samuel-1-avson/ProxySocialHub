@@ -19,17 +19,26 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 )
 
-// RegisterOrderRoutes registers order-related routes
+// RegisterOrderRoutes registers JWT session order routes (list/pay/cancel).
+// Purchase create / credentials / sandbox activate live on RegisterPartnerPurchaseRoutes
+// so they accept JWT or X-API-Key with orders:create.
 func RegisterOrderRoutes(rg *gin.RouterGroup) {
-	rg.POST("/orders", createOrder)
 	rg.GET("/orders", getMyOrders)
 	rg.GET("/orders/:id", getOrder)
 	rg.POST("/orders/:id/cancel", cancelOrder)
 	rg.GET("/sales", getMySales)
 	rg.POST("/orders/:id/pay/solana", initiateSolanaPayment)
-	rg.GET("/orders/:id/credentials", getOrderCredentials)
-	rg.POST("/orders/:id/activate-dev", activateDevOrder)
 }
+
+// RegisterPartnerPurchaseRoutes registers B2B purchase endpoints (JWT or API key).
+func RegisterPartnerPurchaseRoutes(rg *gin.RouterGroup) {
+	// sandbox-buy before :id routes so Gin does not treat "sandbox-buy" as an id.
+	rg.POST("/orders/sandbox-buy", requireBulkScope("orders:create"), sandboxBuyOrder)
+	rg.POST("/orders", requireBulkScope("orders:create"), createOrder)
+	rg.GET("/orders/:id/credentials", requireBulkScope("orders:create"), getOrderCredentials)
+	rg.POST("/orders/:id/activate-dev", requireBulkScope("orders:create"), activateDevOrder)
+}
+
 
 // initiateSolanaPayment prepares a non-custodial escrow transaction
 func initiateSolanaPayment(c *gin.Context) {
@@ -183,6 +192,11 @@ func initiateSolanaPayment(c *gin.Context) {
 func createOrder(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
 
+	sandboxBuy := false
+	if v, ok := c.Get("sandbox_buy"); ok {
+		sandboxBuy, _ = v.(bool)
+	}
+
 	// Robust User ID Extraction
 	userIDStr := c.GetString("userID")
 	if userIDStr == "" {
@@ -229,26 +243,28 @@ func createOrder(c *gin.Context) {
 
 	requestedTotalPrice := listing.PricePerGB * req.BandwidthGB
 
-	requiredSOL, err := marketplacepkg.RequiredSOLForUSD(c.Request.Context(), requestedTotalPrice)
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price for order preflight"})
-		return
-	}
+	if !sandboxBuy {
+		requiredSOL, err := marketplacepkg.RequiredSOLForUSD(c.Request.Context(), requestedTotalPrice)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price for order preflight"})
+			return
+		}
 
-	var wallet models.Wallet
-	if err := db.DB.First(&wallet, "user_id = ?", buyerID).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet found. Please add funds first."})
-		return
-	}
+		var wallet models.Wallet
+		if err := db.DB.First(&wallet, "user_id = ?", buyerID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet found. Please add funds first."})
+			return
+		}
 
-	if wallet.BalanceSOL < requiredSOL {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":           "Insufficient SOL balance. Please deposit/swap funds.",
-			"required_sol":    requiredSOL,
-			"available_sol":   wallet.BalanceSOL,
-			"order_total_usd": requestedTotalPrice,
-		})
-		return
+		if wallet.BalanceSOL < requiredSOL {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":           "Insufficient SOL balance. Please deposit/swap funds.",
+				"required_sol":    requiredSOL,
+				"available_sol":   wallet.BalanceSOL,
+				"order_total_usd": requestedTotalPrice,
+			})
+			return
+		}
 	}
 
 	bandwidthLimitBytes := int64(req.BandwidthGB * 1024 * 1024 * 1024)
@@ -377,6 +393,8 @@ func createOrder(c *gin.Context) {
 		Meta: map[string]interface{}{
 			"bandwidth_gb": req.BandwidthGB,
 			"total_price":  order.TotalPrice,
+			"auth_type":    c.GetString("auth_type"),
+			"sandbox_buy":  sandboxBuy,
 		},
 	})
 
@@ -392,6 +410,20 @@ func createOrder(c *gin.Context) {
 		TargetID:   &order.ID,
 		Dedupe:     true,
 	})
+
+	actor := buyerID
+	desc := "Order created"
+	if sandboxBuy {
+		desc = "Sandbox order created (wallet preflight skipped)"
+	} else if c.GetString("auth_type") == "api_key" {
+		desc = "Order created via API key"
+	}
+	RecordAuditLog(c, models.AuditOrderCreated, models.AuditSeverityInfo, &actor, "order", order.ID.String(), desc, true)
+
+	if sandboxBuy {
+		finalizeSandboxBuy(c, &order, buyerID)
+		return
+	}
 
 	response := gin.H{
 		"order": order,

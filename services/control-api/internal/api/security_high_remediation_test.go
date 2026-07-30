@@ -78,4 +78,27 @@ func TestParseAllowedBulkScopes(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != "proxy:read" {
 		t.Fatalf("read-only: %v %v", got, err)
 	}
+	got, err = parseAllowedBulkScopes("orders:create")
+	if err != nil || len(got) != 1 || got[0] != "orders:create" {
+		t.Fatalf("orders:create: %v %v", got, err)
+	}
+	got, err = parseAllowedBulkScopes("proxy:read,orders:create")
+	if err != nil || len(got) != 2 {
+		t.Fatalf("combo: %v %v", got, err)
+	}
+	if rateLimitForBulkScopes([]string{"proxy:read"}) != 100 {
+		t.Fatal("expected default pool rate 100")
+	}
+	if rateLimitForBulkScopes([]string{"orders:create"}) != defaultOrdersCreateRateLimitPerMin {
+		t.Fatalf("expected orders rate %d", defaultOrdersCreateRateLimitPerMin)
+	}
+}
+
+func TestBulkKeyHasScopeOrdersCreate(t *testing.T) {
+	if !bulkKeyHasScope([]string{"orders:create"}, "orders:create") {
+		t.Fatal("expected orders:create match")
+	}
+	if bulkKeyHasScope([]string{"proxy:write"}, "orders:create") {
+		t.Fatal("proxy:write must not imply orders:create")
+	}
 }
