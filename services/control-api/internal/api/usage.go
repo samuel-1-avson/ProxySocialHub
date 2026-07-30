@@ -448,7 +448,10 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		if session.NodeID != nil {
 			var node models.ProviderNode
 			if err := db.DB.First(&node, "id = ? AND deleted_at IS NULL", session.NodeID).Error; err == nil {
-				const platformFee = 0.10
+				// Escrow PDA settle pays the full proportional seller share on-chain
+				// (no treasury fee skim). Record fee as 0 so earnings match chain;
+				// platform_fee_bps collection requires a program upgrade.
+				const platformFee = 0.0
 				bandwidthGBf := float64(bandwidthUsedGB)
 				gross := bandwidthGBf * order.PricePerGB
 				fee := gross * platformFee

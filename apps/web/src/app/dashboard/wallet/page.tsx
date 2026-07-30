@@ -248,7 +248,12 @@ export default function UnifiedWalletPage() {
         }
         const treasury = treasuryConfig?.treasury_solana;
         if (!treasury) {
-            setResult({ success: false, message: 'Treasury address is still loading — try again in a moment' });
+            setResult({
+                success: false,
+                message: treasuryConfig
+                    ? 'Platform treasury is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS.'
+                    : 'Treasury address is still loading — try again in a moment',
+            });
             return;
         }
         if (!wallet?.linked_solana_address) {

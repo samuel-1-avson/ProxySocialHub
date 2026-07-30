@@ -541,7 +541,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	wallet.BalanceSOL += creditedAmount
+	wallet.CreditSOL(creditedAmount)
 
 	if err := tx.Save(&wallet).Error; err != nil {
 		tx.Rollback()

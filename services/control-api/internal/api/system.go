@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -110,12 +111,18 @@ func getPublicSystemConfig(c *gin.Context) {
 
 	val, err := cm.Get("treasury_wallet_solana")
 	if err != nil {
-		// Fallback to empty if not found
 		val = ""
+	}
+	val = strings.TrimSpace(val)
+	// Prefer env when DB/Redis still holds an empty seeded value — deposits
+	// verify against SOLANA_TREASURY_ADDRESS, so the UI must use the same source.
+	if val == "" {
+		val = strings.TrimSpace(solana.GetTreasuryAddress())
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"treasury_solana":              val,
+		"treasury_configured":          val != "",
 		"sol_price_usd":                billing.GetSOLPriceUSD(),
 		"large_withdraw_threshold_sol": getLargeWithdrawalThresholdSOL(),
 	})

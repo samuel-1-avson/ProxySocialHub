@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Listing,
     createOrderWithProvisioning,
@@ -12,6 +12,7 @@ import {
     waitForOrderActive,
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
+import { getSystemConfig } from '@/lib/api/config';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
 import { useToast } from '@/stores';
@@ -44,6 +45,13 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
 
     const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
 
+    const { data: systemConfig } = useQuery({
+        queryKey: ['system-config-public'],
+        queryFn: getSystemConfig,
+        staleTime: 60_000,
+    });
+    const solPriceUsd = Number(systemConfig?.sol_price_usd || 0);
+
     useEffect(() => {
         trackMarketplaceEvent('buy_modal_open', {
             listing_id: listing.id,
@@ -51,8 +59,20 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
         });
     }, [listing.id, surface]);
 
-    const bandwidthLimitBytes = bandwidth * 1024 * 1024 * 1024;
-    const estimatedCostSOL = listing.price_per_gb * bandwidth;
+    // Listing price_per_gb is USD (control-api converts to SOL at pay time).
+    // Apply the same bulk-discount tiers the API uses in calculatePriceWithDiscounts.
+    const effectivePricePerGB = (() => {
+        let best = listing.price_per_gb;
+        for (const d of listing.bulk_discounts ?? []) {
+            if (bandwidth >= d.min_gb && d.price_per_gb < best) {
+                best = d.price_per_gb;
+            }
+        }
+        return best;
+    })();
+    const estimatedCostUSD = effectivePricePerGB * bandwidth;
+    const estimatedCostSOL = solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
+    const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
 
     const copyToClipboard = (text: string, key: string) => {
         navigator.clipboard.writeText(text).then(() => {
@@ -111,7 +131,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
             onSuccess(order.id, nextCredentials);
         } catch (err: unknown) {
             console.error(err);
-            setError(getErrorMessage(err) || 'Failed to connect. Check your SOL wallet balance.');
+            setError(getErrorMessage(err) || 'Failed to connect. Check your on-chain SOL wallet balance.');
         } finally {
             setLoading(false);
         }
@@ -272,11 +292,27 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
                         <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
                             <div>
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Estimated Total</p>
-                                <p className="font-mono text-2xl font-black text-emerald-400">{estimatedCostSOL.toFixed(6)} SOL</p>
+                                <p className="font-mono text-2xl font-black text-emerald-400">
+                                    ${estimatedCostUSD.toFixed(2)}
+                                </p>
+                                <p className="text-[10px] font-mono text-white/40 mt-1">
+                                    {estimatedCostSOL != null
+                                        ? `≈ ${estimatedCostSOL.toFixed(6)} SOL escrow`
+                                        : 'SOL estimate pending price feed'}
+                                </p>
                             </div>
                             <div className="text-right">
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Rate</p>
-                                <p className="text-xs font-mono text-white/60">{listing.price_per_gb.toFixed(6)} SOL/GB</p>
+                                <p className="text-xs font-mono text-white/60">${effectivePricePerGB.toFixed(4)} / GB</p>
+                                {bulkRateActive ? (
+                                    <p className="text-[9px] font-mono text-emerald-400/80 mt-1">
+                                        Bulk rate (list ${listing.price_per_gb.toFixed(4)})
+                                    </p>
+                                ) : solPriceUsd > 0 ? (
+                                    <p className="text-[9px] font-mono text-white/30 mt-1">
+                                        SOL @ ${solPriceUsd.toFixed(2)}
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
                     </div>
@@ -306,7 +342,7 @@ export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknow
                     </button>
 
                     <p className="text-center text-[10px] text-muted-foreground">
-                        Session auto-terminates when bandwidth quota or SOL balance is exhausted.
+                        You pay with on-chain SOL escrow from your linked wallet. Session ends when bandwidth quota is exhausted.
                     </p>
 
                 </div>

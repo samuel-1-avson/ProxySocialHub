@@ -19,23 +19,24 @@ import (
 	sol "github.com/gagliardetto/solana-go"
 )
 
-// RegisterOrderRoutes registers JWT session order routes (list/pay/cancel).
-// Purchase create / credentials / sandbox activate live on RegisterPartnerPurchaseRoutes
-// so they accept JWT or X-API-Key with orders:create.
+// RegisterOrderRoutes registers JWT-only seller/order routes that are not
+// part of the B2B purchase surface.
 func RegisterOrderRoutes(rg *gin.RouterGroup) {
-	rg.GET("/orders", getMyOrders)
-	rg.GET("/orders/:id", getOrder)
-	rg.POST("/orders/:id/cancel", cancelOrder)
 	rg.GET("/sales", getMySales)
-	rg.POST("/orders/:id/pay/solana", initiateSolanaPayment)
 }
 
 // RegisterPartnerPurchaseRoutes registers B2B purchase endpoints (JWT or API key).
+// List/get/pay/cancel share orders:create so API-key clients can complete the
+// full create → pay → credentials lifecycle without a separate JWT session.
 func RegisterPartnerPurchaseRoutes(rg *gin.RouterGroup) {
 	// sandbox-buy before :id routes so Gin does not treat "sandbox-buy" as an id.
 	rg.POST("/orders/sandbox-buy", requireBulkScope("orders:create"), sandboxBuyOrder)
 	rg.POST("/orders", requireBulkScope("orders:create"), createOrder)
+	rg.GET("/orders", requireBulkScope("orders:create"), getMyOrders)
+	rg.GET("/orders/:id", requireBulkScope("orders:create"), getOrder)
 	rg.GET("/orders/:id/credentials", requireBulkScope("orders:create"), getOrderCredentials)
+	rg.POST("/orders/:id/pay/solana", requireBulkScope("orders:create"), initiateSolanaPayment)
+	rg.POST("/orders/:id/cancel", requireBulkScope("orders:create"), cancelOrder)
 	rg.POST("/orders/:id/activate-dev", requireBulkScope("orders:create"), activateDevOrder)
 }
 
@@ -248,27 +249,22 @@ func createOrder(c *gin.Context) {
 		return
 	}
 
-	requestedTotalPrice := listing.PricePerGB * req.BandwidthGB
+	requestedTotalPrice := calculatePriceWithDiscounts(&listing, req.BandwidthGB)
+	unitPrice := listing.PricePerGB
+	if req.BandwidthGB > 0 {
+		unitPrice = requestedTotalPrice / req.BandwidthGB
+	}
 
+	// Marketplace checkout is escrow-funded from the buyer's linked on-chain SOL
+	// wallet (see initiateSolanaPayment). Do not preflight custodial balance_sol —
+	// that rail is for deposits/subscriptions/PAYG, not PDA escrow.
 	if !sandboxBuy {
-		requiredSOL, err := marketplacepkg.RequiredSOLForUSD(c.Request.Context(), requestedTotalPrice)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price for order preflight"})
-			return
-		}
-
-		var wallet models.Wallet
-		if err := db.DB.First(&wallet, "user_id = ?", buyerID).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No wallet found. Please add funds first."})
-			return
-		}
-
-		if wallet.BalanceSOL < requiredSOL {
+		var linked models.LinkedWallet
+		if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", buyerID, models.ChainSolana).
+			First(&linked).Error; err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":           "Insufficient SOL balance. Please deposit/swap funds.",
-				"required_sol":    requiredSOL,
-				"available_sol":   wallet.BalanceSOL,
-				"order_total_usd": requestedTotalPrice,
+				"error": "Link a Solana wallet before creating a marketplace order. Payment uses on-chain SOL escrow.",
+				"code":  "linked_wallet_required",
 			})
 			return
 		}
@@ -290,7 +286,7 @@ func createOrder(c *gin.Context) {
 		SellerID:         listing.SellerID,
 		ListingID:        listing.ID,
 		BandwidthGB:      req.BandwidthGB,
-		PricePerGB:       listing.PricePerGB, // Lock in the rate
+		PricePerGB:       unitPrice, // Lock in effective (possibly bulk-discounted) rate
 		TotalPrice:       requestedTotalPrice,
 		Status:           models.OrderStatusPending,
 		BandwidthLimitGB: bandwidthLimitGB,
@@ -515,11 +511,25 @@ func getOrderCredentials(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session not found"})
 		return
 	}
+
+	// Opportunistic repair: order is funded/active but Redis sync may have failed.
+	// Never roll the order back — kick ActivateOrderSession once before 409.
+	if session.Status == models.SessionActivationFailed || session.Status == models.SessionActivationPending {
+		if actErr := marketplacepkg.ActivateOrderSession(c.Request.Context(), order.ID); actErr != nil {
+			// fall through to status check / retryable 409
+			_ = actErr
+		} else if err := db.DB.First(&session, "id = ?", *order.SessionID).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Session not found after activation retry"})
+			return
+		}
+	}
+
 	if session.Status != models.SessionActive {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":          "Proxy credentials are not ready yet",
 			"status":         order.Status,
 			"session_status": session.Status,
+			"retryable":      true,
 		})
 		return
 	}

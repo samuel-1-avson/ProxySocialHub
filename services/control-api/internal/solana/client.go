@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -665,9 +666,12 @@ func LamportsToSOL(lamports uint64) float64 {
 	return float64(lamports) / float64(LamportsPerSOL)
 }
 
-// SOLToLamports converts SOL to lamports
+// SOLToLamports converts SOL to lamports using rounded fixed-point math.
 func SOLToLamports(sol float64) uint64 {
-	return uint64(sol * float64(LamportsPerSOL))
+	if sol <= 0 {
+		return 0
+	}
+	return uint64(math.Round(sol * float64(LamportsPerSOL)))
 }
 
 // CalculateProportionalPayout calculates payout using fixed-point arithmetic

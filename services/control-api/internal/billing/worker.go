@@ -378,13 +378,15 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 		return err
 	}
 
-	if wallet.BalanceSOL < costSOL {
+	if !wallet.CanAffordSOL(costSOL) {
 		logging.Warn().Str("session_id", session.ID.String()).
 			Float64("need", costSOL).Float64("have", wallet.BalanceSOL).
 			Msg("Billing: insufficient SOL balance")
 		return fmt.Errorf("insufficient SOL balance")
 	}
-	wallet.BalanceSOL -= costSOL
+	if !wallet.DebitSOL(costSOL) {
+		return fmt.Errorf("insufficient SOL balance")
+	}
 
 	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
@@ -436,7 +438,7 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 		return false, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
 	}
 
-	providerWallet.BalanceSOL += costSOL
+	providerWallet.CreditSOL(costSOL)
 	if err := tx.Save(&providerWallet).Error; err != nil {
 		return false, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
 	}
@@ -485,7 +487,7 @@ func triggerProviderPayout(providerID uuid.UUID) {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 			return err
 		}
-		if wallet.BalanceSOL < providerPayoutThresholdSOL {
+		if !wallet.CanAffordSOL(providerPayoutThresholdSOL) {
 			return fmt.Errorf("balance dropped below threshold before payout")
 		}
 		payoutAmount = wallet.BalanceSOL // captured for use after the transaction
@@ -557,7 +559,7 @@ func queueProviderPayout(providerID uuid.UUID) {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 			return err
 		}
-		if wallet.BalanceSOL < providerPayoutThresholdSOL {
+		if !wallet.CanAffordSOL(providerPayoutThresholdSOL) {
 			return fmt.Errorf("balance dropped below threshold before payout")
 		}
 		payoutAmount = wallet.BalanceSOL
@@ -590,7 +592,7 @@ func queueProviderPayout(providerID uuid.UUID) {
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 					return err
 				}
-				wallet.BalanceSOL += payoutAmount
+				wallet.CreditSOL(payoutAmount)
 				if err := tx.Save(&wallet).Error; err != nil {
 					return err
 				}
@@ -624,7 +626,7 @@ func queueProviderPayout(providerID uuid.UUID) {
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 				return err
 			}
-			wallet.BalanceSOL += payoutAmount
+			wallet.CreditSOL(payoutAmount)
 			if err := tx.Save(&wallet).Error; err != nil {
 				return err
 			}
