@@ -64,7 +64,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 			break
 		}
 		if attempt < maxAttempts {
-			log.Printf("[Worker] EscrowInit PDA %s: order not found (attempt %d/%d), retrying in %s…",
+			log.Printf("[Worker] EscrowInit PDA %s: order not found (attempt %d/%d), retrying in %sÃ¢â‚¬Â¦",
 				event.EscrowPDA, attempt, maxAttempts, retryDelay)
 			time.Sleep(retryDelay)
 		}
@@ -74,7 +74,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		logging.Error(fmt.Errorf("escrow init event lost after %d attempts", maxAttempts)).
 			Str("escrow_pda", event.EscrowPDA).
 			Str("tx_signature", event.TxSignature).
-			Msg("CRITICAL: escrow initialized on-chain but no matching order found — manual reconciliation required")
+			Msg("CRITICAL: escrow initialized on-chain but no matching order found Ã¢â‚¬â€ manual reconciliation required")
 		recordEscrowReconciliation(escrowReconciliationRecord{
 			Source:      "escrow_listener",
 			EventType:   event.Type,
@@ -88,7 +88,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		return
 	}
 
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, map[string]interface{}{
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, "worker.escrow_listener.init", map[string]interface{}{
 		"tx_signature": event.TxSignature,
 	}); err != nil {
 		logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow initialized event for non-activatable order")
@@ -131,7 +131,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 func handleEscrowSettled(event solana.EscrowEvent) {
 	var order models.Order
 	if err := db.DB.Where("escrow_pda = ?", event.EscrowPDA).First(&order).Error; err == nil {
-		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCompleted, nil); err != nil {
+		if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCompleted, "worker.escrow_listener.settled", nil); err != nil {
 			logging.Warn().Err(err).Str("order_id", order.ID.String()).Msg("Ignoring escrow settled event for non-completable order")
 			recordEscrowReconciliation(escrowReconciliationRecord{
 				Source:      "escrow_listener",
