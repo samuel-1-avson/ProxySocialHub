@@ -111,13 +111,13 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: '/agents',
-        destination: '/marketplace/agents',
+        source: '/marketplace/agents',
+        destination: '/agents',
         permanent: true,
       },
       {
-        source: '/agents/:path*',
-        destination: '/marketplace/agents/:path*',
+        source: '/marketplace/agents/:path*',
+        destination: '/agents/:path*',
         permanent: true,
       },
       {

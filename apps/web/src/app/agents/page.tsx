@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Bot, Plus, Play, Layers, Cpu, Loader2, ArrowRight, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { getMarketAgents, rentAgent, MarketAgent } from '@/lib/api';
+import { ROUTES } from '@/lib/navigation/routes';
 import { useToast } from '@/stores';
 import { useQuery } from '@tanstack/react-query';
 
@@ -38,7 +39,7 @@ export default function AgentsPage() {
                     <p className="text-muted-foreground font-mono text-xs">AUTONOMOUS INTELLIGENCE AT YOUR SERVICE.</p>
                 </div>
                 <div className="flex gap-3">
-                    <Link href="/marketplace/agents/instances" className="btn-retro btn-retro-outline bg-background flex items-center gap-2">
+                    <Link href={ROUTES.marketplaceAgentInstances} className="btn-retro btn-retro-outline bg-background flex items-center gap-2">
                         <Layers size={14} className="text-primary" />
                         MY INSTANCES
                     </Link>
