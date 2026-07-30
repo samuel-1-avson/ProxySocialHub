@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Bot, Play, Settings, RefreshCw, Cpu, Loader2 } from 'lucide-react';
-import { getMarketAgents, getMyAgents, AgentInstance, MarketAgent } from '@/lib/api';
-// Assuming api exists
+import { getMyAgents, AgentInstance } from '@/lib/api';
+import { ROUTES } from '@/lib/navigation/routes';
 
 export default function AgentInstancesPage() {
     const [instances, setInstances] = useState<AgentInstance[]>([]);
@@ -66,7 +66,7 @@ export default function AgentInstancesPage() {
                     <p className="font-mono text-xs text-muted-foreground mt-2 max-w-xs mx-auto mb-6">
                         YOU HAVE NOT DEPLOYED ANY AGENTS YET.
                     </p>
-                    <a href="/marketplace/agents" className="btn-retro btn-retro-primary">
+                    <a href={ROUTES.marketplaceAgents} className="btn-retro btn-retro-primary">
                         BROWSE MARKETPLACE
                     </a>
                 </div>
