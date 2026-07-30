@@ -111,11 +111,18 @@ export function ProviderNodeConnectPanel({
                 <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
                     <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                     <p className="text-[10px] font-mono text-emerald-200/90">
-                        This config includes <code className="text-emerald-100">provider_signing_key</code> so
-                        heartbeats can be cryptographically verified.
+                        Includes <code className="text-emerald-100">provider_signing_key</code> for heartbeat proofs.
+                        If your profile Solana wallet is linked, prefer signing with that wallet as the hotkey
+                        (random browser keys will not bind when a linked wallet is required).
+                        Payout wallet is separate and copied from your linked profile wallet automatically.
                     </p>
                 </div>
             )}
+
+            <p className="text-[9px] font-mono text-muted-foreground/80">
+                After download: run <code className="text-primary">provider-node start</code> only — do not{' '}
+                <code className="text-primary">register</code> again for this node.
+            </p>
 
             <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-48 overflow-auto">
                 {toml}

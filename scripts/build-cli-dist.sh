@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Build provider-node + proxyhubb-cli binaries into cli-dist/<version>/ for API distribution.
-# Linux/macOS counterpart to rebuild-cli.ps1 (CI and VPS builds).
-#
+# Windows is built via rebuild-cli.ps1 on windows-latest (see CI), not cross-compiled here.
 # Usage:
 #   ./scripts/build-cli-dist.sh
-#   ./scripts/build-cli-dist.sh --all
-#   CLI_DIST_VERSION=1.2.3 ./scripts/build-cli-dist.sh --all
+#   ./scripts/build-cli-dist.sh --all   # linux arm64 + macos (native/cross as available)
 
 set -euo pipefail
 

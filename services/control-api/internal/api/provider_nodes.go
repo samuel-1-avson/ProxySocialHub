@@ -101,6 +101,9 @@ func createNode(c *gin.Context) {
 		return
 	}
 
+	ensureNodePayoutWallet(node.ID, userID)
+	_ = db.DB.Where("id = ?", node.ID).First(&node)
+
 	gatewayID := providerGatewayNodeID(userID)
 	_ = db.DB.Model(&node).Update("gateway_node_id", gatewayID).Error
 
@@ -453,6 +456,8 @@ func nodeHeartbeat(c *gin.Context) {
 			currentNode.Hotkey = proofResult.Signer
 		}
 	}
+
+	ensureNodePayoutWallet(nodeID, userID)
 
 	now := time.Now()
 	updates := map[string]interface{}{

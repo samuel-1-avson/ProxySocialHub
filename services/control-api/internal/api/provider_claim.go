@@ -219,6 +219,8 @@ func confirmProviderClaim(c *gin.Context) {
 }
 
 func pendingProviderClaim(userID uuid.UUID) (total float64, count int64, wallet string) {
+	ensureUserNodesPayoutWallets(userID)
+
 	db.DB.Model(&models.ProviderEarning{}).
 		Where("provider_user_id = ? AND status = ? AND deleted_at IS NULL", userID, "pending").
 		Count(&count)
@@ -228,7 +230,11 @@ func pendingProviderClaim(userID uuid.UUID) (total float64, count int64, wallet 
 		Scan(&total)
 
 	var node models.ProviderNode
-	if err := db.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
+	if err := db.DB.Where("user_id = ? AND deleted_at IS NULL AND wallet_address <> ''", userID).
+		Order("updated_at DESC").
+		First(&node).Error; err == nil {
+		wallet = node.WalletAddress
+	} else if err := db.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
 		Order("updated_at DESC").
 		First(&node).Error; err == nil {
 		wallet = node.WalletAddress
