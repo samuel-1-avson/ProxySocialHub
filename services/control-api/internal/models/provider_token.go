@@ -79,7 +79,7 @@ type CLIDownload struct {
 	Filename    string    `gorm:"type:varchar(255);not null" json:"filename"`
 	FilePath    string    `gorm:"type:varchar(500);not null" json:"-"` // Internal path, not exposed
 	FileSize    int64     `json:"file_size"`
-	Checksum    string    `gorm:"type:varchar(64)" json:"checksum"` // SHA256
+	Checksum    string    `gorm:"type:varchar(128)" json:"checksum"` // SHA256 hex (64 chars; room for prefix)
 	DownloadURL string    `gorm:"type:varchar(500)" json:"download_url"`
 	IsLatest    bool      `gorm:"default:false;index" json:"is_latest"`
 	IsActive    bool      `gorm:"default:true" json:"is_active"`
