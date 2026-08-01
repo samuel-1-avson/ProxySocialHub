@@ -56,6 +56,22 @@ function platformHasBuild(
     return Boolean(resolveDownload(downloads, platform, arch));
 }
 
+/** Normalize checksum for display/copy (strip sha256: prefix; keep full 64-hex when present). */
+function formatChecksum(raw: string | undefined): string {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+    const withoutPrefix = trimmed.replace(/^sha256:/i, '').trim();
+    return withoutPrefix || trimmed;
+}
+
+/** Shell-safe --config flag for the selected OS (PowerShell on Windows). */
+function configFlag(platform: string): string {
+    if (platform === 'windows') {
+        return '--config "$env:USERPROFILE\\.proxyhubb\\provider.toml"';
+    }
+    return '--config ~/.proxyhubb/provider.toml';
+}
+
 export default function CLIPage() {
     const toast = useToast();
     const [selectedPlatform, setSelectedPlatform] = useState('linux');
@@ -66,6 +82,7 @@ export default function CLIPage() {
     const configPath = useMemo(() => defaultProviderConfigPath(), []);
     const releasesUrl = useMemo(() => getProviderCliReleasesUrl(), []);
     const exe = selectedPlatform === 'windows' ? 'provider-node.exe' : 'provider-node';
+    const cfg = configFlag(selectedPlatform);
 
     const { data, isLoading, error } = useQuery({
         queryKey: ['cli-downloads'],
@@ -134,35 +151,45 @@ export default function CLIPage() {
         });
     }
 
+    const checksum = formatChecksum(downloadInfo?.checksum);
+    const verifyChecksumCmd = selectedPlatform === 'windows'
+        ? (checksum
+            ? `# PowerShell — verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256\n# expect: ${checksum}`
+            : `# PowerShell — verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256`)
+        : (checksum
+            ? `# verify download\nshasum -a 256 ./${binaryHint}\n# expect: ${checksum}`
+            : `# verify download\nshasum -a 256 ./${binaryHint}`);
+
     const openConsoleCmd = selectedPlatform === 'windows'
-        ? `# After download (browser Downloads folder):\n# Option A — double-click the .exe (opens interactive console window)\n# Option B — from a Release zip, double-click Launch-Provider-Console.cmd\n\ncd $env:USERPROFILE\\Downloads\n.\\${binaryHint}\n\n# Inside the console menu:\n#   [1] live dashboard TUI\n#   [2] doctor\n#   [4] start daemon\n# Put provider.toml at:\n#   ${configPath}`
-        : `# After download:\nchmod +x ./${binaryHint}\n./${binaryHint}\n\n# No-args opens the interactive console menu.\n# Or jump straight to the TUI:\n./${binaryHint} dashboard --config ${configPath}`;
+        ? `# After download (browser Downloads folder):\n# Option A — double-click the .exe (interactive console)\n# Option B — from a Release zip, double-click Launch-Provider-Console.cmd\n\ncd $env:USERPROFILE\\Downloads\n.\\${binaryHint}\n\n# Put provider.toml at:\n#   ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`
+        : `# After download:\nchmod +x ./${binaryHint}\n# Optional install onto PATH:\n# sudo mv ./${binaryHint} /usr/local/bin/provider-node\n\n./${binaryHint}\n\n# Config path: ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`;
 
     const installCmd = selectedPlatform === 'windows'
-        ? `# Recommended (after Setup wizard downloaded provider.toml):\n# Do NOT run register again — that creates a second node.\n${exe} config validate --config provider.toml\n${exe} doctor --config provider.toml\n${exe} service install --config provider.toml\n${exe} service start\n${exe} service status\n\n# CLI-only path (new node, no wizard):\n${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\n${exe} start --config provider.toml`
-        : `# Recommended (after Setup wizard downloaded provider.toml):\n# Do NOT run register again — that creates a second node.\nchmod +x ./${binaryHint}\nsudo mv ./${binaryHint} /usr/local/bin/provider-node\nprovider-node config validate --config provider.toml\nprovider-node doctor --config provider.toml\nprovider-node service install --config provider.toml\nprovider-node service start\n\n# CLI-only path (new node, no wizard):\nprovider-node register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\nprovider-node start --config provider.toml`;
+        ? `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\n${exe} doctor ${cfg}\n${exe} start ${cfg}\n\n# Optional — run as a Windows service instead of foreground start:\n# ${exe} service install ${cfg}\n# ${exe} service start\n# ${exe} service status`
+        : `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\nchmod +x ./${binaryHint}\n./${binaryHint} doctor ${cfg}\n./${binaryHint} start ${cfg}\n\n# Optional — systemd/launchd service instead of foreground start:\n# provider-node service install ${cfg}\n# provider-node service start`;
+
+    const registerOnlyCmd = `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\n${exe} start ${cfg}`;
 
     const localWorkspaceCmd = `# Dev bootstrap (writes ${configPath})\n.\\scripts\\bootstrap-provider-dev.ps1 -ForceNewToken\n.\\scripts\\test-provider-auth.ps1\n\n# Terminal 1: daemon\n.\\scripts\\proxyhubb-cli.ps1 start\n\n# Terminal 2: live TUI\n.\\scripts\\proxyhubb-cli.ps1 dashboard`;
 
-    const configTemplate = `# provider.toml — use Dashboard → My nodes → Connect for production URLs
+    const configTemplate = `# provider.toml — prefer Dashboard → My nodes → Connect for a filled file
 control_api_url = "${endpoints.controlApiUrl}"
 gateway_addr = "${endpoints.gatewayTunnelAddr}"
-api_key = "<provider_token>"
-node_id = "<node_uuid_from_setup_or_register>"
-provider_signing_key = "<run provider-node keygen, or use linked wallet as hotkey>"
+api_key = "<provider_token from Dashboard → API tokens>"
+node_id = "<node_uuid from Setup or My nodes — not a new register>"
+provider_signing_key = "<generated in Connect panel>"
 connection_type = "residential"
-use_tls = ${endpoints.useTls}
+use_tls = true
 jwt_token = ""
 metrics_port = 9090`;
 
     const steps = downloadInfo
         ? [
-            { step: '1', label: 'Download binary', desc: 'Use the platform build above (or GitHub Release zip)' },
-            { step: '2', label: 'Open console window', desc: selectedPlatform === 'windows' ? 'Double-click .exe / Launch-Provider-Console.cmd' : `Run ./${binaryHint} (no args)` },
-            { step: '3', label: 'Get config', desc: 'Setup wizard or My nodes → Connect' },
-            { step: '4', label: 'Doctor + start', desc: 'Menu [2] then [4], or service install' },
-            { step: '5', label: 'Live TUI', desc: 'Menu [1] dashboard in a second window' },
-            { step: '6', label: 'Confirm online', desc: 'Operator console below / My nodes (~2 min)' },
+            { step: '1', label: 'Download binary', desc: 'Platform build above (or GitHub Release zip)' },
+            { step: '2', label: 'Get config', desc: 'Setup wizard or My nodes → Connect (preferred over register)' },
+            { step: '3', label: 'Pre-flight', desc: `${exe} doctor ${cfg}` },
+            { step: '4', label: 'Start daemon', desc: `${exe} start ${cfg}` },
+            { step: '5', label: 'Confirm online', desc: 'Operator console / My nodes within ~2 minutes' },
         ]
         : [];
 
@@ -176,8 +203,9 @@ metrics_port = 9090`;
                 <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Provider Node CLI</h1>
                 <p className="text-muted-foreground font-mono text-xs max-w-2xl">
                     Download <strong className="text-foreground">provider-node</strong> for your OS.
-                    Opening it with no arguments launches an <strong className="text-foreground">interactive console window</strong>.
                     Default config: <code className="text-primary">{configPath}</code>.
+                    {' '}API: <code className="text-primary">{endpoints.controlApiUrl}</code>
+                    {' · '}Gateway: <code className="text-primary">{endpoints.gatewayTunnelAddr}</code>.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                     <Link
@@ -191,6 +219,12 @@ metrics_port = 9090`;
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
                     >
                         My nodes
+                    </Link>
+                    <Link
+                        href="/dashboard/provider/tokens"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
+                    >
+                        API tokens
                     </Link>
                     <a
                         href={releasesUrl}
@@ -300,21 +334,28 @@ metrics_port = 9090`;
                             </a>
                         </div>
 
-                        {downloadInfo.checksum && (
-                            <div>
+                        {checksum && (
+                            <div className="space-y-2">
                                 <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">SHA256 Checksum</p>
                                 <div className="flex items-center gap-2 bg-black/20 rounded-xl px-4 py-2.5 font-mono text-xs">
-                                    <span className="text-muted-foreground flex-1 break-all">{downloadInfo.checksum}</span>
+                                    <span className="text-muted-foreground flex-1 break-all select-all">{checksum}</span>
                                     <button
                                         type="button"
-                                        onClick={() => copy(downloadInfo.checksum, 'checksum')}
+                                        onClick={() => copy(checksum, 'checksum')}
                                         className="shrink-0 text-muted-foreground hover:text-foreground"
+                                        aria-label="Copy SHA256 checksum"
                                     >
                                         {copied === 'checksum'
                                             ? <CheckCircle2 size={12} className="text-emerald-400" />
                                             : <Copy size={12} />}
                                     </button>
                                 </div>
+                                <CodeBlock
+                                    code={verifyChecksumCmd}
+                                    id="verify-checksum"
+                                    copied={copied === 'verify-checksum'}
+                                    onCopy={() => copy(verifyChecksumCmd, 'verify-checksum')}
+                                />
                             </div>
                         )}
 
@@ -438,7 +479,9 @@ metrics_port = 9090`;
                         Quick Start
                     </h2>
                     <p className="text-[11px] font-mono text-amber-400/90 mb-3">
-                        Prefer Setup → download config → start. Running <code>register</code> after the wizard creates a second orphan node.
+                        Prefer <Link href="/dashboard/provider/setup" className="underline text-primary">Setup</Link>
+                        {' '}→ download config → <code className="text-foreground">start</code>.
+                        Running <code className="text-foreground">register</code> after the wizard creates a second orphan node.
                     </p>
                     <CodeBlock
                         code={installCmd}
@@ -452,12 +495,28 @@ metrics_port = 9090`;
                                 <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-xs font-black shrink-0">
                                     {s.step}
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <p className="text-xs font-bold font-mono">{s.label}</p>
-                                    <p className="text-[10px] text-muted-foreground font-mono">{s.desc}</p>
+                                    <p className="text-[10px] text-muted-foreground font-mono break-all">{s.desc}</p>
                                 </div>
                             </div>
                         ))}
+                    </div>
+                    <div className="mt-5 pt-4 border-t border-border/60 space-y-2">
+                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground">
+                            CLI-only path (new node — skip if you used Setup)
+                        </p>
+                        <p className="text-[10px] font-mono text-muted-foreground">
+                            Create a token under{' '}
+                            <Link href="/dashboard/provider/tokens" className="text-primary underline">API tokens</Link>
+                            , then:
+                        </p>
+                        <CodeBlock
+                            code={registerOnlyCmd}
+                            id="register-only"
+                            copied={copied === 'register-only'}
+                            onCopy={() => copy(registerOnlyCmd, 'register-only')}
+                        />
                     </div>
                 </GlassCard>
             )}
@@ -515,22 +574,20 @@ metrics_port = 9090`;
                 <div className="space-y-2">
                     {[
                         { cmd: `${exe}`, desc: 'Interactive console menu (no args)' },
-                        { cmd: `${exe} dashboard --config provider.toml`, desc: 'Live TUI window' },
-                        { cmd: `${exe} start --config provider.toml`, desc: 'Start daemon (preferred after wizard)' },
-                        { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: create a new node' },
-                        { cmd: `${exe} keygen`, desc: 'Generate provider_signing_key' },
-                        { cmd: `${exe} config validate --config provider.toml`, desc: 'Offline config validation' },
-                        { cmd: `${exe} doctor --config provider.toml`, desc: 'Pre-flight checks' },
-                        { cmd: `${exe} service install --config provider.toml`, desc: 'Install background service' },
-                        { cmd: `${exe} service start`, desc: 'Start installed service' },
+                        { cmd: `${exe} doctor ${cfg}`, desc: 'Pre-flight checks' },
+                        { cmd: `${exe} start ${cfg}`, desc: 'Start daemon (preferred after Setup / Connect)' },
+                        { cmd: `${exe} dashboard ${cfg}`, desc: 'Live TUI window' },
+                        { cmd: `${exe} service install ${cfg}`, desc: 'Optional: install background service' },
+                        { cmd: `${exe} service start`, desc: 'Optional: start installed service' },
                         { cmd: `${exe} status --json`, desc: 'Machine-readable status' },
+                        { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: creates a NEW node (skip after wizard)' },
                         { cmd: `proxyhubb-cli join --api-url ${endpoints.controlApiUrl} --key <TOKEN> --gateway ${endpoints.gatewayTunnelAddr}`, desc: 'Onboarding wrapper' },
                     ].map(({ cmd, desc }) => (
                         <div key={cmd} className="flex items-center justify-between gap-4 px-4 py-2.5 rounded-xl hover:bg-white/5 transition-colors group">
                             <div className="flex items-center gap-3 min-w-0">
                                 <code className="text-xs font-mono text-primary truncate">{cmd}</code>
                             </div>
-                            <p className="text-xs text-muted-foreground font-mono shrink-0 hidden sm:block">{desc}</p>
+                            <p className="text-xs text-muted-foreground font-mono shrink-0 hidden sm:block max-w-[40%] text-right">{desc}</p>
                             <button
                                 type="button"
                                 onClick={() => copy(cmd, cmd)}

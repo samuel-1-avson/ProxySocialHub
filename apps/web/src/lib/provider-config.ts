@@ -102,12 +102,17 @@ export interface BuildProviderTomlInput {
 
 export function buildProviderToml(input: BuildProviderTomlInput): string {
     const endpoints = input.endpoints ?? getProviderEndpoints();
+    const gatewayHost = endpoints.gatewayTunnelAddr.split(':')[0]?.trim() ?? '';
+    const isIpGateway = /^\d{1,3}(\.\d{1,3}){3}$/.test(gatewayHost);
+    const useTls = endpoints.useTls || isIpGateway || endpoints.controlApiUrl.startsWith('https://');
     const lines = [
         `control_api_url = "${endpoints.controlApiUrl}"`,
         `gateway_addr = "${endpoints.gatewayTunnelAddr}"`,
         `node_id = "${input.nodeId}"`,
         `connection_type = "${input.connectionType ?? 'residential'}"`,
-        `use_tls = ${endpoints.useTls}`,
+        `use_tls = ${useTls}`,
+        // Self-signed gateway certs / raw IP endpoints need skip-verify until a real cert is issued.
+        `tls_skip_verify = ${isIpGateway}`,
         'jwt_token = ""',
     ];
     if (input.apiKey) {
@@ -118,7 +123,7 @@ export function buildProviderToml(input: BuildProviderTomlInput): string {
     if (input.providerSigningKey) {
         lines.push(`provider_signing_key = "${input.providerSigningKey}"`);
     } else {
-        lines.push('# provider_signing_key = "<run provider-node keygen>"');
+        lines.push('# provider_signing_key = "<generated in Connect panel>"');
     }
     return `${lines.join('\n')}\n`;
 }
@@ -135,6 +140,7 @@ export function buildStartCommand(configPath = defaultProviderConfigPath()): str
         configPath.includes(' ') && !configPath.startsWith('"')
             ? `"${configPath}"`
             : configPath;
+    // provider-node honors use_tls from provider.toml; no flags needed for production.
     return `provider-node start --config ${quoted}`;
 }
 

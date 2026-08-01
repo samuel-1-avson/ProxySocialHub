@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Copy, Download, Terminal } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { AlertCircle, CheckCircle2, Copy, Download, KeyRound, Terminal } from 'lucide-react';
 import {
     buildProviderToml,
     buildStartCommand,
@@ -11,8 +11,9 @@ import {
     getOrCreateProviderSigningKey,
     getProviderEndpoints,
     loadProviderApiKey,
+    saveProviderApiKey,
 } from '@/lib/provider-config';
-import { getNodeConnectInfo } from '@/lib/api/provider';
+import { createProviderToken, getNodeConnectInfo } from '@/lib/api/provider';
 import Link from 'next/link';
 
 interface ProviderNodeConnectPanelProps {
@@ -30,6 +31,7 @@ export function ProviderNodeConnectPanel({
     compact = false,
 }: ProviderNodeConnectPanelProps) {
     const [copied, setCopied] = useState<string | null>(null);
+    const [sessionToken, setSessionToken] = useState<string | null>(null);
 
     const { data: connectInfo, isLoading, error } = useQuery({
         queryKey: ['node-connect', nodeId],
@@ -37,7 +39,15 @@ export function ProviderNodeConnectPanel({
         enabled: Boolean(nodeId),
     });
 
-    const apiKey = apiKeyProp ?? loadProviderApiKey();
+    const tokenMutation = useMutation({
+        mutationFn: () => createProviderToken({ name: `node-${nodeId.slice(0, 8)}` }),
+        onSuccess: (res) => {
+            saveProviderApiKey(res.token);
+            setSessionToken(res.token);
+        },
+    });
+
+    const apiKey = apiKeyProp ?? sessionToken ?? loadProviderApiKey();
     const providerSigningKey = useMemo(() => getOrCreateProviderSigningKey(), []);
     const endpoints = useMemo(() => {
         if (connectInfo) {
@@ -96,14 +106,30 @@ export function ProviderNodeConnectPanel({
             {!apiKey && (
                 <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
                     <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-[10px] font-mono text-amber-200/90">
-                        Create an API token first so the downloaded config includes{' '}
-                        <code className="text-amber-100">api_key</code>.{' '}
-                        <Link href="/dashboard/provider/tokens" className="underline text-primary">
-                            API Tokens
-                        </Link>
-                        {' '}or rerun the setup wizard token step.
-                    </p>
+                    <div className="space-y-2">
+                        <p className="text-[10px] font-mono text-amber-200/90">
+                            This config needs a provider API token. Create one now — it will be embedded in the
+                            downloaded <code className="text-amber-100">provider.toml</code> (shown once).
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => tokenMutation.mutate()}
+                            disabled={tokenMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase disabled:opacity-50"
+                        >
+                            <KeyRound size={12} />
+                            {tokenMutation.isPending ? 'Creating token…' : 'Create connection token'}
+                        </button>
+                        {tokenMutation.isError && (
+                            <p className="text-[10px] font-mono text-red-400">
+                                Could not create a token. Try again or use{' '}
+                                <Link href="/dashboard/provider/tokens" className="underline text-primary">
+                                    API Tokens
+                                </Link>
+                                .
+                            </p>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -111,10 +137,8 @@ export function ProviderNodeConnectPanel({
                 <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
                     <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                     <p className="text-[10px] font-mono text-emerald-200/90">
-                        Includes <code className="text-emerald-100">provider_signing_key</code> for heartbeat proofs.
-                        If your profile Solana wallet is linked, prefer signing with that wallet as the hotkey
-                        (random browser keys will not bind when a linked wallet is required).
-                        Payout wallet is separate and copied from your linked profile wallet automatically.
+                        Includes a device <code className="text-emerald-100">provider_signing_key</code> for
+                        heartbeat proofs. The first verified heartbeat binds it to this node — no copy/paste needed.
                     </p>
                 </div>
             )}
@@ -124,23 +148,31 @@ export function ProviderNodeConnectPanel({
                 <code className="text-primary">register</code> again for this node.
             </p>
 
-            <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-48 overflow-auto">
-                {toml}
-            </pre>
+            {apiKey ? (
+                <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-48 overflow-auto">
+                    {toml}
+                </pre>
+            ) : (
+                <p className="text-[10px] font-mono text-muted-foreground/70">
+                    The config preview appears after a token is created.
+                </p>
+            )}
 
             <div className="flex flex-wrap gap-2">
                 <button
                     type="button"
+                    disabled={!apiKey}
                     onClick={() => downloadProviderToml(`provider-${nodeId.slice(0, 8)}.toml`, toml)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase disabled:opacity-50"
                 >
                     <Download size={12} />
                     Download provider.toml
                 </button>
                 <button
                     type="button"
+                    disabled={!apiKey}
                     onClick={() => copy(toml, 'toml')}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
                 >
                     {copied === 'toml' ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
                     Copy config
