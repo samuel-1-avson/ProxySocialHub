@@ -2,7 +2,10 @@ use crate::doctor::{Check, DoctorReport};
 use crate::operator::OperatorSnapshot;
 use crate::tui::theme::{self, retro_block, status_badge};
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -72,6 +75,9 @@ struct DashboardApp {
     node_cursor: usize,
     tick: u64,
     show_help: bool,
+    node_detail: bool,
+    log_errors_only: bool,
+    log_wrap: bool,
     force_refresh: bool,
     force_doctor: bool,
     hint: Option<(String, u64)>,
@@ -113,6 +119,9 @@ impl DashboardApp {
             node_cursor: 0,
             tick: 0,
             show_help: false,
+            node_detail: false,
+            log_errors_only: false,
+            log_wrap: true,
             force_refresh: false,
             force_doctor: false,
             hint: None,
@@ -138,6 +147,7 @@ pub async fn run(config_path: PathBuf, refresh_ms: u64) -> Result<()> {
     let mut stdout = stdout();
     enable_raw_mode()?;
     stdout.execute(EnterAlternateScreen)?;
+    stdout.execute(EnableMouseCapture)?;
     let mut terminal = ratatui::init();
 
     let local_refresh = Duration::from_millis(refresh_ms.max(250));
@@ -207,18 +217,64 @@ pub async fn run(config_path: PathBuf, refresh_ms: u64) -> Result<()> {
                         handle_key_event(&mut app, &data, key.code, key.modifiers)?
                     }
                 }
+                Event::Mouse(mouse) => handle_mouse_event(&mut app, &data, mouse)?,
                 Event::Resize(_, _) => LoopAction::Continue,
                 _ => LoopAction::Continue,
             };
             draw_dashboard(&mut terminal, refresh_ms, &app, &data, &in_flight)?;
             if action == LoopAction::Quit {
                 disable_raw_mode()?;
+                stdout.execute(DisableMouseCapture)?;
                 stdout.execute(LeaveAlternateScreen)?;
                 ratatui::restore();
                 return Ok(());
             }
         }
     }
+}
+
+fn handle_mouse_event(
+    app: &mut DashboardApp,
+    data: &DashboardData,
+    mouse: event::MouseEvent,
+) -> Result<LoopAction> {
+    // Tab bar is the 3rd row from top (banner 5 + alerts 0-2 + tab 3). Approximate by y.
+    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+        let y = mouse.row;
+        // rough tab bar hit: rows 5-7 (after banner)
+        if (5..=7).contains(&y) {
+            let x = mouse.column;
+            // each tab label ~14 chars wide
+            let idx = (x / 14).min(Tab::ALL.len().saturating_sub(1) as u16) as usize;
+            if idx < Tab::ALL.len() {
+                app.tab = Tab::ALL[idx];
+                app.node_detail = false;
+                set_hint(app, format!("Tab → {}", app.tab.label().trim()));
+            }
+        }
+        // node row click: approximate body start
+        if app.tab == Tab::Nodes && y >= 10 {
+            let row = (y - 10) as usize;
+            if row < data.snapshot.as_ref().map(|s| s.status.control_api.nodes.len()).unwrap_or(0) {
+                app.node_cursor = row;
+                set_hint(app, "Node selected — Enter for detail");
+            }
+        }
+    }
+    if app.tab == Tab::Logs {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                app.log_scroll = app.log_scroll.saturating_add(1);
+                set_hint(app, "Logs ↓");
+            }
+            MouseEventKind::ScrollUp => {
+                app.log_scroll = app.log_scroll.saturating_sub(1);
+                set_hint(app, "Logs ↑");
+            }
+            _ => {}
+        }
+    }
+    Ok(LoopAction::Continue)
 }
 
 fn draw_dashboard(
@@ -466,7 +522,14 @@ fn handle_key_event(
         KeyCode::Char('q') | KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
             return Ok(LoopAction::Quit);
         }
-        KeyCode::Char('q') | KeyCode::Esc => return Ok(LoopAction::Quit),
+        KeyCode::Char('q') | KeyCode::Esc => {
+            if app.node_detail {
+                app.node_detail = false;
+                set_hint(app, "Node list");
+                return Ok(LoopAction::Continue);
+            }
+            return Ok(LoopAction::Quit);
+        }
         KeyCode::Char('?') => {
             app.show_help = true;
             set_hint(app, "Help open");
@@ -549,6 +612,28 @@ fn handle_key_event(
                 }
             }
             set_hint(app, "Bottom");
+        }
+        KeyCode::Enter => {
+            if app.tab == Tab::Nodes {
+                app.node_detail = !app.node_detail;
+                set_hint(app, if app.node_detail { "Node detail" } else { "Node list" });
+            }
+        }
+        KeyCode::Char('e') | KeyCode::Char('a') => {
+            if app.tab == Tab::Logs {
+                app.log_errors_only = !app.log_errors_only;
+                app.log_scroll = 0;
+                set_hint(
+                    app,
+                    if app.log_errors_only { "Logs: errors only" } else { "Logs: all" },
+                );
+            }
+        }
+        KeyCode::Char('w') => {
+            if app.tab == Tab::Logs {
+                app.log_wrap = !app.log_wrap;
+                set_hint(app, if app.log_wrap { "Wrap on" } else { "Wrap off" });
+            }
         }
         _ => set_hint(app, "Unknown key — press ? for help"),
     }
@@ -842,31 +927,206 @@ fn render_overview(
     doctor: Option<&DoctorReport>,
     doctor_err: Option<&str>,
 ) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-        .split(area);
-
-    let left_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(5)])
-        .split(cols[0]);
-
-    render_status_card(frame, left_chunks[0], snap, err, true);
-    render_doctor_panel(frame, left_chunks[1], doctor, doctor_err, true);
-
-    let right_chunks = Layout::default()
+    let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(8),
-            Constraint::Min(3),
-            Constraint::Min(3),
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Min(6),
+            Constraint::Length(4),
         ])
-        .split(cols[1]);
+        .split(area);
 
-    render_tunnel_card(frame, right_chunks[0], snap, true);
-    render_spark_card(frame, right_chunks[1], app, "UPLINK", &app.spark_up);
-    render_spark_card(frame, right_chunks[2], app, "DOWNLINK", &app.spark_down);
+    render_health_banner(frame, rows[0], snap, err);
+    render_kpi_row(frame, rows[1], snap);
+
+    let mid = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(rows[2]);
+    render_spark_card(frame, mid[0], app, "TRAFFIC (last 60s)", &combined_spark(app));
+    render_doctor_summary(frame, mid[1], doctor, doctor_err);
+
+    render_overview_footer(frame, rows[3], snap);
+}
+
+fn render_health_banner(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+    err: Option<&str>,
+) {
+    let (label, style, detail) = if let Some(e) = err {
+        ("COLLECT ERROR", theme::alert(), truncate(e, 60))
+    } else if let Some(s) = snap {
+        if let Some(h) = &s.health {
+            let st = match h.state.as_str() {
+                "ONLINE" => theme::ok_badge(),
+                "DEGRADED" => theme::warn_badge(),
+                _ => theme::alert_badge(),
+            };
+            let detail = if h.reasons.is_empty() {
+                format!("score {} · all systems nominal", h.score)
+            } else {
+                format!("score {} · {}", h.score, h.reasons.join(" · "))
+            };
+            (h.state.as_str(), st, detail)
+        } else {
+            let (l, _) = tunnel_status_style(Some(s));
+            (l, theme::warn_badge(), "health computing…".to_string())
+        }
+    } else {
+        ("LOADING", theme::muted(), "…".to_string())
+    };
+
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(" HEALTH ", theme::label()),
+            Span::styled(format!(" {label} "), style),
+            Span::styled(format!(" {detail}"), theme::dim()),
+        ]),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines).block(retro_block("STATUS", true)),
+        area,
+    );
+}
+
+fn render_kpi_row(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+) {
+    let block = retro_block("KEY METRICS", true);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let Some(s) = snap else {
+        frame.render_widget(Paragraph::new(" …").style(theme::dim()), inner);
+        return;
+    };
+
+    let (sessions, up, down, lat, hb, today) = if let Some(m) = &s.status.metrics {
+        (
+            format!("{}", m.active_connections),
+            format!("{} kbps", m.rate_up_kbps),
+            format!("{} kbps", m.rate_down_kbps),
+            format!("{} ms", m.latency_ms),
+            format!("{} s", m.last_heartbeat_ago_ms / 1000),
+            s.earnings
+                .as_ref()
+                .map(|e| format!("{:.3} SOL", e.last_7_days_sol / 7.0))
+                .unwrap_or_else(|| "—".into()),
+        )
+    } else {
+        (
+            "—".into(),
+            "—".into(),
+            "—".into(),
+            "—".into(),
+            "—".into(),
+            s.earnings
+                .as_ref()
+                .map(|e| format!("{:.3} SOL", e.last_7_days_sol / 7.0))
+                .unwrap_or_else(|| "—".into()),
+        )
+    };
+
+    let cells = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(16),
+            Constraint::Percentage(18),
+            Constraint::Percentage(18),
+            Constraint::Percentage(14),
+            Constraint::Percentage(16),
+            Constraint::Percentage(18),
+        ])
+        .split(inner);
+
+    let items = [
+        ("SESSIONS", sessions),
+        ("UPLINK", up),
+        ("DOWNLINK", down),
+        ("LATENCY", lat),
+        ("HEARTBEAT", hb),
+        ("EARN/24h", today),
+    ];
+    for (i, (k, v)) in items.iter().enumerate() {
+        let line = vec![
+            Line::from(Span::styled(*k, theme::muted())),
+            Line::from(Span::styled(v.clone(), theme::value().add_modifier(Modifier::BOLD))),
+        ];
+        frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), cells[i]);
+    }
+}
+
+fn render_doctor_summary(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    doctor: Option<&DoctorReport>,
+    doctor_err: Option<&str>,
+) {
+    let (title, lines) = if let Some(e) = doctor_err {
+        (
+            "DOCTOR  error",
+            vec![Line::from(Span::styled(format!("ERR │ {e}"), theme::alert()))],
+        )
+    } else if let Some(d) = doctor {
+        let failing: Vec<&Check> = d.checks.iter().filter(|c| !c.ok).collect();
+        if failing.is_empty() {
+            (
+                "DOCTOR  all clear",
+                vec![Line::from(Span::styled("No blocking issues", theme::ok()))],
+            )
+        } else {
+            let mut lines = Vec::new();
+            for c in failing.iter().take(4) {
+                let style = if c.severity == "error" { theme::alert() } else { theme::warn() };
+                lines.push(Line::from(Span::styled(
+                    format!("{} │ {}", c.id, truncate(&c.message, 40)),
+                    style,
+                )));
+            }
+            if failing.len() > 4 {
+                lines.push(Line::from(Span::styled(
+                    format!("… +{} more (press d)", failing.len() - 4),
+                    theme::dim(),
+                )));
+            }
+            ("DOCTOR  action needed", lines)
+        }
+    } else {
+        ("DOCTOR  …", vec![Line::from(Span::styled("checking…", theme::dim()))])
+    };
+
+    frame.render_widget(Paragraph::new(lines).block(retro_block(title, true)), area);
+}
+
+fn render_overview_footer(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+) {
+    let text = if let Some(s) = snap {
+        let rt = s.runtime.as_ref();
+        let gw = rt.map(|r| r.active_gateway.as_str()).unwrap_or("—");
+        let link = rt.map(|r| if r.tunnel_connected { "UP" } else { "DOWN" }).unwrap_or("—");
+        format!(
+            "Gateway {} · link {} · transport {} · sign {}",
+            gw,
+            link,
+            s.config.transport,
+            if s.config.signing_configured { "OK" } else { "MISSING" }
+        )
+    } else {
+        "…".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(text, theme::dim())))
+            .block(retro_block("CONNECTION", true)),
+        area,
+    );
 }
 
 fn render_network(
@@ -879,21 +1139,220 @@ fn render_network(
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(9),
-            Constraint::Min(6),
+            Constraint::Length(6),
+            Constraint::Min(7),
             Constraint::Length(5),
         ])
         .split(area);
 
-    let top = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[0]);
+    render_gateway_info(frame, rows[0], snap, err);
 
-    render_status_card(frame, top[0], snap, err, true);
-    render_tunnel_card(frame, top[1], snap, true);
-    render_metrics_gauges(frame, rows[1], snap);
-    render_spark_card(frame, rows[2], app, "TRAFFIC MIX", &combined_spark(app));
+    let mid = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(rows[1]);
+    render_throughput_graph(frame, mid[0], app);
+    render_latency_panel(frame, mid[1], snap);
+
+    render_network_footer(frame, rows[2], snap);
+}
+
+fn render_gateway_info(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+    err: Option<&str>,
+) {
+    let lines = if let Some(e) = err {
+        vec![Line::from(Span::styled(format!("ERR │ {e}"), theme::alert()))]
+    } else if let Some(s) = snap {
+        let rt = s.runtime.as_ref();
+        vec![
+            line_kv(
+                "GATEWAY",
+                rt.map(|r| {
+                    format!(
+                        "{} ({}/{})",
+                        r.active_gateway,
+                        r.gateway_index + 1,
+                        r.gateway_total
+                    )
+                })
+                .unwrap_or_else(|| s.config.gateways.join(", ")),
+            ),
+            line_kv(
+                "LINK",
+                rt.map(|r| if r.tunnel_connected { "UP" } else { "DOWN" })
+                    .unwrap_or("—"),
+            ),
+            line_kv(
+                "TLS",
+                if s.config.gateways.iter().any(|g| g.contains("proxyhubb.com") || g.parse::<std::net::Ipv4Addr>().is_ok()) {
+                    "ON"
+                } else {
+                    "—"
+                },
+            ),
+            line_kv("TRANSPORT", &s.config.transport),
+        ]
+    } else {
+        vec![Line::from(Span::styled("SYNC │ …", theme::dim()))]
+    };
+    frame.render_widget(
+        Paragraph::new(lines).block(retro_block("GATEWAY", true)),
+        area,
+    );
+}
+
+fn render_throughput_graph(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    app: &DashboardApp,
+) {
+    let up = &app.spark_up;
+    let down = &app.spark_down;
+    let max = up
+        .iter()
+        .chain(down.iter())
+        .max()
+        .copied()
+        .unwrap_or(1)
+        .max(1);
+
+    let up_data: Vec<u64> = up.iter().map(|v| v.saturating_mul(100) / max).collect();
+    let down_data: Vec<u64> = down.iter().map(|v| v.saturating_mul(100) / max).collect();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    frame.render_widget(
+        Sparkline::default()
+            .block(retro_block("UPLINK kbps", true))
+            .data(&up_data)
+            .style(Style::default().fg(theme::AMBER)),
+        chunks[0],
+    );
+    frame.render_widget(
+        Sparkline::default()
+            .block(retro_block("DOWNLINK kbps", true))
+            .data(&down_data)
+            .style(Style::default().fg(theme::PHOSPHOR)),
+        chunks[1],
+    );
+}
+
+fn render_latency_panel(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+) {
+    let block = retro_block("LATENCY / SESSIONS", true);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let Some(s) = snap else {
+        frame.render_widget(Paragraph::new(" …").style(theme::dim()), inner);
+        return;
+    };
+    let Some(m) = &s.status.metrics else {
+        frame.render_widget(
+            Paragraph::new("NO /stats — start daemon").style(theme::warn()),
+            inner,
+        );
+        return;
+    };
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+
+    let lat_pct = (m.latency_ms.min(500) as u16 * 100 / 500).max(3);
+    frame.render_widget(
+        Gauge::default()
+            .gauge_style(Style::default().fg(theme::WARN).bg(theme::MUTED))
+            .percent(lat_pct)
+            .label(format!("CUR {} ms", m.latency_ms)),
+        rows[0],
+    );
+    frame.render_widget(
+        Gauge::default()
+            .gauge_style(Style::default().fg(theme::AMBER).bg(theme::MUTED))
+            .percent((m.latency_avg_ms.min(500) as u16 * 100 / 500).max(3))
+            .label(format!("AVG {} ms · MAX {} ms", m.latency_avg_ms, m.latency_max_ms)),
+        rows[1],
+    );
+    let sess_pct = m.active_connections.clamp(0, 100) as u16;
+    frame.render_widget(
+        Gauge::default()
+            .gauge_style(Style::default().fg(theme::PHOSPHOR).bg(theme::MUTED))
+            .percent(sess_pct)
+            .label(format!(
+                "SESSIONS {} · FAILED {}",
+                m.active_connections, m.failed_connections
+            )),
+        rows[2],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!(
+                "TOTAL {} · HB {}s ago",
+                m.total_connections,
+                m.last_heartbeat_ago_ms / 1000
+            ),
+            theme::dim(),
+        ))),
+        rows[3],
+    );
+}
+
+fn render_network_footer(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+) {
+    let text = if let Some(s) = snap {
+        if let Some(m) = &s.status.metrics {
+            format!(
+                "bytes ↑{} ↓{} · type {} · port :{}",
+                format_bytes(m.bytes_up),
+                format_bytes(m.bytes_down),
+                m.connection_type,
+                s.config.metrics_port
+            )
+        } else {
+            "metrics offline".to_string()
+        }
+    } else {
+        "…".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(text, theme::dim())))
+            .block(retro_block("TOTALS", true)),
+        area,
+    );
+}
+
+fn format_bytes(n: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if n >= GB {
+        format!("{:.1} GB", n as f64 / GB as f64)
+    } else if n >= MB {
+        format!("{:.1} MB", n as f64 / MB as f64)
+    } else if n >= KB {
+        format!("{:.1} KB", n as f64 / KB as f64)
+    } else {
+        format!("{n} B")
+    }
 }
 
 fn combined_spark(app: &DashboardApp) -> Vec<u64> {
@@ -1110,34 +1569,70 @@ fn render_earnings(
     _app: &DashboardApp,
     snap: Option<&OperatorSnapshot>,
 ) {
-    let lines = if let Some(s) = snap {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(8), Constraint::Min(4)])
+        .split(area);
+
+    if let Some(s) = snap {
         if let Some(e) = &s.earnings {
-            vec![
-                Line::from(""),
-                line_kv("TOTAL", format!("{:.4} SOL", e.total_earned_sol)),
-                line_kv("PEND", format!("{:.4} SOL", e.pending_sol)),
-                line_kv("PAID", format!("{:.4} SOL", e.paid_sol)),
-                line_kv("7D", format!("{:.4} SOL", e.last_7_days_sol)),
-                line_kv("30D", format!("{:.4} SOL", e.last_30_days_sol)),
+            let top = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                ])
+                .split(rows[0]);
+
+            let cards = [
+                ("TOTAL", format!("{:.4}", e.total_earned_sol)),
+                ("PENDING", format!("{:.4}", e.pending_sol)),
+                ("PAID", format!("{:.4}", e.paid_sol)),
+                ("TODAY", format!("{:.4}", e.last_7_days_sol / 7.0)),
+            ];
+            for (i, (k, v)) in cards.iter().enumerate() {
+                let lines = vec![
+                    Line::from(Span::styled(*k, theme::muted())),
+                    Line::from(Span::styled(
+                        format!("{v} SOL"),
+                        theme::value().add_modifier(Modifier::BOLD),
+                    )),
+                ];
+                frame.render_widget(
+                    Paragraph::new(lines)
+                        .block(retro_block("", true))
+                        .alignment(Alignment::Center),
+                    top[i],
+                );
+            }
+
+            let bottom_lines = vec![
+                line_kv("7 DAYS", format!("{:.4} SOL", e.last_7_days_sol)),
+                line_kv("30 DAYS", format!("{:.4} SOL", e.last_30_days_sol)),
                 line_kv(
-                    "SESS",
-                    format!("{} · {:.2} GB", e.total_sessions, e.total_bandwidth_gb),
+                    "SERVED",
+                    format!("{} sessions · {:.2} GB", e.total_sessions, e.total_bandwidth_gb),
                 ),
-            ]
-        } else {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled("  EARNINGS CHANNEL OFFLINE", theme::warn())),
                 Line::from(Span::styled(
-                    "  check api_key and control-api",
+                    "Earnings settle on-chain; pending may take a few minutes to update.",
                     theme::dim(),
                 )),
-            ]
+            ];
+            frame.render_widget(
+                Paragraph::new(bottom_lines).block(retro_block("DETAILS", true)),
+                rows[1],
+            );
+            return;
         }
-    } else {
-        vec![Line::from(Span::styled("  …", theme::dim()))]
-    };
+    }
 
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled("  EARNINGS CHANNEL OFFLINE", theme::warn())),
+        Line::from(Span::styled("  check api_key and control-api", theme::dim())),
+    ];
     frame.render_widget(
         Paragraph::new(lines)
             .block(retro_block("REWARDS LEDGER", true))
@@ -1153,6 +1648,12 @@ fn render_nodes(
     snap: Option<&OperatorSnapshot>,
 ) {
     let api = snap.map(|s| &s.status.control_api);
+
+    if app.node_detail {
+        render_node_detail(frame, area, app, api);
+        return;
+    }
+
     let rows: Vec<Row> = if let Some(api) = api {
         if api.nodes.is_empty() {
             vec![Row::new(vec![api
@@ -1167,9 +1668,14 @@ fn render_nodes(
                     let proof = if n.latest_heartbeat_verified {
                         "PROOF OK".to_string()
                     } else if !n.latest_heartbeat_verification_error.is_empty() {
-                        truncate(&n.latest_heartbeat_verification_error, 24)
+                        truncate(&n.latest_heartbeat_verification_error, 20)
                     } else {
                         "—".to_string()
+                    };
+                    let hotkey = if n.hotkey.is_empty() {
+                        "—".to_string()
+                    } else {
+                        truncate(&n.hotkey, 8)
                     };
                     let style = if i == app.node_cursor {
                         Style::default()
@@ -1179,7 +1685,14 @@ fn render_nodes(
                     } else {
                         theme::value()
                     };
-                    Row::new(vec![truncate(&n.name, 14), n.status.clone(), proof]).style(style)
+                    Row::new(vec![
+                        truncate(&n.name, 14),
+                        n.status.clone(),
+                        proof,
+                        hotkey,
+                        truncate(&n.ip_address, 12),
+                    ])
+                    .style(style)
                 })
                 .collect()
         }
@@ -1190,19 +1703,87 @@ fn render_nodes(
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(38),
+            Constraint::Percentage(28),
+            Constraint::Length(10),
             Constraint::Length(12),
-            Constraint::Percentage(50),
+            Constraint::Length(10),
+            Constraint::Percentage(22),
         ],
     )
     .header(
-        Row::new(vec!["NODE", "STATE", "HEARTBEAT"])
+        Row::new(vec!["NODE", "STATE", "PROOF", "HOTKEY", "IP"])
             .style(theme::label())
             .bottom_margin(1),
     )
-    .block(retro_block("NODE REGISTRY  j/k select", true));
+    .block(retro_block("NODE REGISTRY  j/k select · Enter detail", true));
 
     frame.render_widget(table, area);
+}
+
+fn render_node_detail(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    app: &DashboardApp,
+    api: Option<&crate::status::ControlAPIStatus>,
+) {
+    let Some(api) = api else {
+        frame.render_widget(
+            Paragraph::new("…").block(retro_block("NODE DETAIL", true)),
+            area,
+        );
+        return;
+    };
+    let Some(n) = api.nodes.get(app.node_cursor) else {
+        frame.render_widget(
+            Paragraph::new("No node selected").block(retro_block("NODE DETAIL  Esc back", true)),
+            area,
+        );
+        return;
+    };
+
+    let proof = if n.latest_heartbeat_verified {
+        Span::styled(" VERIFIED ", theme::ok_badge())
+    } else if !n.latest_heartbeat_verification_error.is_empty() {
+        Span::styled(
+            format!(" FAILED: {} ", truncate(&n.latest_heartbeat_verification_error, 40)),
+            theme::alert_badge(),
+        )
+    } else {
+        Span::styled(" PENDING ", theme::warn_badge())
+    };
+
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("NAME ", theme::label()),
+            Span::styled(&n.name, theme::value()),
+            Span::raw("  "),
+            proof,
+        ]),
+        line_kv("STATUS", &n.status),
+        line_kv("ID", &n.id),
+        line_kv("GATEWAY", if n.gateway_node_id.is_empty() { "—" } else { &n.gateway_node_id }),
+        line_kv("IP", if n.ip_address.is_empty() { "—" } else { &n.ip_address }),
+        line_kv("HOTKEY", if n.hotkey.is_empty() { "—" } else { &n.hotkey }),
+        line_kv(
+            "SIGNER",
+            if n.latest_heartbeat_signer.is_empty() {
+                "—"
+            } else {
+                &n.latest_heartbeat_signer
+            },
+        ),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Connect: My nodes → Connect → download provider.toml → provider-node start",
+            theme::dim(),
+        )),
+        Line::from(Span::styled("Esc back", theme::muted())),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(lines).block(retro_block("NODE DETAIL  Esc back", true)),
+        area,
+    );
 }
 
 fn render_logs(
@@ -1211,24 +1792,34 @@ fn render_logs(
     app: &DashboardApp,
     snap: Option<&OperatorSnapshot>,
 ) {
+    let is_err = |l: &str| {
+        let l = l.to_ascii_lowercase();
+        l.contains("error") || l.contains("lost") || l.contains("fail") || l.contains("warn")
+    };
+
     let all_lines: Vec<Line> = snap
         .map(|s| {
-            if s.log_tail.is_empty() {
+            let filtered: Vec<&String> = if app.log_errors_only {
+                s.log_tail.iter().filter(|l| is_err(l)).collect()
+            } else {
+                s.log_tail.iter().collect()
+            };
+            if filtered.is_empty() {
                 vec![Line::from(Span::styled(
-                    " log empty — run `proxyhubb-cli start` in another terminal ",
+                    if app.log_errors_only {
+                        " no errors — press a for all logs "
+                    } else {
+                        " log empty — run `provider-node start` in another terminal "
+                    },
                     theme::muted(),
                 ))]
             } else {
-                s.log_tail
+                filtered
                     .iter()
                     .map(|l| {
                         Line::from(Span::styled(
                             format!("› {l}"),
-                            if l.contains("error") || l.contains("lost") {
-                                theme::warn()
-                            } else {
-                                theme::dim()
-                            },
+                            if is_err(l) { theme::warn() } else { theme::dim() },
                         ))
                     })
                     .collect()
@@ -1240,13 +1831,19 @@ fn render_logs(
     let scroll = app.log_scroll.min(max_scroll);
     let window: Vec<Line> = all_lines.into_iter().skip(scroll).take(LOG_PAGE).collect();
 
-    let title = format!("LOG STREAM  {}/{}  j/k scroll", scroll + 1, max_scroll + 1);
-    frame.render_widget(
-        Paragraph::new(window)
-            .wrap(Wrap { trim: true })
-            .block(retro_block(&title, true)),
-        area,
+    let title = format!(
+        "LOG STREAM  {}/{}  j/k scroll · e errors · w wrap {}",
+        scroll + 1,
+        max_scroll + 1,
+        if app.log_errors_only { "[errors]" } else { "" }
     );
+    let para = Paragraph::new(window).block(retro_block(&title, true));
+    let para = if app.log_wrap {
+        para.wrap(Wrap { trim: true })
+    } else {
+        para
+    };
+    frame.render_widget(para, area);
 }
 
 fn render_doctor_panel(
@@ -1329,7 +1926,7 @@ fn render_command_bar(
     let mut spans = vec![
         Span::styled(" CMD ", theme::label()),
         Span::styled(
-            "1-5 tabs │ j/k scroll │ r sync all │ d doctor │ ? help │ q quit ",
+            "1-5/Tab tabs │ j/k scroll │ Enter detail │ r refresh │ d doctor │ ? help │ q quit ",
             theme::dim(),
         ),
         Span::styled(
@@ -1366,29 +1963,35 @@ fn render_help_overlay(frame: &mut ratatui::Frame<'_>, area: Rect) {
     );
 
     let text = vec![
-        Line::from(Span::styled(" PROXYHUB RETRO DASHBOARD ", theme::label())),
+        Line::from(Span::styled(" PROXYHUB PROVIDER DASHBOARD ", theme::label())),
         Line::from(""),
         Line::from(Span::styled(" Navigation ", theme::value())),
-        Line::from(Span::styled("  1-5      switch panels", theme::dim())),
-        Line::from(Span::styled("  Tab      next panel", theme::dim())),
-        Line::from(Span::styled("  j/k      scroll logs / nodes", theme::dim())),
-        Line::from(Span::styled(
-            "  r        force local + remote sync",
-            theme::dim(),
-        )),
-        Line::from(Span::styled(
-            "  d        re-run doctor checks",
-            theme::dim(),
-        )),
-        Line::from(Span::styled("  q        quit", theme::dim())),
+        Line::from(Span::styled("  1-5 / Tab / click   switch panels", theme::dim())),
+        Line::from(Span::styled("  j/k / wheel         scroll logs / nodes", theme::dim())),
+        Line::from(Span::styled("  Enter               node detail (Nodes tab)", theme::dim())),
+        Line::from(Span::styled("  Esc                 back / quit", theme::dim())),
+        Line::from(""),
+        Line::from(Span::styled(" Actions ", theme::value())),
+        Line::from(Span::styled("  r   refresh local + remote data", theme::dim())),
+        Line::from(Span::styled("  d   re-run doctor checks", theme::dim())),
+        Line::from(Span::styled("  e/a errors only / all logs (Logs tab)", theme::dim())),
+        Line::from(Span::styled("  w   toggle log wrap (Logs tab)", theme::dim())),
+        Line::from(Span::styled("  q   quit", theme::dim())),
+        Line::from(""),
+        Line::from(Span::styled(" Tabs ", theme::value())),
+        Line::from(Span::styled("  Overview  health, KPIs, alerts, doctor", theme::dim())),
+        Line::from(Span::styled("  Network   throughput, latency, sessions, gateway", theme::dim())),
+        Line::from(Span::styled("  Nodes     registry + per-node detail", theme::dim())),
+        Line::from(Span::styled("  Earnings  SOL totals + served bandwidth", theme::dim())),
+        Line::from(Span::styled("  Logs      live daemon log stream", theme::dim())),
         Line::from(""),
         Line::from(Span::styled(" Setup ", theme::value())),
         Line::from(Span::styled(
-            "  Terminal 1: proxyhubb-cli start",
+            "  Terminal 1: provider-node start",
             theme::dim(),
         )),
         Line::from(Span::styled(
-            "  Terminal 2: proxyhubb-cli dashboard",
+            "  Terminal 2: provider-node dashboard",
             theme::dim(),
         )),
         Line::from(""),

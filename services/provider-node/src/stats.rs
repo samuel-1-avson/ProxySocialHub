@@ -15,11 +15,13 @@ pub struct Collector {
 struct Inner {
     active_connections: AtomicI32,
     total_connections: AtomicU64,
+    failed_connections: AtomicU64,
     bytes_up: AtomicU64,
     bytes_down: AtomicU64,
     start_time: Instant,
     rate_state: Mutex<RateState>,
     latency_ms: AtomicU64,
+    latency_samples: Mutex<Vec<u64>>,
     connection_type: Mutex<String>,
 }
 
@@ -38,6 +40,8 @@ struct RateState {
 pub struct Snapshot {
     pub active_connections: i32,
     pub total_connections: u64,
+    #[serde(default)]
+    pub failed_connections: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub rate_up_kbps: u32,
@@ -45,6 +49,10 @@ pub struct Snapshot {
     pub uptime_seconds: u64,
     pub last_heartbeat_ago_ms: u64,
     pub latency_ms: u64,
+    #[serde(default)]
+    pub latency_avg_ms: u64,
+    #[serde(default)]
+    pub latency_max_ms: u64,
     pub connection_type: String,
 }
 
@@ -55,6 +63,7 @@ impl Collector {
             inner: Arc::new(Inner {
                 active_connections: AtomicI32::new(0),
                 total_connections: AtomicU64::new(0),
+                failed_connections: AtomicU64::new(0),
                 bytes_up: AtomicU64::new(0),
                 bytes_down: AtomicU64::new(0),
                 start_time: now,
@@ -67,6 +76,7 @@ impl Collector {
                     last_heartbeat: now,
                 }),
                 latency_ms: AtomicU64::new(0),
+                latency_samples: Mutex::new(Vec::with_capacity(64)),
                 connection_type: Mutex::new("Unknown".to_string()),
             }),
         }
@@ -83,6 +93,10 @@ impl Collector {
         self.inner
             .active_connections
             .fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn record_connection_failed(&self) {
+        self.inner.failed_connections.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_bytes_up(&self, n: u64) {
@@ -116,6 +130,11 @@ impl Collector {
 
     pub fn update_latency(&self, ms: u64) {
         self.inner.latency_ms.store(ms, Ordering::Relaxed);
+        let mut samples = self.inner.latency_samples.lock().unwrap();
+        samples.push(ms);
+        if samples.len() > 64 {
+            samples.remove(0);
+        }
     }
 
     pub fn set_connection_type(&self, t: String) {
@@ -155,9 +174,19 @@ impl Collector {
             let state = self.inner.rate_state.lock().unwrap();
             state.last_heartbeat.elapsed().as_millis() as u64
         };
+        let (lat_avg, lat_max) = {
+            let samples = self.inner.latency_samples.lock().unwrap();
+            if samples.is_empty() {
+                (0, 0)
+            } else {
+                let sum: u64 = samples.iter().sum();
+                (sum / samples.len() as u64, *samples.iter().max().unwrap_or(&0))
+            }
+        };
         Snapshot {
             active_connections: self.active_connections(),
             total_connections: self.inner.total_connections.load(Ordering::Relaxed),
+            failed_connections: self.inner.failed_connections.load(Ordering::Relaxed),
             bytes_up: self.bytes_up(),
             bytes_down: self.bytes_down(),
             rate_up_kbps: rate_up,
@@ -165,6 +194,8 @@ impl Collector {
             uptime_seconds: self.uptime().as_secs(),
             last_heartbeat_ago_ms: last_hb_ago,
             latency_ms: self.inner.latency_ms.load(Ordering::Relaxed),
+            latency_avg_ms: lat_avg,
+            latency_max_ms: lat_max,
             connection_type: self.inner.connection_type.lock().unwrap().clone(),
         }
     }
