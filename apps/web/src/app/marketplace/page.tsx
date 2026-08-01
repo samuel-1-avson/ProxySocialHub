@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth";
+import { useRole } from "@/hooks/useRole";
 import type { Listing, ListingFilters } from "@/lib/api/marketplace";
 import {
     useFeaturedListings,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/hooks/useApi";
 import { getErrorMessage } from "@/lib/utils";
 import { MarketplaceCatalogSections } from "@/components/marketplace/MarketplaceCatalogSections";
+import { MarketplaceDiscoverTabs } from "@/components/marketplace/MarketplaceDiscoverTabs";
 import {
     Activity,
     Database,
@@ -39,7 +40,7 @@ import { ListingCardEnhanced } from "@/components/ListingCardEnhanced";
 import { GlassCard } from "@/components/ui/glass-card";
 
 export default function MarketplacePage() {
-    const { user } = useAuth();
+    const { isProvider } = useRole();
     const [filters, setFilters] = useState({
         proxy_type: "",
         sort_by: "newest",
@@ -172,13 +173,7 @@ export default function MarketplacePage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-10">
-                    <Link
-                        href="/marketplace/map"
-                        className="px-8 py-5 rounded-[1.8rem] border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-black text-xs uppercase tracking-[0.3em] flex items-center gap-3 hover:bg-emerald-500/20 transition-all"
-                    >
-                        <Globe size={18} />
-                        Map view
-                    </Link>
+                    <MarketplaceDiscoverTabs />
                     <div className="flex items-center gap-10 p-6 px-10 glass-card border-white/5 bg-white/[0.02] rounded-[2.5rem] shadow-2xl backdrop-blur-3xl">
                         <div className="space-y-1">
                             <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Global Liquidity</div>
@@ -193,10 +188,10 @@ export default function MarketplacePage() {
                         </div>
                     </div>
 
-                    {user?.role === 'provider' && (
+                    {isProvider && (
                         <Link href="/marketplace/create" className="group relative px-10 py-5 rounded-[1.8rem] bg-primary text-primary-foreground font-black text-xs uppercase tracking-[0.3em] flex items-center gap-3 shadow-2xl shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-[0.98]">
                             <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-                            Submit Sequence
+                            Create listing
                         </Link>
                     )}
                 </div>

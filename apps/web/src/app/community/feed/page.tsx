@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { useRole } from "@/hooks/useRole";
 import { getFeed, discoverProviders, getTrendingListings, type FeedEvent, type User, type Listing } from "@/lib/social-api";
 import { FollowProviderButton } from "@/components/social/FollowProviderButton";
 import { PeopleYouMayKnow } from "@/components/PeopleYouMayKnow";
@@ -34,7 +35,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
 
 export default function FeedPage() {
-    const { isAuthenticated, user } = useAuth();
+    const { isAuthenticated } = useAuth();
+    const { isProvider } = useRole();
     const [activeTab, setActiveTab] = useState<"feed" | "discover" | "trending">("feed");
     const [loading, setLoading] = useState(true);
     const [events, setEvents] = useState<FeedEvent[]>([]);
@@ -389,11 +391,11 @@ export default function FeedPage() {
                                         </div>
                                         <ArrowRight size={16} className="text-primary/30 group-hover:translate-x-1 transition-transform" />
                                     </Link>
-                                    {user?.role === "provider" && (
+                                    {isProvider && (
                                         <Link href="/marketplace/create" className="group flex items-center justify-between p-4 glass-card border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/50 rounded-2xl transition-all active:scale-95">
                                             <div className="flex items-center gap-4">
                                                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Plus size={20} /></div>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Deploy Node</span>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Create listing</span>
                                             </div>
                                             <Zap size={16} className="text-emerald-500 animate-pulse" />
                                         </Link>

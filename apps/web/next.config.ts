@@ -116,12 +116,22 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/marketplace/agents',
-        destination: '/agents',
+        destination: '/dashboard/agents',
         permanent: true,
       },
       {
         source: '/marketplace/agents/:path*',
-        destination: '/agents/:path*',
+        destination: '/dashboard/agents',
+        permanent: true,
+      },
+      {
+        source: '/agents',
+        destination: '/dashboard/agents',
+        permanent: true,
+      },
+      {
+        source: '/agents/:path*',
+        destination: '/dashboard/agents',
         permanent: true,
       },
       {
@@ -163,6 +173,16 @@ const nextConfig: NextConfig = {
         source: '/settings',
         destination: '/dashboard/settings/identity',
         permanent: true,
+      },
+      {
+        source: '/orders/:id',
+        destination: '/marketplace/orders/:id',
+        permanent: false,
+      },
+      {
+        source: '/dashboard/orders/:id',
+        destination: '/marketplace/orders/:id',
+        permanent: false,
       },
     ];
   },

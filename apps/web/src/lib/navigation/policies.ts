@@ -14,7 +14,7 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     marketplaceOrders: "authenticated",
     marketplaceOrder: "authenticated",
     marketplaceSaved: "authenticated",
-    marketplaceAgents: "public",
+    marketplaceAgents: "authenticated",
     marketplaceAgentInstances: "authenticated",
     dashboard: "authenticated",
     dashboardAdmin: "admin",
