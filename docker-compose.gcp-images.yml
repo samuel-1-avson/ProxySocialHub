@@ -1,0 +1,23 @@
+# Optional overlay: run control-api / edge-gateway / web from GHCR instead of building on the VM.
+#
+# Usage:
+#   IMAGE_TAG=v1.2.3 ./scripts/gcp-compose-pull-deploy.sh
+#
+# Requires: docker login ghcr.io (GITHUB_TOKEN or GHCR_TOKEN with read:packages)
+
+services:
+  db-migrate:
+    image: ghcr.io/${GHCR_OWNER:-samuel-1-avson}/control-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+
+  control-api:
+    image: ghcr.io/${GHCR_OWNER:-samuel-1-avson}/control-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+
+  edge-gateway:
+    image: ghcr.io/${GHCR_OWNER:-samuel-1-avson}/edge-gateway:${IMAGE_TAG:-latest}
+    pull_policy: always
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:-samuel-1-avson}/web:${IMAGE_TAG:-latest}
+    pull_policy: always

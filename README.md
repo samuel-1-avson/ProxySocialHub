@@ -6,7 +6,7 @@ Solana-settled residential proxy marketplace. Buyers discover listings, fund esc
 |---------|-----|
 | Web | https://proxyhubb.com |
 | API | https://api.proxyhubb.com |
-| Buyer proxy | `proxy.proxyhubb.com:8090` |
+| Buyer proxy | `proxy.proxyhubb.com:8090` (HTTP CONNECT / SOCKS5 only — [docs/buyer-proxy.md](docs/buyer-proxy.md)) |
 
 Repo: [samuel-1-avson/ProxySocialHub](https://github.com/samuel-1-avson/ProxySocialHub)
 
@@ -34,7 +34,7 @@ Repo: [samuel-1-avson/ProxySocialHub](https://github.com/samuel-1-avson/ProxySoc
 ```
 
 - **control-api** — auth, marketplace, orders/escrow FSM, wallets, bulk pools, subscriptions, governance, explorer
-- **edge-gateway** — buyer HTTP CONNECT admission and provider tunnels
+- **edge-gateway** — buyer HTTP CONNECT / SOCKS5 admission and provider tunnels (no absolute-URI forward proxy)
 - **provider-node** — provider daemon (heartbeats, capacity, tunnel)
 - **apps/web** — marketplace, provider dashboard, agents, explorer UI
 
@@ -153,12 +153,24 @@ docker-compose.yml
 (+ docker-compose.gcp-images.yml for GHCR pulls)
 ```
 
+**Web policy (one frontend):**
+
+| Rule | Detail |
+|------|--------|
+| Canonical URL | `https://proxyhubb.com` (apex) |
+| Aliases | `www` / `app` → 301 to apex (`config/gcp/Caddyfile.example`) |
+| Canonical deploy | GHCR pull — never mix with ad-hoc VM tarball rebuilds |
+| CORS / FRONTEND_URL / APP_URL | Point at the apex only |
+
 Useful scripts:
 
 | Script | Purpose |
 |--------|---------|
 | `scripts/gcp-testnet-provision.sh` | VM / IP / firewall |
-| `scripts/gcp-compose-pull-deploy.sh` | Pull pinned images + migrate + roll |
+| `scripts/gcp-deploy-web.sh` | **Canonical** web-only GHCR roll |
+| `scripts/gcp-compose-pull-deploy.sh` | Pull pinned images + migrate + full stack roll |
+| `scripts/gcp-deploy-web-emergency-build.sh` | Emergency VM build (`ALLOW_EMERGENCY_WEB_BUILD=1`) |
+| `scripts/gcp-verify-web-deploy.sh` | Image source + route + hostname redirect checks |
 | `scripts/gcp-testnet-verify.sh` | Smoke checks |
 | `scripts/gcp-postgres-backup.sh` | DB backups |
 
