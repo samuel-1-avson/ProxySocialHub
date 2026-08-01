@@ -267,6 +267,17 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
                 "PROVIDER_TRANSPORT=yamux (TCP tunnel). If gateway uses QUIC (docker-compose.provider.yml), \
                  set PROVIDER_TRANSPORT=quic and build with --features quic.",
             );
+            if !cfg.use_tls && crate::config::gateway_looks_public(&cfg.gateway_addr) {
+                push_fix(
+                    &mut checks,
+                    "provider_transport",
+                    false,
+                    "warn",
+                    "Production gateways require TLS but use_tls=false",
+                    "Set use_tls = true in provider.toml (or pass --use-tls) before starting against a public gateway.",
+                    "tls_required_public_gateway",
+                );
+            }
         }
     }
 

@@ -357,8 +357,8 @@ func getNodeConnectInfo(c *gin.Context) {
 
 	controlURL := strings.TrimRight(providerPublicControlAPIURL(), "/")
 	tunnelAddr := providerPublicTunnelAddr()
-	useTLS := strings.Contains(tunnelAddr, "proxyhubb.com") ||
-		strings.HasPrefix(controlURL, "https://")
+	// Provider tunnel is TLS on production; keep true for https control API or public tunnel hosts.
+	useTLS := true
 	configHint := "~/.config/proxyhubb/provider.toml"
 	startCmd := "provider-node start --config " + configHint
 
@@ -377,7 +377,10 @@ func getNodeConnectInfo(c *gin.Context) {
 
 func providerPublicControlAPIURL() string {
 	if u := os.Getenv("PROVIDER_PUBLIC_CONTROL_API_URL"); u != "" {
-		return u
+		// Ignore stale example/testnet placeholders; fall through to real API URL.
+		if !strings.Contains(u, "example.com") && !strings.Contains(u, "testnet.example") {
+			return u
+		}
 	}
 	if u := os.Getenv("API_BASE_URL"); u != "" {
 		return u
