@@ -1,22 +1,62 @@
-# Caddy on the GCE VM — TLS for app + api only.
+# Caddy on the GCE VM — TLS termination for web + API.
 # Buyer CONNECT and provider tunnel use edge-gateway ports 8090 / 3128 directly (DNS → VM IP).
 #
 # Install: apt install caddy
 # Copy to /etc/caddy/Caddyfile and: systemctl reload caddy
 #
-# Replace example.com with your domain. Cloud DNS A records → VM external IP.
+# Canonical web hostname is the apex: https://proxyhubb.com
+# Alias hosts (www / app) MUST permanent-redirect to apex so there is one public frontend URL.
+#
+# Cloud DNS A/AAAA (or Cloudflare orange-cloud) → VM external IP for:
+#   proxyhubb.com, www.proxyhubb.com, app.proxyhubb.com,
+#   api.proxyhubb.com, proxy.proxyhubb.com
 
-app.testnet.example.com {
+# --- Production (ProxyHubb) -------------------------------------------------
+
+proxyhubb.com {
 	encode gzip
 	reverse_proxy 127.0.0.1:3000
 }
 
-api.testnet.example.com {
+www.proxyhubb.com {
+	redir https://proxyhubb.com{uri} permanent
+}
+
+app.proxyhubb.com {
+	redir https://proxyhubb.com{uri} permanent
+}
+
+api.proxyhubb.com {
 	encode gzip
 	reverse_proxy 127.0.0.1:8080
 }
 
-# Optional: health-only HTTPS for proxy hostname (CONNECT still uses :8090, not this vhost)
-proxy.testnet.example.com {
+# Health-only HTTPS for proxy hostname (CONNECT still uses :8090, not this vhost)
+proxy.proxyhubb.com {
 	respond "ProxyHubb edge — use port 8090 for CONNECT and 3128 for provider tunnel" 200
 }
+
+# --- Testnet template (replace example.com) ---------------------------------
+# Point FRONTEND_URL / CORS_ORIGINS / APP_URL at the single apex web host only.
+#
+# testnet.example.com {
+# 	encode gzip
+# 	reverse_proxy 127.0.0.1:3000
+# }
+#
+# www.testnet.example.com {
+# 	redir https://testnet.example.com{uri} permanent
+# }
+#
+# app.testnet.example.com {
+# 	redir https://testnet.example.com{uri} permanent
+# }
+#
+# api.testnet.example.com {
+# 	encode gzip
+# 	reverse_proxy 127.0.0.1:8080
+# }
+#
+# proxy.testnet.example.com {
+# 	respond "ProxyHubb edge — use port 8090 for CONNECT and 3128 for provider tunnel" 200
+# }

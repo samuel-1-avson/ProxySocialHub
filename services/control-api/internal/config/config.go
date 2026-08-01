@@ -139,8 +139,10 @@ func Load() (*Config, error) {
 			"http://localhost:3001",
 			"http://127.0.0.1:3000",
 			"http://localhost:4001",
+			// Production apex is canonical; www/app stay listed until Caddy 301 cutover.
 			"https://proxyhubb.com",
 			"https://www.proxyhubb.com",
+			"https://app.proxyhubb.com",
 		}
 	}
 
