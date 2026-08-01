@@ -1,66 +1,151 @@
 "use client";
 
-import React from "react";
-import { CheckCircle2, AlertTriangle, XCircle, Clock, Loader2 } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  XOctagon,
+  Clock,
+  Loader2,
+  Radio,
+  ShieldCheck,
+  PauseCircle,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
+/**
+ * Status variants per reconstruction plan §11.6 — always icon + label (never color-only).
+ */
+export type StatusVariant =
+  | "live"
+  | "healthy"
+  | "online"
+  | "degraded"
+  | "down"
+  | "offline"
+  | "syncing"
+  | "processing"
+  | "paused"
+  | "pending"
+  | "error"
+  | "verified"
+  | "new";
+
+export type StatusSize = "sm" | "md";
+
+/** @deprecated Prefer StatusVariant; kept for existing call sites */
 export type StatusType = "online" | "offline" | "degraded" | "pending" | "processing";
 
 interface StatusBadgeProps {
-    status: StatusType;
-    label?: string;
-    pulse?: boolean;
+  status: StatusVariant | StatusType;
+  label?: string;
+  size?: StatusSize;
+  /** Pulse only for live indicators; disabled under prefers-reduced-motion via CSS */
+  pulse?: boolean;
+  className?: string;
 }
 
-const statusConfig = {
-    online: {
-        color: "text-emerald-500",
-        bg: "bg-emerald-500/10",
-        border: "border-emerald-500/20",
-        icon: CheckCircle2,
-        defaultLabel: "Online"
-    },
-    degraded: {
-        color: "text-amber-500",
-        bg: "bg-amber-500/10",
-        border: "border-amber-500/20",
-        icon: AlertTriangle,
-        defaultLabel: "Degraded"
-    },
-    offline: {
-        color: "text-red-500",
-        bg: "bg-red-500/10",
-        border: "border-red-500/20",
-        icon: XCircle,
-        defaultLabel: "Offline"
-    },
-    pending: {
-        color: "text-muted-foreground",
-        bg: "bg-white/10",
-        border: "border-white/10",
-        icon: Clock,
-        defaultLabel: "Pending"
-    },
-    processing: {
-        color: "text-blue-400",
-        bg: "bg-blue-400/10",
-        border: "border-blue-400/20",
-        icon: Loader2,
-        defaultLabel: "Processing"
-    }
+const CONFIG: Record<
+  StatusVariant,
+  { label: string; icon: typeof CheckCircle2; tone: string }
+> = {
+  live: {
+    label: "Live",
+    icon: Radio,
+    tone: "text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_12%,transparent)] border-[color-mix(in_srgb,var(--success)_30%,var(--border))]",
+  },
+  healthy: {
+    label: "Healthy",
+    icon: CheckCircle2,
+    tone: "text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_12%,transparent)] border-[color-mix(in_srgb,var(--success)_30%,var(--border))]",
+  },
+  online: {
+    label: "Online",
+    icon: CheckCircle2,
+    tone: "text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_12%,transparent)] border-[color-mix(in_srgb,var(--success)_30%,var(--border))]",
+  },
+  degraded: {
+    label: "Degraded",
+    icon: AlertTriangle,
+    tone: "text-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] border-[color-mix(in_srgb,var(--warning)_30%,var(--border))]",
+  },
+  down: {
+    label: "Down",
+    icon: XOctagon,
+    tone: "text-[var(--destructive)] bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] border-[color-mix(in_srgb,var(--destructive)_30%,var(--border))]",
+  },
+  offline: {
+    label: "Offline",
+    icon: XOctagon,
+    tone: "text-[var(--destructive)] bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] border-[color-mix(in_srgb,var(--destructive)_30%,var(--border))]",
+  },
+  syncing: {
+    label: "Syncing",
+    icon: Loader2,
+    tone: "text-[var(--info)] bg-[color-mix(in_srgb,var(--info)_12%,transparent)] border-[color-mix(in_srgb,var(--info)_30%,var(--border))]",
+  },
+  processing: {
+    label: "Processing",
+    icon: Loader2,
+    tone: "text-[var(--info)] bg-[color-mix(in_srgb,var(--info)_12%,transparent)] border-[color-mix(in_srgb,var(--info)_30%,var(--border))]",
+  },
+  paused: {
+    label: "Paused",
+    icon: PauseCircle,
+    tone: "text-muted-foreground bg-secondary border-border",
+  },
+  pending: {
+    label: "Pending",
+    icon: Clock,
+    tone: "text-muted-foreground bg-secondary border-border",
+  },
+  error: {
+    label: "Error",
+    icon: XOctagon,
+    tone: "text-[var(--destructive)] bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] border-[color-mix(in_srgb,var(--destructive)_30%,var(--border))]",
+  },
+  verified: {
+    label: "Verified",
+    icon: ShieldCheck,
+    tone: "text-[var(--info)] bg-[color-mix(in_srgb,var(--info)_12%,transparent)] border-[color-mix(in_srgb,var(--info)_30%,var(--border))]",
+  },
+  new: {
+    label: "New",
+    icon: Clock,
+    tone: "text-muted-foreground bg-secondary border-border",
+  },
 };
 
-export function StatusBadge({ status, label, pulse = false }: StatusBadgeProps) {
-    const config = statusConfig[status];
-    const Icon = config.icon;
-    const isProcessing = status === "processing";
+export function StatusBadge({
+  status,
+  label,
+  size = "sm",
+  pulse = false,
+  className,
+}: StatusBadgeProps) {
+  const config = CONFIG[status as StatusVariant] ?? CONFIG.pending;
+  const Icon = config.icon;
+  const text = label ?? config.label;
+  const spinning = status === "syncing" || status === "processing";
+  const showPulse = pulse || status === "live";
 
-    return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.bg} ${config.color} ${config.border}`}>
-            <div className="relative flex h-3 w-3 items-center justify-center">
-                {pulse && <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-current`} />}
-                <Icon size={12} className={isProcessing ? "animate-spin" : ""} strokeWidth={2.5} />
-            </div>
-            {label || config.defaultLabel}
-        </span>
-    );
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border font-medium",
+        size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-sm",
+        config.tone,
+        className
+      )}
+      role="status"
+      aria-label={text}
+    >
+      <span className="relative flex h-3 w-3 items-center justify-center" aria-hidden>
+        {showPulse ? (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-40 motion-reduce:hidden" />
+        ) : null}
+        <Icon size={12} className={spinning ? "animate-spin motion-reduce:animate-none" : ""} strokeWidth={2.5} />
+      </span>
+      {text}
+    </span>
+  );
 }

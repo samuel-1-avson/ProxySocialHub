@@ -1,6 +1,8 @@
-import { apiGet, apiPatch } from './client';
+import { apiGet, apiPatch, apiDelete } from './client';
 
 export type ForumReportStatus = 'pending' | 'resolved' | 'dismissed' | 'all';
+
+export type ForumReportAction = 'none' | 'hide' | 'lock' | 'hide_and_lock' | 'delete';
 
 export interface ForumReportRow {
     id: string;
@@ -32,11 +34,37 @@ export function getForumReports(page = 1, limit = 20, status: ForumReportStatus 
     });
 }
 
-export function updateForumReportStatus(id: string, status: 'resolved' | 'dismissed' | 'pending') {
-    return apiPatch<{ message: string; status: string }, { status: string }>(
-        `/v1/moderation/forum/reports/${id}`,
-        { status },
-    );
+export function updateForumReportStatus(
+    id: string,
+    status: 'resolved' | 'dismissed' | 'pending',
+    action: ForumReportAction = 'none',
+) {
+    return apiPatch<
+        { message: string; status: string; action?: string; applied?: string },
+        { status: string; action?: string }
+    >(`/v1/moderation/forum/reports/${id}`, { status, action });
+}
+
+export function patchForumThreadModeration(
+    id: string,
+    body: { is_pinned?: boolean; is_locked?: boolean; is_hidden?: boolean },
+) {
+    return apiPatch(`/v1/moderation/forum/threads/${id}`, body);
+}
+
+export function deleteForumThreadModeration(id: string) {
+    return apiDelete(`/v1/moderation/forum/threads/${id}`);
+}
+
+export function patchForumPostModeration(
+    id: string,
+    body: { is_hidden?: boolean; is_solution?: boolean },
+) {
+    return apiPatch(`/v1/moderation/forum/posts/${id}`, body);
+}
+
+export function deleteForumPostModeration(id: string) {
+    return apiDelete(`/v1/moderation/forum/posts/${id}`);
 }
 
 export const forumModerationKeys = {

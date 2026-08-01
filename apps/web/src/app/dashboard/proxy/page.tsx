@@ -251,6 +251,9 @@ export default function ProxyPage() {
                             {copied === 'endpoint' ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
                         </button>
                     </div>
+                    <p className="mt-2 text-[9px] font-mono text-muted-foreground/50 uppercase tracking-wide">
+                        HTTP CONNECT / SOCKS5 only — see docs/buyer-proxy.md
+                    </p>
                 </GlassCard>
 
                 {/* Status Card */}

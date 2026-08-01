@@ -26,11 +26,10 @@ export function ProtectedRoute({ children, requireAuth = true, requiredRole }: P
     useEffect(() => {
         // Check role if required
         if (requireAuth && !isLoading && isAuthenticated && requiredRole && !isRequiredRoleAllowed(user?.role, requiredRole)) {
-            // User doesn't have required role
-            if (requiredRole === "provider" && user?.role === "buyer") {
-                router.push("/dashboard?error=provider_required");
-            } else if (requiredRole === "admin" && user?.role !== "admin") {
-                router.push("/dashboard?error=admin_required");
+            if (requiredRole === "provider") {
+                router.push("/403?policy=provider");
+            } else if (requiredRole === "admin") {
+                router.push("/403?policy=admin");
             }
         }
     }, [requireAuth, isLoading, isAuthenticated, requiredRole, user, router]);

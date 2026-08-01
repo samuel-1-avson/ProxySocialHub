@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getAccessTokenSilently } from './auth';
-import { getRealtimeWsUrl } from './ws-url';
+import { getRealtimeWsUrl, resolveAuthedWsUrl } from './ws-url';
 
 interface WebSocketMessage {
   type: string;
@@ -25,6 +25,9 @@ export function useWebSocket(url?: string) {
 
 
   const connect = useCallback(async () => {
+    // Fetched fresh on every (re)connect attempt — getAccessTokenSilently
+    // refreshes expired tokens, and the token must reach the backend because
+    // /v1/ws sits behind RequireAuth (FE-01).
     const token = await getAccessTokenSilently();
 
     if (!token) return;
@@ -35,7 +38,8 @@ export function useWebSocket(url?: string) {
     }
 
     try {
-      const ws = new WebSocket(wsUrl);
+      const url = await resolveAuthedWsUrl(wsUrl, token);
+      const ws = new WebSocket(url);
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return; // stale instance

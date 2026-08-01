@@ -2,7 +2,7 @@ import { Program, AnchorProvider, web3, BN, Idl } from '@project-serum/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import idl from './idl/proxyhub.json';
 
-const DEFAULT_PROGRAM_ID = '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2';
+const DEFAULT_PROGRAM_ID = 'AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu';
 
 /** Avoid build/runtime crashes when .env has placeholders or invalid base58. */
 function parseSolanaPubkey(raw: string | undefined, fallback: string): PublicKey {

@@ -26,7 +26,12 @@ declare global {
     }
 }
 
+// The Playwright test wallet embeds a private key in the client bundle. It must
+// never be active in a production build, even if the env vars are accidentally set.
 function playwrightTestWalletEnabled(): boolean {
+    if (process.env.NODE_ENV === 'production') {
+        return false;
+    }
     if (process.env.NEXT_PUBLIC_PLAYWRIGHT_SOLANA_TEST_WALLET === '1') {
         return true;
     }
@@ -37,6 +42,9 @@ function playwrightTestWalletEnabled(): boolean {
 }
 
 function playwrightTestWalletSecret(): string | undefined {
+    if (process.env.NODE_ENV === 'production') {
+        return undefined;
+    }
     const fromEnv = process.env.NEXT_PUBLIC_PLAYWRIGHT_SOLANA_WALLET_SECRET;
     if (fromEnv?.trim()) return fromEnv.trim();
     if (typeof window !== 'undefined') {

@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Check, Loader2, MessageSquare, X } from 'lucide-react';
+import { AlertCircle, Check, EyeOff, Loader2, Lock, MessageSquare, Trash2, X } from 'lucide-react';
 import {
     forumModerationKeys,
     getForumReports,
     updateForumReportStatus,
+    type ForumReportAction,
     type ForumReportStatus,
 } from '@/lib/api/forum-moderation';
 import { getErrorMessage } from '@/lib/utils';
@@ -15,6 +16,14 @@ import { getErrorMessage } from '@/lib/utils';
 interface ForumReportsQueueProps {
     enabled: boolean;
 }
+
+const RESOLVE_ACTIONS: { action: ForumReportAction; label: string; icon: typeof Check }[] = [
+    { action: 'hide', label: 'Hide + resolve', icon: EyeOff },
+    { action: 'lock', label: 'Lock + resolve', icon: Lock },
+    { action: 'hide_and_lock', label: 'Hide & lock', icon: EyeOff },
+    { action: 'delete', label: 'Delete + resolve', icon: Trash2 },
+    { action: 'none', label: 'Resolve only', icon: Check },
+];
 
 export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
     const queryClient = useQueryClient();
@@ -29,8 +38,15 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
     });
 
     const updateMutation = useMutation({
-        mutationFn: ({ id, status }: { id: string; status: 'resolved' | 'dismissed' }) =>
-            updateForumReportStatus(id, status),
+        mutationFn: ({
+            id,
+            status,
+            action,
+        }: {
+            id: string;
+            status: 'resolved' | 'dismissed';
+            action?: ForumReportAction;
+        }) => updateForumReportStatus(id, status, action ?? 'none'),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: forumModerationKeys.all });
         },
@@ -51,7 +67,7 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                     Content <span className="text-primary">reports</span>
                 </h2>
                 <p className="text-sm text-muted-foreground mt-2">
-                    Review user reports on forum threads and posts. Resolve after action or dismiss false positives.
+                    Hide, lock, or delete reported content when resolving. Dismiss leaves content unchanged.
                 </p>
             </div>
 
@@ -108,6 +124,7 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                             <div>
                                 <p className="text-[10px] font-mono uppercase text-muted-foreground/60">
                                     {report.reason} · {report.status}
+                                    {report.post_id ? ' · post' : report.thread_id ? ' · thread' : ''}
                                 </p>
                                 <p className="text-sm font-bold mt-1">
                                     {report.thread_title || report.post_preview || 'Forum content'}
@@ -138,16 +155,29 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                             )}
                             {report.status === 'pending' && (
                                 <>
-                                    <button
-                                        type="button"
-                                        disabled={updateMutation.isPending}
-                                        onClick={() =>
-                                            updateMutation.mutate({ id: report.id, status: 'resolved' })
-                                        }
-                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-widest"
-                                    >
-                                        <Check size={12} /> Resolve
-                                    </button>
+                                    {RESOLVE_ACTIONS.map(({ action, label, icon: Icon }) => (
+                                        <button
+                                            key={action}
+                                            type="button"
+                                            disabled={updateMutation.isPending}
+                                            onClick={() =>
+                                                updateMutation.mutate({
+                                                    id: report.id,
+                                                    status: 'resolved',
+                                                    action,
+                                                })
+                                            }
+                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-widest ${
+                                                action === 'delete'
+                                                    ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                    : action === 'none'
+                                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                      : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                                            }`}
+                                        >
+                                            <Icon size={12} /> {label}
+                                        </button>
+                                    ))}
                                     <button
                                         type="button"
                                         disabled={updateMutation.isPending}
@@ -161,6 +191,9 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                                 </>
                             )}
                         </div>
+                        {updateMutation.isError && (
+                            <p className="text-xs text-red-400">{getErrorMessage(updateMutation.error)}</p>
+                        )}
                     </li>
                 ))}
             </ul>
