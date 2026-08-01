@@ -19,7 +19,6 @@ import { getErrorMessage } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     AlertCircle,
-    ArrowLeft,
     Link2,
     Loader2,
     Package,
@@ -29,6 +28,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
+import { SellerManageTabs } from "@/components/marketplace/SellerManageTabs";
+import { ROUTES } from "@/lib/navigation/routes";
 
 type ProductForm = {
     title: string;
@@ -164,21 +165,24 @@ export default function ManageCatalogProductsPage() {
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
                 <div>
                     <Link
-                        href="/marketplace/manage"
-                        className="inline-flex items-center gap-2 text-[10px] font-bold text-muted-foreground hover:text-violet-400 uppercase tracking-widest mb-3"
+                        href={ROUTES.marketplace}
+                        className="inline-flex items-center gap-2 text-[10px] font-bold text-muted-foreground hover:text-primary uppercase tracking-widest mb-3"
                     >
-                        <ArrowLeft size={12} /> My listings
+                        ← Discover
                     </Link>
-                    <div className="flex items-center gap-2 text-violet-500 font-bold uppercase tracking-wider text-xs mb-2">
+                    <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
                         <Package size={14} />
-                        Catalog
+                        Sell
                     </div>
                     <h1 className="text-3xl font-black tracking-tighter uppercase italic">
-                        My <span className="text-violet-500">Products</span>
+                        My <span className="text-primary">Products</span>
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        Group listings under merchandising titles for browse cards and discovery.
+                        Merchandising titles that group listings for browse cards and discovery.
                     </p>
+                    <div className="mt-4">
+                        <SellerManageTabs />
+                    </div>
                 </div>
                 <button
                     type="button"

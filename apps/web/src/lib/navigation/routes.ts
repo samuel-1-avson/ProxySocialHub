@@ -9,9 +9,9 @@ export const ROUTES = {
     marketplaceOrders: "/marketplace/orders",
     marketplaceOrder: (id: string) => `/marketplace/orders/${id}`,
     marketplaceSaved: "/marketplace/saved",
-    /** Canonical agents IA (legacy `/marketplace/agents*` redirects here). */
-    marketplaceAgents: "/agents",
-    marketplaceAgentInstances: "/agents/instances",
+    /** Legacy Market agent URLs — redirect to Advanced console. */
+    marketplaceAgents: "/dashboard/agents",
+    marketplaceAgentInstances: "/dashboard/agents",
     dashboard: "/dashboard",
     dashboardAdmin: "/dashboard/admin",
     dashboardAgents: "/dashboard/agents",
@@ -132,14 +132,15 @@ export interface RouteLabel {
 
 export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
-    [ROUTES.marketplace]: { label: "Marketplace" },
+    [ROUTES.marketplace]: { label: "Discover", breadcrumb: "Discover" },
     [ROUTES.network]: { label: "Network", breadcrumb: "Network" },
-    [ROUTES.marketplaceMap]: { label: "Marketplace map", breadcrumb: "Map" },
-    [ROUTES.marketplaceCatalog]: { label: "Catalog products", breadcrumb: "Catalog" },
+    [ROUTES.marketplaceMap]: { label: "Discover map", breadcrumb: "Map" },
+    [ROUTES.marketplaceCatalog]: { label: "Products", breadcrumb: "Products" },
     [ROUTES.marketplaceCreate]: { label: "Create Listing", breadcrumb: "Create" },
     [ROUTES.marketplaceManage]: { label: "My Listings", breadcrumb: "Listings" },
-    [ROUTES.marketplaceAgents]: { label: "Rent agents", breadcrumb: "Agents" },
-    [ROUTES.marketplaceAgentInstances]: { label: "My agents", breadcrumb: "Instances" },
+    [ROUTES.marketplaceOrders]: { label: "Orders", breadcrumb: "Orders" },
+    [ROUTES.marketplaceSaved]: { label: "Saved", breadcrumb: "Saved" },
+    // marketplaceAgents / marketplaceAgentInstances alias dashboardAgents (same path)
     [ROUTES.dashboard]: { label: "Dashboard", breadcrumb: "System" },
     [ROUTES.dashboardAdmin]: { label: "Admin", breadcrumb: "Admin" },
     [ROUTES.dashboardAgents]: { label: "Agent console", breadcrumb: "Agents" },
@@ -152,7 +153,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.dashboardSecurity]: { label: "Security (legacy)", breadcrumb: "Security" },
     [ROUTES.dashboardSessions]: { label: "Sessions" },
     [ROUTES.dashboardUsage]: { label: "Usage & Billing", breadcrumb: "Usage" },
-    [ROUTES.dashboardSubscriptions]: { label: "Plans & billing", breadcrumb: "Plans" },
+    [ROUTES.dashboardSubscriptions]: { label: "Access Passes", breadcrumb: "Access Passes" },
     [ROUTES.dashboardTrustless]: { label: "Usage proofs", breadcrumb: "Proofs" },
     [ROUTES.dashboardWallet]: { label: "Wallet" },
     [ROUTES.dashboardBecomeProvider]: { label: "Become a Provider", breadcrumb: "Apply" },

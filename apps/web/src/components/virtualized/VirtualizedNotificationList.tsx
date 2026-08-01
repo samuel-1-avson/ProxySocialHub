@@ -17,6 +17,7 @@ import {
     Check,
     Loader2,
 } from "lucide-react";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const notificationIcons: Record<string, React.ReactNode> = {
     [NotificationType.NewFollower]: <Heart className="w-4 h-4 text-rose-500" />,
@@ -221,7 +222,7 @@ function getEntityLink(type?: string, id?: string): string | null {
         case "NODE":
             return `/nodes/${id}`;
         case "ORDER":
-            return `/orders/${id}`;
+            return ROUTES.marketplaceOrder(id);
         case "FORUM_POST":
             return `/forum/post/${id}`;
         case "MESSAGE":

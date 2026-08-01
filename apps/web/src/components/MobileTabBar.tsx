@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
-import { isNavigationRouteActive } from "@/lib/navigation/routes";
+import { isNavigationRouteActive, ROUTES } from "@/lib/navigation/routes";
 import {
     getMobilePrimaryTabs,
     getNavigationBadge,
@@ -60,12 +60,14 @@ export function MobileTabBar() {
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         {section.items.map(item => {
-                                            const active = isActive(item.href);
+                                            const active =
+                                                isActive(item.href) ||
+                                                (item.activeRouteKeys?.some((key) => isActive(ROUTES[key])) ?? false);
                                             const badge = getBadge(item);
 
                                             return (
                                                 <Link
-                                                    key={item.href}
+                                                    key={item.id}
                                                     href={item.href}
                                                     prefetch={false}
                                                     onClick={() => setIsMoreOpen(false)}
@@ -94,7 +96,9 @@ export function MobileTabBar() {
             )}
             <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-black/90 backdrop-blur-lg border-t border-white/10 z-50 flex items-center justify-around px-2 pb-safe">
                 {tabs.map((tab) => {
-                    const active = isActive(tab.href);
+                    const active =
+                        isActive(tab.href) ||
+                        (tab.activeRouteKeys?.some((key) => isActive(ROUTES[key])) ?? false);
 
                     return (
                         <Link
