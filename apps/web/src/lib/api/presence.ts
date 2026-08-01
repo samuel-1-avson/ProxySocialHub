@@ -4,7 +4,8 @@
  */
 
 import { apiGet, apiPost } from './client';
-import { getRealtimeWsUrl } from '../ws-url';
+import { getRealtimeWsUrl, resolveAuthedWsUrl } from '../ws-url';
+import { getAccessTokenSilently } from '../auth';
 
 // ============ Types ============
 
@@ -182,16 +183,30 @@ export interface PresenceWebSocketMessage {
 export function subscribeToPresenceUpdates(
     onUpdate: (update: PresenceWebSocketMessage) => void
 ): () => void {
-    // Note: This is a placeholder. Actual implementation would use WebSocket
-    // or Server-Sent Events connection to receive real-time updates
-    const ws = new WebSocket(getRealtimeWsUrl());
-    
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        onUpdate(data);
+    // Prefer short-lived WS ticket (?ticket=) over putting the JWT in the URL.
+    let ws: WebSocket | null = null;
+    let closed = false;
+
+    void (async () => {
+        const token = await getAccessTokenSilently();
+        if (closed) return;
+        if (!token) {
+            console.warn('Presence realtime unavailable: no access token');
+            return;
+        }
+        const url = await resolveAuthedWsUrl(getRealtimeWsUrl(), token);
+        if (closed) return;
+        ws = new WebSocket(url);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            onUpdate(data);
+        };
+    })();
+
+    return () => {
+        closed = true;
+        ws?.close();
     };
-    
-    return () => ws.close();
 }
 
 // ============ Helpers ============

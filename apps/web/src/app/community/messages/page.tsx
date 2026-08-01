@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getConversations, getMessages, sendMessage, type Conversation, type Message } from "@/lib/social-api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useWebSocket, WS_MESSAGE_TYPES } from "@/lib/websocket";
 import { Send, MessageSquare, Search, MoreVertical, Loader2, ArrowRight } from "lucide-react";
 
 function MessagesContent() {
     const { user } = useAuth();
+    const { subscribe, isConnected } = useWebSocket();
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -16,6 +18,11 @@ function MessagesContent() {
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const selectedConvRef = useRef<Conversation | null>(null);
+
+    useEffect(() => {
+        selectedConvRef.current = selectedConv;
+    }, [selectedConv]);
 
     // Load conversations
     useEffect(() => {
@@ -55,6 +62,40 @@ function MessagesContent() {
         fetchMessages();
     }, [selectedConv]);
 
+    // Realtime inbound DMs (ticket-authenticated /v1/ws)
+    useEffect(() => {
+        return subscribe(WS_MESSAGE_TYPES.NEW_MESSAGE, (msg) => {
+            const payload = msg?.data as {
+                conversation_id?: string;
+                message?: Message;
+            } | undefined;
+            if (!payload?.message || !payload.conversation_id) return;
+
+            const active = selectedConvRef.current;
+            if (active && payload.conversation_id === active.id) {
+                setMessages((prev) => {
+                    if (prev.some((m) => m.id === payload.message!.id)) return prev;
+                    return [...prev, payload.message!];
+                });
+                setTimeout(() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                }, 50);
+            }
+
+            setConversations((prev) => {
+                const idx = prev.findIndex((c) => c.id === payload.conversation_id);
+                if (idx < 0) return prev;
+                const next = [...prev];
+                const [conv] = next.splice(idx, 1);
+                next.unshift({
+                    ...conv,
+                    last_message_at: payload.message!.created_at || new Date().toISOString(),
+                });
+                return next;
+            });
+        });
+    }, [subscribe]);
+
     const handleSend = async () => {
         if (!selectedConv || !newMessage.trim()) return;
 
@@ -84,9 +125,15 @@ function MessagesContent() {
             <div className="w-80 border-r border-border flex flex-col bg-secondary/10">
                 <div className="p-4 border-b border-border flex items-center justify-between bg-card">
                     <h2 className="text-sm font-bold font-mono uppercase tracking-tight">Encrypted Comms</h2>
-                    <button className="p-2 rounded-sm hover:bg-secondary text-muted-foreground transition-colors">
-                        <MessageSquare size={16} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <span
+                            className={`h-2 w-2 rounded-full ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                            title={isConnected ? "Realtime connected" : "Realtime reconnecting"}
+                        />
+                        <button className="p-2 rounded-sm hover:bg-secondary text-muted-foreground transition-colors">
+                            <MessageSquare size={16} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="p-3 border-b border-border bg-card/50">

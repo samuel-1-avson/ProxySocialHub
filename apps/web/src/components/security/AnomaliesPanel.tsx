@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { fetchWithAuth } from '@/lib/auth';
 import { AlertTriangle, MapPin, Clock, Check, Loader2, RefreshCw, Shield, Eye } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
+import { Modal } from '@/components/patterns/Modal';
+import { Button } from '@/components/ui/button';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -227,58 +229,72 @@ export default function AnomaliesPanel() {
                 </div>
             )}
 
-            {/* Resolution Modal */}
-            {showResolutionModal && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-card w-full max-w-md border border-border shadow-2xl p-6 card-retro">
-                        <h3 className="text-lg font-bold font-mono uppercase mb-4">Resolve Alert</h3>
-                        <p className="text-xs font-mono text-muted-foreground mb-4">
-                            Confirm that this login was legitimate or describe the action taken.
-                        </p>
-                        <div className="space-y-4 mb-6">
-                            <textarea
-                                value={resolution}
-                                onChange={(e) => setResolution(e.target.value)}
-                                placeholder="e.g., 'This was me logging in from a new location'"
-                                className="w-full bg-secondary border border-border rounded-sm py-2 px-3 text-sm h-24 resize-none focus:border-primary focus:outline-none"
-                            />
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setResolution('Verified - This was me')}
-                                    className="text-[10px] font-mono px-2 py-1 bg-secondary border border-border rounded-sm hover:bg-secondary/80"
-                                >
-                                    ✓ This was me
-                                </button>
-                                <button
-                                    onClick={() => setResolution('False positive - Legitimate access')}
-                                    className="text-[10px] font-mono px-2 py-1 bg-secondary border border-border rounded-sm hover:bg-secondary/80"
-                                >
-                                    ✓ False positive
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex gap-4">
-                            <button
-                                onClick={() => { setShowResolutionModal(null); setResolution(''); }}
-                                className="flex-1 btn-retro btn-retro-outline"
-                            >
-                                CANCEL
-                            </button>
-                            <button
-                                onClick={() => resolveAnomaly(showResolutionModal)}
-                                disabled={!resolution.trim() || resolving === showResolutionModal}
-                                className="flex-1 btn-retro btn-retro-primary"
-                            >
-                                {resolving === showResolutionModal ? (
-                                    <Loader2 size={14} className="animate-spin mx-auto" />
-                                ) : (
-                                    'RESOLVE'
-                                )}
-                            </button>
-                        </div>
+            <Modal
+                open={!!showResolutionModal}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setShowResolutionModal(null);
+                        setResolution('');
+                    }
+                }}
+                title="Resolve alert"
+                description="Confirm that this activity was legitimate or describe the action taken."
+                footer={
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setShowResolutionModal(null);
+                                setResolution('');
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => {
+                                if (showResolutionModal) void resolveAnomaly(showResolutionModal);
+                            }}
+                            disabled={!resolution.trim() || resolving === showResolutionModal}
+                            isLoading={resolving === showResolutionModal}
+                        >
+                            Resolve
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <label htmlFor="anomaly-resolution" className="sr-only">
+                        Resolution note
+                    </label>
+                    <textarea
+                        id="anomaly-resolution"
+                        value={resolution}
+                        onChange={(e) => setResolution(e.target.value)}
+                        placeholder="e.g. This was me logging in from a new location"
+                        className="h-24 w-full resize-none rounded-[var(--radius-md)] border border-border bg-secondary px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setResolution('Verified - This was me')}
+                        >
+                            This was me
+                        </Button>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setResolution('False positive - Legitimate access')}
+                        >
+                            False positive
+                        </Button>
                     </div>
                 </div>
-            )}
+            </Modal>
         </div>
     );
 }

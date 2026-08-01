@@ -1,16 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, ShieldCheck, Zap, Power, AlertCircle, CheckCircle, Wifi, Copy, Eye, EyeOff } from 'lucide-react';
+import {
+  ShieldCheck,
+  Zap,
+  Power,
+  AlertCircle,
+  CheckCircle,
+  Wifi,
+  Copy,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-    Listing,
-    createOrderWithProvisioning,
-    getOrderProxyCredentials,
-    initiateSmartContractPayment,
-    marketplaceKeys,
-    waitForOrderActive,
-    type MarketplaceProxyCredentials,
+  Listing,
+  createOrderWithProvisioning,
+  getOrderProxyCredentials,
+  initiateSmartContractPayment,
+  marketplaceKeys,
+  waitForOrderActive,
+  type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { getSystemConfig } from '@/lib/api/config';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
@@ -20,333 +30,357 @@ import { getErrorMessage } from '@/lib/utils';
 import Link from 'next/link';
 import { ROUTES } from '@/lib/navigation/routes';
 import {
-    trackMarketplaceEvent,
-    type MarketplaceFunnelSurface,
+  trackMarketplaceEvent,
+  type MarketplaceFunnelSurface,
 } from '@/lib/analytics/marketplace-funnel';
+import { Modal } from '@/components/patterns/Modal';
+import { Button } from '@/components/ui/button';
 
 interface BuyListingModalProps {
-    listing: Listing;
-    onClose: () => void;
-    onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
-    surface?: MarketplaceFunnelSurface | string;
+  listing: Listing;
+  onClose: () => void;
+  onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
+  surface?: MarketplaceFunnelSurface | string;
 }
 
-export function BuyListingModal({ listing, onClose, onSuccess, surface = 'unknown' }: BuyListingModalProps) {
-    const { publicKey } = useWallet();
-    const wallet = useAnchorWallet();
-    const toast = useToast();
-    const queryClient = useQueryClient();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
-    const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
-    const [showPass, setShowPass] = useState(false);
-    const [copied, setCopied] = useState<string | null>(null);
+export function BuyListingModal({
+  listing,
+  onClose,
+  onSuccess,
+  surface = 'unknown',
+}: BuyListingModalProps) {
+  const { publicKey } = useWallet();
+  const wallet = useAnchorWallet();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
+  const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
 
-    const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
+  const { data: systemConfig } = useQuery({
+    queryKey: ['system-config-public'],
+    queryFn: getSystemConfig,
+    staleTime: 60_000,
+  });
+  const solPriceUsd = Number(systemConfig?.sol_price_usd || 0);
 
-    const { data: systemConfig } = useQuery({
-        queryKey: ['system-config-public'],
-        queryFn: getSystemConfig,
-        staleTime: 60_000,
+  useEffect(() => {
+    trackMarketplaceEvent('buy_modal_open', {
+      listing_id: listing.id,
+      surface,
     });
-    const solPriceUsd = Number(systemConfig?.sol_price_usd || 0);
+  }, [listing.id, surface]);
 
-    useEffect(() => {
-        trackMarketplaceEvent('buy_modal_open', {
-            listing_id: listing.id,
-            surface,
-        });
-    }, [listing.id, surface]);
+  const effectivePricePerGB = (() => {
+    let best = listing.price_per_gb;
+    for (const d of listing.bulk_discounts ?? []) {
+      if (bandwidth >= d.min_gb && d.price_per_gb < best) {
+        best = d.price_per_gb;
+      }
+    }
+    return best;
+  })();
+  const estimatedCostUSD = effectivePricePerGB * bandwidth;
+  const estimatedCostSOL = solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
+  const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
 
-    // Listing price_per_gb is USD (control-api converts to SOL at pay time).
-    // Apply the same bulk-discount tiers the API uses in calculatePriceWithDiscounts.
-    const effectivePricePerGB = (() => {
-        let best = listing.price_per_gb;
-        for (const d of listing.bulk_discounts ?? []) {
-            if (bandwidth >= d.min_gb && d.price_per_gb < best) {
-                best = d.price_per_gb;
-            }
-        }
-        return best;
-    })();
-    const estimatedCostUSD = effectivePricePerGB * bandwidth;
-    const estimatedCostSOL = solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
-    const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
+  const copyToClipboard = (text: string, key: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  };
 
-    const copyToClipboard = (text: string, key: string) => {
-        navigator.clipboard.writeText(text).then(() => {
-            setCopied(key);
-            setTimeout(() => setCopied(null), 2000);
-        });
-    };
+  const e2eMockBuy =
+    process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
+    (typeof window !== 'undefined' &&
+      !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
 
-    const e2eMockBuy =
-        process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
-        (typeof window !== 'undefined' &&
-            !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
-
-    const handleConnect = async () => {
-        if (!e2eMockBuy && (!wallet || !publicKey)) {
-            toast.warning('Wallet required', 'Please connect your Solana wallet first.');
-            return;
-        }
-
-        setLoading(true);
-        setError('');
-        try {
-            // Step 1: Create order — locks in rate and creates escrow record
-            const orderResult = await createOrderWithProvisioning({
-                listing_id: listing.id,
-                bandwidth_gb: bandwidth,
-                session_type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
-            });
-            const order = orderResult.order;
-
-            // Step 2: Initiate on-chain escrow payment
-            const params = await initiateSmartContractPayment(order.id);
-
-            const { tx } = await initializeEscrow(
-                e2eMockBuy ? { publicKey: null } : wallet,
-                params.seller_pubkey,
-                params.amount_lamports,
-                params.bandwidth_gb
-            );
-
-            console.log("Solana escrow tx:", tx);
-
-            await waitForOrderActive(order.id, {
-                timeoutMs: e2eMockBuy ? 15_000 : 60_000,
-                pollIntervalMs: e2eMockBuy ? 250 : 2000,
-            });
-            const credsResponse = await getOrderProxyCredentials(order.id);
-            const nextCredentials = credsResponse.proxy_credentials;
-            if (!nextCredentials) {
-                throw new Error('Order created, but proxy credentials were not returned after escrow confirmation.');
-            }
-
-            setCompletedOrderId(order.id);
-            setCredentials(nextCredentials);
-            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-            onSuccess(order.id, nextCredentials);
-        } catch (err: unknown) {
-            console.error(err);
-            setError(getErrorMessage(err) || 'Failed to connect. Check your on-chain SOL wallet balance.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Success: show proxy credentials
-    if (credentials) {
-        return (
-            <div
-                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-                data-testid="buy-listing-modal-success"
-            >
-                <div className="bg-[#0a0a0a] border border-green-500/20 rounded-3xl p-8 max-w-md w-full space-y-6 animate-in fade-in zoom-in duration-300">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
-                            <CheckCircle size={24} />
-                        </div>
-                        <div>
-                            <h2 className="text-xl font-black text-white">Connected!</h2>
-                            <p className="text-xs text-muted-foreground">Pay-as-you-go billing is active</p>
-                        </div>
-                    </div>
-
-                    <div className="space-y-3 bg-white/5 rounded-2xl p-4 border border-white/10">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Proxy Credentials</p>
-                        {[
-                            { label: 'Endpoint', value: credentials.endpoint, key: 'endpoint' },
-                            { label: 'Username', value: credentials.username, key: 'username' },
-                        ].map(({ label, value, key }) => (
-                            <div key={key} className="flex items-center justify-between gap-2">
-                                <div>
-                                    <p className="text-[9px] text-white/30 uppercase tracking-widest">{label}</p>
-                                    <p className="text-xs font-mono text-white/80 break-all">{value}</p>
-                                </div>
-                                <button
-                                    onClick={() => copyToClipboard(value, key)}
-                                    className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors flex-shrink-0"
-                                >
-                                    {copied === key ? <CheckCircle size={14} className="text-green-500" /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        ))}
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[9px] text-white/30 uppercase tracking-widest">Password</p>
-                                <p className="text-xs font-mono text-white/80 break-all">
-                                    {showPass ? credentials.password : '••••••••••••'}
-                                </p>
-                            </div>
-                            <div className="flex gap-1 flex-shrink-0">
-                                <button
-                                    onClick={() => setShowPass(v => !v)}
-                                    className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
-                                >
-                                    {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-                                </button>
-                                <button
-                                    onClick={() => copyToClipboard(credentials.password, 'password')}
-                                    className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
-                                >
-                                    {copied === 'password' ? <CheckCircle size={14} className="text-green-500" /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <p className="text-[10px] text-white/30 leading-relaxed">
-                        Configure your client using <span className="text-white/60">HTTP proxy</span> with the credentials above.
-                        Billing is hourly — session auto-terminates when bandwidth quota is reached.
-                    </p>
-
-                    {completedOrderId && (
-                        <Link
-                            href={ROUTES.dashboardOrder(completedOrderId)}
-                            className="block w-full py-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-300 font-black text-sm uppercase tracking-widest hover:bg-purple-500/20 transition-all text-center"
-                        >
-                            View order & credentials
-                        </Link>
-                    )}
-
-                    <button
-                        onClick={onClose}
-                        className="w-full py-3 rounded-2xl bg-green-500/10 border border-green-500/20 text-green-400 font-black text-sm uppercase tracking-widest hover:bg-green-500/20 transition-all"
-                    >
-                        Done
-                    </button>
-                </div>
-            </div>
-        );
+  const handleConnect = async () => {
+    if (!e2eMockBuy && (!wallet || !publicKey)) {
+      toast.warning('Wallet required', 'Please connect your Solana wallet first.');
+      return;
     }
 
+    setLoading(true);
+    setError('');
+    try {
+      const orderResult = await createOrderWithProvisioning({
+        listing_id: listing.id,
+        bandwidth_gb: bandwidth,
+        session_type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
+      });
+      const order = orderResult.order;
+
+      const params = await initiateSmartContractPayment(order.id);
+
+      const { tx } = await initializeEscrow(
+        e2eMockBuy ? { publicKey: null } : wallet,
+        params.seller_pubkey,
+        params.amount_lamports,
+        params.bandwidth_gb
+      );
+
+      console.log('Solana escrow tx:', tx);
+
+      await waitForOrderActive(order.id, {
+        timeoutMs: e2eMockBuy ? 15_000 : 60_000,
+        pollIntervalMs: e2eMockBuy ? 250 : 2000,
+      });
+      const credsResponse = await getOrderProxyCredentials(order.id);
+      const nextCredentials = credsResponse.proxy_credentials;
+      if (!nextCredentials) {
+        throw new Error(
+          'Order created, but proxy credentials were not returned after escrow confirmation.'
+        );
+      }
+
+      setCompletedOrderId(order.id);
+      setCredentials(nextCredentials);
+      void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+      onSuccess(order.id, nextCredentials);
+    } catch (err: unknown) {
+      console.error(err);
+      setError(
+        getErrorMessage(err) || 'Failed to connect. Check your on-chain SOL wallet balance.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (credentials) {
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
-            data-testid="buy-listing-modal"
-        >
-            <div className="relative w-full max-w-md bg-[#0a0a0a] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-
-                {/* Header */}
-                <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
-                    <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                        <Wifi size={24} className="text-green-500" />
-                        Connect to Node
-                    </h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 text-muted-foreground hover:text-white transition-colors">
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="p-6 space-y-6">
-
-                    {/* Listing Summary */}
-                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex gap-4 items-start">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex-shrink-0 flex items-center justify-center text-white font-black">
-                            {listing.proxy_type?.[0]?.toUpperCase()}
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-white text-sm line-clamp-1">{listing.title}</h3>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                                <span className="flex items-center gap-1"><ShieldCheck size={10} className="text-blue-400" /> Verified</span>
-                                <span className="flex items-center gap-1"><Zap size={10} className="text-yellow-400" /> {listing.avg_latency_ms}ms</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-2">
-                        <h4 className="text-sm font-bold text-blue-400 uppercase tracking-wider flex items-center gap-2">
-                            <AlertCircle size={14} /> Pay-As-You-Go Billing
-                        </h4>
-                        <p className="text-xs text-blue-200/80 leading-relaxed">
-                            Charged hourly from your SOL wallet based on actual bandwidth consumed.
-                            Session auto-terminates when quota is exhausted.
-                        </p>
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-white/5">
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Bandwidth Quota</label>
-                                <span className="text-xs font-mono font-bold text-white">{bandwidth} GB</span>
-                            </div>
-                            <input
-                                type="range"
-                                min={listing.min_purchase_gb || 1}
-                                max={Math.min(listing.available_bandwidth_gb || 1000, 100)}
-                                step="1"
-                                value={bandwidth}
-                                onChange={(e) => setBandwidth(parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400"
-                            />
-                            <div className="flex justify-between text-[8px] text-white/20 font-mono">
-                                <span>MIN: {listing.min_purchase_gb || 1}GB</span>
-                                <span>AVAIL: {listing.available_bandwidth_gb || 'UNLIMITED'}</span>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
-                            <div>
-                                <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Estimated Total</p>
-                                <p className="font-mono text-2xl font-black text-emerald-400">
-                                    ${estimatedCostUSD.toFixed(2)}
-                                </p>
-                                <p className="text-[10px] font-mono text-white/40 mt-1">
-                                    {estimatedCostSOL != null
-                                        ? `≈ ${estimatedCostSOL.toFixed(6)} SOL escrow`
-                                        : 'SOL estimate pending price feed'}
-                                </p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1">Rate</p>
-                                <p className="text-xs font-mono text-white/60">${effectivePricePerGB.toFixed(4)} / GB</p>
-                                {bulkRateActive ? (
-                                    <p className="text-[9px] font-mono text-emerald-400/80 mt-1">
-                                        Bulk rate (list ${listing.price_per_gb.toFixed(4)})
-                                    </p>
-                                ) : solPriceUsd > 0 ? (
-                                    <p className="text-[9px] font-mono text-white/30 mt-1">
-                                        SOL @ ${solPriceUsd.toFixed(2)}
-                                    </p>
-                                ) : null}
-                            </div>
-                        </div>
-                    </div>
-
-                    {error && (
-                        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium flex gap-2 items-center">
-                            <AlertCircle size={16} />
-                            {error}
-                        </div>
-                    )}
-
-                    <button
-                        type="button"
-                        data-testid="buy-listing-start-connection"
-                        onClick={handleConnect}
-                        disabled={loading}
-                        className="w-full py-4 rounded-2xl bg-white text-black font-black text-lg uppercase tracking-wide hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                    >
-                        {loading ? (
-                            <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
-                        ) : (
-                            <>
-                                <Power size={20} />
-                                Start Connection
-                            </>
-                        )}
-                    </button>
-
-                    <p className="text-center text-[10px] text-muted-foreground">
-                        You pay with on-chain SOL escrow from your linked wallet. Session ends when bandwidth quota is exhausted.
-                    </p>
-
-                </div>
-            </div>
+      <Modal
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        title="Connected"
+        description="Pay-as-you-go billing is active"
+        testId="buy-listing-modal-success"
+        footer={
+          <div className="flex w-full flex-col gap-2">
+            {completedOrderId ? (
+              <Link
+                href={ROUTES.dashboardOrder(completedOrderId)}
+                className="inline-flex w-full items-center justify-center rounded-[var(--radius-md)] border border-border px-4 py-2 text-sm font-medium hover:bg-secondary"
+              >
+                View order & credentials
+              </Link>
+            ) : null}
+            <Button type="button" onClick={onClose} className="w-full">
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)]">
+            <CheckCircle size={20} aria-hidden />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Copy credentials below. Reveal password only when ready.
+          </p>
         </div>
+
+        <div className="space-y-3 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Proxy credentials
+          </p>
+          {[
+            { label: 'Endpoint', value: credentials.endpoint, key: 'endpoint' },
+            { label: 'Username', value: credentials.username, key: 'username' },
+          ].map(({ label, value, key }) => (
+            <div key={key} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="break-all font-mono text-sm text-foreground">{value}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(value, key)}
+                className="shrink-0 rounded-[var(--radius-sm)] p-2 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={`Copy ${label}`}
+              >
+                {copied === key ? (
+                  <CheckCircle size={14} className="text-[var(--success)]" aria-hidden />
+                ) : (
+                  <Copy size={14} aria-hidden />
+                )}
+              </button>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Password</p>
+              <p className="break-all font-mono text-sm text-foreground">
+                {showPass ? credentials.password : '••••••••••••'}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                onClick={() => setShowPass((v) => !v)}
+                className="rounded-[var(--radius-sm)] p-2 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={showPass ? 'Hide password' : 'Reveal password'}
+                aria-pressed={showPass}
+              >
+                {showPass ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
+              </button>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(credentials.password, 'password')}
+                className="rounded-[var(--radius-sm)] p-2 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label="Copy password"
+              >
+                {copied === 'password' ? (
+                  <CheckCircle size={14} className="text-[var(--success)]" aria-hidden />
+                ) : (
+                  <Copy size={14} aria-hidden />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Configure your client as an HTTP proxy. Billing is hourly; the session ends when the
+          bandwidth quota is reached.
+        </p>
+      </Modal>
     );
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(open) => {
+        if (!open && !loading) onClose();
+      }}
+      title="Connect to node"
+      description={listing.title}
+      testId="buy-listing-modal"
+      footer={
+        <div className="flex w-full flex-col gap-2">
+          <Button
+            type="button"
+            data-testid="buy-listing-start-connection"
+            onClick={() => void handleConnect()}
+            disabled={loading}
+            isLoading={loading}
+            className="w-full"
+          >
+            <Power size={18} className="mr-2" aria-hidden />
+            Start connection
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            You pay with on-chain SOL escrow. Session ends when bandwidth quota is exhausted.
+          </p>
+        </div>
+      }
+    >
+      <div className="space-y-5">
+        <div className="flex gap-4 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-primary font-mono text-sm font-semibold text-primary-foreground">
+            {listing.proxy_type?.[0]?.toUpperCase() ?? 'P'}
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-foreground">{listing.title}</h3>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <ShieldCheck size={12} className="text-[var(--info)]" aria-hidden />
+                Verified
+              </span>
+              <span className="inline-flex items-center gap-1 font-mono">
+                <Zap size={12} className="text-[var(--warning)]" aria-hidden />
+                {listing.avg_latency_ms}ms
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Wifi size={12} className="text-[var(--success)]" aria-hidden />
+                Ready
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--info)_30%,var(--border))] bg-[color-mix(in_srgb,var(--info)_8%,transparent)] p-4">
+          <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--info)]">
+            <AlertCircle size={14} aria-hidden />
+            Pay-as-you-go billing
+          </h4>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Charged from your SOL wallet based on bandwidth consumed. Session auto-terminates when
+            quota is exhausted.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label htmlFor="buy-bandwidth" className="text-xs font-medium text-muted-foreground">
+              Bandwidth quota
+            </label>
+            <span className="font-mono text-sm font-semibold text-foreground">{bandwidth} GB</span>
+          </div>
+          <input
+            id="buy-bandwidth"
+            type="range"
+            min={listing.min_purchase_gb || 1}
+            max={Math.min(listing.available_bandwidth_gb || 1000, 100)}
+            step={1}
+            value={bandwidth}
+            onChange={(e) => setBandwidth(parseInt(e.target.value, 10))}
+            className="w-full accent-[var(--primary)]"
+          />
+          <div className="flex justify-between font-mono text-xs text-muted-foreground">
+            <span>Min: {listing.min_purchase_gb || 1} GB</span>
+            <span>Avail: {listing.available_bandwidth_gb || 'Unlimited'}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-border bg-secondary p-4">
+          <div>
+            <p className="mb-1 text-xs text-muted-foreground">Estimated total</p>
+            <p className="font-mono text-2xl font-semibold text-[var(--success)]">
+              ${estimatedCostUSD.toFixed(2)}
+            </p>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {estimatedCostSOL != null
+                ? `≈ ${estimatedCostSOL.toFixed(6)} SOL escrow`
+                : 'SOL estimate pending price feed'}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="mb-1 text-xs text-muted-foreground">Rate</p>
+            <p className="font-mono text-sm text-foreground">
+              ${effectivePricePerGB.toFixed(4)} / GB
+            </p>
+            {bulkRateActive ? (
+              <p className="mt-1 font-mono text-xs text-[var(--success)]">
+                Bulk rate (list ${listing.price_per_gb.toFixed(4)})
+              </p>
+            ) : solPriceUsd > 0 ? (
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                SOL @ ${solPriceUsd.toFixed(2)}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        {error ? (
+          <div
+            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--destructive)_30%,var(--border))] bg-[color-mix(in_srgb,var(--destructive)_8%,transparent)] p-3 text-sm text-[var(--destructive)]"
+            role="alert"
+          >
+            <AlertCircle size={16} aria-hidden />
+            {error}
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
 }

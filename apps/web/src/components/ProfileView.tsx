@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/services/profile";
+import { getMyBadges, type UserBadge } from "@/lib/api/badges";
 
 import {
     Star,
@@ -36,7 +37,8 @@ import {
     Terminal,
     Zap,
     History,
-    Key
+    Key,
+    Award,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -54,6 +56,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const [profile, setProfile] = useState<UserPublicProfile | null>(null);
     const [reviews, setReviews] = useState<Review[]>([]);
+    const [badges, setBadges] = useState<UserBadge[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [isFollowing, setIsFollowing] = useState(false);
@@ -80,6 +83,17 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     setReviews(reviewsData.reviews || []);
                 } catch {
                     // Reviews optional
+                }
+
+                if (isOwnProfile && isAuthenticated) {
+                    try {
+                        const badgeData = await getMyBadges();
+                        setBadges(badgeData.badges || []);
+                    } catch {
+                        setBadges([]);
+                    }
+                } else {
+                    setBadges([]);
                 }
             } catch (err) {
                 console.error("Profile fetch error:", err);
@@ -399,6 +413,28 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             </GlassCard>
                         ))}
                     </motion.div>
+
+                    {isOwnProfile && badges.length > 0 && (
+                        <motion.div variants={itemVariants} className="space-y-4">
+                            <div className="flex items-center gap-3 px-2">
+                                <Award size={14} className="text-primary" />
+                                <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Badges</div>
+                                <div className="h-px bg-white/5 flex-1" />
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {badges.map((ub) => (
+                                    <span
+                                        key={ub.badge_id}
+                                        title={ub.badge?.description || ub.badge?.name}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20 text-[10px] font-black uppercase tracking-widest text-primary"
+                                    >
+                                        <Award size={12} />
+                                        {ub.badge?.name || "Badge"}
+                                    </span>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
 
                     {/* Capability Map */}
                     {((profile.skills && profile.skills.length > 0) || (profile.languages && profile.languages.length > 0)) && (

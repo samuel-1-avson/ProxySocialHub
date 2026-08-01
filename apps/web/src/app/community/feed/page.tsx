@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getFeed, discoverProviders, getTrendingListings, type FeedEvent, type User, type Listing } from "@/lib/social-api";
 import { FollowProviderButton } from "@/components/social/FollowProviderButton";
+import { PeopleYouMayKnow } from "@/components/PeopleYouMayKnow";
 import {
     Package,
     Star,
@@ -369,6 +370,7 @@ export default function FeedPage() {
 
                 {/* Sidebar - Telemetry Widgets */}
                 <div className="lg:col-span-4 space-y-8">
+                    {isAuthenticated && <PeopleYouMayKnow limit={5} showViewAll />}
                     {isAuthenticated && (
                         <motion.div variants={itemVariants}>
                             <GlassCard className="!p-8 bg-white/2 border border-white/5 relative overflow-hidden group">

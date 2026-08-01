@@ -11,6 +11,7 @@ import {
     voteThread,
     reportThread,
     reportPost,
+    markPostSolution,
     type ForumThread as ThreadType,
     type ForumPost as PostType,
 } from "@/lib/forum-api";
@@ -171,6 +172,25 @@ function ThreadPageContent() {
             setVoting(null);
         }
     };
+
+    const handleMarkSolution = async (postId: string, isSolution: boolean) => {
+        if (!isAuthenticated) return;
+        try {
+            await markPostSolution(postId, isSolution);
+            await loadThread();
+        } catch (err) {
+            console.error("Failed to update solution:", err);
+            alert(err instanceof Error ? err.message : "Failed to update solution");
+        }
+    };
+
+    const canMarkSolution =
+        !!user &&
+        !!thread &&
+        (user.id === thread.author_id ||
+            user.role === "admin" ||
+            user.role === "moderator" ||
+            user.role === "superadmin");
 
     const openShareModal = () => {
         setShareModalOpen(true);
@@ -363,6 +383,8 @@ function ThreadPageContent() {
                             onVote={(type) => handleVotePost(post.id, type)}
                             voting={voting === post.id}
                             isAuthenticated={isAuthenticated}
+                            canMarkSolution={canMarkSolution}
+                            onMarkSolution={() => handleMarkSolution(post.id, !post.is_solution)}
                             onShare={() => {
                                 navigator.clipboard.writeText(`${window.location.href}#post-${post.id}`);
                                 setCopiedLink(true);
@@ -381,6 +403,8 @@ function ThreadPageContent() {
                                     onVote={(type) => handleVotePost(reply.id, type)}
                                     voting={voting === reply.id}
                                     isAuthenticated={isAuthenticated}
+                                    canMarkSolution={canMarkSolution}
+                                    onMarkSolution={() => handleMarkSolution(reply.id, !reply.is_solution)}
                                     onShare={() => {
                                         navigator.clipboard.writeText(`${window.location.href}#post-${reply.id}`);
                                         setCopiedLink(true);
@@ -546,11 +570,13 @@ interface PostCardProps {
     isAuthenticated: boolean;
     onShare: () => void;
     onReport: () => void;
+    canMarkSolution?: boolean;
+    onMarkSolution?: () => void;
     isNested?: boolean;
     parentAuthor?: string;
 }
 
-function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthenticated, onShare, onReport, isNested, parentAuthor }: PostCardProps) {
+function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthenticated, onShare, onReport, canMarkSolution, onMarkSolution, isNested, parentAuthor }: PostCardProps) {
     const score = (post.upvotes || 0) - (post.downvotes || 0);
     const isSolution = post.is_solution;
 
@@ -625,6 +651,20 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
                             <CornerDownRight className="w-3 h-3" />
                             Reply
                         </button>
+                        {canMarkSolution && onMarkSolution && (
+                            <button
+                                type="button"
+                                onClick={onMarkSolution}
+                                className={`flex items-center gap-1 text-xs font-mono transition-colors ${
+                                    isSolution
+                                        ? "text-emerald-500 hover:text-emerald-400"
+                                        : "text-muted-foreground hover:text-emerald-500"
+                                }`}
+                            >
+                                <CheckCircle2 className="w-3 h-3" />
+                                {isSolution ? "Unmark solution" : "Mark solution"}
+                            </button>
+                        )}
                         <button 
                             onClick={onShare}
                             className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
