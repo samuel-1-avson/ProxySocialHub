@@ -14,6 +14,15 @@ pub struct OperatorSnapshot {
     pub earnings: Option<EarningsSummary>,
     pub runtime: Option<RuntimeState>,
     pub log_tail: Vec<String>,
+    #[serde(default)]
+    pub health: Option<HealthSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthSummary {
+    pub state: String,
+    pub score: u8,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +68,7 @@ pub async fn collect_local(config_path: PathBuf) -> Result<OperatorSnapshot> {
         earnings: None,
         runtime: RuntimeState::read(&paths::runtime_state_file()),
         log_tail: tail_log_file(&paths::log_file(), 12),
+        health: None,
     })
 }
 
@@ -69,7 +79,55 @@ pub async fn refresh_remote(snap: &mut OperatorSnapshot, config_path: PathBuf) -
 
     snap.status.control_api = status::fetch_control_api_status(&cfg).await;
     snap.earnings = fetch_earnings_summary(&cfg).await;
+    snap.health = Some(compute_health(snap));
     Ok(())
+}
+
+fn compute_health(snap: &OperatorSnapshot) -> HealthSummary {
+    let mut reasons = Vec::new();
+    let mut score: i32 = 100;
+
+    let tunnel_up = snap
+        .runtime
+        .as_ref()
+        .map(|r| r.tunnel_connected)
+        .unwrap_or(false);
+    if !tunnel_up {
+        score -= 50;
+        reasons.push("Tunnel disconnected".to_string());
+    }
+
+    if let Some(m) = &snap.status.metrics {
+        if m.last_heartbeat_ago_ms > 90_000 {
+            score -= 20;
+            reasons.push(format!("Heartbeat stale ({}s ago)", m.last_heartbeat_ago_ms / 1000));
+        }
+    } else {
+        score -= 15;
+        reasons.push("Local metrics unreachable".to_string());
+    }
+
+    if !snap.status.control_api.reachable {
+        score -= 20;
+        reasons.push("Control API unreachable".to_string());
+    }
+
+    if !snap.config.signing_configured {
+        score -= 10;
+        reasons.push("Heartbeat signing key missing".to_string());
+    }
+
+    let score = score.clamp(0, 100) as u8;
+    let state = if score >= 80 {
+        "ONLINE"
+    } else if score >= 50 {
+        "DEGRADED"
+    } else {
+        "DOWN"
+    }
+    .to_string();
+
+    HealthSummary { state, score, reasons }
 }
 
 fn config_summary_from(cfg: &Config) -> ConfigSummary {
