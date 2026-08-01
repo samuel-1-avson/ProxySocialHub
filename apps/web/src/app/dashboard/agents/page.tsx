@@ -1,232 +1,261 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { getMarketAgents, getMyAgents, rentAgent, executeAgentJob, MarketAgent, AgentInstance } from '@/lib/api';
-import { Bot, Play, Pause, Activity, Cpu, Zap, ShoppingCart, ArrowRight, Hexagon, ChevronRight, Loader2, Sparkles } from 'lucide-react';
+import {
+    getMarketAgents,
+    getMyAgents,
+    rentAgent,
+    type MarketAgent,
+    type AgentInstance,
+} from '@/lib/api';
+import { Bot, Cpu, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
+import { ROUTES } from '@/lib/navigation/routes';
+import { getErrorMessage } from '@/lib/utils';
 
-export default function AgentsPage() {
-    const { isAuthenticated, user } = useAuth();
+function agentPriceLabel(agent: MarketAgent): string {
+    const run = Number(agent.price_per_run ?? 0);
+    const hour = Number(agent.price_per_hour ?? agent.hourly_rate ?? 0);
+    if (run > 0) return `${run.toFixed(6)} SOL / run`;
+    if (hour > 0) return `${hour.toFixed(6)} SOL / hr (listed)`;
+    return 'Free provisional rent';
+}
+
+export default function AgentsConsolePage() {
+    const { isAuthenticated } = useAuth();
     const router = useRouter();
-    const [activeTab, setActiveTab] = useState<'market' | 'my-agents'>('market');
+    const [activeTab, setActiveTab] = useState<'catalog' | 'instances'>('catalog');
     const [marketAgents, setMarketAgents] = useState<MarketAgent[]>([]);
     const [myAgents, setMyAgents] = useState<AgentInstance[]>([]);
     const [loading, setLoading] = useState(true);
+    const [rentingId, setRentingId] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!isAuthenticated) {
-            router.push('/login');
-            return;
-        }
-        loadData();
-    }, [isAuthenticated]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
+        setActionError(null);
         try {
-            const [marketData, myData] = await Promise.all([
-                getMarketAgents(),
-                getMyAgents()
-            ]);
+            const [marketData, myData] = await Promise.all([getMarketAgents(), getMyAgents()]);
             setMarketAgents(marketData);
             setMyAgents(myData);
         } catch (err) {
-            console.error(err);
+            setActionError(getErrorMessage(err) || 'Failed to load agents');
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!isAuthenticated) {
+            router.push(`${ROUTES.login}?redirect=${encodeURIComponent(ROUTES.dashboardAgents)}`);
+            return;
+        }
+        void loadData();
+    }, [isAuthenticated, loadData, router]);
 
     const handleRent = async (agent: MarketAgent) => {
-        if (!confirm(`Rent ${agent.name} for ${Number(agent.price_per_hour || 0).toFixed(6)} SOL/hour?`)) return;
+        setActionError(null);
+        if (
+            !confirm(
+                `Provision ${agent.name}? This is experimental — no wallet charge and jobs cannot run until Docker execution ships.`,
+            )
+        ) {
+            return;
+        }
+        setRentingId(agent.id);
         try {
             await rentAgent(agent.id);
-            alert('Agent rented successfully!');
-            loadData();
-            setActiveTab('my-agents');
+            await loadData();
+            setActiveTab('instances');
         } catch (err) {
-            alert('Failed to rent agent');
+            setActionError(getErrorMessage(err) || 'Failed to provision agent');
+        } finally {
+            setRentingId(null);
         }
-    };
-
-    const handleExecute = async (instanceId: string) => {
-        try {
-            const res = await executeAgentJob(instanceId, {});
-            alert(`Job started: ${res.job_id}`);
-        } catch (err) {
-            alert('Failed to start job');
-        }
-    };
-
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: {
-            opacity: 1,
-            transition: { staggerChildren: 0.1 }
-        }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0 }
     };
 
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-40 gap-6">
                 <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                <p className="font-mono text-[10px] uppercase font-black tracking-[0.4em] text-muted-foreground animate-pulse">Initializing Neural Mesh...</p>
+                <p className="font-mono text-[10px] uppercase font-black tracking-[0.4em] text-muted-foreground animate-pulse">
+                    Loading agent console…
+                </p>
             </div>
         );
     }
 
     return (
         <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             className="space-y-10 pb-20 font-mono"
         >
-            {/* Header */}
-            <motion.div variants={itemVariants} className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-white/5 pb-8">
-                <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.3em]">
-                        <Hexagon size={12} className="animate-spin-slow" /> Autonomous Neural Units
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-white/5 pb-8">
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-[0.3em]">
+                        <AlertTriangle size={12} /> Experimental
                     </div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">
-                        AI Agents
+                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground">
+                        Agent console
                     </h1>
-                    <p className="text-muted-foreground text-[11px] max-w-lg opacity-60 uppercase tracking-tight">
-                        DEPLOY AUTONOMOUS WORKERS FOR NETWORK OPTIMIZATION AND SOCIAL PROTOCOLS.
+                    <p className="text-muted-foreground text-[11px] max-w-xl opacity-70 uppercase tracking-tight leading-relaxed">
+                        Registry and provisional rent only. Payment, escrow, and job EXECUTE are not live —
+                        removed from Market until runtime ships.
                     </p>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/2 p-1 rounded-2xl border border-white/5">
+                <div className="flex items-center gap-2 bg-white/2 p-1 rounded-2xl border border-white/5">
                     <button
-                        onClick={() => setActiveTab('market')}
-                        className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'market' ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'text-muted-foreground/40 hover:text-foreground'}`}
+                        type="button"
+                        onClick={() => setActiveTab('catalog')}
+                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                            activeTab === 'catalog'
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground/40 hover:text-foreground'
+                        }`}
                     >
-                        Marketplace
+                        Catalog
                     </button>
                     <button
-                        onClick={() => setActiveTab('my-agents')}
-                        className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'my-agents' ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'text-muted-foreground/40 hover:text-foreground'}`}
+                        type="button"
+                        onClick={() => setActiveTab('instances')}
+                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                            activeTab === 'instances'
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground/40 hover:text-foreground'
+                        }`}
                     >
-                        My Units ({myAgents.length})
+                        Instances ({myAgents.length})
                     </button>
                 </div>
-            </motion.div>
+            </div>
 
-            {/* Content */}
+            <div
+                className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-amber-100/90 leading-relaxed"
+                role="status"
+            >
+                Phase C: Market agent pages redirect here. Do not treat listed prices as billable. Job
+                execution fails until Docker runtime is funded.
+            </div>
+
+            {actionError && (
+                <div
+                    className="rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-[11px] font-bold text-red-200"
+                    role="alert"
+                >
+                    {actionError}
+                </div>
+            )}
+
             <AnimatePresence mode="wait">
-                {activeTab === 'market' ? (
+                {activeTab === 'catalog' ? (
                     <motion.div
-                        key="market"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 20 }}
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
+                        key="catalog"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
                     >
-                        {marketAgents.map(agent => (
-                            <GlassCard key={agent.id} className="!p-8 flex flex-col h-full hover:border-primary/40 transition-all group overflow-hidden relative">
-                                <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-125 group-hover:rotate-12 duration-700">
-                                    <Bot size={120} className="text-primary" />
-                                </div>
-
-                                <div className="flex justify-between items-start mb-8 relative z-10">
-                                    <div className="p-4 rounded-2xl bg-primary/10 text-primary border border-primary/20 group-hover:shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all">
-                                        <Cpu size={28} />
-                                    </div>
-                                    <span className="px-3 py-1 rounded-lg bg-black/40 border border-white/5 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">
-                                        ACTIVE
-                                    </span>
-                                </div>
-
-                                <h3 className="text-2xl font-black uppercase tracking-tighter mb-3 group-hover:text-primary transition-colors relative z-10">{agent.name}</h3>
-                                <p className="text-[11px] text-muted-foreground/40 uppercase tracking-tight leading-relaxed mb-8 flex-1 relative z-10">
-                                    {agent.description}
+                        {marketAgents.length === 0 ? (
+                            <div className="col-span-full text-center py-24 border border-dashed border-white/10 rounded-3xl">
+                                <Bot className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
+                                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50">
+                                    No catalog agents seeded
                                 </p>
-
-                                <div className="mt-auto pt-6 border-t border-dashed border-white/5 flex items-center justify-between relative z-10">
-                                    <div className="space-y-1">
-                                        <div className="text-[10px] font-black text-primary tracking-[0.2em]">{Number(agent.price_per_hour || 0).toFixed(6)} SOL</div>
-                                        <div className="text-[8px] text-muted-foreground/20 uppercase font-black">PER HOUR CYCLE</div>
+                            </div>
+                        ) : (
+                            marketAgents.map((agent) => (
+                                <GlassCard
+                                    key={agent.id}
+                                    className="!p-6 flex flex-col h-full hover:border-primary/30 transition-all"
+                                >
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div className="p-3 rounded-xl bg-primary/10 text-primary border border-primary/20">
+                                            <Cpu size={22} />
+                                        </div>
+                                        <span className="px-2 py-1 rounded-md border border-white/10 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">
+                                            {agent.category || 'agent'}
+                                        </span>
                                     </div>
-                                    <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => handleRent(agent)}
-                                        className="bg-white/5 border border-white/10 hover:border-primary/50 text-foreground px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 transition-all hover:bg-primary/5 shadow-xl"
-                                    >
-                                        Deploy <ShoppingCart size={14} />
-                                    </motion.button>
-                                </div>
-                            </GlassCard>
-                        ))}
+                                    <h3 className="text-lg font-black uppercase tracking-tight mb-2">
+                                        {agent.name}
+                                    </h3>
+                                    <p className="text-[11px] text-muted-foreground/50 leading-relaxed mb-6 flex-1">
+                                        {agent.description || 'No description'}
+                                    </p>
+                                    <div className="pt-4 border-t border-white/5 flex items-center justify-between gap-3">
+                                        <div className="text-[10px] font-black text-primary/80 tracking-wider">
+                                            {agentPriceLabel(agent)}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleRent(agent)}
+                                            disabled={!!rentingId}
+                                            className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest hover:border-primary/40 disabled:opacity-50"
+                                        >
+                                            {rentingId === agent.id ? (
+                                                <Loader2 size={14} className="animate-spin" />
+                                            ) : (
+                                                'Provision'
+                                            )}
+                                        </button>
+                                    </div>
+                                </GlassCard>
+                            ))
+                        )}
                     </motion.div>
                 ) : (
                     <motion.div
-                        key="my-agents"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        className="space-y-6"
+                        key="instances"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="space-y-4"
                     >
-                        {myAgents.length > 0 ? myAgents.map(instance => (
-                            <GlassCard key={instance.id} className="!p-6 flex flex-col md:flex-row items-center justify-between hover:bg-white/5 transition-all group border-white/5">
-                                <div className="flex items-center gap-6">
-                                    <div className="w-16 h-16 rounded-2xl bg-black/40 border border-white/5 flex items-center justify-center text-primary group-hover:scale-110 transition-transform shadow-lg">
-                                        <Bot size={32} />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{instance.agent?.name || 'Unit ' + instance.id.slice(0, 4)}</h3>
-                                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`w-2 h-2 rounded-full ${instance.status === 'idle' || instance.status === 'running' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,1)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]'}`} />
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">{instance.status}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
-                                                <Activity size={12} /> Init: {new Date(instance.created_at).toLocaleString()}
-                                            </div>
+                        {myAgents.length > 0 ? (
+                            myAgents.map((instance) => (
+                                <GlassCard
+                                    key={instance.id}
+                                    className="!p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-white/5"
+                                >
+                                    <div className="flex items-center gap-4 min-w-0">
+                                        <div className="w-12 h-12 rounded-xl bg-black/40 border border-white/5 flex items-center justify-center text-primary shrink-0">
+                                            <Bot size={24} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h3 className="text-base font-black uppercase tracking-tight truncate">
+                                                {instance.agent?.name ||
+                                                    instance.market_agent?.name ||
+                                                    `Instance ${instance.id.slice(0, 8)}`}
+                                            </h3>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 mt-1">
+                                                {instance.status} ·{' '}
+                                                {new Date(instance.created_at).toLocaleString()}
+                                            </p>
                                         </div>
                                     </div>
-                                </div>
-
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={() => handleExecute(instance.id)}
-                                    className="mt-6 md:mt-0 px-8 py-4 glass-card border-white/10 hover:border-primary/50 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-3 transition-all hover:bg-primary/5 group/btn shadow-xl"
-                                >
-                                    <Play size={16} className="fill-current" />
-                                    Execute Sequence
-                                </motion.button>
-                            </GlassCard>
-                        )) : (
-                            <motion.div
-                                initial={{ scale: 0.95, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="text-center py-32 border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]"
-                            >
-                                <div className="relative inline-block mb-8">
-                                    <Bot className="w-20 h-20 text-muted-foreground/10 mx-auto" />
-                                    <Sparkles className="absolute -top-2 -right-2 text-primary/40 animate-pulse" size={24} />
-                                </div>
-                                <h3 className="text-2xl font-black uppercase tracking-tighter opacity-80 mb-4 text-foreground">No Sub-systems Detected</h3>
-                                <p className="text-[10px] font-black text-muted-foreground/30 mb-10 uppercase tracking-[0.3em] max-w-sm mx-auto leading-relaxed">
-                                    AUTHORIZE AND DEPLOY AUTONOMOUS NEURAL UNITS FROM THE MARKETPLACE CLUSTER TO BEGIN.
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 md:text-right max-w-xs">
+                                        EXECUTE disabled — Docker runtime not implemented
+                                    </p>
+                                </GlassCard>
+                            ))
+                        ) : (
+                            <div className="text-center py-24 border border-dashed border-white/10 rounded-3xl">
+                                <Sparkles className="w-10 h-10 text-primary/30 mx-auto mb-4" />
+                                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50 mb-6">
+                                    No instances yet
                                 </p>
-                                <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => setActiveTab('market')}
-                                    className="px-8 py-4 glass-card border-primary/20 hover:border-primary/50 text-primary text-[10px] font-black uppercase tracking-[0.4em]"
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('catalog')}
+                                    className="px-6 py-3 rounded-xl border border-primary/25 text-primary text-[10px] font-black uppercase tracking-widest"
                                 >
-                                    Browse Cluster
-                                </motion.button>
-                            </motion.div>
+                                    Open catalog
+                                </button>
+                            </div>
                         )}
                     </motion.div>
                 )}

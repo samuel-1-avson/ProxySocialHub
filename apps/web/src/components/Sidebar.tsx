@@ -160,7 +160,11 @@ function SidebarSection({
     getBadge: (item: NavigationItem) => string | undefined,
 }) {
     if (!section.items || section.items.length === 0) return null;
-    const hasActiveItem = section.items.some(item => isActive(item.href));
+    const hasActiveItem = section.items.some(
+        (item) =>
+            isActive(item.href) ||
+            (item.activeRouteKeys?.some((key) => isActive(ROUTES[key])) ?? false),
+    );
     const shouldShowItems = isCollapsed || hasActiveItem || !isSectionCollapsed;
 
     return (
@@ -185,11 +189,13 @@ function SidebarSection({
             
             {shouldShowItems && section.items.map((item) => {
                 const badge = getBadge(item);
-                const active = isActive(item.href);
+                const active =
+                    isActive(item.href) ||
+                    (item.activeRouteKeys?.some((key) => isActive(ROUTES[key])) ?? false);
 
                 return (
                     <Link
-                        key={item.href}
+                        key={item.id}
                         href={item.href}
                         title={item.label}
                         className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${

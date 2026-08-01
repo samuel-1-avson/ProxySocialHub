@@ -93,7 +93,6 @@ test.describe('route policy middleware', () => {
     test('allows public marketplace, explorer, governance, and public profile routes', async ({ page }) => {
         for (const path of [
             '/marketplace/map',
-            '/agents',
             '/explorer/map',
             '/governance',
             '/profile/public-user',

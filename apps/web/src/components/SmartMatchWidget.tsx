@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Sparkles, Check, BrainCircuit, Loader2, Hexagon, Zap,
     Activity, Globe, Wifi, Terminal, Radar, ChevronRight,
-    ShieldCheck, Command, Target, Filter, Clock
+    ShieldCheck, Command, Target, Filter, Clock, LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -12,9 +12,13 @@ import {
     smartMatch,
     UseCase, Recommendation, SmartMatchResult, SmartMatchResponse
 } from '@/lib/api';
+import { ApiError } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth';
 import { useZKReputation } from '@/lib/hooks/useZKReputation';
 import { ProviderTierBadge, ProviderTier } from '@/components/ProviderTierBadge';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ROUTES } from '@/lib/navigation/routes';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +67,10 @@ type Mode = 'classic' | 'smart';
 // ─── component ────────────────────────────────────────────────────────────────
 
 export function SmartMatchWidget() {
+    const { isAuthenticated } = useAuth();
+    const router = useRouter();
     const { isVerified } = useZKReputation();
+    const loginHref = `${ROUTES.login}?redirect=${encodeURIComponent(ROUTES.marketplace)}`;
 
     // shared
     const [mode, setMode] = useState<Mode>('smart');
@@ -93,9 +100,12 @@ export function SmartMatchWidget() {
     const [analyzing, setAnalyzing] = useState(false);
     const [showResults, setShowResults] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
+    const [matchError, setMatchError] = useState<string | null>(null);
+    const [needsAuth, setNeedsAuth] = useState(false);
 
     // ── fetch use-cases for classic mode ─────────────────────────────────────
     useEffect(() => {
+        if (!isAuthenticated) return;
         getUseCases()
             .then((data) => {
                 if (data && data.length > 0) {
@@ -104,56 +114,89 @@ export function SmartMatchWidget() {
                 }
             })
             .catch(() => {});
-    }, []);
+    }, [isAuthenticated]);
 
     // ── handlers ──────────────────────────────────────────────────────────────
 
-    const handleClassicMatch = async () => {
-        if (!selectedUseCase) return;
-        setAnalyzing(true);
-        setShowResults(false);
-        try {
-            setLoading(true);
-            const data = await getRecommendations(selectedUseCase, minScore);
-            setClassicRecs(data?.recommendations || []);
-            setShowResults(true);
-        } catch {
-            // silent
-        } finally {
-            setAnalyzing(false);
-            setLoading(false);
+    const requireAuthOr = (run: () => Promise<void>) => {
+        if (!isAuthenticated) {
+            setNeedsAuth(true);
+            setMatchError('Sign in to run Smart Match and connect to providers.');
+            setShowResults(false);
+            return;
         }
+        void run();
     };
 
-    const handleSmartMatch = async () => {
-        setAnalyzing(true);
-        setShowResults(false);
-        try {
-            setLoading(true);
-            const res: SmartMatchResponse = await smartMatch({
-                use_case: useCase,
-                preferred_geo: geo || undefined,
-                max_price_per_gb: maxPrice ? parseFloat(maxPrice) : undefined,
-                min_uptime_percent: minUptime ? parseFloat(minUptime) : undefined,
-                max_latency_ms: maxLatency ? parseInt(maxLatency, 10) : undefined,
-                session_type: sessionType,
-                required_tier: requiredTier === 'any' ? undefined : requiredTier,
-                bandwidth_gb: bandwidth ? parseFloat(bandwidth) : undefined,
-            });
-            setSmartResults(res.recommended || []);
-            setMatchRequestId(res.match_request_id);
-            setExplanation(res.explanation);
-            setShowResults(true);
-        } catch {
-            // silent
-        } finally {
-            setAnalyzing(false);
-            setLoading(false);
-        }
+    const handleClassicMatch = () => {
+        requireAuthOr(async () => {
+            if (!selectedUseCase) return;
+            setAnalyzing(true);
+            setShowResults(false);
+            setMatchError(null);
+            setNeedsAuth(false);
+            try {
+                setLoading(true);
+                const data = await getRecommendations(selectedUseCase, minScore);
+                setClassicRecs(data?.recommendations || []);
+                setShowResults(true);
+            } catch (err) {
+                if (err instanceof ApiError && err.status === 401) {
+                    setNeedsAuth(true);
+                    setMatchError('Sign in to run classic match.');
+                } else {
+                    setMatchError(err instanceof Error ? err.message : 'Match failed. Try again.');
+                }
+            } finally {
+                setAnalyzing(false);
+                setLoading(false);
+            }
+        });
+    };
+
+    const handleSmartMatch = () => {
+        requireAuthOr(async () => {
+            setAnalyzing(true);
+            setShowResults(false);
+            setMatchError(null);
+            setNeedsAuth(false);
+            try {
+                setLoading(true);
+                const res: SmartMatchResponse = await smartMatch({
+                    use_case: useCase,
+                    preferred_geo: geo || undefined,
+                    max_price_per_gb: maxPrice ? parseFloat(maxPrice) : undefined,
+                    min_uptime_percent: minUptime ? parseFloat(minUptime) : undefined,
+                    max_latency_ms: maxLatency ? parseInt(maxLatency, 10) : undefined,
+                    session_type: sessionType,
+                    required_tier: requiredTier === 'any' ? undefined : requiredTier,
+                    bandwidth_gb: bandwidth ? parseFloat(bandwidth) : undefined,
+                });
+                setSmartResults(res.recommended || []);
+                setMatchRequestId(res.match_request_id);
+                setExplanation(res.explanation);
+                setShowResults(true);
+            } catch (err) {
+                if (err instanceof ApiError && err.status === 401) {
+                    setNeedsAuth(true);
+                    setMatchError('Sign in to run Smart Match.');
+                } else {
+                    setMatchError(err instanceof Error ? err.message : 'Smart Match failed. Try again.');
+                }
+            } finally {
+                setAnalyzing(false);
+                setLoading(false);
+            }
+        });
     };
 
     const handleConnect = (listingId: string) => {
-        setToast(`Provider ${listingId.slice(0, 8)}… queued for session`);
+        const listingPath = `/marketplace/${listingId}`;
+        if (!isAuthenticated) {
+            router.push(`${ROUTES.login}?redirect=${encodeURIComponent(listingPath)}`);
+            return;
+        }
+        router.push(listingPath);
     };
 
     // ── render ────────────────────────────────────────────────────────────────
@@ -203,7 +246,7 @@ export function SmartMatchWidget() {
                             {(['smart', 'classic'] as Mode[]).map((m) => (
                                 <button
                                     key={m}
-                                    onClick={() => { setMode(m); setShowResults(false); }}
+                                    onClick={() => { setMode(m); setShowResults(false); setMatchError(null); }}
                                     className={`flex-1 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${mode === m
                                         ? 'bg-primary text-black shadow-lg'
                                         : 'text-white/20 hover:text-white/50'
@@ -214,11 +257,45 @@ export function SmartMatchWidget() {
                             ))}
                         </div>
 
+                        {!isAuthenticated && (
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-200/90 leading-relaxed">
+                                    Sign in to run Smart Match. Guests can still browse Discover listings below.
+                                </p>
+                                <Link
+                                    href={loginHref}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[10px] font-black uppercase tracking-[0.3em] text-primary-foreground"
+                                >
+                                    <LogIn size={14} /> Sign in to match
+                                </Link>
+                            </div>
+                        )}
+
+                        {matchError && (
+                            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 space-y-2" role="alert">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-red-300 leading-relaxed">
+                                    {matchError}
+                                </p>
+                                {needsAuth && (
+                                    <Link
+                                        href={loginHref}
+                                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
+                                    >
+                                        <LogIn size={12} /> Go to login
+                                    </Link>
+                                )}
+                            </div>
+                        )}
+
                         {/* ── Classic mode: use-case selector ────────────── */}
                         {mode === 'classic' && (
                             <div className="space-y-4">
                                 <div className="grid grid-cols-1 gap-2.5">
-                                    {!useCases.length ? (
+                                    {!isAuthenticated ? (
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-white/30 py-8 text-center leading-relaxed">
+                                            Sign in to load use-case presets.
+                                        </p>
+                                    ) : !useCases.length ? (
                                         <div className="py-16 flex items-center justify-center">
                                             <Loader2 className="animate-spin text-white/10" size={24} />
                                         </div>
@@ -258,14 +335,24 @@ export function SmartMatchWidget() {
                                     />
                                 </div>
 
-                                <button
-                                    onClick={handleClassicMatch}
-                                    disabled={!selectedUseCase || analyzing}
-                                    className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
-                                >
-                                    {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Zap size={16} />}
-                                    {analyzing ? 'Scanning...' : 'Run Classic Match'}
-                                </button>
+                                {!isAuthenticated ? (
+                                    <Link
+                                        href={loginHref}
+                                        className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]"
+                                    >
+                                        <LogIn size={16} />
+                                        Sign in to match
+                                    </Link>
+                                ) : (
+                                    <button
+                                        onClick={handleClassicMatch}
+                                        disabled={!selectedUseCase || analyzing}
+                                        className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
+                                    >
+                                        {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Zap size={16} />}
+                                        {analyzing ? 'Scanning...' : 'Run Classic Match'}
+                                    </button>
+                                )}
                             </div>
                         )}
 
@@ -366,15 +453,25 @@ export function SmartMatchWidget() {
                                     </select>
                                 </div>
 
-                                <button
-                                    onClick={handleSmartMatch}
-                                    disabled={analyzing}
-                                    className="w-full group relative overflow-hidden py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
-                                >
-                                    <div className="absolute inset-0 bg-white/20 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
-                                    {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Target size={16} />}
-                                    {analyzing ? 'Analyzing...' : 'Find Best Providers'}
-                                </button>
+                                {!isAuthenticated ? (
+                                    <Link
+                                        href={loginHref}
+                                        className="w-full group relative overflow-hidden py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]"
+                                    >
+                                        <LogIn size={16} />
+                                        Sign in to Smart Match
+                                    </Link>
+                                ) : (
+                                    <button
+                                        onClick={handleSmartMatch}
+                                        disabled={analyzing}
+                                        className="w-full group relative overflow-hidden py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
+                                    >
+                                        <div className="absolute inset-0 bg-white/20 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
+                                        {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Target size={16} />}
+                                        {analyzing ? 'Analyzing...' : 'Find Best Providers'}
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
@@ -432,11 +529,15 @@ export function SmartMatchWidget() {
                                             </div>
                                         </div>
                                         <div className="space-y-4">
-                                            <h4 className="text-xl font-black uppercase tracking-tighter opacity-80">Command Ready</h4>
+                                            <h4 className="text-xl font-black uppercase tracking-tighter opacity-80">
+                                                {isAuthenticated ? 'Command Ready' : 'Browse First'}
+                                            </h4>
                                             <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em] leading-relaxed">
-                                                {mode === 'smart'
-                                                    ? 'Configure criteria and click Find Best Providers.'
-                                                    : 'Select a use-case vector and initialize scan.'}
+                                                {!isAuthenticated
+                                                    ? 'Sign in to run Smart Match, or scroll to Discover listings as a guest.'
+                                                    : mode === 'smart'
+                                                      ? 'Configure criteria and click Find Best Providers.'
+                                                      : 'Select a use-case vector and initialize scan.'}
                                             </p>
                                         </div>
                                     </motion.div>
@@ -581,7 +682,7 @@ export function SmartMatchWidget() {
                                                             onClick={() => handleConnect(r.listing_id)}
                                                             className="w-full py-2.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary hover:text-black transition-all flex items-center justify-center gap-2"
                                                         >
-                                                            <Zap size={12} /> Connect to Provider
+                                                            <Zap size={12} /> View listing
                                                         </button>
                                                     </div>
                                                 ))}

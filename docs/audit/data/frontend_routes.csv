@@ -1,0 +1,72 @@
+route,role,main_features,api_calls,ws,status,problems
+/,public,landing + network feed,NetworkFeed,,partial,hardcoded hero stats (FE-07)
+/login,public,wallet challenge login,/v1/auth/wallet/* /v1/auth/me,,works,
+/register,public,auto-register via wallet login,/v1/auth/wallet/*,,works,
+/marketplace,public,browse filters facets collections SmartMatch,/v1/listings* /v1/smart-match,,works,
+/marketplace/[id],public,detail buy social QA,/v1/listings/:id /v1/orders,,works,
+/marketplace/map,public,geo map + buy,/v1/marketplace/map,optional,works,WS flag-gated
+/marketplace/create,provider,create listing + sign offer,/v1/listings /v1/provider/listings/sign-offer,,works,
+/marketplace/manage,provider,listings CRUD,/v1/listings/my,,works,
+/marketplace/manage/products,provider,catalog products/offers,/v1/catalog/products*,,works,
+/marketplace/orders,auth,orders list,/v1/orders,,works,
+/marketplace/orders/[id],auth,order detail + credentials,/v1/orders/:id /credentials /cancel,,works,
+/marketplace/saved,auth,saved listings,/v1/saved,,works,
+/agents,auth,redirect → /dashboard/agents,,,removed,Phase C — Market surface removed; no payment/EXECUTE
+/agents/instances,auth,redirect → /dashboard/agents,,,removed,Phase C — redirects to experimental console
+/network,public,network shell,map/feed/governance,explorer,partial,redirects if flag off
+/dashboard,auth,overview analytics wallet,/v1/analytics/overview /v1/wallet,,works,
+/dashboard/admin,admin/mod,listing moderation + funnel,/v1/moderation/listings/*,,works,
+/dashboard/agents,auth,experimental catalog + provisional rent (no EXECUTE),/v1/agents*,,partial,payment+Docker EXECUTE not shipped; Market redirects here
+/dashboard/analytics,auth,usage charts,/v1/analytics/* /v1/network/status,,partial,network/status missing (FE-05)
+/dashboard/monitoring,auth,ops metrics alerts,/v1/monitoring/*,,works,
+/dashboard/proxy,auth,session intents connect,/v1/sessions*,,works,
+/dashboard/sessions,auth,session list,/v1/sessions,intended,partial,realtime broken (FE-01)
+/dashboard/usage,auth,usage billing,/v1/usage/*,,works,
+/dashboard/subscriptions,auth,plans CRUD,/v1/subscriptions*,,works,
+/dashboard/trustless,auth,usage proofs,/v1/trustless/*,,works,
+/dashboard/wallet,auth,balance deposit withdraw whitelist,/v1/wallet*,explorer,partial,WS reachability (FE-02)
+/dashboard/wallet/callback,auth,deposit verify callback,/v1/wallet/deposit/crypto,,works,
+/dashboard/become-provider,auth,provider application,/v1/provider/apply,,works,
+/dashboard/provider,auth,provider hub,/v1/provider/readiness,,works,
+/dashboard/provider/setup,provider,node setup guide,/v1/provider/nodes /tokens,,works,
+/dashboard/provider/nodes,provider,node CRUD connect,/v1/provider/nodes*,,works,
+/dashboard/provider/health,provider,uptime,/v1/provider/nodes/:id/uptime,,works,
+/dashboard/provider/analytics,provider,earnings + nodes,/v1/provider/earnings/summary,,works,
+/dashboard/provider/earnings,provider,earnings history,/v1/provider/earnings*,,works,
+/dashboard/provider/services,provider,service configs,/v1/provider/services*,,works,
+/dashboard/provider/circle,provider,circle pooling,/v1/circles*,,works,
+/dashboard/provider/relationships,provider,buyer CRM,/v1/provider/relationships*,,works,
+/dashboard/provider/tokens,provider,CLI tokens,/v1/provider/tokens*,,works,
+/dashboard/provider/cli,provider,CLI downloads,/v1/cli/downloads*,,works,
+/dashboard/settings/identity,auth,profile edit,/v1/profile,,works,
+/dashboard/settings/account,auth,account/tier,/v1/wallet /v1/profile,,works,
+/dashboard/settings/notifications,auth,notification prefs,/v1/notification-preferences,notif,partial,WS auth gap (FE-01)
+/dashboard/settings/api-keys,auth,API keys,/v1/api-keys,,works,
+/dashboard/settings/devices,auth,sessions panel,/v1/security/sessions,,works,
+/dashboard/settings/security,auth,MFA watchtower,/v1/2fa* /v1/system/watchtower/status,,works,inconsistent API URL prefix (FE-08)
+/community/feed,public*,activity discover,/v1/feed /v1/discover /v1/trending,,works,
+/community/messages,auth,DM inbox,/v1/conversations*,new_message,partial,WS auth gap (FE-01)
+/community/forum/*,public/auth,forum full surface,/v1/forum/*,,works,
+/community/beta,public,beta tasks,/v1/beta-program*,,works,
+/explorer,public,chain overview,/v1/explorer/metrics /stats,explorer,works,
+/explorer/map,public,infra globe,/v1/marketplace/map /v1/explorer/nodes,node_update,works,
+/explorer/nodes(+[id],compare),public,node list/detail/compare,/v1/explorer/nodes*,,works,
+/explorer/transactions(+[hash]),public,tx list/detail,/v1/explorer/transactions*,new_transaction,works,
+/explorer/blocks(+[number]),public,blocks,/v1/explorer/blocks*,new_block,works,
+/explorer/wallets(+[address]),public,wallet search/detail,/v1/explorer/wallets*,,works,
+/explorer/contracts(+[address]),public,contracts,/v1/explorer/contracts*,,works,
+/explorer/sessions,public,public sessions,/v1/explorer/sessions,,partial,flag-gated
+/explorer/analytics,public,network analytics,/v1/explorer/analytics,,works,
+/explorer/health,public,health history,/v1/explorer/health/*,,works,
+/explorer/earnings,public,public earnings,/v1/explorer/earnings,,partial,flag-gated
+/explorer/leaderboard,public,leaderboard,/v1/explorer/leaderboard,,works,
+/explorer/search,public,unified search,/v1/explorer/*,,works,
+/governance(+[id],create),public/auth,proposals votes create,/v1/governance/*,,works,
+/treasury,public,public treasury,/v1/treasury/public,,works,
+/providers/[id],public,provider profile,profile listings social,,partial,hardcoded uptime (FE-06)
+/profile,auth,own profile hub,/v1/profile,,works,
+/profile/[username],public,public profile,/v1/users/:id,,works,
+/help|/guidelines|/contact|/terms|/privacy,public,static,,,works,
+/dashboard/feed|messages|profile|security,auth,redirects,,,redirect,
+/leaderboards|/settings,public/auth,redirects,,,redirect,
+/api/health|/api/proxy/test|/api/sessions/stream,internal,BFF routes,,,works,
