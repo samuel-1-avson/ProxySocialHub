@@ -422,7 +422,15 @@ async fn main() -> anyhow::Result<()> {
             if let Some(key) = provider_signing_key {
                 cfg.provider_signing_key = key;
             }
-            cfg.use_tls = use_tls;
+            // Only force TLS when the operator passed --use-tls; otherwise honor provider.toml.
+            if use_tls {
+                cfg.use_tls = true;
+            }
+            // Production-first: if the gateway is a public host or the control API is HTTPS,
+            // default to TLS so `provider-node start` works without flags.
+            if !cfg.use_tls && config::gateway_looks_public(&cfg.gateway_addr) {
+                cfg.use_tls = true;
+            }
             if let Some(lanes) = yamux_conns_per_node {
                 cfg.yamux_conns_per_node = tunnel::mux::normalize_lane_count(lanes);
             } else if let Some(lanes) = config::yamux_conns_per_node_from_env() {

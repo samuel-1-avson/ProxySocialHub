@@ -102,7 +102,7 @@ impl Default for Config {
             api_key: String::new(),
             node_id: String::new(),
             provider_signing_key: String::new(),
-            use_tls: false,
+            use_tls: true,
             tls_skip_verify: false,
             tls_cert_path: String::new(),
             max_connections: default_max_connections(),
@@ -220,6 +220,34 @@ fn default_connect_timeout() -> Duration {
 }
 fn default_connection_type() -> String {
     "residential".to_string()
+}
+
+/// True when the gateway address is a public host/IP (not localhost / docker service).
+/// Used to default TLS on for production while keeping local dev on plain TCP.
+pub fn gateway_looks_public(addr: &str) -> bool {
+    let host = addr
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+        return false;
+    }
+    // Docker / compose service names (no dot) are internal.
+    if !host.contains('.') {
+        return false;
+    }
+    // Private IPv4 ranges are treated as internal.
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        return !(ip.is_private() || ip.is_loopback() || ip.is_link_local());
+    }
+    true
 }
 
 /// Serde helper: serialize/deserialize `Duration` as seconds (u64).
