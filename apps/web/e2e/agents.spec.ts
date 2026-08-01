@@ -18,6 +18,7 @@ async function stubAgentsApis(page: import('@playwright/test').Page) {
                     name: 'Smoke Test Agent',
                     description: 'E2E fixture agent',
                     category: 'automation',
+                    price_per_run: 0,
                 },
             ]),
         });
@@ -32,35 +33,37 @@ async function stubAgentsApis(page: import('@playwright/test').Page) {
     });
 }
 
-test.describe('agents IA', () => {
-    test('serves canonical /agents marketplace', async ({ page }) => {
+test.describe('agents IA (Phase C — console only)', () => {
+    test('redirects /agents to Agent console', async ({ page }) => {
+        await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
         await page.goto(`${BASE_URL}/agents`, { waitUntil: 'domcontentloaded' });
 
-        expect(new URL(page.url()).pathname).toBe('/agents');
-        await expect(page.getByRole('heading', { name: /ai agent marketplace/i })).toBeVisible({
+        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });
-        await expect(page.getByText('Smoke Test Agent')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText(/experimental/i).first()).toBeVisible({ timeout: 15_000 });
     });
 
-    test('permanent-redirects legacy /marketplace/agents to /agents', async ({ page }) => {
+    test('permanent-redirects legacy /marketplace/agents to Agent console', async ({ page }) => {
+        await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
         await page.goto(`${BASE_URL}/marketplace/agents`, { waitUntil: 'domcontentloaded' });
 
-        expect(new URL(page.url()).pathname).toBe('/agents');
-        await expect(page.getByRole('heading', { name: /ai agent marketplace/i })).toBeVisible({
+        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });
     });
 
-    test('serves /agents/instances when authenticated', async ({ page }) => {
+    test('redirects /agents/instances to Agent console when authenticated', async ({ page }) => {
         await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
         await page.goto(`${BASE_URL}/agents/instances`, { waitUntil: 'domcontentloaded' });
 
-        expect(new URL(page.url()).pathname).toBe('/agents/instances');
-        await expect(page.getByRole('heading', { name: /active instances/i })).toBeVisible({
+        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });
     });

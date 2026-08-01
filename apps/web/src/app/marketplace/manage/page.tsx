@@ -9,7 +9,6 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
     AlertCircle,
-    ArrowLeft,
     FileCode,
     Loader2,
     Plus,
@@ -18,9 +17,10 @@ import {
     Pause,
     Play,
     Pencil,
-    Package,
 } from "lucide-react";
 import { getErrorMessage } from "@/lib/utils";
+import { SellerManageTabs } from "@/components/marketplace/SellerManageTabs";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function ManageListingsPage() {
     const { isAuthenticated } = useAuth();
@@ -115,32 +115,29 @@ export default function ManageListingsPage() {
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
                 <div>
                     <Link
-                        href="/marketplace"
-                        className="inline-flex items-center gap-2 text-[10px] font-bold text-muted-foreground hover:text-purple-400 uppercase tracking-widest mb-3"
+                        href={ROUTES.marketplace}
+                        className="inline-flex items-center gap-2 text-[10px] font-bold text-muted-foreground hover:text-primary uppercase tracking-widest mb-3"
                     >
-                        <ArrowLeft size={12} /> Marketplace
+                        ← Discover
                     </Link>
-                    <div className="flex items-center gap-2 text-purple-500 font-bold uppercase tracking-wider text-xs mb-2">
+                    <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
                         <FileCode size={14} />
-                        Seller
+                        Sell
                     </div>
                     <h1 className="text-3xl font-black tracking-tighter uppercase italic">
-                        My <span className="text-purple-500">Listings</span>
+                        My <span className="text-primary">Listings</span>
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
                         Create, review, and remove proxy listings tied to your provider nodes.
                     </p>
+                    <div className="mt-4">
+                        <SellerManageTabs />
+                    </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <Link
-                        href="/marketplace/manage/products"
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
-                    >
-                        Catalog products
-                    </Link>
-                    <Link
-                        href="/marketplace/create"
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                        href={ROUTES.marketplaceCreate}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
                     >
                         <Plus size={14} /> New listing
                     </Link>

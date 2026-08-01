@@ -12,6 +12,8 @@ export interface MarketAgent {
     category: string;
     capabilities: string[];
     price_per_hour: number;
+    /** Backend field — cost in credits/SOL per job when billing ships. */
+    price_per_run?: number;
     hourly_rate?: number; // Legacy
     rating: number;
     author_id: string;
@@ -54,7 +56,8 @@ export async function rentAgent(agentId: string) {
 }
 
 /**
- * Execute a job on an agent instance
+ * Execute a job on an agent instance.
+ * Backend queues the job then fails until Docker runtime is implemented — not for production UX.
  */
 export async function executeAgentJob(instanceId: string, payload: any) {
     return apiPost<{ job_id: string }>(`/v1/agents/instances/${instanceId}/execute`, { payload });

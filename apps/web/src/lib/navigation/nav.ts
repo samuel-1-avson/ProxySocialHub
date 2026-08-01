@@ -5,7 +5,6 @@ import {
     CircleDot,
     Coins,
     Compass,
-    Cpu,
     Fingerprint,
     Gift,
     Globe,
@@ -14,7 +13,6 @@ import {
     ListChecks,
     ListOrdered,
     Bookmark,
-    MapPin,
     MessageSquare,
     Network,
     Newspaper,
@@ -50,6 +48,8 @@ export interface NavigationItem {
     description?: string;
     policy: RoutePolicy;
     providerBadge?: boolean;
+    /** Extra routes that should mark this item active (e.g. Discover covers Map). */
+    activeRouteKeys?: StaticRouteKey[];
 }
 
 export interface NavigationSection {
@@ -67,6 +67,7 @@ function navItem(
         description?: string;
         policy?: RoutePolicy;
         providerBadge?: boolean;
+        activeRouteKeys?: StaticRouteKey[];
     } = {},
 ): NavigationItem {
     return {
@@ -78,6 +79,7 @@ function navItem(
         description: options.description,
         policy: options.policy ?? getRoutePolicyByKey(routeKey),
         providerBadge: options.providerBadge,
+        activeRouteKeys: options.activeRouteKeys,
     };
 }
 
@@ -90,7 +92,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
             navItem("dashboardProxy", "Connect", Globe, { description: "Create proxy sessions" }),
             navItem("dashboardSessions", "Sessions", Wifi, { description: "Active & history" }),
             navItem("dashboardUsage", "Usage & billing", BarChart3, { description: "Bandwidth & billing" }),
-            navItem("dashboardSubscriptions", "Plans", Layers, { description: "Subscription & renewals" }),
+            navItem("dashboardSubscriptions", "Access Passes", Layers, { description: "NFT tiers & entitlements" }),
         ],
     },
     {
@@ -101,21 +103,31 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 description: "Map preview + live activity",
                 policy: "public",
             }),
-            navItem("marketplace", "Browse listings", Store, { policy: "public" }),
-            navItem("marketplaceMap", "Marketplace map", MapPin, {
-                description: "Buy proxies by location",
+            navItem("marketplace", "Discover", Compass, {
+                description: "List & map of proxy listings",
                 policy: "public",
+                activeRouteKeys: ["marketplaceMap"],
             }),
-            navItem("marketplaceOrders", "My orders", ListOrdered, { description: "Purchases & escrow status", policy: "authenticated" }),
-            navItem("marketplaceSaved", "Saved listings", Bookmark, { description: "Bookmarked offers", policy: "authenticated" }),
-            navItem("marketplaceAgents", "Rent agents", Bot, { policy: "public" }),
-            navItem("marketplaceAgentInstances", "My agents", Cpu, { description: "Deployed instances" }),
+            navItem("marketplaceOrders", "Orders", ListOrdered, {
+                description: "Purchases & escrow status",
+                policy: "authenticated",
+            }),
+            navItem("marketplaceSaved", "Saved", Bookmark, {
+                description: "Bookmarked offers",
+                policy: "authenticated",
+            }),
+        ],
+    },
+    {
+        id: "sell",
+        title: "Sell",
+        items: [
             navItem("marketplaceCreate", "Create listing", Plus, { policy: "provider", providerBadge: true }),
-            navItem("marketplaceManage", "Manage listings", ListChecks, { policy: "provider", providerBadge: true }),
-            navItem("marketplaceCatalog", "Catalog products", Store, {
-                description: "Merchandising layer",
+            navItem("marketplaceManage", "My listings", ListChecks, {
+                description: "Manage offers & products",
                 policy: "provider",
                 providerBadge: true,
+                activeRouteKeys: ["marketplaceCatalog"],
             }),
         ],
     },
@@ -124,7 +136,9 @@ export const NAV_SECTIONS: NavigationSection[] = [
         title: "Advanced",
         items: [
             navItem("dashboardTrustless", "Usage proofs", ShieldCheck, { description: "Trustless integrity checks" }),
-            navItem("dashboardAgents", "Agent console", Bot, { description: "Operate rented agents" }),
+            navItem("dashboardAgents", "Agent console", Bot, {
+                description: "Experimental — no payment or EXECUTE yet",
+            }),
             navItem("dashboardAnalytics", "My analytics", BarChart3, { description: "Your usage & network stats" }),
             navItem("dashboardMonitoring", "Operations", Activity, { description: "Infrastructure monitoring" }),
         ],

@@ -35,6 +35,8 @@ import {
 } from '@/lib/analytics/marketplace-funnel';
 import { Modal } from '@/components/patterns/Modal';
 import { Button } from '@/components/ui/button';
+import { MoneyRailHint } from '@/components/MoneyRailHint';
+import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
 
 interface BuyListingModalProps {
   listing: Listing;
@@ -167,7 +169,7 @@ export function BuyListingModal({
           <div className="flex w-full flex-col gap-2">
             {completedOrderId ? (
               <Link
-                href={ROUTES.dashboardOrder(completedOrderId)}
+                href={ROUTES.marketplaceOrder(completedOrderId)}
                 className="inline-flex w-full items-center justify-center rounded-[var(--radius-md)] border border-border px-4 py-2 text-sm font-medium hover:bg-secondary"
               >
                 View order & credentials
@@ -279,12 +281,17 @@ export function BuyListingModal({
             Start connection
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            You pay with on-chain SOL escrow. Session ends when bandwidth quota is exhausted.
+            You pay from your linked Solana wallet into on-chain escrow. Platform balance is not used.
+            Session ends when bandwidth quota is exhausted.
           </p>
+          <MoneyRailHint rail="escrow" />
         </div>
       }
     >
       <div className="space-y-5">
+        {!publicKey && (
+          <UnlockWalletPrompt compact />
+        )}
         <div className="flex gap-4 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-primary font-mono text-sm font-semibold text-primary-foreground">
             {listing.proxy_type?.[0]?.toUpperCase() ?? 'P'}
