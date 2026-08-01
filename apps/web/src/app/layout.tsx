@@ -1,31 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
-import { SolanaWalletProvider } from "@/providers/SolanaWalletProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastContainer } from "@/components/Toast";
 import { SkipLink } from "@/components/Accessibility";
-import { OptionalEvmWalletProvider } from "@/lib/optional-evm-wallet-provider";
-
-// Replaced Google Fonts with a standard system stack to fix Docker build errors (Network/DNS issues)
-// const geistSans = Geist({
-//   variable: "--font-geist-sans",
-//   subsets: ["latin"],
-// });
-
-// const geistMono = Geist_Mono({
-//   variable: "--font-geist-mono",
-//   subsets: ["latin"],
-// });
 
 export const metadata: Metadata = {
-  title: "ProxyHub - Ghana's Premium Proxy Marketplace",
-  description: "Access reliable Ghana residential proxies or earn by sharing your bandwidth.",
+  title: "ProxyHub — Residential bandwidth with on-chain settlement",
+  description:
+    "Buy verified residential proxy capacity or earn by running nodes. Metered at the edge, settled in SOL.",
 };
 
+/**
+ * Root layout intentionally excludes Solana/EVM wallet providers.
+ * WalletBoundary is mounted on authenticated shells and auth pages only
+ * so public routes do not pay for chain JS (reconstruction plan §25.2).
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -33,9 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className="antialiased"
-      >
+      <body className="antialiased">
         <SkipLink />
         <ThemeProvider
           attribute="class"
@@ -44,20 +34,15 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <SolanaWalletProvider>
-              <OptionalEvmWalletProvider>
-                <AuthProvider>
-                  <ErrorBoundary level="page">
-                    {children}
-                  </ErrorBoundary>
-                  <ToastContainer />
-                </AuthProvider>
-              </OptionalEvmWalletProvider>
-            </SolanaWalletProvider>
+            <AuthProvider>
+              <ErrorBoundary level="page">
+                {children}
+              </ErrorBoundary>
+              <ToastContainer />
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>
     </html>
   );
 }
-

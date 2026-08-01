@@ -6,10 +6,11 @@ import { Globe, Server, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { updateProfile } from "@/lib/api/profile";
-import { toast } from "sonner";
+import { useToast } from "@/stores";
 
 export function NewUserDashboard() {
     const { user } = useAuth();
+    const toast = useToast();
     const [selectedRole, setSelectedRole] = useState<"consumer" | "provider" | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 

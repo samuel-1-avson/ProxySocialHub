@@ -1,36 +1,37 @@
 "use client";
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createSessionIntent, getSessionIntentStatus, getSessions, listSessionIntents, terminateSession } from '@/lib/api';
-import type { CreateSessionIntentResponse, SessionIntentLifecycle, SessionIntentStatusResponse } from '@/lib/api';
-import { 
-    ExternalLink, 
-    Terminal, 
-    Globe, 
-    Shield, 
-    Loader2, 
-    Copy, 
-    Trash2, 
-    Plus, 
-    Clock, 
-    Activity, 
-    Radio, 
-    AlertTriangle, 
-    X, 
-    Zap,
+import type { CreateSessionIntentResponse, Session, SessionIntentLifecycle, SessionIntentStatusResponse } from '@/lib/api';
+import {
+    ExternalLink,
+    Terminal,
+    Globe,
+    Shield,
+    Loader2,
+    Copy,
+    Plus,
+    Activity,
+    Radio,
     ChevronRight,
     Lock,
-    ShieldCheck
+    ShieldCheck,
 } from 'lucide-react';
+import { type ColumnDef } from '@tanstack/react-table';
 import { StreamingSessionCard } from '@/components/StreamingSessionCard';
 import { SessionLiveCard } from '@/components/SessionLiveCard';
 import { useToast } from '@/stores';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassCard } from '@/components/ui/glass-card';
 import { ReviewModal } from '@/components/ReviewModal';
-
+import { DataTable } from '@/components/patterns/DataTable';
+import { ConfirmDialog } from '@/components/patterns/ConfirmDialog';
+import { Modal } from '@/components/patterns/Modal';
+import { StatusBadge, type StatusVariant } from '@/components/ui/StatusBadge';
+import { Button } from '@/components/ui/button';
 import { getBuyerProxyEndpoint } from '@/lib/proxy-endpoint';
+import { getErrorMessage } from '@/lib/utils';
 
 const PROXY_ENDPOINT = getBuyerProxyEndpoint();
 
@@ -64,26 +65,43 @@ function formatLifecycleLabel(state: SessionIntentLifecycle) {
     return state.replace(/_/g, ' ');
 }
 
-function getLifecycleBadgeClass(state: SessionIntentLifecycle) {
+function lifecycleStatusVariant(state: SessionIntentLifecycle): StatusVariant {
     switch (state) {
         case 'authorized':
-            return 'bg-primary/10 text-primary border-primary/20';
+            return 'pending';
         case 'routed':
-            return 'bg-sky-500/10 text-sky-300 border-sky-500/20';
+            return 'syncing';
         case 'active':
-            return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+            return 'live';
         case 'closing':
-            return 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+            return 'degraded';
         case 'ledger_committed':
-            return 'bg-blue-500/10 text-blue-300 border-blue-500/20';
         case 'batched':
-            return 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20';
         case 'chain_committed':
-            return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
+            return 'verified';
         case 'archived':
-            return 'bg-slate-500/10 text-slate-300 border-slate-500/20';
+            return 'paused';
+        case 'expired':
+            return 'error';
         default:
-            return 'bg-white/5 text-muted-foreground border-white/10';
+            return 'pending';
+    }
+}
+
+function sessionStatusVariant(status: Session['status']): StatusVariant {
+    switch (status) {
+        case 'active':
+            return 'online';
+        case 'activation_pending':
+            return 'pending';
+        case 'activation_failed':
+        case 'terminated':
+        case 'expired':
+            return 'error';
+        case 'disabled':
+            return 'paused';
+        default:
+            return 'pending';
     }
 }
 
@@ -125,6 +143,7 @@ export default function SessionsPage() {
     const [selectedIntentId, setSelectedIntentId] = useState<string | null>(null);
     const [pendingTerminateId, setPendingTerminateId] = useState<string | null>(null);
     const [terminating, setTerminating] = useState(false);
+    const [terminateError, setTerminateError] = useState<string | null>(null);
     
     // Review Modal State
     const [reviewSessionId, setReviewSessionId] = useState<string | null>(null);
@@ -195,19 +214,238 @@ export default function SessionsPage() {
     async function confirmTerminate() {
         if (!pendingTerminateId) return;
         setTerminating(true);
+        setTerminateError(null);
         try {
             await terminateSession(pendingTerminateId);
             await queryClient.invalidateQueries({ queryKey: ['sessions'] });
             toast.success('Session terminated', 'The proxy tunnel has been closed.');
             setReviewSessionId(pendingTerminateId);
+            setPendingTerminateId(null);
         } catch (error) {
             console.error('Failed to terminate session:', error);
+            setTerminateError(getErrorMessage(error) || 'Could not close the session. Please try again.');
             toast.error('Termination failed', 'Could not close the session. Please try again.');
         } finally {
             setTerminating(false);
-            setPendingTerminateId(null);
         }
     }
+
+    const intentColumns = useMemo<ColumnDef<SessionIntentStatusResponse, unknown>[]>(
+        () => [
+            {
+                id: 'intent',
+                header: 'Intent / Trust',
+                meta: { priority: 1, mono: true },
+                cell: ({ row }) => {
+                    const ledger = row.original.intent;
+                    return (
+                        <div className="min-w-0">
+                            <p className="truncate font-mono text-sm font-medium">
+                                {ledger.intent_id.slice(0, 12)}…
+                            </p>
+                            <p className="text-xs uppercase text-muted-foreground">
+                                {ledger.session_type} / {ledger.trust_tier || 'unscored'}
+                            </p>
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'lifecycle',
+                header: 'Lifecycle',
+                meta: { priority: 1 },
+                cell: ({ row }) => (
+                    <StatusBadge
+                        status={lifecycleStatusVariant(row.original.lifecycle_state)}
+                        label={formatLifecycleLabel(row.original.lifecycle_state)}
+                        size="sm"
+                    />
+                ),
+            },
+            {
+                id: 'route',
+                header: 'Route',
+                meta: { priority: 2, mono: true },
+                cell: ({ row }) => {
+                    const ledger = row.original.intent;
+                    return (
+                        <div>
+                            <p className="text-sm">{ledger.provider_node_id || 'Awaiting provider'}</p>
+                            <p className="text-xs text-muted-foreground">
+                                {ledger.target_host || ledger.target_geo || 'No target bound'}
+                            </p>
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'usage',
+                header: 'Usage',
+                meta: { priority: 2, mono: true, align: 'right' },
+                cell: ({ row }) => {
+                    const ledger = row.original.intent;
+                    const totalBytes = (ledger.total_bytes_up ?? 0) + (ledger.total_bytes_down ?? 0);
+                    const lastDelta = (ledger.last_bytes_up_delta ?? 0) + (ledger.last_bytes_down_delta ?? 0);
+                    return (
+                        <div>
+                            <p className="text-sm">{formatBytes(totalBytes)}</p>
+                            <p className="text-xs text-muted-foreground">
+                                Δ {formatBytes(lastDelta)} / {ledger.usage_update_count ?? 0} syncs
+                            </p>
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'time',
+                header: 'Time',
+                meta: { priority: 3, mono: true },
+                cell: ({ row }) => (
+                    <div>
+                        <p className="text-sm">Issued {new Date(row.original.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {describeLifecycleTimestamp(row.original)}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                id: 'actions',
+                header: 'Actions',
+                meta: { priority: 1, align: 'right' },
+                enableSorting: false,
+                cell: ({ row }) => {
+                    const ledger = row.original.intent;
+                    const canCopyToken = newIntent?.intent.intent_id === ledger.intent_id;
+                    return (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant={selectedIntentId === ledger.intent_id ? 'primary' : 'outline'}
+                                onClick={() => setSelectedIntentId(ledger.intent_id)}
+                            >
+                                Inspect
+                            </Button>
+                            {canCopyToken ? (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(buildIntentCommand(newIntent!));
+                                        toast.success('Copied', 'Intent curl command copied.');
+                                    }}
+                                >
+                                    Copy Curl
+                                </Button>
+                            ) : (
+                                <span className="text-xs text-muted-foreground">Token not retained</span>
+                            )}
+                        </div>
+                    );
+                },
+            },
+        ],
+        [newIntent, selectedIntentId, toast]
+    );
+
+    const sessionColumns = useMemo<ColumnDef<Session, unknown>[]>(
+        () => [
+            {
+                id: 'id',
+                header: 'Identifier',
+                meta: { priority: 1, mono: true },
+                cell: ({ row }) => (
+                    <div className="min-w-0">
+                        <p className="font-mono text-sm font-medium">{row.original.id.slice(0, 12)}…</p>
+                        {row.original.tx_hash ? (
+                            <a
+                                href={`https://solscan.io/tx/${row.original.tx_hash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                                <ExternalLink size={10} aria-hidden /> On-chain
+                            </a>
+                        ) : null}
+                    </div>
+                ),
+            },
+            {
+                accessorKey: 'type',
+                header: 'Type',
+                meta: { priority: 2 },
+                cell: ({ row }) => <span className="capitalize">{row.original.type}</span>,
+            },
+            {
+                accessorKey: 'status',
+                header: 'Status',
+                meta: { priority: 1, align: 'center' },
+                cell: ({ row }) => (
+                    <StatusBadge
+                        status={sessionStatusVariant(row.original.status)}
+                        label={row.original.status}
+                        size="sm"
+                    />
+                ),
+            },
+            {
+                id: 'integrity',
+                header: 'Integrity',
+                meta: { priority: 3, align: 'center' },
+                enableSorting: false,
+                cell: ({ row }) =>
+                    row.original.status === 'active' ? (
+                        <a
+                            href={`/dashboard/trustless?session=${row.original.id}`}
+                            className="inline-flex rounded-[var(--radius-md)] border border-border p-1.5 text-primary hover:bg-secondary"
+                            title="View integrity proofs"
+                        >
+                            <ShieldCheck size={14} aria-hidden />
+                        </a>
+                    ) : (
+                        <span className="inline-flex rounded-[var(--radius-md)] border border-border p-1.5 text-muted-foreground opacity-40">
+                            <ShieldCheck size={14} aria-hidden />
+                        </span>
+                    ),
+            },
+            {
+                id: 'created',
+                header: 'Created',
+                meta: { priority: 2, mono: true, align: 'right' },
+                cell: ({ row }) => (
+                    <div>
+                        <p className="text-sm">{new Date(row.original.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {new Date(row.original.created_at).toLocaleTimeString()}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                id: 'actions',
+                header: 'Actions',
+                meta: { priority: 1, align: 'right' },
+                enableSorting: false,
+                cell: ({ row }) =>
+                    row.original.status === 'active' ? (
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            onClick={() => {
+                                setTerminateError(null);
+                                setPendingTerminateId(row.original.id);
+                            }}
+                        >
+                            Terminate
+                        </Button>
+                    ) : null,
+            },
+        ],
+        []
+    );
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -410,106 +648,64 @@ export default function SessionsPage() {
                         </p>
                     </GlassCard>
                 ) : (
-                    <div className="overflow-hidden glass-card border-white/5 bg-white/2 rounded-2xl">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left font-mono text-xs">
-                                <thead className="text-[9px] font-black uppercase text-muted-foreground/30 border-b border-white/5 bg-white/5">
-                                    <tr>
-                                        <th className="px-8 py-5 tracking-widest">Intent / Trust</th>
-                                        <th className="px-8 py-5 tracking-widest">Lifecycle</th>
-                                        <th className="px-8 py-5 tracking-widest">Route Ledger</th>
-                                        <th className="px-8 py-5 tracking-widest">Usage Ledger</th>
-                                        <th className="px-8 py-5 tracking-widest">Time Ledger</th>
-                                        <th className="px-8 py-5 tracking-widest text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/2">
-                                    {filteredIntents.map((intentRecord: SessionIntentStatusResponse) => {
-                                        const ledger = intentRecord.intent;
-                                        const totalBytes = (ledger.total_bytes_up ?? 0) + (ledger.total_bytes_down ?? 0);
-                                        const lastDelta = (ledger.last_bytes_up_delta ?? 0) + (ledger.last_bytes_down_delta ?? 0);
-                                        const canCopyToken = newIntent?.intent.intent_id === ledger.intent_id;
-                                        return (
-                                        <motion.tr
-                                            key={ledger.intent_id}
-                                            layout
-                                            className={`hover:bg-white/5 transition-colors group ${selectedIntentId === ledger.intent_id ? 'bg-primary/5' : ''}`}
+                    <DataTable
+                        columns={intentColumns}
+                        data={filteredIntents}
+                        emptyTitle="No matching intents"
+                        emptyDescription="No intent records match the current lifecycle filter."
+                        getRowId={(row) => row.intent.intent_id}
+                        density="compact"
+                        renderMobileCard={(intentRecord) => {
+                            const ledger = intentRecord.intent;
+                            const totalBytes = (ledger.total_bytes_up ?? 0) + (ledger.total_bytes_down ?? 0);
+                            const canCopyToken = newIntent?.intent.intent_id === ledger.intent_id;
+                            return (
+                                <div className="space-y-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="font-mono text-sm font-medium">
+                                                {ledger.intent_id.slice(0, 12)}…
+                                            </p>
+                                            <p className="text-xs text-muted-foreground uppercase">
+                                                {ledger.session_type} / {ledger.trust_tier || 'unscored'}
+                                            </p>
+                                        </div>
+                                        <StatusBadge
+                                            status={lifecycleStatusVariant(intentRecord.lifecycle_state)}
+                                            label={formatLifecycleLabel(intentRecord.lifecycle_state)}
+                                            size="sm"
+                                        />
+                                    </div>
+                                    <p className="font-mono text-xs text-muted-foreground">
+                                        {formatBytes(totalBytes)} · {describeLifecycleTimestamp(intentRecord)}
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant={selectedIntentId === ledger.intent_id ? 'primary' : 'outline'}
+                                            onClick={() => setSelectedIntentId(ledger.intent_id)}
                                         >
-                                            <td className="px-8 py-5">
-                                                <div className="font-black uppercase text-[11px] group-hover:text-primary transition-colors">
-                                                    {ledger.intent_id.slice(0, 12)}...
-                                                </div>
-                                                <div className="text-[8px] text-muted-foreground/50 uppercase tracking-widest mt-1 font-black">
-                                                    {ledger.session_type} / {ledger.trust_tier || 'unscored'}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5">
-                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${getLifecycleBadgeClass(intentRecord.lifecycle_state)}`}>
-                                                    {formatLifecycleLabel(intentRecord.lifecycle_state)}
-                                                </span>
-                                            </td>
-                                            <td className="px-8 py-5">
-                                                <div className="text-[10px] font-black uppercase text-foreground">
-                                                    {ledger.provider_node_id || 'Awaiting provider'}
-                                                </div>
-                                                <div className="text-[9px] text-muted-foreground/40 uppercase font-black mt-1">
-                                                    {ledger.target_host || ledger.target_geo || 'No target bound'}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5">
-                                                <div className="text-[10px] font-black uppercase text-foreground">{formatBytes(totalBytes)}</div>
-                                                <div className="text-[9px] text-muted-foreground/40 uppercase font-black mt-1">
-                                                    Delta {formatBytes(lastDelta)} / {ledger.usage_update_count ?? 0} syncs
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5">
-                                                <div className="text-[10px] font-black opacity-50 uppercase">Issued {new Date(intentRecord.created_at).toLocaleDateString()}</div>
-                                                <div className="text-[9px] opacity-30 uppercase font-black mt-1">
-                                                    {describeLifecycleTimestamp(intentRecord)}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={() => setSelectedIntentId(ledger.intent_id)}
-                                                        className={`px-3 py-2 text-[9px] font-black uppercase rounded-md transition-colors ${
-                                                            selectedIntentId === ledger.intent_id
-                                                                ? 'bg-primary text-primary-foreground'
-                                                                : 'bg-white/5 text-foreground hover:bg-white/10'
-                                                        }`}
-                                                    >
-                                                        Inspect
-                                                    </button>
-                                                    {canCopyToken ? (
-                                                        <button
-                                                            onClick={() => {
-                                                                navigator.clipboard.writeText(buildIntentCommand(newIntent!));
-                                                                toast.success('Copied', 'Intent curl command copied.');
-                                                            }}
-                                                            className="px-3 py-2 text-[9px] font-black uppercase bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-colors"
-                                                        >
-                                                            Copy Curl
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-[9px] font-black uppercase text-muted-foreground/40">
-                                                            Token not retained
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </motion.tr>
-                                        )})}
-                                    {filteredIntents.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="px-8 py-10 text-center text-[10px] font-mono font-black uppercase tracking-[0.3em] text-muted-foreground/40">
-                                                No intent records match the current lifecycle filter.
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                            Inspect
+                                        </Button>
+                                        {canCopyToken ? (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(buildIntentCommand(newIntent!));
+                                                    toast.success('Copied', 'Intent curl command copied.');
+                                                }}
+                                            >
+                                                Copy Curl
+                                            </Button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            );
+                        }}
+                    />
                 )}
 
                 {selectedIntent && (
@@ -659,181 +855,139 @@ export default function SessionsPage() {
                         </p>
                     </GlassCard>
                 ) : (
-                    <div className="overflow-hidden glass-card border-white/5 bg-white/2 rounded-2xl mt-12">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left font-mono text-xs">
-                                <thead className="text-[9px] font-black uppercase text-muted-foreground/30 border-b border-white/5 bg-white/5">
-                                    <tr>
-                                        <th className="px-8 py-5 tracking-widest">Identifier / Logic</th>
-                                        <th className="px-8 py-5 tracking-widest">Protocol Type</th>
-                                        <th className="px-8 py-5 tracking-widest text-center">Status</th>
-                                        <th className="px-8 py-5 tracking-widest text-center">Integrity</th>
-                                        <th className="px-8 py-5 tracking-widest text-right">Synchronization</th>
-                                        <th className="px-8 py-5 tracking-widest text-right">Operations</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/2">
-                                    {sessions.map((session) => (
-                                        <motion.tr
-                                            key={session.id}
-                                            layout
-                                            className={`hover:bg-white/5 transition-colors group ${pendingTerminateId === session.id ? 'bg-rose-500/5' : ''}`}
+                    <DataTable
+                        columns={sessionColumns}
+                        data={sessions}
+                        emptyTitle="No sessions"
+                        emptyDescription="No legacy session records detected."
+                        getRowId={(row) => row.id}
+                        density="compact"
+                        className="mt-12"
+                        renderMobileCard={(session) => (
+                            <div className="space-y-3">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                        <p className="font-mono text-sm font-medium">{session.id.slice(0, 12)}…</p>
+                                        <p className="text-xs capitalize text-muted-foreground">{session.type}</p>
+                                    </div>
+                                    <StatusBadge
+                                        status={sessionStatusVariant(session.status)}
+                                        label={session.status}
+                                        size="sm"
+                                    />
+                                </div>
+                                <p className="font-mono text-xs text-muted-foreground">
+                                    {new Date(session.created_at).toLocaleString()}
+                                </p>
+                                {session.status === 'active' ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        <a
+                                            href={`/dashboard/trustless?session=${session.id}`}
+                                            className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium hover:bg-secondary"
                                         >
-                                            <td className="px-8 py-5">
-                                                <div className="font-black uppercase text-[11px] group-hover:text-primary transition-colors">
-                                                    {session.id.slice(0, 12)}...
-                                                </div>
-                                                {session.tx_hash && (
-                                                    <a
-                                                        href={`https://solscan.io/tx/${session.tx_hash}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-1 text-[8px] text-primary hover:underline font-black uppercase tracking-widest mt-1"
-                                                    >
-                                                        <ExternalLink size={10} /> On-chain Segment
-                                                    </a>
-                                                )}
-                                            </td>
-                                            <td className="px-8 py-5 font-black uppercase opacity-60">
-                                                {session.type} Tunnel
-                                            </td>
-                                            <td className="px-8 py-5 text-center">
-                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest inline-block ${
-                                                    session.status === 'active' 
-                                                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
-                                                        : 'bg-white/5 text-muted-foreground border-white/10'
-                                                }`}>
-                                                    {session.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-8 py-5 text-center">
-                                                <div className="flex justify-center">
-                                                    <a 
-                                                        href={`/dashboard/trustless?session=${session.id}`}
-                                                        className={`p-1.5 rounded-lg border transition-all ${
-                                                            session.status === 'active' 
-                                                                ? 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20' 
-                                                                : 'bg-white/5 border-white/10 text-muted-foreground opacity-30 pointer-events-none'
-                                                        }`}
-                                                        title="View Integrity Proofs"
-                                                    >
-                                                        <ShieldCheck size={14} />
-                                                    </a>
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-5 text-right">
-                                                <div className="text-[10px] font-black opacity-40 uppercase">{new Date(session.created_at).toLocaleDateString()}</div>
-                                                <div className="text-[9px] opacity-20 uppercase font-black">{new Date(session.created_at).toLocaleTimeString()}</div>
-                                            </td>
-                                            <td className="px-8 py-5 text-right">
-                                                {session.status === 'active' && (
-                                                    pendingTerminateId === session.id ? (
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            <button 
-                                                                onClick={confirmTerminate}
-                                                                className="px-3 py-1 text-[9px] font-black uppercase bg-rose-500 text-white rounded-md hover:bg-rose-600 transition-colors shadow-lg"
-                                                            >
-                                                                {terminating ? '...' : 'Confirm'}
-                                                            </button>
-                                                            <button 
-                                                                onClick={() => setPendingTerminateId(null)}
-                                                                className="px-3 py-1 text-[9px] font-black uppercase bg-white/5 text-muted-foreground rounded-md hover:bg-white/10 transition-colors"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => setPendingTerminateId(session.id)}
-                                                            className="p-2 text-muted-foreground hover:text-rose-500 transition-colors"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    )
-                                                )}
-                                            </td>
-                                        </motion.tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                            <ShieldCheck size={12} aria-hidden /> Integrity
+                                        </a>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="danger"
+                                            onClick={() => {
+                                                setTerminateError(null);
+                                                setPendingTerminateId(session.id);
+                                            }}
+                                        >
+                                            Terminate
+                                        </Button>
+                                    </div>
+                                ) : null}
+                            </div>
+                        )}
+                    />
                 )}
             </motion.div>
 
-            {/* New Intent Modal Overlay */}
-            <AnimatePresence>
-                {newIntent && (
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center z-50 p-4"
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                        >
-                            <GlassCard className="w-full max-w-md p-10 border-primary shadow-[0_0_50px_rgba(34,197,94,0.15)] animate-glow">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="p-3 bg-primary/20 rounded-2xl border border-primary/40">
-                                        <Zap size={24} className="text-primary" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-black font-mono uppercase text-primary tracking-tighter">Intent Issued</h3>
-                                        <p className="text-[9px] font-mono uppercase text-muted-foreground tracking-widest">Signed gateway admission token ready</p>
-                                    </div>
-                                </div>
+            <Modal
+                open={!!newIntent}
+                onOpenChange={(open) => {
+                    if (!open) setNewIntent(null);
+                }}
+                title="Intent issued"
+                description="Signed gateway admission token ready."
+                footer={
+                    newIntent ? (
+                        <>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(buildIntentCommand(newIntent));
+                                    toast.success('System Sync', 'Intent curl command copied.');
+                                }}
+                            >
+                                <Copy size={14} className="mr-2" aria-hidden />
+                                Copy curl
+                            </Button>
+                            <Button type="button" onClick={() => setNewIntent(null)}>
+                                Acknowledged
+                            </Button>
+                        </>
+                    ) : null
+                }
+            >
+                {newIntent ? (
+                    <div className="space-y-4 rounded-[var(--radius-md)] border border-border bg-secondary/50 p-4 font-mono text-xs">
+                        <div className="space-y-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                Endpoint
+                            </p>
+                            <p className="break-all text-foreground">{PROXY_ENDPOINT}</p>
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                Intent ID
+                            </p>
+                            <p className="break-all text-primary">{newIntent.intent.intent_id}</p>
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                Token
+                            </p>
+                            <div className="flex items-start justify-between gap-2">
+                                <p className="line-clamp-2 break-all text-foreground">{newIntent.token}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(newIntent.token);
+                                        toast.success('Copied', 'Intent token copied.');
+                                    }}
+                                    className="shrink-0 text-primary hover:text-foreground"
+                                    aria-label="Copy token"
+                                >
+                                    <Copy size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+            </Modal>
 
-                                <div className="space-y-4 bg-black/40 border border-white/5 rounded-2xl p-6 font-mono text-xs my-8">
-                                    <div className="space-y-1">
-                                        <label className="text-muted-foreground text-[9px] font-black uppercase tracking-widest opacity-40">Endpoint</label>
-                                        <p className="text-foreground break-all font-black">{PROXY_ENDPOINT}</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-muted-foreground text-[9px] font-black uppercase tracking-widest opacity-40">Intent ID</label>
-                                        <p className="text-primary break-all font-black">{newIntent.intent.intent_id}</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-muted-foreground text-[9px] font-black uppercase tracking-widest opacity-40">Token</label>
-                                        <div className="flex justify-between items-center group/pass">
-                                            <p className="text-foreground break-all font-black tracking-widest line-clamp-2">{newIntent.token}</p>
-                                            <button 
-                                                onClick={() => {
-                                                    navigator.clipboard.writeText(newIntent.token);
-                                                    toast.success('Copied', 'Intent token copied.');
-                                                }}
-                                                className="text-primary hover:text-white transition-colors"
-                                            >
-                                                <Copy size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(buildIntentCommand(newIntent));
-                                            toast.success('System Sync', 'Intent curl command copied.');
-                                        }}
-                                        className="flex-1 py-4 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2 group"
-                                    >
-                                        <Copy size={14} className="group-hover:text-primary transition-colors" /> COPY CURL
-                                    </button>
-                                    <button
-                                        onClick={() => setNewIntent(null)}
-                                        className="flex-1 py-4 bg-primary text-primary-foreground rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-xl shadow-primary/20"
-                                    >
-                                        ACKNOWLEDGED
-                                    </button>
-                                </div>
-                            </GlassCard>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <ConfirmDialog
+                open={!!pendingTerminateId}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingTerminateId(null);
+                        setTerminateError(null);
+                    }
+                }}
+                title="Terminate session"
+                description="Close this proxy tunnel? Active connections will drop immediately."
+                confirmLabel="Terminate"
+                cancelLabel="Keep session"
+                destructive
+                loading={terminating}
+                error={terminateError ?? undefined}
+                onConfirm={() => void confirmTerminate()}
+            />
             
             <ReviewModal 
                 isOpen={!!reviewSessionId} 

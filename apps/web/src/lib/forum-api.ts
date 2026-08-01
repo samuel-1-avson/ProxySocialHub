@@ -295,3 +295,16 @@ export async function reportPost(postId: string, reason: string, details?: strin
     if (!res.ok) throw new Error("Failed to submit report");
     return res.json();
 }
+
+export async function markPostSolution(postId: string, isSolution = true): Promise<ForumPost> {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}/solution`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_solution: isSolution }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update solution");
+    }
+    return res.json();
+}

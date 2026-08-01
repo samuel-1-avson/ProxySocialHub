@@ -98,6 +98,9 @@ export function MarketplaceOrderCredentials({
 
             <div className="space-y-2">
                 <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Quick test</p>
+                <p className="text-[10px] text-white/40">
+                    Endpoint is HTTP CONNECT / SOCKS5 only (absolute-URI forward proxy returns 501).
+                </p>
                 <pre className="text-[10px] font-mono text-white/70 bg-black/40 border border-white/10 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap break-all">
                     {curlExample}
                 </pre>

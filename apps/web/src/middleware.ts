@@ -76,12 +76,12 @@ function redirectToLogin(request: NextRequest, clearCookies = false) {
 }
 
 function redirectToUnauthorized(request: NextRequest, policy: string) {
-    const dashboardUrl = request.nextUrl.clone()
-    dashboardUrl.pathname = '/dashboard'
-    dashboardUrl.search = ''
-    dashboardUrl.searchParams.set('error', `${policy}_required`)
+    const forbiddenUrl = request.nextUrl.clone()
+    forbiddenUrl.pathname = '/403'
+    forbiddenUrl.search = ''
+    forbiddenUrl.searchParams.set('policy', policy)
 
-    return NextResponse.redirect(dashboardUrl)
+    return NextResponse.redirect(forbiddenUrl)
 }
 
 async function validateViaBackend(request: NextRequest, token: string) {

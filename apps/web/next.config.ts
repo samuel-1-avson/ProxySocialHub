@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const isPlaywrightE2E = process.env.PLAYWRIGHT_E2E_AUTH_BYPASS === "1";
+const analyze = process.env.ANALYZE === "true";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
 
@@ -23,6 +26,7 @@ const nextConfig: NextConfig = {
   // Unconditional useWasmBinary breaks some App Router pages on Windows dev:e2e.
   experimental: {
     ...(process.env.NEXT_FORCE_SWC_WASM === "1" ? { useWasmBinary: true } : {}),
+    optimizePackageImports: ["lucide-react", "date-fns", "recharts"],
   },
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   images: {
@@ -164,4 +168,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const withBundleAnalyzer = analyze
+  ? require("@next/bundle-analyzer")({ enabled: true })
+  : (config: NextConfig) => config;
+
+export default withBundleAnalyzer(nextConfig);

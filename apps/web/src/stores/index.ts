@@ -2,5 +2,10 @@
  * Store Barrel Export
  */
 
-export { useUIStore } from './useUIStore';
-export { useNotificationStore, useToast, type Notification, type NotificationType } from './useNotificationStore';
+export { useUIStore } from '@/lib/store/ui-store';
+export {
+  useNotificationStore,
+  useToast,
+  type Notification,
+  type NotificationType,
+} from './useNotificationStore';

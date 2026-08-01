@@ -6,6 +6,9 @@ import { useAuth, fetchWithAuth } from '@/lib/auth';
 import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy, Monitor, Clock } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
 import { SessionsPanel, AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
+import { Modal } from '@/components/patterns/Modal';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -394,98 +397,102 @@ export default function SecuritySettingsPage() {
                 {activeTab === 'history' && <div className="bg-white/[0.01] border border-white/5 rounded-sm p-6"><LoginHistoryPanel /></div>}
             </div>
 
-            {/* Modals (Backup Codes & Disable) */}
-            {showBackupCodes && backupCodes.length > 0 && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-background w-full max-w-md border border-white/10 shadow-2xl p-6 rounded-sm animate-in zoom-in-95">
-                        <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
-                            <h2 className="text-lg font-black font-mono uppercase tracking-tighter">Backup Codes</h2>
-                            <button onClick={() => { setShowBackupCodes(false); setBackupCodes([]); }} className="text-muted-foreground hover:text-foreground transition-colors"><X size={18} /></button>
-                        </div>
-
-                        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500 px-4 py-3 rounded-sm mb-6 text-[9px] font-mono font-black uppercase flex items-center gap-2">
-                            <AlertTriangle size={14} />
-                            Critical: Save these codes securely. Use once each.
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 mb-6">
-                            {backupCodes.map((code, i) => (
-                                <div key={i} className="px-3 py-2 bg-black/40 border border-primary/20 rounded-sm font-mono text-sm text-center text-primary tracking-widest">
-                                    {code}
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="flex gap-4">
-                            <button
-                                onClick={copyBackupCodes}
-                                className="flex-1 px-4 py-2 border border-white/10 rounded-sm text-[10px] font-black font-mono uppercase tracking-widest hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+            <Modal
+                open={showBackupCodes && backupCodes.length > 0}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setShowBackupCodes(false);
+                        setBackupCodes([]);
+                    }
+                }}
+                title="Backup codes"
+                description="Save these codes securely. Each code can be used once."
+                footer={
+                    <>
+                        <Button type="button" variant="outline" onClick={copyBackupCodes}>
+                            <Copy size={14} className="mr-2" aria-hidden />
+                            Copy all
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => {
+                                setShowBackupCodes(false);
+                                setBackupCodes([]);
+                            }}
+                        >
+                            Acknowledged
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <div
+                        className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--warning)_35%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] px-3 py-2 text-xs text-foreground"
+                        role="note"
+                    >
+                        <AlertTriangle size={14} className="shrink-0 text-[var(--warning)]" aria-hidden />
+                        Critical: store these offline. They will not be shown again.
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {backupCodes.map((code, i) => (
+                            <div
+                                key={i}
+                                className="rounded-[var(--radius-md)] border border-border bg-secondary px-3 py-2 text-center font-mono text-sm tracking-widest text-primary"
                             >
-                                <Copy size={14} /> COPY ALL
-                            </button>
-                            <button
-                                onClick={() => { setShowBackupCodes(false); setBackupCodes([]); }}
-                                className="flex-1 bg-primary text-primary-foreground px-4 py-2 rounded-sm text-[10px] font-black font-mono uppercase tracking-widest"
-                            >
-                                ACKNOWLEDGED
-                            </button>
-                        </div>
+                                {code}
+                            </div>
+                        ))}
                     </div>
                 </div>
-            )}
+            </Modal>
 
-            {showDisableModal && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-background w-full max-w-md border border-destructive/50 shadow-2xl p-6 rounded-sm animate-in zoom-in-95">
-                        <div className="flex items-center justify-between mb-6 border-b border-destructive/20 pb-4">
-                            <h2 className="text-lg font-black font-mono uppercase tracking-tighter text-destructive">Disable Protocol</h2>
-                            <button onClick={() => setShowDisableModal(false)} className="text-muted-foreground hover:text-foreground transition-colors"><X size={18} /></button>
-                        </div>
-
-                        <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-sm mb-6 text-[9px] font-mono font-black uppercase">
-                            Warning: Account security level will be downgraded.
-                        </div>
-
-                        <div className="space-y-4 mb-6">
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-mono font-black uppercase text-muted-foreground opacity-60">Confirm Password</label>
-                                <input
-                                    type="password"
-                                    value={disablePassword}
-                                    onChange={e => setDisablePassword(e.target.value)}
-                                    className="w-full bg-black/40 border border-white/10 rounded-sm py-2 px-3 text-sm focus:border-destructive outline-none transition-all"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-mono font-black uppercase text-muted-foreground opacity-60">2FA Code</label>
-                                <input
-                                    type="text"
-                                    value={disableCode}
-                                    onChange={e => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                    placeholder="000000"
-                                    className="w-full bg-black/40 border border-white/10 rounded-sm py-2 px-3 text-sm font-mono tracking-widest focus:border-destructive outline-none transition-all"
-                                    maxLength={6}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex gap-4">
-                            <button
-                                onClick={() => setShowDisableModal(false)}
-                                className="flex-1 px-4 py-2 border border-white/10 rounded-sm text-[10px] font-black font-mono uppercase tracking-widest hover:bg-white/5 transition-colors"
-                            >
-                                CANCEL
-                            </button>
-                            <button
-                                onClick={handleDisable2FA}
-                                className="flex-1 bg-destructive text-white px-4 py-2 rounded-sm text-[10px] font-black font-mono uppercase tracking-widest"
-                            >
-                                DISABLE
-                            </button>
-                        </div>
+            <Modal
+                open={showDisableModal}
+                onOpenChange={setShowDisableModal}
+                title="Disable two-factor authentication"
+                description="Account security will be reduced. Confirm your password and a current 2FA code."
+                footer={
+                    <>
+                        <Button type="button" variant="outline" onClick={() => setShowDisableModal(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="button" variant="danger" onClick={() => void handleDisable2FA()}>
+                            Disable
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <label htmlFor="disable-2fa-password" className="text-xs text-muted-foreground">
+                            Confirm password
+                        </label>
+                        <Input
+                            id="disable-2fa-password"
+                            type="password"
+                            value={disablePassword}
+                            onChange={(e) => setDisablePassword(e.target.value)}
+                            autoComplete="current-password"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label htmlFor="disable-2fa-code" className="text-xs text-muted-foreground">
+                            2FA code
+                        </label>
+                        <Input
+                            id="disable-2fa-code"
+                            type="text"
+                            inputMode="numeric"
+                            value={disableCode}
+                            onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="000000"
+                            maxLength={6}
+                            className="font-mono tracking-widest"
+                            autoComplete="one-time-code"
+                        />
                     </div>
                 </div>
-            )}
+            </Modal>
         </div>
     );
 }

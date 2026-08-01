@@ -61,7 +61,7 @@ export function PeopleYouMayKnow({ limit = 5, showViewAll = true }: PeopleYouMay
                 </div>
                 {showViewAll && (
                     <Link
-                        href={`${ROUTES.communityFeed}?suggestions=people`}
+                        href={ROUTES.communityFriends}
                         className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
                     >
                         View all

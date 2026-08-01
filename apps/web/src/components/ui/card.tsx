@@ -1,34 +1,36 @@
 import React from "react";
+import { cn } from "@/lib/utils";
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-    variant?: "default" | "retro";
-    hoverEffect?: boolean;
+  variant?: "default" | "muted" | "interactive";
+  hoverEffect?: boolean;
 }
 
 export const Card: React.FC<CardProps> = ({
-    children,
-    className = "",
-    variant = "default",
-    hoverEffect = false,
-    ...props
+  children,
+  className = "",
+  variant = "default",
+  hoverEffect = false,
+  ...props
 }) => {
-    const baseStyles = "bg-[var(--card)] border border-[var(--card-border)] rounded-[var(--radius)] p-6 overflow-hidden";
+  const variants: Record<NonNullable<CardProps["variant"]>, string> = {
+    default: "bg-[var(--card)] border border-[var(--border)] shadow-[var(--shadow-sm)]",
+    muted: "bg-[var(--secondary)] border border-[var(--border)]",
+    interactive:
+      "bg-[var(--card)] border border-[var(--border)] shadow-[var(--shadow-sm)] hover:border-[var(--border-strong)] cursor-pointer",
+  };
 
-    const variants = {
-        default: "shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-retro)] hover:border-[var(--foreground)]",
-        retro: "shadow-[var(--shadow-retro)] border-2 border-[var(--foreground)]",
-    };
-
-    const hoverStyles = hoverEffect
-        ? "transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
-        : "";
-
-    return (
-        <div
-            className={`${baseStyles} ${variants[variant]} ${hoverStyles} ${className}`}
-            {...props}
-        >
-            {children}
-        </div>
-    );
+  return (
+    <div
+      className={cn(
+        "rounded-[var(--radius-lg)] p-6 overflow-hidden",
+        variants[variant],
+        hoverEffect && "transition-colors duration-[var(--dur-fast)]",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
 };
