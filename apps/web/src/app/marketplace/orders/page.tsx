@@ -116,7 +116,7 @@ export default function MarketplaceOrdersPage() {
                 </Button>
               ) : null}
               <Link
-                href={ROUTES.dashboardOrder(order.id)}
+                href={ROUTES.marketplaceOrder(order.id)}
                 className="inline-flex h-8 items-center rounded-[var(--radius-md)] border border-border bg-secondary px-3 text-xs font-medium hover:bg-[var(--secondary-light)]"
                 data-testid={`order-credentials-link-${order.id}`}
               >
@@ -145,10 +145,10 @@ export default function MarketplaceOrdersPage() {
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-10">
       <div>
         <Link
-          href="/marketplace"
+          href={ROUTES.marketplace}
           className="mb-3 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft size={12} aria-hidden /> Marketplace
+          <ArrowLeft size={12} aria-hidden /> Discover
         </Link>
         <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary">
           <Package size={14} aria-hidden />
@@ -194,7 +194,7 @@ export default function MarketplaceOrdersPage() {
                 </Button>
               ) : null}
               <Link
-                href={ROUTES.dashboardOrder(order.id)}
+                href={ROUTES.marketplaceOrder(order.id)}
                 className="inline-flex h-8 items-center rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium hover:bg-secondary"
                 data-testid={`order-credentials-link-${order.id}`}
               >

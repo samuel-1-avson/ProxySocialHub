@@ -478,7 +478,9 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <motion.div variants={itemVariants} className="flex gap-8 border-b border-white/5">
                         {[
                             { id: 'reviews', label: 'Trust Ledger', count: reviews.length, icon: Heart },
-                            ...(profile?.role === 'provider' ? [{ id: 'listings', label: 'Active Grid', count: 'GRID', icon: Activity }] : []),
+                            ...(profile?.role === 'provider' || profile?.role === 'both'
+                                ? [{ id: 'listings', label: 'Active Grid', count: 'GRID', icon: Activity }]
+                                : []),
                         ].map((tab) => (
                             <button
                                 key={tab.id}
