@@ -1,18 +1,23 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { MarketplaceOrderDetailView } from '@/components/marketplace/MarketplaceOrderDetailView';
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { ROUTES } from '@/lib/navigation/routes';
 
-export default function DashboardOrderCredentialsPage() {
+/** Legacy path — redirects to canonical `/marketplace/orders/:id`. */
+export default function DashboardOrderCredentialsRedirect() {
     const params = useParams<{ id: string }>();
+    const router = useRouter();
     const orderId = params?.id ?? '';
 
+    useEffect(() => {
+        if (!orderId) return;
+        router.replace(ROUTES.marketplaceOrder(orderId));
+    }, [orderId, router]);
+
     return (
-        <MarketplaceOrderDetailView
-            orderId={orderId}
-            backHref={ROUTES.dashboardProxy}
-            backLabel="Proxy dashboard"
-        />
+        <div className="flex min-h-[40vh] items-center justify-center text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            Redirecting to order…
+        </div>
     );
 }

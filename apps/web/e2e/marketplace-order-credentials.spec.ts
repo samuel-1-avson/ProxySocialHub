@@ -17,7 +17,7 @@ test.describe('marketplace order credentials page', () => {
         await enableE2EMockBuy(page, BASE_URL);
         await stubPurchaseApis(page, verifiedMapListingId);
 
-        await page.goto(`${BASE_URL}/dashboard/orders/${e2eOrderId}`, {
+        await page.goto(`${BASE_URL}/marketplace/orders/${e2eOrderId}`, {
             waitUntil: 'domcontentloaded',
             timeout: 90_000,
         });

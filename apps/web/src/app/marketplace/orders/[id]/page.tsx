@@ -12,7 +12,7 @@ export default function MarketplaceOrderDetailPage() {
         <MarketplaceOrderDetailView
             orderId={orderId}
             backHref={ROUTES.marketplaceOrders}
-            backLabel="My orders"
+            backLabel="Orders"
         />
     );
 }
