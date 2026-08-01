@@ -37,6 +37,31 @@ pub fn warn() -> Style {
     Style::default().fg(WARN)
 }
 
+pub fn ok() -> Style {
+    Style::default().fg(PHOSPHOR)
+}
+
+pub fn ok_badge() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(PHOSPHOR)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub fn warn_badge() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(WARN)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub fn alert_badge() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(ALERT)
+        .add_modifier(Modifier::BOLD)
+}
+
 pub fn panel_border(focused: bool) -> Style {
     if focused {
         Style::default().fg(AMBER)
