@@ -10,11 +10,10 @@ pub fn print_paths_and_hints() {
     println!("Log file:     {}", paths::log_file().display());
     println!();
     println!("Recommended flow:");
-    println!("  provider-node                 # interactive console (double-click friendly)");
-    println!("  provider-node register --api-key <TOKEN>");
+    println!("  provider-node                 # console — auto-starts daemon in background");
     println!("  provider-node doctor");
-    println!("  provider-node start");
-    println!("  provider-node dashboard");
+    println!("  provider-node dashboard       # TUI (also auto-starts daemon if needed)");
+    println!("  provider-node start           # foreground-only (optional)");
     println!();
     println!("Windows: unzip a GitHub Release and double-click Launch-Provider-Console.cmd");
 

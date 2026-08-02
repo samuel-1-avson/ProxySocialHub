@@ -1,5 +1,6 @@
 mod config;
 mod config_validate;
+mod daemon_ctrl;
 mod doctor;
 mod install;
 mod interactive;
@@ -665,6 +666,13 @@ async fn main() -> anyhow::Result<()> {
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(paths::config_file);
+            match daemon_ctrl::ensure_running(&config_path).await {
+                Ok(result) => info!("{}", daemon_ctrl::describe(result)),
+                Err(e) => {
+                    eprintln!("Warning: could not auto-start daemon: {e:#}");
+                    eprintln!("Start it with: provider-node start --config {}", config_path.display());
+                }
+            }
             tui::dashboard::run(config_path, refresh_ms).await?;
         }
 

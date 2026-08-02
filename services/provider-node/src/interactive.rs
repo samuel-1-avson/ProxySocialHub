@@ -1,7 +1,11 @@
 //! Interactive console when `provider-node` is launched with no subcommand
 //! (e.g. double-click on Windows). Keeps a real window open so operators
 //! can pick dashboard / doctor / status without memorizing flags.
+//!
+//! The tunnel daemon is started in the background automatically when config
+//! exists, so the TUI can run in this same window.
 
+use crate::daemon_ctrl;
 use crate::paths;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -10,13 +14,21 @@ pub async fn run() -> anyhow::Result<()> {
     let config = paths::config_file();
     print_banner(&config);
 
+    if config.is_file() {
+        match daemon_ctrl::ensure_running(&config).await {
+            Ok(result) => println!("  {}", daemon_ctrl::describe(result)),
+            Err(e) => eprintln!("  Daemon auto-start skipped: {e:#}"),
+        }
+    }
+
     loop {
         println!();
-        println!("  [1] Open live dashboard (interactive TUI)");
+        println!("  [1] Open live dashboard (starts daemon in background if needed)");
         println!("  [2] Run doctor (pre-flight checks)");
         println!("  [3] Show status");
-        println!("  [4] Start daemon in this window");
-        println!("  [5] Print install paths & hints");
+        println!("  [4] Start/restart daemon in background");
+        println!("  [5] Start daemon in this window (foreground / blocks)");
+        println!("  [6] Print install paths & hints");
         println!("  [h] Help / recommended first-run");
         println!("  [q] Quit");
         print!("\n  Choice> ");
@@ -29,7 +41,12 @@ pub async fn run() -> anyhow::Result<()> {
         let choice = line.trim().to_ascii_lowercase();
         match choice.as_str() {
             "1" | "d" | "dashboard" => {
-                println!("\nStarting dashboard… (Ctrl+C to return)\n");
+                if let Err(e) = ensure_daemon_or_report(&config).await {
+                    wait_enter();
+                    print_banner(&config);
+                    continue;
+                }
+                println!("\nStarting dashboard… (Ctrl+C returns here; daemon keeps running)\n");
                 if let Err(e) = crate::tui::dashboard::run(config.clone(), 1000).await {
                     eprintln!("Dashboard error: {e:#}");
                     wait_enter();
@@ -59,10 +76,25 @@ pub async fn run() -> anyhow::Result<()> {
                 wait_enter();
                 print_banner(&config);
             }
-            "4" | "start" => {
-                println!("\nStarting provider-node daemon…");
+            "4" | "start" | "bg" | "restart" => {
+                println!();
+                println!("Restarting daemon in the background…");
+                match daemon_ctrl::restart(&config).await {
+                    Ok(result) => {
+                        println!("{}", daemon_ctrl::describe(result));
+                        println!("Logs: {}", paths::log_file().display());
+                        println!("Open [1] dashboard in this window anytime.");
+                    }
+                    Err(e) => eprintln!("Failed to start background daemon: {e:#}"),
+                }
+                wait_enter();
+                print_banner(&config);
+            }
+            "5" | "fg" | "foreground" => {
+                println!("\nStarting provider-node daemon in the foreground…");
                 println!("Config: {}", config.display());
                 println!("Press Ctrl+C to stop.\n");
+                println!("Tip: prefer [4] background + [1] dashboard in one window.\n");
                 let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("provider-node"));
                 let status = std::process::Command::new(&exe)
                     .arg("start")
@@ -77,7 +109,7 @@ pub async fn run() -> anyhow::Result<()> {
                 wait_enter();
                 print_banner(&config);
             }
-            "5" | "install" | "paths" => {
+            "6" | "install" | "paths" => {
                 println!();
                 crate::install::print_paths_and_hints();
                 wait_enter();
@@ -87,11 +119,14 @@ pub async fn run() -> anyhow::Result<()> {
                 println!();
                 println!("First-run checklist:");
                 println!("  1. Download provider.toml from Dashboard → My nodes → Connect");
-                println!("     (or Setup wizard). Place it at:");
+                println!("     Place it at:");
                 println!("       {}", config.display());
-                println!("  2. Choose [2] doctor — fix any red checks");
-                println!("  3. Choose [4] start — leave this window running, OR install as a service");
-                println!("  4. Choose [1] dashboard in a second window for live metrics");
+                println!("  2. Launch this CLI — daemon auto-starts in the background");
+                println!("  3. Choose [2] doctor — fix any red checks");
+                println!("  4. Choose [1] dashboard — live metrics while the tunnel runs");
+                println!();
+                println!("The tunnel keeps running after you quit the dashboard.");
+                println!("Stop it with: proxyhubb-cli stop   (or close the background process)");
                 println!();
                 println!("Tip: from a terminal you can also run:");
                 println!("  provider-node dashboard --config {}", config.display());
@@ -100,6 +135,7 @@ pub async fn run() -> anyhow::Result<()> {
             }
             "q" | "quit" | "exit" => {
                 println!("Goodbye.");
+                println!("(Background daemon keeps running if it was started.)");
                 break;
             }
             "" => continue,
@@ -110,6 +146,19 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn ensure_daemon_or_report(config: &std::path::Path) -> anyhow::Result<()> {
+    match daemon_ctrl::ensure_running(config).await {
+        Ok(result) => {
+            println!("{}", daemon_ctrl::describe(result));
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Cannot open dashboard without a daemon: {e:#}");
+            Err(e)
+        }
+    }
 }
 
 fn print_banner(config: &std::path::Path) {
