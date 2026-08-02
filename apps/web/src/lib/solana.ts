@@ -88,7 +88,8 @@ export const initializeEscrow = async (
     sellerPubkey: string,
     amountLamports: number,
     limitGb: number,
-    durationSeconds: number = 3600 * 24 // Default 24 hours
+    /** Absolute unix expiry, or a relative duration in seconds if < year 2001. */
+    expiresAtOrDurationSeconds: number = 3600 * 24
 ) => {
     const e2eMockBuy =
         process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
@@ -104,6 +105,14 @@ export const initializeEscrow = async (
 
     if (!wallet) throw new Error("Wallet not connected");
 
+    // On-chain require!(expires_at > clock.unix_timestamp). Callers historically
+    // passed a duration (e.g. 86400); treat small values as relative seconds.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const expiresAt =
+        expiresAtOrDurationSeconds > 1_000_000_000
+            ? expiresAtOrDurationSeconds
+            : nowSec + Math.max(60, expiresAtOrDurationSeconds);
+
     const program = getProgram(wallet);
     const buyer = wallet.publicKey;
     const seller = new PublicKey(sellerPubkey);
@@ -118,14 +127,14 @@ export const initializeEscrow = async (
         program.programId
     );
 
-    console.log("Initializing Escrow PDA:", escrowPda.toString());
+    console.log("Initializing Escrow PDA:", escrowPda.toString(), "expiresAt:", expiresAt);
 
     try {
         const tx = await program.methods
             .initializeEscrow(
                 new BN(amountLamports),
                 new BN(limitGb),
-                new BN(durationSeconds)
+                new BN(expiresAt)
             )
             .accounts({
                 buyer: buyer,
