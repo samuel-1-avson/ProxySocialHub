@@ -251,8 +251,10 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}
 
 	solAmount := float64(event.Amount) / 1e9
-	wallet.CreditSOL(solAmount)
-	if err := tx.Save(&wallet).Error; err != nil {
+	if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, "deposit_auto", event.TxSignature,
+		fmt.Sprintf("Auto-Deposit: %.6f SOL", solAmount),
+		models.LedgerOpts{TxHash: event.TxSignature},
+	); err != nil {
 		tx.Rollback()
 		log.Printf("[Worker] Auto-Deposit: Failed to credit user %s: %v", userID, err)
 		return
@@ -272,17 +274,6 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 		ExternalRef:    event.TxSignature,
 	}
 	tx.Create(&pendingTx)
-
-	ledger := models.WalletLedgerEntry{
-		ID:           uuid.New(),
-		WalletID:     wallet.ID,
-		Amount:       solAmount,
-		BalanceAfter: wallet.BalanceSOL,
-		Type:         "deposit_auto",
-		ReferenceID:  event.TxSignature,
-		Description:  fmt.Sprintf("Auto-Deposit: %.6f SOL", solAmount),
-	}
-	tx.Create(&ledger)
 
 	if err := tx.Commit().Error; err != nil {
 		logging.Error(err).

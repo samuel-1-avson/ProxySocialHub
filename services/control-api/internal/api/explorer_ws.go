@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/proxyhubb/control-api/internal/db"
+	geo "github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -384,14 +385,7 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 
 	nodeUpdates := make([]NodeUpdate, len(nodes))
 	for i, n := range nodes {
-		nodeUpdates[i] = NodeUpdate{
-			NodeID:         n.NodeID,
-			IsActive:       n.IsActive,
-			UptimePercent:  n.UptimePercent,
-			ActiveSessions: n.ActiveSessions,
-			Latitude:       n.Latitude,
-			Longitude:      n.Longitude,
-		}
+		nodeUpdates[i] = snapExplorerNodeUpdate(&n)
 	}
 
 	type InitialPayload struct {
@@ -656,21 +650,26 @@ func NotifyNewBlock(block *models.ExplorerBlock) {
 }
 
 // NotifyNodeUpdate notifies all clients about a node status change.
-// Lat/Lon are included so the map can reposition or create a marker
-// without a separate API call.
+// Lat/Lon are hub/centroid-snapped to match GET /v1/marketplace/map.
 func NotifyNodeUpdate(node *models.ExplorerNode) {
 	if hub == nil {
 		return
 	}
 
-	hub.BroadcastUpdate("node_update", NodeUpdate{
+	hub.BroadcastUpdate("node_update", snapExplorerNodeUpdate(node))
+}
+
+func snapExplorerNodeUpdate(node *models.ExplorerNode) NodeUpdate {
+	anchor := geo.MapGeoAnchor(node.NodeID, node.ProviderUserID, "")
+	lat, lon, _ := geo.ApplyMapCoords(node.Latitude, node.Longitude, node.Country, node.City, anchor)
+	return NodeUpdate{
 		NodeID:         node.NodeID,
 		IsActive:       node.IsActive,
 		UptimePercent:  node.UptimePercent,
 		ActiveSessions: node.ActiveSessions,
-		Latitude:       node.Latitude,
-		Longitude:      node.Longitude,
-	})
+		Latitude:       lat,
+		Longitude:      lon,
+	}
 }
 
 // NotifyLinkTopologyUpdate broadcasts a lightweight refresh hint after link aggregation.

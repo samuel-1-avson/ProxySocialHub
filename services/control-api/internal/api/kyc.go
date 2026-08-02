@@ -336,8 +336,9 @@ func getKYCStatus(c *gin.Context) {
 		return
 	}
 
-	// Enforce self-access or admin role
-	role, _ := c.Get("role")
+	// Enforce self-access or admin role. Auth middleware stores the caller role
+	// under the "userRole" context key.
+	role, _ := c.Get("userRole")
 	if currentUserID != uid && role != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You can only view your own KYC status"})
 		return

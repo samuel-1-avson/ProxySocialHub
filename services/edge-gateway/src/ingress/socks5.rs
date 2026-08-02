@@ -128,6 +128,48 @@ async fn handle_connection(
             return Err(e);
         }
 
+        // GW-03 / 1.2: per-session RPM (parity with HTTP CONNECT).
+        if auth.session.requests_per_minute > 0 {
+            match authenticator
+                .check_rate_limit(&auth.session.session_id, auth.session.requests_per_minute as u32)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    metrics::record_rate_limit_hit("session_rpm");
+                    send_reply(&mut client, REP_RULESET_DENIED).await?;
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "Session requests-per-minute limit exceeded",
+                    ));
+                }
+                Err(e) => {
+                    metrics::record_rate_limit_hit("session_rpm");
+                    send_reply(&mut client, REP_RULESET_DENIED).await?;
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        e.to_string(),
+                    ));
+                }
+            }
+        }
+
+        // GW-03 / 1.2: per-session concurrency — hold guard for the SOCKS lifetime.
+        let _conn_guard = match state
+            .session_conns
+            .acquire(&auth.username, auth.session.max_concurrency)
+        {
+            Some(g) => g,
+            None => {
+                metrics::record_rate_limit_hit("session_concurrency");
+                send_reply(&mut client, REP_RULESET_DENIED).await?;
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Session concurrency limit reached",
+                ));
+            }
+        };
+
         if let Some(token_type) = state.honeytoken.check(dest_host) {
             warn!(
                 session_id = %auth.session.session_id,
@@ -152,6 +194,11 @@ async fn handle_connection(
         } else {
             Some(auth.session.node_id.as_str())
         };
+        let target_isp = if auth.session.target_isp.is_empty() {
+            None
+        } else {
+            Some(auth.session.target_isp.as_str())
+        };
         let route = match provider_selection::select_provider_route(
             state.clone(),
             &auth.session.session_id,
@@ -160,6 +207,7 @@ async fn handle_connection(
             target_geo,
             Some(dest_host),
             pinned_node_id,
+            target_isp,
         )
         .await
         {

@@ -11,6 +11,7 @@ import { ModeToggle } from "@/components/ModeToggle";
 import { useUIStore } from "@/lib/store/ui-store";
 import { WalletBoundary } from "@/providers/WalletBoundary";
 import { RealtimeProvider } from "@/lib/websocket";
+import { LinkedWalletAutoReconnect } from "@/components/LinkedWalletAutoReconnect";
 
 interface AppShellProps {
   children: ReactNode;
@@ -34,6 +35,7 @@ export function AppShell({
   return (
     <WalletBoundary>
       <RealtimeProvider>
+        <LinkedWalletAutoReconnect />
         <div className="min-h-screen bg-background text-foreground relative">
           {showDesktopActions && (
             <div className="hidden md:flex fixed top-6 right-8 z-[100] items-center gap-4">

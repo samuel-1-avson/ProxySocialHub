@@ -15,9 +15,13 @@ import (
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
-// RegisterBadgeRoutes registers badge-related routes
-func RegisterBadgeRoutes(rg *gin.RouterGroup) {
+// RegisterBadgePublicRoutes registers the public badge catalog.
+func RegisterBadgePublicRoutes(rg *gin.RouterGroup) {
 	rg.GET("/badges", getAllBadges)
+}
+
+// RegisterBadgeRoutes registers badge-related routes that require a user session.
+func RegisterBadgeRoutes(rg *gin.RouterGroup) {
 	rg.GET("/badges/my", getMyBadges)
 }
 

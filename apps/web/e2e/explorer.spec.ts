@@ -182,34 +182,29 @@ test.describe('explorer', () => {
     test('node map shows listings layer toggle and marketplace map data', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.getByRole('heading', { name: /network wide map|node globe/i })).toBeVisible({
+        await expect(page.getByRole('heading', { name: /network wide map|network 3d map/i })).toBeVisible({
             timeout: 30_000,
         });
         await expect(page.getByText('Marketplace listings')).toBeVisible();
 
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 30_000 });
-        const globeToggle = page.getByRole('button', { name: '3D Globe' });
-        await globeToggle.scrollIntoViewIfNeeded();
-        await globeToggle.click({ force: true });
-        await expect(page.locator('.leaflet-container')).toBeHidden({ timeout: 60_000 });
-        await expect(page.getByRole('heading', { name: 'Node Globe' })).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByTestId('explorer-globe-ready')).toBeVisible({ timeout: 60_000 });
-        await expect(page.locator('[data-globe-listings="true"]')).toBeVisible();
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
+        const tilt3d = page.getByRole('button', { name: '3D Map' }).first();
+        await tilt3d.scrollIntoViewIfNeeded();
+        await tilt3d.click({ force: true });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByRole('heading', { name: 'Network 3D Map' })).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '3d');
         await expect(page.getByTestId('explorer-map-stat-listings')).toHaveText('1');
-        await expect(page.getByTestId('explorer-map-listings-2d-only')).toHaveCount(0);
     });
 
-    test('globe mode loads self-hosted assets, toggles style, and selects a node', async ({ page }) => {
+    test('3D map mode toggles tilt view without satellite controls', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-        await page.getByRole('button', { name: '3D Globe' }).click();
-        await expect(page.getByTestId('explorer-globe-loading')).toBeHidden({ timeout: 5_000 });
-        await expect(page.getByTestId('explorer-globe-ready')).toBeVisible({ timeout: 60_000 });
-
-        const terrainStyle = page.getByRole('button', { name: 'Terrain' });
-        await terrainStyle.scrollIntoViewIfNeeded();
-        await terrainStyle.click();
-        await expect(terrainStyle).toHaveClass(/border-primary/);
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
+        await page.getByRole('button', { name: '3D Map' }).first().click();
+        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '3d');
+        await expect(page.getByText(/no satellite imagery/i)).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Satellite' })).toHaveCount(0);
 
         const austinRow = page.locator('tbody tr').filter({ hasText: 'Austin' }).first();
         await austinRow.click();
@@ -231,7 +226,7 @@ test.describe('explorer', () => {
     test('unified 2D map shows last updated timestamp and region distribution', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
         await expect(page.getByTestId('explorer-map-updated')).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText('Region Distribution')).toBeVisible();
         await expect(page.getByTestId('explorer-map-region-us-central')).toBeVisible();
@@ -241,7 +236,7 @@ test.describe('explorer', () => {
     test('validators-only filter requests marketplace map with validator=true', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
         const validatorReq = page.waitForRequest(
             (req) =>
                 req.url().includes('/v1/marketplace/map') &&

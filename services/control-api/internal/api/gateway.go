@@ -1,9 +1,15 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -28,6 +35,7 @@ func RegisterGatewayRoutes(rg *gin.RouterGroup, cfg *config.Config) {
 		gateway.POST("/nodes/:id/status", updateGatewayNodeStatus)
 		gateway.POST("/session-intents/:id/state", updateGatewaySessionIntentState)
 		gateway.POST("/session-intents/:id/usage", updateGatewaySessionIntentUsage)
+		RegisterGatewayUsageRoutes(gateway)
 	}
 }
 
@@ -180,24 +188,100 @@ func updateGatewaySessionIntentUsage(c *gin.Context) {
 }
 
 // requireGatewayAuth restricts gateway control-plane endpoints to trusted
-// edge-gateway callers using a shared secret header.
+// edge-gateway callers. Two schemes are accepted:
+//
+//  1. Timestamped HMAC (preferred, replay-resistant):
+//     X-Gateway-Auth: hmac-v1
+//     X-Gateway-Timestamp: unix seconds (±300s)
+//     X-Gateway-Signature: HMAC-SHA256(secret, "v1:<ts>:<method>:<path>")
+//  2. Static shared secret (legacy): X-Gateway-Auth == GATEWAY_SHARED_SECRET
+//
+// Multiple secrets can be rotated via GATEWAY_SHARED_SECRETS (comma-separated);
+// any of them validates. Static mode is kept for backward compatibility and
+// should be phased out once all edge-gateways send HMAC.
 func requireGatewayAuth(_ *config.Config) gin.HandlerFunc {
-	sharedSecret := strings.TrimSpace(os.Getenv("GATEWAY_SHARED_SECRET"))
+	secrets := gatewaySecrets()
 
 	return func(c *gin.Context) {
-		if sharedSecret == "" {
+		if len(secrets) == 0 {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Gateway authentication is not configured"})
 			return
 		}
 
 		provided := strings.TrimSpace(c.GetHeader("X-Gateway-Auth"))
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(sharedSecret)) != 1 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized gateway request"})
+
+		// Scheme 1: timestamped HMAC
+		if strings.EqualFold(provided, "hmac-v1") {
+			if validGatewayHMAC(c, secrets) {
+				c.Next()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid gateway HMAC"})
 			return
 		}
 
-		c.Next()
+		// Scheme 2: static shared secret (legacy)
+		for _, s := range secrets {
+			if subtle.ConstantTimeCompare([]byte(provided), []byte(s)) == 1 {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized gateway request"})
 	}
+}
+
+// gatewaySecrets returns the active gateway auth secrets, supporting rotation.
+func gatewaySecrets() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(raw string) {
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	add(os.Getenv("GATEWAY_SHARED_SECRET"))
+	add(os.Getenv("GATEWAY_SHARED_SECRETS"))
+	return out
+}
+
+const gatewayHMACSkew = 300 // ±5 minutes
+
+func validGatewayHMAC(c *gin.Context, secrets []string) bool {
+	ts := strings.TrimSpace(c.GetHeader("X-Gateway-Timestamp"))
+	sig := strings.TrimSpace(c.GetHeader("X-Gateway-Signature"))
+	if ts == "" || sig == "" {
+		return false
+	}
+	tsInt, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().Unix()
+	if tsInt < now-gatewayHMACSkew || tsInt > now+gatewayHMACSkew {
+		return false
+	}
+	msg := fmt.Sprintf("v1:%s:%s:%s", ts, c.Request.Method, c.Request.URL.Path)
+	sigBytes, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+	for _, s := range secrets {
+		mac := hmac.New(sha256.New, []byte(s))
+		mac.Write([]byte(msg))
+		if hmac.Equal(mac.Sum(nil), sigBytes) {
+			return true
+		}
+	}
+	return false
 }
 
 // RegisterGatewayNodeRequest represents a node registration from the Edge Gateway
@@ -224,6 +308,17 @@ func registerGatewayNode(c *gin.Context) {
 
 	req.IPAddress, req.CountryCode, req.City = normalizeGatewayGeo(req.IPAddress, req.CountryCode, req.City)
 
+	// GW-04: resolve the authoritative ISP server-side when the registration
+	// carries no real ISP name (the edge gateway historically sent the raw IP
+	// in this field and cannot GeoIP-resolve it itself).
+	if req.ISP == "" || net.ParseIP(req.ISP) != nil {
+		if effectiveIP := geoip.NormalizeIPForGeo(req.IPAddress); effectiveIP != "" {
+			if result, ok := geoip.Resolve(effectiveIP); ok && result.ISP != "" {
+				req.ISP = result.ISP
+			}
+		}
+	}
+
 	// Parse provider user ID
 	providerID, err := uuid.Parse(req.ProviderUserID)
 	if err != nil {
@@ -237,6 +332,11 @@ func registerGatewayNode(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert provider node"})
 		return
 	}
+
+	// HB-04: publish auto-draft listing when the edge tunnel registers, if signed
+	// heartbeat proofs are not required. Enforce mode still waits for a verified
+	// Control API heartbeat (activateProviderListingDraftIfReady is a no-op until then).
+	activateProviderListingDraftIfReady(providerID, canonicalNode.ID, !providerProofRequired())
 
 	// Check if node already exists — prefer GatewayNodeID (stable across IP changes),
 	// fall back to provider+IP+port for legacy registrations without a NodeID.
@@ -298,6 +398,7 @@ func registerGatewayNode(c *gin.Context) {
 			"quality_score":     canonicalNode.QualityScore,
 			"current_tier":      canonicalNode.Tier,
 			"base_price_per_gb": canonicalNode.BasePricePerGB,
+			"isp":               req.ISP,
 		})
 	} else {
 		// Update existing node
@@ -346,6 +447,7 @@ func registerGatewayNode(c *gin.Context) {
 			"quality_score":     canonicalNode.QualityScore,
 			"current_tier":      canonicalNode.Tier,
 			"base_price_per_gb": canonicalNode.BasePricePerGB,
+			"isp":               req.ISP,
 		})
 	}
 }
@@ -472,6 +574,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 	qualityScore := 0.0
 	currentTier := ""
 	basePricePerGB := 0.0
+	isp := ""
 	explorerSyncID := nodeID.String()
 
 	if !updatedProviderNode {
@@ -494,6 +597,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 			qualityScore = newScore
 			currentTier = node.Tier
 			basePricePerGB = node.BasePricePerGB
+			isp = node.ISP
 		}
 	} else {
 		var legacyNode models.Node
@@ -502,6 +606,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 			if err := db.DB.Model(&legacyNode).Update("quality_score", newScore).Error; err != nil {
 				logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on legacy heartbeat")
 			}
+			isp = legacyNode.ISP
 			if legacyNode.ProviderUserID != uuid.Nil && legacyNode.GatewayNodeID != "" {
 				if pn := resolveProviderNodeForGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID); pn != nil {
 					reconcileProviderNodeRegistry(legacyNode.ProviderUserID, pn.ID, legacyNode.GatewayNodeID, req.LatencyMs)
@@ -544,6 +649,7 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 		"quality_score":     qualityScore,
 		"current_tier":      currentTier,
 		"base_price_per_gb": basePricePerGB,
+		"isp":               isp,
 	})
 }
 

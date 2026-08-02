@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/prices"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
 
@@ -787,11 +788,21 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	// Deactivate linked session if present
+	// Deactivate linked session if present and revoke Redis credentials so
+	// CONNECT cannot keep using cancelled-order sessions (backlog 1.2).
 	if order.SessionID != nil {
-		db.DB.Model(&models.Session{}).
-			Where("id = ?", order.SessionID).
-			Update("status", models.SessionTerminated)
+		var session models.Session
+		if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
+			_ = db.DB.Model(&session).Update("status", models.SessionTerminated).Error
+			if session.CredentialsUser != "" {
+				_ = redisClient.DeleteSession(session.CredentialsUser)
+				_ = redisClient.DeleteUsage(session.CredentialsUser)
+			}
+		} else {
+			db.DB.Model(&models.Session{}).
+				Where("id = ?", order.SessionID).
+				Update("status", models.SessionTerminated)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Order cancelled successfully"})

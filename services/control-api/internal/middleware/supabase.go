@@ -11,6 +11,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/redis"
 )
 
 func authTokenFromRequest(c *gin.Context) string {
@@ -23,7 +24,45 @@ func authTokenFromRequest(c *gin.Context) string {
 		return cookieToken
 	}
 
+	// Browsers cannot set Authorization headers on WebSocket handshakes, so the
+	// realtime client passes the access token as ?token=. Restrict query-param
+	// auth to genuine upgrade requests so regular API URLs never carry JWTs
+	// (URL query strings are routinely logged).
+	if isWebSocketUpgrade(c) {
+		if t := strings.TrimSpace(c.Query("token")); t != "" {
+			return t
+		}
+	}
+
 	return ""
+}
+
+func isWebSocketUpgrade(c *gin.Context) bool {
+	return strings.EqualFold(c.GetHeader("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade")
+}
+
+// tryWSTicket resolves a short-lived single-use WS ticket (?ticket=) to auth
+// context. Tickets keep JWTs out of URLs on upgrade requests.
+func tryWSTicket(c *gin.Context) bool {
+	if !isWebSocketUpgrade(c) {
+		return false
+	}
+	ticket := strings.TrimSpace(c.Query("ticket"))
+	if ticket == "" {
+		return false
+	}
+	userID, role, err := redis.ConsumeWSTicket(ticket)
+	if err != nil || userID == "" {
+		return false
+	}
+	c.Set("userID", userID)
+	if uid, err := uuid.Parse(userID); err == nil {
+		c.Set("user_id", uid)
+	}
+	c.Set("userRole", role)
+	c.Set("auth_type", "ws_ticket")
+	return true
 }
 
 // SupabaseAuthMiddleware authenticates requests using the self-hosted JWT or
@@ -31,6 +70,12 @@ func authTokenFromRequest(c *gin.Context) string {
 // by this backend.
 func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Short-lived single-use WS ticket (preferred for upgrades — keeps JWT out of URL).
+		if tryWSTicket(c) {
+			c.Next()
+			return
+		}
+
 		tokenString := authTokenFromRequest(c)
 
 		if tokenString == "" {
@@ -75,6 +120,12 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 // but does not abort if missing — the request proceeds as a guest.
 func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Short-lived single-use WS ticket (preferred for upgrades — keeps JWT out of URL).
+		if tryWSTicket(c) {
+			c.Next()
+			return
+		}
+
 		tokenString := authTokenFromRequest(c)
 
 		if tokenString == "" {

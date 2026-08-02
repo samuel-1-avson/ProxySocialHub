@@ -29,10 +29,10 @@ if (Test-Path $envPath) {
 }
 if (-not $script:pgPass) { $script:pgPass = 'admin' }
 # Legacy compose default; may not exist on public devnet — prefer -UseLocalSolana or set SOLANA_PROGRAM_ID in .env
-if (-not $script:solProgram) { $script:solProgram = '9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2' }
+if (-not $script:solProgram) { $script:solProgram = 'AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu' }
 
 if ($UseLocalSolana) {
-    $script:solProgram = '2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7'
+    $script:solProgram = 'AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu'
     Write-Host "Local Solana mode: program $script:solProgram on http://127.0.0.1:8899" -ForegroundColor Cyan
     & (Join-Path $repoRoot "scripts\solana-local\deploy-proxyhub.ps1")
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

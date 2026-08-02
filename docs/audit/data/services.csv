@@ -1,0 +1,22 @@
+service,path,language,framework,responsibility,talks_to,data_owned,status
+web,apps/web,TypeScript,Next.js 16,buyer/provider/admin UI,control-api /v1 + explorer WS,none,complete-core/realtime-fragile
+control-api,services/control-api,Go,Gin+GORM+NATS+solana-go,"auth,marketplace,orders,escrow,wallet,sessions,usage,provider,admin,explorer,social,governance,treasury",Postgres/Redis/NATS/Solana/edge-gateway/zk-prover,all OLTP,complete-ish
+edge-gateway,services/edge-gateway,Rust,tokio+hyper+yamux,proxy ingress CONNECT/WS/SOCKS5 auth policy routing metering,Redis/control-api/provider-node,Redis session+WAL,CONNECT/SOCKS5 only (docs/buyer-proxy.md; absolute-URI→501)
+provider-node,services/provider-node,Rust,tokio+yamux,provider agent reverse tunnel egress filter heartbeats,edge-gateway/control-api,local config,complete-core
+provider-cli,cli,Rust,clap,provider onboarding wrapper,control-api,local config,complete
+proxyhub-program,services/solana-programs/proxyhub/programs/proxyhub,Rust,Anchor 0.32,escrow multisig staking registry KYC governance jury price-oracle zk-anchor channels,Solana runtime,on-chain accounts,partial-secure/payout-binding-fixed
+session-program,services/solana-programs/proxyhub/programs/session,Rust,Anchor,session escrow gateway stake/slash,Solana runtime,on-chain accounts,unsafe-to-deploy
+reputation-program,programs/reputation,Rust,Anchor,stake/slash/verify stub,none,none,stub-disconnected
+relayer,services/relayer,Go,-,former ETH relayer,none,none,decommissioned
+zk-prover,services/zk-prover,Rust,Halo2 HTTP,batch digest proofs,control-api,none,scaffold
+admin-cli,services/admin-cli,Rust,-,DB cleanup/seed utility,Postgres,none,utility
+sdk-go,sdks/go,Go,-,bulk pools API client,control-api /v1/bulk/*,none,complete
+sdk-nodejs,sdks/nodejs,TypeScript,-,bulk pools API client,control-api /v1/bulk/*,none,complete
+sdk-python,sdks/python,Python,-,bulk pools API client,control-api /v1/bulk/*,none,complete
+sdk-node,sdks/node,JavaScript,-,deprecated gateway helper prototype,none,none,deprecated
+postgres,infra/postgres,SQL,PostgreSQL 16,system of record,control-api/relayer(legacy),all OLTP,ok-mvp-scale
+redis,-,Redis 7,sessions metering WAL cache streams ratelimit,control-api/edge-gateway,volatile state,SPOF
+nats,-,NATS 2.10 JetStream,async events,control-api,streams,ok-treasury-subjects-unstreamed
+prometheus-grafana,infra/prometheus infra/grafana,-,-,metrics alerts dashboards,all services,TSDB,partial
+otel,infra/otel,-,-,tracing collector,all services,none,debug-only
+haproxy,infra/haproxy,-,-,TLS/ratelimit front,services,none,partial

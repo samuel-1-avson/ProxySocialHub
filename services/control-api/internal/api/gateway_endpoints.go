@@ -20,7 +20,9 @@ func InitGatewayEndpoints(g config.GatewayConfig) {
 	gatewayConfigured = true
 }
 
-// BuyerProxyConnectInfo returns host, port, and host:port for the buyer HTTP CONNECT listener (default :8090).
+// BuyerProxyConnectInfo returns host, port, and host:port for the buyer HTTP CONNECT
+// / SOCKS5 listener (default :8090). Absolute-URI forward proxy is not supported
+// (edge-gateway returns 501) — see docs/buyer-proxy.md.
 func BuyerProxyConnectInfo() (host string, port int, endpoint string) {
 	gatewayMu.RLock()
 	g := gatewayCfg

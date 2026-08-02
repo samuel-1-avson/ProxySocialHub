@@ -1,36 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Layers, CheckCircle2, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, RefreshCw, Layers, CheckCircle2, AlertCircle, Wallet } from "lucide-react";
+import { useWallet as useSolanaWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import { GlassCard } from "@/components/ui/glass-card";
 import {
-    cancelSubscription,
-    changePlan,
-    getMySubscription,
-    getSubscriptionPlans,
-    subscribeToPlan,
-    type SubscriptionPlan,
-    type UserSubscription,
-} from "@/lib/api/subscriptions";
+    confirmPassPurchase,
+    getMyPass,
+    getPassCatalog,
+    getPassMigration,
+    preparePassPurchase,
+    type MyPassResponse,
+    type PassCatalogItem,
+    type PassMigrationResponse,
+} from "@/lib/api/passes";
+import { getConnection } from "@/lib/solana";
+import { formatSolanaWalletError, sendSolTransfer } from "@/lib/solana-transfer";
+import { UnlockWalletPrompt } from "@/components/UnlockWalletPrompt";
+import { MoneyRailHint } from "@/components/MoneyRailHint";
 import { getErrorMessage } from "@/lib/utils";
 import Link from "next/link";
 import { ROUTES } from "@/lib/navigation/routes";
 
-function planBandwidthLabel(plan: SubscriptionPlan): string {
-    if (plan.bandwidth_limit_gb == null) return "Unlimited GB / period";
-    return `${plan.bandwidth_limit_gb} GB / period`;
+function bandwidthLabel(item: PassCatalogItem): string {
+    if (item.bandwidth_limit_gb == null) return "Unlimited GB / period";
+    return `${item.bandwidth_limit_gb} GB / period`;
 }
 
-function isFreePlan(plan: SubscriptionPlan): boolean {
-    return plan.name.toLowerCase() === "free" || Number(plan.price_monthly || 0) <= 0;
-}
-
-export default function SubscriptionsPage() {
-    const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-    const [subscription, setSubscription] = useState<UserSubscription | null>(null);
-    const [currentPlan, setCurrentPlan] = useState<SubscriptionPlan | null>(null);
+export default function AccessPassesPage() {
+    const { connected, publicKey, signTransaction, sendTransaction } = useSolanaWallet();
+    const [catalog, setCatalog] = useState<PassCatalogItem[]>([]);
+    const [treasury, setTreasury] = useState("");
+    const [me, setMe] = useState<MyPassResponse | null>(null);
+    const [migration, setMigration] = useState<PassMigrationResponse | null>(null);
     const [loading, setLoading] = useState(true);
-    const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
+    const [busyTier, setBusyTier] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -38,13 +43,18 @@ export default function SubscriptionsPage() {
         setLoading(true);
         setError(null);
         try {
-            const [planList, mine] = await Promise.all([getSubscriptionPlans(), getMySubscription()]);
-            setPlans(Array.isArray(planList) ? planList : []);
-            setSubscription(mine.subscription);
-            setCurrentPlan(mine.current_plan);
+            const [cat, mine, mig] = await Promise.all([
+                getPassCatalog(),
+                getMyPass(),
+                getPassMigration().catch(() => null),
+            ]);
+            setCatalog(Array.isArray(cat.passes) ? cat.passes : []);
+            setTreasury(cat.treasury || "");
+            setMe(mine);
+            setMigration(mig);
         } catch (err) {
-            setError(getErrorMessage(err) || "Failed to load subscription data");
-            setPlans([]);
+            setError(getErrorMessage(err) || "Failed to load Access Passes");
+            setCatalog([]);
         } finally {
             setLoading(false);
         }
@@ -54,75 +64,82 @@ export default function SubscriptionsPage() {
         void load();
     }, [load]);
 
-    const entitledPlanId = useMemo(() => {
-        return subscription?.plan_id || currentPlan?.id || null;
-    }, [subscription, currentPlan]);
-
-    const accessUntil = subscription?.current_period_end
-        ? new Date(subscription.current_period_end).toLocaleString()
-        : null;
-
-    const autoRenewActive =
-        !!subscription &&
-        subscription.status === "active" &&
-        !subscription.cancelled_at;
-
-    async function handleSelectPlan(plan: SubscriptionPlan) {
-        setBusyPlanId(plan.id);
+    async function handleMint(item: PassCatalogItem) {
+        if (item.tier === "none") return;
+        setBusyTier(item.tier);
         setMessage(null);
         setError(null);
         try {
-            if (subscription && subscription.status === "active" && !subscription.cancelled_at) {
-                if (subscription.plan_id === plan.id) {
-                    setMessage("You are already on this plan.");
-                    return;
-                }
-                const result = await changePlan(plan.id);
-                setMessage(result.message || `Switched to ${plan.name}`);
-            } else {
-                await subscribeToPlan(plan.id, "monthly");
-                setMessage(`Subscribed to ${plan.name}. Auto-renew runs from your custodial SOL balance.`);
+            if (item.purchase_url) {
+                window.open(item.purchase_url, "_blank", "noopener,noreferrer");
+                setMessage(`Opened purchase flow for ${item.name}. After you hold the NFT, refresh this page.`);
+                return;
             }
-            await load();
-        } catch (err) {
-            setError(getErrorMessage(err) || "Plan update failed");
-        } finally {
-            setBusyPlanId(null);
-        }
-    }
-
-    async function handleCancel() {
-        setBusyPlanId("cancel");
-        setMessage(null);
-        setError(null);
-        try {
-            const result = await cancelSubscription("user_cancelled");
+            if (!connected || !publicKey) {
+                setError(
+                    me?.wallet
+                        ? `Unlock your linked wallet (${me.wallet.slice(0, 4)}…${me.wallet.slice(-4)}) to sign the Access Pass payment.`
+                        : "Unlock your Solana wallet to sign the Access Pass payment. You're already signed in.",
+                );
+                return;
+            }
+            const prepared = await preparePassPurchase(item.tier);
+            if (prepared.mode === "external" && prepared.purchase_url) {
+                window.open(prepared.purchase_url, "_blank", "noopener,noreferrer");
+                setMessage(`Opened purchase flow for ${item.name}.`);
+                return;
+            }
+            if (!prepared.treasury || !prepared.amount_lamports) {
+                setError("Purchase destination not configured.");
+                return;
+            }
+            if (me?.wallet && me.wallet !== publicKey.toBase58()) {
+                setError(`Pay from your linked wallet (${me.wallet.slice(0, 4)}…${me.wallet.slice(-4)}).`);
+                return;
+            }
+            const connection = getConnection();
+            const sig = await sendSolTransfer(
+                connection,
+                { publicKey, signTransaction, sendTransaction },
+                new PublicKey(prepared.treasury),
+                prepared.amount_lamports,
+            );
+            await confirmPassPurchase({
+                tx_signature: sig,
+                purchase_id: prepared.purchase_id,
+                tier: item.tier,
+            });
             setMessage(
-                result.message ||
-                    "Subscription cancelled. Access continues until the period ends; auto-renew is off.",
+                `Payment confirmed for ${item.name}. Entitlement is active; NFT mint/transfer to your wallet completes on-chain ownership.`,
             );
             await load();
         } catch (err) {
-            setError(getErrorMessage(err) || "Cancel failed");
+            setError(formatSolanaWalletError(err) || getErrorMessage(err) || "Purchase failed");
         } finally {
-            setBusyPlanId(null);
+            setBusyTier(null);
         }
     }
+
+    const currentTier = me?.tier || "none";
+    const legacyUntil = me?.legacy_access_until
+        ? new Date(me.legacy_access_until).toLocaleString()
+        : null;
 
     return (
         <div className="space-y-6 p-4 md:p-6 max-w-5xl mx-auto">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-2">
-                        Plans &amp; billing
+                        Entitlements
                     </p>
                     <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
                         <Layers className="text-emerald-400" size={28} />
-                        Subscriptions
+                        Access Passes
                     </h1>
                     <p className="text-sm text-white/50 mt-2 max-w-xl">
-                        Paid plans unlock higher marketplace bandwidth quotas. Renewals debit custodial
-                        SOL automatically unless you cancel.
+                        Hold a Bronze, Silver, or Gold pass NFT in your linked wallet for higher marketplace
+                        quotas. Mint payment uses your <span className="text-white/70">linked Solana wallet</span>
+                        {" "}(not platform balance). Bandwidth is still purchased via escrow.
                     </p>
                 </div>
                 <button
@@ -134,6 +151,8 @@ export default function SubscriptionsPage() {
                     Refresh
                 </button>
             </div>
+
+            <MoneyRailHint rail="linked" />
 
             {error && (
                 <div className="flex items-start gap-2 p-4 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 text-sm">
@@ -149,103 +168,120 @@ export default function SubscriptionsPage() {
             )}
 
             <GlassCard className="p-5 space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Current entitlement</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Current pass</p>
                 {loading ? (
                     <div className="flex items-center gap-2 text-white/50 text-sm">
                         <Loader2 size={16} className="animate-spin" /> Loading…
                     </div>
                 ) : (
                     <>
-                        <p className="text-xl font-black text-white capitalize">
-                            {currentPlan?.name || subscription?.plan?.name || "Free"}
-                        </p>
+                        <p className="text-xl font-black text-white capitalize">{me?.name || currentTier}</p>
                         <div className="flex flex-wrap gap-3 text-xs font-mono text-white/50">
-                            <span>Status: {subscription?.status || "none"}</span>
-                            {accessUntil && <span>Period ends: {accessUntil}</span>}
-                            <span>
-                                Auto-renew:{" "}
-                                {autoRenewActive ? (
-                                    <span className="text-emerald-400">on</span>
-                                ) : (
-                                    <span className="text-white/40">off</span>
-                                )}
-                            </span>
+                            <span>Source: {me?.source || "free"}</span>
+                            {me?.wallet && (
+                                <span className="inline-flex items-center gap-1">
+                                    <Wallet size={12} /> {me.wallet.slice(0, 4)}…{me.wallet.slice(-4)}
+                                </span>
+                            )}
+                            {legacyUntil && <span>Legacy grace until: {legacyUntil}</span>}
                         </div>
-                        {currentPlan && (
+                        {me && (
                             <p className="text-sm text-white/60">
-                                {planBandwidthLabel(currentPlan)} · {currentPlan.listing_limit} listings
+                                {me.quota.unlimited
+                                    ? "Unlimited GB / period"
+                                    : `${me.quota.remaining_gb.toFixed(1)} GB remaining of ${me.quota.limit_gb} GB`}
+                                {" · "}
+                                {me.listing_limit === 0 ? "Unlimited" : me.listing_limit} listings
+                            </p>
+                        )}
+                        {migration?.legacy_grace && migration.airdrop_eligible_tier && (
+                            <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                                Legacy subscriber: eligible for a one-time {migration.airdrop_eligible_tier} pass
+                                airdrop. Access continues until period end, then entitlement is NFT-only.
                             </p>
                         )}
                         <div className="flex flex-wrap gap-3 pt-2">
-                            {autoRenewActive && (
-                                <button
-                                    type="button"
-                                    disabled={busyPlanId === "cancel"}
-                                    onClick={() => void handleCancel()}
-                                    className="px-4 py-2 rounded-xl border border-white/15 text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 disabled:opacity-50"
-                                >
-                                    {busyPlanId === "cancel" ? "Cancelling…" : "Cancel auto-renew"}
-                                </button>
+                            {(!connected || (publicKey && me?.wallet && publicKey.toBase58() !== me.wallet)) && (
+                                <div className="w-full">
+                                    <UnlockWalletPrompt
+                                        expectedAddress={me?.wallet}
+                                        mismatch={
+                                            !!(
+                                                connected &&
+                                                publicKey &&
+                                                me?.wallet &&
+                                                publicKey.toBase58() !== me.wallet
+                                            )
+                                        }
+                                    />
+                                </div>
                             )}
                             <Link
                                 href={ROUTES.dashboardWallet}
                                 className="px-4 py-2 rounded-xl border border-white/15 text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5"
                             >
-                                Fund wallet
+                                Wallet settings
                             </Link>
                         </div>
-                        <p className="text-[11px] text-white/35 leading-relaxed">
-                            Cancelling keeps access until the period end, then you drop to Free. Keep custodial
-                            SOL funded so renewals succeed; failed renewals mark the plan past due.
-                        </p>
                     </>
                 )}
             </GlassCard>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {plans.map((plan) => {
-                    const selected = entitledPlanId === plan.id;
-                    const monthly = Number(plan.price_monthly || 0);
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {catalog.map((item) => {
+                    const selected = currentTier === item.tier || (currentTier === "none" && item.tier === "none");
+                    const paid = item.tier !== "none";
                     return (
-                        <GlassCard key={plan.id} className="p-5 flex flex-col gap-4">
+                        <GlassCard key={item.tier} className="p-5 flex flex-col gap-4">
                             <div>
-                                <p className="text-lg font-black text-white capitalize">{plan.name}</p>
-                                {plan.description && (
-                                    <p className="text-xs text-white/45 mt-1">{plan.description}</p>
-                                )}
+                                <p className="text-lg font-black text-white">{item.name}</p>
+                                <ul className="text-xs text-white/55 space-y-1 font-mono mt-2">
+                                    {item.benefits?.map((b) => (
+                                        <li key={b}>{b}</li>
+                                    )) || (
+                                        <>
+                                            <li>{bandwidthLabel(item)}</li>
+                                            <li>
+                                                {item.listing_limit === 0 ? "Unlimited" : item.listing_limit} listings
+                                            </li>
+                                        </>
+                                    )}
+                                </ul>
                             </div>
                             <p className="font-mono text-2xl font-black text-emerald-400">
-                                {isFreePlan(plan) ? "Free" : `$${monthly.toFixed(2)}`}
-                                {!isFreePlan(plan) && (
-                                    <span className="text-xs text-white/40 font-bold ml-1">/ mo</span>
-                                )}
+                                {!paid ? "Free" : `${Number(item.price_sol || 0).toFixed(2)} SOL`}
+                                {paid && <span className="text-xs text-white/40 font-bold ml-1">once</span>}
                             </p>
-                            <ul className="text-xs text-white/55 space-y-1 font-mono">
-                                <li>{planBandwidthLabel(plan)}</li>
-                                <li>{plan.listing_limit} listings</li>
-                                {plan.priority_support && <li>Priority support</li>}
-                            </ul>
+                            {item.mint && (
+                                <p className="text-[10px] font-mono text-white/30 break-all">Mint {item.mint}</p>
+                            )}
                             <button
                                 type="button"
-                                disabled={loading || selected || busyPlanId === plan.id}
-                                onClick={() => void handleSelectPlan(plan)}
+                                disabled={loading || !paid || selected || busyTier === item.tier}
+                                onClick={() => void handleMint(item)}
                                 className="mt-auto w-full py-3 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest disabled:opacity-40 hover:bg-white/90"
                             >
-                                {busyPlanId === plan.id
+                                {busyTier === item.tier
                                     ? "Working…"
                                     : selected
-                                      ? "Current plan"
-                                      : autoRenewActive
-                                        ? "Switch plan"
-                                        : "Subscribe"}
+                                      ? "Current tier"
+                                      : !paid
+                                        ? "Default"
+                                        : item.purchase_url
+                                          ? "Buy pass"
+                                          : "Mint / buy"}
                             </button>
                         </GlassCard>
                     );
                 })}
             </div>
 
-            {!loading && plans.length === 0 && (
-                <p className="text-sm text-white/40">No plans are published yet.</p>
+            {treasury && (
+                <p className="text-[11px] text-white/30 font-mono">Primary-sale treasury: {treasury}</p>
+            )}
+
+            {!loading && catalog.length === 0 && (
+                <p className="text-sm text-white/40">No Access Passes are published yet.</p>
             )}
         </div>
     );

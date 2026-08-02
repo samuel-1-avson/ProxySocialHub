@@ -11,6 +11,7 @@ import {
     AlertCircle,
     FileCode,
     Loader2,
+    MapPin,
     Plus,
     Trash2,
     ExternalLink,
@@ -135,6 +136,12 @@ export default function ManageListingsPage() {
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                    <Link
+                        href={ROUTES.marketplaceMap}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-white/15 text-foreground hover:bg-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                    >
+                        <MapPin size={14} /> Supply map
+                    </Link>
                     <Link
                         href={ROUTES.marketplaceCreate}
                         className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"

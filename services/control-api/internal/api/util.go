@@ -53,3 +53,21 @@ func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 
 	return uuid.Nil, false
 }
+
+// isPlatformModerator reports whether the request carries an admin/moderator role.
+func isPlatformModerator(c *gin.Context) bool {
+	role, exists := c.Get("userRole")
+	if !exists {
+		return false
+	}
+	s, ok := role.(string)
+	if !ok {
+		return false
+	}
+	switch s {
+	case "admin", "moderator", "superadmin":
+		return true
+	default:
+		return false
+	}
+}

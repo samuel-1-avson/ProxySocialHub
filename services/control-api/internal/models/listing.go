@@ -54,7 +54,7 @@ type ProxyListing struct {
 	ListingOfferNonce             string     `gorm:"type:varchar(128)" json:"listing_offer_nonce,omitempty"`
 
 	// Targeting & Location
-	Country string `gorm:"size:50;index:idx_listing_country" json:"country"`
+	Country string `gorm:"size:50" json:"country"`
 	ISP     string `gorm:"size:100;index:idx_listing_isp" json:"isp"`
 
 	// Pricing

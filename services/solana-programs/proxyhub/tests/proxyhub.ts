@@ -1,6 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL, SYSVAR_INSTRUCTIONS_PUBKEY, Ed25519Program } from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 
@@ -440,6 +440,17 @@ describe("proxyhub", () => {
   // =========================================================================
 
   describe("submit_zk_batch", () => {
+    // submit_zk_batch uses instruction introspection: the transaction must carry
+    // an Ed25519 verification instruction (precompile) of the oracle over the
+    // 32-byte batch root immediately before the program instruction.
+    function oracleZkProofIx(batchRoot: Buffer) {
+      const payer = (provider.wallet as any).payer as Keypair;
+      return Ed25519Program.createInstructionWithPrivateKey({
+        privateKey: payer.secretKey,
+        message: batchRoot,
+      });
+    }
+
     it("commits a ZK batch Merkle root on-chain", async () => {
       const batchRoot = Buffer.alloc(32);
       batchRoot.fill(0xBB);
@@ -463,6 +474,7 @@ describe("proxyhub", () => {
           systemProgram: SystemProgram.programId,
           programState: programStatePda,
         })
+        .preInstructions([oracleZkProofIx(batchRoot)])
         .rpc();
 
       const batch = await programAccounts.zkBatchPda.fetch(batchPda);
@@ -493,10 +505,41 @@ describe("proxyhub", () => {
             systemProgram: SystemProgram.programId,
             programState: programStatePda,
           })
+          .preInstructions([oracleZkProofIx(batchRoot)])
           .rpc();
         expect.fail("Should have failed - zero sessions");
       } catch (err: any) {
         expect(err).to.exist;
+      }
+    });
+
+    it("rejects a batch submitted without the oracle ed25519 proof instruction", async () => {
+      const batchRoot = Buffer.alloc(32);
+      batchRoot.fill(0xEE);
+      const proofHash = Buffer.alloc(32);
+      const [batchPda] = findZKBatch(batchRoot);
+      const [programStatePda] = findProgramState();
+
+      try {
+        await program.methods
+          .submitZkBatch(
+            Array.from(batchRoot),
+            10,
+            new BN(1_000_000_000),
+            new BN(1700000000),
+            new BN(1700003600),
+            Array.from(proofHash)
+          )
+          .accounts({
+            oracle: admin.publicKey,
+            zkBatch: batchPda,
+            systemProgram: SystemProgram.programId,
+            programState: programStatePda,
+          })
+          .rpc();
+        expect.fail("Should have failed - missing ed25519 verification instruction");
+      } catch (err: any) {
+        expect(err.toString()).to.match(/MissingSignatureVerification|signature verification/i);
       }
     });
   });

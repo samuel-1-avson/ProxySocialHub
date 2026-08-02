@@ -398,6 +398,8 @@ export interface MarketplaceMapFilters {
     bbox?: string;
     /** Embed catalog_product on listing points (server-side enrich). */
     include_catalog?: boolean;
+    /** Include listing offer / heartbeat proof fields (default false for slim map payloads). */
+    include_proofs?: boolean;
 }
 
 export function getMarketplaceMapPoints(filters?: MarketplaceMapFilters) {

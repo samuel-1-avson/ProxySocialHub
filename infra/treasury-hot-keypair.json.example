@@ -1,0 +1,4 @@
+# Placeholder — do not commit real keys.
+# Generate with: solana-keygen new --no-bip39-passphrase -o treasury-hot-keypair.json
+# See docs/custody-split.md
+[]

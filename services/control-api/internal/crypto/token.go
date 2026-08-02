@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 )
 
 // NewTokenHashFn returns a token hashing function keyed by the given HMAC secret.
@@ -31,11 +32,37 @@ func NewTokenHashFn(secret string) func(rawToken string) string {
 }
 
 // ValidateTokenHMACSecret returns an error if the secret is too short.
-// Call this at startup to catch misconfiguration early.
+// Call this on startup to catch misconfiguration early.
 func ValidateTokenHMACSecret(secret string) error {
 	if len(secret) < 32 {
 		return fmt.Errorf(
 			"TOKEN_HMAC_SECRET is too short (%d chars); minimum 32 chars required", len(secret))
 	}
 	return nil
+}
+
+// NewEmailHashFn returns HMAC-SHA256 hex for normalized email lookups (profiles.email_hash).
+// Prefer EMAIL_HASH_PEPPER; TOKEN_HMAC_SECRET is an explicit documented fallback only.
+func NewEmailHashFn(pepper string) func(email string) string {
+	if pepper == "" {
+		panic("EMAIL_HASH_PEPPER (or documented TOKEN_HMAC_SECRET fallback) must not be empty")
+	}
+	key := []byte(pepper)
+	return func(email string) string {
+		mac := hmac.New(sha256.New, key)
+		mac.Write([]byte(email))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+}
+
+// ResolveEmailHashPepper prefers EMAIL_HASH_PEPPER; falls back to TOKEN_HMAC_SECRET
+// only when EMAIL_HASH_PEPPER is unset (document dual-use risk in ops notes).
+func ResolveEmailHashPepper() (string, string) {
+	if p := os.Getenv("EMAIL_HASH_PEPPER"); p != "" {
+		return p, "EMAIL_HASH_PEPPER"
+	}
+	if p := os.Getenv("TOKEN_HMAC_SECRET"); p != "" {
+		return p, "TOKEN_HMAC_SECRET"
+	}
+	return "", ""
 }

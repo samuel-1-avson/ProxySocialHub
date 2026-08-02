@@ -17,6 +17,7 @@ export * from './api/analytics';
 export * from './api/governance';
 export * from './api/monitoring';
 export * from './api/subscriptions';
+export * from './api/passes';
 export * from './api/referral';
 export * from './api/channels';
 export * from './api/circles';

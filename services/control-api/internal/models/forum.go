@@ -65,6 +65,7 @@ type ForumThread struct {
 	Content      string     `gorm:"type:text;not null" json:"content"`
 	IsPinned     bool       `gorm:"default:false" json:"is_pinned"`
 	IsLocked     bool       `gorm:"default:false" json:"is_locked"`
+	IsHidden     bool       `gorm:"default:false" json:"is_hidden"`
 	ViewsCount   int        `gorm:"default:0" json:"views_count"`
 	RepliesCount int        `gorm:"default:0" json:"replies_count"`
 	Upvotes      int        `gorm:"default:0" json:"upvotes"`
@@ -90,6 +91,7 @@ type ForumPost struct {
 	AuthorID   uuid.UUID  `gorm:"type:uuid;not null" json:"author_id"`
 	Content    string     `gorm:"type:text;not null" json:"content"`
 	IsSolution bool       `gorm:"default:false" json:"is_solution"`
+	IsHidden   bool       `gorm:"default:false" json:"is_hidden"`
 	Upvotes    int        `gorm:"default:0" json:"upvotes"`
 	Downvotes  int        `gorm:"default:0" json:"downvotes"`
 	ParentID   *uuid.UUID `gorm:"type:uuid" json:"parent_id,omitempty"`

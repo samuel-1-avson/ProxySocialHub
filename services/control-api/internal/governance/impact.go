@@ -185,6 +185,20 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 			preview.Lines = append(preview.Lines,
 				ImpactLine{Label: "Provider impact", Value: "Providers may need to adjust stake to list or remain active"},
 			)
+		case "pass_mint_bronze", "pass_mint_silver", "pass_mint_gold":
+			preview.RiskLevel = "high"
+			preview.Warnings = append(preview.Warnings, "Changing Access Pass mint addresses remaps who holds paid entitlements on-chain.")
+		case "pass_bandwidth_free_gb", "pass_bandwidth_bronze_gb", "pass_bandwidth_silver_gb",
+			"pass_listings_free", "pass_listings_bronze", "pass_listings_silver", "pass_listings_gold":
+			preview.RiskLevel = "medium"
+			preview.Lines = append(preview.Lines,
+				ImpactLine{Label: "Buyer impact", Value: "Period GB / listing caps for Access Pass tiers update for new quota checks"},
+			)
+		case "pass_price_bronze_sol", "pass_price_silver_sol", "pass_price_gold_sol":
+			preview.RiskLevel = "low"
+			preview.Lines = append(preview.Lines,
+				ImpactLine{Label: "Primary sales", Value: "New Access Pass treasury purchase prices apply to prepare-purchase"},
+			)
 		}
 		if strings.TrimSpace(change.Reason) != "" {
 			preview.Lines = append(preview.Lines, ImpactLine{Label: "Rationale", Value: change.Reason})

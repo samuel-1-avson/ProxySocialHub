@@ -9,8 +9,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Cursor/sandbox shells may inject CARGO_TARGET_DIR into a temp cache; that
+# skips writing target/deploy/*.so into the workspace and breaks local tests.
+Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+
 $workspace = (Resolve-Path $PSScriptRoot).ProviderPath
 $dockerWorkspace = $workspace -replace "\\", "/"
+$env:CARGO_TARGET_DIR = Join-Path $workspace "target"
 
 $steps = @(
     "set -euo pipefail",

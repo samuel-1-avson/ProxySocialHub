@@ -41,6 +41,7 @@
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-slot": "^1.0.2",
     "@rainbow-me/rainbowkit": "^2.2.10",
+    "@react-google-maps/api": "^2.20.8",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@solana/wallet-adapter-base": "^0.9.27",

@@ -853,6 +853,23 @@ async fn proxy(
                 return Ok(resp);
             }
 
+            // === GW-07: Async DNS-rebinding check (when enabled) ===
+            if let Err(reason) = policy::validate_destination_dns(&addr).await {
+                warn!("DNS rebinding blocked: {} -> {}", addr, reason);
+                metrics::record_policy_block(&reason);
+
+                let mut resp = Response::new(Full::new(Bytes::from_static(
+                    b"Destination blocked by policy",
+                )));
+                *resp.status_mut() = StatusCode::FORBIDDEN;
+
+                metrics::REQUEST_LATENCY_SECONDS
+                    .with_label_values(&[method.as_str(), "403"])
+                    .observe(start_time.elapsed().as_secs_f64());
+
+                return Ok(resp);
+            }
+
             let auth_clone = authenticator.clone();
             let username = session_username.unwrap_or_default();
 
@@ -918,6 +935,70 @@ async fn proxy(
                 }
             }
 
+            // GW-03: per-session requests-per-minute cap from intent claims /
+            // session sync (Redis-backed 60s window, complements the global governor).
+            if let Some(ref sd) = session_data {
+                if sd.requests_per_minute > 0 {
+                    match authenticator
+                        .check_rate_limit(&sd.session_id, sd.requests_per_minute as u32)
+                        .await
+                    {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            warn!(
+                                "Session RPM limit exceeded for {} ({} rpm)",
+                                username, sd.requests_per_minute
+                            );
+                            metrics::record_rate_limit_hit("session_rpm");
+                            let mut resp = Response::new(Full::new(Bytes::from(
+                                "Session requests-per-minute limit exceeded",
+                            )));
+                            *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                            metrics::REQUEST_LATENCY_SECONDS
+                                .with_label_values(&[method.as_str(), "429"])
+                                .observe(start_time.elapsed().as_secs_f64());
+                            return Ok(resp);
+                        }
+                        Err(e) => {
+                            error!("Session RPM check backend error for {}: {}", username, e);
+                            let mut resp = Response::new(Full::new(Bytes::from(
+                                "Rate limit service temporarily unavailable",
+                            )));
+                            *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                            metrics::REQUEST_LATENCY_SECONDS
+                                .with_label_values(&[method.as_str(), "429"])
+                                .observe(start_time.elapsed().as_secs_f64());
+                            return Ok(resp);
+                        }
+                    }
+                }
+            }
+
+            // GW-03: per-session live-connection cap. The guard is moved into the
+            // tunnel task and released when the CONNECT closes.
+            let max_conns = session_data
+                .as_ref()
+                .map(|s| s.max_concurrency)
+                .unwrap_or(0);
+            let conn_guard = match state.session_conns.acquire(&username, max_conns) {
+                Some(g) => g,
+                None => {
+                    warn!(
+                        "Session concurrency limit reached for {} (max {})",
+                        username, max_conns
+                    );
+                    metrics::record_rate_limit_hit("session_concurrency");
+                    let mut resp = Response::new(Full::new(Bytes::from(
+                        "Session concurrency limit reached",
+                    )));
+                    *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                    metrics::REQUEST_LATENCY_SECONDS
+                        .with_label_values(&[method.as_str(), "429"])
+                        .observe(start_time.elapsed().as_secs_f64());
+                    return Ok(resp);
+                }
+            };
+
             // Rate Limit Check
             if !state.check_rate_limit(&username) {
                 warn!("Rate limit exceeded for user: {}", username);
@@ -975,6 +1056,13 @@ async fn proxy(
                     None
                 } else {
                     Some(session.node_id.as_str())
+                }
+            });
+            let target_isp = session_data.as_ref().and_then(|session| {
+                if session.target_isp.is_empty() {
+                    None
+                } else {
+                    Some(session.target_isp.as_str())
                 }
             });
 
@@ -1063,6 +1151,7 @@ async fn proxy(
                     target_geo,
                     Some(dest_host),
                     pinned_node_id,
+                    target_isp,
                 )
                 .await
             }
@@ -1208,6 +1297,9 @@ async fn proxy(
                 observability::buyer_connect_bridge_span(&bridge_session_id, &node_id, &addr);
             tokio::task::spawn(
                 async move {
+                // Held until the tunnel closes — releases the session's
+                // concurrency slot (GW-03).
+                let _conn_guard = conn_guard;
                 match hyper::upgrade::on(req).await {
                     Ok(upgraded) => {
                         let tunnel_state = state.clone();
@@ -1225,7 +1317,12 @@ async fn proxy(
                             state.prewarm.record_connection(&node_id, hour);
                         }
 
-                        let bandwidth_cap: u32 = 0; // 0 = unlimited
+                        // GW-05: derive the live shaping cap from the session's
+                        // trust tier (0 = unlimited when no session context).
+                        let bandwidth_cap: u32 = session_data
+                            .as_ref()
+                            .map(|s| crate::qos::bandwidth_cap_for_tier(&s.trust_tier))
+                            .unwrap_or(0);
                         let bridge_result = if let Some(peer_base_url) = peer_forward {
                             internal_forward::bridge_via_peer(
                                 upgraded,
@@ -1236,7 +1333,15 @@ async fn proxy(
                             )
                             .await
                         } else if let Some(control) = provider_control {
-                            bridge_to_provider(
+                            let failover_geo = session_data
+                                .as_ref()
+                                .map(|s| s.target_geo.clone())
+                                .filter(|s| !s.is_empty());
+                            let failover_isp = session_data
+                                .as_ref()
+                                .map(|s| s.target_isp.clone())
+                                .filter(|s| !s.is_empty());
+                            bridge_to_provider_with_failover(
                                 upgraded,
                                 addr,
                                 control,
@@ -1246,6 +1351,8 @@ async fn proxy(
                                 username.clone(),
                                 session_data.clone(),
                                 bandwidth_cap,
+                                failover_geo,
+                                failover_isp,
                             )
                             .await
                         } else {
@@ -1395,14 +1502,17 @@ async fn proxy(
         *resp.status_mut() = StatusCode::FORBIDDEN;
         Ok(resp)
     } else {
-        // STANDARD HTTP REQUEST
+        // Absolute-URI forward proxy is intentionally unsupported (docs/buyer-proxy.md).
+        // Metrics already labeled 501; the response status must match.
         metrics::REQUEST_LATENCY_SECONDS
             .with_label_values(&[method.as_str(), "501"])
             .observe(start_time.elapsed().as_secs_f64());
 
-        Ok(Response::new(Full::new(Bytes::from(
-            "Only CONNECT supported in this minimal checkpoint",
-        ))))
+        let mut resp = Response::new(Full::new(Bytes::from(
+            "Only CONNECT supported; use HTTP CONNECT or SOCKS5",
+        )));
+        *resp.status_mut() = StatusCode::NOT_IMPLEMENTED;
+        Ok(resp)
     }
 }
 
@@ -1463,40 +1573,34 @@ pub(crate) async fn bridge_to_provider(
     .await
 }
 
-async fn bridge_to_provider_inner(
-    upgraded: hyper::upgrade::Upgraded,
-    addr: String,
+/// Open a yamux stream to a provider and complete the CONNECT handshake
+/// (circuit-breaker protected). Side effects on failure match the pre-GW-06
+/// behavior: unhealthy marking, circuit-breaker metrics, ML failure recording.
+async fn try_open_provider_stream(
+    state: &Arc<AppState>,
     control: yamux::Control,
-    node_id: String,
-    state: Arc<AppState>,
-    auth_clone: Arc<SessionAuthenticator>,
-    username: String,
-    session_data: Option<crate::auth::SessionData>,
-    bandwidth_cap: u32,
-) -> std::io::Result<(u64, u64)> {
+    node_id: &str,
+    addr: &str,
+) -> std::io::Result<yamux::Stream> {
     use futures_util::{AsyncReadExt, AsyncWriteExt};
 
-    debug!(node_id = %node_id, target = %addr, "routing CONNECT to provider");
-
-    // 4. Open stream and proxy with circuit breaker protection
     let circuit_config = CircuitConfig::from_env(state.config.proxy_connect_timeout_secs.max(10));
 
     let circuit_breaker = state
         .circuit_breakers
-        .get_breaker(&node_id, circuit_config)
+        .get_breaker(node_id, circuit_config)
         .await;
 
     // W-03: Try connection pool first (avoids yamux stream-open RTT on cache hit).
-    // If the pool has a pre-opened idle stream we take it; otherwise open fresh.
     let pooled_opt = state
         .connection_pool
-        .acquire(&node_id)
+        .acquire(node_id)
         .map(|p| p.take_stream());
 
-    let addr_for_log = addr.clone(); // preserve for post-call logging
-    let target_domain = policy::target_host_from_endpoint(&addr_for_log);
-    // P2-12: connect timeout for yamux stream-open + CONNECT handshake.
+    let target_domain = policy::target_host_from_endpoint(addr);
     let connect_timeout = std::time::Duration::from_secs(state.config.proxy_connect_timeout_secs);
+    let addr = addr.to_string();
+
     match circuit_breaker
         .call(move || {
             let addr = addr.clone();
@@ -1552,7 +1656,54 @@ async fn bridge_to_provider_inner(
         })
         .await
     {
-        Ok(stream) => {
+        Ok(stream) => Ok(stream),
+        Err(CircuitError::Open) => {
+            warn!("Circuit breaker open for provider {}", node_id);
+            metrics::update_circuit_breaker_state(node_id, "open");
+            metrics::record_circuit_breaker_failure(node_id);
+            state.registry.mark_unhealthy(node_id);
+            state.feature_cache.record_failure(node_id, Some(target_domain));
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "Circuit breaker open",
+            ))
+        }
+        Err(CircuitError::Timeout) => {
+            warn!("Timeout connecting to provider {}", node_id);
+            state.feature_cache.record_failure(node_id, Some(target_domain));
+            metrics::update_circuit_breaker_state(node_id, "open");
+            metrics::record_circuit_breaker_failure(node_id);
+            state.registry.mark_unhealthy(node_id);
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Provider connection timeout",
+            ))
+        }
+        Err(CircuitError::Failure(e)) => {
+            error!("Failed to connect to provider {}: {}", node_id, e);
+            metrics::record_circuit_breaker_failure(node_id);
+            state.registry.mark_unhealthy(node_id);
+            Err(e)
+        }
+    }
+}
+
+/// Bridge an established provider stream to the client socket (shaping,
+/// zerocopy bridge, revalidation, usage finalize/report). Consumes `upgraded`.
+async fn bridge_established(
+    upgraded: hyper::upgrade::Upgraded,
+    stream: yamux::Stream,
+    node_id: String,
+    addr: String,
+    state: Arc<AppState>,
+    auth_clone: Arc<SessionAuthenticator>,
+    username: String,
+    session_data: Option<crate::auth::SessionData>,
+    bandwidth_cap: u32,
+) -> std::io::Result<(u64, u64)> {
+    let addr_for_log = addr.clone();
+    let target_domain = policy::target_host_from_endpoint(&addr_for_log);
+    {
             debug!(node_id = %node_id, target = %addr_for_log, "connected to provider");
             if let Some(ref session) = session_data {
                 sync_session_intent_lifecycle(
@@ -1758,41 +1909,111 @@ async fn bridge_to_provider_inner(
             );
             Ok((from_client, from_provider))
         }
-        Err(CircuitError::Open) => {
-            warn!("Circuit breaker open for provider {}", node_id);
-            metrics::update_circuit_breaker_state(&node_id, "open");
-            metrics::record_circuit_breaker_failure(&node_id);
-            state.registry.mark_unhealthy(&node_id);
-            // Record domain-level failure (P3-W12)
-            state
-                .feature_cache
-                .record_failure(&node_id, Some(target_domain));
-            Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                "Circuit breaker open",
-            ))
-        }
-        Err(CircuitError::Timeout) => {
-            warn!("Timeout connecting to provider {}", node_id);
-            // Record domain-level failure (P3-W12)
-            state
-                .feature_cache
-                .record_failure(&node_id, Some(target_domain));
-            metrics::update_circuit_breaker_state(&node_id, "open");
-            metrics::record_circuit_breaker_failure(&node_id);
-            state.registry.mark_unhealthy(&node_id);
-            Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Provider connection timeout",
-            ))
-        }
-        Err(CircuitError::Failure(e)) => {
-            error!("Failed to connect to provider {}: {}", node_id, e);
-            metrics::record_circuit_breaker_failure(&node_id);
-            state.registry.mark_unhealthy(&node_id);
-            Err(e)
+}
+
+async fn bridge_to_provider_inner(
+    upgraded: hyper::upgrade::Upgraded,
+    addr: String,
+    control: yamux::Control,
+    node_id: String,
+    state: Arc<AppState>,
+    auth_clone: Arc<SessionAuthenticator>,
+    username: String,
+    session_data: Option<crate::auth::SessionData>,
+    bandwidth_cap: u32,
+) -> std::io::Result<(u64, u64)> {
+    debug!(node_id = %node_id, target = %addr, "routing CONNECT to provider");
+    let stream = try_open_provider_stream(&state, control, &node_id, &addr).await?;
+    bridge_established(
+        upgraded,
+        stream,
+        node_id,
+        addr,
+        state,
+        auth_clone,
+        username,
+        session_data,
+        bandwidth_cap,
+    )
+    .await
+}
+
+/// GW-06: bridge with bounded failover — try the pre-selected provider, then up
+/// to MAX_FAILOVER_ALTERNATES alternates (honoring the buyer's geo/ISP
+/// constraints). The client socket is only consumed once a provider stream has
+/// been established, so a dead primary no longer kills the CONNECT.
+const MAX_FAILOVER_ALTERNATES: usize = 2;
+
+async fn bridge_to_provider_with_failover(
+    upgraded: hyper::upgrade::Upgraded,
+    addr: String,
+    primary_control: yamux::Control,
+    primary_node_id: String,
+    state: Arc<AppState>,
+    auth_clone: Arc<SessionAuthenticator>,
+    username: String,
+    session_data: Option<crate::auth::SessionData>,
+    bandwidth_cap: u32,
+    target_geo: Option<String>,
+    target_isp: Option<String>,
+) -> std::io::Result<(u64, u64)> {
+    let mut attempts: Vec<(String, yamux::Control)> = vec![(primary_node_id, primary_control)];
+    {
+        let exclude: std::collections::HashSet<String> =
+            attempts.iter().map(|(id, _)| id.clone()).collect();
+        for alt_id in crate::registry::provider_selection::failover_candidates(
+            &state.registry,
+            &exclude,
+            target_geo.as_deref(),
+            target_isp.as_deref(),
+        )
+        .into_iter()
+        .take(MAX_FAILOVER_ALTERNATES)
+        {
+            if let Some(ctrl) = state.registry.get_by_id(&alt_id) {
+                attempts.push((alt_id, ctrl));
+            }
         }
     }
+
+    let mut last_err: Option<std::io::Error> = None;
+    let total_attempts = attempts.len();
+    for (attempt_node, attempt_control) in attempts {
+        match try_open_provider_stream(&state, attempt_control, &attempt_node, &addr).await {
+            Ok(stream) => {
+                if total_attempts > 1 && last_err.is_some() {
+                    info!(
+                        node_id = %attempt_node,
+                        "failover succeeded via alternate provider (GW-06)"
+                    );
+                }
+                return bridge_established(
+                    upgraded,
+                    stream,
+                    attempt_node,
+                    addr,
+                    state,
+                    auth_clone,
+                    username,
+                    session_data,
+                    bandwidth_cap,
+                )
+                .await;
+            }
+            Err(e) => {
+                warn!(
+                    node_id = %attempt_node,
+                    error = %e,
+                    "provider attempt failed — trying alternate (GW-06)"
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotConnected, "No provider route")
+    }))
 }
 
 #[tokio::main]
@@ -1881,8 +2102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let control_api_url =
         std::env::var("CONTROL_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let usage_tracker = Arc::new(
-        crate::metering::UsageTracker::new(&control_api_url, &config.provider_private_key)
-            .expect("Failed to create usage tracker"),
+        crate::metering::UsageTracker::new(
+            &control_api_url,
+            &config.gateway_shared_secret,
+            &config.provider_private_key,
+        )
+        .expect("Failed to create usage tracker"),
     );
     // Recover any metering data left in the Redis WAL by a previous crashed instance (B-02)
     usage_tracker.recover_from_wal().await;

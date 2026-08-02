@@ -1,7 +1,24 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy");
+declare_id!("8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb");
+
+/// Pro-rata escrow split in integer lamports (no f64).
+/// Returns `(provider_payout, buyer_refund)`.
+pub fn compute_session_payout(escrow_amount: u64, bytes_used: u64, bytes_limit: u64) -> (u64, u64) {
+    let billed_bytes = std::cmp::min(bytes_used, bytes_limit);
+    let provider_payout = if bytes_limit > 0 {
+        (escrow_amount as u128)
+            .saturating_mul(billed_bytes as u128)
+            .checked_div(bytes_limit as u128)
+            .unwrap_or(0) as u64
+    } else {
+        0
+    };
+    let buyer_refund = escrow_amount.saturating_sub(provider_payout);
+    (provider_payout, buyer_refund)
+}
+
 /// Session status - tracks the lifecycle of a proxy session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -146,10 +163,10 @@ impl Default for GatewayNode {
 
 impl GatewayNode {
     pub const MIN_STAKE: u64 = 1_000_000_000; // 1 SOL minimum stake
-    
+
     pub const LEN: usize = 8 +      // discriminator
         32 +                         // operator
-        8 +                          // stake  
+        8 +                          // stake
         8 +                          // region
         64 +                         // endpoint
         2 +                          // uptime_score
@@ -164,9 +181,44 @@ impl GatewayNode {
         1;                           // bump
 }
 
+/// Program configuration — binds authorized oracle/admin/treasury
+#[account]
+pub struct Config {
+    pub admin: Pubkey,
+    pub oracle: Pubkey,
+    pub treasury: Pubkey,
+    pub bump: u8,
+}
+
+impl Config {
+    pub const LEN: usize = 8 + 32 + 32 + 32 + 1;
+}
+
 #[program]
 pub mod session {
     use super::*;
+
+    // ============== CONFIG ==============
+
+    /// Initialize program configuration (one-time)
+    pub fn initialize_config(
+        ctx: Context<InitializeConfig>,
+        oracle: Pubkey,
+        treasury: Pubkey,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = ctx.accounts.admin.key();
+        config.oracle = oracle;
+        config.treasury = treasury;
+        config.bump = ctx.bumps.config;
+        msg!(
+            "Session config initialized: admin={} oracle={} treasury={}",
+            config.admin,
+            config.oracle,
+            config.treasury
+        );
+        Ok(())
+    }
 
     // ============== SESSION MANAGEMENT ==============
 
@@ -295,16 +347,8 @@ pub mod session {
         session.quality_score = quality_score;
         session.usage_proof_cid = usage_proof_cid;
 
-        // Calculate payout based on usage
-        let usage_ratio = if session.bytes_limit > 0 {
-            std::cmp::min(session.bytes_used, session.bytes_limit) as f64
-                / session.bytes_limit as f64
-        } else {
-            0.0
-        };
-
-        let provider_payout = (session.escrow_amount as f64 * usage_ratio) as u64;
-        let buyer_refund = session.escrow_amount.saturating_sub(provider_payout);
+        let (provider_payout, buyer_refund) =
+            compute_session_payout(session.escrow_amount, session.bytes_used, session.bytes_limit);
 
         // Transfer to provider
         if provider_payout > 0 {
@@ -453,6 +497,23 @@ pub mod session {
 // ============== ACCOUNT CONTEXTS ==============
 
 #[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        init,
+        payer = admin,
+        space = Config::LEN,
+        seeds = [b"config"],
+        bump
+    )]
+    pub config: Account<'info, Config>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 #[instruction(bytes_limit: u64, rate_per_gb: u64, expires_at: i64, escrow_amount: u64)]
 pub struct CreateSession<'info> {
     #[account(mut)]
@@ -491,21 +552,27 @@ pub struct ActivateSession<'info> {
 
 #[derive(Accounts)]
 pub struct ReportUsage<'info> {
-    /// Oracle/Gateway that reports usage
+    /// Reporter must be session gateway, session provider, or config oracle
     pub reporter: Signer<'info>,
+
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 
     #[account(
         mut,
         seeds = [b"session", session.buyer.as_ref(), session.provider.as_ref(), &session.expires_at.to_le_bytes()],
         bump = session.bump,
-        constraint = reporter.key() == session.gateway || reporter.key() == session.provider
+        constraint = reporter.key() == session.gateway
+            || reporter.key() == session.provider
+            || reporter.key() == config.oracle
     )]
     pub session: Account<'info, Session>,
 }
 
 #[derive(Accounts)]
 pub struct CompleteSession<'info> {
-    /// Oracle that finalizes the session
+    /// Oracle that finalizes the session (must equal config.oracle)
+    #[account(address = config.oracle)]
     pub oracle: Signer<'info>,
 
     #[account(
@@ -514,6 +581,9 @@ pub struct CompleteSession<'info> {
         bump = session.bump,
     )]
     pub session: Account<'info, Session>,
+
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 
     /// CHECK: Buyer receives refund
     #[account(mut, address = session.buyer)]
@@ -527,6 +597,7 @@ pub struct CompleteSession<'info> {
         mut,
         seeds = [b"gateway", gateway_node.operator.as_ref()],
         bump = gateway_node.bump,
+        constraint = gateway_node.operator == session.gateway,
     )]
     pub gateway_node: Account<'info, GatewayNode>,
 }
@@ -563,7 +634,8 @@ pub struct GatewayHeartbeat<'info> {
 
 #[derive(Accounts)]
 pub struct SlashGateway<'info> {
-    /// Admin/DAO that can slash
+    /// Admin/DAO that can slash (must equal config.admin)
+    #[account(address = config.admin)]
     pub admin: Signer<'info>,
 
     #[account(
@@ -573,8 +645,11 @@ pub struct SlashGateway<'info> {
     )]
     pub gateway: Account<'info, GatewayNode>,
 
-    /// CHECK: Treasury receives slashed funds
-    #[account(mut)]
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
+    /// CHECK: Treasury receives slashed funds (must equal config.treasury)
+    #[account(mut, address = config.treasury)]
     pub treasury: UncheckedAccount<'info>,
 }
 
@@ -664,4 +739,54 @@ pub enum GatewayError {
     GatewayNotActive,
     #[msg("Invalid slash percentage")]
     InvalidSlashPercentage,
+}
+
+#[cfg(test)]
+mod payout_math_tests {
+    use super::compute_session_payout;
+
+    #[test]
+    fn full_usage_pays_provider_all() {
+        let (p, r) = compute_session_payout(1_000_000, 100, 100);
+        assert_eq!(p, 1_000_000);
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn half_usage_splits_evenly() {
+        let (p, r) = compute_session_payout(1_000_000, 50, 100);
+        assert_eq!(p, 500_000);
+        assert_eq!(r, 500_000);
+    }
+
+    #[test]
+    fn zero_limit_refunds_all() {
+        let (p, r) = compute_session_payout(1_000_000, 50, 0);
+        assert_eq!(p, 0);
+        assert_eq!(r, 1_000_000);
+    }
+
+    #[test]
+    fn over_usage_caps_at_escrow() {
+        let (p, r) = compute_session_payout(1_000_000, 200, 100);
+        assert_eq!(p, 1_000_000);
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn large_values_do_not_overflow() {
+        // Would lose precision / panic with naive f64 or u64 mul without widening.
+        let escrow = u64::MAX / 2;
+        let (p, r) = compute_session_payout(escrow, 1, 3);
+        assert_eq!(p + r, escrow);
+        assert_eq!(p, escrow / 3);
+    }
+
+    #[test]
+    fn remainder_stays_with_buyer() {
+        // 1 lamport escrow, 1 of 3 bytes → floor division leaves refund
+        let (p, r) = compute_session_payout(1, 1, 3);
+        assert_eq!(p, 0);
+        assert_eq!(r, 1);
+    }
 }

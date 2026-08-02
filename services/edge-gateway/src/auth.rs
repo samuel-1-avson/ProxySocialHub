@@ -108,6 +108,13 @@ pub struct SessionData {
     #[serde(default)]
     pub intent_expires_at: i64,
 
+    // Per-session enforcement limits (GW-03). 0 = unlimited. Sourced from
+    // session-intent JWT claims; control-api session sync may also populate them.
+    #[serde(default)]
+    pub max_concurrency: i32,
+    #[serde(default)]
+    pub requests_per_minute: i32,
+
     // P2P marketplace listing fields (control-api session sync)
     #[serde(default)]
     pub listing_id: String,
@@ -197,8 +204,10 @@ impl SessionAuthenticator {
         });
     }
 
-    /// Validate session and return session data if valid
-    /// P0-A2: Tracks cache hit/miss metrics for observability
+    /// Validate session and return session data if valid.
+    /// Always merges Redis `session:{user}:usage` before the bandwidth check so
+    /// CONNECT rejects over-quota buyers even when the session JSON still has
+    /// `bandwidth_used: 0` (GW-08 / backlog 1.2 entitlement).
     pub async fn validate_session(
         &self,
         username: &str,
@@ -206,8 +215,21 @@ impl SessionAuthenticator {
     ) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
         // Check cache first
         if !force_refresh {
-            if let Some(session_data) = self.cache.get(username).await {
+            if let Some(mut session_data) = self.cache.get(username).await {
                 metrics::record_session_cache_hit();
+                // Re-check live usage + time on every admit (cheap GET).
+                let used = self
+                    .fetch_usage_bytes(username)
+                    .await
+                    .unwrap_or(session_data.bandwidth_used);
+                merge_live_usage(&mut session_data, used);
+                if session_data.status != "active"
+                    || !session_data.has_remaining_bandwidth()
+                    || !session_data.session_within_time_limit()
+                {
+                    self.invalidate_cache(username).await;
+                    return Ok(None);
+                }
                 return Ok(Some(session_data));
             }
             metrics::record_session_cache_miss();
@@ -223,12 +245,18 @@ impl SessionAuthenticator {
 
         match data {
             Some(json_str) => {
-                let session_data: SessionData = serde_json::from_str(&json_str)?;
+                let mut session_data: SessionData = serde_json::from_str(&json_str)?;
 
                 // Check if session is active
                 if session_data.status != "active" {
                     return Ok(None);
                 }
+
+                let used = self
+                    .fetch_usage_bytes(username)
+                    .await
+                    .unwrap_or(session_data.bandwidth_used);
+                merge_live_usage(&mut session_data, used);
 
                 // A non-positive bandwidth limit means unlimited. Positive limits are hard caps.
                 if !session_data.has_remaining_bandwidth() {
@@ -249,6 +277,17 @@ impl SessionAuthenticator {
         }
     }
 
+    /// Live usage counter written by `report_usage` (and control-api IncrementUsage).
+    pub async fn fetch_usage_bytes(
+        &self,
+        username: &str,
+    ) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let mut con = self.conn_pool.get().await?;
+        let key = redis_keys::session_usage(username);
+        let used: Option<i64> = con.get(&key).await?;
+        Ok(used.unwrap_or(0))
+    }
+
     pub async fn resolve_proxy_auth(
         &self,
         username: &str,
@@ -266,7 +305,19 @@ impl SessionAuthenticator {
                 })?;
 
             let resolved_username = redis_keys::intent_username(&claims.jti);
-            let session_data = SessionData::from_session_intent(&claims);
+            let mut session_data = SessionData::from_session_intent(&claims);
+
+            // Intent JWTs bake bandwidth_limit but never bandwidth_used — merge
+            // the live Redis counter so exhausted intents are rejected at CONNECT.
+            let used = self
+                .fetch_usage_bytes(&resolved_username)
+                .await
+                .unwrap_or(0);
+            merge_live_usage(&mut session_data, used);
+            if !session_data.has_remaining_bandwidth() || !session_data.session_within_time_limit()
+            {
+                return Ok(None);
+            }
 
             self.cache
                 .insert(resolved_username.clone(), session_data.clone())
@@ -436,6 +487,8 @@ impl SessionData {
             rotation_type: claims.rotation_type.clone(),
             rotation_interval_seconds: claims.rotation_interval_seconds.max(0) as u32,
             time_limit_minutes: claims.time_limit_minutes.max(0) as u32,
+            max_concurrency: claims.max_concurrency,
+            requests_per_minute: claims.requests_per_minute,
             auth_source: "session_intent".to_string(),
             intent_expires_at: claims.exp as i64,
             ..Default::default()
@@ -494,6 +547,12 @@ impl SessionData {
     }
 }
 
+fn merge_live_usage(session: &mut SessionData, used: i64) {
+    if used > session.bandwidth_used {
+        session.bandwidth_used = used;
+    }
+}
+
 pub async fn revalidate_live_session(
     authenticator: &SessionAuthenticator,
     username: &str,
@@ -504,7 +563,19 @@ pub async fn revalidate_live_session(
     }
 
     if session.is_session_intent() {
-        return session.intent_still_valid();
+        if !session.intent_still_valid() {
+            return false;
+        }
+        if session.bandwidth_limit <= 0 {
+            return true;
+        }
+        let used = authenticator
+            .fetch_usage_bytes(username)
+            .await
+            .unwrap_or(session.bandwidth_used);
+        let mut live = session.clone();
+        merge_live_usage(&mut live, used);
+        return live.has_remaining_bandwidth();
     }
 
     matches!(
@@ -552,6 +623,22 @@ pub struct CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_live_usage_takes_max() {
+        let mut session = SessionData {
+            bandwidth_limit: 1000,
+            bandwidth_used: 100,
+            ..Default::default()
+        };
+        merge_live_usage(&mut session, 50);
+        assert_eq!(session.bandwidth_used, 100);
+        merge_live_usage(&mut session, 900);
+        assert_eq!(session.bandwidth_used, 900);
+        assert!(session.has_remaining_bandwidth());
+        merge_live_usage(&mut session, 1000);
+        assert!(!session.has_remaining_bandwidth());
+    }
 
     #[test]
     fn test_verify_credential_password() {
@@ -777,5 +864,81 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(password.as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    #[tokio::test]
+    async fn validate_session_rejects_when_usage_counter_exceeds_limit() {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let Ok(client) = redis::Client::open(redis_url.as_str()) else {
+            eprintln!("skip: Redis client open failed");
+            return;
+        };
+        let Ok(mut ping) = client.get_multiplexed_async_connection().await else {
+            eprintln!("skip: Redis not available");
+            return;
+        };
+        let pong: Result<String, _> = redis::cmd("PING").query_async(&mut ping).await;
+        if pong.ok().as_deref() != Some("PONG") {
+            eprintln!("skip: Redis not available");
+            return;
+        }
+
+        let auth = match SessionAuthenticator::new(&redis_url, 16, 60).await {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("skip: authenticator init failed: {e}");
+                return;
+            }
+        };
+
+        let username = format!(
+            "entitle-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let session_key = format!("session:{username}");
+        let usage_key = format!("session:{username}:usage");
+        let session_json = serde_json::json!({
+            "user_id": "u1",
+            "session_id": "s1",
+            "type": "sticky",
+            "status": "active",
+            "bandwidth_limit": 1000,
+            "bandwidth_used": 0,
+            "credential_password_hash": credential_hash("secret")
+        })
+        .to_string();
+
+        let _: () = redis::cmd("SET")
+            .arg(&session_key)
+            .arg(&session_json)
+            .query_async(&mut ping)
+            .await
+            .expect("set session");
+        let _: () = redis::cmd("SET")
+            .arg(&usage_key)
+            .arg(1000i64)
+            .query_async(&mut ping)
+            .await
+            .expect("set usage");
+
+        let admitted = auth
+            .validate_session(&username, true)
+            .await
+            .expect("validate");
+        assert!(
+            admitted.is_none(),
+            "over-quota usage counter must reject at CONNECT admit"
+        );
+
+        let _: () = redis::cmd("DEL")
+            .arg(&session_key)
+            .arg(&usage_key)
+            .query_async(&mut ping)
+            .await
+            .unwrap_or(());
     }
 }

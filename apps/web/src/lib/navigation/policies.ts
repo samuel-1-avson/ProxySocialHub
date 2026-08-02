@@ -52,7 +52,7 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     dashboardSettingsApiKeys: "authenticated",
     dashboardSettingsDevices: "authenticated",
     dashboardSettingsSecurity: "authenticated",
-    communityFeed: "public",
+    communityFeed: "authenticated",
     communityForum: "public",
     communityForumRecent: "public",
     communityForumPopular: "public",

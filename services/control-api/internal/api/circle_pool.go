@@ -690,26 +690,13 @@ func claimRevenue(c *gin.Context) {
 	
 	if totalAmount > 0 {
 		err := db.DB.Transaction(func(tx *gorm.DB) error {
-			var wallet models.Wallet
-			if err := tx.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+			wallet, err := models.LockWalletForUpdate(tx, userID)
+			if err != nil {
 				return fmt.Errorf("wallet not found: %w", err)
 			}
-			
-			wallet.BalanceSOL += totalAmount
-			if err := tx.Save(&wallet).Error; err != nil {
-				return fmt.Errorf("failed to update wallet: %w", err)
-			}
-			
-			if err := tx.Create(&models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       totalAmount,
-				BalanceAfter: wallet.BalanceSOL,
-				Type:         models.TransactionEarning,
-				Description:  fmt.Sprintf("Circle pool revenue claim (%d records)", len(revenues)),
-			}).Error; err != nil {
-				return fmt.Errorf("failed to create ledger: %w", err)
-			}
-			return nil
+			ref := fmt.Sprintf("circle-claim-%s", hashRevenueIDs(revenueIDs)[:16])
+			return models.CreditWalletLocked(tx, wallet, totalAmount, models.TransactionEarning, ref,
+				fmt.Sprintf("Circle pool revenue claim (%d records)", len(revenues)))
 		})
 		
 		if err != nil {

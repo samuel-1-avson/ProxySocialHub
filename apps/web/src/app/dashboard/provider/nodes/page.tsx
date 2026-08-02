@@ -24,7 +24,11 @@ export default function NodesPage() {
     const { data, isLoading, error } = useQuery({
         queryKey: ['my-nodes'],
         queryFn: getMyNodes,
-        refetchInterval: 30_000,
+        // HB-05: fast poll until at least one node is Online via edge register.
+        refetchInterval: (query) => {
+            const nodes = query.state.data?.nodes ?? [];
+            return nodes.some((n) => n.status === 'online') ? 30_000 : 3_000;
+        },
     });
 
     const deleteMutation = useMutation({

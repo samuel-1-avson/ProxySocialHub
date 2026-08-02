@@ -2,139 +2,55 @@ package billing
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
-	"github.com/proxyhubb/control-api/internal/prices"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-// RenewDueSubscriptions extends active, non-cancelled subscriptions whose
-// period has ended by debiting custodial SOL. Failures mark past_due so the
-// entitlement layer can demote the buyer on the next read.
+// RenewDueSubscriptions previously debited custodial SOL for auto-renew.
+// That path is retired for Access Passes. Active paid rows whose period ended
+// are expired (grace ends); free rows are left alone.
 func RenewDueSubscriptions(ctx context.Context, limit int) (renewed, pastDue, skipped int) {
+	_ = ctx
 	if limit <= 0 {
 		limit = 50
 	}
 	now := time.Now().UTC()
 
-	var due []models.UserSubscription
-	if err := db.DB.Preload("Plan").
-		Where("status = ? AND cancelled_at IS NULL", models.SubscriptionActive).
+	res := db.DB.Model(&models.UserSubscription{}).
+		Where("status = ?", models.SubscriptionActive).
+		Where("cancelled_at IS NULL").
 		Where("current_period_end IS NOT NULL AND current_period_end <= ?", now).
-		Order("current_period_end ASC").
 		Limit(limit).
-		Find(&due).Error; err != nil {
-		logging.Error(err).Msg("subscription renew: query failed")
+		Updates(map[string]interface{}{
+			"status":     models.SubscriptionExpired,
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		logging.Error(res.Error).Msg("subscription renew(retired): expire due periods failed")
 		return 0, 0, 0
 	}
+	expired := int(res.RowsAffected)
 
-	for i := range due {
-		sub := &due[i]
-		if sub.Plan == nil {
-			skipped++
-			continue
-		}
-		if strings.EqualFold(sub.Plan.Name, "free") || (sub.Plan.PriceMonthly <= 0 && sub.Plan.PriceYearly <= 0) {
-			// Free plan: just roll the window forward.
-			if err := extendSubscriptionPeriod(sub, now); err != nil {
-				logging.Error(err).Str("subscription_id", sub.ID.String()).Msg("subscription renew: free extend failed")
-				skipped++
-				continue
-			}
-			renewed++
-			continue
-		}
-
-		priceUSD := sub.Plan.PriceMonthly
-		extendByYear := false
-		if sub.BillingCycle == models.BillingYearly {
-			priceUSD = sub.Plan.PriceYearly
-			extendByYear = true
-		}
-		solPrice, err := prices.GetSOLPrice(ctx)
-		if err != nil || solPrice <= 0 {
-			logging.Warn().Err(err).Msg("subscription renew: SOL price unavailable")
-			_ = markSubscriptionPastDue(sub, now)
-			pastDue++
-			continue
-		}
-		priceSOL := priceUSD / solPrice
-
-		err = db.DB.Transaction(func(tx *gorm.DB) error {
-			var wallet models.Wallet
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("user_id = ?", sub.UserID).First(&wallet).Error; err != nil {
-				return fmt.Errorf("wallet missing: %w", err)
-			}
-			if !wallet.CanAffordSOL(priceSOL) || !wallet.DebitSOL(priceSOL) {
-				return fmt.Errorf("insufficient SOL balance")
-			}
-			if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL).Error; err != nil {
-				return err
-			}
-			if err := tx.Create(&models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       -priceSOL,
-				BalanceAfter: wallet.BalanceSOL,
-				Type:         "subscription_renewal",
-				ReferenceID:  sub.ID.String(),
-				Description:  fmt.Sprintf("Auto-renew %s (%.4f SOL)", sub.Plan.Name, priceSOL),
-			}).Error; err != nil {
-				return err
-			}
-
-			periodStart := now
-			var periodEnd time.Time
-			if extendByYear {
-				periodEnd = now.AddDate(1, 0, 0)
-			} else {
-				periodEnd = now.AddDate(0, 1, 0)
-			}
-			return tx.Model(sub).Updates(map[string]interface{}{
-				"current_period_start": periodStart,
-				"current_period_end":   periodEnd,
-				"status":               models.SubscriptionActive,
-				"updated_at":           now,
-			}).Error
+	// Cancelled rows past period end are already ignored by ResolvePassEntitlement.
+	res2 := db.DB.Model(&models.UserSubscription{}).
+		Where("status = ?", models.SubscriptionCancelled).
+		Where("current_period_end IS NOT NULL AND current_period_end <= ?", now).
+		Limit(limit).
+		Updates(map[string]interface{}{
+			"status":     models.SubscriptionExpired,
+			"updated_at": now,
 		})
-		if err != nil {
-			logging.Warn().Err(err).
-				Str("subscription_id", sub.ID.String()).
-				Str("user_id", sub.UserID.String()).
-				Msg("subscription renew: debit failed — marking past_due")
-			_ = markSubscriptionPastDue(sub, now)
-			pastDue++
-			continue
-		}
-		renewed++
+	if res2.Error == nil {
+		expired += int(res2.RowsAffected)
 	}
-	return renewed, pastDue, skipped
-}
 
-func extendSubscriptionPeriod(sub *models.UserSubscription, now time.Time) error {
-	periodEnd := now.AddDate(0, 1, 0)
-	if sub.BillingCycle == models.BillingYearly {
-		periodEnd = now.AddDate(1, 0, 0)
+	if expired > 0 {
+		logging.Info().Int("expired", expired).Msg("legacy subscription periods closed (no custodial renew)")
 	}
-	return db.DB.Model(sub).Updates(map[string]interface{}{
-		"current_period_start": now,
-		"current_period_end":   periodEnd,
-		"status":               models.SubscriptionActive,
-		"updated_at":           now,
-	}).Error
-}
-
-func markSubscriptionPastDue(sub *models.UserSubscription, now time.Time) error {
-	return db.DB.Model(sub).Updates(map[string]interface{}{
-		"status":     models.SubscriptionPastDue,
-		"updated_at": now,
-	}).Error
+	return 0, 0, expired
 }
 
 // ExpirePastDueSubscriptions demotes past_due rows older than grace to expired.

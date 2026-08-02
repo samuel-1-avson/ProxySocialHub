@@ -97,6 +97,10 @@ func SetupTestDB(t *testing.T) {
 			&models.User{},
 			&models.Wallet{},
 			&models.WalletLedgerEntry{},
+			&models.LedgerAccount{},
+			&models.LedgerJournal{},
+			&models.LedgerJournalLine{},
+			&models.ProfilePrivate{},
 			&models.Session{},
 			&models.Node{},
 			&models.TOTPBackupCode{},
@@ -140,6 +144,14 @@ func SetupTestDB(t *testing.T) {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)
 			return
 		}
+		_ = testDB.Exec(`
+			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
+			('1000', 'treasury_cash', 'asset', NOW()),
+			('2100', 'user_wallet_liability', 'liability', NOW()),
+			('2200', 'escrow_liability', 'liability', NOW()),
+			('4000', 'platform_revenue', 'income', NOW())
+			ON CONFLICT (code) DO NOTHING
+		`).Error
 	})
 
 	if testDB == nil {

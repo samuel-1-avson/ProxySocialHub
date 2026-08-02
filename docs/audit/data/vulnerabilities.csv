@@ -1,0 +1,91 @@
+finding_id,title,severity,confidence,component,affected_files,impact,status,fix_ref
+BC-01,Escrow settle payout accounts unconstrained,Critical,confirmed-static,proxyhub program,programs/proxyhub/src/lib.rs:3415+3272,financial-theft,FIXED-source (redeploy pending),R-01
+BC-02,Jury verdict escrow/recipients unconstrained,Critical,confirmed-static,proxyhub program,lib.rs:3339,financial-theft,FIXED-source (redeploy pending),R-01
+BC-03,session complete_session unconstrained oracle,Critical,confirmed-static,session program,programs/session/src/lib.rs:507,financial,OPEN,R-02
+BC-04,session slash_gateway unconstrained admin/treasury,Critical,confirmed-static,session program,session/src/lib.rs:565,financial-theft,OPEN,R-02
+FE-03,NEXT_PUBLIC e2e wallet secret in bundle,Critical,confirmed-static,web,SolanaWalletProvider.tsx,secret-leak,FIXED,0.9
+OPS-01,deploy.yml missing kustomize overlays,Critical,confirmed,ci/cd,.github/workflows/deploy.yml,deploy-broken,OPEN,R-05
+BE-01,Usage signature soft-accept,High,confirmed,control-api,internal/billing/aggregator.go,financial-fraud,FIXED,0.1
+BC-05,submit_usage_proof/write_kyc_attestation lack admin binding,High,confirmed-static,proxyhub program,lib.rs,integrity-forgery,OPEN,4.2
+BC-08,Custodial oracle hot wallet = deposit treasury,High,confirmed,chain+control-api,settlement.go + gcp-align script,financial-custody,PARTIAL (SendSOL uses SOLANA_TREASURY_HOT_KEYPAIR; prod refuses identical keys; cold addr optional; ops must fund/wire distinct hot + rotate),R-03
+BC-09,Real keypairs on workstation disk,High,confirmed,ops,treasury-keypair.json infra/oracle-keypair.json,key-compromise,PARTIAL (gitignored; docs/custody-split.md; gen script; Secret Manager mount path in prod compose; rotate after exposure),R-03
+DB-01,Not a double-entry ledger,High,confirmed,control-api+PG,wallet_tx.go 000001,financial-integrity,OPEN,2.1
+DB-02,float64 money in app / DOUBLE PRECISION columns,High,confirmed,control-api+PG,models/wallet.go 000073/77/79,financial-precision,OPEN,2.2
+DB-03,Ledger mutable at DB layer,High,confirmed,PG,migrations + archive script,financial-tampering,OPEN,2.1
+DB-08,Relayer direct wallet writes stale columns,High,likely,relayer,services/relayer/db/db.go,data-corruption,OPEN,2.7
+EV-01,Treasury NATS subjects no stream,High,confirmed,control-api,nats/connector.go treasury_manager.go,events-lost,PARTIAL (TREASURY stream added; consumers pending),R-06
+EV-05,Redis SPOF sessions+metering,High,confirmed,infra,compose + redis usage,reliability,OPEN,2.3
+FE-01,/v1/ws client never authenticates,High,confirmed-static,web,lib/websocket.tsx presence.ts ws-url.ts,realtime-dead,FIXED (?token= on upgrades; backend middleware + tests ✅),1.5
+FE-02,WS same-origin/Docker localhost URL,High,confirmed-static,web+infra,lib/ws-url.ts Dockerfile,realtime-dead,PARTIAL (Docker default fixed; deploy must route /v1/ws via WS-capable proxy),1.5
+GW-07,DNS-rebinding defense only on provider agent,High,confirmed-static,edge-gateway+provider-node,policy.rs handler.rs,ssrf-conditional,OPEN,1.10
+GW-08,Metering WAL/nonce durability windows,High,likely,edge-gateway+control-api,metering.rs coordinator.go,billing-accuracy,FIXED (exactly-once seq+pending; Redis exactly_once tests),1.1
+SEC-01,Compose DB/Redis host ports exposed,High,confirmed,infra,docker-compose.yml,network-exposure,FIXED,0.8
+SEC-02,Dev bypasses default true,High,confirmed,infra,docker-compose.yml,authz-bypass-risk,FIXED,0.8
+SEC-04,pgbouncer empty-password MD5 committed,High,confirmed,infra,infra/k8s/pgbouncer.yaml,credential,OPEN,R-04
+SEC-05,k8s Redis no auth protected-mode no,High,confirmed,infra,infra/k8s/redis-cluster.yaml,network-exposure,OPEN,R-04
+OPS-02,GHCR owner mismatch across deploy paths,High,confirmed,ci/cd,deploy.yml gcp-images.yml k8s,deploy-broken,OPEN,R-05
+BE-03,Dispute admin routes on user-JWT group,Medium,confirmed,control-api,disputes.go main.go:469,ops-broken,FIXED (adminProtected mount + tests ✅),1.7
+BE-04,11 unwired Register* packages,Medium,confirmed,control-api,main.go + api pkg,dead-code,OPEN,2.7
+BE-06,Dev HMAC fallback secret in bulk API,Medium,confirmed,control-api,bulk.go:192,credential-predictability,OPEN,
+BE-07,No graceful shutdown prod main,Medium,confirmed,control-api,main.go,reliability,FIXED,0.12
+BE-08,Treasury NATS no stream (dup EV-01),Medium,confirmed,control-api,,events-lost,OPEN,R-06
+BE-10,Async P2P on-chain settle post-commit,Medium,confirmed,control-api,wallet.go:600,consistency,OPEN,2.5
+BC-06,Multisig settle nonce not bumped,Medium,likely,proxyhub program,lib.rs,replay-hygiene,OPEN,4.3
+BC-07,Deposits confirmed-not-finalized,Medium,confirmed,control-api,verify.go:84,reorg-risk,OPEN,2.6
+BC-10,Program ID defaults diverge,Medium,confirmed,config,compose files + solana.ts,misconfig,OPEN,0.4
+BC-11,Reputation/ZK verification incomplete,Medium,confirmed,chain,programs/reputation zk submit,false-assurance,OPEN,4.5
+BC-13,admin-cli destructive drop unguarded,Medium,confirmed,admin-cli,main.rs:52-67,ops-risk,OPEN,
+DB-04,usage_records no FKs writer unused,Medium,confirmed,PG+control-api,000053 analytics.go,data-integrity,OPEN,
+DB-05,Marketplace filter index gaps,Medium,confirmed,PG,discovery/query.go migrations,performance,FIXED (migration 000110),1.8
+DB-06,Dual migration directories,Medium,confirmed,PG,migrations/ vs control-api/migrations,drift,OPEN,2.7
+EV-02,manifests.coordinated never consumed,Medium,confirmed,control-api,coordinator.go:177,dead-event,OPEN,2.4
+EV-03,Redis billing consumer log-only,Medium,confirmed,control-api,worker.go:44,false-signal,OPEN,2.4
+EV-06,No DLQ/poison handling,Medium,confirmed,messaging,-,reliability,OPEN,2.4
+EV-07,No consumer-lag metrics,Medium,confirmed,observability,-,observability,OPEN,2.4
+FE-04,Client-side fake ZK verify,Medium,confirmed-static,web,lib/api/marketplace.ts:677,trust-spoof,OPEN,4.5
+FE-05,/v1/network/status missing backend,Medium,confirmed,web+control-api,dashboard/analytics + network.go,feature-dead,FIXED (implemented + tests ✅),1.6
+FE-06,Hardcoded provider uptime,Medium,confirmed-static,web,providers/[id]/page.tsx:83,trust-signal,OPEN,5.3
+FE-08,Inconsistent NEXT_PUBLIC_API_URL usage,Medium,confirmed-static,web,settings/security analytics provider.ts,config-drift,OPEN,5.3
+FE-09,Mock-buy flag could ship,Medium,confirmed-static,web,BuyListingModal solana.ts,mock-in-prod-risk,OPEN,
+FE-13,Dockerfile.simple swallows build errors,Medium,confirmed-static,web,Dockerfile.simple:20,deploy-risk,OPEN,
+GW-01,HTTP forward proxy missing,Medium,confirmed,edge-gateway,main.rs+docs/buyer-proxy.md,compat,FIXED (CONNECT-only contract documented; real 501),1.11
+GW-03,Session concurrency/RPM unenforced,Medium,confirmed,edge-gateway,session_intent.rs main.rs state.rs auth.rs,policy-enforcement,FIXED (claims wired + Redis RPM + RAII conn guard; 168/168 tests ✅),1.2
+GW-04,target_isp never routed,Medium,confirmed,edge-gateway+control-api,gateway.go control_api.rs tunnel.rs provider_selection.rs,feature-false,FIXED (end-to-end ISP resolve+filter+reject; tests ✅),1.4
+GW-05,Bandwidth shaper cap 0,Medium,confirmed,edge-gateway,main.rs qos.rs,overspend-burst,FIXED (tier-derived cap via bandwidth_cap_for_tier),1.2
+GW-06,No alternate-provider retry,Medium,confirmed,edge-gateway,main.rs provider_selection.rs,reliability,FIXED (bounded failover 2 alternates; 172/172 ✅),1.3
+PN-03,No agent consent/scheduling,Medium,confirmed,provider-node,config.rs,compliance,OPEN,5.2
+PN-04,Lease enforcement optional,Medium,confirmed,provider-node+gateway,tunnel.rs provider_lease.rs compose,authz-conditional,FIXED (explicit REQUIRE_PROVIDER_LEASE prod=true dev=false),1.10
+SEC-06,HAProxy stats admin if TRUE,Medium,confirmed,infra,haproxy-deployment.yaml:96,exposure,OPEN,R-04
+SEC-07,NATS ports published no auth,Medium,confirmed,infra,docker-compose.yml,exposure,PARTIAL (loopback fixed; auth TODO),R-04
+SEC-08,Static X-Gateway-Auth shared secret,Medium,confirmed,control-api+gateway,gateway.go,credential,OPEN,
+SEC-10,Admin lockout policy unverified,Medium,possible,control-api,admin auth,brute-force,OPEN,
+OPS-03,:latest tags prod,Medium,confirmed,infra,prod compose k8s,reproducibility,OPEN,R-05
+OPS-04,Prod prometheus missing alerts mount,Medium,confirmed,infra,docker-compose.prod.yml,observability,FIXED,0.8
+OPS-05,Legacy infra compose hardcoded password,Medium,confirmed,infra,infra/docker-compose/,footgun,OPEN,
+TEST-01,order-create missing authority header,Medium,confirmed-executed,control-api,authority_headers_test.go,test-failure-preexisting,FIXED (test mounted wrong registrar; 3/3 ✅),1.9
+BE-05,Circle aliases stubbed,Low,confirmed,control-api,circle_pool.go:48-57,stub,OPEN,
+BE-09,float64 balances residual,Low,confirmed,control-api,models/wallet.go:27,precision,OPEN,2.2
+BE-11,gRPC gateway.proto unused,Low,confirmed,contracts,proto/gateway.proto,drift,OPEN,
+BE-12,Relayer dead oracle sole payout,Low,confirmed,relayer,main.go,ops,OPEN,
+BE-13,Escrow platform-fee drift flag,Low,confirmed,control-api,escrow.go:24-32,consistency,OPEN,
+DB-07,Migration gaps + incomplete downs,Low,confirmed,PG,migrations/,maintainability,OPEN,
+EV-04,Dead Redis event types,Low,confirmed,control-api,events/queue.go,dead-code,OPEN,
+EV-08,No event schema validation,Low,confirmed,messaging,-,contracts,OPEN,
+FE-07,Hardcoded landing stats,Low,confirmed-static,web,page.tsx:69-73,marketing-accuracy,OPEN,5.3
+FE-10,Presence realtime stub,Low,confirmed-static,web,presence.ts:185,feature-dead,OPEN,
+FE-11,Supabase stubs + dead env,Low,confirmed-static,web,lib/supabase Dockerfile,dead-config,OPEN,
+FE-12,ACAO * on Next /api/*,Low,confirmed-static,web,next.config.ts:45-55,cors,OPEN,
+GW-02,SOCKS4 absent SOCKS5 opt-in,Low,confirmed,edge-gateway,ingress/socks5.rs,compat,OPEN,
+GW-09,gateway.proto dual contract,Low,confirmed,contracts,proto/gateway.proto,drift,OPEN,
+GW-10,0.0.0.0 bind open-proxy-if-misconfig,Low,confirmed,edge-gateway,tunnel.rs:142,misconfig-risk,OPEN,
+OPS-06,OTEL debug-only exporter,Low,confirmed,infra,otel/collector-dev.yaml,observability,OPEN,
+OPS-07,Missing GCP Phase A doc,Low,confirmed,docs,gcp-testnet compose refs,docs,OPEN,
+OPS-08,Load tests target Solana RPC not product,Low,confirmed,testing,testing/load_test.*,coverage,OPEN,3.1
+SEC-09,OTLP insecure gRPC,Low,confirmed,control-api,middleware/tracing.go,transport,OPEN,
+SEC-11,CONNECT-target logging privacy unverified,Low,possible,edge-gateway,main.rs,privacy,OPEN,
+PN-05,Agent config restart-only,Low,confirmed,provider-node,config.rs,ops,OPEN,5.2
+PN-06,No agent auto-update,Low,confirmed,provider-node+cli,-,ops,OPEN,5.2
+CLI-01,CLI wrapper only,Info,confirmed,cli,src/main.rs,info,-,
+GW-11,CONNECT empty 200 pattern,Info,confirmed,edge-gateway,main.rs,info,-,
+BUY-04,No auto failed-session credit,Low,product-gap,control-api,-,fairness-policy,OPEN,
+BUY-07,Credential sharing unconstrained,Low,possible,gateway,-,policy,OPEN,

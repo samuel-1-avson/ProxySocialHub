@@ -1,7 +1,8 @@
 'use client';
 
 import { AlertCircle, ArrowUpRight, Loader2, Shield } from 'lucide-react';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
+import { MoneyRailHint } from '@/components/MoneyRailHint';
 
 type WithdrawalSecurityLike = {
   withdrawal_cooldown_active?: boolean;
@@ -37,12 +38,13 @@ export function WalletWithdraw({
         <ArrowUpRight size={14} /> Withdraw SOL
       </p>
       <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
-        Withdraw custodial balance to your linked primary address
+        Move <span className="text-white/70">platform balance</span> to your linked primary address
         {linkedAddress
           ? ` (${linkedAddress.slice(0, 4)}…${linkedAddress.slice(-4)})`
           : ''}
         . Amounts over {largeWithdrawThresholdSOL} SOL require a wallet signature.
       </p>
+      <MoneyRailHint rail="platform" />
       {withdrawalSecurity?.withdrawal_cooldown_active && (
         <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-mono uppercase font-black leading-relaxed flex items-start gap-2">
           <AlertCircle size={13} className="mt-0.5 shrink-0" />
@@ -69,17 +71,11 @@ export function WalletWithdraw({
           <Shield size={12} />
           {canSignMessage
             ? 'Signature required — approve the message in your wallet when prompted'
-            : `Connect Phantom/Solflare below, then withdraw (required for amounts over ${largeWithdrawThresholdSOL} SOL)`}
+            : `Unlock your linked wallet below, then withdraw (required for amounts over ${largeWithdrawThresholdSOL} SOL)`}
         </p>
       )}
       {linkedAddress && withdrawRequiresSignature && !canSignMessage && (
-        <div className="space-y-2">
-          <p className="text-[9px] font-mono text-amber-500/80 uppercase">
-            Connect the same wallet you linked ({linkedAddress.slice(0, 4)}…
-            {linkedAddress.slice(-4)}) to sign this withdrawal
-          </p>
-          <SolanaWalletButton />
-        </div>
+        <UnlockWalletPrompt expectedAddress={linkedAddress} compact />
       )}
       <button
         type="button"

@@ -184,17 +184,25 @@ export default function ManageCatalogProductsPage() {
                         <SellerManageTabs />
                     </div>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => {
-                        setCreateForm(emptyForm());
-                        setCreateOpen(true);
-                    }}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
-                    data-testid="catalog-create-product"
-                >
-                    <Plus size={14} /> New product
-                </button>
+                <div className="flex flex-wrap gap-2">
+                    <Link
+                        href={ROUTES.marketplaceMap}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-white/15 text-foreground hover:bg-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                    >
+                        Supply map
+                    </Link>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setCreateForm(emptyForm());
+                            setCreateOpen(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+                        data-testid="catalog-create-product"
+                    >
+                        <Plus size={14} /> New product
+                    </button>
+                </div>
             </div>
 
             {isLoading && (

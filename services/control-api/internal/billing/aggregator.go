@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mr-tron/base58"
@@ -27,13 +29,31 @@ func NewAggregator() *Aggregator {
 }
 
 // VerifySignature validates the Ed25519 signature on a usage report before any
-// counters are updated.  Returns nil if the signature is absent (gateway
-// hasn't been configured with signing yet) or valid.  Returns a non-nil error
-// when a signature is present but fails verification — callers should reject
-// the report entirely.
+// counters are updated. Verification fails closed: any report that cannot be
+// cryptographically verified is rejected. Empty or unverifiable signatures are
+// only accepted when ALLOW_UNSIGNED_USAGE is explicitly enabled in a
+// non-production environment.
+//
+// Verification order:
+//  1. GATEWAY_USAGE_PUBLIC_KEY (hex or base58) when set — preferred for edge metering
+//  2. Provider hotkey / linked wallet pubkey (legacy)
+//
+// Callers must mount the report route behind requireGatewayAuth; signature alone
+// is not a substitute for gateway authentication.
 func (a *Aggregator) VerifySignature(sessionUsername string, bytesUp, bytesDown int64, nonce uint64, signatureHex string) error {
-	if signatureHex == "" {
-		return nil // no signature supplied; treated as trusted (internal gateway)
+	if strings.TrimSpace(signatureHex) == "" {
+		if allowUnsignedUsageReports() {
+			return nil
+		}
+		return fmt.Errorf("usage signature required")
+	}
+
+	if gwKey := strings.TrimSpace(os.Getenv("GATEWAY_USAGE_PUBLIC_KEY")); gwKey != "" {
+		return verifyUsageSignature(gwKey, sessionUsername, bytesUp, bytesDown, nonce, signatureHex)
+	}
+
+	if redis.Client == nil {
+		return fmt.Errorf("usage verification unavailable: redis client not initialized")
 	}
 	sessionData, err := redis.GetSession(sessionUsername)
 	if err != nil {
@@ -41,32 +61,46 @@ func (a *Aggregator) VerifySignature(sessionUsername string, bytesUp, bytesDown 
 	}
 	providerPubKey, err := a.getProviderPublicKey(sessionData.ProviderID)
 	if err != nil {
-		return fmt.Errorf("provider key not found: %w", err)
+		// Fail closed: without any verification key material, a non-empty signature
+		// is unverifiable and must not be treated as valid. The only exception is
+		// the explicit non-production ALLOW_UNSIGNED_USAGE escape hatch.
+		if allowUnsignedUsageReports() {
+			logging.Warn().
+				Str("session", sessionUsername).
+				Err(err).
+				Msg("GATEWAY_USAGE_PUBLIC_KEY unset and provider pubkey missing; accepting usage report under ALLOW_UNSIGNED_USAGE (non-production)")
+			return nil
+		}
+		return fmt.Errorf("no usage verification key available for session %s: %w", sessionUsername, err)
 	}
-	return verifyUsageSignature(providerPubKey, sessionUsername, bytesUp, bytesDown, nonce, signatureHex)
+	if err := verifyUsageSignature(providerPubKey, sessionUsername, bytesUp, bytesDown, nonce, signatureHex); err != nil {
+		return fmt.Errorf("usage signature verification failed: %w", err)
+	}
+	return nil
+}
+
+func allowUnsignedUsageReports() bool {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_UNSIGNED_USAGE")), "true") {
+		return false
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	switch env {
+	case "", "development", "dev", "test", "local":
+		return true
+	default:
+		return false
+	}
 }
 
 // AggregateUsage verifies signature and aggregates usage in Redis pending ledger
 func (a *Aggregator) AggregateUsage(sessionUsername string, bytesUp, bytesDown int64, signatureHex string, nonce uint64) error {
-	// 1. Fetch Session & Provider Info
+	if err := a.VerifySignature(sessionUsername, bytesUp, bytesDown, nonce, signatureHex); err != nil {
+		return err
+	}
+
 	sessionData, err := redis.GetSession(sessionUsername)
 	if err != nil {
 		return fmt.Errorf("session not found: %w", err)
-	}
-
-	// 2. Verify Signature if provided
-	if signatureHex != "" {
-		// Fetch Provider's public key (Hotkey) from cache or DB
-		providerPubKey, err := a.getProviderPublicKey(sessionData.ProviderID)
-		if err != nil {
-			logging.Warn().Str("session", sessionUsername).Str("provider", sessionData.ProviderID).Msg("Failed to get provider public key")
-			return fmt.Errorf("provider key not found: %w", err)
-		}
-
-		if err := verifyUsageSignature(providerPubKey, sessionUsername, bytesUp, bytesDown, nonce, signatureHex); err != nil {
-			logging.Warn().Str("session", sessionUsername).Err(err).Msg("Invalid usage signature")
-			return fmt.Errorf("invalid signature: %w", err)
-		}
 	}
 
 	return a.aggregatePendingUsage(sessionData.SessionID, sessionData.ProviderID, bytesUp+bytesDown)
