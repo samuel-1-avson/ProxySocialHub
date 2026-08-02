@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -648,18 +649,34 @@ func bytesToUint64(b []byte) uint64 {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 }
 
-// GetBalance returns the SOL balance of the specified wallet
+// GetBalance returns the SOL balance of the specified wallet.
+// Retries briefly on transient RPC failures (e.g. public-devnet 429s).
 func (c *OracleClient) GetBalance(ctx context.Context, pubkey sol.PublicKey) (uint64, error) {
 	var balance *rpc.GetBalanceResult
-	err := c.withFailover(ctx, func(client *rpc.Client) error {
-		var err error
-		balance, err = client.GetBalance(ctx, pubkey, rpc.CommitmentFinalized)
-		return err
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to get balance: %w", err)
+	var lastErr error
+	backoffs := []time.Duration{0, 250 * time.Millisecond, 750 * time.Millisecond}
+	for attempt, wait := range backoffs {
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		err := c.withFailover(ctx, func(client *rpc.Client) error {
+			var callErr error
+			balance, callErr = client.GetBalance(ctx, pubkey, rpc.CommitmentProcessed)
+			return callErr
+		})
+		if err == nil {
+			return balance.Value, nil
+		}
+		lastErr = err
+		if attempt+1 < len(backoffs) {
+			c.rotateRPC()
+		}
 	}
-	return balance.Value, nil
+	return 0, fmt.Errorf("failed to get balance: %w", lastErr)
 }
 
 // GetTokenBalance returns the balance of an SPL token ATA
