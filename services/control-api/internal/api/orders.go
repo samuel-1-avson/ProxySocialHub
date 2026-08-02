@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	marketplacepkg "github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -332,7 +334,24 @@ func createOrder(c *gin.Context) {
 	}
 	if err := tx.Create(&session).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		logging.Error(err).
+			Str("buyer_id", buyerID.String()).
+			Str("listing_id", listing.ID.String()).
+			Msg("orders.create: session insert failed")
+		// Surface a precise, safe message when encryption/config is the cause.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "encryption key") || strings.Contains(errMsg, "encrypt credentials") {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to create session: credential encryption unavailable on server",
+				"code":  "session_encryption_failed",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create session",
+			"code":  "session_create_failed",
+			"detail": errMsg,
+		})
 		return
 	}
 
