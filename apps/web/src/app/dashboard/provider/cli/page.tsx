@@ -400,7 +400,9 @@ metrics_port = 9090`;
                         </h2>
                         <p className="text-[11px] font-mono text-muted-foreground mb-3">
                             The binary is a console app, not a silent installer. Running it with no arguments keeps a window open
-                            with a menu (dashboard, doctor, start).
+                            with a menu (dashboard, doctor, start). Already installed? Run{' '}
+                            <code className="text-foreground">provider-node update</code> to replace the binary in place —
+                            no need to delete the old download first.
                         </p>
                         <CodeBlock
                             code={openConsoleCmd}

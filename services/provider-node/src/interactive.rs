@@ -21,14 +21,27 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
+    // Best-effort update notice (never blocks menu on network failure).
+    match crate::update::check().await {
+        Ok(info) if !info.already_latest => {
+            println!(
+                "  Update available: v{} → v{}  (menu [7] or: provider-node update)",
+                info.current, info.latest
+            );
+        }
+        Ok(_) => {}
+        Err(_) => {}
+    }
+
     loop {
         println!();
-        println!("  [1] Open live dashboard (starts daemon in background if needed)");
+        println!("  [1] Open live dashboard (daemon stays in background)");
         println!("  [2] Run doctor (pre-flight checks)");
         println!("  [3] Show status");
         println!("  [4] Start/restart daemon in background");
         println!("  [5] Start daemon in this window (foreground / blocks)");
         println!("  [6] Print install paths & hints");
+        println!("  [7] Update CLI in place (no re-download / delete)");
         println!("  [h] Help / recommended first-run");
         println!("  [q] Quit");
         print!("\n  Choice> ");
@@ -41,12 +54,12 @@ pub async fn run() -> anyhow::Result<()> {
         let choice = line.trim().to_ascii_lowercase();
         match choice.as_str() {
             "1" | "d" | "dashboard" => {
-                if let Err(e) = ensure_daemon_or_report(&config).await {
+                if let Err(_e) = ensure_daemon_or_report(&config).await {
                     wait_enter();
                     print_banner(&config);
                     continue;
                 }
-                println!("\nStarting dashboard… (Ctrl+C returns here; daemon keeps running)\n");
+                println!("\nStarting dashboard… (q / Ctrl+C returns here; daemon keeps running)\n");
                 if let Err(e) = crate::tui::dashboard::run(config.clone(), 1000).await {
                     eprintln!("Dashboard error: {e:#}");
                     wait_enter();
@@ -115,6 +128,15 @@ pub async fn run() -> anyhow::Result<()> {
                 wait_enter();
                 print_banner(&config);
             }
+            "7" | "update" | "upgrade" => {
+                println!();
+                match crate::update::run(false, false).await {
+                    Ok(()) => {}
+                    Err(e) => eprintln!("Update failed: {e:#}"),
+                }
+                wait_enter();
+                print_banner(&config);
+            }
             "h" | "help" | "?" => {
                 println!();
                 println!("First-run checklist:");
@@ -125,11 +147,12 @@ pub async fn run() -> anyhow::Result<()> {
                 println!("  3. Choose [2] doctor — fix any red checks");
                 println!("  4. Choose [1] dashboard — live metrics while the tunnel runs");
                 println!();
-                println!("The tunnel keeps running after you quit the dashboard.");
-                println!("Stop it with: proxyhubb-cli stop   (or close the background process)");
+                println!("Updates:");
+                println!("  Choose [7] or run: provider-node update");
+                println!("  Replaces this binary in place — no need to delete the old download.");
                 println!();
-                println!("Tip: from a terminal you can also run:");
-                println!("  provider-node dashboard --config {}", config.display());
+                println!("The tunnel keeps running after you quit the dashboard.");
+                println!("Stop it with: provider-node stop");
                 wait_enter();
                 print_banner(&config);
             }
@@ -164,10 +187,12 @@ async fn ensure_daemon_or_report(config: &std::path::Path) -> anyhow::Result<()>
 fn print_banner(config: &std::path::Path) {
     println!();
     println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║           ProxyHubb Provider Node — Console              ║");
+    println!(
+        "║     ProxyHubb Provider Node — Console  v{:<14}║",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("╚══════════════════════════════════════════════════════════╝");
     println!();
-    println!("  Binary is installed and running.");
     println!("  Config: {}", config.display());
     if config.is_file() {
         println!("  Config file: found ✓");
