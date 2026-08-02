@@ -20,6 +20,7 @@ export * from './matching';
 export * from './analytics';
 export * from './governance';
 export * from './subscriptions';
+export * from './passes';
 export * from './monitoring';
 export * from './referral';
 export * from './channels';

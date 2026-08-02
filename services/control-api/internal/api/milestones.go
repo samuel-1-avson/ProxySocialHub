@@ -1,6 +1,6 @@
 package api
 
-import (
+	import (
 	"fmt"
 	"net/http"
 
@@ -11,6 +11,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RegisterMilestoneRoutes registers milestone-related routes
@@ -173,27 +175,49 @@ func claimMilestoneReward(c *gin.Context) {
 		}
 	}
 
-	// Claim the reward
-	milestone.RewardClaimed = true
-	if err := db.Social().Save(&milestone).Error; err != nil {
+	// Credit primary wallet first (idempotent via ledger reference), then mark claimed.
+	// Social and primary DBs are separate — never mark claimed before a successful credit.
+	claimErr := db.Social().Transaction(func(stx *gorm.DB) error {
+		var locked models.UsageMilestone
+		if err := stx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND user_id = ? AND reward_claimed = ?", milestoneID, userID, false).
+			First(&locked).Error; err != nil {
+			return err
+		}
+		if locked.RewardAmount <= 0 {
+			return fmt.Errorf("no reward available")
+		}
+
+		creditErr := db.DB.Transaction(func(tx *gorm.DB) error {
+			var existing models.WalletLedgerEntry
+			if err := tx.Where("type = ? AND reference_id = ?", models.TransactionEarning, locked.ID.String()).
+				First(&existing).Error; err == nil {
+				return nil // already credited
+			} else if err != gorm.ErrRecordNotFound {
+				return err
+			}
+			wallet, err := models.LockWalletForUpdate(tx, userID)
+			if err != nil {
+				return err
+			}
+			return models.CreditWalletLocked(tx, wallet, locked.RewardAmount, models.TransactionEarning,
+				locked.ID.String(), fmt.Sprintf("Milestone reward: %s", locked.MilestoneType))
+		})
+		if creditErr != nil {
+			return creditErr
+		}
+
+		locked.RewardClaimed = true
+		if err := stx.Save(&locked).Error; err != nil {
+			return err
+		}
+		milestone = locked
+		return nil
+	})
+	if claimErr != nil {
+		logging.Error(claimErr).Str("milestone_id", milestoneID.String()).Msg("milestone claim failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to claim reward"})
 		return
-	}
-
-	// Credit the user's internal wallet with the milestone reward.
-	var wallet models.Wallet
-	if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err == nil {
-		wallet.BalanceSOL += milestone.RewardAmount
-		if saveErr := db.DB.Save(&wallet).Error; saveErr == nil {
-			ledger := models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       milestone.RewardAmount,
-				BalanceAfter: wallet.BalanceSOL,
-				Type:         models.TransactionEarning,
-				Description:  fmt.Sprintf("Milestone reward: %s", milestone.MilestoneType),
-			}
-			db.DB.Create(&ledger)
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

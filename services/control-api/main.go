@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
@@ -47,6 +49,28 @@ func main() {
 	// Initialise alert channels (Slack / email) — must be first so all downstream code can call alerts.Send()
 	alerts.Init()
 
+	// Fail-closed guards: never allow dev financial escapes in production.
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if appEnv == "production" || appEnv == "prod" {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_UNSIGNED_USAGE")), "true") {
+			log.Fatal("FATAL: ALLOW_UNSIGNED_USAGE=true is forbidden in production (usage signing must be enforced)")
+		}
+		for _, devFlag := range []string{
+			"PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE",
+			"PROXYHUB_ALLOW_DEV_LISTING_SIGN",
+			"PROXYHUB_ALLOW_DEV_BYPASS",
+		} {
+			if strings.EqualFold(strings.TrimSpace(os.Getenv(devFlag)), "true") {
+				log.Fatalf("FATAL: %s=true is forbidden in production", devFlag)
+			}
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("REQUIRE_PROVIDER_LEASE")); v != "" {
+		if (appEnv == "production" || appEnv == "prod") && !strings.EqualFold(v, "true") {
+			log.Fatal("FATAL: REQUIRE_PROVIDER_LEASE must be true in production")
+		}
+	}
+
 	// Load Config
 	cfg, err := config.Load()
 	if err != nil {
@@ -76,6 +100,24 @@ func main() {
 				log.Printf("  credential migration error: %v", e)
 			}
 		}
+		if os.Getenv("MIGRATE_TAX_IDS") == "true" {
+			migrated, errs := models.MigratePlaintextTaxIDs(db.DB)
+			log.Printf("Tax ID migration complete: %d migrated, %d errors", migrated, len(errs))
+			for _, e := range errs {
+				log.Printf("  tax_id migration error: %v", e)
+			}
+		}
+		if pepper, src := cryptoPkg.ResolveEmailHashPepper(); pepper != "" {
+			models.EmailHashFn = cryptoPkg.NewEmailHashFn(pepper)
+			log.Printf("Email hash HMAC registered (source=%s) for MIGRATE_ONLY", src)
+		}
+		if os.Getenv("MIGRATE_EMAILS") == "true" {
+			migrated, errs := models.MigrateEmailsToVault(db.DB)
+			log.Printf("Email vault migration complete: %d migrated, %d errors", migrated, len(errs))
+			for _, e := range errs {
+				log.Printf("  email vault migration error: %v", e)
+			}
+		}
 		log.Println("MIGRATE_ONLY=true — schema migration complete, exiting.")
 		os.Exit(0)
 	}
@@ -101,6 +143,16 @@ func main() {
 	models.TokenHashFn = cryptoPkg.NewTokenHashFn(tokenHMACSecret)
 	log.Println("Provider token HMAC hashing registered")
 
+	if pepper, src := cryptoPkg.ResolveEmailHashPepper(); pepper != "" {
+		if len(pepper) < 32 {
+			log.Fatalf("Email hash pepper too short (%d chars); minimum 32", len(pepper))
+		}
+		models.EmailHashFn = cryptoPkg.NewEmailHashFn(pepper)
+		log.Printf("Email hash HMAC registered (source=%s)", src)
+	} else {
+		log.Println("WARNING: EMAIL_HASH_PEPPER unset — email_hash lookups disabled until configured")
+	}
+
 	// One-time data migration: encrypt existing plaintext credentials in the sessions table.
 	// Set MIGRATE_CREDENTIALS=true on a single pod/job; revert to false after completion.
 	if os.Getenv("MIGRATE_CREDENTIALS") == "true" {
@@ -109,6 +161,24 @@ func main() {
 		log.Printf("Credential migration complete: %d migrated, %d errors", migrated, len(errs))
 		for _, e := range errs {
 			log.Printf("  credential migration error: %v", e)
+		}
+	}
+
+	// One-time: encrypt plaintext profiles.tax_id (PII-01). Set MIGRATE_TAX_IDS=true once.
+	if os.Getenv("MIGRATE_TAX_IDS") == "true" {
+		migrated, errs := models.MigratePlaintextTaxIDs(db.DB)
+		log.Printf("Tax ID migration complete: %d migrated, %d errors", migrated, len(errs))
+		for _, e := range errs {
+			log.Printf("  tax_id migration error: %v", e)
+		}
+	}
+
+	// One-time: move profiles.email (+ tax_id) into profile_private vault (Phase D).
+	if os.Getenv("MIGRATE_EMAILS") == "true" {
+		migrated, errs := models.MigrateEmailsToVault(db.DB)
+		log.Printf("Email vault migration complete: %d migrated, %d errors", migrated, len(errs))
+		for _, e := range errs {
+			log.Printf("  email vault migration error: %v", e)
 		}
 	}
 
@@ -433,9 +503,12 @@ func main() {
 		api.RegisterGovernanceTreasuryPublicRoutes(v1) // Treasury audit rows per proposal
 		api.RegisterBetaProgramPublicRoutes(v1)        // Public beta task catalog (+ progress when token present)
 		api.RegisterForumPublicRoutes(v1)              // Public forum browse/search/read endpoints
+		api.RegisterBadgePublicRoutes(v1)              // Public badge catalog
 		api.RegisterAgentPublicRoutes(v1)              // Public agent marketplace browse
 		api.RegisterMarketplaceFunnelRoutes(v1)        // WS-D: client funnel events (optional auth)
 		solanaClient.RegisterPublicRoutes(v1)          // Oracle/RPC health (no auth)
+		api.RegisterNetworkRoutes(v1)                  // Public network aggregate (dashboard + landing)
+		api.RegisterPassPublicRoutes(v1)               // Access Pass catalog (NFT entitlements)
 	}
 
 	// Public Routes (No Authentication Required)
@@ -484,8 +557,10 @@ func main() {
 
 		api.RegisterReferralRoutes(protected)
 		api.RegisterSubscriptionRoutes(protected)
+		api.RegisterPassRoutes(protected)
 		api.RegisterLinkedWalletRoutes(protected)
 		api.RegisterForumProtectedRoutes(protected)
+		api.RegisterBadgeRoutes(protected)
 		api.RegisterMessagingRoutes(protected)
 		api.RegisterFriendRoutes(protected)
 		api.RegisterNotificationRoutes(protected)
@@ -545,6 +620,7 @@ func main() {
 		adminProtected := admin.Group("/")
 		adminProtected.Use(middleware.AdminAuthMiddleware(cfg))
 		api.RegisterAdminRoutes(adminProtected)
+		api.RegisterAdminDisputeRoutes(adminProtected)
 		api.RegisterAdminOnboardingRoutes(adminProtected)
 		api.RegisterAdminListingModerationRoutes(adminProtected)
 		api.RegisterAdminForumModerationRoutes(adminProtected)
@@ -658,9 +734,15 @@ func main() {
 
 	// Start Liquidity Manager (Phase 5.2)
 	oracleConfig := solanaClient.Config{
-		RPCEndpoints:      rpcEndpoints,
-		OracleKeypairPath: os.Getenv("SOLANA_ORACLE_KEYPAIR"),
-		Network:           solanaClient.EffectiveSolanaNetwork(),
+		RPCEndpoints:           rpcEndpoints,
+		OracleKeypairPath:      os.Getenv("SOLANA_ORACLE_KEYPAIR"),
+		TreasuryHotKeypairPath: func() string {
+			if v := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_KEYPAIR")); v != "" {
+				return v
+			}
+			return strings.TrimSpace(os.Getenv("SOLANA_TREASURY_KEYPAIR"))
+		}(),
+		Network:                solanaClient.EffectiveSolanaNetwork(),
 	}
 	if oracleConfig.OracleKeypairPath == "" {
 		oracleConfig.OracleKeypairPath = "oracle-keypair.json"
@@ -668,6 +750,16 @@ func main() {
 
 	// Try to load oracle client, but don't crash if keypair missing (dev mode)
 	if oracleClient, err := solanaClient.NewOracleClient(oracleConfig); err == nil {
+		if err := solanaClient.ValidateConfiguredTreasuryAddresses(oracleClient); err != nil {
+			log.Fatalf("Treasury custody misconfiguration: %v", err)
+		}
+		if oracleClient.HasSeparateTreasuryHot() {
+			log.Printf("BC-08 custody split active: oracle=%s payout=%s",
+				oracleClient.GetOraclePublicKey().String(),
+				oracleClient.GetPayoutPublicKey().String())
+		} else {
+			log.Println("WARNING: BC-08 — treasury hot keypair not separated from oracle (legacy custody)")
+		}
 		// --- P0.3: Attach VelocityGuard to the oracle client ---
 		// Reads ORACLE_MAX_SINGLE_TRANSFER_SOL and ORACLE_MAX_HOURLY_OUTFLOW_SOL from env.
 		// Set ORACLE_TRANSFER_FREEZE=true to freeze all transfers immediately.
@@ -793,6 +885,10 @@ func main() {
 
 		log.Println("Liquidity Manager, Ghost Prober, Staking, Proof and Settlement services started")
 	} else {
+		appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if appEnv == "production" || appEnv == "prod" || appEnv == "staging" || appEnv == "testnet" {
+			log.Fatalf("FATAL: oracle/treasury custody init failed in %s: %v", appEnv, err)
+		}
 		log.Printf("Skipping Liquidity Manager: %v", err)
 	}
 
@@ -813,6 +909,12 @@ func main() {
 	mw := worker.NewMarketplaceWatcher()
 	if err := mw.Start(context.Background()); err != nil {
 		log.Printf("Failed to start Marketplace Watcher: %v", err)
+	}
+
+	// Start Treasury Event Consumer (EV-01: durable consumer on TREASURY stream)
+	treasuryConsumer := worker.NewTreasuryEventConsumer()
+	if err := treasuryConsumer.Start(context.Background()); err != nil {
+		log.Printf("Failed to start Treasury Event Consumer: %v", err)
 	}
 
 	// Start Provisioning Worker (Phase 5.2 Event-Driven)
@@ -870,5 +972,35 @@ func main() {
 	}
 
 	log.Printf("Server starting on port %s", port)
-	r.Run(":" + port)
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	// Shutdown on SIGINT/SIGTERM so in-flight requests (withdrawals, escrow
+	// settlement, usage ingestion) can drain before the process exits.
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	case <-shutdownCtx.Done():
+		log.Println("Shutdown signal received, draining HTTP server...")
+		drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(drainCtx); err != nil {
+			log.Printf("Graceful shutdown failed, forcing close: %v", err)
+			_ = srv.Close()
+		}
+		log.Println("HTTP server drained")
+	}
 }

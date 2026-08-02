@@ -26,3 +26,10 @@ func TestValidateExecutionPayload_ParameterAllowed(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateExecutionPayload_PassMintParameterAllowed(t *testing.T) {
+	raw := json.RawMessage(`{"parameter":"pass_mint_silver","old_value":"","new_value":"SilverMint1111111111111111111111111111111","reason":"rotate silver pass mint"}`)
+	if err := ValidateExecutionPayload(models.ProposalTypeParameter, raw); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

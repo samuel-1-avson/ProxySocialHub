@@ -452,7 +452,8 @@ mod tests {
 
         assert_eq!(scorer.score(client), ThreatLevel::None);
 
-        for _ in 0..5 {
+        // >10 auth failures contributes 3 points → Medium (see score()).
+        for _ in 0..11 {
             scorer.record_auth_failure(client);
         }
         assert!(scorer.score(client) >= ThreatLevel::Medium);

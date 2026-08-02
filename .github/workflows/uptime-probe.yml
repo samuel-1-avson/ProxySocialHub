@@ -1,0 +1,33 @@
+name: Uptime Probe
+
+# External blackbox: detects VM / Caddy / API down from outside the box.
+# Set repository variable UPTIME_API_BASE_URL (e.g. https://api.proxyhubb.com).
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  probe-api:
+    name: Probe API /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Curl public health
+        env:
+          BASE: ${{ vars.UPTIME_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE:-}" ]; then
+            echo "UPTIME_API_BASE_URL not set — skipping (configure repo variable)."
+            exit 0
+          fi
+          BASE="${BASE%/}"
+          echo "Probing ${BASE}/health"
+          curl -fsS --max-time 20 "${BASE}/health"
+          echo ""
+          echo "Probing ${BASE}/ready"
+          curl -fsS --max-time 20 "${BASE}/ready" || curl -fsS --max-time 20 "${BASE}/v1/health/system" || true
+          echo ""
+          echo "OK"

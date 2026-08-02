@@ -97,7 +97,9 @@ func TestAuthorityHeadersCoveragePhase1(t *testing.T) {
 			body:   `{}`,
 			setupRoute: func() *httptest.ResponseRecorder {
 				r := setupTestRouter()
-				RegisterOrderRoutes(r.Group("/"))
+				// POST /orders is served by RegisterPartnerPurchaseRoutes
+				// (RegisterOrderRoutes only mounts GET /sales).
+				RegisterPartnerPurchaseRoutes(r.Group("/"))
 				req := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(`{}`))
 				req.Header.Set("Content-Type", "application/json")
 				w := httptest.NewRecorder()

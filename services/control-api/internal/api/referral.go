@@ -10,9 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
-	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/ws"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RegisterReferralRoutes registers referral program routes
@@ -118,14 +120,16 @@ func getReferralStats(c *gin.Context) {
 	})
 }
 
-// ProcessReferralSignup handles referral when new user signs up
+// ProcessReferralSignup handles referral when new user signs up.
+// Safe to call with empty/invalid codes (no-op). Idempotent per referred user.
 func ProcessReferralSignup(newUserID uuid.UUID, referralCode string) {
-	if referralCode == "" {
+	referralCode = strings.ToUpper(strings.TrimSpace(referralCode))
+	if referralCode == "" || newUserID == uuid.Nil {
 		return
 	}
 
 	var code models.ReferralCode
-	if err := db.DB.Where("code = ? AND is_active = ?", referralCode, true).First(&code).Error; err != nil {
+	if err := db.DB.Where("UPPER(code) = ? AND is_active = ?", referralCode, true).First(&code).Error; err != nil {
 		return // Invalid code
 	}
 
@@ -134,23 +138,33 @@ func ProcessReferralSignup(newUserID uuid.UUID, referralCode string) {
 		return
 	}
 
-	// Create pending reward
+	// One signup attribution per referred user
+	var existing models.ReferralReward
+	if err := db.DB.Where("referred_id = ? AND reward_type = ?", newUserID, models.RewardSignup).
+		First(&existing).Error; err == nil {
+		return
+	}
+
 	reward := models.ReferralReward{
 		ReferrerID:   code.UserID,
 		ReferredID:   newUserID,
-		ReferralCode: referralCode,
+		ReferralCode: code.Code,
 		RewardAmount: SignupReward,
 		RewardType:   models.RewardSignup,
 		Status:       models.RewardPending,
 	}
-	db.DB.Create(&reward)
+	if err := db.DB.Create(&reward).Error; err != nil {
+		logging.Error(err).
+			Str("referred_id", newUserID.String()).
+			Str("code", code.Code).
+			Msg("Failed to create referral signup reward")
+		return
+	}
 
-	// Update code stats
-	db.DB.Model(&code).Updates(map[string]interface{}{
-		"uses_count": code.UsesCount + 1,
-	})
+	if err := db.DB.Model(&code).Update("uses_count", gorm.Expr("uses_count + 1")).Error; err != nil {
+		logging.Error(err).Str("code", code.Code).Msg("Failed to increment referral uses_count")
+	}
 
-	// Credit immediately (or could wait for verification)
 	CreditReferralReward(reward.ID)
 }
 
@@ -165,49 +179,42 @@ func CreditReferralReward(rewardID uuid.UUID) {
 		return
 	}
 
-	tx := db.DB.Begin()
-
-	// Credit wallet
-	var wallet models.Wallet
-	if err := tx.First(&wallet, "user_id = ?", reward.ReferrerID).Error; err == nil {
-		newBalance := wallet.BalanceSOL + reward.RewardAmount
-		tx.Model(&wallet).Update("balance_sol", newBalance)
-
-		ledger := models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       reward.RewardAmount,
-			BalanceAfter: newBalance,
-			Type:         "referral_reward",
-			ReferenceID:  reward.ID.String(),
-			Description:  "Referral reward",
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var locked models.ReferralReward
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND status = ?", rewardID, models.RewardPending).
+			First(&locked).Error; err != nil {
+			return err
 		}
-		tx.Create(&ledger)
-	}
 
-	// Update reward status
-	if err := tx.Model(&reward).Update("status", models.RewardCredited).Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Str("reward_id", rewardID.String()).Msg("Failed to update reward status")
+		wallet, err := models.LockWalletForUpdate(tx, locked.ReferrerID)
+		if err != nil {
+			return err
+		}
+		if err := models.CreditWalletLocked(tx, wallet, locked.RewardAmount, "referral_reward",
+			locked.ID.String(), "Referral reward"); err != nil {
+			return err
+		}
+
+		if err := tx.Model(&locked).Update("status", models.RewardCredited).Error; err != nil {
+			return err
+		}
+
+		var code models.ReferralCode
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("code = ?", locked.ReferralCode).First(&code).Error; err == nil {
+			if err := tx.Model(&code).Update("total_earnings", code.TotalEarnings+locked.RewardAmount).Error; err != nil {
+				return err
+			}
+		}
+		reward = locked
+		return nil
+	})
+	if err != nil {
+		logging.Error(err).Str("reward_id", rewardID.String()).Msg("Failed to credit referral reward")
 		return
 	}
 
-	// Update referral code earnings
-	var code models.ReferralCode
-	if tx.Where("code = ?", reward.ReferralCode).First(&code).Error == nil {
-		if err := tx.Model(&code).Update("total_earnings", code.TotalEarnings+reward.RewardAmount).Error; err != nil {
-			tx.Rollback()
-			logging.Error(err).Str("code", reward.ReferralCode).Msg("Failed to update referral code earnings")
-			return
-		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Str("reward_id", rewardID.String()).Msg("Failed to commit referral reward")
-		return
-	}
-
-	// Notify referrer
 	ws.BroadcastToUser(reward.ReferrerID.String(), ws.MsgTypeNotification, gin.H{
 		"type":    "referral_reward",
 		"amount":  reward.RewardAmount,

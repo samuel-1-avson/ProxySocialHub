@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -19,7 +20,7 @@ import (
 
 const (
 	// DefaultProgramID is the ProxyHub Anchor program on devnet — overridden by SOLANA_PROGRAM_ID env var.
-	DefaultProgramID = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
+	DefaultProgramID = "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"
 
 	// ProgramID kept for backward-compat references in this package; prefer effectiveProgramID().
 	ProgramID = DefaultProgramID
@@ -84,9 +85,13 @@ type OracleClient struct {
 	currentIdx int
 	programID  sol.PublicKey
 	oracleKey  sol.PrivateKey
-	hsm        HSMSigner
-	network    string
-	velocity   *VelocityGuard // nil until SetVelocityGuard is called
+	// treasuryHotKey is the operational payout wallet (BC-08). When set and
+	// distinct from oracleKey, SendSOL / BatchTransferSOL spend from this key
+	// instead of the oracle signing key. Empty means legacy "oracle == treasury".
+	treasuryHotKey sol.PrivateKey
+	hsm            HSMSigner
+	network        string
+	velocity       *VelocityGuard // nil until SetVelocityGuard is called
 }
 
 // SetVelocityGuard attaches a VelocityGuard to the client.
@@ -105,8 +110,11 @@ func (c *OracleClient) VelocityGuardInstance() *VelocityGuard {
 type Config struct {
 	// RPC endpoints (comma-separated or slice)
 	RPCEndpoints []string
-	// Path to oracle keypair JSON file
+	// Path to oracle keypair JSON file (signing authority — settle/attest)
 	OracleKeypairPath string
+	// Path to treasury hot keypair JSON file (payout wallet — SendSOL).
+	// When empty, payouts fall back to the oracle key (legacy, discouraged).
+	TreasuryHotKeypairPath string
 	// Network name for logging (devnet, mainnet-beta)
 	Network string
 }
@@ -167,6 +175,15 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		hsm = NewMockHSMSigner(k)
 	}
 
+	var treasuryHot sol.PrivateKey
+	if path := strings.TrimSpace(cfg.TreasuryHotKeypairPath); path != "" {
+		tk, err := loadKeypair(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load treasury hot keypair: %w", err)
+		}
+		treasuryHot = tk
+	}
+
 	cfg.RPCEndpoints = NormalizeRPCEndpoints(cfg.RPCEndpoints)
 	if len(cfg.RPCEndpoints) == 0 {
 		return nil, fmt.Errorf("no RPC endpoints provided")
@@ -178,14 +195,21 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		rpcClients[i] = NewRPCClient(endpoint)
 	}
 
-	return &OracleClient{
-		rpcClients: rpcClients,
-		currentIdx: 0,
-		programID:  programID,
-		oracleKey:  oracleKey,
-		hsm:        hsm,
-		network:    cfg.Network,
-	}, nil
+	client := &OracleClient{
+		rpcClients:     rpcClients,
+		currentIdx:     0,
+		programID:      programID,
+		oracleKey:      oracleKey,
+		treasuryHotKey: treasuryHot,
+		hsm:            hsm,
+		network:        cfg.Network,
+	}
+
+	if err := client.validateCustodySeparation(); err != nil {
+		return nil, err
+	}
+
+	return client, nil
 }
 
 // rpc returns the current active RPC client
@@ -361,6 +385,108 @@ func (c *OracleClient) GetOraclePublicKey() sol.PublicKey {
 	return c.oracleKey.PublicKey()
 }
 
+// GetPayoutPublicKey returns the wallet that funds SendSOL / BatchTransferSOL.
+// Prefer the dedicated treasury hot key (BC-08); fall back to oracle for legacy deploys.
+func (c *OracleClient) GetPayoutPublicKey() sol.PublicKey {
+	if len(c.treasuryHotKey) > 0 {
+		return c.treasuryHotKey.PublicKey()
+	}
+	return c.GetOraclePublicKey()
+}
+
+// HasSeparateTreasuryHot reports whether a distinct treasury hot keypair is loaded.
+func (c *OracleClient) HasSeparateTreasuryHot() bool {
+	if len(c.treasuryHotKey) == 0 {
+		return false
+	}
+	return !c.treasuryHotKey.PublicKey().Equals(c.GetOraclePublicKey())
+}
+
+func isProdLikeEnv() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	switch env {
+	case "production", "prod", "staging", "testnet":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateCustodySeparation enforces BC-08 in prod-like envs: oracle signing key must
+// not be the same wallet as the treasury hot payout key.
+func (c *OracleClient) validateCustodySeparation() error {
+	prod := isProdLikeEnv()
+
+	if len(c.treasuryHotKey) == 0 {
+		if prod {
+			return fmt.Errorf("BC-08: SOLANA_TREASURY_HOT_KEYPAIR is required in %s (oracle must not fund payouts)", strings.TrimSpace(os.Getenv("APP_ENV")))
+		}
+		return nil
+	}
+
+	if c.treasuryHotKey.PublicKey().Equals(c.GetOraclePublicKey()) {
+		if prod {
+			return fmt.Errorf("BC-08: treasury hot keypair pubkey equals oracle pubkey — custody not split")
+		}
+		fmt.Printf("[SolanaClient] WARNING: treasury hot keypair matches oracle (legacy custody); set distinct keys before production\n")
+	}
+	return nil
+}
+
+// ValidateConfiguredTreasuryAddresses checks env pubkeys against loaded keys (BC-08).
+// Call after env is fully loaded. Returns a non-nil error in production on misconfig.
+func ValidateConfiguredTreasuryAddresses(oracle *OracleClient) error {
+	if oracle == nil {
+		return nil
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	prod := isProdLikeEnv()
+
+	oraclePK := oracle.GetOraclePublicKey()
+	payoutPK := oracle.GetPayoutPublicKey()
+
+	hotEnv := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_ADDRESS"))
+	if hotEnv == "" {
+		hotEnv = strings.TrimSpace(os.Getenv("SOLANA_TREASURY_ADDRESS"))
+	}
+	if hotEnv != "" {
+		hotPK, err := sol.PublicKeyFromBase58(hotEnv)
+		if err != nil {
+			return fmt.Errorf("invalid SOLANA_TREASURY_HOT_ADDRESS/SOLANA_TREASURY_ADDRESS: %w", err)
+		}
+		if !hotPK.Equals(payoutPK) {
+			msg := fmt.Sprintf("treasury hot address %s does not match payout keypair %s", hotPK, payoutPK)
+			if prod {
+				return fmt.Errorf("BC-08: %s", msg)
+			}
+			fmt.Printf("[SolanaClient] WARNING: %s\n", msg)
+		}
+		if hotPK.Equals(oraclePK) && prod {
+			return fmt.Errorf("BC-08: SOLANA_TREASURY_HOT_ADDRESS equals oracle pubkey — deposit/payout custody not split")
+		}
+	}
+
+	coldEnv := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_COLD_ADDRESS"))
+	if coldEnv != "" {
+		coldPK, err := sol.PublicKeyFromBase58(coldEnv)
+		if err != nil {
+			return fmt.Errorf("invalid SOLANA_TREASURY_COLD_ADDRESS: %w", err)
+		}
+		if coldPK.Equals(oraclePK) || coldPK.Equals(payoutPK) {
+			msg := "SOLANA_TREASURY_COLD_ADDRESS must differ from oracle and hot treasury"
+			if prod {
+				return fmt.Errorf("BC-08: %s", msg)
+			}
+			fmt.Printf("[SolanaClient] WARNING: %s\n", msg)
+		}
+	} else if prod {
+		fmt.Printf("[SolanaClient] WARNING: SOLANA_TREASURY_COLD_ADDRESS unset — cold storage not configured\n")
+	}
+
+	_ = env
+	return nil
+}
+
 // SignMessage signs arbitrary message bytes using the oracle's HSM or private key.
 func (c *OracleClient) SignMessage(ctx context.Context, message []byte) ([]byte, error) {
 	if c.hsm != nil {
@@ -370,48 +496,44 @@ func (c *OracleClient) SignMessage(ctx context.Context, message []byte) ([]byte,
 }
 
 // SignTransaction signs a Solana transaction using the oracle's HSM or private key.
+// SignTransaction signs a Solana transaction with any keys this client holds
+// (oracle HSM/local key and optional treasury hot key).
 func (c *OracleClient) SignTransaction(ctx context.Context, tx *sol.Transaction) error {
-	if c.hsm != nil {
-		msgBytes, err := tx.Message.MarshalBinary()
-		if err != nil {
-			return fmt.Errorf("failed to marshal transaction message: %w", err)
-		}
-		sigBytes, err := c.hsm.Sign(ctx, msgBytes)
-		if err != nil {
-			return fmt.Errorf("failed to sign with HSM: %w", err)
+	msgBytes, err := tx.Message.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("failed to marshal transaction message: %w", err)
+	}
+
+	n := int(tx.Message.Header.NumRequiredSignatures)
+	if len(tx.Signatures) < n {
+		newSigs := make([]sol.Signature, n)
+		copy(newSigs, tx.Signatures)
+		tx.Signatures = newSigs
+	}
+
+	for i := 0; i < n; i++ {
+		key := tx.Message.AccountKeys[i]
+		var sigBytes []byte
+
+		switch {
+		case len(c.treasuryHotKey) > 0 && key.Equals(c.treasuryHotKey.PublicKey()):
+			sigBytes = ed25519.Sign(ed25519.PrivateKey(c.treasuryHotKey), msgBytes)
+		case c.hsm != nil && key.Equals(c.hsm.PublicKey()):
+			sigBytes, err = c.hsm.Sign(ctx, msgBytes)
+			if err != nil {
+				return fmt.Errorf("failed to sign with HSM: %w", err)
+			}
+		case len(c.oracleKey) > 0 && key.Equals(c.oracleKey.PublicKey()):
+			sigBytes = ed25519.Sign(ed25519.PrivateKey(c.oracleKey), msgBytes)
+		default:
+			return fmt.Errorf("missing signer material for required key %s", key.String())
 		}
 
 		var signature sol.Signature
 		copy(signature[:], sigBytes)
-
-		oraclePubkey := c.hsm.PublicKey()
-		signerIndex := -1
-		for i, key := range tx.Message.AccountKeys {
-			if key.Equals(oraclePubkey) {
-				signerIndex = i
-				break
-			}
-		}
-		if signerIndex == -1 || signerIndex >= int(tx.Message.Header.NumRequiredSignatures) {
-			return fmt.Errorf("oracle public key not found as signer in transaction")
-		}
-
-		if len(tx.Signatures) <= signerIndex {
-			newSigs := make([]sol.Signature, tx.Message.Header.NumRequiredSignatures)
-			copy(newSigs, tx.Signatures)
-			tx.Signatures = newSigs
-		}
-		tx.Signatures[signerIndex] = signature
-		return nil
+		tx.Signatures[i] = signature
 	}
-
-	_, err := tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
-		if key.Equals(c.oracleKey.PublicKey()) {
-			return &c.oracleKey
-		}
-		return nil
-	})
-	return err
+	return nil
 }
 
 // GetNetwork returns the current network (devnet, mainnet-beta, etc)

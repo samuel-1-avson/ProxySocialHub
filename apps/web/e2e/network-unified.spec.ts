@@ -22,7 +22,7 @@ test.describe('unified network shell', () => {
         await expect(page).toHaveURL(/\/network/, { timeout: 30_000 });
         await expect(page.getByTestId('network-shell')).toBeVisible({ timeout: 30_000 });
         await expect(page.getByTestId('network-map-embed')).toBeVisible({ timeout: 60_000 });
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 60_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 60_000 });
         await expect(page.getByTestId('network-map-full-link')).toBeVisible();
         await expect(page.getByRole('link', { name: /open marketplace map/i }).first()).toBeVisible();
     });

@@ -192,6 +192,14 @@ export default function UnifiedWalletPage() {
                       processing={processing}
                       linkedAddress={wallet?.linked_solana_address}
                       connected={connected}
+                      publicKeyMismatch={
+                        !!(
+                          connected &&
+                          publicKey &&
+                          wallet?.linked_solana_address &&
+                          publicKey.toBase58() !== wallet.linked_solana_address
+                        )
+                      }
                       isLocalSolanaRpc={isLocalSolanaRpc}
                       isDevnet={isDevnet}
                       treasuryAddress={treasuryConfig?.treasury_solana}

@@ -2,8 +2,8 @@ package db
 
 import (
 	"log"
-
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -31,7 +31,7 @@ func seedSystemConfig() {
 	configs := []models.SystemConfiguration{
 		{
 			Key:         "treasury_wallet_solana",
-			Value:       os.Getenv("SOLANA_TREASURY_ADDRESS"),
+			Value:       strings.TrimSpace(os.Getenv("SOLANA_TREASURY_ADDRESS")),
 			Description: "Central Treasury Wallet for Solana Deposits",
 		},
 	}
@@ -39,13 +39,21 @@ func seedSystemConfig() {
 	for _, c := range configs {
 		var existing models.SystemConfiguration
 		if err := DB.Where("key = ?", c.Key).First(&existing).Error; err == nil {
-			// Update existing record
+			// Never blank a configured treasury address during migrate/seed when env is unset
+			// (db-migrate often lacks SOLANA_TREASURY_ADDRESS).
+			if c.Value == "" {
+				log.Printf("Skipping config update for %s: env value empty (keeping existing)", c.Key)
+				continue
+			}
 			if existing.Value != c.Value {
 				DB.Model(&existing).Update("value", c.Value)
 				log.Printf("Updated config: %s to %s", c.Key, c.Value)
 			}
 		} else if err == gorm.ErrRecordNotFound {
-			// Create new record
+			if c.Value == "" {
+				log.Printf("Skipping seed for %s: env value empty", c.Key)
+				continue
+			}
 			c.ID = uuid.New()
 			if err := DB.Create(&c).Error; err != nil {
 				log.Printf("Failed to seed config %s: %v", c.Key, err)

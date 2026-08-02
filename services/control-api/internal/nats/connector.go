@@ -50,6 +50,9 @@ func Init() error {
 		{name: "SETTLEMENT", subjects: []string{"proxy.settlement.v1.>"}, maxAge: 30 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
 		{name: "TELEMETRY", subjects: []string{"proxy.telemetry.v1.>"}, maxAge: 24 * time.Hour, maxBytes: 1024 * 1024 * 1024},
 		{name: "MESSAGING", subjects: []string{"proxy.messaging.v1.>"}, maxAge: 14 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
+		// EV-01: treasury events (topup, reconciliation) were published into a
+		// subject space with no stream and silently dropped.
+		{name: "TREASURY", subjects: []string{"proxy.treasury.v1.>"}, maxAge: 30 * 24 * time.Hour, maxBytes: 500 * 1024 * 1024},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

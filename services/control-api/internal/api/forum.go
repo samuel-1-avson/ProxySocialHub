@@ -29,14 +29,15 @@ func RegisterForumPublicRoutes(rg *gin.RouterGroup) {
 
 // RegisterForumProtectedRoutes registers forum routes that require a user session.
 func RegisterForumProtectedRoutes(rg *gin.RouterGroup) {
-	rg.POST("/forum/threads", createThread)
-	rg.POST("/forum/threads/:id/posts", createPost)
+	rg.POST("/forum/threads", RateLimitWithConfig(10, time.Minute), createThread)
+	rg.POST("/forum/threads/:id/posts", RateLimitWithConfig(30, time.Minute), createPost)
 	rg.PATCH("/forum/posts/:id", updatePost)
 	rg.DELETE("/forum/posts/:id", deletePost)
-	rg.POST("/forum/posts/:id/vote", votePost)
-	rg.POST("/forum/threads/:id/vote", voteThread)
-	rg.POST("/forum/threads/:id/report", reportThread)
-	rg.POST("/forum/posts/:id/report", reportPost)
+	rg.POST("/forum/posts/:id/vote", RateLimitWithConfig(60, time.Minute), votePost)
+	rg.POST("/forum/threads/:id/vote", RateLimitWithConfig(60, time.Minute), voteThread)
+	rg.POST("/forum/threads/:id/report", RateLimitWithConfig(10, time.Minute), reportThread)
+	rg.POST("/forum/posts/:id/report", RateLimitWithConfig(10, time.Minute), reportPost)
+	rg.POST("/forum/posts/:id/solution", markPostSolution)
 	rg.GET("/forum/my-posts", getMyPosts)
 	rg.GET("/forum/my-threads", getMyThreads)
 }
@@ -81,7 +82,7 @@ func getCategories(c *gin.Context) {
 	result := make([]CategoryWithCount, len(categories))
 	for i, cat := range categories {
 		var count int64
-		db.Social().Model(&models.ForumThread{}).Where("category_id = ?", cat.ID).Count(&count)
+		db.Social().Model(&models.ForumThread{}).Where("category_id = ? AND is_hidden = ?", cat.ID, false).Count(&count)
 		result[i] = CategoryWithCount{
 			ForumCategory: cat,
 			ThreadCount:   int(count),
@@ -103,7 +104,7 @@ func getCategory(c *gin.Context) {
 
 	// Count threads in category
 	var threadCount int64
-	db.Social().Model(&models.ForumThread{}).Where("category_id = ?", category.ID).Count(&threadCount)
+	db.Social().Model(&models.ForumThread{}).Where("category_id = ? AND is_hidden = ?", category.ID, false).Count(&threadCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"category":     category,
@@ -122,9 +123,12 @@ func getCategoryThreads(c *gin.Context) {
 	}
 
 	var threads []models.ForumThread
-	db.Social().Preload("Author").Preload("LastReplier").
-		Where("category_id = ?", category.ID).
-		Order("is_pinned DESC, last_reply_at DESC NULLS LAST, created_at DESC").
+	q := db.Social().Preload("Author").Preload("LastReplier").
+		Where("category_id = ?", category.ID)
+	if !isPlatformModerator(c) {
+		q = q.Where("is_hidden = ?", false)
+	}
+	q.Order("is_pinned DESC, last_reply_at DESC NULLS LAST, created_at DESC").
 		Limit(50).
 		Find(&threads)
 
@@ -201,6 +205,11 @@ func getThreadPosts(c *gin.Context) {
 }
 
 func renderThreadWithPosts(c *gin.Context, thread models.ForumThread, incrementViews bool) {
+	if thread.IsHidden && !isPlatformModerator(c) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+
 	if incrementViews {
 		db.Social().Model(&models.ForumThread{}).
 			Where("id = ?", thread.ID).
@@ -228,17 +237,22 @@ func loadThreadPosts(c *gin.Context, threadID uuid.UUID) ([]models.ForumPost, in
 	limit := getLimitParam(c, 20)
 	offset := (page - 1) * limit
 
+	q := db.Social().Model(&models.ForumPost{}).Where("thread_id = ?", threadID)
+	if !isPlatformModerator(c) {
+		q = q.Where("is_hidden = ?", false)
+	}
+
 	var totalPosts int64
-	if err := db.Social().Model(&models.ForumPost{}).Where("thread_id = ?", threadID).Count(&totalPosts).Error; err != nil {
+	if err := q.Count(&totalPosts).Error; err != nil {
 		return nil, 0, 0, 0, err
 	}
 
+	listQ := db.Social().Preload("Author").Where("thread_id = ?", threadID)
+	if !isPlatformModerator(c) {
+		listQ = listQ.Where("is_hidden = ?", false)
+	}
 	var posts []models.ForumPost
-	if err := db.Social().Preload("Author").
-		Where("thread_id = ?", threadID).
-		Order("created_at ASC").
-		Offset(offset).Limit(limit).
-		Find(&posts).Error; err != nil {
+	if err := listQ.Order("created_at ASC").Offset(offset).Limit(limit).Find(&posts).Error; err != nil {
 		return nil, 0, 0, 0, err
 	}
 
@@ -271,17 +285,28 @@ func createThread(c *gin.Context) {
 		return
 	}
 
-	if category.IsLocked {
+	if category.IsLocked && !isPlatformModerator(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Category is locked"})
+		return
+	}
+
+	title := strings.TrimSpace(req.Title)
+	content := strings.TrimSpace(req.Content)
+	if len([]rune(title)) < 5 || len([]rune(title)) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Title must be 5–200 characters"})
+		return
+	}
+	if len([]rune(content)) < 10 || len([]rune(content)) > 20000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 10–20000 characters"})
 		return
 	}
 
 	thread := models.ForumThread{
 		CategoryID: category.ID,
 		AuthorID:   userID,
-		Title:      req.Title,
-		Slug:       slugify(req.Title),
-		Content:    req.Content,
+		Title:      title,
+		Slug:       slugify(title),
+		Content:    content,
 	}
 
 	if err := db.Social().Create(&thread).Error; err != nil {
@@ -348,10 +373,16 @@ func createPost(c *gin.Context) {
 		return
 	}
 
+	content := strings.TrimSpace(req.Content)
+	if len([]rune(content)) < 1 || len([]rune(content)) > 10000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 1–10000 characters"})
+		return
+	}
+
 	post := models.ForumPost{
 		ThreadID: threadID,
 		AuthorID: userID,
-		Content:  req.Content,
+		Content:  content,
 		ParentID: req.ParentID,
 	}
 
@@ -386,7 +417,7 @@ func createPost(c *gin.Context) {
 			UserID:     thread.AuthorID,
 			Type:       models.NotificationReply,
 			Title:      "New forum reply",
-			Body:       truncate(req.Content, 160),
+			Body:       truncate(content, 160),
 			ActionURL:  "/community/forum/thread/" + threadID.String(),
 			ActionType: "open_thread",
 			ActorID:    &userID,
@@ -423,6 +454,12 @@ func updatePost(c *gin.Context) {
 		return
 	}
 
+	content := strings.TrimSpace(req.Content)
+	if len([]rune(content)) < 1 || len([]rune(content)) > 10000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 1–10000 characters"})
+		return
+	}
+
 	var post models.ForumPost
 	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
@@ -443,7 +480,7 @@ func updatePost(c *gin.Context) {
 		return
 	}
 
-	if err := db.Social().Model(&post).Update("content", req.Content).Error; err != nil {
+	if err := db.Social().Model(&post).Update("content", content).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update post"})
 		return
 	}
@@ -503,6 +540,59 @@ func deletePost(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Post deleted"})
+}
+
+type markSolutionRequest struct {
+	IsSolution bool `json:"is_solution"`
+}
+
+// markPostSolution lets the thread author (or moderator) mark a reply as the solution.
+func markPostSolution(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	postID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid post ID"})
+		return
+	}
+	var req markSolutionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var post models.ForumPost
+	if err := db.Social().First(&post, "id = ?", postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+		return
+	}
+	var thread models.ForumThread
+	if err := db.Social().First(&thread, "id = ?", post.ThreadID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Thread not found"})
+		return
+	}
+	if thread.AuthorID != userID && !isPlatformModerator(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only the thread author or a moderator can mark a solution"})
+		return
+	}
+
+	if req.IsSolution {
+		_ = db.Social().Model(&models.ForumPost{}).
+			Where("thread_id = ? AND is_solution = true", post.ThreadID).
+			Update("is_solution", false).Error
+	}
+	if err := db.Social().Model(&post).Updates(map[string]interface{}{
+		"is_solution": req.IsSolution,
+		"updated_at":  time.Now().UTC(),
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update solution"})
+		return
+	}
+	db.Social().Preload("Author").First(&post, "id = ?", postID)
+	c.JSON(http.StatusOK, post)
 }
 
 type VoteRequest struct {
@@ -677,10 +767,11 @@ func voteThread(c *gin.Context) {
 func getRecentThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.Social().Preload("Author").Preload("Category").
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&threads)
+	q := db.Social().Preload("Author").Preload("Category")
+	if !isPlatformModerator(c) {
+		q = q.Where("is_hidden = ?", false)
+	}
+	q.Order("created_at DESC").Limit(limit).Find(&threads)
 
 	c.JSON(http.StatusOK, gin.H{"threads": threads})
 }
@@ -689,10 +780,11 @@ func getRecentThreads(c *gin.Context) {
 func getPopularThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.Social().Preload("Author").Preload("Category").
-		Order("(upvotes - downvotes) DESC, created_at DESC").
-		Limit(limit).
-		Find(&threads)
+	q := db.Social().Preload("Author").Preload("Category")
+	if !isPlatformModerator(c) {
+		q = q.Where("is_hidden = ?", false)
+	}
+	q.Order("(upvotes - downvotes) DESC, created_at DESC").Limit(limit).Find(&threads)
 
 	c.JSON(http.StatusOK, gin.H{"threads": threads})
 }
@@ -701,11 +793,11 @@ func getPopularThreads(c *gin.Context) {
 func getUnansweredThreads(c *gin.Context) {
 	limit := getLimitParam(c, 20)
 	var threads []models.ForumThread
-	db.Social().Preload("Author").Preload("Category").
-		Where("replies_count = ?", 0).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&threads)
+	q := db.Social().Preload("Author").Preload("Category").Where("replies_count = ?", 0)
+	if !isPlatformModerator(c) {
+		q = q.Where("is_hidden = ?", false)
+	}
+	q.Order("created_at DESC").Limit(limit).Find(&threads)
 
 	c.JSON(http.StatusOK, gin.H{"threads": threads})
 }
@@ -737,15 +829,17 @@ func searchForum(c *gin.Context) {
 	var total int64
 
 	// ILIKE search (Case-insensitive)
-	db.Social().Model(&models.ForumThread{}).
-		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
-		Count(&total)
+	countQ := db.Social().Model(&models.ForumThread{}).
+		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%")
+	listQ := db.Social().Preload("Author").Preload("Category").
+		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%")
+	if !isPlatformModerator(c) {
+		countQ = countQ.Where("is_hidden = ?", false)
+		listQ = listQ.Where("is_hidden = ?", false)
+	}
+	countQ.Count(&total)
 
-	if err := db.Social().Preload("Author").Preload("Category").
-		Where("title ILIKE ? OR content ILIKE ?", "%"+queryStr+"%", "%"+queryStr+"%").
-		Order("created_at DESC").
-		Offset(offset).Limit(limit).
-		Find(&threads).Error; err != nil {
+	if err := listQ.Order("created_at DESC").Offset(offset).Limit(limit).Find(&threads).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Search failed"})
 		return
 	}

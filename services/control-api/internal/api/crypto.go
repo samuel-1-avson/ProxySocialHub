@@ -246,6 +246,22 @@ func linkWallet(c *gin.Context) {
 		return
 	}
 
+	if req.Chain == "solana" {
+		if err := ensurePrimaryLinkedSolana(tx, user.ID, req.WalletAddress, &req.Signature, &req.Message); err != nil {
+			tx.Rollback()
+			logging.Error(err).
+				Str("user_id", userID).
+				Str("wallet_address", req.WalletAddress).
+				Msg("Failed to upsert linked_wallets on /wallet/link")
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "another account") {
+				status = http.StatusConflict
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet linked successfully"})
 }
@@ -541,10 +557,12 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	wallet.CreditSOL(creditedAmount)
-
-	if err := tx.Save(&wallet).Error; err != nil {
+	if err := models.CreditWalletLockedOpts(tx, &wallet, creditedAmount, "deposit", req.TxHash,
+		fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
+		models.LedgerOpts{TxHash: req.TxHash},
+	); err != nil {
 		tx.Rollback()
+		logging.Error(err).Str("tx_hash", req.TxHash).Str("user_id", userID).Msg("Failed to credit wallet / ledger")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to credit wallet"})
 		return
 	}
@@ -571,22 +589,6 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Msg("Failed to create pending transaction - possible duplicate or constraint violation")
 		// If uniqueness constraint fails here, it catches the race condition too
 		c.JSON(http.StatusConflict, gin.H{"error": "Transaction already processed: " + err.Error()})
-		return
-	}
-
-	ledger := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       creditedAmount,
-		BalanceAfter: wallet.BalanceSOL,
-		Type:         "deposit",
-		ReferenceID:  req.TxHash,
-		TxHash:       req.TxHash,
-		Description:  fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
-	}
-	if err := tx.Create(&ledger).Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Str("tx_hash", req.TxHash).Str("user_id", userID).Msg("Failed to create wallet ledger entry")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record deposit in ledger"})
 		return
 	}
 

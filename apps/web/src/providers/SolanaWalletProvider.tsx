@@ -187,7 +187,7 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
 
     return (
         <ConnectionProvider endpoint={endpoint}>
-            <WalletProvider wallets={wallets} autoConnect={enableTestWallet} onError={(err) => {
+            <WalletProvider wallets={wallets} autoConnect onError={(err) => {
                 // Suppress "source not authorized" errors from autoConnect which are expected if user declined
                 if (err.message?.includes('not authorized') || err.message?.includes('The source')) {
                     console.log('Wallet auto-connect declined or not authorized yet.');

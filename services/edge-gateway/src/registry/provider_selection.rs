@@ -2,6 +2,7 @@
 
 use crate::auth::SessionAuthenticator;
 use crate::config::EdgeMode;
+use crate::registry::lockfree::LockFreeNodeRegistry;
 use crate::state::AppState;
 use std::sync::Arc;
 use tracing::Instrument;
@@ -29,6 +30,7 @@ pub async fn select_provider_route(
     target_geo: Option<&str>,
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
+    target_isp: Option<&str>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let span = crate::observability::provider_select_span(session_id, target_domain);
     select_provider_route_inner(
@@ -39,6 +41,7 @@ pub async fn select_provider_route(
         target_geo,
         target_domain,
         pinned_node_id,
+        target_isp,
     )
     .instrument(span)
     .await
@@ -52,6 +55,7 @@ async fn select_provider_route_inner(
     target_geo: Option<&str>,
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
+    target_isp: Option<&str>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let node_id = match select_provider_node_id(
         state.clone(),
@@ -61,6 +65,7 @@ async fn select_provider_route_inner(
         target_geo,
         target_domain,
         pinned_node_id,
+        target_isp,
     )
     .await?
     {
@@ -247,6 +252,7 @@ async fn select_provider_node_id(
     target_geo: Option<&str>,
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
+    target_isp: Option<&str>,
 ) -> std::io::Result<Option<String>> {
     if let Some(pinned) = pinned_node_id.filter(|id| !id.is_empty()) {
         if pinned_node_available(state.clone(), pinned).await? {
@@ -331,6 +337,43 @@ async fn select_provider_node_id(
             .map(|n| n.node_id.clone())
     };
 
+    // GW-04: honor buyer ISP targeting. A mismatched primary falls back to an
+    // ISP-filtered fresh candidate list; a pinned marketplace node that does
+    // not verifiably match the requested ISP is rejected outright (the buyer
+    // explicitly asked for a specific ISP).
+    let node_id = if let Some(isp) = target_isp.filter(|s| !s.is_empty()) {
+        let primary_ok = node_id
+            .as_deref()
+            .map(|id| node_matches_isp(&state.registry, id, isp))
+            .unwrap_or(false);
+        if primary_ok {
+            node_id
+        } else if pinned_node_id.filter(|p| !p.is_empty()).is_some() {
+            tracing::warn!(
+                node_id = ?node_id,
+                %isp,
+                session_id = %session_id,
+                "pinned provider does not verifiably match requested ISP — rejecting"
+            );
+            None
+        } else {
+            let candidates = isp_filtered_candidates(&state.registry, target_geo, isp);
+            if candidates.is_empty() {
+                tracing::warn!(
+                    %isp,
+                    session_id = %session_id,
+                    "no providers verifiably match requested ISP"
+                );
+                None
+            } else {
+                tracing::info!(%isp, count = candidates.len(), "ISP-filtered candidates");
+                candidates.into_iter().next()
+            }
+        }
+    } else {
+        node_id
+    };
+
     if let Some(ref id) = node_id {
         if is_sticky && sticky_node_id.is_none() && !session_id.is_empty() {
             if let Err(e) = authenticator
@@ -360,6 +403,7 @@ pub async fn attribution_node_id(
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
 ) -> Option<String> {
+    // Honeytoken attribution does not gate on ISP targeting.
     select_provider_node_id(
         state,
         session_id,
@@ -368,8 +412,154 @@ pub async fn attribution_node_id(
         target_geo,
         target_domain,
         pinned_node_id,
+        None,
     )
     .await
     .ok()
     .flatten()
+}
+
+/// GW-04: does this node verifiably match the buyer's requested ISP?
+/// Unknown ISP on the node side counts as non-match — an explicit ISP request
+/// must not silently land on an unverified exit.
+pub fn node_matches_isp(
+    registry: &LockFreeNodeRegistry,
+    node_id: &str,
+    target_isp: &str,
+) -> bool {
+    match registry.get_node_info(node_id) {
+        Some(info) => !info.isp.is_empty() && info.isp.eq_ignore_ascii_case(target_isp),
+        None => false,
+    }
+}
+
+/// ISP-filtered fresh candidates for buyer selection (GW-04).
+pub fn isp_filtered_candidates(
+    registry: &LockFreeNodeRegistry,
+    target_geo: Option<&str>,
+    target_isp: &str,
+) -> Vec<String> {
+    filtered_candidates(
+        registry,
+        &std::collections::HashSet::new(),
+        target_geo,
+        Some(target_isp),
+    )
+}
+
+/// Up-to-N alternates for provider failover (GW-06), honoring the buyer's
+/// geo/ISP constraints and skipping already-failed nodes.
+pub fn failover_candidates(
+    registry: &LockFreeNodeRegistry,
+    exclude: &std::collections::HashSet<String>,
+    target_geo: Option<&str>,
+    target_isp: Option<&str>,
+) -> Vec<String> {
+    filtered_candidates(registry, exclude, target_geo, target_isp)
+}
+
+fn filtered_candidates(
+    registry: &LockFreeNodeRegistry,
+    exclude: &std::collections::HashSet<String>,
+    target_geo: Option<&str>,
+    target_isp: Option<&str>,
+) -> Vec<String> {
+    filter_node_infos(registry.list_nodes(), exclude, target_geo, target_isp)
+}
+
+/// Pure candidate filter/sort (health, lease freshness, exclusions, geo, ISP)
+/// — split out for unit testing without a live yamux control.
+fn filter_node_infos(
+    infos: Vec<crate::state::NodeInfo>,
+    exclude: &std::collections::HashSet<String>,
+    target_geo: Option<&str>,
+    target_isp: Option<&str>,
+) -> Vec<String> {
+    use crate::auth::provider_lease::{lease_is_fresh, provider_leases_required};
+
+    let mut scored: Vec<(f64, u32, String)> = infos
+        .into_iter()
+        .filter(|n| n.is_healthy)
+        .filter(|n| !provider_leases_required() || lease_is_fresh(n.lease_expires_at))
+        .filter(|n| !exclude.contains(&n.node_id))
+        .filter(|n| {
+            target_geo
+                .map(|g| g.is_empty() || n.country_code.eq_ignore_ascii_case(g))
+                .unwrap_or(true)
+        })
+        .filter(|n| match target_isp {
+            Some(isp) if !isp.is_empty() => {
+                !n.isp.is_empty() && n.isp.eq_ignore_ascii_case(isp)
+            }
+            _ => true,
+        })
+        .map(|n| (n.quality_score, n.latency_ms, n.node_id))
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    scored.into_iter().map(|(_, _, id)| id).collect()
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    use crate::state::NodeInfo;
+
+    fn info(id: &str, country: &str, isp: &str, healthy: bool, score: f64, latency: u32) -> NodeInfo {
+        let mut n = NodeInfo::new(id.to_string(), "1.2.3.4".to_string(), None);
+        n.country_code = country.to_string();
+        n.isp = isp.to_string();
+        n.is_healthy = healthy;
+        n.quality_score = score;
+        n.latency_ms = latency;
+        n
+    }
+
+    #[test]
+    fn isp_filter_matches_case_insensitively() {
+        let nodes = vec![
+            info("a", "US", "Comcast", true, 90.0, 20),
+            info("b", "US", "Verizon", true, 95.0, 10),
+            info("c", "US", "", true, 99.0, 5), // unknown ISP must not match
+        ];
+        let out = filter_node_infos(nodes, &Default::default(), None, Some("comcast"));
+        assert_eq!(out, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn isp_filter_combined_with_geo() {
+        let nodes = vec![
+            info("a", "US", "Comcast", true, 90.0, 20),
+            info("b", "DE", "Comcast", true, 95.0, 10), // wrong country
+        ];
+        let out = filter_node_infos(nodes, &Default::default(), Some("US"), Some("Comcast"));
+        assert_eq!(out, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn failover_filter_excludes_failed_and_sorts_by_score() {
+        let nodes = vec![
+            info("dead", "US", "Comcast", true, 99.0, 1),
+            info("slow", "US", "Comcast", true, 90.0, 50),
+            info("best", "US", "Comcast", true, 95.0, 30),
+            info("sick", "US", "Comcast", false, 100.0, 1), // unhealthy dropped
+        ];
+        let exclude: std::collections::HashSet<String> = ["dead".to_string()].into_iter().collect();
+        let out = filter_node_infos(nodes, &exclude, None, Some("Comcast"));
+        assert_eq!(out, vec!["best".to_string(), "slow".to_string()]);
+    }
+
+    #[test]
+    fn no_isp_request_passes_all_healthy() {
+        let nodes = vec![
+            info("a", "US", "", true, 90.0, 20),
+            info("b", "DE", "Comcast", true, 80.0, 10),
+        ];
+        let out = filter_node_infos(nodes, &Default::default(), None, None);
+        assert_eq!(out.len(), 2);
+    }
 }

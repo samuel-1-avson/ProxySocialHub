@@ -8,78 +8,38 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
-	"gorm.io/gorm"
 )
 
-// ResolveEntitledPlan returns the plan currently entitling the user.
-// Cancelled subscriptions still entitle until current_period_end.
-// When none apply, returns the free plan (or a hard-coded free fallback).
+// ResolveEntitledPlan returns a synthetic plan from Access Pass entitlement.
+// Legacy DB subscriptions still entitle during grace (via ResolvePassEntitlement).
+// Prefer ResolvePassEntitlement for new call sites.
 func ResolveEntitledPlan(userID uuid.UUID) (*models.SubscriptionPlan, *models.UserSubscription, error) {
-	now := time.Now().UTC()
-	var sub models.UserSubscription
-	err := db.DB.Preload("Plan").
-		Where("user_id = ?", userID).
-		Where(`(
-			status = ? OR
-			(status = ? AND current_period_end IS NOT NULL AND current_period_end > ?)
-		)`, models.SubscriptionActive, models.SubscriptionCancelled, now).
-		Order("current_period_end DESC NULLS LAST").
-		First(&sub).Error
-
-	if err == nil && sub.Plan != nil {
-		// Expire active rows past period end on read.
-		if sub.Status == models.SubscriptionActive &&
-			sub.CurrentPeriodEnd != nil &&
-			sub.CurrentPeriodEnd.Before(now) &&
-			sub.CancelledAt == nil {
-			_ = db.DB.Model(&sub).Update("status", models.SubscriptionExpired)
-			plan, err := loadFreePlan()
-			return plan, nil, err
-		}
-		return sub.Plan, &sub, nil
-	}
-	if err != nil && err != gorm.ErrRecordNotFound {
+	ent, err := ResolvePassEntitlement(userID)
+	if err != nil {
 		return nil, nil, err
 	}
-	plan, ferr := loadFreePlan()
-	return plan, nil, ferr
+	return passEntitlementAsPlan(ent), ent.LegacySub, nil
 }
 
 func loadFreePlan() (*models.SubscriptionPlan, error) {
-	var free models.SubscriptionPlan
-	if err := db.DB.Where("LOWER(name) = ?", "free").First(&free).Error; err != nil {
-		fallback := models.SubscriptionPlan{
-			Name:             "free",
-			ListingLimit:     2,
-			BandwidthLimitGB: intPtr(10),
-			Features: models.Features{
-				APIAccess:   false,
-				Analytics:   false,
-				TeamMembers: 0,
-			},
-			IsActive: true,
-		}
-		return &fallback, nil
-	}
-	return &free, nil
+	ent := entitlementFromCaps(PassTierNone, "free")
+	return passEntitlementAsPlan(&ent), nil
 }
 
-func intPtr(v int) *int { return &v }
-
-// PlanBandwidthRemainingGB returns remaining monthly plan quota for the buyer.
-// unlimited=true when the plan has NULL bandwidth_limit_gb.
+// PlanBandwidthRemainingGB returns remaining period quota for the buyer.
+// unlimited=true when the entitlement has NULL bandwidth_limit_gb.
 func PlanBandwidthRemainingGB(userID uuid.UUID) (remaining float64, unlimited bool, limitGB float64, err error) {
-	plan, sub, err := ResolveEntitledPlan(userID)
+	ent, err := ResolvePassEntitlement(userID)
 	if err != nil {
 		return 0, false, 0, err
 	}
-	if plan.BandwidthLimitGB == nil {
+	if ent.BandwidthLimitGB == nil {
 		return 0, true, 0, nil
 	}
-	limitGB = float64(*plan.BandwidthLimitGB)
-	periodStart := time.Now().UTC().AddDate(0, -1, 0)
-	if sub != nil {
-		periodStart = sub.CurrentPeriodStart
+	limitGB = float64(*ent.BandwidthLimitGB)
+	periodStart := ent.PeriodStart
+	if periodStart.IsZero() {
+		periodStart = time.Now().UTC().AddDate(0, -1, 0)
 	}
 
 	// Only count escrow-confirmed consumption. Pending drafts, abandoned
@@ -103,7 +63,7 @@ func PlanBandwidthRemainingGB(userID uuid.UUID) (remaining float64, unlimited bo
 	return remaining, false, limitGB, nil
 }
 
-// EnsureBuyerBandwidthQuota rejects marketplace purchases that exceed plan remaining GB.
+// EnsureBuyerBandwidthQuota rejects marketplace purchases that exceed pass remaining GB.
 func EnsureBuyerBandwidthQuota(userID uuid.UUID, requestGB float64) error {
 	if requestGB <= 0 {
 		return fmt.Errorf("bandwidth_gb must be positive")
@@ -117,23 +77,23 @@ func EnsureBuyerBandwidthQuota(userID uuid.UUID, requestGB float64) error {
 	}
 	if requestGB > remaining+1e-9 {
 		return fmt.Errorf(
-			"plan bandwidth quota exceeded: requesting %.2f GB, remaining %.2f GB of %.0f GB period limit — upgrade your subscription",
+			"access pass bandwidth quota exceeded: requesting %.2f GB, remaining %.2f GB of %.0f GB period limit — mint a higher Access Pass",
 			requestGB, remaining, limitGB,
 		)
 	}
 	return nil
 }
 
-// CheckSubscriptionLimits checks if user is within their subscription limits.
+// CheckSubscriptionLimits checks if user is within their pass entitlement limits.
 func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
-	plan, _, err := ResolveEntitledPlan(userID)
+	ent, err := ResolvePassEntitlement(userID)
 	if err != nil {
 		return false, err
 	}
 
 	switch strings.ToLower(limitType) {
 	case "listings":
-		if plan.ListingLimit == 0 {
+		if ent.ListingLimit == 0 {
 			return true, nil // unlimited
 		}
 		var count int64
@@ -142,21 +102,21 @@ func CheckSubscriptionLimits(userID uuid.UUID, limitType string) (bool, error) {
 			Count(&count).Error; err != nil {
 			return false, err
 		}
-		return count < int64(plan.ListingLimit), nil
+		return count < int64(ent.ListingLimit), nil
 	case "api_access":
-		return plan.Features.APIAccess, nil
+		return ent.Features.APIAccess, nil
 	case "teams":
-		if plan.Features.TeamMembers < 0 {
+		if ent.Features.TeamMembers < 0 {
 			return true, nil // unlimited
 		}
-		if plan.Features.TeamMembers == 0 {
+		if ent.Features.TeamMembers == 0 {
 			return false, nil
 		}
 		var count int64
 		if err := db.DB.Model(&models.Team{}).Where("owner_id = ?", userID).Count(&count).Error; err != nil {
 			return false, err
 		}
-		return count < int64(plan.Features.TeamMembers), nil
+		return count < int64(ent.Features.TeamMembers), nil
 	case "bandwidth":
 		remaining, unlimited, _, err := PlanBandwidthRemainingGB(userID)
 		if err != nil {

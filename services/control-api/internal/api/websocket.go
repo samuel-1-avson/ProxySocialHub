@@ -1,6 +1,9 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
@@ -73,7 +77,7 @@ var upgrader = websocket.Upgrader{
 // HandleWebSocket upgrades HTTP to WebSocket and registers with neutral Hub
 func HandleWebSocket(c *gin.Context) {
 	userID := c.GetString("userID")
-	role := c.GetString("role")
+	role := c.GetString("userRole")
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -113,4 +117,40 @@ func BroadcastToAll(msgType string, data interface{}) {
 // RegisterWebSocketRoutes registers WebSocket routes
 func RegisterWebSocketRoutes(rg *gin.RouterGroup) {
 	rg.GET("/ws", HandleWebSocket)
+	rg.POST("/ws/ticket", issueWSTicket)
+}
+
+// issueWSTicket creates a short-lived (60s), single-use WebSocket auth ticket
+// so clients avoid putting JWTs in the WS upgrade URL (?ticket= instead of ?token=).
+func issueWSTicket(c *gin.Context) {
+	userID := c.GetString("userID")
+	if userID == "" {
+		if uid, ok := c.Get("user_id"); ok {
+			userID = fmt.Sprint(uid)
+		}
+	}
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	role := c.GetString("userRole")
+
+	ticket, err := generateTicket()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue ticket"})
+		return
+	}
+	if err := redis.StoreWSTicket(ticket, userID, role, 60*time.Second); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ticket store unavailable"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ticket": ticket, "expires_in": 60})
+}
+
+func generateTicket() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

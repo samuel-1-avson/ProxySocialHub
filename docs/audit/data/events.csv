@@ -1,0 +1,18 @@
+event_subject,transport,producer,consumer,schema,delivery,idempotent_consumer,dlq,status
+proxy.sessions.v1.created,NATS JetStream,session_service.go:88,provision_worker.go:61,JSON,at-least-once,yes(session row),none,OK
+proxy.sessions.v1.terminated,NATS JetStream,session_service.go:113,provision_worker.go:65,JSON,at-least-once,n/a,none,OK
+proxy.settlement.v1.receipts.created,NATS JetStream,settlement/coordinator.go:118,settlement_coordinator_worker.go:33,ReceiptCreatedEvent,at-least-once,yes(unique nonce),none,OK
+proxy.settlement.v1.manifests.coordinated,NATS JetStream,coordinator.go:177,NONE,ManifestCoordinatedEvent,at-least-once,n/a,none,orphan (EV-02)
+proxy.telemetry.v1.heartbeat,NATS JetStream,provider_nodes.go:612,marketplace_watcher.go:38,JSON,at-least-once,n/a,none,OK
+proxy.telemetry.v1.alerts,NATS JetStream,watchtower.go:92 reconciliation.go:350,NONE,map,at-least-once,n/a,none,weak
+proxy.messaging.v1.broadcast,NATS JetStream,ws/hub.go:181,ws/hub.go:140,WS message,at-least-once,n/a,none,OK
+proxy.treasury.v1.topup,NATS (no stream),treasury_manager.go:261,NONE,map,dropped,n/a,none,broken (EV-01)
+proxy.treasury.v1.reconciliation,NATS (no stream),reconciliation.go:346,NONE,report,dropped,n/a,none,broken (EV-01)
+events:bandwidth.consumed,Redis Stream,usage.go:199,worker.go:44 (log-only),stream entry,streams+CG,loose,none,consumer-non-durable (EV-03)
+user.loggedin,Redis Stream,NONE,worker.go:34,-,streams,n/a,none,consumed-never-produced (EV-04)
+user.registered,Redis Stream,none,none,-,-,-,none,dead
+session.*,Redis Stream,constants only,none,-,-,-,none,dead
+listing.created,Redis Stream,constants only,none,-,-,-,none,dead
+order.*,Redis Stream,constants only,none,-,-,-,none,dead
+/v1/explorer/ws,WebSocket,explorer hub,browser clients,JSON,best-effort,n/a,n/a,OK (public)
+/v1/ws,WebSocket,ws hub,browser clients,JSON,best-effort,n/a,n/a,client-never-authenticates (FE-01)

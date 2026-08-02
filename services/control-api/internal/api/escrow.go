@@ -392,10 +392,10 @@ func resolveEscrowDispute(c *gin.Context) {
 }
 
 // AutoReleaseExpiredEscrows releases escrows past auto-release date (run as cron).
-// P1-08: each escrow is locked with SELECT FOR UPDATE SKIP LOCKED so concurrent
-// cron invocations cannot release the same escrow twice.
+// Claim held → releasing, settle on-chain first (PDA), then mark released.
+// Custodial wallet credit runs only when there is no EscrowPDA (buyer releaseEscrow
+// settles on-chain only — never double-pay PDA sellers into balance_sol).
 func AutoReleaseExpiredEscrows() {
-	// Process one page at a time; stop when no more rows are claimable.
 	const batchSize = 50
 	for {
 		var claimed []models.EscrowTransaction
@@ -409,21 +409,16 @@ func AutoReleaseExpiredEscrows() {
 			if len(claimed) == 0 {
 				return nil
 			}
-			// Mark as released inside the same transaction to hold the row lock.
 			ids := make([]uuid.UUID, len(claimed))
 			for i, e := range claimed {
 				ids[i] = e.ID
 			}
-			now := time.Now()
 			return tx.Model(&models.EscrowTransaction{}).
-				Where("id IN ?", ids).
-				Updates(map[string]interface{}{
-					"status":      models.EscrowReleased,
-					"released_at": now,
-				}).Error
+				Where("id IN ? AND status = ?", ids, models.EscrowHeld).
+				Update("status", models.EscrowReleasing).Error
 		})
 		if err != nil {
-			log.Printf("[escrow] AutoReleaseExpiredEscrows lock/update error: %v", err)
+			log.Printf("[escrow] AutoReleaseExpiredEscrows claim error: %v", err)
 			return
 		}
 		if len(claimed) == 0 {
@@ -435,14 +430,17 @@ func AutoReleaseExpiredEscrows() {
 			var order models.Order
 			if err := db.DB.First(&order, "id = ?", escrow.OrderID).Error; err != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows order lookup error for escrow %s: %v", escrow.ID, err)
+				reclaimEscrowToHeld(escrow.ID)
 				continue
 			}
 
 			var settleTxHash string
-			if order.EscrowPDA != "" && order.SellerWallet != "" {
+			hasPDA := order.EscrowPDA != "" && order.SellerWallet != ""
+			if hasPDA {
 				oracle := solanaClient.GetOracleClient()
 				if oracle == nil {
-					log.Printf("[escrow] AutoReleaseExpiredEscrows oracle client not available, skipping escrow %s", escrow.ID)
+					log.Printf("[escrow] AutoReleaseExpiredEscrows oracle client not available, reclaiming escrow %s", escrow.ID)
+					reclaimEscrowToHeld(escrow.ID)
 					continue
 				}
 
@@ -451,6 +449,7 @@ func AutoReleaseExpiredEscrows() {
 				buyerKey, parseErr3 := sol.PublicKeyFromBase58(order.BuyerWallet)
 				if parseErr != nil || parseErr2 != nil || parseErr3 != nil {
 					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid key for order %s: pda=%v seller=%v buyer=%v", order.ID, parseErr, parseErr2, parseErr3)
+					reclaimEscrowToHeld(escrow.ID)
 					continue
 				}
 
@@ -470,38 +469,41 @@ func AutoReleaseExpiredEscrows() {
 						"Auto-release escrow settlement failed",
 						fmt.Sprintf("order=%s escrow=%s error=%v", order.ID, escrow.ID, txErr),
 					)
-					continue // Preserve safety: do NOT credit the seller in DB if on-chain failed
+					reclaimEscrowToHeld(escrow.ID)
+					continue
 				}
 				log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement succeeded for order %s: txHash=%s", order.ID, settleTxHash)
 			}
 
 			if txErr := db.DB.Transaction(func(tx *gorm.DB) error {
-				var sellerWallet models.Wallet
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-					First(&sellerWallet, "user_id = ?", escrow.SellerID).Error; err != nil {
-					return err
+				res := tx.Model(&models.EscrowTransaction{}).
+					Where("id = ? AND status = ?", escrow.ID, models.EscrowReleasing).
+					Updates(map[string]interface{}{
+						"status":      models.EscrowReleased,
+						"released_at": now,
+					})
+				if res.Error != nil {
+					return res.Error
 				}
-				// P3-03: pay seller proportional to actual bandwidth delivered.
-				sellerAmount := usageProportionalSellerAmount(tx, escrow)
-				newBalance := sellerWallet.BalanceSOL + sellerAmount
-				if err := tx.Model(&sellerWallet).Update("balance_sol", newBalance).Error; err != nil {
-					return err
+				if res.RowsAffected == 0 {
+					return fmt.Errorf("escrow %s no longer releasing", escrow.ID)
 				}
-				ledger := models.WalletLedgerEntry{
-					WalletID:     sellerWallet.ID,
-					Amount:       sellerAmount,
-					BalanceAfter: newBalance,
-					Type:         "escrow_auto_release",
-					ReferenceID:  escrow.ID.String(),
-					Description:  "Escrow auto-released after 7 days",
-					CreatedAt:    now,
+
+				// PDA settle already paid the seller on-chain — do not custodial-credit.
+				if !hasPDA {
+					sellerWallet, err := models.LockWalletForUpdate(tx, escrow.SellerID)
+					if err != nil {
+						return err
+					}
+					sellerAmount := usageProportionalSellerAmount(tx, escrow)
+					if sellerAmount > 0 {
+						if err := models.CreditWalletLocked(tx, sellerWallet, sellerAmount, "escrow_auto_release",
+							escrow.ID.String(), "Escrow auto-released after hold period"); err != nil {
+							return err
+						}
+					}
 				}
-				if settleTxHash != "" {
-					ledger.TxHash = settleTxHash
-				}
-				if err := tx.Create(&ledger).Error; err != nil {
-					return err
-				}
+
 				var lockedOrder models.Order
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 					First(&lockedOrder, "id = ?", escrow.OrderID).Error; err != nil {
@@ -513,12 +515,24 @@ func AutoReleaseExpiredEscrows() {
 				}
 				return fsm.TransitionOrder(tx, &lockedOrder, models.OrderStatusCompleted, "api.escrow.auto_release", extras)
 			}); txErr != nil {
-				log.Printf("[escrow] AutoReleaseExpiredEscrows credit error for escrow %s: %v", escrow.ID, txErr)
+				log.Printf("[escrow] AutoReleaseExpiredEscrows finalize error for escrow %s: %v", escrow.ID, txErr)
+				// PDA already settled: leave releasing for ops/reconcile rather than re-hold (would double-settle).
+				if !hasPDA {
+					reclaimEscrowToHeld(escrow.ID)
+				}
 			}
 		}
 
 		if len(claimed) < batchSize {
-			return // no more pages
+			return
 		}
+	}
+}
+
+func reclaimEscrowToHeld(escrowID uuid.UUID) {
+	if err := db.DB.Model(&models.EscrowTransaction{}).
+		Where("id = ? AND status = ?", escrowID, models.EscrowReleasing).
+		Update("status", models.EscrowHeld).Error; err != nil {
+		log.Printf("[escrow] reclaimEscrowToHeld failed for %s: %v", escrowID, err)
 	}
 }

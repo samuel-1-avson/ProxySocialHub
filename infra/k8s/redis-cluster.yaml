@@ -1,5 +1,10 @@
 # Redis Cluster Configuration for High Availability
 # 6-node cluster: 3 masters + 3 replicas with automatic failover
+#
+# SEC-05: auth via Secret redis-cluster-auth (key: password). Never commit real passwords.
+# Create before apply:
+#   kubectl -n proxyhubb create secret generic redis-cluster-auth \
+#     --from-literal=password="$(openssl rand -hex 32)"
 
 apiVersion: v1
 kind: ConfigMap
@@ -7,35 +12,47 @@ metadata:
   name: redis-cluster-config
   namespace: proxyhubb
 data:
-  redis.conf: |
-    # Redis Cluster Configuration
+  # Template: entrypoint replaces __REDIS_PASSWORD__ from REDIS_PASSWORD env (Secret).
+  # Do not put shell ${…} literals here — redis-server will not expand them.
+  redis.conf.template: |
     cluster-enabled yes
     cluster-config-file nodes.conf
     cluster-node-timeout 5000
-    cluster-announce-ip ${POD_IP}
+    cluster-announce-ip __POD_IP__
     cluster-announce-port 6379
     cluster-announce-bus-port 16379
-    
-    # Persistence Configuration
+
     appendonly yes
     appendfsync everysec
     save 900 1
     save 300 10
     save 60 10000
-    
-    # Memory and Performance
+
     maxmemory 512mb
     maxmemory-policy allkeys-lru
     tcp-keepalive 60
     timeout 0
-    
-    # Security
-    protected-mode no
+
+    protected-mode yes
     bind 0.0.0.0
-    
-    # Logging
+    requirepass __REDIS_PASSWORD__
+    masterauth __REDIS_PASSWORD__
+
     loglevel notice
     logfile ""
+
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    if [ -z "${REDIS_PASSWORD:-}" ]; then
+      echo "REDIS_PASSWORD is required (Secret redis-cluster-auth)" >&2
+      exit 1
+    fi
+    POD_IP="${POD_IP:-0.0.0.0}"
+    sed -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|g" \
+        -e "s|__POD_IP__|${POD_IP}|g" \
+        /config/redis.conf.template > /data/redis.conf
+    exec redis-server /data/redis.conf
 
 ---
 apiVersion: v1
@@ -82,18 +99,22 @@ spec:
           name: client
         - containerPort: 16379
           name: gossip
-        command:
-          - redis-server
-          - /etc/redis/redis.conf
+        command: ["/bin/sh", "/config/entrypoint.sh"]
         env:
         - name: POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-cluster-auth
+              key: password
+              optional: false
         volumeMounts:
         - name: conf
-          mountPath: /etc/redis/
-          readOnly: false
+          mountPath: /config
+          readOnly: true
         - name: data
           mountPath: /data
           readOnly: false
@@ -107,8 +128,9 @@ spec:
         livenessProbe:
           exec:
             command:
-            - redis-cli
-            - ping
+            - /bin/sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
           initialDelaySeconds: 30
           timeoutSeconds: 5
           periodSeconds: 10
@@ -117,8 +139,9 @@ spec:
         readinessProbe:
           exec:
             command:
-            - redis-cli
-            - ping
+            - /bin/sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
           initialDelaySeconds: 5
           timeoutSeconds: 1
           periodSeconds: 5
@@ -152,22 +175,28 @@ spec:
       containers:
       - name: redis-cluster-init
         image: redis:7-alpine
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-cluster-auth
+              key: password
+              optional: false
         command:
         - /bin/sh
         - -c
         - |
-          # Wait for all Redis pods to be ready
+          set -eu
           echo "Waiting for Redis pods to be ready..."
           for i in $(seq 0 5); do
-            until redis-cli -h redis-cluster-${i}.redis-cluster.proxyhubb.svc.cluster.local ping; do
+            until redis-cli -a "$REDIS_PASSWORD" -h redis-cluster-${i}.redis-cluster.proxyhubb.svc.cluster.local ping | grep -q PONG; do
               echo "Waiting for redis-cluster-${i}..."
               sleep 2
             done
           done
-          
-          # Create cluster
+
           echo "Creating Redis cluster..."
-          redis-cli --cluster create \
+          redis-cli -a "$REDIS_PASSWORD" --cluster create \
             redis-cluster-0.redis-cluster.proxyhubb.svc.cluster.local:6379 \
             redis-cluster-1.redis-cluster.proxyhubb.svc.cluster.local:6379 \
             redis-cluster-2.redis-cluster.proxyhubb.svc.cluster.local:6379 \
@@ -176,7 +205,7 @@ spec:
             redis-cluster-5.redis-cluster.proxyhubb.svc.cluster.local:6379 \
             --cluster-replicas 1 \
             --cluster-yes
-          
+
           echo "Redis cluster initialized successfully!"
 
 ---

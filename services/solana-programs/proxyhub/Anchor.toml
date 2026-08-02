@@ -7,12 +7,12 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
-session = "tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy"
+proxyhub = "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"
+session = "8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb"
 
 [programs.devnet]
-proxyhub = "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
-session = "tmzUysj3y6TFrkVZ3yfQB2DSSXPjq1VQhhufryrbKEy"
+proxyhub = "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"
+session = "8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb"
 
 [registry]
 url = "https://api.apr.dev"

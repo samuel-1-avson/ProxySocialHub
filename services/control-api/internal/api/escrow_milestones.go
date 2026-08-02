@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // MilestoneReleaseEngine manages granular fund release based on usage checkpoints
@@ -53,45 +55,35 @@ func (e *MilestoneReleaseEngine) CheckAndReleaseMilestones(orderID uuid.UUID, to
 }
 
 func (e *MilestoneReleaseEngine) releaseMilestone(escrow models.EscrowTransaction, milestone models.EscrowMilestone) error {
-	tx := db.DB.Begin()
-	now := time.Now()
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
 
-	// 1. Update Milestone Status
-	if err := tx.Model(&milestone).Updates(map[string]interface{}{
-		"status":      "released",
-		"released_at": now,
-	}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
+		var locked models.EscrowMilestone
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND status = ?", milestone.ID, "pending").
+			First(&locked).Error; err != nil {
+			return err
+		}
 
-	// 2. Credit Seller Wallet
-	var wallet models.Wallet
-	if err := tx.First(&wallet, "user_id = ?", escrow.SellerID).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
+		wallet, err := models.LockWalletForUpdate(tx, escrow.SellerID)
+		if err != nil {
+			return err
+		}
+		if err := models.CreditWalletLocked(tx, wallet, locked.Amount, "milestone_release",
+			locked.ID.String(), "Progressive milestone payout for bandwidth delivery"); err != nil {
+			return err
+		}
 
-	// SOL-only balance update
-	newBalance := wallet.BalanceSOL + milestone.Amount
-	if err := tx.Model(&wallet).Update("balance_sol", newBalance).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	// 3. Log Ledger Entry
-	ledger := models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       milestone.Amount,
-		BalanceAfter: newBalance,
-		Type:         "milestone_release",
-		ReferenceID:  milestone.ID.String(),
-		Description:  "Progressive milestone payout for bandwidth delivery",
-	}
-	if err := tx.Create(&ledger).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	return tx.Commit().Error
+		res := tx.Model(&locked).Updates(map[string]interface{}{
+			"status":      "released",
+			"released_at": now,
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return fmt.Errorf("milestone %s already released", locked.ID)
+		}
+		return nil
+	})
 }

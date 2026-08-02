@@ -12,11 +12,17 @@ import * as marketplaceApi from '../api/marketplace';
 
 // ============ Wallet Hooks ============
 
-export function useWallet() {
+/** Custodial / platform ledger wallet (GET /v1/wallet). Not the Solana adapter. */
+export function usePlatformWallet() {
     return useQuery({
         queryKey: walletApi.walletKeys.detail(),
         queryFn: walletApi.getWallet,
     });
+}
+
+/** @deprecated Use usePlatformWallet — name collided with @solana/wallet-adapter-react useWallet */
+export function useWallet() {
+    return usePlatformWallet();
 }
 
 export function useTransactions(limit = 20, offset = 0) {

@@ -1,5 +1,7 @@
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 
+export type MapViewMode = '2d' | '3d';
+
 export interface MapNodeUpdate {
     node_id: string;
     is_active: boolean;
@@ -43,6 +45,10 @@ export interface ProxyMapCanvasProps {
     listingPins?: ExplorerListingPin[];
     onSelectListing?: (pin: ExplorerListingPin) => void;
     onSelectListingGroup?: (pins: ExplorerListingPin[]) => void;
+    /** Opens in-map buy flow (marketplace). When set, listing popup Buy uses this instead of navigation. */
+    onBuyListing?: (pin: ExplorerListingPin) => void;
     selectedListingId?: string;
     onBoundsChange?: (bounds: MapViewportBounds) => void;
+    /** Google Maps camera: 2d = flat roadmap, 3d = tilted vector roadmap (no satellite). */
+    viewMode?: MapViewMode;
 }

@@ -36,10 +36,11 @@ type UsageReceipt struct {
 	ProviderRef       string             `gorm:"type:varchar(120);index:idx_usage_receipt_provider" json:"provider_ref,omitempty"`
 	ProviderNodeID    string             `gorm:"type:varchar(120)" json:"provider_node_id,omitempty"`
 	RouteHost         string             `gorm:"type:varchar(255)" json:"route_host,omitempty"`
-	BillingPricePerGB float64            `gorm:"default:0" json:"billing_price_per_gb"`
-	BytesUp           int64              `gorm:"not null;default:0" json:"bytes_up"`
-	BytesDown         int64              `gorm:"not null;default:0" json:"bytes_down"`
-	TotalBytes        int64              `gorm:"not null;default:0" json:"total_bytes"`
+	BillingPricePerGB         float64            `gorm:"default:0" json:"billing_price_per_gb"`
+	BillingPricePerGBLamports int64              `gorm:"column:billing_price_per_gb_lamports;default:0" json:"billing_price_per_gb_lamports"`
+	BytesUp                   int64              `gorm:"not null;default:0" json:"bytes_up"`
+	BytesDown                 int64              `gorm:"not null;default:0" json:"bytes_down"`
+	TotalBytes                int64              `gorm:"not null;default:0" json:"total_bytes"`
 	Nonce             uint64             `gorm:"not null;uniqueIndex:idx_usage_receipt_session_nonce" json:"nonce"`
 	Signature         string             `gorm:"type:text" json:"signature,omitempty"`
 	Source            string             `gorm:"type:varchar(32);not null;default:'gateway_report'" json:"source"`
@@ -67,6 +68,9 @@ func (u *UsageReceipt) BeforeCreate(tx *gorm.DB) error {
 	}
 	if u.ReportedAt.IsZero() {
 		u.ReportedAt = time.Now().UTC()
+	}
+	if u.BillingPricePerGBLamports == 0 && u.BillingPricePerGB != 0 {
+		u.BillingPricePerGBLamports = int64(SOLToLamports(u.BillingPricePerGB))
 	}
 	return nil
 }

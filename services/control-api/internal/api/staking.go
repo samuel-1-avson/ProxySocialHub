@@ -99,13 +99,13 @@ func stakeNode(c *gin.Context) {
 		return
 	}
 
-	// Check caller has enough SOL
+	// Check caller has enough SOL (preflight; authoritative debit happens under lock after chain success)
 	var wallet models.Wallet
 	if err := db.DB.First(&wallet, "user_id = ?", sellerID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Wallet not found"})
 		return
 	}
-	if wallet.BalanceSOL < req.AmountSOL {
+	if !wallet.CanAffordSOL(req.AmountSOL) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL balance"})
 		return
 	}
@@ -155,12 +155,25 @@ func stakeNode(c *gin.Context) {
 
 	tx := db.DB.Begin()
 
-	// Mirror the canonical on-chain stake in DB.
-	if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL-req.AmountSOL).Error; err != nil {
+	// Mirror the canonical on-chain stake in DB under row lock.
+	lockedWallet, err := models.LockWalletForUpdate(tx, sellerID)
+	if err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "On-chain stake succeeded but DB mirror update failed; reconciliation required",
+			"error":   "On-chain stake succeeded but DB wallet lock failed; reconciliation required",
 			"tx_hash": txHash,
+		})
+		return
+	}
+	if err := models.DebitWalletLockedOpts(tx, lockedWallet, req.AmountSOL, "stake", txHash,
+		"Node stake (DB mirror of on-chain stake_provider)",
+		models.LedgerOpts{TxHash: txHash, JournalKind: "stake"},
+	); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "On-chain stake succeeded but DB mirror debit failed; reconciliation required",
+			"tx_hash": txHash,
+			"detail":  err.Error(),
 		})
 		return
 	}
@@ -305,12 +318,24 @@ func unstakeNode(c *gin.Context) {
 
 	tx := db.DB.Begin()
 
-	// Return staked SOL to wallet
-	if err := tx.Model(&wallet).Update("balance_sol", wallet.BalanceSOL+returnAmount).Error; err != nil {
+	lockedWallet, err := models.LockWalletForUpdate(tx, sellerID)
+	if err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "On-chain unstake succeeded but DB wallet mirror update failed; reconciliation required",
+			"error":   "On-chain unstake succeeded but DB wallet lock failed; reconciliation required",
 			"tx_hash": txHash,
+		})
+		return
+	}
+	if err := models.CreditWalletLockedOpts(tx, lockedWallet, returnAmount, "unstake", txHash,
+		"Node unstake return (DB mirror of on-chain unstake_provider)",
+		models.LedgerOpts{TxHash: txHash, JournalKind: "unstake"},
+	); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "On-chain unstake succeeded but DB wallet mirror credit failed; reconciliation required",
+			"tx_hash": txHash,
+			"detail":  err.Error(),
 		})
 		return
 	}
@@ -336,7 +361,7 @@ func unstakeNode(c *gin.Context) {
 		"tx_hash":      txHash,
 		"stake_pda":    stakePDA.String(),
 		"returned_sol": returnAmount,
-		"new_balance":  wallet.BalanceSOL + returnAmount,
+		"new_balance":  lockedWallet.BalanceSOL,
 	})
 }
 

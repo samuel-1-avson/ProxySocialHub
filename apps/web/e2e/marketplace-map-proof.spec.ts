@@ -47,7 +47,7 @@ test.describe('marketplace map proof badges', () => {
         });
 
         await page.goto(`${BASE_URL}/marketplace/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 60_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 60_000 });
 
         const countrySelect = page.locator('select').nth(2);
         await expect(countrySelect.locator('option[value="US"]')).toHaveCount(1, { timeout: 15_000 });
@@ -66,7 +66,7 @@ test.describe('marketplace map proof badges', () => {
         });
 
         await page.goto(`${BASE_URL}/marketplace/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 60_000 });
+        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 60_000 });
 
         const searchArea = page.getByRole('button', { name: /search this area/i });
         await expect(searchArea).toBeVisible({ timeout: 30_000 });

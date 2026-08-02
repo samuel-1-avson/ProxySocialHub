@@ -17,7 +17,7 @@ pub struct ControlApiClient {
 }
 
 /// Node registration request
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RegisterNodeRequest {
     pub provider_user_id: String,
     pub node_id: String,
@@ -41,6 +41,9 @@ pub struct RegisterNodeResponse {
     pub quality_score: f64,
     pub current_tier: String,
     pub base_price_per_gb: f64,
+    /// Authoritative ISP resolved by control-api GeoIP (GW-04).
+    #[serde(default)]
+    pub isp: String,
 }
 
 /// Heartbeat request
@@ -61,6 +64,9 @@ pub struct HeartbeatResponse {
     pub quality_score: f64,
     pub current_tier: String,
     pub base_price_per_gb: f64,
+    /// Authoritative ISP as currently stored by control-api (GW-04).
+    #[serde(default)]
+    pub isp: String,
 }
 
 /// Status update request

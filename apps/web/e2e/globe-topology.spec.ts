@@ -5,10 +5,20 @@ import { mockMapLinksEmpty, mockMapLinksResponse } from './fixtures/map-topology
 const topologyEnabled = ['1', 'true', 'yes'].includes(
     (process.env.NEXT_PUBLIC_GLOBE_TOPOLOGY ?? '').trim().toLowerCase(),
 );
+const legacyGlobeEnabled = ['1', 'true', 'yes'].includes(
+    (process.env.NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE ?? '').trim().toLowerCase(),
+);
 
-test.describe('globe topology (Phase 5)', () => {
+test.describe('globe topology (Phase 5 — legacy globe)', () => {
     test.describe.configure({ mode: 'serial' });
     test.setTimeout(300_000);
+
+    test.beforeEach(() => {
+        test.skip(
+            !legacyGlobeEnabled,
+            'Legacy globe retired from primary UX; set NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=1 to run',
+        );
+    });
 
     test.describe('flag off (default dev:e2e)', () => {
         test.skip(topologyEnabled, 'Topology flag is on; skip flag-off assertions');

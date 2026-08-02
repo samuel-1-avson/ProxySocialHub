@@ -24,7 +24,7 @@ import { filterNavigationSections } from "@/lib/navigation/filter-nav";
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { user, logout } = useAuth();
+    const { user, logout, isAuthenticated } = useAuth();
     const { isSidebarCollapsed } = useUIStore();
     const { isProvider, isDualRole, isAdmin } = useRole();
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -33,6 +33,7 @@ export function Sidebar() {
         isAdmin,
         isProvider,
         isDualRole,
+        isAuthenticated,
     });
 
     const isActive = (path: string) => isNavigationRouteActive(pathname, path);

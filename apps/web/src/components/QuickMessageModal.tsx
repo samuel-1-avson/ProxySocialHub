@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { MessageSquare, Send, X, Loader2, Globe, Zap } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Globe, Zap, Lock, Gamepad2, Smartphone, TrendingUp, FlaskConical, ClipboardList } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { getAccessTokenSilently, useAuth } from '@/lib/auth';
 import { useNotificationStore } from '@/stores';
 import { useRouter } from 'next/navigation';
@@ -22,14 +23,14 @@ interface QuickMessageModalProps {
     location?: string;
 }
 
-const INTENTS = [
-    { value: 'web_scraping', label: 'Web Scraping', icon: '🌐' },
-    { value: 'vpn', label: 'VPN / Privacy', icon: '🔒' },
-    { value: 'gaming', label: 'Gaming', icon: '🎮' },
-    { value: 'social_media', label: 'Social Media Management', icon: '📱' },
-    { value: 'seo', label: 'SEO / Marketing', icon: '📈' },
-    { value: 'testing', label: 'Testing / Development', icon: '🧪' },
-    { value: 'other', label: 'Other', icon: '📋' },
+const INTENTS: { value: string; label: string; icon: LucideIcon }[] = [
+    { value: 'web_scraping', label: 'Web Scraping', icon: Globe },
+    { value: 'vpn', label: 'VPN / Privacy', icon: Lock },
+    { value: 'gaming', label: 'Gaming', icon: Gamepad2 },
+    { value: 'social_media', label: 'Social Media Management', icon: Smartphone },
+    { value: 'seo', label: 'SEO / Marketing', icon: TrendingUp },
+    { value: 'testing', label: 'Testing / Development', icon: FlaskConical },
+    { value: 'other', label: 'Other', icon: ClipboardList },
 ];
 
 const EXPECTED_USAGE = [
@@ -217,20 +218,29 @@ export function QuickMessageModal({
                         What will you use this for?
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                        {INTENTS.map((i) => (
-                            <button
-                                key={i.value}
-                                onClick={() => setIntent(i.value)}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all ${
-                                    intent === i.value
-                                        ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400'
-                                        : 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10'
-                                }`}
-                            >
-                                <span>{i.icon}</span>
-                                <span>{i.label}</span>
-                            </button>
-                        ))}
+                        {INTENTS.map((i) => {
+                            const Icon = i.icon;
+                            const selected = intent === i.value;
+                            return (
+                                <button
+                                    key={i.value}
+                                    type="button"
+                                    onClick={() => setIntent(i.value)}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all ${
+                                        selected
+                                            ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400'
+                                            : 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10'
+                                    }`}
+                                >
+                                    <Icon
+                                        size={14}
+                                        strokeWidth={1.75}
+                                        className={`shrink-0 ${selected ? 'text-emerald-400' : 'text-white/50'}`}
+                                    />
+                                    <span className="text-left leading-snug">{i.label}</span>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 

@@ -26,6 +26,8 @@ type providerReadinessSummary struct {
 	ActiveListings      int64      `json:"active_listings"`
 	LastHeartbeatAt     *time.Time `json:"last_heartbeat_at,omitempty"`
 	ProofMode           string     `json:"proof_mode"`
+	// TunnelReady is true when the edge has registered the node Online (handshake path).
+	TunnelReady         bool       `json:"tunnel_ready"`
 	ReadyForTraffic     bool       `json:"ready_for_traffic"`
 	ReadyForMarketplace bool       `json:"ready_for_marketplace"`
 	ReadyForPayouts     bool       `json:"ready_for_payouts"`
@@ -126,7 +128,8 @@ func collectProviderReadinessSummary(userID uuid.UUID) providerReadinessSummary 
 		summary.LastHeartbeatAt = &lastSeen
 	}
 
-	summary.ReadyForTraffic = summary.ActiveTokens > 0 && summary.Nodes > 0 && summary.OnlineNodes > 0
+	summary.TunnelReady = summary.OnlineNodes > 0
+	summary.ReadyForTraffic = summary.ActiveTokens > 0 && summary.Nodes > 0 && summary.TunnelReady
 	summary.ReadyForMarketplace = summary.ReadyForTraffic && summary.ActiveListings > 0
 	summary.ReadyForPayouts = summary.PayoutWalletNodes > 0
 
@@ -172,11 +175,11 @@ func buildProviderReadinessChecks(summary providerReadinessSummary) []providerRe
 			"/dashboard/provider/nodes",
 		),
 		boolReadinessCheck(
-			"daemon_heartbeat",
-			"Daemon heartbeat",
-			summary.OnlineNodes > 0,
+			"edge_tunnel",
+			"Edge tunnel online",
+			summary.TunnelReady,
 			true,
-			"Start provider-node and wait for the first heartbeat.",
+			"Start provider-node so the edge handshake can mark you Online for routing.",
 			"Open nodes",
 			"/dashboard/provider/nodes",
 		),

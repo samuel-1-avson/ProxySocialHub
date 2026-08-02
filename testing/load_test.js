@@ -19,7 +19,7 @@ const CONFIG = {
   ],
   
   // Program ID
-  PROGRAM_ID: '2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7',
+  PROGRAM_ID: 'AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu',
   
   // Test parameters
   CONCURRENT_USERS: 100,

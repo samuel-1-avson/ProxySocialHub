@@ -12,13 +12,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// RegisterDisputeRoutes wires dispute endpoints onto the protected group.
+// RegisterDisputeRoutes wires consumer dispute endpoints onto the protected
+// (user JWT) group. Admin resolution endpoints are intentionally NOT here —
+// see RegisterAdminDisputeRoutes.
 func RegisterDisputeRoutes(rg *gin.RouterGroup) {
 	rg.POST("/disputes", createDispute)
 	rg.GET("/disputes", listMyDisputes)
 	rg.GET("/disputes/:id", getDispute)
-	rg.POST("/admin/disputes/:id/resolve", resolveDispute)
-	rg.POST("/admin/disputes/:id/dismiss", dismissDispute)
+}
+
+// RegisterAdminDisputeRoutes wires dispute resolution endpoints onto the
+// admin-JWT group (AdminAuthMiddleware). Paths are unchanged
+// (/v1/admin/disputes/:id/...) so callers are unaffected by the move.
+func RegisterAdminDisputeRoutes(rg *gin.RouterGroup) {
+	rg.POST("/disputes/:id/resolve", resolveDispute)
+	rg.POST("/disputes/:id/dismiss", dismissDispute)
 }
 
 // POST /v1/disputes — consumer submits a dispute against a completed session
@@ -223,9 +231,11 @@ func dismissDispute(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "dispute dismissed", "resolved_at": now})
 }
 
-// isAdmin checks if the caller has admin privileges.
+// isAdmin checks if the caller has admin privileges. Auth middleware stores the
+// caller role under the "userRole" context key; admin JWT sessions additionally
+// carry auth_type=admin.
 func isAdmin(c *gin.Context) bool {
-	role, _ := c.Get("role")
+	role, _ := c.Get("userRole")
 	authType, _ := c.Get("auth_type")
 	return role == "admin" || authType == "admin"
 }

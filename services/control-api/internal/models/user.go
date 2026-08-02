@@ -30,6 +30,11 @@ const (
 	KYCStatusInsufficientFunds KYCStatus = "insufficient_funds"
 )
 
+// KYCStatusUnset reports whether KYC has not been started (empty or none).
+func KYCStatusUnset(s KYCStatus) bool {
+	return s == "" || s == KYCStatusNone
+}
+
 type TrustTier string
 
 const (
@@ -41,7 +46,8 @@ const (
 // User maps to the 'profiles' table in Supabase
 type User struct {
 	ID        uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"` // References auth.users
-	Email     string     `gorm:"unique;not null" json:"email"`
+	Email     string     `gorm:"unique" json:"email"`              // nullable stub after vault cutover
+	EmailHash *string    `gorm:"column:email_hash;size:64" json:"-"`
 	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
 	Status    UserStatus `gorm:"type:varchar(50);default:'active'" json:"status"`
 	TrustTier TrustTier `gorm:"default:'new'" json:"trust_tier"`
@@ -67,7 +73,7 @@ type User struct {
 
 	// Business Profile
 	BusinessName *string `gorm:"size:100" json:"business_name,omitempty"`
-	TaxID        *string `gorm:"size:50" json:"tax_id,omitempty"` // Private? Or Verified?
+	TaxID        *string `gorm:"type:text" json:"tax_id,omitempty"` // ENC: ciphertext at rest (PII-01)
 
 	// Social Stats
 	FollowersCount int     `gorm:"default:0" json:"followers_count"`
@@ -82,7 +88,7 @@ type User struct {
 	WalletAddress         *string    `gorm:"size:64;index" json:"wallet_address,omitempty"`    // Solana wallet address (base58)
 
 	// Auth / Verification
-	VerificationToken *string `gorm:"size:255" json:"verification_token,omitempty"`
+	VerificationToken *string `gorm:"size:255" json:"-"`
 	EmailVerified     bool    `gorm:"default:false" json:"email_verified"`
 
 	// Online presence
@@ -132,7 +138,164 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	if u.Status == "" {
 		u.Status = UserStatusActive
 	}
-	return
+	if err := u.syncEmailHashAndVault(tx); err != nil {
+		return err
+	}
+	return u.encryptTaxID()
+}
+
+func (u *User) BeforeSave(tx *gorm.DB) error {
+	if err := u.syncEmailHashAndVault(tx); err != nil {
+		return err
+	}
+	return u.encryptTaxID()
+}
+
+func (u *User) AfterFind(tx *gorm.DB) error {
+	if err := LoadProfilePrivateDecrypt(tx, u); err != nil {
+		return err
+	}
+	return u.decryptTaxID()
+}
+
+// syncEmailHashAndVault writes email_hash + vault when plaintext email/tax present,
+// and clears profiles.email/tax_id once vault encryption is available.
+func (u *User) syncEmailHashAndVault(tx *gorm.DB) error {
+	if u.ID == uuid.Nil {
+		return nil
+	}
+	if CredentialEncryptFn == nil || EmailHashFn == nil {
+		return nil
+	}
+	hasEmail := u.Email != ""
+	hasTax := u.TaxID != nil && *u.TaxID != ""
+	if !hasEmail && !hasTax {
+		return nil
+	}
+	var emailPtr *string
+	if hasEmail {
+		e := NormalizeEmail(u.Email)
+		emailPtr = &e
+		h := HashEmail(e)
+		u.EmailHash = &h
+	}
+	var taxPtr *string
+	if hasTax {
+		taxPtr = u.TaxID
+	}
+	wrote, err := UpsertProfilePrivate(tx, u.ID, emailPtr, taxPtr)
+	if err != nil {
+		return err
+	}
+	if !wrote {
+		return nil
+	}
+	// Persist NULL plaintext columns (empty string would violate unique email).
+	if hasEmail {
+		tx.Statement.SetColumn("email", nil)
+		tx.Statement.SetColumn("email_hash", u.EmailHash)
+	}
+	if hasTax {
+		tx.Statement.SetColumn("tax_id", nil)
+	}
+	return nil
+}
+
+func (u *User) encryptTaxID() error {
+	if CredentialEncryptFn == nil || u.TaxID == nil || *u.TaxID == "" {
+		return nil
+	}
+	if isEncryptedField(*u.TaxID) {
+		return nil
+	}
+	enc, err := encryptField(*u.TaxID)
+	if err != nil {
+		return err
+	}
+	u.TaxID = &enc
+	return nil
+}
+
+func (u *User) decryptTaxID() error {
+	if CredentialDecryptFn == nil || u.TaxID == nil || *u.TaxID == "" {
+		return nil
+	}
+	if !isEncryptedField(*u.TaxID) {
+		return nil
+	}
+	plain, err := decryptField(*u.TaxID)
+	if err != nil {
+		empty := ""
+		u.TaxID = &empty
+		return nil
+	}
+	u.TaxID = &plain
+	return nil
+}
+
+// MigratePlaintextTaxIDs encrypts any profiles.tax_id values that lack the ENC: prefix.
+// Gate with MIGRATE_TAX_IDS=true (same pattern as MIGRATE_CREDENTIALS).
+func MigratePlaintextTaxIDs(db *gorm.DB) (migrated int, errs []error) {
+	if CredentialEncryptFn == nil {
+		return 0, []error{errors.New("tax_id migration: encryption not configured")}
+	}
+	var rows []User
+	if err := db.Where("tax_id IS NOT NULL AND tax_id <> '' AND tax_id NOT LIKE 'ENC:%'").Find(&rows).Error; err != nil {
+		return 0, []error{err}
+	}
+	for i := range rows {
+		u := &rows[i]
+		if err := u.encryptTaxID(); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := db.Model(u).Update("tax_id", u.TaxID).Error; err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		migrated++
+	}
+	return migrated, errs
+}
+
+// AdminUserView is a safe admin serialization of profiles (no verification token;
+// tax_id presence only, never plaintext ciphertext dump).
+type AdminUserView struct {
+	ID            uuid.UUID  `json:"id"`
+	Email         string     `json:"email"`
+	Role          string     `json:"role"`
+	Status        UserStatus `json:"status"`
+	TrustTier     TrustTier  `json:"trust_tier"`
+	KYCStatus     KYCStatus  `json:"kyc_status"`
+	DisplayName   *string    `json:"display_name,omitempty"`
+	Username      *string    `json:"username,omitempty"`
+	BusinessName  *string    `json:"business_name,omitempty"`
+	HasTaxID      bool       `json:"has_tax_id"`
+	EmailVerified bool       `json:"email_verified"`
+	Verified      bool       `json:"verified"`
+	WalletAddress *string    `json:"wallet_address,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+func (u User) ToAdminView() AdminUserView {
+	return AdminUserView{
+		ID:            u.ID,
+		Email:         u.Email,
+		Role:          u.Role,
+		Status:        u.Status,
+		TrustTier:     u.TrustTier,
+		KYCStatus:     u.KYCStatus,
+		DisplayName:   u.DisplayName,
+		Username:      u.Username,
+		BusinessName:  u.BusinessName,
+		HasTaxID:      u.TaxID != nil && *u.TaxID != "",
+		EmailVerified: u.EmailVerified,
+		Verified:      u.Verified,
+		WalletAddress: u.WalletAddress,
+		CreatedAt:     u.CreatedAt,
+		UpdatedAt:     u.UpdatedAt,
+	}
 }
 
 // IsActive returns true only when the user's status is active or pending.

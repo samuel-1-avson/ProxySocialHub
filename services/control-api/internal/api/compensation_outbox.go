@@ -91,23 +91,14 @@ func applyWithdrawalCompensation(entry *models.CompensationOutbox) error {
 			Where("user_id = ?", entry.UserID).First(&wallet).Error; err != nil {
 			return err
 		}
-		wallet.CreditSOL(entry.AmountSOL)
-		if err := tx.Save(&wallet).Error; err != nil {
+		if err := models.CreditWalletLocked(tx, &wallet, entry.AmountSOL, "withdrawal_failed_refund", entry.ReferenceID,
+			"Compensating refund (outbox retry) — balance restored after on-chain withdraw failure"); err != nil {
 			return err
 		}
 		_ = tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
 			wallet.ID, entry.UserID, models.SpendingWithdraw, entry.ReferenceID).
 			Delete(&models.SpendingRecord{}).Error
-
-		return tx.Create(&models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       entry.AmountSOL,
-			BalanceAfter: wallet.BalanceSOL,
-			Type:         "withdrawal_failed_refund",
-			ReferenceID:  entry.ReferenceID,
-			Description:  "Compensating refund (outbox retry) — balance restored after on-chain withdraw failure",
-			CreatedAt:    time.Now().UTC(),
-		}).Error
+		return nil
 	})
 }
 
@@ -151,36 +142,25 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 			senderWallet, recipientWallet = &second, &first
 		}
 
-		senderWallet.CreditSOL(entry.AmountSOL)
-		if !recipientWallet.DebitSOL(entry.AmountSOL) {
-			return fmt.Errorf("recipient balance too low to reverse P2P credit")
-		}
-		if err := tx.Save(senderWallet).Error; err != nil {
+		// Reverse P2P: skip per-leg treasury journals, then one balanced reverse journal
+		// (same pattern as settleP2POnChain compensating path).
+		skip := models.LedgerOpts{JournalKind: "skip"}
+		senderDesc := "Compensating P2P refund (outbox retry) — sender restored"
+		recipientDesc := "Compensating P2P debit (outbox retry) — recipient corrected"
+		if err := models.CreditWalletLockedOpts(tx, senderWallet, entry.AmountSOL, "p2p_failed_refund",
+			entry.ReferenceID, senderDesc, skip); err != nil {
 			return err
 		}
-		if err := tx.Save(recipientWallet).Error; err != nil {
+		if err := models.DebitWalletLockedOpts(tx, recipientWallet, entry.AmountSOL, "p2p_failed_debit",
+			entry.ReferenceID, recipientDesc, skip); err != nil {
 			return err
 		}
-		if err := tx.Create(&models.WalletLedgerEntry{
-			WalletID:     senderWallet.ID,
-			Amount:       entry.AmountSOL,
-			BalanceAfter: senderWallet.BalanceSOL,
-			Type:         "p2p_failed_refund",
-			ReferenceID:  entry.ReferenceID,
-			Description:  "Compensating P2P refund (outbox retry) — sender restored",
-			CreatedAt:    time.Now().UTC(),
-		}).Error; err != nil {
-			return err
-		}
-		return tx.Create(&models.WalletLedgerEntry{
-			WalletID:     recipientWallet.ID,
-			Amount:       -entry.AmountSOL,
-			BalanceAfter: recipientWallet.BalanceSOL,
-			Type:         "p2p_failed_debit",
-			ReferenceID:  entry.ReferenceID,
-			Description:  "Compensating P2P debit (outbox retry) — recipient corrected",
-			CreatedAt:    time.Now().UTC(),
-		}).Error
+		delta := int64(models.SOLToLamports(entry.AmountSOL))
+		sID, rID := senderWallet.ID, recipientWallet.ID
+		return models.PostBalancedJournal(tx, "p2p_failed_refund", entry.ReferenceID, senderDesc, []models.JournalLineSpec{
+			{AccountCode: models.AccountUserWalletLiability, WalletID: &rID, AmountLamports: delta},
+			{AccountCode: models.AccountUserWalletLiability, WalletID: &sID, AmountLamports: -delta},
+		})
 	})
 }
 

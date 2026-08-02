@@ -127,6 +127,7 @@ type marketplaceMapFilters struct {
 	IncludeNodes    bool
 	ActiveNodesOnly bool
 	ValidatorsOnly  bool
+	IncludeProofs   bool
 	BBoxRaw         string
 }
 
@@ -218,6 +219,12 @@ func buildMarketplaceMapFilters(c *gin.Context) marketplaceMapFilters {
 			purchasableOnly = parsed
 		}
 	}
+	includeProofs := false
+	if raw := strings.TrimSpace(c.Query("include_proofs")); raw != "" {
+		if parsed, err := strconv.ParseBool(raw); err == nil {
+			includeProofs = parsed
+		}
+	}
 	return marketplaceMapFilters{
 		Country:         strings.TrimSpace(c.Query("country")),
 		ProxyType:       strings.TrimSpace(c.Query("proxy_type")),
@@ -230,6 +237,7 @@ func buildMarketplaceMapFilters(c *gin.Context) marketplaceMapFilters {
 		IncludeNodes:    c.DefaultQuery("include_nodes", "false") == "true",
 		ActiveNodesOnly: c.DefaultQuery("active_nodes_only", "false") == "true",
 		ValidatorsOnly:  c.DefaultQuery("validator", "false") == "true",
+		IncludeProofs:   includeProofs,
 		BBoxRaw:         strings.TrimSpace(c.Query("bbox")),
 	}
 }
@@ -237,12 +245,22 @@ func buildMarketplaceMapFilters(c *gin.Context) marketplaceMapFilters {
 func marketplaceMapCacheKey(c *gin.Context, filters marketplaceMapFilters) string {
 	values := url.Values{}
 	for key, vals := range c.Request.URL.Query() {
+		if key == "bbox" {
+			continue
+		}
 		for _, value := range vals {
 			values.Add(key, value)
 		}
 	}
 	if !values.Has("purchasable_only") && filters.PurchasableOnly {
 		values.Set("purchasable_only", "true")
+	}
+	if !values.Has("include_proofs") {
+		values.Set("include_proofs", strconv.FormatBool(filters.IncludeProofs))
+	}
+	if west, south, east, north, ok := parseBBox(filters.BBoxRaw); ok {
+		qw, qs, qe, qn := geo.QuantizeBBox(west, south, east, north, 0.5)
+		values.Set("bbox", fmt.Sprintf("%.1f,%.1f,%.1f,%.1f", qw, qs, qe, qn))
 	}
 	return "marketplace:map:" + values.Encode()
 }
@@ -613,6 +631,23 @@ WHERE pl.status <> 'deleted'`
 	}
 
 	west, south, east, north, hasBBox := parseBBox(filters.BBoxRaw)
+	if hasBBox {
+		pw, ps, pe, pn := geo.ExpandBBox(west, south, east, north, 2.5)
+		query += fmt.Sprintf(` AND (
+			(
+				(ABS(COALESCE(en.latitude, 0)) > 0.01 OR ABS(COALESCE(en.longitude, 0)) > 0.01)
+				AND COALESCE(en.latitude, 0) BETWEEN $%d AND $%d
+				AND COALESCE(en.longitude, 0) BETWEEN $%d AND $%d
+			)
+			OR (
+				ABS(COALESCE(en.latitude, 0)) <= 0.01
+				AND ABS(COALESCE(en.longitude, 0)) <= 0.01
+				AND COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, ''), '') <> ''
+			)
+		)`, argN, argN+1, argN+2, argN+3)
+		args = append(args, ps, pn, pw, pe)
+		argN += 4
+	}
 	query += " ORDER BY pl.status ASC, pl.created_at DESC LIMIT 5000"
 
 	var rows []marketplaceGeoRow
@@ -632,7 +667,7 @@ WHERE pl.status <> 'deleted'`
 		purchasable := r.Status == "active" && r.AvailableBandwidthGB > 0
 		listingGeoSource := marketplaceGeoSource(r, fallbackGeo)
 		listingGeoMeta := geo.BuildMapGeoMeta(listingGeoSource)
-		points = append(points, MarketplaceMapPoint{
+		pt := MarketplaceMapPoint{
 			ID:                   "listing:" + r.ListingID,
 			Kind:                 "listing",
 			Latitude:             lat,
@@ -655,15 +690,18 @@ WHERE pl.status <> 'deleted'`
 			SLASource:            r.SLASource,
 			GeoSource:            listingGeoSource,
 			Geo:                  &listingGeoMeta,
-			ListingOfferVerified: r.ListingOfferVerified,
-			ListingOfferSigner:   r.ListingOfferSigner,
-			ListingOfferSignedAt: proofTimeString(r.ListingOfferSignedAt),
-			ListingOfferError:    r.ListingOfferError,
-			HeartbeatVerified:    r.HeartbeatVerified,
-			HeartbeatSigner:      r.HeartbeatSigner,
-			HeartbeatSignedAt:    proofTimeString(r.HeartbeatSignedAt),
-			HeartbeatError:       r.HeartbeatError,
-		})
+		}
+		if filters.IncludeProofs {
+			pt.ListingOfferVerified = r.ListingOfferVerified
+			pt.ListingOfferSigner = r.ListingOfferSigner
+			pt.ListingOfferSignedAt = proofTimeString(r.ListingOfferSignedAt)
+			pt.ListingOfferError = r.ListingOfferError
+			pt.HeartbeatVerified = r.HeartbeatVerified
+			pt.HeartbeatSigner = r.HeartbeatSigner
+			pt.HeartbeatSignedAt = proofTimeString(r.HeartbeatSignedAt)
+			pt.HeartbeatError = r.HeartbeatError
+		}
+		points = append(points, pt)
 	}
 	listingCount := len(points)
 
@@ -843,6 +881,21 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 	if filters.MinUptime != nil {
 		query = query.Where("en.uptime_percent >= ?", *filters.MinUptime)
 	}
+	if hasBBox {
+		pw, ps, pe, pn := geo.ExpandBBox(west, south, east, north, 2.5)
+		query = query.Where(`
+            (
+                (ABS(COALESCE(en.latitude, 0)) > 0.01 OR ABS(COALESCE(en.longitude, 0)) > 0.01)
+                AND COALESCE(en.latitude, 0) BETWEEN ? AND ?
+                AND COALESCE(en.longitude, 0) BETWEEN ? AND ?
+            )
+            OR (
+                ABS(COALESCE(en.latitude, 0)) <= 0.01
+                AND ABS(COALESCE(en.longitude, 0)) <= 0.01
+                AND COALESCE(NULLIF(TRIM(en.country), ''), NULLIF(TRIM(pn.country), ''), NULLIF(TRIM(n.country_code), ''), '') <> ''
+            )
+        `, ps, pn, pw, pe)
+	}
 
 	var rows []marketplaceMapNodeRow
 	if err := query.Order("en.is_active DESC, en.uptime_percent DESC").Limit(5000).Scan(&rows).Error; err != nil {
@@ -870,7 +923,7 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 		}
 		nodeGeoSource := nodeMapGeoSource(r.GeoSource, country, city, region, r.Lat, r.Lon, fallbackGeo)
 		nodeGeoMeta := geo.BuildMapGeoMeta(nodeGeoSource)
-		points = append(points, MarketplaceMapPoint{
+		pt := MarketplaceMapPoint{
 			ID:                   "node:" + r.NodeID,
 			Kind:                 "node",
 			Latitude:             lat,
@@ -889,11 +942,14 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 			GeoSource:            nodeGeoSource,
 			Geo:                  &nodeGeoMeta,
 			AvailableBandwidthGB: 0,
-			HeartbeatVerified:    r.HeartbeatVerified,
-			HeartbeatSigner:      r.HeartbeatSigner,
-			HeartbeatSignedAt:    proofTimeString(r.HeartbeatSignedAt),
-			HeartbeatError:       r.HeartbeatError,
-		})
+		}
+		if filters.IncludeProofs {
+			pt.HeartbeatVerified = r.HeartbeatVerified
+			pt.HeartbeatSigner = r.HeartbeatSigner
+			pt.HeartbeatSignedAt = proofTimeString(r.HeartbeatSignedAt)
+			pt.HeartbeatError = r.HeartbeatError
+		}
+		points = append(points, pt)
 	}
 	return points, nil
 }

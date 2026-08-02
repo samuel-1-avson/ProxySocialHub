@@ -387,18 +387,9 @@ func refundWalletSOL(userID string, amount float64) {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 			return err
 		}
-		wallet.CreditSOL(amount)
-		if err := tx.Save(&wallet).Error; err != nil {
-			return err
-		}
-		return tx.Create(&models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       amount,
-			BalanceAfter: wallet.BalanceSOL,
-			Type:         "refund",
-			Description:  fmt.Sprintf("Refund of %.6f SOL", amount),
-			CreatedAt:    time.Now(),
-		}).Error
+		refID := uuid.New().String()
+		return models.CreditWalletLocked(tx, &wallet, amount, "refund", refID,
+			fmt.Sprintf("Refund of %.6f SOL", amount))
 	})
 	if err != nil {
 		logging.Error(err).Str("user_id", userID).Float64("amount", amount).Msg("Failed to refund SOL wallet")
@@ -440,9 +431,15 @@ func transferP2P(c *gin.Context) {
 		}
 	}()
 
-	// 1. Find Recipient by email or username
+	// 1. Find Recipient by email, email_hash, or username
 	var recipient models.User
-	if err := tx.Where("email = ? OR username = ?", req.RecipientIdentifier, req.RecipientIdentifier).First(&recipient).Error; err != nil {
+	ident := strings.TrimSpace(req.RecipientIdentifier)
+	hash := models.HashEmail(ident)
+	recipQ := tx.Where("email = ? OR username = ?", ident, ident)
+	if hash != "" {
+		recipQ = tx.Where("email = ? OR email_hash = ? OR username = ?", ident, hash, ident)
+	}
+	if err := recipQ.First(&recipient).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Recipient not found"})
 		return
@@ -533,61 +530,19 @@ func transferP2P(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL funds"})
 		return
 	}
-	if !senderWallet.DebitSOL(req.Amount) {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient SOL funds"})
-		return
-	}
-	recipientWallet.CreditSOL(req.Amount)
 
 	// Record spending for limit tracking
 	if err := senderWallet.RecordSpending(tx, req.Amount, models.SpendingTransfer, ""); err != nil {
 		logging.Error(err).Msg("Failed to record spending for transfer, continuing")
 	}
 
-	if err := tx.Save(&senderWallet).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sender"})
-		return
-	}
-	if err := tx.Save(&recipientWallet).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update recipient"})
-		return
-	}
-
-	// 4. Record Ledger Entries
 	refID := uuid.New().String()
-
-	senderLedger := models.WalletLedgerEntry{
-		WalletID:     senderWallet.ID,
-		Amount:       -req.Amount,
-		BalanceAfter: senderWallet.BalanceSOL,
-		Type:         "p2p_sent",
-		ReferenceID:  refID,
-		Description:  fmt.Sprintf("Sent to %s", req.RecipientIdentifier),
-	}
-
-	recipientLedger := models.WalletLedgerEntry{
-		WalletID:     recipientWallet.ID,
-		Amount:       req.Amount,
-		BalanceAfter: recipientWallet.BalanceSOL,
-		Type:         "p2p_received",
-		ReferenceID:  refID,
-		Description:  fmt.Sprintf("Received from %s", senderID),
-	}
-
-	if err := tx.Create(&senderLedger).Error; err != nil {
+	senderDesc := fmt.Sprintf("Sent to %s", req.RecipientIdentifier)
+	recipientDesc := fmt.Sprintf("Received from %s", senderID)
+	if err := models.TransferP2PLocked(tx, &senderWallet, &recipientWallet, req.Amount, refID, senderDesc, recipientDesc); err != nil {
 		tx.Rollback()
-		logging.Error(err).Str("ref", refID).Msg("Failed to create sender ledger entry")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not record sender ledger"})
-		return
-	}
-
-	if err := tx.Create(&recipientLedger).Error; err != nil {
-		tx.Rollback()
-		logging.Error(err).Str("ref", refID).Msg("Failed to create recipient ledger entry")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not record recipient ledger"})
+		logging.Error(err).Str("ref", refID).Msg("Failed to transfer P2P")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not update balances"})
 		return
 	}
 
@@ -720,6 +675,28 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
+	// Preflight: payout (treasury hot) wallet must cover withdrawal + fee headroom before we debit the user.
+	const feeHeadroomLamports uint64 = 10_000 // rent/fee buffer
+	needLamports := models.SOLToLamports(req.Amount) + feeHeadroomLamports
+	payoutPK := oracle.GetPayoutPublicKey()
+	payoutBal, balErr := oracle.GetBalance(c.Request.Context(), payoutPK)
+	if balErr != nil {
+		logging.Error(balErr).Msg("withdraw: failed to read payout wallet balance")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify treasury payout balance. Try again shortly."})
+		return
+	}
+	if payoutBal < needLamports {
+		logging.Warn().
+			Str("payout_wallet", payoutPK.String()).
+			Uint64("payout_lamports", payoutBal).
+			Uint64("need_lamports", needLamports).
+			Msg("withdraw blocked: payout wallet underfunded")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Platform payout wallet is temporarily unable to process this withdrawal. Please try again shortly.",
+		})
+		return
+	}
+
 	// Check if user is flagged/frozen
 	var flagCount int64
 	if err := db.DB.Model(&models.UserFlag{}).Where("user_id = ? AND resolved = ?", userUUID, false).Count(&flagCount).Error; err == nil && flagCount > 0 {
@@ -753,27 +730,17 @@ func withdrawSOL(c *gin.Context) {
 		if !walletRecord.CanAffordSOL(req.Amount) {
 			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
 		}
-		if !walletRecord.DebitSOL(req.Amount) {
-			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
+
+		desc := fmt.Sprintf("SOL withdrawal to %s", destAddress)
+		if err := models.DebitWalletLocked(tx, &walletRecord, req.Amount, models.TransactionPayout, withdrawalRef, desc); err != nil {
+			return err
 		}
 
 		// Record spending for limit tracking
 		if err := walletRecord.RecordSpending(tx, req.Amount, models.SpendingWithdraw, withdrawalRef); err != nil {
 			logging.Error(err).Msg("Failed to record spending for withdrawal, continuing")
 		}
-
-		if err := tx.Save(&walletRecord).Error; err != nil {
-			return err
-		}
-		return tx.Create(&models.WalletLedgerEntry{
-			WalletID:     walletRecord.ID,
-			Amount:       -req.Amount,
-			BalanceAfter: walletRecord.BalanceSOL,
-			Type:         models.TransactionPayout,
-			ReferenceID:  withdrawalRef,
-			Description:  fmt.Sprintf("SOL withdrawal to %s", destAddress),
-			CreatedAt:    time.Now(),
-		}).Error
+		return nil
 	})
 	if err != nil {
 		if spendingErr, ok := err.(*models.SpendingLimitError); ok {
@@ -803,30 +770,29 @@ func withdrawSOL(c *gin.Context) {
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
 				return err
 			}
-			refundWallet.CreditSOL(req.Amount)
-			if err := tx.Save(&refundWallet).Error; err != nil {
+			desc := "Withdrawal failed: " + summarizeOnChainSendError(sendErr) + " — balance restored"
+			if err := models.CreditWalletLocked(tx, &refundWallet, req.Amount, "withdrawal_failed_refund", withdrawalRef, desc); err != nil {
 				return err
 			}
-			if err := tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
-				Delete(&models.SpendingRecord{}).Error; err != nil {
-				return err
-			}
-			return tx.Create(&models.WalletLedgerEntry{
-				WalletID:     refundWallet.ID,
-				Amount:       req.Amount,
-				BalanceAfter: refundWallet.BalanceSOL,
-				Type:         "withdrawal_failed_refund",
-				ReferenceID:  withdrawalRef,
-				Description:  "Withdrawal failed: " + summarizeOnChainSendError(sendErr) + " — balance restored",
-				CreatedAt:    time.Now(),
-			}).Error
+			return tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
+				Delete(&models.SpendingRecord{}).Error
 		})
 		if refundErr != nil {
 			logging.Error(refundErr).
 				Str("user_id", userUUID.String()).
 				Float64("amount", req.Amount).
-				Msg("CRITICAL: Compensating refund failed — user may have lost funds")
-			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Err: %v", userUUID, req.Amount, refundErr))
+				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
+			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, req.Amount, withdrawalRef, refundErr))
+			EnqueueCompensation(models.CompensationKindWithdrawalRefund, userUUID, nil, req.Amount, withdrawalRef, refundErr.Error())
+			logging.Error(sendErr).
+				Str("user_id", userUUID.String()).
+				Float64("amount", req.Amount).
+				Msg("SOL withdrawal: on-chain transfer failed, refund queued")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":  "On-chain transfer failed. Balance restoration is being retried.",
+				"reason": summarizeOnChainSendError(sendErr),
+			})
+			return
 		}
 		logging.Error(sendErr).
 			Str("user_id", userUUID.String()).
@@ -1075,48 +1041,35 @@ func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount floa
 				}
 			}
 
-			senderWallet.CreditSOL(amount)
-			if !recipientWallet.DebitSOL(amount) {
-				return fmt.Errorf("recipient balance too low to reverse P2P credit")
-			}
-
-			if err := tx.Save(&senderWallet).Error; err != nil {
+			// Reverse P2P: credit sender + debit recipient with skip journals, then one balanced reverse journal.
+			skip := models.LedgerOpts{JournalKind: "skip"}
+			senderDesc := "On-chain transfer failed — balance restored"
+			recipientDesc := "On-chain transfer failed — balance corrected"
+			if err := models.CreditWalletLockedOpts(tx, &senderWallet, amount, "p2p_failed_refund", ref, senderDesc, skip); err != nil {
 				return err
 			}
-			if err := tx.Save(&recipientWallet).Error; err != nil {
+			if err := models.DebitWalletLockedOpts(tx, &recipientWallet, amount, "p2p_failed_debit", ref, recipientDesc, skip); err != nil {
 				return err
 			}
-
-			if err := tx.Create(&models.WalletLedgerEntry{
-				WalletID:     senderWallet.ID,
-				Amount:       amount,
-				BalanceAfter: senderWallet.BalanceSOL,
-				Type:         "p2p_failed_refund",
-				ReferenceID:  ref,
-				Description:  "On-chain transfer failed — balance restored",
-				CreatedAt:    time.Now(),
-			}).Error; err != nil {
-				return err
-			}
-
-			return tx.Create(&models.WalletLedgerEntry{
-				WalletID:     recipientWallet.ID,
-				Amount:       -amount,
-				BalanceAfter: recipientWallet.BalanceSOL,
-				Type:         "p2p_failed_debit",
-				ReferenceID:  ref,
-				Description:  "On-chain transfer failed — balance corrected",
-				CreatedAt:    time.Now(),
-			}).Error
+			delta := int64(models.SOLToLamports(amount))
+			sID, rID := senderWallet.ID, recipientWallet.ID
+			return models.PostBalancedJournal(tx, "p2p_failed_refund", ref, senderDesc, []models.JournalLineSpec{
+				{AccountCode: models.AccountUserWalletLiability, WalletID: &rID, AmountLamports: delta},
+				{AccountCode: models.AccountUserWalletLiability, WalletID: &sID, AmountLamports: -delta},
+			})
 		})
 		if refundErr != nil {
 			logging.Error(refundErr).
 				Str("user_id", senderUserID.String()).
 				Str("ref", ref).
 				Float64("amount", amount).
-				Msg("CRITICAL: Compensating refund failed — user may have lost funds")
+				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
 			alerts.Send(alerts.Critical, "P2P Compensating Refund Failed",
 				fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", senderUserID, amount, ref, refundErr))
+			cp := recipientUserID
+			EnqueueCompensation(models.CompensationKindP2PRefund, senderUserID, &cp, amount, ref, refundErr.Error())
+			logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, refund queued")
+			return
 		}
 		logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded and recipient debited")
 		return

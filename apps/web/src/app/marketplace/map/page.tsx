@@ -23,6 +23,7 @@ import { bboxNearlyEqual, bboxToParam, pinInBBox, type MapBBox } from '@/lib/geo
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
 import { geoSourceLabel } from '@/lib/map/geo-labels';
+import type { ExplorerListingPin } from '@/components/map/types';
 
 const ProxyMapCanvas = dynamic(
     () => import('@/components/map/ProxyMapCanvas'),
@@ -90,6 +91,7 @@ export default function MarketplaceMapPage() {
     } = useMapPoints({
         filters: mapFilters,
         live: mapLiveOnMarketplaceEnabled(),
+        includeCatalog: true,
         refetchInterval: searchBBox ? false : 60_000,
     });
 
@@ -110,20 +112,34 @@ export default function MarketplaceMapPage() {
         setSearchBBox(null);
     }, []);
 
+    const handleBoundsChange = useCallback((bounds: MapBBox) => {
+        setViewport(prev => (prev && bboxNearlyEqual(prev, bounds) ? prev : bounds));
+    }, []);
+
     const pins = mapListingPins;
     const nodes = mapNodes;
 
-    const plotted = pins.filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01);
+    const plotted = useMemo(
+        () => pins.filter(p => Math.abs(p.lat) > 0.01 || Math.abs(p.lon) > 0.01),
+        [pins],
+    );
 
     useEffect(() => {
         if (!highlightListingId || plotted.length === 0) return;
         const pin = plotted.find(p => p.listing_id === highlightListingId);
-        if (pin) {
-            setSelectedPin(pin);
-            setSelectedCluster(null);
-            setSelectedNode(null);
-        }
+        if (!pin) return;
+        setSelectedPin(prev => {
+            if (prev?.listing_id === pin.listing_id) return prev;
+            return pin;
+        });
     }, [highlightListingId, plotted]);
+
+    // When deep-linking to a listing, clear competing selection once on first highlight.
+    useEffect(() => {
+        if (!highlightListingId) return;
+        setSelectedCluster(null);
+        setSelectedNode(null);
+    }, [highlightListingId]);
 
     const viewportPins = useMemo(() => {
         if (!viewport) return plotted;
@@ -146,6 +162,24 @@ export default function MarketplaceMapPage() {
             [Math.max(...lats) + 2, Math.max(...lons) + 2],
         ];
     }, [country, plotted]);
+
+    const handleSelectNode = useCallback((node: NodeGeoPoint) => {
+        setSelectedNode(node);
+        setSelectedPin(null);
+        setSelectedCluster(null);
+    }, []);
+
+    const handleSelectListing = useCallback((pin: ExplorerListingPin) => {
+        setSelectedPin(pin as MarketplaceListingMapPin);
+        setSelectedCluster(null);
+        setSelectedNode(null);
+    }, []);
+
+    const handleSelectListingGroup = useCallback((pins: ExplorerListingPin[]) => {
+        setSelectedCluster(pins as MarketplaceListingMapPin[]);
+        setSelectedPin(null);
+        setSelectedNode(null);
+    }, []);
 
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
@@ -192,6 +226,10 @@ export default function MarketplaceMapPage() {
         }
     }, []);
 
+    const handleBuyListing = useCallback((pin: ExplorerListingPin) => {
+        void handleBuy(pin as MarketplaceListingMapPin);
+    }, [handleBuy]);
+
     return (
         <motion.div
             initial={{ opacity: 0 }}
@@ -211,10 +249,10 @@ export default function MarketplaceMapPage() {
                     </div>
                     <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
                         <MapPin className="text-emerald-400" size={32} />
-                        Buy on Map
+                        Marketplace map
                     </h1>
                     <p className="text-[11px] text-white/30 uppercase tracking-widest mt-2">
-                        Purchasable proxy listings by geography · click a point to buy
+                        Geographic view of purchasable proxies · click a pin to buy on the map
                         {searchBBox && (
                             <span className="text-amber-400/90"> · area filter on</span>
                         )}
@@ -267,11 +305,17 @@ export default function MarketplaceMapPage() {
                                 )}
                             </div>
                         ) : null}
-                        {(isLoading || isFetching) && (
+                        {(isLoading && !data) && (
                             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
                                 <Loader2 className="animate-spin text-primary" size={32} />
                             </div>
                         )}
+                        {isFetching && data ? (
+                            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 border border-white/10 pointer-events-none">
+                                <Loader2 className="animate-spin text-emerald-400" size={12} />
+                                <span className="text-[9px] font-black uppercase tracking-widest text-white/50">Updating…</span>
+                            </div>
+                        ) : null}
                         {error != null ? (
                             <div className="absolute top-4 left-4 z-10 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[10px] text-rose-400">
                                 Failed to load map data.{' '}
@@ -283,26 +327,15 @@ export default function MarketplaceMapPage() {
                         <div className="h-[520px] min-h-[520px]">
                             <ProxyMapCanvas
                             nodes={nodes}
-                            onSelectNode={(node) => {
-                                setSelectedNode(node);
-                                setSelectedPin(null);
-                                setSelectedCluster(null);
-                            }}
+                            onSelectNode={handleSelectNode}
                             selectedNodeId={selectedNode?.node_id}
                             listingPins={plotted}
-                            onSelectListing={(pin) => {
-                                setSelectedPin(pin as MarketplaceListingMapPin);
-                                setSelectedCluster(null);
-                                setSelectedNode(null);
-                            }}
-                            onSelectListingGroup={(pins) => {
-                                setSelectedCluster(pins as MarketplaceListingMapPin[]);
-                                setSelectedPin(null);
-                                setSelectedNode(null);
-                            }}
+                            onSelectListing={handleSelectListing}
+                            onSelectListingGroup={handleSelectListingGroup}
+                            onBuyListing={handleBuyListing}
                             selectedListingId={selectedPin?.listing_id}
                             focusBounds={focusBounds}
-                            onBoundsChange={setViewport}
+                            onBoundsChange={handleBoundsChange}
                             liveUpdates={liveUpdates}
                         />
                         </div>

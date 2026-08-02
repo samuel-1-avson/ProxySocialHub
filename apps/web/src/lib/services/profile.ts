@@ -28,7 +28,6 @@ export interface UserPublicProfile {
     social_links?: Record<string, any>;
     skills?: string[];
     business_name?: string;
-    tax_id?: string;
     isp?: string;
 }
 
@@ -73,7 +72,6 @@ export async function updateProfile(data: Partial<UserPublicProfile> & {
     skills?: string[], 
     social_links?: any, 
     business_name?: string,
-    tax_id?: string,
     professional_title?: string,
     experience_years?: number,
     languages?: string[],

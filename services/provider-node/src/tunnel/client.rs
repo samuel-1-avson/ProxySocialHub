@@ -204,6 +204,16 @@ impl TunnelClient {
         token: String,
         config: Config,
     ) -> Result<()> {
+        let (mut caps, lease_request) =
+            build_provider_capability_payload(&config, &self.provider_run_id);
+        let control_api_url = config.control_api_url.clone();
+        let token_for_lease = token.clone();
+
+        // Overlap Control API lease fetch with Yamux AUTH RTT.
+        let lease_task = tokio::spawn(async move {
+            crate::ip::fetch_provider_lease(&control_api_url, &token_for_lease, &lease_request).await
+        });
+
         // AUTH
         debug!("Handshake: Starting AUTH...");
         let mut auth_stream = ctrl
@@ -219,27 +229,25 @@ impl TunnelClient {
         let n = auth_stream.read(&mut buf).await?;
         let resp = String::from_utf8_lossy(&buf[..n]);
         if resp.trim() != "OK" {
+            lease_task.abort();
             anyhow::bail!("Auth failed: {resp}");
         }
         info!("Handshake: AUTH successful");
         auth_stream.close().await?;
 
-        // CAPABILITY
+        // CAPABILITY (lease should already be in-flight / done)
         debug!("Handshake: Sending CAPABILITIES...");
         let mut cap_stream = ctrl
             .open_stream()
             .await
             .context("failed to open capability stream")?;
-        let (mut caps, lease_request) =
-            build_provider_capability_payload(&config, &self.provider_run_id);
 
-        match crate::ip::fetch_provider_lease(&config.control_api_url, &token, &lease_request).await
-        {
-            Ok(lease) => {
+        match lease_task.await {
+            Ok(Ok(lease)) => {
                 caps.provider_lease = lease.token;
                 info!("Handshake: provider lease acquired");
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 if crate::lease_policy::provider_leases_required() {
                     anyhow::bail!("provider lease required but unavailable: {err}");
                 }
@@ -247,6 +255,18 @@ impl TunnelClient {
                     "Handshake: provider lease unavailable, continuing without lease: {}",
                     err
                 );
+            }
+            Err(err) if err.is_cancelled() => {
+                if crate::lease_policy::provider_leases_required() {
+                    anyhow::bail!("provider lease required but fetch was cancelled");
+                }
+                warn!("Handshake: provider lease fetch cancelled after AUTH failure path");
+            }
+            Err(err) => {
+                if crate::lease_policy::provider_leases_required() {
+                    anyhow::bail!("provider lease required but join failed: {err}");
+                }
+                warn!("Handshake: provider lease join failed: {err}");
             }
         }
 

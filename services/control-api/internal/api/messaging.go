@@ -55,28 +55,66 @@ func getConversations(c *gin.Context) {
 		return
 	}
 
-	// Build response with previews
 	results := make([]models.ConversationWithPreview, len(conversations))
+	if len(conversations) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"conversations": results,
+			"total":         total,
+			"page":          page,
+			"limit":         limit,
+		})
+		return
+	}
+
+	convIDs := make([]uuid.UUID, len(conversations))
+	for i, conv := range conversations {
+		convIDs[i] = conv.ID
+	}
+
+	// Batch last message (1 query) — DISTINCT ON is Postgres-specific; Social DB is Postgres.
+	lastByConv := map[uuid.UUID]models.Message{}
+	var lastMsgs []models.Message
+	if err := db.Social().Raw(`
+		SELECT DISTINCT ON (conversation_id) *
+		FROM messages
+		WHERE conversation_id IN ?
+		ORDER BY conversation_id, created_at DESC
+	`, convIDs).Scan(&lastMsgs).Error; err == nil {
+		for _, m := range lastMsgs {
+			lastByConv[m.ConversationID] = m
+		}
+	}
+
+	// Batch unread counts (1 query)
+	type unreadRow struct {
+		ConversationID uuid.UUID `gorm:"column:conversation_id"`
+		Count          int64     `gorm:"column:count"`
+	}
+	unreadByConv := map[uuid.UUID]int{}
+	var unreadRows []unreadRow
+	if err := db.Social().Raw(`
+		SELECT conversation_id, COUNT(*) AS count
+		FROM messages
+		WHERE conversation_id IN ?
+		  AND sender_id <> ?
+		  AND read_at IS NULL
+		  AND COALESCE(is_deleted, false) = false
+		GROUP BY conversation_id
+	`, convIDs, userID).Scan(&unreadRows).Error; err == nil {
+		for _, row := range unreadRows {
+			unreadByConv[row.ConversationID] = int(row.Count)
+		}
+	}
+
 	for i, conv := range conversations {
 		results[i] = models.ConversationWithPreview{
 			Conversation: conv,
+			UnreadCount:  unreadByConv[conv.ID],
 		}
-
-		// Get last message
-		var lastMsg models.Message
-		if err := db.Social().Where("conversation_id = ?", conv.ID).
-			Order("created_at DESC").First(&lastMsg).Error; err == nil {
-			results[i].LastMessage = &lastMsg
+		if m, ok := lastByConv[conv.ID]; ok {
+			msg := m
+			results[i].LastMessage = &msg
 		}
-
-		// Get unread count
-		var unreadCount int64
-		db.Social().Model(&models.Message{}).
-			Where("conversation_id = ? AND sender_id != ? AND read_at IS NULL", conv.ID, userID).
-			Count(&unreadCount)
-		results[i].UnreadCount = int(unreadCount)
-
-		// Get other participant
 		if conv.Participant1 == userID {
 			results[i].OtherParticipant = conv.User2
 		} else {

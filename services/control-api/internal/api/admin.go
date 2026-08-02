@@ -4,15 +4,18 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"gorm.io/gorm"
 )
 
 // RegisterAdminRoutes registers all admin API routes
@@ -60,15 +63,17 @@ func RegisterAdminRoutes(r *gin.RouterGroup) {
 
 	// Pricing Management (Admins/System)
 	r.POST("/pricing/adjust", triggerPricingAdjustment)
+
+	RegisterAdminPassRoutes(r)
 }
 
 // ========== User Management ==========
 
 type UserListResponse struct {
-	Users      []models.User `json:"users"`
-	TotalCount int64         `json:"total_count"`
-	Page       int           `json:"page"`
-	PerPage    int           `json:"per_page"`
+	Users      []models.AdminUserView `json:"users"`
+	TotalCount int64                  `json:"total_count"`
+	Page       int                    `json:"page"`
+	PerPage    int                    `json:"per_page"`
 }
 
 func listUsers(c *gin.Context) {
@@ -104,8 +109,13 @@ func listUsers(c *gin.Context) {
 		return
 	}
 
+	views := make([]models.AdminUserView, 0, len(users))
+	for _, u := range users {
+		views = append(views, u.ToAdminView())
+	}
+
 	c.JSON(http.StatusOK, UserListResponse{
-		Users:      users,
+		Users:      views,
 		TotalCount: totalCount,
 		Page:       page,
 		PerPage:    perPage,
@@ -126,7 +136,7 @@ func getUser(c *gin.Context) {
 	db.DB.Model(&models.Session{}).Where("user_id = ?", userID).Count(&sessionCount)
 
 	c.JSON(http.StatusOK, gin.H{
-		"user":          user,
+		"user":          user.ToAdminView(),
 		"session_count": sessionCount,
 	})
 }
@@ -343,12 +353,21 @@ func getPendingPayouts(c *gin.Context) {
 }
 
 type ProcessPayoutRequest struct {
-	Phone  string  `json:"phone" binding:"required"`
-	Amount float64 `json:"amount" binding:"required,min=0.1"`
+	Phone           string  `json:"phone" binding:"required"`
+	Amount          float64 `json:"amount" binding:"required,min=0.1"`
+	IdempotencyKey  string  `json:"idempotency_key"`
 }
 
+// processPayout atomically debits a provider custodial balance for a manual admin payout.
+// Prefer /v1/admin/payouts batch processing for on-chain disbursement; this handler only
+// records the ledger debit with FOR UPDATE locking (no RMW double-spend).
 func processPayout(c *gin.Context) {
 	userID := c.Param("id")
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user id"})
+		return
+	}
 
 	var req ProcessPayoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -356,39 +375,65 @@ func processPayout(c *gin.Context) {
 		return
 	}
 
-	var wallet models.Wallet
-	if result := db.DB.Where("user_id = ?", userID).First(&wallet); result.Error != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+	reference := strings.TrimSpace(req.IdempotencyKey)
+	if reference == "" {
+		reference = strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	}
+	if reference == "" {
+		reference = "admin-payout-" + uuid.NewString()
+	}
+	if len(reference) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "idempotency_key too long"})
 		return
 	}
 
-	// Payouts in SOL
-	if wallet.BalanceSOL < req.Amount {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
+	var newBalance float64
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		if reference != "" {
+			var existing models.WalletLedgerEntry
+			if err := tx.Where("type = ? AND reference_id = ?", models.TransactionPayout, reference).
+				First(&existing).Error; err == nil {
+				var w models.Wallet
+				if err := tx.Where("id = ?", existing.WalletID).First(&w).Error; err != nil {
+					return err
+				}
+				newBalance = w.BalanceSOL
+				return nil
+			} else if err != gorm.ErrRecordNotFound {
+				return err
+			}
+		}
+
+		wallet, err := models.LockWalletForUpdate(tx, userUUID)
+		if err != nil {
+			return err
+		}
+		if err := models.DebitWalletLocked(tx, wallet, req.Amount, models.TransactionPayout, reference,
+			"Provider payout to "+req.Phone); err != nil {
+			return err
+		}
+		newBalance = wallet.BalanceSOL
+		return nil
+	})
+	if err != nil {
+		if err == gorm.ErrRecordNotFound || strings.Contains(err.Error(), "record not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+			return
+		}
+		if strings.Contains(err.Error(), "insufficient SOL balance") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
+			return
+		}
+		logging.Error(err).Str("user_id", userID).Msg("admin processPayout failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process payout"})
 		return
 	}
-
-	// Create payout transaction record (on-chain settlement handled elsewhere)
-	reference := "payout-" + time.Now().Format("20060102150405")
-
-	// Deduct from wallet
-	wallet.BalanceSOL -= req.Amount
-	db.DB.Save(&wallet)
-
-	// Create ledger entry
-	ledger := models.WalletLedgerEntry{
-		WalletID:    wallet.ID,
-		Type:        models.TransactionPayout,
-		Amount:      -req.Amount,
-		Description: "Provider payout to " + req.Phone, // Payout in SOL
-	}
-	db.DB.Create(&ledger)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "processed",
 		"reference":   reference,
 		"amount":      req.Amount,
-		"new_balance": wallet.BalanceSOL,
+		"new_balance": newBalance,
 	})
 }
 

@@ -2,9 +2,11 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { WalletBoundary } from '@/providers/WalletBoundary';
 import { ROUTES } from '@/lib/navigation/routes';
+import { captureReferralCodeFromSearch, peekReferralCode } from '@/lib/referral';
 
 const WalletAuthPanel = dynamic(
   () => import('@/components/WalletAuthPanel').then((mod) => mod.WalletAuthPanel),
@@ -19,6 +21,12 @@ const WalletAuthPanel = dynamic(
 );
 
 export default function RegisterPage() {
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    setReferralCode(captureReferralCodeFromSearch() || peekReferralCode());
+  }, []);
+
   return (
     <WalletBoundary>
       <div className="min-h-screen bg-background text-foreground">
@@ -38,6 +46,11 @@ export default function RegisterPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Connect a Solana wallet. No passwords, no email gate.
             </p>
+            {referralCode ? (
+              <p className="mt-3 text-xs font-mono text-emerald-400/90 uppercase tracking-widest">
+                Invite code {referralCode} will apply on first signup
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-[var(--radius-lg)] border border-border bg-card p-6 sm:p-8">

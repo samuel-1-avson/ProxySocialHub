@@ -1,5 +1,12 @@
 # HAProxy Load Balancer Deployment
 # Alternative to NGINX Ingress for high-performance load balancing
+#
+# SEC-06: stats auth from Secret haproxy-stats-auth; no public 8404 on LoadBalancer.
+# Create before apply:
+#   kubectl -n proxyhubb create secret generic haproxy-stats-auth \
+#     --from-literal=username=monitor \
+#     --from-literal=password="$(openssl rand -hex 24)"
+# Compose testnet path is unchanged (see infra/k8s/README.md).
 
 apiVersion: v1
 kind: ConfigMap
@@ -7,7 +14,7 @@ metadata:
   name: haproxy-config
   namespace: proxyhubb
 data:
-  haproxy.cfg: |
+  haproxy.cfg.template: |
     global
         nbproc 1
         nbthread 4
@@ -88,12 +95,15 @@ data:
         
         server-template gateway 10 edge-gateway:8443 check ssl verify none resolvers k8s init-addr none
 
+    # Internal scrape only (ClusterIP Service haproxy-stats). Auth required for /stats.
     listen stats
         bind *:8404
         stats enable
         stats uri /stats
         stats refresh 30s
-        stats admin if TRUE
+        stats auth __STATS_USER__:__STATS_PASS__
+        stats admin if FALSE
+        http-request return status 200 content-type "text/plain" string "ok\n" if { path /health }
         http-request use-service prometheus-exporter if { path /metrics }
 
     resolvers k8s
@@ -102,6 +112,21 @@ data:
         timeout resolve 1s
         timeout retry 1s
         hold valid 10s
+
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    if [ -z "${HAPROXY_STATS_USER:-}" ] || [ -z "${HAPROXY_STATS_PASSWORD:-}" ]; then
+      echo "HAPROXY_STATS_USER/PASSWORD required (Secret haproxy-stats-auth)" >&2
+      exit 1
+    fi
+    # Escape sed delimiters in password
+    USER_ESC=$(printf '%s' "$HAPROXY_STATS_USER" | sed 's/[&|]/\\&/g')
+    PASS_ESC=$(printf '%s' "$HAPROXY_STATS_PASSWORD" | sed 's/[&|]/\\&/g')
+    sed -e "s|__STATS_USER__|${USER_ESC}|g" \
+        -e "s|__STATS_PASS__|${PASS_ESC}|g" \
+        /config/haproxy.cfg.template > /usr/local/etc/haproxy/haproxy.cfg
+    exec haproxy -f /usr/local/etc/haproxy/haproxy.cfg
 
 ---
 apiVersion: apps/v1
@@ -140,6 +165,7 @@ spec:
       containers:
       - name: haproxy
         image: haproxy:2.8-alpine
+        command: ["/bin/sh", "/config/entrypoint.sh"]
         ports:
         - containerPort: 80
           name: http
@@ -147,10 +173,23 @@ spec:
           name: https
         - containerPort: 8404
           name: stats
+        env:
+        - name: HAPROXY_STATS_USER
+          valueFrom:
+            secretKeyRef:
+              name: haproxy-stats-auth
+              key: username
+              optional: false
+        - name: HAPROXY_STATS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: haproxy-stats-auth
+              key: password
+              optional: false
         volumeMounts:
         - name: haproxy-config
-          mountPath: /usr/local/etc/haproxy/haproxy.cfg
-          subPath: haproxy.cfg
+          mountPath: /config
+          readOnly: true
         - name: tls-certs
           mountPath: /etc/ssl/certs
           readOnly: true
@@ -163,14 +202,14 @@ spec:
             cpu: "1000m"
         livenessProbe:
           httpGet:
-            path: /stats
+            path: /health
             port: 8404
           initialDelaySeconds: 30
           timeoutSeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /stats
+            path: /health
             port: 8404
           initialDelaySeconds: 5
           timeoutSeconds: 1
@@ -188,6 +227,7 @@ spec:
       - name: haproxy-config
         configMap:
           name: haproxy-config
+          defaultMode: 0755
       - name: tls-certs
         secret:
           secretName: proxyhubb-tls
@@ -218,6 +258,21 @@ spec:
     targetPort: 443
     protocol: TCP
     name: https
+  selector:
+    app: haproxy
+
+---
+# Internal-only stats/metrics (SEC-06: not on public LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy-stats
+  namespace: proxyhubb
+  labels:
+    app: haproxy
+spec:
+  type: ClusterIP
+  ports:
   - port: 8404
     targetPort: 8404
     protocol: TCP
@@ -267,7 +322,7 @@ spec:
         periodSeconds: 60
 
 ---
-# ServiceMonitor for HAProxy metrics
+# ServiceMonitor for HAProxy metrics (scrapes ClusterIP haproxy-stats)
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

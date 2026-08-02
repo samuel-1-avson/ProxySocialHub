@@ -52,10 +52,13 @@ export function WalletSidebar({ balanceSol, linkedAddress }: WalletSidebarProps)
 
           <div className="p-6 glass-card bg-white/5 border-white/10 rounded-2xl">
             <p className="text-[10px] font-black font-mono text-muted-foreground uppercase mb-2 tracking-widest opacity-50">
-              Active SOL Collateral
+              Platform balance
             </p>
             <p className="text-2xl font-black font-mono text-foreground tracking-tighter">
               {Number(balanceSol ?? 0).toFixed(4)} SOL
+            </p>
+            <p className="text-[9px] font-mono text-muted-foreground/50 mt-2 uppercase tracking-widest">
+              Custodial ledger
             </p>
           </div>
         </div>
@@ -68,16 +71,16 @@ export function WalletSidebar({ balanceSol, linkedAddress }: WalletSidebarProps)
         </h3>
         <div className="space-y-6 relative z-10">
           <div className="flex justify-between items-center text-[10px] font-black font-mono uppercase tracking-widest">
-            <span className="text-muted-foreground/60 italic font-medium">Session Segment</span>
+            <span className="text-muted-foreground/60 italic font-medium">Linked address</span>
             <span className="bg-secondary/50 px-2 py-1 rounded text-primary border border-primary/10">
               {linkedAddress
                 ? `${linkedAddress.slice(0, 4)}...${linkedAddress.slice(-4)}`
-                : 'IDLE_INIT'}
+                : 'NOT_LINKED'}
             </span>
           </div>
           <div className="flex justify-between items-end border-b border-white/5 pb-4">
             <span className="text-[10px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">
-              SOL Balance
+              Platform balance
             </span>
             <span className="text-2xl font-black font-mono tracking-tighter">
               {Number(balanceSol ?? 0).toFixed(4)} SOL
