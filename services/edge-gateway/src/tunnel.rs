@@ -436,16 +436,34 @@ pub(crate) async fn handle_provider_mux_io<S>(
     }
 
     let max_lanes = state.config.yamux_conns_per_node;
+    let mut session_generation: u64 = 0;
     let mux_attach = if state.registry.contains_node(&node_id) {
         if max_lanes <= 1 {
-            error!(
+            // Reconnect takeover: IP/NAT changes leave a zombie registry slot
+            // that would otherwise reject every new handshake forever.
+            if let Some(existing) = state.registry.get_node_info(&node_id) {
+                node_info.control_api_db_id =
+                    existing.control_api_db_id.or(node_info.control_api_db_id.take());
+                node_info.quality_score = existing.quality_score;
+                node_info.current_tier = existing.current_tier;
+                node_info.base_price_per_gb = existing.base_price_per_gb;
+                if node_info.isp.is_empty() {
+                    node_info.isp = existing.isp;
+                }
+            }
+            warn!(
                 node_id = %node_id,
                 peer = %peer_addr,
-                "Duplicate provider yamux connection rejected (YAMUX_CONNS_PER_NODE=1)"
+                "Replacing stale provider yamux session (reconnect takeover)"
             );
-            return;
-        }
-        if !state.registry.try_attach_mux_lane(&node_id, ctrl) {
+            session_generation = state.registry.replace(
+                node_id.clone(),
+                ctrl,
+                node_info.clone(),
+                max_lanes,
+            );
+            false
+        } else if !state.registry.try_attach_mux_lane(&node_id, ctrl) {
             warn!(
                 node_id = %node_id,
                 peer = %peer_addr,
@@ -453,12 +471,16 @@ pub(crate) async fn handle_provider_mux_io<S>(
                 "Rejected extra yamux lane (mux full)"
             );
             return;
+        } else {
+            true
         }
-        true
     } else {
-        state
-            .registry
-            .insert(node_id.clone(), ctrl, node_info.clone(), max_lanes);
+        session_generation = state.registry.insert(
+            node_id.clone(),
+            ctrl,
+            node_info.clone(),
+            max_lanes,
+        );
         if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
             warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
         }
@@ -817,11 +839,26 @@ pub(crate) async fn handle_provider_mux_io<S>(
         .and_then(|info| info.control_api_db_id.clone());
 
     warn!("Provider disconnected: {}", node_id);
+    if session_generation == 0 {
+        // Secondary mux lane — do not tear down the primary registration.
+        return;
+    }
     let _ = state.heartbeat_monitor.unregister_provider(&node_id).await;
+    // Only clear the registry if this session still owns the slot (reconnect-safe).
+    let removed = state
+        .registry
+        .remove_if_generation(&node_id, session_generation);
+    if removed.is_none() {
+        info!(
+            node_id = %node_id,
+            gen = session_generation,
+            "Skipping registry remove; newer reconnect already took over"
+        );
+        return;
+    }
     if let Err(err) = state.provider_directory.release(&node_id).await {
         warn!(node_id = %node_id, error = %err, "Failed to release provider directory ownership");
     }
-    state.registry.remove(&node_id);
 
     if let Some(db_id) = db_id {
         let control_api = state.control_api.clone();

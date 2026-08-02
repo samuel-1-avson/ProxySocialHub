@@ -33,10 +33,13 @@ pub struct NodeEntry {
     pub active_connections: AtomicU32,
     /// Health flag — set atomically by heartbeat monitor and circuit breaker
     pub is_healthy: AtomicBool,
+    /// Monotonic session generation — used so a stale disconnect cannot
+    /// unregister a newer reconnect takeover.
+    pub generation: u64,
 }
 
 impl NodeEntry {
-    pub fn new(control: Control, info: NodeInfo, max_yamux_lanes: usize) -> Self {
+    pub fn new(control: Control, info: NodeInfo, max_yamux_lanes: usize, generation: u64) -> Self {
         let is_healthy = info.is_healthy;
         let active_connections = info.active_connections;
         let connected_at = info.connected_at;
@@ -46,6 +49,7 @@ impl NodeEntry {
             last_heartbeat: AtomicU64::new(connected_at),
             active_connections: AtomicU32::new(active_connections),
             is_healthy: AtomicBool::new(is_healthy),
+            generation,
         }
     }
 
@@ -116,6 +120,8 @@ pub struct LockFreeNodeRegistry {
     shard_nodes: Arc<std::sync::RwLock<HashMap<String, Vec<(String, Control)>>>>,
     /// Set on registry mutations; cleared by the score-refresh background task.
     snapshot_dirty: AtomicBool,
+    /// Monotonic counter for reconnect-safe session generations.
+    next_generation: AtomicU64,
 }
 
 impl LockFreeNodeRegistry {
@@ -125,7 +131,12 @@ impl LockFreeNodeRegistry {
             top_nodes: Arc::new(std::sync::RwLock::new(Vec::new())),
             shard_nodes: Arc::new(std::sync::RwLock::new(HashMap::new())),
             snapshot_dirty: AtomicBool::new(true),
+            next_generation: AtomicU64::new(1),
         }
+    }
+
+    fn alloc_generation(&self) -> u64 {
+        self.next_generation.fetch_add(1, Ordering::Relaxed)
     }
 
     fn mark_snapshot_dirty(&self) {
@@ -192,22 +203,47 @@ impl LockFreeNodeRegistry {
     }
 
     /// Register a new provider node (first yamux lane).
+    /// Returns the session generation for disconnect-safe cleanup.
     pub fn insert(
         &self,
         node_id: String,
         control: Control,
         info: NodeInfo,
         max_yamux_lanes: usize,
-    ) {
+    ) -> u64 {
+        let generation = self.alloc_generation();
         info!(
-            "Registered node: {} from {} ({}) max_yamux_lanes={}",
-            node_id, info.region, info.country_code, max_yamux_lanes
+            "Registered node: {} from {} ({}) max_yamux_lanes={} gen={}",
+            node_id, info.region, info.country_code, max_yamux_lanes, generation
         );
         self.nodes.insert(
             node_id,
-            Arc::new(NodeEntry::new(control, info, max_yamux_lanes)),
+            Arc::new(NodeEntry::new(control, info, max_yamux_lanes, generation)),
         );
         self.mark_snapshot_dirty();
+        generation
+    }
+
+    /// Replace any existing registration (reconnect takeover when max lanes = 1).
+    /// Stale disconnects for the previous generation will not remove the new entry.
+    pub fn replace(
+        &self,
+        node_id: String,
+        control: Control,
+        info: NodeInfo,
+        max_yamux_lanes: usize,
+    ) -> u64 {
+        let generation = self.alloc_generation();
+        info!(
+            "Replaced node registration: {} from {} ({}) gen={}",
+            node_id, info.region, info.country_code, generation
+        );
+        self.nodes.insert(
+            node_id,
+            Arc::new(NodeEntry::new(control, info, max_yamux_lanes, generation)),
+        );
+        self.mark_snapshot_dirty();
+        generation
     }
 
     /// Register a provider with minimal info (IP address only).
@@ -217,9 +253,9 @@ impl LockFreeNodeRegistry {
         control: Control,
         ip_address: String,
         max_yamux_lanes: usize,
-    ) {
+    ) -> u64 {
         let info = NodeInfo::new(node_id.clone(), ip_address, None);
-        self.insert(node_id, control, info, max_yamux_lanes);
+        self.insert(node_id, control, info, max_yamux_lanes)
     }
 
     pub fn contains_node(&self, node_id: &str) -> bool {
@@ -262,6 +298,18 @@ impl LockFreeNodeRegistry {
             .and_then(|(_, entry)| entry.info.read().ok().map(|i| i.clone()));
         self.mark_snapshot_dirty();
         result
+    }
+
+    /// Remove only if `generation` still owns the slot (reconnect-safe).
+    pub fn remove_if_generation(&self, node_id: &str, generation: u64) -> Option<NodeInfo> {
+        let should_remove = self
+            .nodes
+            .get(node_id)
+            .is_some_and(|entry| entry.generation == generation);
+        if !should_remove {
+            return None;
+        }
+        self.remove(node_id)
     }
 
     pub fn count(&self) -> usize {
