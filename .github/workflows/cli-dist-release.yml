@@ -222,8 +222,14 @@ jobs:
             ### Windows
             1. Unzip the archive
             2. Double-click **`Launch-Provider-Console.cmd`** (or run `provider-node-*-windows-amd64.exe`)
-            3. A console window opens with an interactive menu (dashboard, doctor, start, …)
+            3. A console window opens with an interactive menu (dashboard, doctor, start, update, …)
             4. Get `provider.toml` from Dashboard → My nodes → Connect / Setup wizard
+
+            ### Already installed?
+            ```
+            provider-node update
+            ```
+            Replaces the binary in place — no need to delete the old download first.
 
             ### Linux / macOS
             ```bash
@@ -231,6 +237,7 @@ jobs:
             ./provider-node-*            # interactive console
             # or:
             ./provider-node-* dashboard --config provider.toml
+            ./provider-node-* update     # in-place upgrade
             ```
 
             Binaries are also mirrored for in-app download via `/v1/cli/download` after publishing to `cli-dist/`.

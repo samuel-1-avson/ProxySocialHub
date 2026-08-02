@@ -1,6 +1,6 @@
 use crate::doctor::{Check, DoctorReport};
 use crate::operator::OperatorSnapshot;
-use crate::tui::theme::{self, retro_block, status_badge};
+use crate::tui::theme::{self, panel_block, retro_block, status_badge};
 use anyhow::Result;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
@@ -50,11 +50,21 @@ impl Tab {
 
     fn label(self) -> &'static str {
         match self {
-            Tab::Overview => "01 OVERVIEW",
-            Tab::Network => "02 NETWORK",
-            Tab::Nodes => "03 NODES",
-            Tab::Earnings => "04 EARNINGS",
-            Tab::Logs => "05 LOGS",
+            Tab::Overview => "Overview",
+            Tab::Network => "Network",
+            Tab::Nodes => "Nodes",
+            Tab::Earnings => "Earnings",
+            Tab::Logs => "Logs",
+        }
+    }
+
+    fn key(self) -> char {
+        match self {
+            Tab::Overview => '1',
+            Tab::Network => '2',
+            Tab::Nodes => '3',
+            Tab::Earnings => '4',
+            Tab::Logs => '5',
         }
     }
 
@@ -299,15 +309,20 @@ fn draw_dashboard(
             frame.area(),
         );
         let area = frame.area();
+        // Build constraints without a zero-height slot — a Length(0) still
+        // occupies an index and used to shift tab/body/cmd when no alerts.
+        let mut constraints = vec![Constraint::Length(5)];
+        if alert_h > 0 {
+            constraints.push(Constraint::Length(alert_h));
+        }
+        constraints.extend([
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(3),
+        ]);
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(5),
-                Constraint::Length(alert_h),
-                Constraint::Length(3),
-                Constraint::Min(10),
-                Constraint::Length(3),
-            ])
+            .constraints(constraints)
             .split(area);
 
         let mut idx = 0;
@@ -464,20 +479,23 @@ fn schedule_refreshes(
         });
     }
 
-    if !in_flight.remote
-        && snapshot.is_some()
-        && (force || now.duration_since(*last_remote) >= remote_refresh)
-    {
+    if !in_flight.remote && (force || now.duration_since(*last_remote) >= remote_refresh) {
         in_flight.remote = true;
         *last_remote = now;
         let path = config_path.to_path_buf();
         let tx = tx.clone();
-        let snap = snapshot.clone().expect("checked is_some");
+        let snap_opt = snapshot.clone();
         tokio::spawn(async move {
-            let mut snap = snap;
-            let msg = match crate::operator::refresh_remote(&mut snap, path).await {
-                Ok(()) => RefreshMsg::Remote(Ok(snap)),
-                Err(e) => RefreshMsg::Remote(Err(e.to_string())),
+            let msg = if let Some(mut snap) = snap_opt {
+                match crate::operator::refresh_remote(&mut snap, path).await {
+                    Ok(()) => RefreshMsg::Remote(Ok(snap)),
+                    Err(e) => RefreshMsg::Remote(Err(e.to_string())),
+                }
+            } else {
+                match crate::operator::collect(path).await {
+                    Ok(s) => RefreshMsg::Remote(Ok(s)),
+                    Err(e) => RefreshMsg::Remote(Err(e.to_string())),
+                }
             };
             let _ = tx.send(msg);
         });
@@ -837,26 +855,40 @@ fn render_banner(
         tunnel_status_style(snap)
     };
 
-    let pulse = if tick % 20 < 10 { "◉" } else { "◎" };
+    let nodes_n = snap
+        .map(|s| s.status.control_api.nodes.len())
+        .unwrap_or(0);
+    let pulse = if tick % 20 < 10 { "●" } else { "○" };
     let lines = vec![
         Line::from(vec![
-            Span::styled("▛▀▀ ", theme::label()),
-            Span::styled("PROXYHUB", theme::value().add_modifier(Modifier::BOLD)),
-            Span::styled(" ▀▀▜  ", theme::label()),
-            Span::styled("RETRO OPERATOR v1", theme::dim()),
+            Span::styled(" PROXYHUB ", theme::value().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("v{} ", env!("CARGO_PKG_VERSION")),
+                theme::dim(),
+            ),
+            Span::styled("· operator ", theme::muted()),
         ]),
         Line::from(vec![
             Span::styled(format!(" {pulse} "), theme::value()),
-            Span::styled("PROVIDER NODE", theme::label()),
-            Span::raw("  │  "),
             Span::styled(format!(" {status_label} "), status_badge(status_label)),
-            Span::raw("  │  "),
+            Span::raw("  "),
             Span::styled(chrono_hint(snap), theme::dim()),
+            Span::raw("  ·  "),
+            Span::styled(
+                if nodes_n == 0 {
+                    "nodes —".to_string()
+                } else {
+                    format!("{nodes_n} node{}", if nodes_n == 1 { "" } else { "s" })
+                },
+                theme::label(),
+            ),
         ]),
     ];
 
-    let block = retro_block("TERMINAL", true);
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(
+        Paragraph::new(lines).block(retro_block("TERMINAL", true)),
+        area,
+    );
 }
 
 fn chrono_hint(snap: Option<&OperatorSnapshot>) -> String {
@@ -872,30 +904,30 @@ fn render_tab_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &DashboardApp
     let mut spans = Vec::new();
     for t in Tab::ALL {
         let active = t == app.tab;
-        let blink = active && app.tick % 16 < 8;
-        let prefix = if active {
-            if blink {
-                "▶"
-            } else {
-                "▷"
-            }
+        let label = format!(" {} {} ", t.key(), t.label());
+        if active {
+            spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(theme::BG)
+                    .bg(theme::AMBER)
+                    .add_modifier(Modifier::BOLD),
+            ));
         } else {
-            " "
-        };
+            spans.push(Span::styled(label, theme::dim()));
+        }
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(
-            format!("{prefix}{} ", t.label()),
-            if active {
-                theme::label()
-            } else {
-                theme::muted()
-            },
-        ));
     }
-    spans.push(Span::styled("  │  ? help", theme::dim()));
+    spans.push(Span::styled("? help", theme::muted()));
 
     frame.render_widget(
-        Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::SURFACE)),
+        Paragraph::new(Line::from(spans))
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(theme::panel_border(false))
+                    .style(Style::default().bg(theme::SURFACE)),
+            ),
         area,
     );
 }
@@ -930,10 +962,10 @@ fn render_overview(
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(3),
             Constraint::Length(5),
             Constraint::Min(6),
-            Constraint::Length(4),
+            Constraint::Length(3),
         ])
         .split(area);
 
@@ -942,9 +974,9 @@ fn render_overview(
 
     let mid = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(rows[2]);
-    render_spark_card(frame, mid[0], app, "TRAFFIC (last 60s)", &combined_spark(app));
+    render_spark_card(frame, mid[0], app, "TRAFFIC", &combined_spark(app));
     render_doctor_summary(frame, mid[1], doctor, doctor_err);
 
     render_overview_footer(frame, rows[3], snap);
@@ -987,7 +1019,7 @@ fn render_health_banner(
         ]),
     ];
     frame.render_widget(
-        Paragraph::new(lines).block(retro_block("STATUS", true)),
+        Paragraph::new(lines).block(panel_block("STATUS", true)),
         area,
     );
 }
@@ -997,7 +1029,7 @@ fn render_kpi_row(
     area: Rect,
     snap: Option<&OperatorSnapshot>,
 ) {
-    let block = retro_block("KEY METRICS", true);
+    let block = panel_block("KEY METRICS", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1648,24 +1680,41 @@ fn render_nodes(
     snap: Option<&OperatorSnapshot>,
 ) {
     let api = snap.map(|s| &s.status.control_api);
-
-    if app.node_detail {
-        render_node_detail(frame, area, app, api);
+    // Wide terminals: list + detail side-by-side so rows never hide behind a tiny pane.
+    let split = area.width >= 88;
+    if split {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
+            .split(area);
+        render_node_table(frame, cols[0], app, api);
+        render_node_detail(frame, cols[1], app, api, true);
         return;
     }
+    if app.node_detail {
+        render_node_detail(frame, area, app, api, false);
+    } else {
+        render_node_table(frame, area, app, api);
+    }
+}
 
+fn render_node_table(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    app: &DashboardApp,
+    api: Option<&crate::status::ControlAPIStatus>,
+) {
     let rows: Vec<Row> = if let Some(api) = api {
         if api.nodes.is_empty() {
             let msg = if let Some(err) = api.error.as_ref().filter(|e| !e.is_empty()) {
-                format!("Control API: {err}")
+                format!("API: {err}")
             } else if !api.reachable {
-                "Waiting for Control API sync… press r".to_string()
+                "Syncing Control API… press r".to_string()
             } else {
-                "No nodes registered on Control API".to_string()
+                "No nodes on this account".to_string()
             };
             vec![Row::new(vec![
-                truncate(&msg, 48),
-                "—".to_string(),
+                truncate(&msg, 40),
                 "—".to_string(),
                 "—".to_string(),
                 "—".to_string(),
@@ -1679,14 +1728,9 @@ fn render_nodes(
                     let proof = if n.latest_heartbeat_verified {
                         "PROOF OK".to_string()
                     } else if !n.latest_heartbeat_verification_error.is_empty() {
-                        truncate(&n.latest_heartbeat_verification_error, 20)
+                        "FAIL".to_string()
                     } else {
-                        "—".to_string()
-                    };
-                    let hotkey = if n.hotkey.is_empty() {
-                        "—".to_string()
-                    } else {
-                        truncate(&n.hotkey, 8)
+                        "UNSIGNED".to_string()
                     };
                     let style = if i == app.node_cursor {
                         Style::default()
@@ -1697,11 +1741,14 @@ fn render_nodes(
                         theme::value()
                     };
                     Row::new(vec![
-                        truncate(&n.name, 14),
-                        n.status.clone(),
+                        truncate(&n.name, 18),
+                        n.status.to_ascii_uppercase(),
                         proof,
-                        hotkey,
-                        truncate(&n.ip_address, 12),
+                        if n.ip_address.is_empty() {
+                            "—".to_string()
+                        } else {
+                            truncate(&n.ip_address, 15)
+                        },
                     ])
                     .style(style)
                 })
@@ -1709,8 +1756,7 @@ fn render_nodes(
         }
     } else {
         vec![Row::new(vec![
-            "Syncing…".to_string(),
-            "—".to_string(),
+            "Loading…".to_string(),
             "—".to_string(),
             "—".to_string(),
             "—".to_string(),
@@ -1721,19 +1767,18 @@ fn render_nodes(
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(28),
+            Constraint::Percentage(36),
             Constraint::Length(10),
-            Constraint::Length(12),
             Constraint::Length(10),
-            Constraint::Percentage(22),
+            Constraint::Percentage(30),
         ],
     )
     .header(
-        Row::new(vec!["NODE", "STATE", "PROOF", "HOTKEY", "IP"])
+        Row::new(vec!["NODE", "STATE", "PROOF", "IP"])
             .style(theme::label())
-            .bottom_margin(1),
+            .bottom_margin(0),
     )
-    .block(retro_block("NODE REGISTRY  j/k select · Enter detail", true));
+    .block(retro_block("NODES  j/k · Enter", true));
 
     frame.render_widget(table, area);
 }
@@ -1743,63 +1788,101 @@ fn render_node_detail(
     area: Rect,
     app: &DashboardApp,
     api: Option<&crate::status::ControlAPIStatus>,
+    side_panel: bool,
 ) {
+    let title = if side_panel {
+        "DETAIL"
+    } else {
+        "DETAIL  Esc back"
+    };
     let Some(api) = api else {
         frame.render_widget(
-            Paragraph::new("…").block(retro_block("NODE DETAIL", true)),
+            Paragraph::new(" Waiting for Control API…").block(panel_block(title, true)),
             area,
         );
         return;
     };
     let Some(n) = api.nodes.get(app.node_cursor) else {
         frame.render_widget(
-            Paragraph::new("No node selected").block(retro_block("NODE DETAIL  Esc back", true)),
+            Paragraph::new(" Select a node with j/k").block(panel_block(title, true)),
             area,
         );
         return;
     };
 
+    let status_label = n.status.to_ascii_uppercase();
+    let status_span = Span::styled(
+        format!(" {status_label} "),
+        theme::status_badge(&status_label),
+    );
     let proof = if n.latest_heartbeat_verified {
-        Span::styled(" VERIFIED ", theme::ok_badge())
+        Span::styled(" PROOF OK ", theme::ok_badge())
     } else if !n.latest_heartbeat_verification_error.is_empty() {
         Span::styled(
-            format!(" FAILED: {} ", truncate(&n.latest_heartbeat_verification_error, 40)),
+            format!(
+                " FAIL {} ",
+                truncate(&n.latest_heartbeat_verification_error, 28)
+            ),
             theme::alert_badge(),
         )
     } else {
-        Span::styled(" PENDING ", theme::warn_badge())
+        Span::styled(" UNSIGNED ", theme::warn_badge())
     };
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![
-            Span::styled("NAME ", theme::label()),
-            Span::styled(&n.name, theme::value()),
+            Span::styled(n.name.clone(), theme::value().add_modifier(Modifier::BOLD)),
             Span::raw("  "),
+            status_span,
+            Span::raw(" "),
             proof,
         ]),
-        line_kv("STATUS", &n.status),
-        line_kv("ID", &n.id),
-        line_kv("GATEWAY", if n.gateway_node_id.is_empty() { "—" } else { &n.gateway_node_id }),
-        line_kv("IP", if n.ip_address.is_empty() { "—" } else { &n.ip_address }),
-        line_kv("HOTKEY", if n.hotkey.is_empty() { "—" } else { &n.hotkey }),
+        Line::from(""),
+        line_kv("ID", truncate(&n.id, 36)),
+        line_kv(
+            "GATEWAY",
+            if n.gateway_node_id.is_empty() {
+                "—".to_string()
+            } else {
+                truncate(&n.gateway_node_id, 36)
+            },
+        ),
+        line_kv(
+            "IP",
+            if n.ip_address.is_empty() {
+                "—".to_string()
+            } else {
+                n.ip_address.clone()
+            },
+        ),
+        line_kv(
+            "HOTKEY",
+            if n.hotkey.is_empty() {
+                "—".to_string()
+            } else {
+                truncate(&n.hotkey, 28)
+            },
+        ),
         line_kv(
             "SIGNER",
             if n.latest_heartbeat_signer.is_empty() {
-                "—"
+                "—".to_string()
             } else {
-                &n.latest_heartbeat_signer
+                truncate(&n.latest_heartbeat_signer, 28)
             },
         ),
         Line::from(""),
         Line::from(Span::styled(
-            "Connect: CLI auto-starts the daemon — open dashboard (option 1) anytime",
+            "UNSIGNED = proof not verified yet; node can still be ONLINE",
             theme::dim(),
         )),
-        Line::from(Span::styled("Esc back", theme::muted())),
     ];
+    if !side_panel {
+        lines.push(Line::from(Span::styled("Esc back to list", theme::muted())));
+    }
 
     frame.render_widget(
-        Paragraph::new(lines).block(retro_block("NODE DETAIL  Esc back", true)),
+        Paragraph::new(lines).block(panel_block(title, true)),
         area,
     );
 }
@@ -1941,34 +2024,35 @@ fn render_command_bar(
     app: &DashboardApp,
     sync_hint: &str,
 ) {
+    let context = match app.tab {
+        Tab::Overview => "1-5 tabs · r refresh · d doctor · ? · q",
+        Tab::Network => "1-5 tabs · r refresh · ? · q",
+        Tab::Nodes => "j/k select · Enter detail · Esc · r · q",
+        Tab::Earnings => "1-5 tabs · r refresh · ? · q",
+        Tab::Logs => "j/k scroll · e errors · a all · w wrap · q",
+    };
     let mut spans = vec![
-        Span::styled(" CMD ", theme::label()),
+        Span::styled(" ", theme::dim()),
+        Span::styled(context, theme::dim()),
         Span::styled(
-            "1-5/Tab tabs │ j/k scroll │ Enter detail │ r refresh │ d doctor │ ? help │ q quit ",
-            theme::dim(),
-        ),
-        Span::styled(
-            format!(
-                "│ local {refresh_ms}ms · remote {REMOTE_REFRESH_MS}ms · doctor {DOCTOR_REFRESH_MS}ms",
-            ),
+            format!("  ·  {refresh_ms}ms"),
             theme::muted(),
         ),
     ];
     if !sync_hint.is_empty() {
-        spans.push(Span::styled(sync_hint.to_string(), theme::warn()));
+        spans.push(Span::styled(format!("  {sync_hint}"), theme::warn()));
     }
     if let Some(hint) = active_hint(app) {
-        spans.push(Span::raw(" │ "));
-        spans.push(Span::styled(hint.to_string(), theme::dim()));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(hint.to_string(), theme::label()));
     }
-    spans.push(Span::raw(" "));
+    spans.push(Span::raw("  "));
     spans.push(Span::styled(
         if app.tick % 24 < 12 { "▮" } else { "▯" },
         theme::value(),
     ));
-    let line = Line::from(spans);
     frame.render_widget(
-        Paragraph::new(line).style(Style::default().bg(theme::SURFACE)),
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::SURFACE)),
         area,
     );
 }
