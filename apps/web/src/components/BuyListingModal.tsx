@@ -25,6 +25,7 @@ import {
 import { getSystemConfig } from '@/lib/api/config';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { initializeEscrow } from '@/lib/solana';
+import { formatSolanaWalletError } from '@/lib/solana-transfer';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
 import Link from 'next/link';
@@ -147,8 +148,11 @@ export function BuyListingModal({
       onSuccess(order.id, nextCredentials);
     } catch (err: unknown) {
       console.error(err);
+      const walletMsg = formatSolanaWalletError(err);
       setError(
-        getErrorMessage(err) || 'Failed to connect. Check your on-chain SOL wallet balance.'
+        walletMsg ||
+          getErrorMessage(err) ||
+          'Failed to connect. Check your on-chain SOL wallet balance (devnet).'
       );
     } finally {
       setLoading(false);
