@@ -141,12 +141,16 @@ func initiateSolanaPayment(c *gin.Context) {
 
 	// H-02: Verify buyer has sufficient on-chain SOL balance before recording the PDA.
 	// Without this check the DB row would reference an escrow that can never be funded.
+	// When the RPC is rate-limited (common on public devnet), skip the precheck and let
+	// the wallet transaction be the funding gate — SessionActivator still requires on-chain init.
 	buyerOnChainLamports, err := oracle.GetBalance(c.Request.Context(), buyerPubKey)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch buyer on-chain balance"})
-		return
-	}
-	if buyerOnChainLamports < amountLamports {
+		logging.Warn().
+			Err(err).
+			Str("buyer", buyerPubKey.String()).
+			Str("order_id", order.ID.String()).
+			Msg("pay/solana: on-chain balance precheck unavailable; proceeding (wallet is funding gate)")
+	} else if buyerOnChainLamports < amountLamports {
 		c.JSON(http.StatusPaymentRequired, gin.H{
 			"error":     "Insufficient on-chain SOL balance",
 			"required":  amountSOL,
