@@ -302,6 +302,7 @@ mod tests {
             user_id: None,
             country_code: "GH".into(),
             region: "Accra".into(),
+            isp: String::new(),
             ip_address: "1.2.3.4".into(),
             connected_at: 0,
             total_bytes_served: 0,

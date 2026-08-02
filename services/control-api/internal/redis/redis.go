@@ -136,6 +136,37 @@ func StoreSession(sessionID string, data *SessionData, ttl time.Duration) error 
 	return Client.Set(ctx, key, jsonData, ttl).Err()
 }
 
+// --- WS ticket store (short-lived, single-use WebSocket auth tickets) ---
+
+func StoreWSTicket(ticket string, userID string, role string, ttl time.Duration) error {
+	if Client == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	payload, err := json.Marshal(map[string]string{"user_id": userID, "role": role})
+	if err != nil {
+		return err
+	}
+	return Client.Set(ctx, "ws_ticket:"+ticket, payload, ttl).Err()
+}
+
+// ConsumeWSTicket atomically reads and deletes a ticket (single-use).
+func ConsumeWSTicket(ticket string) (userID string, role string, err error) {
+	if Client == nil {
+		return "", "", fmt.Errorf("redis client not initialized")
+	}
+	key := "ws_ticket:" + ticket
+	val, err := Client.Get(ctx, key).Result()
+	if err != nil {
+		return "", "", fmt.Errorf("ws ticket invalid or expired")
+	}
+	Client.Del(ctx, key)
+	var m map[string]string
+	if err := json.Unmarshal([]byte(val), &m); err != nil {
+		return "", "", fmt.Errorf("ws ticket corrupt")
+	}
+	return m["user_id"], m["role"], nil
+}
+
 func GetSession(sessionID string) (*SessionData, error) {
 	key := "session:" + sessionID
 	val, err := Client.Get(ctx, key).Result()
@@ -150,6 +181,9 @@ func GetSession(sessionID string) (*SessionData, error) {
 }
 
 func DeleteSession(sessionID string) error {
+	if Client == nil {
+		return nil
+	}
 	key := "session:" + sessionID
 	return Client.Del(ctx, key).Err()
 }

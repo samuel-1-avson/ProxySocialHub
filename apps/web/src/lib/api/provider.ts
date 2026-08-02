@@ -58,6 +58,7 @@ export interface ProviderReadinessSummary {
     active_listings: number;
     last_heartbeat_at?: string;
     proof_mode: string;
+    tunnel_ready: boolean;
     ready_for_traffic: boolean;
     ready_for_marketplace: boolean;
     ready_for_payouts: boolean;

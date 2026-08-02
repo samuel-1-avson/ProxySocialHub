@@ -248,7 +248,11 @@ export default function CreateListingPage() {
                                 ))}
                             </select>
                             <p className="text-[10px] text-muted-foreground font-mono">
-                                Links this listing to infrastructure shown on the marketplace map.
+                                Links this listing to infrastructure shown on the{" "}
+                                <Link href="/marketplace/map" className="text-primary hover:underline">
+                                    marketplace map
+                                </Link>{" "}
+                                (Google Maps).
                                 {selectedNode?.hotkey && (
                                     <> Hotkey: {selectedNode.hotkey.slice(0, 8)}…</>
                                 )}

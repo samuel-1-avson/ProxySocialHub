@@ -21,6 +21,9 @@ pub struct NodeInfo {
     pub user_id: Option<String>,
     pub country_code: String, // ISO 3166-1 alpha-2 (e.g., "GH", "NG", "KE")
     pub region: String,       // Region/city (e.g., "Accra", "Lagos")
+    /// Authoritative ISP name from control-api GeoIP (empty until resolved) — GW-04.
+    #[serde(default)]
+    pub isp: String,
     pub ip_address: String,
     pub connected_at: u64, // Unix timestamp
     pub total_bytes_served: u64,
@@ -62,6 +65,7 @@ impl NodeInfo {
             user_id,
             country_code: "GH".to_string(), // Default to Ghana
             region: "Unknown".to_string(),
+            isp: String::new(),
             ip_address,
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -335,7 +339,104 @@ pub enum SelectionStrategy {
     ByRegion(String),
 }
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+
+/// Per-session concurrency accounting (GW-03). Tracks live CONNECT tunnels per
+/// resolved session username and rejects acquisitions beyond the session's
+/// `max_concurrency` claim (0 = unlimited, tracked anyway for metrics).
+pub struct SessionConnTracker {
+    conns: dashmap::DashMap<String, Arc<AtomicUsize>>,
+}
+
+/// RAII guard — decrements the session's live-connection count on drop.
+pub struct SessionConnGuard {
+    key: String,
+    counter: Arc<AtomicUsize>,
+}
+
+impl SessionConnGuard {
+    pub fn active(&self) -> usize {
+        self.counter.load(AtomicOrdering::Relaxed)
+    }
+
+    pub fn username(&self) -> &str {
+        &self.key
+    }
+}
+
+impl Drop for SessionConnGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, AtomicOrdering::Relaxed);
+    }
+}
+
+impl SessionConnTracker {
+    pub fn new() -> Self {
+        Self {
+            conns: dashmap::DashMap::new(),
+        }
+    }
+
+    /// Try to register a new live connection for `username`.
+    /// Returns None when the session is already at `max_concurrency` (> 0).
+    pub fn acquire(&self, username: &str, max_concurrency: i32) -> Option<SessionConnGuard> {
+        let counter = self
+            .conns
+            .entry(username.to_string())
+            .or_insert_with(|| Arc::new(AtomicUsize::new(0)))
+            .clone();
+
+        if max_concurrency > 0 {
+            // CAS loop: only increment while below the cap so racing CONNECTs
+            // cannot overshoot it.
+            loop {
+                let current = counter.load(AtomicOrdering::Acquire);
+                if current >= max_concurrency as usize {
+                    return None;
+                }
+                if counter
+                    .compare_exchange(
+                        current,
+                        current + 1,
+                        AtomicOrdering::AcqRel,
+                        AtomicOrdering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+        } else {
+            counter.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+
+        Some(SessionConnGuard {
+            key: username.to_string(),
+            counter,
+        })
+    }
+
+    pub fn active(&self, username: &str) -> usize {
+        self.conns
+            .get(username)
+            .map(|c| c.load(AtomicOrdering::Relaxed))
+            .unwrap_or(0)
+    }
+
+    /// Number of sessions with at least one live connection.
+    pub fn tracked_sessions(&self) -> usize {
+        self.conns
+            .iter()
+            .filter(|e| e.value().load(AtomicOrdering::Relaxed) > 0)
+            .count()
+    }
+}
+
+impl Drop for SessionConnTracker {
+    fn drop(&mut self) {
+        self.conns.clear();
+    }
+}
 
 pub struct AppState {
     /// Lock-free provider registry (Phase 1 upgrade from Mutex<NodeRegistry>).
@@ -393,6 +494,8 @@ pub struct AppState {
     pub honeytoken: Arc<crate::security::honeytoken::HoneytokenRegistry>,
     /// Anomaly tracker for session monitoring (Phase 4).
     pub anomaly: Arc<crate::security::anomaly::AnomalyTracker>,
+    /// Per-session live-connection accounting for max_concurrency enforcement (GW-03).
+    pub session_conns: Arc<SessionConnTracker>,
     /// Legacy edge-side ZK-SNARK usage prover (`legacy-zk` feature + env opt-in).
     #[cfg(feature = "legacy-zk")]
     pub zk_prover: Option<Arc<crate::billing::zk::ZkProver>>,
@@ -550,6 +653,7 @@ impl AppState {
             control_api,
             honeytoken,
             anomaly,
+            session_conns: Arc::new(SessionConnTracker::new()),
             #[cfg(feature = "legacy-zk")]
             zk_prover,
             #[cfg(feature = "legacy-zk")]
@@ -607,12 +711,49 @@ impl AppState {
 mod tests {
     use super::*;
 
+    #[test]
+    fn session_conn_tracker_enforces_cap() {
+        let tracker = SessionConnTracker::new();
+        let g1 = tracker.acquire("sess-a", 2).expect("first allowed");
+        let _g2 = tracker.acquire("sess-a", 2).expect("second allowed");
+        assert!(tracker.acquire("sess-a", 2).is_none(), "third must be rejected at cap 2");
+        assert_eq!(tracker.active("sess-a"), 2);
+        assert_eq!(g1.active(), 2);
+        drop(g1);
+        assert_eq!(tracker.active("sess-a"), 1);
+        assert!(tracker.acquire("sess-a", 2).is_some(), "slot freed after guard drop");
+    }
+
+    #[test]
+    fn session_conn_tracker_unlimited_when_zero_cap() {
+        let tracker = SessionConnTracker::new();
+        let mut guards = Vec::new();
+        for _ in 0..100 {
+            guards.push(tracker.acquire("sess-b", 0).expect("unlimited"));
+        }
+        assert_eq!(tracker.active("sess-b"), 100);
+        drop(guards);
+        assert_eq!(tracker.active("sess-b"), 0);
+    }
+
+    #[test]
+    fn session_conn_tracker_isolates_sessions() {
+        let tracker = SessionConnTracker::new();
+        let _a = tracker.acquire("sess-x", 1).expect("x allowed");
+        assert!(tracker.acquire("sess-x", 1).is_none());
+        let _b = tracker
+            .acquire("sess-y", 1)
+            .expect("other session unaffected");
+        assert_eq!(tracker.tracked_sessions(), 2);
+    }
+
     fn create_test_node(id: &str, latency: u32, active: u32, max: u32, healthy: bool) -> NodeInfo {
         NodeInfo {
             node_id: id.to_string(),
             user_id: None,
             country_code: "GH".to_string(),
             region: "Accra".to_string(),
+            isp: String::new(),
             ip_address: "192.168.1.1".to_string(),
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

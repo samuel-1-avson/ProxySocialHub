@@ -245,7 +245,9 @@ fn percentile(sorted: &[u64], p: usize) -> u64 {
     if sorted.is_empty() {
         return 0;
     }
-    let idx = ((p as f64 / 100.0) * (sorted.len() - 1) as f64).round() as usize;
+    // Nearest-rank on the (len-1) scale: floor keeps p50 of an even-length
+    // window at the lower median element (p50 of 1..=100 → 50).
+    let idx = ((p as f64 / 100.0) * (sorted.len() - 1) as f64).floor() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
 

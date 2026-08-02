@@ -386,6 +386,10 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 
 // sendInstruction is a helper to sign and send an instruction
 func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Instruction) (string, error) {
+	return c.sendInstructionAsPayer(ctx, instruction, c.GetOraclePublicKey())
+}
+
+func (c *OracleClient) sendInstructionAsPayer(ctx context.Context, instruction sol.Instruction, payer sol.PublicKey) (string, error) {
 	var recentBlockhash *rpc.GetLatestBlockhashResult
 	err := c.withFailover(ctx, func(client *rpc.Client) error {
 		var err error
@@ -396,7 +400,7 @@ func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Inst
 		return "", err
 	}
 
-	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(c.GetOraclePublicKey()))
+	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(payer))
 	if err != nil {
 		return "", err
 	}
@@ -440,8 +444,9 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 // SendSOLTestHook, when set, replaces SendSOL (used by api package tests).
 var SendSOLTestHook func(ctx context.Context, c *OracleClient, recipient sol.PublicKey, lamports uint64) (string, error)
 
-// SendSOL transfers lamports from the oracle (treasury) wallet to a recipient
-// using a System Program transfer instruction.
+// SendSOL transfers lamports from the payout (treasury hot) wallet to a recipient
+// using a System Program transfer instruction. Oracle signing key is used only when
+// no separate treasury hot keypair is configured (legacy).
 func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lamports uint64) (string, error) {
 	if SendSOLTestHook != nil {
 		return SendSOLTestHook(ctx, c, recipient, lamports)
@@ -457,6 +462,8 @@ func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lam
 		return "", fmt.Errorf("SendSOL blocked by velocity guard: %w", err)
 	}
 
+	payer := c.GetPayoutPublicKey()
+
 	// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
 	data := make([]byte, 12)
 	data[0] = 2 // SystemInstruction::Transfer
@@ -467,13 +474,13 @@ func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lam
 	instruction := &GenericInstruction{
 		programID: sol.SystemProgramID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: payer, IsSigner: true, IsWritable: true},
 			{PublicKey: recipient, IsSigner: false, IsWritable: true},
 		},
 		data: data,
 	}
 
-	return c.sendInstruction(ctx, instruction)
+	return c.sendInstructionAsPayer(ctx, instruction, payer)
 }
 
 // GenericInstruction is a generic Solana instruction builder
@@ -519,6 +526,8 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 		return "", fmt.Errorf("BatchTransferSOL blocked by velocity guard: %w", err)
 	}
 
+	payer := c.GetPayoutPublicKey()
+
 	// Build instructions for all transfers
 	instructions := make([]sol.Instruction, len(transfers))
 	for i, t := range transfers {
@@ -532,7 +541,7 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 		instructions[i] = &GenericInstruction{
 			programID: sol.SystemProgramID,
 			accounts: []*sol.AccountMeta{
-				{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
+				{PublicKey: payer, IsSigner: true, IsWritable: true},
 				{PublicKey: t.Recipient, IsSigner: false, IsWritable: true},
 			},
 			data: data,
@@ -548,7 +557,7 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 	tx, err := sol.NewTransaction(
 		instructions,
 		recentBlockhash.Value.Blockhash,
-		sol.TransactionPayer(c.GetOraclePublicKey()),
+		sol.TransactionPayer(payer),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to build transaction: %w", err)

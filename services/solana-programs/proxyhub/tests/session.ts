@@ -15,6 +15,7 @@ describe("session", () => {
   const providerNode = Keypair.generate();
   const gatewayOperator = Keypair.generate();
   const oracle = provider.wallet as anchor.Wallet;
+  const treasury = Keypair.generate();
 
   function findGateway(operator: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
@@ -30,6 +31,10 @@ describe("session", () => {
       [Buffer.from("session"), buyerKey.toBuffer(), providerKey.toBuffer(), tsBuffer],
       program.programId
     );
+  }
+
+  function findConfig(): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId);
   }
 
   async function fundAccount(pubkey: PublicKey, sol: number = 2) {
@@ -62,6 +67,35 @@ describe("session", () => {
       fundAccount(providerNode.publicKey),
       fundAccount(gatewayOperator.publicKey),
     ]);
+
+    // Initialize Config PDA (idempotent — ignore if already initialized)
+    const [configPda] = findConfig();
+    try {
+      await program.methods
+        .initializeConfig(oracle.publicKey, treasury.publicKey)
+        .accounts({
+          config: configPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    } catch (err: any) {
+      if (!String(err).includes("already in use")) throw err;
+    }
+  });
+
+  // =========================================================================
+  // CONFIG (BC-03/04 remediation)
+  // =========================================================================
+
+  describe("config", () => {
+    it("initializes config bound to oracle + treasury", async () => {
+      const [configPda] = findConfig();
+      const cfg = await programAccounts.config.fetch(configPda);
+      expect(cfg.admin.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
+      expect(cfg.oracle.toBase58()).to.equal(oracle.publicKey.toBase58());
+      expect(cfg.treasury.toBase58()).to.equal(treasury.publicKey.toBase58());
+    });
   });
 
   // =========================================================================
@@ -192,6 +226,7 @@ describe("session", () => {
         .accounts({
           session: sessionPda,
           reporter: gatewayOperator.publicKey,
+          config: findConfig()[0],
         })
         .signers([gatewayOperator])
         .rpc();
@@ -201,8 +236,36 @@ describe("session", () => {
       expect(session.requestsCount.toNumber()).to.equal(500);
     });
 
-    it("completes the session with quality score", async () => {
+    it("rejects complete_session from wrong oracle", async () => {
       const [gatewayPda] = findGateway(gatewayOperator.publicKey);
+      const [configPda] = findConfig();
+      const rogue = Keypair.generate();
+      await fundAccount(rogue.publicKey);
+      const usageProofCid = Buffer.alloc(46);
+
+      try {
+        await program.methods
+          .completeSession(90, Array.from(usageProofCid))
+          .accounts({
+            session: sessionPda,
+            oracle: rogue.publicKey,
+            config: configPda,
+            buyer: buyer.publicKey,
+            provider: providerNode.publicKey,
+            gatewayNode: gatewayPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([rogue])
+          .rpc();
+        expect.fail("Should have failed - oracle not bound to config");
+      } catch (err: any) {
+        expect(err).to.exist;
+      }
+    });
+
+    it("completes the session with quality score (config-bound oracle)", async () => {
+      const [gatewayPda] = findGateway(gatewayOperator.publicKey);
+      const [configPda] = findConfig();
       const usageProofCid = Buffer.alloc(46);
       Buffer.from("QmTest1234567890abcdefghijklmnopqrstuv").copy(usageProofCid);
 
@@ -214,6 +277,7 @@ describe("session", () => {
         .accounts({
           session: sessionPda,
           oracle: oracle.publicKey,
+          config: configPda,
           buyer: buyer.publicKey,
           provider: providerNode.publicKey,
           gatewayNode: gatewayPda,
@@ -224,6 +288,44 @@ describe("session", () => {
       const session = await programAccounts.session.fetch(sessionPda);
       expect(session.qualityScore).to.equal(85);
       expect(session.status).to.deep.include({ completed: {} });
+    });
+
+    it("rejects slash_gateway from non-admin and wrong treasury", async () => {
+      const [gatewayPda] = findGateway(gatewayOperator.publicKey);
+      const [configPda] = findConfig();
+      const rogue = Keypair.generate();
+      await fundAccount(rogue.publicKey);
+
+      try {
+        await program.methods
+          .slashGateway(50, "test")
+          .accounts({
+            gateway: gatewayPda,
+            admin: rogue.publicKey,
+            config: configPda,
+            treasury: treasury.publicKey,
+          })
+          .signers([rogue])
+          .rpc();
+        expect.fail("Should have failed - admin not bound to config");
+      } catch (err: any) {
+        expect(err).to.exist;
+      }
+
+      try {
+        await program.methods
+          .slashGateway(50, "test")
+          .accounts({
+            gateway: gatewayPda,
+            admin: provider.wallet.publicKey,
+            config: configPda,
+            treasury: rogue.publicKey,
+          })
+          .rpc();
+        expect.fail("Should have failed - treasury not bound to config");
+      } catch (err: any) {
+        expect(err).to.exist;
+      }
     });
   });
 });

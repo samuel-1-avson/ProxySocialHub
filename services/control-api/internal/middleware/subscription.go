@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
@@ -20,23 +21,26 @@ const (
 	TierGold
 )
 
-// TierMints holds the NFT mint addresses for each tier
-var TierMints = map[SubscriptionTier]string{
-	TierBronze: os.Getenv("MINT_BRONZE_PASS"), // e.g. "Bronz..."
-	TierSilver: os.Getenv("MINT_SILVER_PASS"),
-	TierGold:   os.Getenv("MINT_GOLD_PASS"),
+func tierMint(tier SubscriptionTier) string {
+	switch tier {
+	case TierBronze:
+		return strings.TrimSpace(os.Getenv("MINT_BRONZE_PASS"))
+	case TierSilver:
+		return strings.TrimSpace(os.Getenv("MINT_SILVER_PASS"))
+	case TierGold:
+		return strings.TrimSpace(os.Getenv("MINT_GOLD_PASS"))
+	default:
+		return ""
+	}
 }
 
 // SubscriptionMiddleware gates routes based on NFT ownership.
 //
-// DEPRECATED / ORPHAN: Buyer entitlements are driven by DB subscription_plans +
-// user_subscriptions (see api/subscription_entitlements.go). This NFT-pass gate
-// is not wired into main.go routing. Do not attach it to new routes unless the
-// product intentionally reintroduces NFT passes alongside (or instead of) plans.
+// Access Passes are the entitlement source of truth via api.ResolvePassEntitlement
+// (HasNFT + legacy grace). Prefer that resolver for quota gates. This middleware
+// remains available for route-level NFT gates when a hard on-wallet check is desired.
 func SubscriptionMiddleware(client *solana.OracleClient, requiredTier SubscriptionTier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get user's wallet address from context (set by auth middleware)
-		// Assuming "wallet_address" is set
 		walletStr := c.GetString("wallet_address")
 		if walletStr == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Wallet not found in context"})
@@ -49,39 +53,50 @@ func SubscriptionMiddleware(client *solana.OracleClient, requiredTier Subscripti
 			return
 		}
 
-		// Iterate checks from required tier upwards
 		hasAccess := false
 
-		// Check Gold (access to everything)
-		if TierMints[TierGold] != "" {
-			goldMint, _ := sol.PublicKeyFromBase58(TierMints[TierGold])
-			has, _ := client.HasNFT(context.Background(), wallet, goldMint)
-			if has {
-				hasAccess = true
+		if mintStr := tierMint(TierGold); mintStr != "" {
+			goldMint, err := sol.PublicKeyFromBase58(mintStr)
+			if err == nil {
+				has, _ := client.HasNFT(context.Background(), wallet, goldMint)
+				if has {
+					hasAccess = true
+				}
 			}
 		}
 
-		// Check Silver (if required <= Silver and not yet found)
-		if !hasAccess && requiredTier <= TierSilver && TierMints[TierSilver] != "" {
-			silverMint, _ := sol.PublicKeyFromBase58(TierMints[TierSilver])
-			has, _ := client.HasNFT(context.Background(), wallet, silverMint)
-			if has {
-				hasAccess = true
+		if !hasAccess && requiredTier <= TierSilver {
+			if mintStr := tierMint(TierSilver); mintStr != "" {
+				silverMint, err := sol.PublicKeyFromBase58(mintStr)
+				if err == nil {
+					has, _ := client.HasNFT(context.Background(), wallet, silverMint)
+					if has {
+						hasAccess = true
+					}
+				}
 			}
 		}
 
-		// Check Bronze (if required <= Bronze and not yet found)
-		if !hasAccess && requiredTier <= TierBronze && TierMints[TierBronze] != "" {
-			bronzeMint, _ := sol.PublicKeyFromBase58(TierMints[TierBronze])
-			has, _ := client.HasNFT(context.Background(), wallet, bronzeMint)
-			if has {
-				hasAccess = true
+		if !hasAccess && requiredTier <= TierBronze {
+			if mintStr := tierMint(TierBronze); mintStr != "" {
+				bronzeMint, err := sol.PublicKeyFromBase58(mintStr)
+				if err == nil {
+					has, _ := client.HasNFT(context.Background(), wallet, bronzeMint)
+					if has {
+						hasAccess = true
+					}
+				}
 			}
+		}
+
+		// Free tier routes: no NFT required
+		if !hasAccess && requiredTier == TierFree {
+			hasAccess = true
 		}
 
 		if !hasAccess {
 			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-				"error":         "Subscription pass required",
+				"error":         "Access Pass required",
 				"tier_required": requiredTier,
 			})
 			return

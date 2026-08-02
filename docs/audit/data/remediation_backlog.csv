@@ -1,0 +1,52 @@
+ref,item,phase,component,complexity,depends_on,status,acceptance,tests
+0.1,Fail-closed usage signatures,0,control-api,S,-,DONE,forged/unsigned rejected,4 unit tests PASS
+0.2,Role-key standardization,0,control-api,S,-,DONE,admin paths authorize,build/vet PASS
+0.3,On-chain payout binding,0,proxyhub program,S,-,DONE-source,wrong-recipient fails,cargo check PASS
+0.4,Redeploy program + unify IDs,0,chain/ops,M,0.3,DONE (devnet deploy + live settle smoke PASS),devnet e2e passes,live_escrow_settle_smoke.ts ✅
+0.5,Session program Config PDA,0,session program,L,-,OPEN,unauthorized slash/complete fail,session.ts adversarial
+0.6,Rotate/vault keys KMS cold treasury,0,ops/chain,M,-,OPEN,no keys on disk,ops smoke
+0.7,k8s data-store credentials,0,infra,S,-,OPEN,unauth fails,cluster smoke
+0.8,Compose loopback + dev flags off,0,infra,S,-,DONE,ports not exposed,config validation PASS
+0.9,FE e2e wallet prod guard,0,web,S,-,DONE,prod build clean,tsc PASS
+0.10,TREASURY JetStream stream,0,control-api,S,-,PARTIAL (stream added; consumers pending),publish-consume works,round-trip test
+1.9,TEST-01 order authority header,1,control-api,S,-,DONE (test wiring),CI green,3/3 ✅
+1.10,Provider leases required,1,gateway/provider,S,-,DONE (explicit prod=true dev=false),unleased rejected,compose config ✅
+0.11,GATEWAY_USAGE_PUBLIC_KEY required,0,ops/control-api,S,0.1,DONE (VM pubkey derived+set; paired with PROVIDER_PRIVATE_KEY),startup fails when unset; zero-seed hazard removed from .env.docker.example,config + VM set
+0.12,Graceful shutdown,0,control-api,S,-,DONE,SIGTERM drains,build PASS
+1.1,Metering idempotency hash-id WAL requeue,1,edge-gateway,M,0.1,DONE (seq+pending+ack-decrement+sweep; Redis exactly_once tests),no double/under charge,exactly_once_tests (Redis; skip if down)
+1.2,Entitlement at CONNECT + per-session limits,1,gateway+control-api,L,-,DONE (live usage at admit; cancel revokes Redis; intent quota reject; SOCKS RPM/concurrency),over-limit rejected,validate_session usage test + unit merge
+1.3,Provider failover alternates,1,edge-gateway,M,-,DONE (primary+2 alternates, geo/ISP honored; 172/172 tests),session survives primary loss,chaos test still recommended
+1.4,ISP routing or claim removal,1,gateway+web,M,-,DONE (end-to-end: GeoIP resolve→NodeInfo→filter/reject; 4 filter tests),ISP honored,filter tests ✅
+1.5,Fix authenticated realtime,1,web+infra,M,-,OPEN,live notifications staging,Playwright realtime
+1.6,/v1/network/status,1,control-api,S,-,DONE,card renders real data,handler tests ✅
+1.7,Dispute-admin admin group,1,control-api,S,0.2,DONE,admin resolves user 403/user-group 404,regression tests ✅
+1.8,Marketplace indexes pagination,1,DB,S,-,DONE (migration 000110 status/country/isp-trgm/latency/uptime/price),EXPLAIN uses index,migration 000110
+1.9,TEST-01 order authority header,1,control-api,S,-,DONE (test wiring),CI green,3/3 ✅
+1.10,Provider leases required,1,gateway/provider,S,-,DONE (explicit prod=true dev=false),unleased rejected,compose config ✅
+1.11,HTTP forward proxy or docs,1,gateway+docs,M,-,DONE (CONNECT-only docs + real 501),documented; non-CONNECT→501,docs/buyer-proxy.md + gateway 501
+2.1,Double-entry ledger + immutability,2,control-api+DB,XL,1.1,OPEN,balanced journal always,ledger invariant tests
+2.2,Integer lamports end-to-end,2,control-api+DB,L,2.1,OPEN,no float money,migration tests
+2.3,Redis HA + WAL PG fallback,2,infra,M,-,OPEN,session survives Redis loss,failover test
+2.4,DLQ + retries + lag metrics,2,messaging,M,0.10,OPEN,poison isolated,consumer tests
+2.5,Outbox for P2P settle + retry queue,2,control-api,M,-,OPEN,no silent settle loss,outbox tests
+2.6,Finalized deposits,2,control-api,S,-,OPEN,no reorg credit,reorg test
+2.7,Wire/delete unwired packages,2,control-api,S,-,OPEN,decision per package,build
+2.8,Preventive reconciliation invariants,2,control-api,L,2.1,OPEN,tx-time invariant,tests
+2.9,Backup verify automation DR runbook,2,ops,S,-,OPEN,drill scheduled,drill log
+3.1,k6 product suite SLOs,3,testing,M,-,OPEN,p95/p99 SLOs defined,load report
+3.2,ClickHouse telemetry pipeline,3,analytics,L,-,OPEN,OLTP hot window only,rollup checks
+3.3,Metrics label audit tracing backend,3,observability,S,-,OPEN,cardinality bounded,dashboards
+3.4,Regional gateways autoscale,3,infra,L,-,OPEN,failover across regions,chaos
+3.5,Gateway lock/pool tuning,3,edge-gateway,M,-,OPEN,bench improvement,criterion
+4.1,Program vault PDA deposits,4,chain,L,0.6,OPEN,deposits not in hot wallet,Anchor tests
+4.2,Admin binding proofs/KYC attestations,4,chain,S,-,OPEN,forged attestations fail,Anchor tests
+4.3,Multisig nonce bump on settle,4,chain,S,0.4,OPEN,replay impossible,Anchor tests
+4.4,Batched settlement + recon,4,control-api,M,2.5,OPEN,daily batch settle works,e2e
+4.5,Real ZK/reputation or de-claim,4,chain+web,XL,-,OPEN,claims match reality,verification tests
+5.1,Probing service honest stats,5,analytics,L,-,OPEN,stats from probes,probe tests
+5.2,Agent scheduling consent hot-config auto-update,5,provider-node,M,-,OPEN,schedule enforced,agent tests
+5.3,Remove hardcoded stats unify API URL,5,web,S,-,OPEN,no fake stats,UI tests
+5.4,Typed error envelope OpenAPI lint,5,control-api,M,-,OPEN,consistent errors,lint CI
+5.5,Fraud/collusion analytics,5,analytics,L,3.2,OPEN,detections fire,seeded fraud tests
+5.6,Admin tooling completion,5,control-api,M,2.7,OPEN,admin flows work,e2e admin
+5.7,Runbooks + client/provider docs,5,docs,S,-,OPEN,docs published,review

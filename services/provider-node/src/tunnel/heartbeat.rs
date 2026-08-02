@@ -66,7 +66,8 @@ pub struct HeartbeatManager {
     current_lease: Option<CachedLease>,
     /// UUID from `provider.toml` `node_id` (POST /v1/provider/nodes); gateway uses `node_id` above.
     api_node_id: String,
-    api_heartbeat_ticks: u32,
+    /// When we last successfully attempted a Control API node heartbeat (cadence gate).
+    last_api_heartbeat: Option<Instant>,
     provider_signer: Option<ProviderSigner>,
     provider_run_id: String,
 }
@@ -79,6 +80,9 @@ struct CachedLease {
 
 /// Refresh gateway JWT this far before expiry.
 const GATEWAY_TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
+
+/// Control API node Online / listing activate cadence (after the immediate first send).
+const API_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(120);
 
 impl HeartbeatManager {
     #[allow(clippy::too_many_arguments)]
@@ -110,16 +114,25 @@ impl HeartbeatManager {
             lease_request,
             current_lease: None,
             api_node_id,
-            api_heartbeat_ticks: 0,
+            last_api_heartbeat: None,
             provider_signer,
             provider_run_id,
         }
     }
 
     /// Run the heartbeat loop until cancelled or an error occurs.
+    ///
+    /// Sends an immediate first heartbeat (tunnel + Control API) so dashboard
+    /// Online / listing publish do not wait a full interval (~30s / ~120s).
     pub async fn run(mut self) {
+        if let Err(e) = self.send().await {
+            error!("Heartbeat failed: {e}");
+            return;
+        }
+
         let mut ticker = tokio::time::interval(self.interval);
-        // First tick fires immediately
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Consume the immediate first tick so the next wait is a full interval.
         ticker.tick().await;
 
         loop {
@@ -282,14 +295,15 @@ impl HeartbeatManager {
         }
     }
 
-    /// Control API expects a heartbeat about every 2 minutes; gateway ticks are 30s.
+    /// Control API Online / listing activate: send on first tunnel HB, then every ~2 minutes.
     async fn maybe_send_api_heartbeat(&mut self, msg: &HeartbeatMessage) {
         if self.api_node_id.is_empty() {
             return;
         }
-        self.api_heartbeat_ticks += 1;
-        if !self.api_heartbeat_ticks.is_multiple_of(4) {
-            return;
+        if let Some(last) = self.last_api_heartbeat {
+            if last.elapsed() < API_HEARTBEAT_INTERVAL {
+                return;
+            }
         }
 
         if let Err(e) = crate::ip::send_provider_node_heartbeat(
@@ -321,11 +335,15 @@ impl HeartbeatManager {
                 .await
                 {
                     error!("Control API heartbeat failed after JWT refresh: {retry}");
+                    return;
                 }
             } else {
                 error!("Control API heartbeat failed: {e}");
+                return;
             }
         }
+
+        self.last_api_heartbeat = Some(Instant::now());
     }
 
     async fn ensure_provider_lease(&mut self) -> anyhow::Result<String> {

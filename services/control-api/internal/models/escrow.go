@@ -11,10 +11,11 @@ import (
 type EscrowStatus string
 
 const (
-	EscrowHeld     EscrowStatus = "held"
-	EscrowReleased EscrowStatus = "released"
-	EscrowRefunded EscrowStatus = "refunded"
-	EscrowDisputed EscrowStatus = "disputed"
+	EscrowHeld      EscrowStatus = "held"
+	EscrowReleasing EscrowStatus = "releasing" // claimed for settle; not yet released
+	EscrowReleased  EscrowStatus = "released"
+	EscrowRefunded  EscrowStatus = "refunded"
+	EscrowDisputed  EscrowStatus = "disputed"
 )
 
 // EscrowTransaction represents funds held in escrow

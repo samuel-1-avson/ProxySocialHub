@@ -5,7 +5,8 @@ import {
   Copy,
   Loader2,
 } from 'lucide-react';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
+import { MoneyRailHint } from '@/components/MoneyRailHint';
 import { ConfirmDialog } from '@/components/patterns/ConfirmDialog';
 
 type WalletDepositProps = {
@@ -18,6 +19,8 @@ type WalletDepositProps = {
   processing: boolean;
   linkedAddress: string | null | undefined;
   connected: boolean;
+  /** True when adapter publicKey !== linkedAddress */
+  publicKeyMismatch?: boolean;
   isLocalSolanaRpc: boolean;
   isDevnet: boolean;
   treasuryAddress: string | null | undefined;
@@ -41,6 +44,7 @@ export function WalletDeposit({
   processing,
   linkedAddress,
   connected,
+  publicKeyMismatch = false,
   isLocalSolanaRpc,
   isDevnet,
   treasuryAddress,
@@ -60,9 +64,10 @@ export function WalletDeposit({
           <ArrowDownLeft size={14} /> Deposit SOL
         </p>
         <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
-          Enter an amount and approve one transfer in your linked wallet. We send SOL to the
-          platform treasury and credit your balance automatically — no signature to copy.
+          Transfer SOL from your linked wallet to the platform treasury. We credit your{' '}
+          <span className="text-white/70">platform balance</span> after confirmation.
         </p>
+        <MoneyRailHint rail="platform" />
         {isLocalSolanaRpc ? (
           <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
             Local validator: set Phantom RPC to http://127.0.0.1:8899 before depositing.
@@ -102,12 +107,10 @@ export function WalletDeposit({
           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
         />
         {linkedAddress && !connected && (
-          <div className="space-y-2">
-            <p className="text-[9px] font-mono text-amber-500/80 uppercase">
-              Connect the wallet you linked to sign the transfer
-            </p>
-            <SolanaWalletButton />
-          </div>
+          <UnlockWalletPrompt expectedAddress={linkedAddress} compact />
+        )}
+        {linkedAddress && connected && publicKeyMismatch && (
+          <UnlockWalletPrompt expectedAddress={linkedAddress} mismatch compact />
         )}
         <button
           type="button"

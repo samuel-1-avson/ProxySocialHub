@@ -14,6 +14,11 @@
 
 services:
   control-api:
+    # zk-prover is profile-gated below; do not hard-require it on lean GCP testnet.
+    depends_on:
+      zk-prover:
+        condition: service_healthy
+        required: false
     environment:
       - APP_ENV=staging
       - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-false}
@@ -22,8 +27,15 @@ services:
       - INDEXER_INDEX_ALL=${INDEXER_INDEX_ALL:-false}
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
+      # BC-08: distinct payout wallet (required for APP_ENV=staging)
+      - SOLANA_TREASURY_HOT_KEYPAIR=/run/secrets/treasury-hot-keypair.json
+      - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:?SOLANA_TREASURY_HOT_ADDRESS must be set}
+      - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS:?SOLANA_TREASURY_ADDRESS must be set}
+      - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      - ./secrets/treasury-hot-keypair.json:/run/secrets/treasury-hot-keypair.json:ro
 
   web:
     ports:

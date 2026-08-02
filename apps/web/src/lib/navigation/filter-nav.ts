@@ -11,6 +11,8 @@ export type NavigationFilterOptions = {
     isAdmin: boolean;
     isProvider: boolean;
     isDualRole: boolean;
+    /** When false, items with policy "authenticated" are hidden. */
+    isAuthenticated?: boolean;
 };
 
 export function filterNavigationItem(item: NavigationItem, options: NavigationFilterOptions): boolean {
@@ -28,6 +30,9 @@ export function filterNavigationItem(item: NavigationItem, options: NavigationFi
         return false;
     }
     if (item.policy === "provider" && !options.isProvider && !options.isDualRole) {
+        return false;
+    }
+    if (item.policy === "authenticated" && options.isAuthenticated === false) {
         return false;
     }
     return true;

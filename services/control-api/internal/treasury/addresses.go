@@ -1,8 +1,10 @@
 package treasury
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	sol "github.com/gagliardetto/solana-go"
 )
@@ -18,12 +20,31 @@ const (
 )
 
 // GetHotTreasuryPubkey returns the operational hot treasury address.
-// Falls back to SOLANA_TREASURY_ADDRESS, then the oracle pubkey.
+// Falls back to SOLANA_TREASURY_ADDRESS. Does NOT fall back to the oracle
+// pubkey — callers that need a last-resort oracle fallback must do so explicitly
+// (treasury_manager still does for legacy deploys).
 func GetHotTreasuryPubkey() sol.PublicKey {
 	if pk := pubkeyFromEnv("SOLANA_TREASURY_HOT_ADDRESS"); !pk.IsZero() {
 		return pk
 	}
 	return getLegacyTreasuryPubkey()
+}
+
+// RequireHotDistinctFromOracle returns an error when hot treasury equals oracle
+// in production (BC-08). Soft-warns in non-production.
+func RequireHotDistinctFromOracle(oraclePK sol.PublicKey) error {
+	hot := GetHotTreasuryPubkey()
+	if hot.IsZero() || oraclePK.IsZero() {
+		return nil
+	}
+	if !hot.Equals(oraclePK) {
+		return nil
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "production" || env == "prod" {
+		return fmt.Errorf("BC-08: hot treasury address equals oracle pubkey — custody not split")
+	}
+	return nil
 }
 
 // GetColdTreasuryPubkey returns the cold storage address when configured.

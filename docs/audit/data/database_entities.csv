@@ -1,0 +1,37 @@
+entity_table,owning_service,store,key_constraints,indexes,money_type,sensitive,problems
+profiles,control-api,PG,PK id->auth.users; username UNIQUE,email,avg_rating NUMERIC,PII,isp late-added 000106
+wallets,control-api(+legacy relayer),PG,user_id UNIQUE FK; balance_sol>=0 CHECK,user_id,NUMERIC(20,9),financial,float64 app path (DB-02)
+wallet_ledger_entries,control-api,PG,FK wallet; unique tx_hash partial; unique(wallet,type,ref) partial,wallet+time,NUMERIC(20,9),financial,mutable no trigger (DB-03); single-entry (DB-01)
+wallet_ledger_entries_archive,control-api,PG,LIKE hot table,-,NUMERIC,financial,down drops table
+proxy_listings,control-api,PG,seller FK,price+uptime; FTS GIN; provider_node; 000110 browse idx,price NUMERIC,-,DB-05 closed (status/country/isp-trgm/latency); no ASN
+orders,control-api,PG,buyer/seller/listing FKs,buyer+status,NUMERIC,financial,TEST-01 authority header
+escrow_transactions,control-api,PG,FKs to orders,status,NUMERIC,financial,
+escrow_milestones,control-api,PG,FKs; milestone unique 000043,-,NUMERIC,financial,
+disputes,control-api,PG,FKs,-,-,-,
+sessions,control-api,PG,user/node FKs,status; listing; metered_at,-,credentials,
+session_intents,control-api,PG,FKs,-,prices DOUBLE PRECISION,credentials,money float (DB-02)
+usage_receipts,control-api,PG,unique(session_username,nonce),status; reported_at,price DOUBLE PRECISION,financial,hot OLTP; money float
+settlement_manifests,control-api,PG,-,status,-,financial,
+usage_records,control-api,PG,NO FKs,user; session; created_at,bytes BIGINT,-,writer never called (DB-04)
+provider_earnings,control-api,PG,unique session; provider+session,provider; node; status,NUMERIC,financial,no FK to profiles/sessions
+pending_transactions,control-api,PG,unique idempotency_key partial; reference unique,-,-,financial,
+spending_records,control-api,PG,unique(wallet,ref,type) partial,-,NUMERIC,financial,
+subscription_plans,control-api,PG,-,-,plan money,-,unbounded list
+user_subscriptions,control-api,PG,FKs 000107,-,-,-,
+nodes(provider),control-api,PG,provider FK,heartbeat,-,-,
+provider_tokens,control-api,PG,unique token hash,-,-,secret,hashed OK
+api_keys,control-api,PG,unique key hash,scopes,-,secret,hashed OK
+linked_wallets,control-api,PG,user+chain unique,-,-,-,
+referrals,control-api,PG,code unique,-,-,-,
+notifications,control-api,PG,FK user,-,-,PII,
+messages/conversations,control-api,PG,FKs,-,-,PII,
+forum_*,control-api,PG,FKs,-,-,PII,
+audit_logs_partitioned,control-api,PG,partitioned,-,-,ops,
+reconciliation_history,control-api,PG,-,status; created_at,DOUBLE PRECISION SOL,ops,float money (DB-02)
+explorer_transactions,control-api,PG,partitioned 000101,geo country,mixed,public,high volume OLTP
+explorer_nodes/blocks,control-api,PG,-,-,-,public,
+redis session:*,control-api+edge-gateway,Redis,TTL,-,-,session creds,SPOF (EV-05)
+redis metering:wal:*,edge-gateway,Redis,-,-,-,financial,WAL windows (GW-08)
+nats streams,NATS,JetStream,SESSIONS/SETTLEMENT/TELEMETRY/MESSAGING,-,-,-,treasury subjects unstreamed (EV-01)
+escrow PDA accounts,on-chain,Solana,seeds buyer+seller,-,lamports,financial,payout binding fixed (redeploy pending)
+stake/multisig accounts,on-chain,Solana,seeds,-,lamports,financial,

@@ -65,9 +65,10 @@ type ChallengeRequest struct {
 }
 
 type LoginRequest struct {
-	Address   string `json:"address" binding:"required"`
-	Signature string `json:"signature" binding:"required"`
-	Nonce     string `json:"nonce" binding:"required"` // The signed message
+	Address      string `json:"address" binding:"required"`
+	Signature    string `json:"signature" binding:"required"`
+	Nonce        string `json:"nonce" binding:"required"` // The signed message
+	ReferralCode string `json:"referral_code,omitempty"`   // Optional invite code (new users only)
 }
 
 func getAuthChallenge(c *gin.Context) {
@@ -292,6 +293,9 @@ func walletLogin(c *gin.Context) {
 		}
 
 		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
+		if code := strings.TrimSpace(req.ReferralCode); code != "" {
+			ProcessReferralSignup(user.ID, code)
+		}
 	} else {
 		// Reconcile wallet_address when user was found via email/linked wallet but profile was stale.
 		if user.WalletAddress == nil || *user.WalletAddress != req.Address {
@@ -307,6 +311,11 @@ func walletLogin(c *gin.Context) {
 			user.ScheduledDeletionAt = nil
 			log.Printf("[AUTH] Cancelled scheduled deletion for user %s on wallet login", user.ID)
 		}
+	}
+
+	// Keep linked_wallets in sync with profile identity (marketplace escrow requires it).
+	if err := ensurePrimaryLinkedSolana(db.DB, user.ID, req.Address, &req.Signature, &req.Nonce); err != nil {
+		log.Printf("[AUTH] ensurePrimaryLinkedSolana for %s: %v", req.Address, err)
 	}
 
 	// 4. Issue JWT
@@ -338,7 +347,12 @@ func findUserForWalletLogin(address string) (models.User, bool, error) {
 	}
 
 	email := address + "@wallet.proxyhubb.com"
-	if err := db.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	hash := models.HashEmail(email)
+	q := db.DB.Where("email = ?", email)
+	if hash != "" {
+		q = db.DB.Where("email = ? OR email_hash = ?", email, hash)
+	}
+	if err := q.First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return models.User{}, false, nil
 		}
@@ -445,7 +459,6 @@ func getMe(c *gin.Context) {
 		Languages             []string          `json:"languages,omitempty"`
 		PrimarySpecialization *string           `json:"primary_specialization,omitempty"`
 		BusinessName          *string           `json:"business_name,omitempty"`
-		TaxID                 *string           `json:"tax_id,omitempty"`
 		FollowersCount        int               `json:"followers_count"`
 		FollowingCount        int               `json:"following_count"`
 		ReviewsCount          int               `json:"reviews_count"`
@@ -484,7 +497,6 @@ func getMe(c *gin.Context) {
 		Languages:             user.Languages,
 		PrimarySpecialization: user.PrimarySpecialization,
 		BusinessName:          user.BusinessName,
-		TaxID:                 user.TaxID,
 		FollowersCount:        user.FollowersCount,
 		FollowingCount:        user.FollowingCount,
 		ReviewsCount:          user.ReviewsCount,

@@ -248,11 +248,11 @@ export default function DashboardPage() {
                             subtitle="Last 30 days"
                         />
                         <StatCard
-                            title="Current Balance"
+                            title="Platform balance"
                             value={`${wallet?.balance_sol?.toFixed(4) ?? "0.0000"} SOL`}
                             icon={DollarSign}
                             variant="default"
-                            subtitle="Available"
+                            subtitle="Custodial ledger"
                         />
                         <StatCard
                             title="Network Latency"
@@ -300,14 +300,14 @@ export default function DashboardPage() {
                             <AlertCircle size={24} />
                         </div>
                         <div>
-                            <h3 className="font-bold text-amber-500">Connect a Wallet</h3>
+                            <h3 className="font-bold text-amber-500">Link a Solana address</h3>
                             <p className="text-sm text-amber-500/80 mt-1">
-                                You need to link a Solana wallet to deposit funds and pay for sessions.
+                                You&apos;re signed in. Link a Solana address to deposit, withdraw, and pay marketplace escrow.
                             </p>
                         </div>
                     </div>
                     <Link href="/dashboard/wallet" className="px-5 py-2.5 bg-amber-500 text-amber-950 font-bold rounded-xl text-sm whitespace-nowrap hover:bg-amber-400 transition-colors">
-                        Link Wallet
+                        Link address
                     </Link>
                 </div>
             )}

@@ -134,7 +134,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
     [ROUTES.marketplace]: { label: "Discover", breadcrumb: "Discover" },
     [ROUTES.network]: { label: "Network", breadcrumb: "Network" },
-    [ROUTES.marketplaceMap]: { label: "Discover map", breadcrumb: "Map" },
+    [ROUTES.marketplaceMap]: { label: "Marketplace map", breadcrumb: "Map" },
     [ROUTES.marketplaceCatalog]: { label: "Products", breadcrumb: "Products" },
     [ROUTES.marketplaceCreate]: { label: "Create Listing", breadcrumb: "Create" },
     [ROUTES.marketplaceManage]: { label: "My Listings", breadcrumb: "Listings" },
@@ -174,7 +174,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.dashboardSettingsApiKeys]: { label: "API keys", breadcrumb: "API keys" },
     [ROUTES.dashboardSettingsDevices]: { label: "Devices", breadcrumb: "Devices" },
     [ROUTES.dashboardSettingsSecurity]: { label: "Security", breadcrumb: "Security" },
-    [ROUTES.communityFeed]: { label: "Feed" },
+    [ROUTES.communityFeed]: { label: "Activity" },
     [ROUTES.communityForum]: { label: "Forum" },
     [ROUTES.communityForumRecent]: { label: "Recent Threads", breadcrumb: "Recent" },
     [ROUTES.communityForumPopular]: { label: "Popular Threads", breadcrumb: "Popular" },
@@ -184,7 +184,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.communityMessages]: { label: "Messages" },
     [ROUTES.communityBeta]: { label: "Beta program", breadcrumb: "Beta" },
     [ROUTES.communityFriends]: { label: "Friends" },
-    [ROUTES.communityReferrals]: { label: "Referrals" },
+    [ROUTES.communityReferrals]: { label: "Invite", breadcrumb: "Invite" },
     [ROUTES.explorer]: { label: "Explorer" },
     [ROUTES.explorerMap]: { label: "Infrastructure map", breadcrumb: "Map" },
     [ROUTES.explorerNodes]: { label: "Nodes" },
@@ -221,14 +221,13 @@ export const PRIMARY_PUBLIC_NAV = [
 ];
 
 export const PRIMARY_AUTH_NAV = [
-    { href: ROUTES.communityFeed, label: "FEED" },
-    { href: ROUTES.explorerLeaderboard, label: "LEADERBOARD" },
+    { href: ROUTES.communityForum, label: "FORUM" },
     { href: ROUTES.communityMessages, label: "MESSAGES" },
 ];
 
 export const FOOTER_PLATFORM_LINKS = [
     { href: ROUTES.marketplace, label: "Marketplace" },
-    { href: ROUTES.communityFeed, label: "Activity Feed" },
+    { href: ROUTES.communityForum, label: "Forum" },
     { href: `${ROUTES.register}?role=provider`, label: "Become a Seller" },
 ];
 

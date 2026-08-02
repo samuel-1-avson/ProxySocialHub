@@ -1,0 +1,37 @@
+requirement,test_exists,location_or_gap,status_this_audit
+Duplicate charging prevented,covered,receipt-unique + metering exactly_once Redis tests (GW-08),ok
+Concurrent wallet updates,yes,control-api concurrency tests,pass
+Provider disconnect mid-session,no,needs gateway+settlement integration test,gap
+Buyer disconnect mid-session,no,same,gap
+Gateway crash WAL recovery,no,add Rust+Go integration,gap
+DB outage behavior,no,add fail-closed assertions,gap
+NATS outage,partial,soft-fail init,info
+Blockchain RPC outage,partial,failover helper tests,info
+Chain reorg,no,add after finalized switch (BC-07),gap
+Expired tokens/revoked keys,partial,auth tests,info
+Duplicate events,partial,receipt idempotency tests,info
+Out-of-order events,no,settlement worker tests,gap
+Forged/tampered metering,yes,aggregator_signature_test.go (4 new),PASS this audit
+Unsigned usage in prod rejected,yes,aggregator_signature_test.go,PASS this audit
+Refunds,partial,escrow release tests; race e2e missing,info
+Payout failures,yes,compensation outbox tests,pass
+Unauthorized access (IDOR),partial,ownership tests; KYC/dispute admin regression TBD,gap-after-BE-02-fix
+Private-network access attempts,yes,provider egress filter unit tests,pass
+On-chain payout redirection blocked,yes,tests/escrow_payout_binding.ts (7 cases),PASS localnet 38/38
+ZK batch proof instruction required,yes,tests/proxyhub.ts submit_zk_batch (fixed + new negative),PASS localnet
+Usage signature fail-closed,yes,new tests this audit,PASS
+Order-create authority header,yes (failing),authority_headers_test.go,FAIL-pre-existing (TEST-01)
+Wallet auth flow,yes,auth tests + Playwright auth spec,pass
+Marketplace browse/purchase,partial,Playwright with mocked buy; devnet live spec optional,info
+Provider onboarding,partial,Playwright provider specs + provider-node units,info
+Gateway policy (ports/IPs/hostnames),yes,policy.rs unit tests,pass
+Gateway auth fail-closed,yes,auth.rs unit tests,pass
+Settlement reconciliation,partial,reconciliation service tests,info
+Treasury velocity guard,yes,withdrawal security tests,pass
+Escrow FSM transitions,yes,orders/escrow tests + Prometheus alert,pass
+NATS producer-consumer contract,no,add contract tests,gap
+OpenAPI vs implementation,no,add lint,gap
+k8s autoscaling,smoke,infra/k8s/autoscaling_test.go,info
+Migrations apply/rollback,smoke,CI job (down best-effort),info
+Secrets scanning,yes,gitleaks CI + pre-commit,pass
+Dependency vuln scanning,yes,govulncheck/gosec/npm/cargo-audit; Trivy non-blocking,info

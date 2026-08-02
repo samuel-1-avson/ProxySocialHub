@@ -98,6 +98,8 @@ tags:
       Public Solana proxy-chain explorer (indexed telemetry). No auth required.
       May return 503 when full decentralization gate is active.
       Metric semantics: see ExplorerMetrics schema field descriptions.
+  - name: Community
+    description: Forum, activity feed, direct messages, and realtime websocket tickets
 paths:
   # ==================== Auth ====================
   /v1/auth/wallet/challenge:
@@ -781,13 +783,17 @@ paths:
                 $ref: '#/components/schemas/SpendingLimitsUpdateResponse'
 
   # ==================== Usage ====================
-  /v1/usage/report:
+  /v1/gateway/usage/report:
     post:
-      tags: [Usage]
-      summary: Accept gateway usage reports for settlement coordination
+      tags: [Usage, Gateway]
+      summary: Accept edge-gateway usage reports for settlement coordination
+      description: |
+        Metering ingest is gateway-auth only (`X-Gateway-Auth`).
+        JWT callers cannot inflate usage. Signatures are required unless
+        `ALLOW_UNSIGNED_USAGE=true` in non-production.
       operationId: reportUsage
       security:
-        - bearerAuth: []
+        - gatewayAuth: []
       requestBody:
         required: true
         content:
@@ -803,6 +809,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageReportResponse'
+        '401':
+          description: Missing or invalid X-Gateway-Auth
 
   /v1/usage/sign:
     post:
@@ -1772,16 +1780,99 @@ paths:
         '403':
           description: Provider access required
 
+  /v1/passes/catalog:
+    get:
+      tags: [AccessPasses]
+      summary: List Access Pass tiers (NFT entitlements)
+      operationId: getPassCatalog
+      responses:
+        '200':
+          description: Pass catalog with mints, prices, and benefits
+
+  /v1/passes/me:
+    get:
+      tags: [AccessPasses]
+      summary: Current Access Pass tier for the authenticated user
+      operationId: getMyPass
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tier, holds, quota, and legacy grace metadata
+        '401':
+          description: Unauthorized
+
+  /v1/passes/migration:
+    get:
+      tags: [AccessPasses]
+      summary: Legacy Pro/Scale → Silver/Gold migration status
+      operationId: getPassMigration
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Grace window and airdrop eligibility
+        '401':
+          description: Unauthorized
+
+  /v1/passes/prepare-purchase:
+    post:
+      tags: [AccessPasses]
+      summary: Prepare primary-sale SOL transfer for an Access Pass
+      operationId: preparePassPurchase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier: { type: string, enum: [bronze, silver, gold] }
+                idempotency_key: { type: string }
+      responses:
+        '200':
+          description: Treasury destination and lamports (or external purchase URL)
+        '400':
+          description: Missing wallet or invalid tier
+
+  /v1/passes/confirm-purchase:
+    post:
+      tags: [AccessPasses]
+      summary: Confirm on-chain SOL payment for an Access Pass
+      operationId: confirmPassPurchase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tx_signature]
+              properties:
+                purchase_id: { type: string, format: uuid }
+                tier: { type: string, enum: [bronze, silver, gold] }
+                tx_signature: { type: string }
+      responses:
+        '200':
+          description: Purchase confirmed (receipt grace until NFT held)
+        '400':
+          description: Verification failed
+
   /v1/subscriptions/plans:
     get:
       tags: [Subscriptions]
-      summary: List active buyer subscription plans
+      summary: List legacy buyer subscription plans (deprecated)
+      description: Custodial plans are deprecated. Prefer GET /v1/passes/catalog.
       operationId: getSubscriptionPlans
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Active plans (free, pro, scale)
+          description: Active plans (free, pro, scale) — legacy read-only
           content:
             application/json:
               schema:
@@ -1795,23 +1886,21 @@ paths:
   /v1/subscriptions/my:
     get:
       tags: [Subscriptions]
-      summary: Current subscription and entitled plan
+      summary: Current entitlement (legacy subscription or Access Pass)
       operationId: getMySubscription
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Subscription (nullable) and current_plan
+          description: Subscription (nullable) and current_plan from pass resolver
         '401':
           description: Unauthorized
 
   /v1/subscriptions:
     post:
       tags: [Subscriptions]
-      summary: Purchase or activate a plan SKU (wallet SOL debit)
-      description: |
-        Debits wallet SOL for paid plans. Free plan activates without charge.
-        See docs/BUYER_SUBSCRIPTION_PLANS.md. Stripe deferred.
+      summary: Retired — custodial subscribe disabled
+      description: Returns 410 Gone. Mint an Access Pass via /v1/passes/*.
       operationId: subscribeToPlan
       security:
         - bearerAuth: []
@@ -1826,15 +1915,11 @@ paths:
                 plan_id: { type: string, format: uuid }
                 billing_cycle: { type: string, enum: [monthly, yearly] }
       responses:
-        '201':
-          description: Subscribed
-        '402':
-          description: Insufficient SOL
-        '400':
-          description: Already subscribed or invalid body
+        '410':
+          description: Custodial subscriptions retired
     put:
       tags: [Subscriptions]
-      summary: Change plan with proration
+      summary: Retired — custodial plan change disabled
       operationId: changeSubscriptionPlan
       security:
         - bearerAuth: []
@@ -1848,13 +1933,11 @@ paths:
               properties:
                 new_plan_id: { type: string, format: uuid }
       responses:
-        '200':
-          description: Plan changed
-        '402':
-          description: Insufficient SOL for upgrade
+        '410':
+          description: Custodial plan changes retired
     delete:
       tags: [Subscriptions]
-      summary: Cancel subscription (access until period end)
+      summary: Cancel legacy subscription (access until period end)
       operationId: cancelSubscription
       security:
         - bearerAuth: []
@@ -2817,6 +2900,99 @@ paths:
         '200':
           description: Node list
 
+  /v1/marketplace/map:
+    get:
+      tags: [Marketplace]
+      summary: Unified marketplace map points (listings + optional live nodes)
+      operationId: getMarketplaceMap
+      description: |
+        Returns map-ready listing and optional node points with hub/centroid-snapped coordinates.
+        Prefer this over deprecated /v1/listings/geo. BBox is applied in SQL (padded) then
+        refined after coordinate snapping. Proof fields are omitted unless include_proofs=true.
+      parameters:
+        - name: country
+          in: query
+          schema: { type: string }
+        - name: proxy_type
+          in: query
+          schema: { type: string }
+        - name: protocol
+          in: query
+          schema: { type: string }
+        - name: min_price
+          in: query
+          schema: { type: number }
+        - name: max_price
+          in: query
+          schema: { type: number }
+        - name: min_uptime
+          in: query
+          schema: { type: number }
+        - name: max_latency
+          in: query
+          schema: { type: integer }
+        - name: purchasable_only
+          in: query
+          schema: { type: boolean, default: true }
+        - name: include_nodes
+          in: query
+          schema: { type: boolean, default: false }
+        - name: active_nodes_only
+          in: query
+          schema: { type: boolean, default: false }
+        - name: validator
+          in: query
+          schema: { type: boolean, default: false }
+        - name: bbox
+          in: query
+          description: west,south,east,north
+          schema: { type: string }
+        - name: include_catalog
+          in: query
+          schema: { type: boolean, default: false }
+        - name: include_proofs
+          in: query
+          description: When true, include listing offer and heartbeat proof fields
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Marketplace map points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        kind: { type: string, enum: [listing, node] }
+                        lat: { type: number }
+                        lon: { type: number }
+                        title: { type: string }
+                        purchasable: { type: boolean }
+                        listing_id: { type: string }
+                        node_id: { type: string }
+                        price_per_gb: { type: number }
+                        geo_source: { type: string }
+                  total: { type: integer }
+                  listing_count: { type: integer }
+                  node_count: { type: integer }
+                  bbox_applied: { type: boolean }
+                  generated_at: { type: string, format: date-time }
+
+  /v1/map/points:
+    get:
+      tags: [Marketplace]
+      summary: Alias for GET /v1/marketplace/map
+      operationId: getMapPoints
+      description: Same contract as /v1/marketplace/map.
+      responses:
+        '200':
+          description: Marketplace map points
+
   /v1/explorer/nodes/geo:
     get:
       tags: [Explorer]
@@ -3029,12 +3205,312 @@ paths:
         '429':
           description: Too many WebSocket connections
 
+  # ==================== Community ====================
+  /v1/forum/categories:
+    get:
+      tags: [Community]
+      summary: List forum categories
+      operationId: listForumCategories
+      responses:
+        '200':
+          description: Categories with thread counts
+
+  /v1/forum/categories/{slug}/threads:
+    get:
+      tags: [Community]
+      summary: List threads in a category
+      operationId: listForumCategoryThreads
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Threads (hidden content omitted for non-moderators)
+        '404':
+          description: Category not found
+
+  /v1/forum/threads/{id}:
+    get:
+      tags: [Community]
+      summary: Get forum thread with posts
+      operationId: getForumThread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Thread envelope with posts
+        '404':
+          description: Not found or hidden
+
+  /v1/forum/threads:
+    post:
+      tags: [Community]
+      summary: Create forum thread
+      operationId: createForumThread
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_slug, title, content]
+              properties:
+                category_slug: { type: string }
+                title: { type: string, minLength: 5, maxLength: 200 }
+                content: { type: string, minLength: 10, maxLength: 20000 }
+      responses:
+        '201':
+          description: Created
+        '403':
+          description: Category locked (non-moderators)
+
+  /v1/forum/threads/{id}/posts:
+    post:
+      tags: [Community]
+      summary: Reply to a forum thread
+      operationId: createForumPost
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 10000 }
+                parent_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Created
+        '403':
+          description: Thread locked
+
+  /v1/forum/posts/{id}/solution:
+    post:
+      tags: [Community]
+      summary: Mark or unmark a post as the solution
+      operationId: markForumPostSolution
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_solution: { type: boolean }
+      responses:
+        '200':
+          description: Updated post
+        '403':
+          description: Only thread author or moderator
+
+  /v1/forum/search:
+    get:
+      tags: [Community]
+      summary: Search forum threads
+      operationId: searchForum
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Matching threads
+
+  /v1/feed:
+    get:
+      tags: [Community]
+      summary: Activity feed for the authenticated user
+      operationId: getActivityFeed
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Feed events
+
+  /v1/discover:
+    get:
+      tags: [Community]
+      summary: Discover providers
+      operationId: discoverProviders
+      responses:
+        '200':
+          description: Provider suggestions
+
+  /v1/trending:
+    get:
+      tags: [Community]
+      summary: Trending listings
+      operationId: getTrendingListings
+      responses:
+        '200':
+          description: Trending listings
+
+  /v1/conversations:
+    get:
+      tags: [Community]
+      summary: List direct-message conversations
+      operationId: listConversations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversations
+    post:
+      tags: [Community]
+      summary: Start or fetch a conversation
+      operationId: createConversation
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversation
+
+  /v1/conversations/{id}/messages:
+    get:
+      tags: [Community]
+      summary: List messages in a conversation
+      operationId: listConversationMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Messages
+    post:
+      tags: [Community]
+      summary: Send a message
+      operationId: sendConversationMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Message created (also pushes new_message over /v1/ws)
+
+  /v1/ws/ticket:
+    post:
+      tags: [Community]
+      summary: Mint a single-use WebSocket ticket
+      description: |
+        Returns a short-lived ticket for authenticating `GET /v1/ws` without putting the JWT in the URL.
+        Preferred by the web client; falls back to `?token=` if unavailable.
+      operationId: issueWsTicket
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket: { type: string }
+                  expires_in: { type: integer }
+
+  /v1/ws:
+    get:
+      tags: [Community]
+      summary: Authenticated realtime WebSocket
+      description: |
+        Upgrade with `?ticket=` (preferred) or `?token=`. Server envelopes are `{ type, data, timestamp }`.
+        Community-relevant types include `new_message`, `notification`, `new_follower`.
+      operationId: communityRealtimeWs
+      responses:
+        '101':
+          description: Switching Protocols
+        '401':
+          description: Missing/invalid ticket or token
+
+  /v1/moderation/forum/reports:
+    get:
+      tags: [Community]
+      summary: List forum reports (moderator)
+      operationId: listForumReports
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, resolved, dismissed, all] }
+      responses:
+        '200':
+          description: Report queue
+        '403':
+          description: Moderator required
+
+  /v1/moderation/forum/reports/{id}:
+    patch:
+      tags: [Community]
+      summary: Resolve forum report with optional enforcement
+      description: |
+        When `status=resolved`, `action` may be `none|hide|lock|hide_and_lock|delete`.
+      operationId: patchForumReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [pending, resolved, dismissed] }
+                action: { type: string, enum: [none, hide, lock, hide_and_lock, delete] }
+      responses:
+        '200':
+          description: Updated
+        '403':
+          description: Moderator required
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    gatewayAuth:
+      type: apiKey
+      in: header
+      name: X-Gateway-Auth
+      description: Shared secret for edge-gateway → control-api control-plane calls (`GATEWAY_SHARED_SECRET`).
     ApiKeyAuth:
       type: apiKey
       in: header

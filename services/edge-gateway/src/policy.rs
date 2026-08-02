@@ -193,6 +193,45 @@ pub fn validate_destination(addr: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// GW-07: Async DNS-rebinding check for CONNECT targets.
+///
+/// Resolves the hostname and rejects if any resulting address is private/reserved.
+/// Disabled by default (`GATEWAY_DNS_REBIND_CHECK` unset/false) to preserve remote-DNS
+/// privacy; production deployments should enable it so SSRF cannot piggyback on a
+/// public hostname that resolves to private infrastructure.
+pub async fn validate_destination_dns(addr: &str) -> Result<(), String> {
+    if !dns_rebind_check_enabled() {
+        return Ok(());
+    }
+    let host = target_host_from_endpoint(addr);
+    // Literal IPs are already handled by validate_destination.
+    if host.parse::<IpAddr>().is_ok() {
+        return Ok(());
+    }
+    match tokio::net::lookup_host(addr).await {
+        Ok(addrs) => {
+            for sock in addrs {
+                if is_private_ip(&sock.ip()) {
+                    return Err(format!(
+                        "Hostname '{}' resolves to private/reserved address {}",
+                        host,
+                        sock.ip()
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to resolve hostname '{}': {}", host, e)),
+    }
+}
+
+/// Whether async DNS-rebinding resolution is enforced at CONNECT time.
+pub fn dns_rebind_check_enabled() -> bool {
+    std::env::var("GATEWAY_DNS_REBIND_CHECK")
+        .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 /// S-07: Reject hostnames that are obviously targeting internal infrastructure.
 ///
 /// This is a best-effort syntactic check. DNS rebinding attacks that use a public

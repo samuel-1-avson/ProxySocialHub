@@ -57,7 +57,7 @@ export function useMapPoints(options: UseMapPointsOptions): UseMapPointsResult {
         live = false,
         staleTime = 30_000,
         refetchInterval = 60_000,
-        includeCatalog = true,
+        includeCatalog = false,
     } = options;
 
     const requestFilters = useMemo(

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
+import { useAuth } from "@/lib/auth";
 import { isNavigationRouteActive, ROUTES } from "@/lib/navigation/routes";
 import {
     getMobilePrimaryTabs,
@@ -16,6 +17,7 @@ import { filterNavigationSections } from "@/lib/navigation/filter-nav";
 
 export function MobileTabBar() {
     const pathname = usePathname();
+    const { isAuthenticated } = useAuth();
     const { isConsumer, isProvider, isDualRole, isAdmin } = useRole();
     const [isMoreOpen, setIsMoreOpen] = useState(false);
 
@@ -25,8 +27,9 @@ export function MobileTabBar() {
                 isAdmin,
                 isProvider,
                 isDualRole,
+                isAuthenticated,
             }),
-        [isAdmin, isProvider, isDualRole],
+        [isAdmin, isProvider, isDualRole, isAuthenticated],
     );
 
     const isActive = (path: string) => isNavigationRouteActive(pathname, path);

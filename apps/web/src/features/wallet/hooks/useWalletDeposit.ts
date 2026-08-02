@@ -126,7 +126,7 @@ export function useWalletDeposit(opts: {
     if (!connected || !publicKey || (!signTransaction && !sendTransaction)) {
       setResult({
         success: false,
-        message: 'Connect your linked Solana wallet below, then deposit again',
+        message: 'Unlock your linked Solana wallet to sign the deposit, then try again',
       });
       return;
     }
@@ -134,7 +134,7 @@ export function useWalletDeposit(opts: {
     if (publicKey.toBase58() !== linked) {
       setResult({
         success: false,
-        message: `Connected wallet must match your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
+        message: `Wrong wallet unlocked — switch to your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
       });
       return;
     }

@@ -240,6 +240,13 @@ func createSessionIntent(c *gin.Context) {
 	}
 
 	bandwidthLimit := computeBandwidthLimitForUser(userUUID, req.BandwidthLimit, tierConfig)
+	if bandwidthLimit == 0 {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Plan bandwidth quota exhausted. Upgrade your subscription or wait for the next billing period.",
+			"code":  "plan_bandwidth_quota",
+		})
+		return
+	}
 	rotationType, rotationInterval := normalizedRotationSettings(req.createSessionRequestV4)
 
 	secret, err := sessionintent.ResolveSigningSecret()

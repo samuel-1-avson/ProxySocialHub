@@ -56,10 +56,23 @@ func ValidateExecutionPayload(proposalType models.ProposalType, raw json.RawMess
 			return fmt.Errorf("parameter name is required")
 		}
 		allowed := map[string]bool{
-			"platform_fee":           true,
-			"min_stake":              true,
-			"governance_quorum":      true,
-			"gateway_enforce_mode":   true,
+			"platform_fee":              true,
+			"min_stake":                 true,
+			"governance_quorum":         true,
+			"gateway_enforce_mode":      true,
+			"pass_mint_bronze":          true,
+			"pass_mint_silver":          true,
+			"pass_mint_gold":            true,
+			"pass_price_bronze_sol":     true,
+			"pass_price_silver_sol":     true,
+			"pass_price_gold_sol":       true,
+			"pass_bandwidth_free_gb":    true,
+			"pass_bandwidth_bronze_gb":  true,
+			"pass_bandwidth_silver_gb":  true,
+			"pass_listings_free":        true,
+			"pass_listings_bronze":      true,
+			"pass_listings_silver":      true,
+			"pass_listings_gold":        true,
 		}
 		if !allowed[param] {
 			return fmt.Errorf("unsupported parameter %q", param)

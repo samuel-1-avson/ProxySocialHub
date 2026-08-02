@@ -28,11 +28,17 @@ const PricePerGBSOL = 0.002 // SOL per GB (~$0.30 at ~$150/SOL fallback)
 func RegisterUsageRoutes(r *gin.RouterGroup) {
 	usage := r.Group("/usage")
 	{
-		usage.POST("/report", reportUsage)
+		// reportUsage is intentionally NOT on the user-JWT group — see RegisterGatewayUsageRoutes.
 		usage.POST("/sign", signUsageClaim) // New endpoint for providers
 		usage.GET("/session/:session_id", getSessionUsage)
 		usage.GET("/me", getUserUsage) // Use authenticated user
 	}
+}
+
+// RegisterGatewayUsageRoutes mounts metering ingest behind X-Gateway-Auth.
+// Edge gateway must call POST /v1/gateway/usage/report (not /v1/usage/report).
+func RegisterGatewayUsageRoutes(r *gin.RouterGroup) {
+	r.POST("/usage/report", reportUsage)
 }
 
 type usageReportRequest struct {

@@ -466,7 +466,8 @@ pub(crate) async fn handle_provider_mux_io<S>(
             warn!(node_id = %node_id, error = %err, "Failed to persist node info to registry store");
         }
 
-        // Async registration with Control API (first lane only)
+        // HB-05: await Control API register (short timeout) so dashboard Online /
+        // readiness matches edge handshake instead of lagging on a fire-and-forget race.
         let control_api = state.control_api.clone();
         let reg_state = state.clone();
         let reg_node_id = node_id.clone();
@@ -476,20 +477,28 @@ pub(crate) async fn handle_provider_mux_io<S>(
         let reg_connection_type = caps.connection_type.clone();
         let reg_version = caps.client_version.clone();
 
-        tokio::spawn(async move {
-            let req = crate::control_api::RegisterNodeRequest {
-                provider_user_id: reg_user_id.clone(),
-                node_id: reg_node_id.clone(),
-                ip_address: reg_ip.clone(),
-                port: 0,
-                region: "Unknown".into(),
-                country_code: reg_country,
-                city: "Unknown".into(),
-                isp: reg_ip,
-                connection_type: reg_connection_type,
-                version: reg_version,
-            };
-            if let Ok(resp) = control_api.register_node(&req).await {
+        let req = crate::control_api::RegisterNodeRequest {
+            provider_user_id: reg_user_id.clone(),
+            node_id: reg_node_id.clone(),
+            ip_address: reg_ip.clone(),
+            port: 0,
+            region: "Unknown".into(),
+            country_code: reg_country,
+            city: "Unknown".into(),
+            // ISP is resolved authoritatively by control-api GeoIP (GW-04);
+            // the edge has no ISP database, so send empty rather than the IP.
+            isp: String::new(),
+            connection_type: reg_connection_type,
+            version: reg_version,
+        };
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            control_api.register_node(&req),
+        )
+        .await
+        {
+            Ok(Ok(resp)) => {
                 info!(
                     "✅ Node registered with Control API: {} (db_id: {})",
                     reg_node_id, resp.id
@@ -499,6 +508,9 @@ pub(crate) async fn handle_provider_mux_io<S>(
                     info.quality_score = resp.quality_score;
                     info.current_tier = resp.current_tier;
                     info.base_price_per_gb = resp.base_price_per_gb;
+                    if !resp.isp.is_empty() {
+                        info.isp = resp.isp.clone();
+                    }
                 });
                 if let Some(info) = reg_state.registry.get_node_info(&reg_node_id) {
                     if let Err(err) = reg_state
@@ -510,7 +522,42 @@ pub(crate) async fn handle_provider_mux_io<S>(
                     }
                 }
             }
-        });
+            Ok(Err(err)) => {
+                warn!(
+                    node_id = %reg_node_id,
+                    error = %err,
+                    "Control API register failed after handshake (tunnel stays up; retry in background)"
+                );
+                let control_api = control_api.clone();
+                let req = req.clone();
+                let reg_node_id = reg_node_id.clone();
+                tokio::spawn(async move {
+                    if let Ok(resp) = control_api.register_node(&req).await {
+                        info!(
+                            "✅ Node registered with Control API (retry): {} (db_id: {})",
+                            reg_node_id, resp.id
+                        );
+                    }
+                });
+            }
+            Err(_) => {
+                warn!(
+                    node_id = %reg_node_id,
+                    "Control API register timed out after 3s (tunnel stays up; retry in background)"
+                );
+                let control_api = control_api.clone();
+                let req = req.clone();
+                let reg_node_id = reg_node_id.clone();
+                tokio::spawn(async move {
+                    if let Ok(resp) = control_api.register_node(&req).await {
+                        info!(
+                            "✅ Node registered with Control API (retry): {} (db_id: {})",
+                            reg_node_id, resp.id
+                        );
+                    }
+                });
+            }
+        }
         false
     };
 

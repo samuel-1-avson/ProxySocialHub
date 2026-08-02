@@ -384,26 +384,14 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 			Msg("Billing: insufficient SOL balance")
 		return fmt.Errorf("insufficient SOL balance")
 	}
-	if !wallet.DebitSOL(costSOL) {
-		return fmt.Errorf("insufficient SOL balance")
-	}
 
 	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
 	}
-	if err := tx.Save(&wallet).Error; err != nil {
-		return err
-	}
 
 	solPriceUSD := GetSOLPriceUSD()
-	return tx.Create(&models.WalletLedgerEntry{
-		WalletID:     wallet.ID,
-		Amount:       -costSOL,
-		BalanceAfter: wallet.BalanceSOL,
-		Type:         models.TransactionUsage,
-		Description:  fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD),
-		CreatedAt:    time.Now(),
-	}).Error
+	desc := fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD)
+	return models.DebitWalletLocked(tx, &wallet, costSOL, models.TransactionUsage, session.ID.String(), desc)
 }
 
 // creditProviderWallet credits the provider's wallet with costSOL inside tx and
@@ -438,20 +426,10 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 		return false, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
 	}
 
-	providerWallet.CreditSOL(costSOL)
-	if err := tx.Save(&providerWallet).Error; err != nil {
+	ref := session.ID.String() + ":provider"
+	desc := fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
+	if err := models.CreditWalletLocked(tx, &providerWallet, costSOL, "provider_earning", ref, desc); err != nil {
 		return false, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
-	}
-
-	if err := tx.Create(&models.WalletLedgerEntry{
-		WalletID:     providerWallet.ID,
-		Amount:       costSOL,
-		BalanceAfter: providerWallet.BalanceSOL,
-		Type:         "provider_earning",
-		Description:  fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL),
-		CreatedAt:    time.Now(),
-	}).Error; err != nil {
-		return false, fmt.Errorf("billing: failed to create provider ledger entry for %s: %w", providerID, err)
 	}
 
 	var score models.ProviderScore
@@ -491,19 +469,9 @@ func triggerProviderPayout(providerID uuid.UUID) {
 			return fmt.Errorf("balance dropped below threshold before payout")
 		}
 		payoutAmount = wallet.BalanceSOL // captured for use after the transaction
-		wallet.BalanceSOL = 0
-		if err := tx.Save(&wallet).Error; err != nil {
-			return err
-		}
-		tx.Create(&models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       -payoutAmount,
-			BalanceAfter: 0,
-			Type:         models.TransactionPayout,
-			Description:  fmt.Sprintf("On-chain payout to %s (%.6f SOL devnet)", walletAddress, payoutAmount),
-			CreatedAt:    time.Now(),
-		})
-		return nil
+		ref := fmt.Sprintf("payout:%s:%s", providerID.String(), uuid.New().String())
+		desc := fmt.Sprintf("On-chain payout to %s (%.6f SOL devnet)", walletAddress, payoutAmount)
+		return models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ref, desc)
 	})
 	if txErr != nil {
 		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: wallet deduction failed")
@@ -563,19 +531,9 @@ func queueProviderPayout(providerID uuid.UUID) {
 			return fmt.Errorf("balance dropped below threshold before payout")
 		}
 		payoutAmount = wallet.BalanceSOL
-		wallet.BalanceSOL = 0
-		if err := tx.Save(&wallet).Error; err != nil {
-			return err
-		}
-		tx.Create(&models.WalletLedgerEntry{
-			WalletID:     wallet.ID,
-			Amount:       -payoutAmount,
-			BalanceAfter: 0,
-			Type:         models.TransactionPayout,
-			Description:  fmt.Sprintf("Queued for batch payout to %s (%.6f SOL)", walletAddress, payoutAmount),
-			CreatedAt:    time.Now(),
-		})
-		return nil
+		ref := fmt.Sprintf("payout-queue:%s:%s", providerID.String(), uuid.New().String())
+		desc := fmt.Sprintf("Queued for batch payout to %s (%.6f SOL)", walletAddress, payoutAmount)
+		return models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ref, desc)
 	})
 	if txErr != nil {
 		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: failed to queue for batch")
@@ -592,18 +550,9 @@ func queueProviderPayout(providerID uuid.UUID) {
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 					return err
 				}
-				wallet.CreditSOL(payoutAmount)
-				if err := tx.Save(&wallet).Error; err != nil {
-					return err
-				}
-				return tx.Create(&models.WalletLedgerEntry{
-					WalletID:     wallet.ID,
-					Amount:       payoutAmount,
-					BalanceAfter: wallet.BalanceSOL,
-					Type:         "refund",
-					Description:  "Batch queue failed: balance restored for immediate payout fallback",
-					CreatedAt:    time.Now(),
-				}).Error
+				ref := fmt.Sprintf("payout-refund:%s:%s", providerID.String(), uuid.New().String())
+				return models.CreditWalletLocked(tx, &wallet, payoutAmount, "refund", ref,
+					"Batch queue failed: balance restored for immediate payout fallback")
 			})
 			if restoreErr != nil {
 				logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance during batch queue fallback!")
@@ -626,18 +575,9 @@ func queueProviderPayout(providerID uuid.UUID) {
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 				return err
 			}
-			wallet.CreditSOL(payoutAmount)
-			if err := tx.Save(&wallet).Error; err != nil {
-				return err
-			}
-			return tx.Create(&models.WalletLedgerEntry{
-				WalletID:     wallet.ID,
-				Amount:       payoutAmount,
-				BalanceAfter: wallet.BalanceSOL,
-				Type:         "refund",
-				Description:  "Batch processor not initialized: balance restored for immediate payout fallback",
-				CreatedAt:    time.Now(),
-			}).Error
+			ref := fmt.Sprintf("payout-refund:%s:%s", providerID.String(), uuid.New().String())
+			return models.CreditWalletLocked(tx, &wallet, payoutAmount, "refund", ref,
+				"Batch processor not initialized: balance restored for immediate payout fallback")
 		})
 		if restoreErr != nil {
 			logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance when batch processor not initialized!")

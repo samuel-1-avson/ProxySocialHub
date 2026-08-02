@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import bs58 from 'bs58';
+import { captureReferralCodeFromSearch, clearReferralCode, peekReferralCode } from '@/lib/referral';
 
 // Browser auth calls should stay same-origin and flow through the Next.js
 // /v1 rewrite layer. That keeps Docker/internal backend origins out of the
@@ -320,6 +321,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  useEffect(() => {
+    captureReferralCodeFromSearch();
+  }, []);
+
   const refreshUser = useCallback(async (): Promise<WalletUser | null> => {
     try {
       if (typeof window === 'undefined') {
@@ -375,6 +380,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const walletLogin = async (address: string, signer: any) => {
     try {
+      captureReferralCodeFromSearch();
+      const referralCode = peekReferralCode();
+
       // 1. Get Challenge
       const challengeRes = await fetch(apiUrl('/v1/auth/wallet/challenge'), {
         method: 'POST',
@@ -404,14 +412,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Wallet does not support message signing. Please use a Solana-compatible wallet.');
       }
 
-      // 3. Login
+      // 3. Login (optional referral_code attributed only for brand-new users server-side)
       const loginRes = await fetch(apiUrl('/v1/auth/wallet/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           address,
           signature,
-          nonce: message // Full message as expected by backend
+          nonce: message, // Full message as expected by backend
+          ...(referralCode ? { referral_code: referralCode } : {}),
         }),
         credentials: 'include',
       });
@@ -428,6 +437,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // 4. Store Token
       persistAuthTokens(token, refreshToken);
+      clearReferralCode();
 
       // 5. Update State
       setUser(mapApiUser(apiUser));

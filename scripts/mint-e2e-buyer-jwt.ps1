@@ -146,7 +146,7 @@ if ($writeJson) {
 
 Write-Host ""
 Write-Host "Also set Solana env for devnet tests (from docs/DEV_SOLANA_SMOKE.md):" -ForegroundColor Cyan
-Write-Host '  $env:NEXT_PUBLIC_SOLANA_PROGRAM_ID = "9MrpHTKd15GfTAcukRSqdfqtUGpEoE4Lj7u7NhdFaob2"'
+Write-Host '  $env:NEXT_PUBLIC_SOLANA_PROGRAM_ID = "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"'
 Write-Host '  $env:NEXT_PUBLIC_SOLANA_RPC_URL = "https://api.devnet.solana.com"'
 Write-Host '  $env:NEXT_PUBLIC_PLAYWRIGHT_SOLANA_TEST_WALLET = "1"'
 Write-Host ""

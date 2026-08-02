@@ -1,5 +1,13 @@
 # PgBouncer Connection Pooler for PostgreSQL
 # Provides connection pooling and load balancing
+#
+# SEC-04: auth userlist MUST come from Secret pgbouncer-userlist (never ConfigMap).
+# Create before apply:
+#   kubectl -n proxyhubb create secret generic pgbouncer-userlist \
+#     --from-literal=userlist.txt='"postgres" "md5...."'$'\n''"proxyhubb" "md5...."'
+# MD5 format: "md5" || md5(password || username)  (PgBouncer auth_type=md5)
+#
+# Note: GCP testnet uses docker-compose (not this manifest). See infra/k8s/README.md.
 
 apiVersion: v1
 kind: ConfigMap
@@ -43,9 +51,6 @@ data:
     # Admin
     admin_users = postgres
     stats_users = postgres
-    
-  userlist.txt: |
-    "postgres" "md5d41d8cd98f00b204e9800998ecf8427e"
 
 ---
 apiVersion: v1
@@ -132,9 +137,10 @@ spec:
         - name: pgbouncer-config
           mountPath: /etc/pgbouncer/pgbouncer.ini
           subPath: pgbouncer.ini
-        - name: pgbouncer-config
+        - name: pgbouncer-userlist
           mountPath: /etc/pgbouncer/userlist.txt
           subPath: userlist.txt
+          readOnly: true
         resources:
           requests:
             memory: "64Mi"
@@ -158,6 +164,9 @@ spec:
       - name: pgbouncer-config
         configMap:
           name: pgbouncer-config
+      - name: pgbouncer-userlist
+        secret:
+          secretName: pgbouncer-userlist
 
 ---
 # PgBouncer for Replica (Read operations)
@@ -208,9 +217,10 @@ spec:
         - name: pgbouncer-config
           mountPath: /etc/pgbouncer/pgbouncer.ini
           subPath: pgbouncer.ini
-        - name: pgbouncer-config
+        - name: pgbouncer-userlist
           mountPath: /etc/pgbouncer/userlist.txt
           subPath: userlist.txt
+          readOnly: true
         resources:
           requests:
             memory: "64Mi"
@@ -234,6 +244,9 @@ spec:
       - name: pgbouncer-config
         configMap:
           name: pgbouncer-config
+      - name: pgbouncer-userlist
+        secret:
+          secretName: pgbouncer-userlist
 
 ---
 # PodDisruptionBudget for PgBouncer

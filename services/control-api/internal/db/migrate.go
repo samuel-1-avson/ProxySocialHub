@@ -14,6 +14,10 @@ import (
 // been recorded in the schema_migrations table.  Files are processed in
 // lexicographic order, which matches the 000NNN_ numeric prefix convention.
 //
+// Each migration runs inside a single DB transaction together with the
+// schema_migrations insert. Recording failures abort the transaction (hard-fail)
+// so DDL cannot apply without a durable version row (P0 MIG-01).
+//
 // Replaces the 157-model AutoMigrate() call (P3-14).  GORM AutoMigrate is
 // intentionally removed to prevent implicit DDL changes in production.
 func RunMigrations(migrationsDir string) error {
@@ -58,7 +62,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 	}
 	sort.Strings(files)
 
-	// 4. Apply pending migrations in order.
+	// 4. Apply pending migrations in order (transactional + hard-fail record).
 	pending := 0
 	for _, fname := range files {
 		version := strings.TrimSuffix(fname, ".up.sql")
@@ -73,17 +77,26 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 		}
 
 		log.Printf("migrations: applying %s", version)
-		if execErr := DB.Exec(string(sql)).Error; execErr != nil {
+		tx := DB.Begin()
+		if tx.Error != nil {
+			return fmt.Errorf("migrations: begin %s: %w", version, tx.Error)
+		}
+
+		if execErr := tx.Exec(string(sql)).Error; execErr != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("migrations: failed to apply %s: %w", version, execErr)
 		}
 
-		// Record the applied migration.
-		if recErr := DB.Exec(
+		if recErr := tx.Exec(
 			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-			version, time.Now(),
+			version, time.Now().UTC(),
 		).Error; recErr != nil {
-			// Non-fatal: the DDL already ran; log and continue.
-			log.Printf("migrations: warning — could not record %s: %v", version, recErr)
+			_ = tx.Rollback()
+			return fmt.Errorf("migrations: failed to record %s (rolled back): %w", version, recErr)
+		}
+
+		if commitErr := tx.Commit().Error; commitErr != nil {
+			return fmt.Errorf("migrations: commit %s: %w", version, commitErr)
 		}
 
 		applied[version] = true

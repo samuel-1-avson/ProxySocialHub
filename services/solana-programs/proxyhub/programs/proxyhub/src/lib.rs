@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7");
+declare_id!("AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu");
 
 // =============================================================================
 // ERROR CODES
@@ -3272,11 +3272,11 @@ pub struct InitializeEscrowMultiSig<'info> {
 pub struct SettleEscrowMultiSig<'info> {
     #[account(mut, seeds = [b"escrow_multisig", escrow.buyer.as_ref(), escrow.seller.as_ref(), &escrow.expires_at.to_le_bytes()], bump = escrow.bump)]
     pub escrow: Account<'info, Escrow>,
-    #[account(mut)]
-    /// CHECK: Buyer account
+    /// CHECK: Buyer account — bound to the escrow record so payouts cannot be redirected.
+    #[account(mut, address = escrow.buyer)]
     pub buyer: AccountInfo<'info>,
-    #[account(mut)]
-    /// CHECK: Seller account
+    /// CHECK: Seller account — bound to the escrow record so payouts cannot be redirected.
+    #[account(mut, address = escrow.seller)]
     pub seller: AccountInfo<'info>,
     #[account(seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
     pub multisig_oracle: Account<'info, MultiSigOracle>,
@@ -3339,13 +3339,15 @@ pub struct CastVote<'info> {
 pub struct ExecuteJuryVerdict<'info> {
     #[account(mut, seeds = [b"jury", jury.escrow.as_ref()], bump = jury.bump)]
     pub jury: Account<'info, Jury>,
-    #[account(mut)]
+    // The escrow must be the one this jury was empaneled for, otherwise a caller
+    // could pair a resolved jury with an unrelated escrow to drain it.
+    #[account(mut, constraint = escrow.key() == jury.escrow)]
     pub escrow: Account<'info, Escrow>,
-    #[account(mut)]
-    /// CHECK: Buyer account
+    /// CHECK: Buyer account — bound to the escrow record so verdict payouts cannot be redirected.
+    #[account(mut, address = escrow.buyer)]
     pub buyer: AccountInfo<'info>,
-    #[account(mut)]
-    /// CHECK: Seller account
+    /// CHECK: Seller account — bound to the escrow record so verdict payouts cannot be redirected.
+    #[account(mut, address = escrow.seller)]
     pub seller: AccountInfo<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
@@ -3416,11 +3418,11 @@ pub struct SettleEscrow<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()], bump = escrow.bump)]
     pub escrow: Account<'info, Escrow>,
-    #[account(mut)]
-    /// CHECK: Buyer account
+    /// CHECK: Buyer account — bound to the escrow record so payouts cannot be redirected.
+    #[account(mut, address = escrow.buyer)]
     pub buyer: AccountInfo<'info>,
-    #[account(mut)]
-    /// CHECK: Seller account
+    /// CHECK: Seller account — bound to the escrow record so payouts cannot be redirected.
+    #[account(mut, address = escrow.seller)]
     pub seller: AccountInfo<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,

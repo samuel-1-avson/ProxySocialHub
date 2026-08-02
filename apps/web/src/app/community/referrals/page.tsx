@@ -56,16 +56,23 @@ export default function ReferralPage() {
     }
 
     const code = stats?.referral_code || "";
+    const [inviteOrigin, setInviteOrigin] = useState("");
+    useEffect(() => {
+        setInviteOrigin(window.location.origin);
+    }, []);
+    const inviteLink = code
+        ? `${inviteOrigin || ""}${ROUTES.register}?ref=${encodeURIComponent(code)}`
+        : "";
 
     return (
         <div className="max-w-3xl mx-auto py-10 px-4 space-y-8" data-testid="community-referrals">
             <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-primary mb-2">Community</p>
                 <h1 className="text-3xl font-black uppercase tracking-tight italic">
-                    Referral <span className="text-primary">program</span>
+                    Invite <span className="text-primary">&amp; earn</span>
                 </h1>
                 <p className="text-sm text-muted-foreground mt-2">
-                    Share your code. Earn rewards when invited users join and become active.
+                    Share your invite link. Earn rewards when new users create an account with your code.
                 </p>
             </div>
 
@@ -86,19 +93,24 @@ export default function ReferralPage() {
                                     Your code
                                 </p>
                                 <p className="text-2xl font-mono font-black mt-1">{code || "—"}</p>
+                                {inviteLink ? (
+                                    <p className="mt-2 text-[10px] font-mono text-muted-foreground break-all">
+                                        {inviteLink}
+                                    </p>
+                                ) : null}
                             </div>
                             <div className="flex gap-2">
                                 <button
                                     type="button"
-                                    disabled={!code}
+                                    disabled={!inviteLink}
                                     onClick={async () => {
-                                        await navigator.clipboard.writeText(code);
+                                        await navigator.clipboard.writeText(inviteLink);
                                         setCopied(true);
                                         setTimeout(() => setCopied(false), 1500);
                                     }}
                                     className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-white/10 text-[10px] font-bold uppercase tracking-widest"
                                 >
-                                    <Copy size={12} /> {copied ? "Copied" : "Copy"}
+                                    <Copy size={12} /> {copied ? "Copied link" : "Copy invite link"}
                                 </button>
                                 <button
                                     type="button"

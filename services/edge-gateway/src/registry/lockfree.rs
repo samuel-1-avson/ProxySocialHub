@@ -608,6 +608,7 @@ mod tests {
             user_id: None,
             country_code: "GH".to_string(),
             region: "Accra".to_string(),
+            isp: String::new(),
             ip_address: "10.0.0.1".to_string(),
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

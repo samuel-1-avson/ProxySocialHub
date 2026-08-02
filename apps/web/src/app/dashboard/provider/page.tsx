@@ -129,14 +129,23 @@ export default function ProviderDashboard() {
     const { data: nodesData, isLoading: nodesLoading } = useQuery({
         queryKey: ['my-nodes'],
         queryFn: getMyNodes,
-        refetchInterval: 30_000,
+        // HB-05: poll fast while waiting for edge Online; back off when live.
+        refetchInterval: (query) => {
+            const nodes = query.state.data?.nodes ?? [];
+            const anyOnline = nodes.some((n) => n.status === 'online');
+            return anyOnline ? 30_000 : 3_000;
+        },
         enabled: canUseProviderWorkspace,
     });
 
     const { data: readiness } = useQuery({
         queryKey: ['provider-readiness'],
         queryFn: getProviderReadiness,
-        refetchInterval: 30_000,
+        refetchInterval: (query) => {
+            const ready = query.state.data?.summary?.tunnel_ready
+                || query.state.data?.summary?.ready_for_traffic;
+            return ready ? 30_000 : 3_000;
+        },
         enabled: canUseProviderWorkspace,
     });
 

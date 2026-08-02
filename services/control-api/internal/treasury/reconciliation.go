@@ -78,6 +78,9 @@ func (rs *ReconciliationService) StartReconciliationWorker(ctx context.Context) 
 		if err := rs.ReconcileUserWallets(ctx); err != nil {
 			logging.Error(err).Msg("Hourly user balance reconciliation failed")
 		}
+		if err := rs.ReconcileJournals(ctx); err != nil {
+			logging.Error(err).Msg("Hourly journal reconciliation failed")
+		}
 
 		for {
 			select {
@@ -86,6 +89,9 @@ func (rs *ReconciliationService) StartReconciliationWorker(ctx context.Context) 
 			case <-ticker.C:
 				if err := rs.ReconcileUserWallets(ctx); err != nil {
 					logging.Error(err).Msg("Hourly user balance reconciliation failed")
+				}
+				if err := rs.ReconcileJournals(ctx); err != nil {
+					logging.Error(err).Msg("Hourly journal reconciliation failed")
 				}
 			}
 		}
@@ -416,44 +422,131 @@ func abs(x float64) float64 {
 }
 
 type ReconciliationDiscrepancy struct {
-	ID            uuid.UUID `gorm:"column:id"`
-	UserID        uuid.UUID `gorm:"column:user_id"`
-	DBBalance     float64   `gorm:"column:db_balance"`
-	LedgerBalance float64   `gorm:"column:ledger_balance"`
+	ID                   uuid.UUID `gorm:"column:id"`
+	UserID               uuid.UUID `gorm:"column:user_id"`
+	DBBalanceLamports    int64     `gorm:"column:db_balance_lamports"`
+	LedgerBalanceLamports int64    `gorm:"column:ledger_balance_lamports"`
 }
 
-// ReconcileUserWallets compares the wallet's SOL balance against the sum of all ledger entries.
+// ReconcileUserWallets compares wallet.balance_lamports against the sum of
+// ledger amount_lamports (hot + archive). Integer conservation check (DB-01 lite).
 func (rs *ReconciliationService) ReconcileUserWallets(ctx context.Context) error {
 	var discrepancies []ReconciliationDiscrepancy
-	
-	err := db.DB.Raw(`
-		SELECT 
+
+	err := db.DB.WithContext(ctx).Raw(`
+		SELECT
 			w.id,
 			w.user_id,
-			w.balance_sol as db_balance,
-			COALESCE(SUM(le.amount), 0) as ledger_balance
+			w.balance_lamports AS db_balance_lamports,
+			COALESCE(h.s, 0) + COALESCE(a.s, 0) AS ledger_balance_lamports
 		FROM wallets w
-		LEFT JOIN wallet_ledger_entries le ON w.id = le.wallet_id
-		GROUP BY w.id, w.user_id, w.balance_sol
-		HAVING w.balance_sol != COALESCE(SUM(le.amount), 0)
+		LEFT JOIN (
+			SELECT wallet_id, SUM(amount_lamports) AS s
+			FROM wallet_ledger_entries
+			GROUP BY wallet_id
+		) h ON h.wallet_id = w.id
+		LEFT JOIN (
+			SELECT wallet_id, SUM(amount_lamports) AS s
+			FROM wallet_ledger_entries_archive
+			GROUP BY wallet_id
+		) a ON a.wallet_id = w.id
+		WHERE w.balance_lamports <> COALESCE(h.s, 0) + COALESCE(a.s, 0)
 	`).Scan(&discrepancies).Error
-	
+
 	if err != nil {
 		return err
 	}
 
 	for _, d := range discrepancies {
-		msg := fmt.Sprintf("User: %s | Wallet: %s | DB Balance: %.6f SOL | Ledger Balance: %.6f SOL | Diff: %.6f SOL",
-			d.UserID, d.ID, d.DBBalance, d.LedgerBalance, d.DBBalance-d.LedgerBalance)
-		
+		diff := d.DBBalanceLamports - d.LedgerBalanceLamports
+		msg := fmt.Sprintf(
+			"User: %s | Wallet: %s | DB: %d lamports | Ledger(hot+archive): %d lamports | Diff: %d",
+			d.UserID, d.ID, d.DBBalanceLamports, d.LedgerBalanceLamports, diff,
+		)
+
 		logging.Error(nil).
 			Str("user_id", d.UserID.String()).
 			Str("wallet_id", d.ID.String()).
-			Float64("db_balance", d.DBBalance).
-			Float64("ledger_balance", d.LedgerBalance).
+			Int64("db_balance_lamports", d.DBBalanceLamports).
+			Int64("ledger_balance_lamports", d.LedgerBalanceLamports).
+			Int64("diff_lamports", diff).
 			Msg("WALLET RECONCILIATION DISCREPANCY DETECTED")
-		
+
 		alerts.Send(alerts.Critical, "Wallet Balance Discrepancy", msg)
+	}
+
+	return nil
+}
+
+// ReconcileJournals checks double-entry invariants (DB-01 XL):
+// 1) every journal's lines sum to 0
+// 2) Σ(2100 liability lines) + Σ(wallets.balance_lamports) ≈ 0
+//    (credits are negative; liability credits increase with deposits)
+func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
+	// Skip quietly if journal tables are not migrated yet.
+	var exists bool
+	if err := db.DB.WithContext(ctx).Raw(`
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'ledger_journal_lines'
+		)
+	`).Scan(&exists).Error; err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+
+	type unbalanced struct {
+		JournalID string `gorm:"column:journal_id"`
+		Sum       int64  `gorm:"column:s"`
+	}
+	var bad []unbalanced
+	if err := db.DB.WithContext(ctx).Raw(`
+		SELECT journal_id::text, SUM(amount_lamports) AS s
+		FROM ledger_journal_lines
+		GROUP BY journal_id
+		HAVING SUM(amount_lamports) <> 0
+		LIMIT 50
+	`).Scan(&bad).Error; err != nil {
+		return err
+	}
+	for _, row := range bad {
+		msg := fmt.Sprintf("Journal %s unbalanced sum=%d", row.JournalID, row.Sum)
+		logging.Error(nil).
+			Str("journal_id", row.JournalID).
+			Int64("sum_lamports", row.Sum).
+			Msg("JOURNAL UNBALANCED")
+		alerts.Send(alerts.Critical, "Journal Unbalanced", msg)
+	}
+
+	type liabilityCheck struct {
+		LiabilitySum int64 `gorm:"column:liability_sum"`
+		WalletSum    int64 `gorm:"column:wallet_sum"`
+	}
+	var check liabilityCheck
+	if err := db.DB.WithContext(ctx).Raw(`
+		SELECT
+			COALESCE((
+				SELECT SUM(amount_lamports) FROM ledger_journal_lines WHERE account_code = '2100'
+			), 0) AS liability_sum,
+			COALESCE((SELECT SUM(balance_lamports) FROM wallets), 0) AS wallet_sum
+	`).Scan(&check).Error; err != nil {
+		return err
+	}
+	// Credits are negative: liability_sum should equal -wallet_sum.
+	if check.LiabilitySum+check.WalletSum != 0 {
+		diff := check.LiabilitySum + check.WalletSum
+		msg := fmt.Sprintf(
+			"2100 liability lines (%d) + wallet balances (%d) = %d (expected 0)",
+			check.LiabilitySum, check.WalletSum, diff,
+		)
+		logging.Error(nil).
+			Int64("liability_sum", check.LiabilitySum).
+			Int64("wallet_sum", check.WalletSum).
+			Int64("diff", diff).
+			Msg("JOURNAL LIABILITY vs WALLET MISMATCH")
+		alerts.Send(alerts.Critical, "Journal Liability Mismatch", msg)
 	}
 
 	return nil

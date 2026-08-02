@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
@@ -34,10 +35,16 @@ func InitOracleFromEnv() error {
 		network = "devnet"
 	}
 
+	hotPath := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_KEYPAIR"))
+	if hotPath == "" {
+		hotPath = strings.TrimSpace(os.Getenv("SOLANA_TREASURY_KEYPAIR"))
+	}
+
 	client, err := NewOracleClient(Config{
-		RPCEndpoints:      rpcEndpoints,
-		OracleKeypairPath: keypairPath,
-		Network:           network,
+		RPCEndpoints:           rpcEndpoints,
+		OracleKeypairPath:      keypairPath,
+		TreasuryHotKeypairPath: hotPath,
+		Network:                network,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create oracle client: %w", err)

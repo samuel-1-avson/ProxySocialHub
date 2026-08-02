@@ -6,7 +6,9 @@
  * Data flow:
  *  1. GET /v1/marketplace/map?include_nodes=true → server-resolved nodes + listings
  *  2. WS  /v1/explorer/ws                        → node_update events
- *  3. Optional in-map buy                        → NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED
+ *  3. Google Maps 2D / tilt-3D (roadmap only; no satellite)
+ *  4. Optional in-map buy                        → NEXT_PUBLIC_EXPLORER_MAP_BUY_ENABLED
+ *  5. Legacy WebGL globe only if NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -17,8 +19,8 @@ import { BuyListingModal } from '@/components/BuyListingModal';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { useMapPoints } from '@/lib/hooks/useMapPoints';
 import { useMapLinks } from '@/lib/hooks/useMapLinks';
-import { globeTopologyEnabled } from '@/lib/feature-flags';
-import type { ExplorerListingPin } from '@/components/map/types';
+import { globeTopologyEnabled, legacyExplorerGlobeEnabled } from '@/lib/feature-flags';
+import type { ExplorerListingPin, MapViewMode } from '@/components/map/types';
 import { geoSourceLabel } from '@/lib/map/geo-labels';
 import {
     getListing,
@@ -33,7 +35,7 @@ import { bboxNearlyEqual, bboxToParam, type MapBBox } from '@/lib/geo/bbox';
 import type { MapStyle } from './GlobeMap';
 import {
     ArrowLeft, Globe, MapPin, Server, Shield,
-    Radio, Activity, RefreshCw, Layers, Zap, Satellite, Mountain, Map,
+    Radio, Activity, RefreshCw, Layers, Zap, Map,
     Search, ShoppingCart, Loader2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -49,12 +51,12 @@ const GlobeMap = dynamic(() => import('./GlobeMap'), {
     ),
 });
 
-const LeafletMap = dynamic(() => import('@/components/map/ProxyMapCanvas'), {
+const MapCanvas = dynamic(() => import('@/components/map/ProxyMapCanvas'), {
     ssr: false,
     loading: () => (
         <div className="w-full h-full flex items-center justify-center bg-[#050508]">
             <div className="text-[10px] font-black text-white/20 uppercase tracking-widest animate-pulse">
-                Initialising 2D map…
+                Initialising map…
             </div>
         </div>
     ),
@@ -77,7 +79,9 @@ export default function NodeMapPage() {
     const [selectedRegion, setSelectedRegion] = useState<string>('all');
     const [showHeatmap, setShowHeatmap] = useState(false);
     const [mapStyle, setMapStyle] = useState<MapStyle>('minimal');
-    const [mapMode, setMapMode] = useState<'globe' | 'map'>('map'); // Default to Map (2D) for "Wide" feel
+    const legacyGlobe = legacyExplorerGlobeEnabled();
+    const [mapMode, setMapMode] = useState<'globe' | 'map'>('map');
+    const [viewMode, setViewMode] = useState<MapViewMode>('2d');
     const [searchQuery, setSearchQuery] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [viewport, setViewport] = useState<MapBBox | null>(null);
@@ -85,8 +89,9 @@ export default function NodeMapPage() {
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
     const mapBuyEnabled = explorerMapBuyEnabled();
-    /** Listings layer on 2D canvas (Leaflet). */
-    const listingsPlottedOnMap = showListingsLayer && mapMode === 'map';
+    const showLegacyGlobe = legacyGlobe && mapMode === 'globe';
+    /** Listings on Google/Leaflet canvas (not legacy globe checkout path). */
+    const listingsPlottedOnMap = showListingsLayer && !showLegacyGlobe;
 
     const toggleListingsLayer = useCallback(() => {
         setShowListingsLayer((on) => !on);
@@ -118,13 +123,14 @@ export default function NodeMapPage() {
         enabled: mounted,
         showListings: showListingsLayer,
         live: true,
+        includeCatalog: false,
         refetchInterval: searchBBox ? false : 60_000,
     });
 
     const topologyFlagOn = globeTopologyEnabled();
     const { links: topologyLinks, topologyAvailable } = useMapLinks({
-        enabled: mounted && mapMode === 'globe' && topologyFlagOn,
-        live: mounted && mapMode === 'globe' && topologyFlagOn,
+        enabled: mounted && showLegacyGlobe && topologyFlagOn,
+        live: mounted && showLegacyGlobe && topologyFlagOn,
         refetchInterval: 60_000,
     });
 
@@ -295,17 +301,19 @@ export default function NodeMapPage() {
                 )}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // {mapMode === 'globe' ? '3D Globe' : '2D Map'}</div>
+                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">
+                            Grid Telemetry // {showLegacyGlobe ? '3D Globe' : viewMode === '3d' ? '3D Map' : '2D Map'}
+                        </div>
                         <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
-                            {mapMode === 'globe' ? <Globe className="text-primary" size={32} /> : <MapPin className="text-primary" size={32} />}
-                            {mapMode === 'globe' ? 'Node Globe' : 'Network Wide Map'}
+                            {showLegacyGlobe ? <Globe className="text-primary" size={32} /> : <MapPin className="text-primary" size={32} />}
+                            {showLegacyGlobe ? 'Node Globe' : viewMode === '3d' ? 'Network 3D Map' : 'Network Wide Map'}
                         </h1>
                         <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
-                            {mapMode === 'globe'
-                                ? showListingsLayer
-                                    ? 'Nodes and marketplace listings on WebGL globe · checkout on 2D or marketplace map'
-                                    : 'Live global relay node distribution · WebGL 3D globe'
-                                : 'High-resolution network topology · 2D interactive view'}
+                            {showLegacyGlobe
+                                ? 'Legacy WebGL globe · prefer Google 2D/3D for production'
+                                : viewMode === '3d'
+                                    ? 'Live relay nodes · Google Maps tilt-3D · minimal vector roadmap'
+                                    : 'Live relay nodes · Google Maps 2D · minimal vector roadmap'}
                         </p>
                     </div>
                     <div className="flex gap-3 flex-wrap">
@@ -337,8 +345,14 @@ export default function NodeMapPage() {
                         <div className={`w-2 h-2 rounded-full ${error ? 'bg-rose-500 animate-pulse' : isLoading ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
                         {error ? 'Disconnected' : isLoading ? 'Syncing…' : 'Live'}
                     </div>
-                    <div className={`flex items-center gap-2 ${wsConnected ? 'text-blue-400' : 'text-white/20'}`}>
+                    <div
+                        className={`flex items-center gap-2 ${wsConnected ? 'text-blue-400' : 'text-white/20'}`}
+                        data-testid="explorer-map-ws-status"
+                    >
                         <Zap size={9} /> {wsConnected ? 'WS Connected' : 'WS Connecting…'}
+                    </div>
+                    <div className="flex items-center gap-2 text-emerald-400/80" data-testid="explorer-map-live-active">
+                        <Activity size={9} /> {totalActive} live active
                     </div>
                     {lastUpdated && (
                         <span className="text-white/20" data-testid="explorer-map-updated">
@@ -411,7 +425,7 @@ export default function NodeMapPage() {
                         <div style={{ height: '720px' }} className="relative bg-[#050508]">
                             {mounted && (
                                 <div className="w-full h-full">
-                                    {mapMode === 'globe' ? (
+                                    {showLegacyGlobe ? (
                                         <GlobeMap
                                             nodes={nodes}
                                             onSelectNode={handleSelectNode}
@@ -427,7 +441,7 @@ export default function NodeMapPage() {
                                             topologyAvailable={topologyFlagOn && topologyAvailable}
                                         />
                                     ) : (
-                                        <LeafletMap
+                                        <MapCanvas
                                             nodes={nodes}
                                             onSelectNode={handleSelectNode}
                                             selectedNodeId={selectedNode?.node_id}
@@ -438,15 +452,16 @@ export default function NodeMapPage() {
                                             onSelectListing={handleSelectListing}
                                             selectedListingId={selectedListing?.listing_id}
                                             onBoundsChange={setViewport}
+                                            viewMode={viewMode}
                                         />
                                     )}
                                 </div>
                             )}
 
-                            {mapMode === 'globe' && showListingsLayer && (
+                            {showLegacyGlobe && showListingsLayer && (
                                 <div className="absolute top-4 right-4 z-[1000] max-w-xs px-4 py-3 rounded-2xl bg-[#0a0a15]/90 border border-emerald-500/30 backdrop-blur-sm shadow-xl">
                                     <p className="text-[9px] font-black text-emerald-300 uppercase tracking-widest leading-relaxed">
-                                        Emerald pins are marketplace listings. Use 2D map or marketplace map to buy.
+                                        Emerald pins are marketplace listings. Use 2D/3D map or marketplace map to buy.
                                     </p>
                                     <Link
                                         href={ROUTES.marketplaceMap}
@@ -457,7 +472,7 @@ export default function NodeMapPage() {
                                 </div>
                             )}
 
-                            {mapMode === 'map' && viewport != null && (areaSearchStale || !searchBBox) ? (
+                            {!showLegacyGlobe && viewport != null && (areaSearchStale || !searchBBox) ? (
                                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex gap-2">
                                     <button
                                         type="button"
@@ -487,9 +502,10 @@ export default function NodeMapPage() {
                             {/* Engine Toggle Floating Button */}
                             <div className="absolute bottom-6 left-6 z-[1000] flex gap-2">
                                 <button
-                                    onClick={() => setMapMode('map')}
+                                    type="button"
+                                    onClick={() => { setMapMode('map'); setViewMode('2d'); }}
                                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-[0.2em] transition-all backdrop-blur-md ${
-                                        mapMode === 'map'
+                                        !showLegacyGlobe && viewMode === '2d'
                                             ? 'bg-primary/20 border-primary/50 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]'
                                             : 'bg-black/60 border-white/10 text-white/40 hover:text-white/60'
                                     }`}
@@ -497,15 +513,29 @@ export default function NodeMapPage() {
                                     <MapPin size={12} /> 2D Map
                                 </button>
                                 <button
-                                    onClick={() => setMapMode('globe')}
+                                    type="button"
+                                    onClick={() => { setMapMode('map'); setViewMode('3d'); }}
                                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-[0.2em] transition-all backdrop-blur-md ${
-                                        mapMode === 'globe'
+                                        !showLegacyGlobe && viewMode === '3d'
                                             ? 'bg-primary/20 border-primary/50 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]'
                                             : 'bg-black/60 border-white/10 text-white/40 hover:text-white/60'
                                     }`}
                                 >
-                                    <Globe size={12} /> 3D Globe
+                                    <Globe size={12} /> 3D Map
                                 </button>
+                                {legacyGlobe && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setMapMode('globe')}
+                                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-[0.2em] transition-all backdrop-blur-md ${
+                                            showLegacyGlobe
+                                                ? 'bg-primary/20 border-primary/50 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]'
+                                                : 'bg-black/60 border-white/10 text-white/40 hover:text-white/60'
+                                        }`}
+                                    >
+                                        <Globe size={12} /> 3D Globe
+                                    </button>
+                                )}
                             </div>
 
                             {/* Error overlay */}
@@ -611,17 +641,23 @@ export default function NodeMapPage() {
                                 </button>
                             )}
                             <Link
-                                href={`/marketplace/${selectedListing.listing_id}`}
+                                href={`/marketplace/map?listing=${selectedListing.listing_id}`}
                                 className="block w-full text-center py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/25 transition-all"
                             >
-                                View listing →
+                                Buy on marketplace map →
+                            </Link>
+                            <Link
+                                href={`/marketplace/${selectedListing.listing_id}`}
+                                className="block text-center text-[8px] font-black text-white/30 uppercase tracking-widest hover:text-emerald-400"
+                            >
+                                Listing details
                             </Link>
                             {!mapBuyEnabled && (
                                 <Link
                                     href={ROUTES.marketplaceMap}
                                     className="block text-center text-[8px] font-black text-white/30 uppercase tracking-widest hover:text-emerald-400"
                                 >
-                                    Buy on marketplace map (wallet)
+                                    Open marketplace map
                                 </Link>
                             )}
                         </GlassCard>
@@ -674,33 +710,67 @@ export default function NodeMapPage() {
                     {/* Map controls */}
                     <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-5 space-y-4">
                         <div className="text-[9px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
-                            <Layers size={10} /> Globe Controls
+                            <Layers size={10} /> Map Controls
                         </div>
 
-                        {/* Map style switcher */}
                         <div>
-                            <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">Map Style</p>
-                            <div className="grid grid-cols-3 gap-1.5">
-                                {([
-                                    { id: 'satellite', label: 'Satellite', icon: <Satellite size={9} /> },
-                                    { id: 'terrain',   label: 'Terrain',   icon: <Mountain size={9} /> },
-                                    { id: 'minimal',   label: 'Minimal',   icon: <Map size={9} /> },
-                                ] as { id: MapStyle; label: string; icon: React.ReactNode }[]).map(s => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => setMapStyle(s.id)}
-                                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl border text-[8px] font-bold uppercase tracking-wider transition-all ${
-                                            mapStyle === s.id
-                                                ? 'bg-primary/20 border-primary/50 text-primary'
-                                                : 'bg-white/5 border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
-                                        }`}
-                                    >
-                                        {s.icon}
-                                        <span>{s.label}</span>
-                                    </button>
-                                ))}
+                            <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">View</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => { setMapMode('map'); setViewMode('2d'); }}
+                                    className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl border text-[8px] font-bold uppercase tracking-wider transition-all ${
+                                        !showLegacyGlobe && viewMode === '2d'
+                                            ? 'bg-primary/20 border-primary/50 text-primary'
+                                            : 'bg-white/5 border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                                    }`}
+                                >
+                                    <Map size={9} />
+                                    <span>2D</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setMapMode('map'); setViewMode('3d'); }}
+                                    className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl border text-[8px] font-bold uppercase tracking-wider transition-all ${
+                                        !showLegacyGlobe && viewMode === '3d'
+                                            ? 'bg-primary/20 border-primary/50 text-primary'
+                                            : 'bg-white/5 border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                                    }`}
+                                >
+                                    <Globe size={9} />
+                                    <span>3D</span>
+                                </button>
                             </div>
+                            <p className="text-[7px] text-white/25 mt-2 leading-relaxed">
+                                Minimal vector roadmap only — no satellite imagery.
+                            </p>
                         </div>
+
+                        {legacyGlobe && showLegacyGlobe && (
+                            <div>
+                                <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">Legacy Globe Style</p>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                    {([
+                                        { id: 'minimal', label: 'Minimal' },
+                                        { id: 'terrain', label: 'Terrain' },
+                                        { id: 'satellite', label: 'Night' },
+                                    ] as { id: MapStyle; label: string }[]).map(s => (
+                                        <button
+                                            key={s.id}
+                                            type="button"
+                                            onClick={() => setMapStyle(s.id)}
+                                            className={`px-2 py-2 rounded-xl border text-[8px] font-bold uppercase tracking-wider transition-all ${
+                                                mapStyle === s.id
+                                                    ? 'bg-primary/20 border-primary/50 text-primary'
+                                                    : 'bg-white/5 border-white/10 text-white/40'
+                                            }`}
+                                        >
+                                            {s.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         <button
                             type="button"
@@ -713,24 +783,22 @@ export default function NodeMapPage() {
                             </span>
                         </button>
 
-                        {/* Hex-bin heatmap toggle */}
                         <button
+                            type="button"
                             onClick={() => setShowHeatmap(h => !h)}
                             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${showHeatmap ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70'}`}
                         >
-                            <span>Session Hex Density</span>
+                            <span>Session Density</span>
                             <div className={`w-8 h-4 rounded-full transition-all relative ${showHeatmap ? 'bg-indigo-500' : 'bg-white/20'}`}>
                                 <div className={`absolute top-0 w-4 h-4 rounded-full bg-white transition-transform ${showHeatmap ? 'translate-x-4' : 'translate-x-0'}`} />
                             </div>
                         </button>
-                        {/* Legend */}
                         <div className="space-y-2">
                             {[
                                 { color: 'bg-emerald-500', label: 'Active Proxy', desc: 'Online, serving traffic' },
                                 { color: 'bg-purple-500', label: 'Validator', desc: 'High-stake validator node' },
                                 { color: 'bg-rose-500', label: 'Offline', desc: 'No recent heartbeat' },
-                                { color: 'bg-amber-400', label: 'Selected', desc: 'Pulsing ring animation' },
-                                { color: 'bg-indigo-500', label: 'Hex Density', desc: 'Session weight columns' },
+                                { color: 'bg-amber-400', label: 'Selected', desc: 'Currently inspected' },
                             ].map(i => (
                                 <div key={i.label} className="flex items-start gap-2">
                                     <div className={`w-2.5 h-2.5 rounded-full ${i.color} mt-0.5 flex-shrink-0`} />

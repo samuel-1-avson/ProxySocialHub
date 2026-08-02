@@ -30,7 +30,7 @@ config:
       Content-Type: "application/json"
   
   variables:
-    program_id: "2yDRyTwhHnVakKKMhhGG61V9b78RUdXRjAL3UiPwmDd7"
+    program_id: "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"
     rpc_endpoints:
       - "https://api.devnet.solana.com"
       - "https://devnet.genesysgo.net"
