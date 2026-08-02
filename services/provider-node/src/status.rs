@@ -55,8 +55,11 @@ struct MyNodesResponse {
 
 #[derive(Deserialize)]
 struct ControlNodeRow {
+    #[serde(deserialize_with = "deserialize_flexible_id")]
     id: String,
+    #[serde(default)]
     name: String,
+    #[serde(default)]
     status: String,
     #[serde(default)]
     gateway_node_id: String,
@@ -72,6 +75,17 @@ struct ControlNodeRow {
     latest_heartbeat_signer: String,
     #[serde(default)]
     hotkey: String,
+}
+
+fn deserialize_flexible_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(s) => Ok(s),
+        other => Ok(other.to_string().trim_matches('"').to_string()),
+    }
 }
 
 pub async fn collect(

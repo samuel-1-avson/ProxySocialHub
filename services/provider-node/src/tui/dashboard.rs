@@ -1656,10 +1656,21 @@ fn render_nodes(
 
     let rows: Vec<Row> = if let Some(api) = api {
         if api.nodes.is_empty() {
-            vec![Row::new(vec![api
-                .error
-                .clone()
-                .unwrap_or_else(|| "no nodes registered".to_string())])]
+            let msg = if let Some(err) = api.error.as_ref().filter(|e| !e.is_empty()) {
+                format!("Control API: {err}")
+            } else if !api.reachable {
+                "Waiting for Control API sync… press r".to_string()
+            } else {
+                "No nodes registered on Control API".to_string()
+            };
+            vec![Row::new(vec![
+                truncate(&msg, 48),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+            ])
+            .style(theme::warn())]
         } else {
             api.nodes
                 .iter()
@@ -1697,7 +1708,14 @@ fn render_nodes(
                 .collect()
         }
     } else {
-        vec![Row::new(vec!["…".to_string()])]
+        vec![Row::new(vec![
+            "Syncing…".to_string(),
+            "—".to_string(),
+            "—".to_string(),
+            "—".to_string(),
+            "—".to_string(),
+        ])
+        .style(theme::dim())]
     };
 
     let table = Table::new(
@@ -1774,7 +1792,7 @@ fn render_node_detail(
         ),
         Line::from(""),
         Line::from(Span::styled(
-            "Connect: My nodes → Connect → download provider.toml → provider-node start",
+            "Connect: CLI auto-starts the daemon — open dashboard (option 1) anytime",
             theme::dim(),
         )),
         Line::from(Span::styled("Esc back", theme::muted())),
@@ -1987,11 +2005,15 @@ fn render_help_overlay(frame: &mut ratatui::Frame<'_>, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(" Setup ", theme::value())),
         Line::from(Span::styled(
-            "  Terminal 1: provider-node start",
+            "  provider-node                  # console (auto-starts daemon + menu)",
             theme::dim(),
         )),
         Line::from(Span::styled(
-            "  Terminal 2: provider-node dashboard",
+            "  provider-node dashboard          # TUI (auto-starts daemon in background)",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  provider-node start              # foreground daemon only",
             theme::dim(),
         )),
         Line::from(""),

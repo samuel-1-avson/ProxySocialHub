@@ -337,6 +337,33 @@ impl HeartbeatManager {
                     error!("Control API heartbeat failed after JWT refresh: {retry}");
                     return;
                 }
+            } else if let Some(suggested) = crate::ip::suggested_node_id_from_heartbeat_error(&e) {
+                if suggested != self.api_node_id {
+                    warn!(
+                        old_node_id = %self.api_node_id,
+                        new_node_id = %suggested,
+                        "Control API node_id missing/deleted — rebinding to suggested active node; update provider.toml node_id"
+                    );
+                    self.api_node_id = suggested;
+                    if let Err(retry) = crate::ip::send_provider_node_heartbeat(
+                        &self.control_api_url,
+                        &self.auth_token,
+                        &self.api_node_id,
+                        &self.provider_run_id,
+                        msg.latency_ms,
+                        msg.active_connections,
+                        100.0,
+                        msg.proof.clone(),
+                    )
+                    .await
+                    {
+                        error!("Control API heartbeat failed after node rebind: {retry}");
+                        return;
+                    }
+                } else {
+                    error!("Control API heartbeat failed: {e}");
+                    return;
+                }
             } else {
                 error!("Control API heartbeat failed: {e}");
                 return;

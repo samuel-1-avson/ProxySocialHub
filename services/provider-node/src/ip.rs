@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Detect the public IP address by querying multiple external services.
 pub async fn detect_public_ip() -> Option<String> {
@@ -228,13 +228,49 @@ pub async fn send_provider_node_heartbeat(
         .context("Failed to send provider node heartbeat")?;
 
     if resp.status().is_success() {
-        debug!(node_id = %node_id, "Control API provider heartbeat OK");
+        info!(node_id = %node_id, "Control API provider heartbeat OK");
         return Ok(());
     }
 
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    anyhow::bail!("Provider heartbeat failed (HTTP {status}): {body}");
+    Err(HeartbeatApiError {
+        status: status.as_u16(),
+        body,
+    }
+    .into())
+}
+
+#[derive(Debug)]
+pub struct HeartbeatApiError {
+    pub status: u16,
+    pub body: String,
+}
+
+impl std::fmt::Display for HeartbeatApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Provider heartbeat failed (HTTP {}): {}",
+            self.status, self.body
+        )
+    }
+}
+
+impl std::error::Error for HeartbeatApiError {}
+
+/// Parse suggested_node_id from a Control API heartbeat 404 body, if present.
+pub fn suggested_node_id_from_heartbeat_error(err: &anyhow::Error) -> Option<String> {
+    let api_err = err.downcast_ref::<HeartbeatApiError>()?;
+    if api_err.status != 404 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&api_err.body).ok()?;
+    value
+        .get("suggested_node_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| looks_like_uuid(s))
 }
 
 fn looks_like_uuid(s: &str) -> bool {
