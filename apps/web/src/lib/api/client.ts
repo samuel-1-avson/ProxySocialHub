@@ -30,6 +30,9 @@ function formatApiErrorMessage(error: Record<string, unknown>): string {
         (typeof error.message === 'string' && error.message) ||
         (typeof error.error === 'string' && error.error) ||
         'Request failed';
+    if (typeof error.detail === 'string' && error.detail.trim() && !base.includes(error.detail)) {
+        return `${base}: ${error.detail}`;
+    }
     if (error.limit_type != null && typeof error.remaining === 'number') {
         const window = String(error.limit_type);
         return `${base} — about ${error.remaining.toFixed(2)} SOL left on your ${window} limit`;

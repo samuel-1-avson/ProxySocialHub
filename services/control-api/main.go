@@ -130,6 +130,9 @@ func main() {
 	// --- Wire credential encryption into the Session model ---
 	// Must run after crypto package is ready (ENCRYPTION_KEY is loaded via config.Load).
 	// The function-variable approach avoids an import cycle between models ↔ crypto.
+	if err := cryptoPkg.InitEncryption(); err != nil {
+		log.Fatalf("ENCRYPTION_KEY required for marketplace session credentials: %v", err)
+	}
 	models.CredentialEncryptFn = cryptoPkg.Encrypt
 	models.CredentialDecryptFn = cryptoPkg.Decrypt
 	log.Println("Session credential encryption hooks registered")
