@@ -68,15 +68,8 @@ pub fn describe(result: DaemonEnsureResult) -> String {
     }
 }
 
-/// Stop a live daemon if one is present, then start a fresh background daemon.
-pub async fn restart(config: &Path) -> anyhow::Result<DaemonEnsureResult> {
-    let _ = stop_if_running().await;
-    // Brief pause so the old process can release the metrics port / PID file.
-    sleep(Duration::from_millis(500)).await;
-    ensure_running(config).await
-}
-
-async fn stop_if_running() -> anyhow::Result<bool> {
+/// Stop a live daemon if one is present. Returns true if a process was signaled.
+pub async fn stop_if_running() -> anyhow::Result<bool> {
     let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::process_alive(p)) else {
         let _ = process_util::remove_stale_pid_file();
         return Ok(false);
@@ -106,6 +99,14 @@ async fn stop_if_running() -> anyhow::Result<bool> {
     }
     let _ = process_util::remove_stale_pid_file();
     Ok(true)
+}
+
+/// Stop a live daemon if one is present, then start a fresh background daemon.
+pub async fn restart(config: &Path) -> anyhow::Result<DaemonEnsureResult> {
+    let _ = stop_if_running().await;
+    // Brief pause so the old process can release the metrics port / PID file.
+    sleep(Duration::from_millis(500)).await;
+    ensure_running(config).await
 }
 
 fn spawn_detached(config: &Path) -> anyhow::Result<()> {

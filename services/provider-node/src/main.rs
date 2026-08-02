@@ -19,6 +19,7 @@ mod support;
 mod sys;
 mod tui;
 mod tunnel;
+mod update;
 mod watch;
 
 use clap::{Parser, Subcommand};
@@ -187,6 +188,17 @@ enum Commands {
 
     /// Print canonical paths and install hints
     Install,
+
+    /// Check for / install the latest provider-node release in place
+    Update {
+        /// Only report whether an update is available
+        #[arg(long)]
+        check: bool,
+
+        /// Skip the confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 
     /// Manage provider-node as an OS service
     Service {
@@ -689,6 +701,11 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Install => {
             install::print_paths_and_hints();
+        }
+
+        Commands::Update { check, yes } => {
+            init_logging(false);
+            update::run(check, yes).await?;
         }
 
         Commands::Service { command } => match command {

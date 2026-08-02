@@ -70,31 +70,37 @@ pub fn panel_border(focused: bool) -> Style {
     }
 }
 
+/// Primary frame (double border) for the active section.
 pub fn retro_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
-    let title_line = if focused {
-        format!("▌ {title} ▐")
-    } else {
-        format!(" {title} ")
-    };
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(panel_border(focused))
-        .title(title_line)
+        .title(format!(" {title} "))
+        .style(Style::default().bg(SURFACE))
+}
+
+/// Nested / secondary panel (single border) — use inside overview cards.
+pub fn panel_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(panel_border(focused))
+        .title(format!(" {title} "))
         .style(Style::default().bg(SURFACE))
 }
 
 pub fn status_badge(label: &str) -> Style {
     match label {
-        "TUNNEL UP" | "ONLINE" => Style::default()
+        "TUNNEL UP" | "ONLINE" | "PROOF OK" | "VERIFIED" => Style::default()
             .fg(Color::Black)
             .bg(PHOSPHOR)
             .add_modifier(Modifier::BOLD),
-        "RECONNECTING" | "STARTING" => Style::default()
+        "RECONNECTING" | "STARTING" | "UNSIGNED" | "PENDING" | "DEGRADED" => Style::default()
             .fg(Color::Black)
             .bg(WARN)
             .add_modifier(Modifier::BOLD),
-        "STOPPED" | "OFFLINE" | "COLLECT ERROR" => Style::default()
+        "STOPPED" | "OFFLINE" | "COLLECT ERROR" | "DOWN" => Style::default()
             .fg(Color::Black)
             .bg(ALERT)
             .add_modifier(Modifier::BOLD),

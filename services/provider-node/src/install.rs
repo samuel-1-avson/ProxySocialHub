@@ -13,9 +13,11 @@ pub fn print_paths_and_hints() {
     println!("  provider-node                 # console — auto-starts daemon in background");
     println!("  provider-node doctor");
     println!("  provider-node dashboard       # TUI (also auto-starts daemon if needed)");
+    println!("  provider-node update          # replace this binary in place (no delete)");
     println!("  provider-node start           # foreground-only (optional)");
     println!();
     println!("Windows: unzip a GitHub Release and double-click Launch-Provider-Console.cmd");
+    println!("Later updates: run `provider-node update` from the same folder — do not delete first.");
 
     if let Ok(path) = which_provider_node() {
         println!("provider-node binary: {}", path.display());
