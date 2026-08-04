@@ -1,6 +1,6 @@
 # @proxyhubb/sdk
 
-Official Node.js client for the ProxyHubb Bulk Proxy Pool API.
+Official Node.js client for ProxyHubb Connect (session intents), marketplace credentials, and bulk pools.
 
 ## Install
 
@@ -8,36 +8,63 @@ Official Node.js client for the ProxyHubb Bulk Proxy Pool API.
 npm install @proxyhubb/sdk
 ```
 
-## Usage
-
-```js
-const { ProxyHubClient } = require("@proxyhubb/sdk");
-
-const client = new ProxyHubClient(process.env.PROXYHUBB_API_KEY);
-// Default API: https://api.proxyhubb.com
-
-const pool = await client.createPool("scrapers", { size: 5, sessionType: "rotating" });
-const endpoints = await client.getProxies(pool.id);
-console.log(endpoints[0]); // { host, port, username, password, session_type }
-```
-
-Create an API key in the dashboard (`phub_…`), then set:
+Optional HTTPS agent helper:
 
 ```bash
-export PROXYHUBB_API_KEY=phub_...
+npm install https-proxy-agent
+```
+
+## Auth
+
+- **API key** (`phub_…`): bulk pools — `X-API-Key`
+- **JWT** (dashboard): session intents + order credentials — `Authorization: Bearer`
+
+## Quick start — Connect
+
+```js
+const { ProxyHubClient, sessionIntentProxyUrl } = require("@proxyhubb/sdk");
+
+const client = new ProxyHubClient({ accessToken: process.env.PROXYHUBB_JWT });
+const intent = await client.createSessionIntent("rotating", { targetGeo: "US" });
+const proxy = client.sessionIntentProxyUrl(intent.token);
+// curl -x "http://session-intent:TOKEN@proxy.proxyhubb.com:8090" https://httpbin.org/ip
+```
+
+With `https-proxy-agent`:
+
+```js
+const agent = client.createHttpsProxyAgent(proxy);
+// pass agent to fetch/undici or axios httpsAgent
+```
+
+## Marketplace credentials
+
+```js
+const { proxy_credentials } = await client.getOrderCredentials("ORDER_UUID");
+const url = client.proxyUrlFromCredentials(proxy_credentials);
+```
+
+## Bulk pools
+
+```js
+const client = new ProxyHubClient(process.env.PROXYHUBB_API_KEY);
+const pool = await client.createPool("scrapers", { size: 5, sessionType: "rotating" });
+const url = await client.proxyUrlForPool(pool.id);
 ```
 
 ## API
 
 | Method | Description |
 |--------|-------------|
-| `createPool(name, options?)` | Create a pool |
-| `listPools()` | List your pools |
-| `getPool(poolId)` | Pool endpoints payload |
-| `getProxies(poolId)` | Endpoint array |
-| `revokePool(poolId)` | Soft-delete a pool |
+| `createSessionIntent(type, options?)` | Issue Connect intent (JWT) |
+| `sessionIntentProxyUrl(token)` | CONNECT proxy URL |
+| `getOrderCredentials(orderId)` | Marketplace credentials (JWT) |
+| `proxyUrlFromCredentials(creds)` | CONNECT proxy URL |
+| `createHttpsProxyAgent(url)` | Optional agent helper |
+| `createPool` / `listPools` / `getPool` / `getProxies` / `revokePool` | Bulk pools |
+| `proxyUrlForPool(poolId, index?)` | Pool endpoint URL |
 
-Auth header: `X-API-Key: phub_…` (or `pk_…`).
+Buyer proxy: HTTP CONNECT / SOCKS5 — see [docs/buyer-proxy.md](../../docs/buyer-proxy.md).
 
 ## License
 

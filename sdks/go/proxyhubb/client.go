@@ -1,4 +1,5 @@
-// Package proxyhubb provides a Go client for the ProxyHub Bulk Proxy Pool API.
+// Package proxyhubb provides a Go client for the ProxyHubb Control API
+// (session intents, order credentials, and bulk pools).
 package proxyhubb
 
 import (
@@ -8,9 +9,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 )
 
-const defaultBaseURL = "https://api.proxyhubb.com"
+const (
+	DefaultBaseURL       = "https://api.proxyhubb.com"
+	DefaultProxyEndpoint = "proxy.proxyhubb.com:8090"
+)
 
 // Endpoint represents a single proxy endpoint returned by the API.
 type Endpoint struct {
@@ -29,24 +36,102 @@ type Pool struct {
 	Size   int    `json:"size"`
 }
 
-// Client is an HTTP client for the ProxyHub API.
-type Client struct {
-	APIKey     string
-	BaseURL    string
-	HTTPClient *http.Client
+// ProxyCredentials is returned inside GET /v1/orders/:id/credentials.
+type ProxyCredentials struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	Endpoint string `json:"endpoint"`
 }
 
-// NewClient creates a new ProxyHub API client using the given API key.
-// It uses the production base URL by default.
+// SessionIntentResponse is returned by POST /v1/sessions/intent.
+type SessionIntentResponse struct {
+	Token          string                 `json:"token"`
+	ExpiresAt      string                 `json:"expires_at"`
+	LifecycleState string                 `json:"lifecycle_state"`
+	Intent         map[string]interface{} `json:"intent"`
+}
+
+// CreateSessionIntentRequest mirrors the Control API body.
+type CreateSessionIntentRequest struct {
+	Type                    string   `json:"type"`
+	ListingID               string   `json:"listing_id,omitempty"`
+	BandwidthLimit          int64    `json:"bandwidth_limit,omitempty"`
+	TargetGeo               string   `json:"target_geo,omitempty"`
+	TargetISP               string   `json:"target_isp,omitempty"`
+	RoutingProfile          string   `json:"routing_profile,omitempty"`
+	AllowedDomains          []string `json:"allowed_domains,omitempty"`
+	BlockedDomains          []string `json:"blocked_domains,omitempty"`
+	RotationType            string   `json:"rotation_type,omitempty"`
+	RotationIntervalSeconds int      `json:"rotation_interval_seconds,omitempty"`
+	TimeLimitMinutes        int      `json:"time_limit_minutes,omitempty"`
+	PreferredTier           string   `json:"preferred_tier,omitempty"`
+	MaxPricePerGB           float64  `json:"max_price_per_gb,omitempty"`
+}
+
+// Client is an HTTP client for the ProxyHubb API.
+type Client struct {
+	APIKey        string
+	AccessToken   string
+	BaseURL       string
+	ProxyEndpoint string
+	HTTPClient    *http.Client
+}
+
+// DefaultProxyEndpointFromEnv returns the buyer CONNECT host:port.
+func DefaultProxyEndpointFromEnv() string {
+	if v := strings.TrimSpace(os.Getenv("PROXYHUBB_PROXY_ENDPOINT")); v != "" {
+		return stripScheme(v)
+	}
+	return DefaultProxyEndpoint
+}
+
+func stripScheme(host string) string {
+	host = strings.TrimSpace(host)
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	return strings.TrimSuffix(host, "/")
+}
+
+// ProxyURL builds an HTTP proxy URL for CONNECT clients.
+func ProxyURL(username, password, host string) string {
+	if host == "" {
+		host = DefaultProxyEndpointFromEnv()
+	}
+	host = stripScheme(host)
+	u := url.UserPassword(username, password)
+	return fmt.Sprintf("http://%s@%s", u.String(), host)
+}
+
+// SessionIntentProxyURL builds a session-intent proxy URL.
+func SessionIntentProxyURL(token, host string) string {
+	return ProxyURL("session-intent", token, host)
+}
+
+// NewClient creates a new ProxyHubb API client using the given API key.
 func NewClient(apiKey string) *Client {
 	return &Client{
-		APIKey:     apiKey,
-		BaseURL:    defaultBaseURL,
-		HTTPClient: &http.Client{},
+		APIKey:        apiKey,
+		BaseURL:       DefaultBaseURL,
+		ProxyEndpoint: DefaultProxyEndpointFromEnv(),
+		HTTPClient:    &http.Client{},
 	}
 }
 
-// do executes an HTTP request, attaching the X-API-Key header.
+// NewClientWithToken creates a client authenticated with a dashboard JWT
+// (required for session intents and order credentials).
+func NewClientWithToken(accessToken string) *Client {
+	return &Client{
+		AccessToken:   accessToken,
+		BaseURL:       DefaultBaseURL,
+		ProxyEndpoint: DefaultProxyEndpointFromEnv(),
+		HTTPClient:    &http.Client{},
+	}
+}
+
+// do executes an HTTP request, attaching auth headers.
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
 	url := c.BaseURL + path
 
@@ -64,7 +149,12 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		return fmt.Errorf("new request: %w", err)
 	}
 
-	req.Header.Set("X-API-Key", c.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("X-API-Key", c.APIKey)
+	}
+	if c.AccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -85,7 +175,6 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 
 	if resp.StatusCode >= 400 {
-		// Try to extract error message from JSON body
 		var errPayload struct {
 			Error string `json:"error"`
 		}
@@ -104,6 +193,60 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 
 	return nil
+}
+
+// CreateSessionIntent issues a signed session intent (requires AccessToken).
+func (c *Client) CreateSessionIntent(ctx context.Context, req CreateSessionIntentRequest) (*SessionIntentResponse, error) {
+	if req.Type != "rotating" && req.Type != "sticky" {
+		return nil, fmt.Errorf("type must be rotating or sticky")
+	}
+	var out SessionIntentResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/sessions/intent", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SessionIntentProxyURL builds a proxy URL for an intent token using this client's endpoint.
+func (c *Client) SessionIntentProxyURL(token string) string {
+	host := c.ProxyEndpoint
+	if host == "" {
+		host = DefaultProxyEndpointFromEnv()
+	}
+	return SessionIntentProxyURL(token, host)
+}
+
+// GetOrderCredentials fetches proxy credentials after escrow activation.
+func (c *Client) GetOrderCredentials(ctx context.Context, orderID string) (*ProxyCredentials, error) {
+	if orderID == "" {
+		return nil, fmt.Errorf("orderID is required")
+	}
+	var wrap struct {
+		ProxyCredentials ProxyCredentials `json:"proxy_credentials"`
+	}
+	path := fmt.Sprintf("/v1/orders/%s/credentials", orderID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &wrap); err != nil {
+		return nil, err
+	}
+	return &wrap.ProxyCredentials, nil
+}
+
+// ProxyURLFromCredentials builds a CONNECT proxy URL from credentials.
+func (c *Client) ProxyURLFromCredentials(creds *ProxyCredentials) string {
+	if creds == nil {
+		return ""
+	}
+	host := creds.Host
+	if host == "" {
+		host = creds.Endpoint
+	}
+	if host == "" {
+		host = c.ProxyEndpoint
+	}
+	if creds.Port > 0 && !strings.Contains(host, ":") {
+		host = fmt.Sprintf("%s:%d", host, creds.Port)
+	}
+	return ProxyURL(creds.Username, creds.Password, host)
 }
 
 // CreatePool creates a new proxy pool with the specified name and size.

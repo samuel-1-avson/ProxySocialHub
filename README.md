@@ -98,16 +98,15 @@ Email/password login is not an active runtime flow. Supabase Auth is not used.
 
 ## SDKs
 
+Installable buyers clients for **Connect session intents**, marketplace credentials, and bulk pools. Shared surface: [`sdks/README.md`](sdks/README.md).
+
 ```bash
-npm install @proxyhubb/sdk@0.1.0
-pip install proxyhubb==0.1.0
+npm install @proxyhubb/sdk@0.2.0
+pip install proxyhubb==0.2.0
+go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.2.0
 ```
 
-```go
-import "github.com/samuel-1-avson/ProxySocialHub/sdks/go"
-```
-
-Default API base: `https://api.proxyhubb.com`. Publish workflow: `.github/workflows/sdk-publish.yml`.
+Default API base: `https://api.proxyhubb.com`. Buyer CONNECT: `proxy.proxyhubb.com:8090`. Publish: [`.github/workflows/sdk-publish.yml`](.github/workflows/sdk-publish.yml) / [`sdks/PUBLISH.md`](sdks/PUBLISH.md).
 
 ---
 
