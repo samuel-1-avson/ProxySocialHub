@@ -498,6 +498,8 @@ jobs:
             echo "CLI_DIST_VERSION=${CLI_DIST_VERSION}"
             echo "PROVIDER_SIGNATURE_MODE=observe"
           } >> .env
+          # compose mounts this path; file is gitignored — materialize from committed example
+          cp config/docker/control-api-explorer.env.example config/docker/control-api-explorer.env
 
       - name: Start control-api with CLI dist mounted
         run: |
@@ -627,6 +629,8 @@ jobs:
           echo "PROVIDER_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001"
           echo "PROVIDER_SIGNATURE_MODE=observe"
         } >> .env
+        # compose mounts this path; file is gitignored — materialize from committed example
+        cp config/docker/control-api-explorer.env.example config/docker/control-api-explorer.env
 
     - name: Provider stack E2E (gateway + provider-node)
       run: |

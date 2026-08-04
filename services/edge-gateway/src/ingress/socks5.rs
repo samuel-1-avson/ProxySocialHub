@@ -131,7 +131,10 @@ async fn handle_connection(
         // GW-03 / 1.2: per-session RPM (parity with HTTP CONNECT).
         if auth.session.requests_per_minute > 0 {
             match authenticator
-                .check_rate_limit(&auth.session.session_id, auth.session.requests_per_minute as u32)
+                .check_rate_limit(
+                    &auth.session.session_id,
+                    auth.session.requests_per_minute as u32,
+                )
                 .await
             {
                 Ok(true) => {}

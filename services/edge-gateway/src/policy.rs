@@ -228,7 +228,12 @@ pub async fn validate_destination_dns(addr: &str) -> Result<(), String> {
 /// Whether async DNS-rebinding resolution is enforced at CONNECT time.
 pub fn dns_rebind_check_enabled() -> bool {
     std::env::var("GATEWAY_DNS_REBIND_CHECK")
-        .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 

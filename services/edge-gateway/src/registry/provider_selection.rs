@@ -422,11 +422,7 @@ pub async fn attribution_node_id(
 /// GW-04: does this node verifiably match the buyer's requested ISP?
 /// Unknown ISP on the node side counts as non-match — an explicit ISP request
 /// must not silently land on an unverified exit.
-pub fn node_matches_isp(
-    registry: &LockFreeNodeRegistry,
-    node_id: &str,
-    target_isp: &str,
-) -> bool {
+pub fn node_matches_isp(registry: &LockFreeNodeRegistry, node_id: &str, target_isp: &str) -> bool {
     match registry.get_node_info(node_id) {
         Some(info) => !info.isp.is_empty() && info.isp.eq_ignore_ascii_case(target_isp),
         None => false,
@@ -488,9 +484,7 @@ fn filter_node_infos(
                 .unwrap_or(true)
         })
         .filter(|n| match target_isp {
-            Some(isp) if !isp.is_empty() => {
-                !n.isp.is_empty() && n.isp.eq_ignore_ascii_case(isp)
-            }
+            Some(isp) if !isp.is_empty() => !n.isp.is_empty() && n.isp.eq_ignore_ascii_case(isp),
             _ => true,
         })
         .map(|n| (n.quality_score, n.latency_ms, n.node_id))
@@ -509,7 +503,14 @@ mod filter_tests {
     use super::*;
     use crate::state::NodeInfo;
 
-    fn info(id: &str, country: &str, isp: &str, healthy: bool, score: f64, latency: u32) -> NodeInfo {
+    fn info(
+        id: &str,
+        country: &str,
+        isp: &str,
+        healthy: bool,
+        score: f64,
+        latency: u32,
+    ) -> NodeInfo {
         let mut n = NodeInfo::new(id.to_string(), "1.2.3.4".to_string(), None);
         n.country_code = country.to_string();
         n.isp = isp.to_string();
