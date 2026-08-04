@@ -988,9 +988,8 @@ async fn proxy(
                         username, max_conns
                     );
                     metrics::record_rate_limit_hit("session_concurrency");
-                    let mut resp = Response::new(Full::new(Bytes::from(
-                        "Session concurrency limit reached",
-                    )));
+                    let mut resp =
+                        Response::new(Full::new(Bytes::from("Session concurrency limit reached")));
                     *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
                     metrics::REQUEST_LATENCY_SECONDS
                         .with_label_values(&[method.as_str(), "429"])
@@ -1662,7 +1661,9 @@ async fn try_open_provider_stream(
             metrics::update_circuit_breaker_state(node_id, "open");
             metrics::record_circuit_breaker_failure(node_id);
             state.registry.mark_unhealthy(node_id);
-            state.feature_cache.record_failure(node_id, Some(target_domain));
+            state
+                .feature_cache
+                .record_failure(node_id, Some(target_domain));
             Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 "Circuit breaker open",
@@ -1670,7 +1671,9 @@ async fn try_open_provider_stream(
         }
         Err(CircuitError::Timeout) => {
             warn!("Timeout connecting to provider {}", node_id);
-            state.feature_cache.record_failure(node_id, Some(target_domain));
+            state
+                .feature_cache
+                .record_failure(node_id, Some(target_domain));
             metrics::update_circuit_breaker_state(node_id, "open");
             metrics::record_circuit_breaker_failure(node_id);
             state.registry.mark_unhealthy(node_id);
@@ -1704,211 +1707,210 @@ async fn bridge_established(
     let addr_for_log = addr.clone();
     let target_domain = policy::target_host_from_endpoint(&addr_for_log);
     {
-            debug!(node_id = %node_id, target = %addr_for_log, "connected to provider");
-            if let Some(ref session) = session_data {
-                sync_session_intent_lifecycle(
-                    state.clone(),
-                    session,
-                    "routed",
-                    Some(&node_id),
-                    Some(target_domain),
-                )
-                .await;
-                sync_session_intent_lifecycle(
-                    state.clone(),
-                    session,
-                    "active",
-                    Some(&node_id),
-                    Some(target_domain),
-                )
-                .await;
-            }
-            // Record success in ML feature cache (P3-W12)
-            state
-                .feature_cache
-                .record_success(&node_id, Some(target_domain));
-
-            // Bridge connections
-            use tokio_util::compat::FuturesAsyncReadCompatExt;
-            let stream = stream.compat();
-
-            // Wrap with tier-aware Traffic Shaper (B-05)
-            let mut stream = state
-                .shaper
-                .wrap_with_cap(stream, username.clone(), bandwidth_cap);
-
-            let client_tcp_fd = proxy::zerocopy::client_tcp_fd_from_upgrade(&upgraded);
-            let mut upgraded = TokioIo::new(upgraded);
-
-            // Bidirectional bridge with bandwidth enforcement (Phase 2: zerocopy module)
-            // 64 KB buffers instead of 16 KB → 4× fewer syscalls per MB
-            let start = std::time::Instant::now();
-
-            let auth_for_reval = auth_clone.clone();
-            let username_for_reval = username.clone();
-            let session_for_reval = session_data.clone();
-            let state_for_reval = state.clone();
-            let node_id_for_reval = node_id.clone();
-            let target_host_for_reval = target_domain.to_string();
-            let last_usage_synced = Arc::new(std::sync::Mutex::new(
-                proxy::zerocopy::BridgeStats::default(),
-            ));
-            let last_usage_synced_for_reval = last_usage_synced.clone();
-            let idle_timeout = Some(std::time::Duration::from_secs(
-                state.config.proxy_idle_timeout_secs,
-            ));
-            let stats = proxy::zerocopy::bridge_tracked(
-                &mut upgraded,
-                &mut stream,
-                client_tcp_fd,
-                100 * 1024 * 1024, // revalidate every 100 MB
-                idle_timeout,
-                move |current_stats| {
-                    let auth = auth_for_reval.clone();
-                    let u = username_for_reval.clone();
-                    let session = session_for_reval.clone();
-                    let state = state_for_reval.clone();
-                    let node_id = node_id_for_reval.clone();
-                    let target_host = target_host_for_reval.clone();
-                    let (delta_up, delta_down) = {
-                        let mut last = last_usage_synced_for_reval
-                            .lock()
-                            .expect("usage sync mutex poisoned");
-                        let delta_up = current_stats
-                            .bytes_from_client
-                            .saturating_sub(last.bytes_from_client);
-                        let delta_down = current_stats
-                            .bytes_from_provider
-                            .saturating_sub(last.bytes_from_provider);
-                        *last = current_stats;
-                        (delta_up, delta_down)
-                    };
-                    async move {
-                        if let Some(session) = session.as_ref() {
-                            crate::sync_session_intent_usage(
-                                state.clone(),
-                                session,
-                                Some(&node_id),
-                                Some(target_host.as_str()),
-                                delta_up,
-                                delta_down,
-                            )
-                            .await;
-                            if crate::auth::revalidate_live_session(&auth, &u, session).await {
-                                return true;
-                            }
-                            if session.is_session_intent() {
-                                crate::sync_session_intent_lifecycle(
-                                    state,
-                                    session,
-                                    "closing",
-                                    Some(&node_id),
-                                    Some(target_host.as_str()),
-                                )
-                                .await;
-                            }
-                        }
-                        warn!("🛑 Session {} limit reached. Terminating.", u);
-                        false
-                    }
-                },
+        debug!(node_id = %node_id, target = %addr_for_log, "connected to provider");
+        if let Some(ref session) = session_data {
+            sync_session_intent_lifecycle(
+                state.clone(),
+                session,
+                "routed",
+                Some(&node_id),
+                Some(target_domain),
             )
             .await;
-
-            let from_client = stats.bytes_from_client;
-            let from_provider = stats.bytes_from_provider;
-
-            if let Some(ref session) = session_data {
-                let last_synced = *last_usage_synced.lock().expect("usage sync mutex poisoned");
-                crate::finalize_session_intent_ledger(
-                    state.clone(),
-                    session,
-                    Some(&node_id),
-                    Some(target_domain),
-                    from_client.saturating_sub(last_synced.bytes_from_client),
-                    from_provider.saturating_sub(last_synced.bytes_from_provider),
-                )
-                .await;
-            }
-
-            // Report final usage
-            let total_bytes = from_client + from_provider;
-            if let Err(e) = auth_clone.report_usage(&username, total_bytes as i64).await {
-                error!("Failed to report usage: {}", e);
-            }
-
-            // Phase 5: ZK-Proof & Solana (`legacy-zk` feature)
-            #[cfg(feature = "legacy-zk")]
-            {
-                let state_zk = state.clone();
-                let session_id = username.clone();
-                let up = from_client;
-                let down = from_provider;
-
-                if full_decentralization_enabled() {
-                    info!(
-                        session_id = %session_id,
-                        "FULL_DECENTRALIZATION enabled: skipping legacy direct edge proof submission"
-                    );
-                } else if !state_zk.config.legacy_edge_zk_submission_enabled {
-                    info!(
-                        session_id = %session_id,
-                        "Legacy direct edge proof submission disabled: control-api settlement remains canonical"
-                    );
-                } else if let Some(zk_prover) = state_zk.zk_prover.clone() {
-                    warn!(
-                        session_id = %session_id,
-                        "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated direct edge proof submission path"
-                    );
-                    tokio::spawn(async move {
-                        let provider_pk = state_zk.solana_relayer.provider_pubkey();
-                        if let Some(proof) = zk_prover
-                            .prove_usage(&session_id, up, down, &provider_pk)
-                            .await
-                        {
-                            let session_hash = {
-                                use sha2::{Digest, Sha256};
-                                let mut h = Sha256::new();
-                                h.update(session_id.as_bytes());
-                                let result = h.finalize();
-                                let mut out = [0u8; 32];
-                                out.copy_from_slice(&result);
-                                out
-                            };
-                            let inputs = crate::billing::zk::PublicInputs {
-                                session_id_hash: session_hash,
-                                total_bytes_up: up,
-                                total_bytes_down: down,
-                                provider_pubkey: provider_pk,
-                            };
-                            if let Err(e) =
-                                state_zk.solana_relayer.submit_proof(&proof, &inputs).await
-                            {
-                                error!("Phase 5: Failed to submit ZK-proof to Solana: {}", e);
-                            } else {
-                                info!(
-                                    "Phase 5: ZK-Proof submitted to Solana for session {}",
-                                    session_id
-                                );
-                            }
-                        }
-                    });
-                } else {
-                    warn!(
-                        session_id = %session_id,
-                        "Legacy direct edge proof submission path requested but prover runtime is unavailable"
-                    );
-                }
-            }
-
-            debug!(
-                node_id = %node_id,
-                bytes_up = from_client,
-                bytes_down = from_provider,
-                "CONNECT tunnel finished"
-            );
-            Ok((from_client, from_provider))
+            sync_session_intent_lifecycle(
+                state.clone(),
+                session,
+                "active",
+                Some(&node_id),
+                Some(target_domain),
+            )
+            .await;
         }
+        // Record success in ML feature cache (P3-W12)
+        state
+            .feature_cache
+            .record_success(&node_id, Some(target_domain));
+
+        // Bridge connections
+        use tokio_util::compat::FuturesAsyncReadCompatExt;
+        let stream = stream.compat();
+
+        // Wrap with tier-aware Traffic Shaper (B-05)
+        let mut stream = state
+            .shaper
+            .wrap_with_cap(stream, username.clone(), bandwidth_cap);
+
+        let client_tcp_fd = proxy::zerocopy::client_tcp_fd_from_upgrade(&upgraded);
+        let mut upgraded = TokioIo::new(upgraded);
+
+        // Bidirectional bridge with bandwidth enforcement (Phase 2: zerocopy module)
+        // 64 KB buffers instead of 16 KB → 4× fewer syscalls per MB
+        let start = std::time::Instant::now();
+
+        let auth_for_reval = auth_clone.clone();
+        let username_for_reval = username.clone();
+        let session_for_reval = session_data.clone();
+        let state_for_reval = state.clone();
+        let node_id_for_reval = node_id.clone();
+        let target_host_for_reval = target_domain.to_string();
+        let last_usage_synced = Arc::new(std::sync::Mutex::new(
+            proxy::zerocopy::BridgeStats::default(),
+        ));
+        let last_usage_synced_for_reval = last_usage_synced.clone();
+        let idle_timeout = Some(std::time::Duration::from_secs(
+            state.config.proxy_idle_timeout_secs,
+        ));
+        let stats = proxy::zerocopy::bridge_tracked(
+            &mut upgraded,
+            &mut stream,
+            client_tcp_fd,
+            100 * 1024 * 1024, // revalidate every 100 MB
+            idle_timeout,
+            move |current_stats| {
+                let auth = auth_for_reval.clone();
+                let u = username_for_reval.clone();
+                let session = session_for_reval.clone();
+                let state = state_for_reval.clone();
+                let node_id = node_id_for_reval.clone();
+                let target_host = target_host_for_reval.clone();
+                let (delta_up, delta_down) = {
+                    let mut last = last_usage_synced_for_reval
+                        .lock()
+                        .expect("usage sync mutex poisoned");
+                    let delta_up = current_stats
+                        .bytes_from_client
+                        .saturating_sub(last.bytes_from_client);
+                    let delta_down = current_stats
+                        .bytes_from_provider
+                        .saturating_sub(last.bytes_from_provider);
+                    *last = current_stats;
+                    (delta_up, delta_down)
+                };
+                async move {
+                    if let Some(session) = session.as_ref() {
+                        crate::sync_session_intent_usage(
+                            state.clone(),
+                            session,
+                            Some(&node_id),
+                            Some(target_host.as_str()),
+                            delta_up,
+                            delta_down,
+                        )
+                        .await;
+                        if crate::auth::revalidate_live_session(&auth, &u, session).await {
+                            return true;
+                        }
+                        if session.is_session_intent() {
+                            crate::sync_session_intent_lifecycle(
+                                state,
+                                session,
+                                "closing",
+                                Some(&node_id),
+                                Some(target_host.as_str()),
+                            )
+                            .await;
+                        }
+                    }
+                    warn!("🛑 Session {} limit reached. Terminating.", u);
+                    false
+                }
+            },
+        )
+        .await;
+
+        let from_client = stats.bytes_from_client;
+        let from_provider = stats.bytes_from_provider;
+
+        if let Some(ref session) = session_data {
+            let last_synced = *last_usage_synced.lock().expect("usage sync mutex poisoned");
+            crate::finalize_session_intent_ledger(
+                state.clone(),
+                session,
+                Some(&node_id),
+                Some(target_domain),
+                from_client.saturating_sub(last_synced.bytes_from_client),
+                from_provider.saturating_sub(last_synced.bytes_from_provider),
+            )
+            .await;
+        }
+
+        // Report final usage
+        let total_bytes = from_client + from_provider;
+        if let Err(e) = auth_clone.report_usage(&username, total_bytes as i64).await {
+            error!("Failed to report usage: {}", e);
+        }
+
+        // Phase 5: ZK-Proof & Solana (`legacy-zk` feature)
+        #[cfg(feature = "legacy-zk")]
+        {
+            let state_zk = state.clone();
+            let session_id = username.clone();
+            let up = from_client;
+            let down = from_provider;
+
+            if full_decentralization_enabled() {
+                info!(
+                    session_id = %session_id,
+                    "FULL_DECENTRALIZATION enabled: skipping legacy direct edge proof submission"
+                );
+            } else if !state_zk.config.legacy_edge_zk_submission_enabled {
+                info!(
+                    session_id = %session_id,
+                    "Legacy direct edge proof submission disabled: control-api settlement remains canonical"
+                );
+            } else if let Some(zk_prover) = state_zk.zk_prover.clone() {
+                warn!(
+                    session_id = %session_id,
+                    "LEGACY_EDGE_ZK_SUBMISSION_ENABLED is on: using deprecated direct edge proof submission path"
+                );
+                tokio::spawn(async move {
+                    let provider_pk = state_zk.solana_relayer.provider_pubkey();
+                    if let Some(proof) = zk_prover
+                        .prove_usage(&session_id, up, down, &provider_pk)
+                        .await
+                    {
+                        let session_hash = {
+                            use sha2::{Digest, Sha256};
+                            let mut h = Sha256::new();
+                            h.update(session_id.as_bytes());
+                            let result = h.finalize();
+                            let mut out = [0u8; 32];
+                            out.copy_from_slice(&result);
+                            out
+                        };
+                        let inputs = crate::billing::zk::PublicInputs {
+                            session_id_hash: session_hash,
+                            total_bytes_up: up,
+                            total_bytes_down: down,
+                            provider_pubkey: provider_pk,
+                        };
+                        if let Err(e) = state_zk.solana_relayer.submit_proof(&proof, &inputs).await
+                        {
+                            error!("Phase 5: Failed to submit ZK-proof to Solana: {}", e);
+                        } else {
+                            info!(
+                                "Phase 5: ZK-Proof submitted to Solana for session {}",
+                                session_id
+                            );
+                        }
+                    }
+                });
+            } else {
+                warn!(
+                    session_id = %session_id,
+                    "Legacy direct edge proof submission path requested but prover runtime is unavailable"
+                );
+            }
+        }
+
+        debug!(
+            node_id = %node_id,
+            bytes_up = from_client,
+            bytes_down = from_provider,
+            "CONNECT tunnel finished"
+        );
+        Ok((from_client, from_provider))
+    }
 }
 
 async fn bridge_to_provider_inner(

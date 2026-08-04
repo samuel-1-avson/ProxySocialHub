@@ -159,8 +159,14 @@ impl UsageTracker {
         let map: std::collections::HashMap<String, String> =
             conn.hgetall(&key).await.unwrap_or_default();
         let seq = map.get("seq")?.parse().ok()?;
-        let up = map.get("bytes_up").and_then(|v| v.parse().ok()).unwrap_or(0);
-        let down = map.get("bytes_down").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let up = map
+            .get("bytes_up")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let down = map
+            .get("bytes_down")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
         Some((seq, up, down))
     }
 
@@ -300,7 +306,8 @@ impl UsageTracker {
                         let _: Result<(), _> = conn.del(&key).await;
                         continue;
                     }
-                    self.deliver_pending(&mut conn, &username, seq, up, down).await;
+                    self.deliver_pending(&mut conn, &username, seq, up, down)
+                        .await;
                 }
             }
             cursor = next_cursor;
@@ -371,7 +378,8 @@ impl UsageTracker {
                 match self.alloc_seq(&mut conn, &username).await {
                     Ok(seq) => {
                         self.save_pending(&mut conn, &username, seq, up, down).await;
-                        self.deliver_pending(&mut conn, &username, seq, up, down).await;
+                        self.deliver_pending(&mut conn, &username, seq, up, down)
+                            .await;
                     }
                     Err(e) => eprintln!("[Metering] {}: {}", username, e),
                 }
@@ -467,8 +475,7 @@ mod exactly_once_tests {
     use std::sync::OnceLock;
     use tokio::sync::Mutex;
 
-    const TEST_SEED_HEX: &str =
-        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const TEST_SEED_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
     /// Flush scans all `metering:pending:*` keys — tests must not run in parallel
     /// against the same Redis or they ack/steal each other's snapshots.
@@ -502,7 +509,11 @@ mod exactly_once_tests {
     }
 
     async fn cleanup(tracker: &UsageTracker, username: &str) {
-        if let Ok(mut conn) = tracker.redis_client.get_multiplexed_async_connection().await {
+        if let Ok(mut conn) = tracker
+            .redis_client
+            .get_multiplexed_async_connection()
+            .await
+        {
             for key in [
                 format!("metering:wal:{}", username),
                 format!("metering:pending:{}", username),
@@ -516,10 +527,18 @@ mod exactly_once_tests {
     /// Drop any leftover metering keys so flush's global pending SCAN cannot
     /// pick up debris from a prior crashed/parallel run.
     async fn sweep_metering_keys(tracker: &UsageTracker) {
-        let Ok(mut conn) = tracker.redis_client.get_multiplexed_async_connection().await else {
+        let Ok(mut conn) = tracker
+            .redis_client
+            .get_multiplexed_async_connection()
+            .await
+        else {
             return;
         };
-        for pattern in ["metering:pending:*", "metering:wal:*", "metering:seq:test-*"] {
+        for pattern in [
+            "metering:pending:*",
+            "metering:wal:*",
+            "metering:seq:test-*",
+        ] {
             let mut cursor: u64 = 0;
             loop {
                 let (next, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
@@ -579,9 +598,7 @@ mod exactly_once_tests {
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        tracker
-            .save_pending(&mut conn, &user, 42, 100, 200)
-            .await;
+        tracker.save_pending(&mut conn, &user, 42, 100, 200).await;
         let loaded = tracker.load_pending(&mut conn, &user).await;
         assert_eq!(loaded, Some((42, 100, 200)));
         cleanup(&tracker, &user).await;
@@ -603,9 +620,7 @@ mod exactly_once_tests {
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        tracker
-            .save_pending(&mut conn, &user, 7, 500, 700)
-            .await;
+        tracker.save_pending(&mut conn, &user, 7, 500, 700).await;
         tracker
             .clear_pending_advance(&mut conn, &user, 500, 700)
             .await;
@@ -649,7 +664,11 @@ mod exactly_once_tests {
             .load_pending(&mut conn, &user)
             .await
             .expect("pending still present");
-        assert_eq!(pending2, (1, 111, 222), "seq must stay stable across retries");
+        assert_eq!(
+            pending2,
+            (1, 111, 222),
+            "seq must stay stable across retries"
+        );
 
         cleanup(&tracker, &user).await;
     }
@@ -700,10 +719,7 @@ mod exactly_once_tests {
             tracker.load_pending(&mut conn, &user).await.is_none(),
             "ack must clear pending"
         );
-        let wal_exists: bool = conn
-            .exists(format!("metering:wal:{}", user))
-            .await
-            .unwrap();
+        let wal_exists: bool = conn.exists(format!("metering:wal:{}", user)).await.unwrap();
         assert!(!wal_exists, "ack must clear exhausted WAL");
 
         cleanup(&tracker, &user).await;
