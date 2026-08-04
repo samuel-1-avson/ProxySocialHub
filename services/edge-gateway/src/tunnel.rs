@@ -442,8 +442,9 @@ pub(crate) async fn handle_provider_mux_io<S>(
             // Reconnect takeover: IP/NAT changes leave a zombie registry slot
             // that would otherwise reject every new handshake forever.
             if let Some(existing) = state.registry.get_node_info(&node_id) {
-                node_info.control_api_db_id =
-                    existing.control_api_db_id.or(node_info.control_api_db_id.take());
+                node_info.control_api_db_id = existing
+                    .control_api_db_id
+                    .or(node_info.control_api_db_id.take());
                 node_info.quality_score = existing.quality_score;
                 node_info.current_tier = existing.current_tier;
                 node_info.base_price_per_gb = existing.base_price_per_gb;
@@ -456,12 +457,10 @@ pub(crate) async fn handle_provider_mux_io<S>(
                 peer = %peer_addr,
                 "Replacing stale provider yamux session (reconnect takeover)"
             );
-            session_generation = state.registry.replace(
-                node_id.clone(),
-                ctrl,
-                node_info.clone(),
-                max_lanes,
-            );
+            session_generation =
+                state
+                    .registry
+                    .replace(node_id.clone(), ctrl, node_info.clone(), max_lanes);
             false
         } else if !state.registry.try_attach_mux_lane(&node_id, ctrl) {
             warn!(
@@ -475,12 +474,10 @@ pub(crate) async fn handle_provider_mux_io<S>(
             true
         }
     } else {
-        session_generation = state.registry.insert(
-            node_id.clone(),
-            ctrl,
-            node_info.clone(),
-            max_lanes,
-        );
+        session_generation =
+            state
+                .registry
+                .insert(node_id.clone(), ctrl, node_info.clone(), max_lanes);
         if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
             warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
         }

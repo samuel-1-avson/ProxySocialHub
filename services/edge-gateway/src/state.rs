@@ -716,12 +716,18 @@ mod tests {
         let tracker = SessionConnTracker::new();
         let g1 = tracker.acquire("sess-a", 2).expect("first allowed");
         let _g2 = tracker.acquire("sess-a", 2).expect("second allowed");
-        assert!(tracker.acquire("sess-a", 2).is_none(), "third must be rejected at cap 2");
+        assert!(
+            tracker.acquire("sess-a", 2).is_none(),
+            "third must be rejected at cap 2"
+        );
         assert_eq!(tracker.active("sess-a"), 2);
         assert_eq!(g1.active(), 2);
         drop(g1);
         assert_eq!(tracker.active("sess-a"), 1);
-        assert!(tracker.acquire("sess-a", 2).is_some(), "slot freed after guard drop");
+        assert!(
+            tracker.acquire("sess-a", 2).is_some(),
+            "slot freed after guard drop"
+        );
     }
 
     #[test]
