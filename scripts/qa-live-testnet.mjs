@@ -45,6 +45,8 @@ const KYC_STATUSES = new Set([
 const results = [];
 
 /**
+ * Retry a probe on failure (for flaky upstreams like public Solana RPC).
+ * Intermediate failures are discarded so the artifact only keeps the final attempt.
  * @param {string} name
  * @param {string} url
  * @param {{
@@ -55,6 +57,19 @@ const results = [];
  *   redirect?: 'follow' | 'manual',
  * }} [opts]
  */
+async function probeRetry(name, url, opts = {}, attempts = 3, delayMs = 800) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    last = await probe(name, url, opts);
+    if (last.ok) return last;
+    if (i + 1 < attempts) {
+      results.pop();
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  return last;
+}
+
 async function probe(name, url, opts = {}) {
   const {
     expectJson = false,
@@ -180,15 +195,23 @@ const publicConfig = await probe('api.system.config.public', `${API}/v1/system/c
   },
 });
 
-const solanaHealth = await probe('api.solana.health', `${API}/v1/solana/health`, {
-  expectJson: true,
-  ok: (status, body) => {
-    if (status !== 200 || typeof body !== 'object' || !body) return false;
-    const network = String(body.network || '').toLowerCase();
-    if (network === 'mainnet' || network === 'mainnet-beta') return false;
-    return true;
+const solanaHealth = await probeRetry(
+  'api.solana.health',
+  `${API}/v1/solana/health`,
+  {
+    expectJson: true,
+    ok: (status, body) => {
+      if (status !== 200 || typeof body !== 'object' || !body) return false;
+      const network = String(body.network || '').toLowerCase();
+      if (!network || network === 'mainnet' || network === 'mainnet-beta') return false;
+      const st = String(body.status || '').toLowerCase();
+      // ok = RPC balance succeeded; degraded = oracle configured but public RPC flapped
+      return st === 'ok' || st === 'degraded' || Boolean(body.oracle);
+    },
   },
-});
+  3,
+  900,
+);
 
 await probe('api.map.health', `${API}/v1/system/map/health`, { expectJson: true });
 await probe('api.marketplace.map', `${API}/v1/marketplace/map?include_nodes=true`, { expectJson: true });
