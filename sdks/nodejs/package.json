@@ -1,7 +1,7 @@
 {
   "name": "@proxyhubb/sdk",
-  "version": "0.1.0",
-  "description": "Official Node.js SDK for the ProxyHubb Bulk Proxy Pool API",
+  "version": "0.2.0",
+  "description": "Official Node.js SDK for ProxyHubb (session intents, orders, bulk pools)",
   "license": "MIT",
   "author": "ProxyHubb",
   "homepage": "https://proxyhubb.com",
@@ -36,5 +36,13 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js"
+  },
+  "peerDependencies": {
+    "https-proxy-agent": ">=7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "https-proxy-agent": {
+      "optional": true
+    }
   }
 }

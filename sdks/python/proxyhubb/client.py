@@ -1,36 +1,102 @@
-"""ProxyHubb Python SDK — Bulk Proxy Pool Control API client."""
+"""ProxyHubb Python SDK — Control API client (Connect + bulk pools)."""
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Mapping, Optional
+from urllib.parse import quote
 
 import requests
 
 DEFAULT_BASE_URL = "https://api.proxyhubb.com"
+DEFAULT_PROXY_ENDPOINT = "proxy.proxyhubb.com:8090"
+
+
+def default_proxy_endpoint() -> str:
+    """Buyer CONNECT host:port (env ``PROXYHUBB_PROXY_ENDPOINT`` overrides)."""
+    return (
+        os.environ.get("PROXYHUBB_PROXY_ENDPOINT", "").strip()
+        or DEFAULT_PROXY_ENDPOINT
+    )
+
+
+def proxy_url(
+    username: str,
+    password: str,
+    *,
+    host: Optional[str] = None,
+) -> str:
+    """Build an HTTP proxy URL for CONNECT clients (curl ``-x``, requests, etc.)."""
+    endpoint = (host or default_proxy_endpoint()).removeprefix("http://").removeprefix(
+        "https://"
+    )
+    user = quote(username, safe="")
+    pwd = quote(password, safe="")
+    return f"http://{user}:{pwd}@{endpoint}"
+
+
+def session_intent_proxy_url(token: str, *, host: Optional[str] = None) -> str:
+    """Proxy URL using session-intent auth (Connect rotating/sticky)."""
+    return proxy_url("session-intent", token, host=host)
+
+
+def as_requests_proxies(proxy: str) -> dict[str, str]:
+    """``requests``-compatible ``proxies`` dict from a proxy URL string."""
+    return {"http": proxy, "https": proxy}
 
 
 class ProxyHubClient:
-    """Client for the ProxyHubb Bulk Proxy Pool API.
+    """Client for ProxyHubb Control API (session intents, orders, bulk pools).
 
     Parameters
     ----------
     api_key:
-        A ProxyHubb API key starting with ``phub_`` (or ``pk_``).
+        ``phub_…`` / ``pk_…`` key for bulk pool endpoints (``X-API-Key``).
+    access_token:
+        Dashboard JWT for session intents and order credentials (``Authorization: Bearer``).
     base_url:
-        Base URL of the Control API. Defaults to production.
+        Control API base URL. Defaults to production.
+    proxy_endpoint:
+        Buyer CONNECT host:port. Defaults to ``PROXYHUBB_PROXY_ENDPOINT`` or production.
     """
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
+        *,
+        access_token: Optional[str] = None,
         base_url: str = DEFAULT_BASE_URL,
+        proxy_endpoint: Optional[str] = None,
     ) -> None:
-        if not api_key:
-            raise ValueError("api_key is required")
-        self._api_key = api_key
+        if not api_key and not access_token:
+            raise ValueError("api_key or access_token is required")
+        self._api_key = api_key or ""
+        self._access_token = access_token or ""
         self._base_url = base_url.rstrip("/")
+        self._proxy_endpoint = (
+            proxy_endpoint.strip()
+            if proxy_endpoint
+            else default_proxy_endpoint()
+        )
         self._session = requests.Session()
-        self._session.headers.update({"X-API-Key": self._api_key})
+        if self._api_key:
+            self._session.headers.update({"X-API-Key": self._api_key})
+        if self._access_token:
+            self._session.headers.update(
+                {"Authorization": f"Bearer {self._access_token}"}
+            )
+
+    @property
+    def proxy_endpoint(self) -> str:
+        return self._proxy_endpoint
+
+    def set_access_token(self, token: str) -> None:
+        """Update Bearer JWT used for session intent / order credential calls."""
+        self._access_token = token
+        if token:
+            self._session.headers["Authorization"] = f"Bearer {token}"
+        else:
+            self._session.headers.pop("Authorization", None)
 
     def _url(self, path: str) -> str:
         return f"{self._base_url}{path}"
@@ -48,6 +114,91 @@ class ProxyHubClient:
     def _delete(self, path: str) -> None:
         resp = self._session.delete(self._url(path))
         resp.raise_for_status()
+
+    # ── Session intent (Connect) ──────────────────────────────────────────
+
+    def create_session_intent(
+        self,
+        session_type: str = "rotating",
+        *,
+        listing_id: Optional[str] = None,
+        bandwidth_limit: Optional[int] = None,
+        target_geo: Optional[str] = None,
+        target_isp: Optional[str] = None,
+        routing_profile: Optional[str] = None,
+        allowed_domains: Optional[list[str]] = None,
+        blocked_domains: Optional[list[str]] = None,
+        rotation_type: Optional[str] = None,
+        rotation_interval_seconds: Optional[int] = None,
+        time_limit_minutes: Optional[int] = None,
+        preferred_tier: Optional[str] = None,
+        max_price_per_gb: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Issue a signed session intent (requires ``access_token``).
+
+        Returns ``token``, ``expires_at``, ``lifecycle_state``, and ``intent``.
+        """
+        if session_type not in ("rotating", "sticky"):
+            raise ValueError("session_type must be 'rotating' or 'sticky'")
+        payload: dict[str, Any] = {"type": session_type}
+        if listing_id is not None:
+            payload["listing_id"] = listing_id
+        if bandwidth_limit is not None:
+            payload["bandwidth_limit"] = bandwidth_limit
+        if target_geo is not None:
+            payload["target_geo"] = target_geo
+        if target_isp is not None:
+            payload["target_isp"] = target_isp
+        if routing_profile is not None:
+            payload["routing_profile"] = routing_profile
+        if allowed_domains is not None:
+            payload["allowed_domains"] = allowed_domains
+        if blocked_domains is not None:
+            payload["blocked_domains"] = blocked_domains
+        if rotation_type is not None:
+            payload["rotation_type"] = rotation_type
+        if rotation_interval_seconds is not None:
+            payload["rotation_interval_seconds"] = rotation_interval_seconds
+        if time_limit_minutes is not None:
+            payload["time_limit_minutes"] = time_limit_minutes
+        if preferred_tier is not None:
+            payload["preferred_tier"] = preferred_tier
+        if max_price_per_gb is not None:
+            payload["max_price_per_gb"] = max_price_per_gb
+        return self._post("/v1/sessions/intent", payload)
+
+    def as_requests_proxy_from_intent(self, token: str) -> dict[str, str]:
+        """``requests`` proxies dict for a session-intent token."""
+        return as_requests_proxies(
+            session_intent_proxy_url(token, host=self._proxy_endpoint)
+        )
+
+    # ── Order credentials (marketplace) ───────────────────────────────────
+
+    def get_order_credentials(self, order_id: str) -> dict[str, Any]:
+        """Fetch proxy credentials after escrow activation (requires JWT).
+
+        Returns the API payload, typically
+        ``{"proxy_credentials": {username, password, host, port, protocol, endpoint}}``.
+        """
+        if not order_id:
+            raise ValueError("order_id is required")
+        return self._get(f"/v1/orders/{order_id}/credentials")
+
+    def as_requests_proxy_from_credentials(
+        self, credentials: Mapping[str, Any]
+    ) -> dict[str, str]:
+        """Build ``requests`` proxies from a credentials object or envelope."""
+        creds = credentials.get("proxy_credentials", credentials)
+        username = creds["username"]
+        password = creds["password"]
+        host = creds.get("host") or creds.get("endpoint") or self._proxy_endpoint
+        port = creds.get("port")
+        if port and ":" not in str(host):
+            host = f"{host}:{port}"
+        return as_requests_proxies(proxy_url(username, password, host=str(host)))
+
+    # ── Bulk pools ────────────────────────────────────────────────────────
 
     def create_pool(
         self,
@@ -100,7 +251,10 @@ class ProxyHubClient:
                 f"index {index} is out of range for pool with {len(endpoints)} endpoints"
             )
         ep = endpoints[index]
-        proxy_url = (
-            f"http://{ep['username']}:{ep['password']}@{ep['host']}:{ep['port']}"
+        return as_requests_proxies(
+            proxy_url(
+                ep["username"],
+                ep["password"],
+                host=f"{ep['host']}:{ep['port']}",
+            )
         )
-        return {"http": proxy_url, "https": proxy_url}
