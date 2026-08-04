@@ -85,23 +85,31 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// healthHandler returns the oracle status
+// healthHandler returns the oracle status.
+// When the oracle is configured but public RPC balance lookups flap (429/timeouts),
+// return HTTP 200 with status=degraded instead of 500 so readiness/smoke probes stay useful.
 func healthHandler(c *gin.Context) {
 	if !IsOracleConfigured() {
 		c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Oracle not configured"})
 		return
 	}
 
-	balance, err := oracleClient.GetBalance(context.Background(), oracleClient.GetOraclePublicKey())
+	oracle := oracleClient.GetOraclePublicKey()
+	balance, err := oracleClient.GetBalance(context.Background(), oracle)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to get balance"})
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "degraded",
+			"network": oracleClient.network,
+			"oracle":  oracle.String(),
+			"error":   "Failed to get balance",
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "ok",
 		"network":     oracleClient.network,
-		"oracle":      oracleClient.GetOraclePublicKey().String(),
+		"oracle":      oracle.String(),
 		"balance_sol": float64(balance) / 1e9,
 	})
 }

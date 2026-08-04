@@ -9,6 +9,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/cache"
 	"github.com/proxyhubb/control-api/internal/db"
+	redisstore "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // SystemHealth represents the status of system dependencies
@@ -63,16 +64,22 @@ func CheckSystem() SystemHealth {
 	}
 	health.Database.Latency = time.Since(dbStart).String()
 
-	// 2. Check Redis
+	// 2. Check Redis — prefer cache.Client; fall back to the primary redisstore used at runtime.
 	redisStart := time.Now()
 	health.Redis = Dependency{Name: "Redis", Healthy: true}
 
-	if cache.Client != nil {
+	switch {
+	case cache.Client != nil:
 		if err := cache.Client.Ping(ctx).Err(); err != nil {
 			health.Redis.Healthy = false
 			health.Redis.Error = err.Error()
 		}
-	} else {
+	case redisstore.Client != nil:
+		if err := redisstore.Client.Ping(ctx).Err(); err != nil {
+			health.Redis.Healthy = false
+			health.Redis.Error = err.Error()
+		}
+	default:
 		health.Redis.Healthy = false
 		health.Redis.Error = "Redis client not initialized"
 	}
