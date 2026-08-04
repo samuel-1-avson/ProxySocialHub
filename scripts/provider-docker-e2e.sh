@@ -50,7 +50,7 @@ if [[ "${PROVIDER_E2E_SKIP_HEAL:-}" != "1" ]] && [[ -x scripts/compose-heal-post
 fi
 
 echo "Starting core stack..."
-docker compose up -d postgres redis nats control-api
+docker compose up -d postgres redis nats db-migrate zk-prover control-api
 wait_container_healthy proxyhubb-control-api-1
 
 echo "Minting dev provider credentials..."
