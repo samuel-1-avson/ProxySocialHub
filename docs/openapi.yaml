@@ -1945,6 +1945,124 @@ paths:
         '200':
           description: Cancelled; entitlements until access_until
 
+  /v1/bulk/pools:
+    post:
+      tags: [Bulk, B2B]
+      summary: Create a bulk proxy pool
+      operationId: createBulkPool
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                size: { type: integer, minimum: 1, maximum: 100, default: 10 }
+                session_type: { type: string, enum: [rotating, sticky], default: rotating }
+                description: { type: string }
+                bytes_limit: { type: integer, default: 0, description: 0 = unlimited }
+      responses:
+        '200':
+          description: Pool created
+        '401':
+          description: Unauthorized
+    get:
+      tags: [Bulk, B2B]
+      summary: List bulk proxy pools
+      operationId: listBulkPools
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Pools for the authenticated account
+
+  /v1/bulk/pools/{pool_id}:
+    delete:
+      tags: [Bulk, B2B]
+      summary: Soft-delete a bulk proxy pool
+      operationId: revokeBulkPool
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: pool_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found
+
+  /v1/bulk/pools/{pool_id}/endpoints:
+    get:
+      tags: [Bulk, B2B]
+      summary: List endpoints for a bulk proxy pool
+      operationId: getBulkPoolEndpoints
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: pool_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Endpoints (host, port, username, password)
+
+  /v1/sdks/languages:
+    get:
+      tags: [SDKs]
+      summary: List supported SDK snippet languages
+      operationId: listSDKLanguages
+      responses:
+        '200':
+          description: Language catalog for Integration Matrices / code gen
+
+  /v1/sdks/{language}/examples:
+    get:
+      tags: [SDKs]
+      summary: Example snippets for a language
+      operationId: getSDKExamples
+      parameters:
+        - name: language
+          in: path
+          required: true
+          schema: { type: string, example: python }
+      responses:
+        '200':
+          description: Examples
+
+  /v1/sdks/generate-code:
+    post:
+      tags: [SDKs]
+      summary: Generate a proxy client snippet
+      operationId: generateSDKCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [language, use_case]
+              properties:
+                language: { type: string }
+                use_case: { type: string, description: basic, rotating, sticky, scraping }
+                session_id: { type: string }
+                proxy_host: { type: string }
+                proxy_port: { type: integer }
+      responses:
+        '200':
+          description: Generated code
+
   /v1/bulk/api-keys:
     post:
       tags: [Bulk, B2B]

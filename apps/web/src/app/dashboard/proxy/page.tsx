@@ -33,6 +33,44 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { getBuyerProxyEndpoint } from '@/lib/proxy-endpoint';
 
 const PROXY_ENDPOINT = getBuyerProxyEndpoint();
+const SDK_MATRIX = [
+    {
+        id: 'python',
+        name: 'Python',
+        icon: 'Py',
+        bg: 'hover:bg-blue-500/10',
+        install: 'pip install proxyhubb',
+        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/python',
+        registry: 'https://pypi.org/project/proxyhubb/',
+    },
+    {
+        id: 'nodejs',
+        name: 'Node.js',
+        icon: 'JS',
+        bg: 'hover:bg-emerald-500/10',
+        install: 'npm install @proxyhubb/sdk',
+        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/nodejs',
+        registry: 'https://www.npmjs.com/package/@proxyhubb/sdk',
+    },
+    {
+        id: 'golang',
+        name: 'Golang',
+        icon: 'Go',
+        bg: 'hover:bg-cyan-500/10',
+        install: 'go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.2.0',
+        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/go',
+        registry: 'https://pkg.go.dev/github.com/samuel-1-avson/ProxySocialHub/sdks/go',
+    },
+    {
+        id: 'rest',
+        name: 'Rest API',
+        icon: 'API',
+        bg: 'hover:bg-primary/10',
+        install: 'GET https://api.proxyhubb.com/v1/sdks/languages',
+        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/blob/main/docs/buyer-proxy.md',
+        registry: 'https://github.com/samuel-1-avson/ProxySocialHub/blob/main/docs/openapi.yaml',
+    },
+] as const;
 const terminalIntentStates = new Set<SessionIntentLifecycle>([
     'ledger_committed',
     'batched',
@@ -57,6 +95,7 @@ export default function ProxyPage() {
     const [selectedTier, setSelectedTier] = useState<string>('any');
     const [sessionIntent, setSessionIntent] = useState<CreateSessionIntentResponse | null>(null);
     const [intentLifecycle, setIntentLifecycle] = useState<'idle' | 'requesting' | SessionIntentLifecycle>('idle');
+    const [sdkGuide, setSdkGuide] = useState<(typeof SDK_MATRIX)[number]['id'] | null>(null);
 
     const tiers = [
         { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-white/5', bg: 'bg-white/5' },
@@ -584,25 +623,85 @@ export default function ProxyPage() {
 
             {/* Integration Matrices */}
             <motion.div variants={itemVariants} className="glass-card p-8 bg-white/2 border-white/5">
-                <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em] mb-10 flex items-center gap-3 relative z-10">
+                <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em] mb-4 flex items-center gap-3 relative z-10">
                     <Settings size={18} className="text-muted-foreground/60" /> Integration Matrices
                 </h2>
+                <p className="text-xs text-muted-foreground mb-8 relative z-10 max-w-2xl">
+                    Official SDKs for Connect session intents and marketplace credentials. Install a client, then use the quick-start snippets above.
+                </p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
-                    {[
-                        { name: 'Python', icon: '🐍', bg: 'hover:bg-blue-500/10' },
-                        { name: 'Node.js', icon: '⬢', bg: 'hover:bg-emerald-500/10' },
-                        { name: 'Golang', icon: 'Ξ', bg: 'hover:bg-cyan-500/10' },
-                        { name: 'Rest API', icon: '〉', bg: 'hover:bg-primary/10' },
-                    ].map((guide) => (
+                    {SDK_MATRIX.map((guide) => (
                         <button
-                            key={guide.name}
-                            className={`p-6 glass-card border-white/10 ${guide.bg} transition-all rounded-2xl text-center group active:scale-95`}
+                            key={guide.id}
+                            type="button"
+                            onClick={() => setSdkGuide((prev) => (prev === guide.id ? null : guide.id))}
+                            className={`p-6 glass-card border-white/10 ${guide.bg} transition-all rounded-2xl text-center group active:scale-95 ${
+                                sdkGuide === guide.id ? 'border-primary/40 ring-1 ring-primary/30' : ''
+                            }`}
                         >
-                            <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-500 grayscale opacity-40 group-hover:grayscale-0 group-hover:opacity-100">{guide.icon}</div>
-                            <div className="text-[10px] font-black font-mono uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">{guide.name}</div>
+                            <div className="text-lg font-black font-mono mb-4 text-muted-foreground/50 group-hover:text-foreground transition-colors tracking-tight">
+                                {guide.icon}
+                            </div>
+                            <div className="text-[10px] font-black font-mono uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">
+                                {guide.name}
+                            </div>
                         </button>
                     ))}
                 </div>
+                <AnimatePresence>
+                    {sdkGuide && (() => {
+                        const selected = SDK_MATRIX.find((g) => g.id === sdkGuide);
+                        if (!selected) return null;
+                        return (
+                            <motion.div
+                                key={selected.id}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 4 }}
+                                className="mt-6 relative z-10 rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4"
+                            >
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="text-xs font-black font-mono uppercase tracking-widest text-foreground">
+                                        {selected.name}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <a
+                                            href={selected.docs}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                                        >
+                                            Docs <ExternalLink size={12} />
+                                        </a>
+                                        <a
+                                            href={selected.registry}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                                        >
+                                            Registry <ExternalLink size={12} />
+                                        </a>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                                    <code className="flex-1 text-xs font-mono text-emerald-400/90 break-all">{selected.install}</code>
+                                    <button
+                                        type="button"
+                                        onClick={() => copyToClipboard(selected.install, `sdk-${selected.id}`)}
+                                        className="shrink-0 p-1.5 rounded-lg hover:bg-white/5 text-muted-foreground"
+                                        aria-label="Copy install command"
+                                    >
+                                        {copied === `sdk-${selected.id}` ? (
+                                            <CheckCircle size={14} className="text-emerald-500" />
+                                        ) : (
+                                            <Copy size={14} />
+                                        )}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        );
+                    })()}
+                </AnimatePresence>
             </motion.div>
         </motion.div>
     );

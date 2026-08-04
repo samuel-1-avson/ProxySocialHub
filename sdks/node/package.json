@@ -2,7 +2,7 @@
   "name": "proxyhubb",
   "version": "0.1.0",
   "private": true,
-  "description": "DEPRECATED — use @proxyhubb/sdk. Gateway helper prototype (not published).",
+  "description": "DEPRECATED — use @proxyhubb/sdk (sdks/nodejs). Gateway helper prototype (not published).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
