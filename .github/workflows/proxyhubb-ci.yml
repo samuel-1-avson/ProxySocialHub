@@ -485,22 +485,8 @@ jobs:
       - name: Write CI .env for Docker Compose
         run: |
           set -euo pipefail
-          cp .env.example .env
-          {
-            echo "JWT_SECRET=test-jwt-secret-for-ci-min-32-chars-long"
-            echo "GATEWAY_SHARED_SECRET=test-gateway-shared-secret-ci-32chars"
-            echo "SESSION_SECRET=test-session-secret-for-ci-min-32-chars"
-            echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
-            echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
-            echo "POSTGRES_PASSWORD=proxyhubb"
-            echo "REDIS_PASSWORD=proxyhubb"
-            echo "GRAFANA_ADMIN_PASSWORD=ci-grafana-admin"
-            echo "PROVIDER_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001"
-            echo "CLI_DIST_VERSION=${CLI_DIST_VERSION}"
-            echo "PROVIDER_SIGNATURE_MODE=observe"
-          } >> .env
-          # compose mounts this path; file is gitignored — materialize from committed example
-          cp config/docker/control-api-explorer.env.example config/docker/control-api-explorer.env
+          chmod +x scripts/ci-write-compose-env.sh
+          CLI_DIST_VERSION="${CLI_DIST_VERSION}" ./scripts/ci-write-compose-env.sh
 
       - name: Start control-api with CLI dist mounted
         run: |
@@ -617,21 +603,8 @@ jobs:
     - name: Write CI .env for Docker Compose
       run: |
         set -euo pipefail
-        cp .env.example .env
-        {
-          echo "JWT_SECRET=test-jwt-secret-for-ci-min-32-chars-long"
-          echo "GATEWAY_SHARED_SECRET=test-gateway-shared-secret-ci-32chars"
-          echo "SESSION_SECRET=test-session-secret-for-ci-min-32-chars"
-          echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
-          echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
-          echo "POSTGRES_PASSWORD=proxyhubb"
-          echo "REDIS_PASSWORD=proxyhubb"
-          echo "GRAFANA_ADMIN_PASSWORD=ci-grafana-admin"
-          echo "PROVIDER_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001"
-          echo "PROVIDER_SIGNATURE_MODE=observe"
-        } >> .env
-        # compose mounts this path; file is gitignored — materialize from committed example
-        cp config/docker/control-api-explorer.env.example config/docker/control-api-explorer.env
+        chmod +x scripts/ci-write-compose-env.sh
+        ./scripts/ci-write-compose-env.sh
 
     - name: Provider stack E2E (gateway + provider-node)
       run: |
