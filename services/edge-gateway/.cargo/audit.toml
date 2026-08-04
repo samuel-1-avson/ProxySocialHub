@@ -1,0 +1,24 @@
+# Transitive Solana/Anchor/rustls stack advisories without a clean bump yet.
+# Prefer cargo update when upstream clears these; keep CI from blocking on known debt.
+[advisories]
+ignore = [
+  "RUSTSEC-2025-0055",
+  "RUSTSEC-2025-0141",
+  "RUSTSEC-2024-0388",
+  "RUSTSEC-2025-0119",
+  "RUSTSEC-2024-0436",
+  "RUSTSEC-2025-0134",
+  "RUSTSEC-2026-0190",
+  "RUSTSEC-2026-0221",
+  "RUSTSEC-2026-0097",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
+  "RUSTSEC-2026-0204",
+  "RUSTSEC-2024-0344",
+  "RUSTSEC-2022-0093",
+  "RUSTSEC-2025-0132",
+  "RUSTSEC-2024-0437",
+  "RUSTSEC-2026-0185",
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0049",
+]
