@@ -20,7 +20,9 @@ func TestExplorerWSReserveIP_EnforcesPerIPCap(t *testing.T) {
 	})
 
 	ip := "203.0.113.10"
-	if !explorerWSReserveIP(ip) || !explorerWSReserveIP(ip) {
+	ok1 := explorerWSReserveIP(ip)
+	ok2 := explorerWSReserveIP(ip)
+	if !ok1 || !ok2 {
 		t.Fatal("expected first two reservations to succeed")
 	}
 	if explorerWSReserveIP(ip) {
@@ -60,7 +62,9 @@ func TestExplorerWSReserveUser_EnforcesPerUserCap(t *testing.T) {
 	})
 
 	userID := "test-user-uuid"
-	if !explorerWSReserveUser(userID) || !explorerWSReserveUser(userID) {
+	ok1 := explorerWSReserveUser(userID)
+	ok2 := explorerWSReserveUser(userID)
+	if !ok1 || !ok2 {
 		t.Fatal("expected first two user reservations to succeed")
 	}
 	if explorerWSReserveUser(userID) {

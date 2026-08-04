@@ -153,7 +153,7 @@ jobs:
       run: go vet ./...
 
     - name: Install staticcheck
-      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      run: go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
 
     - name: Run staticcheck
       run: staticcheck ./...
@@ -492,6 +492,9 @@ jobs:
             echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
             echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
             echo "POSTGRES_PASSWORD=proxyhubb"
+            echo "REDIS_PASSWORD=proxyhubb"
+            echo "GRAFANA_ADMIN_PASSWORD=ci-grafana-admin"
+            echo "PROVIDER_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001"
             echo "CLI_DIST_VERSION=${CLI_DIST_VERSION}"
             echo "PROVIDER_SIGNATURE_MODE=observe"
           } >> .env
@@ -619,6 +622,9 @@ jobs:
           echo "ENCRYPTION_KEY=test-encryption-key-for-ci-min-32-chars"
           echo "TOKEN_HMAC_SECRET=test-token-hmac-secret-for-ci-32-chars"
           echo "POSTGRES_PASSWORD=proxyhubb"
+          echo "REDIS_PASSWORD=proxyhubb"
+          echo "GRAFANA_ADMIN_PASSWORD=ci-grafana-admin"
+          echo "PROVIDER_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001"
           echo "PROVIDER_SIGNATURE_MODE=observe"
         } >> .env
 
@@ -740,9 +746,13 @@ jobs:
       env:
         PGPASSWORD: proxyhubb
       run: |
+        set -euo pipefail
+        # Match Docker: auth stub must exist before migrations that reference auth.users / wallets.
+        psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -v ON_ERROR_STOP=1 -f infra/postgres/init/00_auth_schema.sql
         for f in $(ls migrations/*.up.sql | sort); do
           echo "Applying $f ..."
-          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -f "$f" \
+          psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -v ON_ERROR_STOP=1 -f "$f" \
             || { echo "FAILED: $f"; exit 1; }
         done
 
@@ -750,11 +760,15 @@ jobs:
       env:
         PGPASSWORD: proxyhubb
       run: |
-        psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -c \
+        set -euo pipefail
+        tables=$(psql -h localhost -U proxyhubb -d proxyhubb_migrate_test -t -A -c \
           "SELECT table_name FROM information_schema.tables
            WHERE table_schema = 'public'
-           ORDER BY table_name;" \
-          | grep -E "wallets|sessions|nodes|provider_tokens|spending_records"
+           ORDER BY table_name;")
+        for t in wallets sessions nodes provider_tokens spending_records; do
+          echo "$tables" | grep -qx "$t" || { echo "missing table: $t"; exit 1; }
+        done
+        echo "Key tables present"
 
     - name: Verify wallet schema (migrations 080-088)
       env:
