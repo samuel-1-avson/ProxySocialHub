@@ -9,7 +9,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
 
-// RegisterTreasuryMultisigRoutes wires admin treasury multi-sig (2-of-3 for withdrawals >100 SOL).
+// RegisterTreasuryMultisigRoutes wires admin treasury multi-sig (2-of-3 for withdrawals >100 SOL,
+// cold→hot replenish approvals, and hot→cold excess sweeps).
 func RegisterTreasuryMultisigRoutes(r *gin.RouterGroup) {
 	g := r.Group("/treasury/withdrawals")
 	g.Use(RequireRole("admin"))
@@ -17,6 +18,8 @@ func RegisterTreasuryMultisigRoutes(r *gin.RouterGroup) {
 		g.GET("/pending", listPendingTreasuryWithdrawals)
 		g.GET("/:id", getTreasuryWithdrawal)
 		g.POST("/propose", proposeTreasuryWithdrawal)
+		g.POST("/propose-cold-to-hot", proposeColdToHot)
+		g.POST("/propose-hot-to-cold", proposeHotToCold)
 		g.POST("/:id/sign", signTreasuryWithdrawal)
 	}
 }
@@ -49,9 +52,9 @@ func proposeTreasuryWithdrawal(c *gin.Context) {
 
 	if req.AmountSOL <= treasury.LargeTreasuryWithdrawalSOL {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":          "amount below multi-sig threshold",
-			"threshold_sol":  treasury.LargeTreasuryWithdrawalSOL,
-			"hint":           "use standard payout flows for smaller amounts",
+			"error":         "amount below multi-sig threshold",
+			"threshold_sol": treasury.LargeTreasuryWithdrawalSOL,
+			"hint":          "use standard payout flows for smaller amounts",
 		})
 		return
 	}
@@ -67,6 +70,83 @@ func proposeTreasuryWithdrawal(c *gin.Context) {
 		"action":    action,
 		"threshold": 2,
 		"message":   "Collect one more admin signature to execute",
+	})
+}
+
+func proposeColdToHot(c *gin.Context) {
+	var req struct {
+		AmountSOL float64 `json:"amount_sol" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	adminID := adminActorID(c)
+	governor := gov.GetGovernor()
+	if !governor.IsAdmin(adminID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin not in TREASURY_MULTISIG_ADMIN_IDS"})
+		return
+	}
+
+	hot := treasury.GetHotTreasuryPubkey()
+	if hot.IsZero() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "hot treasury address not configured"})
+		return
+	}
+
+	id, err := governor.ProposeColdToHot(hot.String(), req.AmountSOL, adminID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	action, _ := governor.GetAction(id)
+	c.JSON(http.StatusCreated, gin.H{
+		"action":    action,
+		"threshold": 2,
+		"message":   "Collect admin signatures; cold transfer stays offline (gcp-topup-hot-from-cold.sh)",
+	})
+}
+
+func proposeHotToCold(c *gin.Context) {
+	var req struct {
+		AmountSOL float64 `json:"amount_sol" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	adminID := adminActorID(c)
+	governor := gov.GetGovernor()
+	if !governor.IsAdmin(adminID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin not in TREASURY_MULTISIG_ADMIN_IDS"})
+		return
+	}
+
+	if !treasury.SweepEnabled() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "hot→cold sweep disabled (SOLANA_TREASURY_SWEEP_ENABLED=false)"})
+		return
+	}
+
+	cold := treasury.GetColdTreasuryPubkey()
+	if cold.IsZero() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cold treasury address not configured"})
+		return
+	}
+
+	id, err := governor.ProposeHotToCold(cold.String(), req.AmountSOL, adminID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	action, _ := governor.GetAction(id)
+	c.JSON(http.StatusCreated, gin.H{
+		"action":    action,
+		"threshold": 2,
+		"message":   "Collect one more admin signature to execute hot→cold sweep from payout wallet",
 	})
 }
 
@@ -95,8 +175,10 @@ func signTreasuryWithdrawal(c *gin.Context) {
 
 func listPendingTreasuryWithdrawals(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"actions": gov.GetGovernor().GetPendingActions(),
-		"threshold_sol": treasury.LargeTreasuryWithdrawalSOL,
+		"actions":           gov.GetGovernor().GetPendingActions(),
+		"threshold_sol":     treasury.LargeTreasuryWithdrawalSOL,
+		"hot_max_sol":       treasury.HotMaxBalanceSOL(),
+		"sweep_enabled":     treasury.SweepEnabled(),
 	})
 }
 

@@ -159,3 +159,45 @@ func TestApplyP2PCompensation(t *testing.T) {
 		t.Fatalf("idempotent apply: %v", err)
 	}
 }
+
+func TestEnqueueP2PSettleCreatesPendingRow(t *testing.T) {
+	testutil.SetupTestDB(t)
+	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	testutil.CleanupTestData(t, "compensation_outbox", "users", "wallets")
+
+	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("settle-s"), "buyer")
+	recipient := testutil.CreateTestUser(t, testutil.UniqueEmail("settle-r"), "buyer")
+	var sw, rw models.Wallet
+	if err := db.DB.Where("user_id = ?", sender.ID).First(&sw).Error; err != nil {
+		t.Fatalf("sender wallet: %v", err)
+	}
+	if err := db.DB.Where("user_id = ?", recipient.ID).First(&rw).Error; err != nil {
+		t.Fatalf("recipient wallet: %v", err)
+	}
+
+	ref := "p2p-settle-" + uuid.New().String()
+	EnqueueP2PSettle(0.05, ref, sender.ID, recipient.ID, sw.ID, rw.ID,
+		"11111111111111111111111111111111", "22222222222222222222222222222222")
+
+	var entry models.CompensationOutbox
+	if err := db.DB.Where("kind = ? AND reference_id = ?", models.CompensationKindP2PSettle, ref).First(&entry).Error; err != nil {
+		t.Fatalf("outbox entry: %v", err)
+	}
+	if entry.Status != models.CompensationStatusPending {
+		t.Fatalf("status: want pending got %q", entry.Status)
+	}
+	if entry.Metadata == "" || entry.Metadata == "{}" {
+		t.Fatalf("expected settle metadata, got %q", entry.Metadata)
+	}
+
+	// Idempotent enqueue
+	EnqueueP2PSettle(0.05, ref, sender.ID, recipient.ID, sw.ID, rw.ID,
+		"11111111111111111111111111111111", "22222222222222222222222222222222")
+	var count int64
+	db.DB.Model(&models.CompensationOutbox{}).Where("kind = ? AND reference_id = ?", models.CompensationKindP2PSettle, ref).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 row after idempotent enqueue, got %d", count)
+	}
+}

@@ -9,6 +9,7 @@ import (
 const (
 	CompensationKindWithdrawalRefund = "withdrawal_refund"
 	CompensationKindP2PRefund        = "p2p_refund"
+	CompensationKindP2PSettle        = "p2p_settle"
 
 	CompensationStatusPending         = "pending"
 	CompensationStatusSucceeded       = "succeeded"
@@ -16,7 +17,7 @@ const (
 )
 
 // CompensationOutbox retries failed DB compensating refunds after on-chain
-// withdraw/P2P sends fail (so a transient DB error cannot permanently underpay).
+// withdraw/P2P sends fail, and durable forward P2P settles after ledger commit.
 type CompensationOutbox struct {
 	ID                 uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	Kind               string     `gorm:"size:40;not null;uniqueIndex:idx_comp_kind_ref" json:"kind"`
@@ -24,6 +25,7 @@ type CompensationOutbox struct {
 	CounterpartyUserID *uuid.UUID `gorm:"type:uuid" json:"counterparty_user_id,omitempty"`
 	AmountSOL          float64    `gorm:"column:amount_sol;type:numeric(20,9);not null" json:"amount_sol"`
 	ReferenceID        string     `gorm:"size:128;not null;uniqueIndex:idx_comp_kind_ref" json:"reference_id"`
+	Metadata           string     `gorm:"column:metadata;type:jsonb;not null;default:'{}'" json:"metadata,omitempty"`
 	AttemptCount       int        `gorm:"not null;default:0" json:"attempt_count"`
 	LastAttemptedAt    *time.Time `json:"last_attempted_at,omitempty"`
 	NextRetryAt        time.Time  `gorm:"not null;default:now()" json:"next_retry_at"`

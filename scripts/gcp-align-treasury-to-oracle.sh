@@ -1,5 +1,25 @@
 #!/bin/bash
+# =============================================================================
+# DANGER — DO NOT RUN ON LIVE / proxyhubb-testnet
+# =============================================================================
+# This script collapses SOLANA_TREASURY_ADDRESS and SOLANA_TREASURY_HOT_ADDRESS
+# back onto the oracle pubkey (BC-08 anti-pattern: treasury == hot wallet == oracle).
+#
+# Kept only for emergency local debugging of *pre-split* environments.
+# Live path: vault PDA deposits + distinct hot payouts + GCP KMS oracle.
+# See docs/custody-split.md and scripts/gcp-split-treasury-address.sh
+#
+# To force-run anyway (you will undo custody split):
+#   ALLOW_ALIGN_TREASURY_TO_ORACLE=I_UNDERSTAND_BC08 bash scripts/gcp-align-treasury-to-oracle.sh
+# =============================================================================
 set -euo pipefail
+
+if [[ "${ALLOW_ALIGN_TREASURY_TO_ORACLE:-}" != "I_UNDERSTAND_BC08" ]]; then
+  echo "REFUSED: gcp-align-treasury-to-oracle collapses custody onto the oracle." >&2
+  echo "This undoes BC-08. Set ALLOW_ALIGN_TREASURY_TO_ORACLE=I_UNDERSTAND_BC08 to override." >&2
+  exit 2
+fi
+
 cd /opt/proxyhubb
 
 ORACLE=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2

@@ -33,7 +33,6 @@ import {
     Fingerprint,
     Cpu,
     Globe,
-    Shield,
     Terminal,
     Zap,
     History,
@@ -161,8 +160,8 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <Zap size={40} className="animate-pulse" />
                 </div>
                 <div className="space-y-4">
-                    <h2 className="text-4xl font-black uppercase tracking-tighter text-white">Grid Signal Lost</h2>
-                    <p className="text-[11px] font-black uppercase text-muted-foreground/40 tracking-widest leading-relaxed">
+                    <h2 className="text-4xl font-black uppercase tracking-tighter text-foreground">Grid Signal Lost</h2>
+                    <p className="text-[11px] font-black uppercase text-muted-foreground tracking-widest leading-relaxed">
                         {error || "The requested protocol signature could not be verified in the current mesh sector."}
                     </p>
                 </div>
@@ -193,9 +192,9 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
             {/* Immersive Tactical Header */}
             <motion.div variants={itemVariants} className="group relative">
                 <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-20 pointer-events-none" />
-                <GlassCard className="!p-0 border-white/5 bg-white/[0.02] overflow-hidden rounded-[3rem] shadow-2xl relative">
+                <GlassCard className="!p-0 border-border bg-card overflow-hidden rounded-[3rem] shadow-2xl relative">
                     {/* Cover Area with Mesh Grid and Geo Pulse */}
-                    <div className="h-64 bg-black/40 relative overflow-hidden">
+                    <div className="h-64 bg-zinc-900 dark:bg-black/60 relative overflow-hidden">
                         {/* Dynamic SVG Mesh Grid */}
                         <svg className="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
                             <defs>
@@ -220,24 +219,24 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         {/* Top Protocol Status - Tactically Enhanced */}
                         <div className="absolute top-10 inset-x-12 flex justify-between items-start pointer-events-none">
                             <div className="space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/30">Network Origin</div>
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Network Origin</div>
                                 <div className="space-y-1">
                                     <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
                                         <MapPin size={12} /> {profile.location || 'Global Mesh Node'}
                                     </div>
-                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/40 uppercase flex items-center gap-2">
+                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase flex items-center gap-2">
                                         <Globe size={10} className="opacity-50" /> {profile.isp || 'Peer-to-Peer Relay'}
                                     </div>
                                 </div>
                             </div>
                             <div className="text-right space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/30">Protocol Authority</div>
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Protocol Authority</div>
                                 <div className="space-y-1">
                                     <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2 justify-end">
                                         {profile.trust_tier || 'Alpha Sector'} <ShieldCheck size={12} />
                                     </div>
-                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/40 uppercase">
-                                        Registry Status: <span className="text-emerald-500/60">Verified</span>
+                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase">
+                                        Registry Status: <span className="text-emerald-400">Verified</span>
                                     </div>
                                 </div>
                             </div>
@@ -252,7 +251,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                 transition={{ duration: 4, repeat: Infinity }}
                                 className="absolute -inset-4 bg-emerald-500/20 rounded-[3rem] blur-2xl" 
                             />
-                            <div className="w-48 h-48 rounded-[2.5rem] bg-black border-[6px] border-white/5 p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
+                            <div className="w-48 h-48 rounded-[2.5rem] bg-black border-[6px] border-border p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
                                 {profile.avatar_url ? (
                                     <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[2rem]" />
                                 ) : (
@@ -271,7 +270,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         <div className="flex-1 space-y-6 pb-2">
                             <div className="space-y-4">
                                 <div className="flex items-center gap-6">
-                                    <h1 className="text-6xl font-black uppercase tracking-tighter text-white drop-shadow-2xl">
+                                    <h1 className="text-6xl font-black uppercase tracking-tighter text-foreground drop-shadow-2xl">
                                         {profile.display_name || profile.username}
                                     </h1>
                                     {profile.verified && (
@@ -288,17 +287,17 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     <div className="text-sm font-black text-emerald-400 tracking-[0.2em] uppercase bg-emerald-500/5 px-4 py-1.5 rounded-full border border-emerald-500/10">
                                         @{profile.username}
                                     </div>
-                                    <div className="h-5 w-px bg-white/10" />
+                                    <div className="h-5 w-px bg-border" />
                                     {profile.professional_title && (
-                                        <div className="flex items-center gap-2 text-[11px] font-black text-white/80 uppercase tracking-widest">
+                                        <div className="flex items-center gap-2 text-[11px] font-black text-foreground uppercase tracking-widest">
                                             <Briefcase size={12} className="text-purple-400" /> {profile.professional_title}
                                             {profile.experience_years > 0 && (
-                                                <span className="text-white/30 lowercase ml-1">({profile.experience_years}y exp)</span>
+                                                <span className="text-muted-foreground lowercase ml-1">({profile.experience_years}y exp)</span>
                                             )}
                                         </div>
                                     )}
-                                    <div className="h-5 w-px bg-white/10 invisible md:visible" />
-                                    <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
+                                    <div className="h-5 w-px bg-border invisible md:visible" />
+                                    <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
                                         <History size={14} /> Node Synced {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
                                     </div>
                                 </div>
@@ -316,7 +315,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                                 whileHover={{ y: -2, scale: 1.1 }}
                                                 href={platform === 'linkedin' ? handle : `https://${platform}.com/${handle}`}
                                                 target="_blank"
-                                                className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-primary hover:border-primary/20 transition-all shadow-xl"
+                                                className="p-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 transition-all shadow-xl"
                                             >
                                                 <Icon size={16} />
                                             </motion.a>
@@ -340,7 +339,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     <button
                                         onClick={handleFollow}
                                         className={`px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-2xl ${isFollowing
-                                                ? 'bg-white/5 border border-white/10 text-white/40 hover:bg-white/10'
+                                                ? 'bg-muted border border-border text-muted-foreground hover:bg-surface-hover'
                                                 : 'bg-primary text-primary-foreground hover:shadow-primary/30'
                                             }`}
                                     >
@@ -349,13 +348,13 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     </button>
                                     <Link
                                         href={`/messages?to=${profile.id}`}
-                                        className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all shadow-xl"
+                                        className="p-5 rounded-2xl bg-muted border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-all shadow-xl"
                                     >
                                         <MessageCircle size={20} />
                                     </Link>
                                     <button
                                         onClick={handleBlock}
-                                        className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all shadow-xl"
+                                        className="p-5 rounded-2xl bg-muted border border-border text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all shadow-xl"
                                     >
                                         <Ban size={20} />
                                     </button>
@@ -371,26 +370,26 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                 <div className="lg:col-span-4 space-y-12">
                     <motion.div variants={itemVariants} className="space-y-6">
                         <div className="flex items-center gap-3 px-6">
-                            <div className="h-px bg-white/5 flex-1" />
-                            <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Neural Summary</div>
-                            <div className="h-px bg-white/5 flex-1" />
+                            <div className="h-px bg-border flex-1" />
+                            <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Neural Summary</div>
+                            <div className="h-px bg-border flex-1" />
                         </div>
-                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] relative group p-8">
+                        <GlassCard className="border-border bg-card rounded-[2rem] relative group p-8">
                             <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.1] transition-opacity duration-700">
                                 <Terminal size={80} />
                             </div>
                             <div className="space-y-6 relative z-10">
-                                <p className="text-sm font-black text-white/80 leading-relaxed italic">
+                                <p className="text-sm font-black text-foreground leading-relaxed italic">
                                     "{profile.bio || "No neural description recorded in current protocol sector."}"
                                 </p>
                                 {profile.primary_specialization && (
-                                    <div className="pt-6 border-t border-white/5 flex items-center gap-4">
+                                    <div className="pt-6 border-t border-border flex items-center gap-4">
                                         <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
                                             <Fingerprint size={14} />
                                         </div>
                                         <div className="space-y-1">
-                                            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-white/20">Specialization</div>
-                                            <div className="text-[11px] font-black uppercase tracking-widest text-white/60">{profile.primary_specialization}</div>
+                                            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground">Specialization</div>
+                                            <div className="text-[11px] font-black uppercase tracking-widest text-foreground">{profile.primary_specialization}</div>
                                         </div>
                                     </div>
                                 )}
@@ -402,14 +401,14 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <motion.div variants={itemVariants} className="grid grid-cols-2 gap-6">
                         {[
                             { label: 'Network Reach', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
-                            { label: 'Relay Nodes', value: profile.following_count || 0, icon: Hexagon, color: 'text-white/40' },
+                            { label: 'Relay Nodes', value: profile.following_count || 0, icon: Hexagon, color: 'text-muted-foreground' },
                             { label: 'Protocol Rating', value: profile.avg_rating > 0 ? profile.avg_rating.toFixed(1) : '5.0', icon: Star, color: 'text-yellow-500' },
                             { label: 'Consensus Proof', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
                         ].map((stat, i) => (
-                            <GlassCard key={i} className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem] hover:scale-105 transition-transform">
+                            <GlassCard key={i} className="!p-6 border-border bg-card rounded-[2rem] hover:scale-105 transition-transform">
                                 <stat.icon className={`${stat.color} mb-3`} size={18} />
-                                <div className="text-2xl font-black text-white tracking-tighter">{stat.value}</div>
-                                <div className="text-[8px] font-black uppercase text-white/20 tracking-widest mt-1">{stat.label}</div>
+                                <div className="text-2xl font-black text-foreground tracking-tighter">{stat.value}</div>
+                                <div className="text-[8px] font-black uppercase text-muted-foreground tracking-widest mt-1">{stat.label}</div>
                             </GlassCard>
                         ))}
                     </motion.div>
@@ -418,8 +417,8 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         <motion.div variants={itemVariants} className="space-y-4">
                             <div className="flex items-center gap-3 px-2">
                                 <Award size={14} className="text-primary" />
-                                <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Badges</div>
-                                <div className="h-px bg-white/5 flex-1" />
+                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Badges</div>
+                                <div className="h-px bg-border flex-1" />
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {badges.map((ub) => (
@@ -440,8 +439,8 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     {((profile.skills && profile.skills.length > 0) || (profile.languages && profile.languages.length > 0)) && (
                         <motion.div variants={itemVariants} className="space-y-8">
                             <div className="flex items-center gap-3 px-6">
-                                <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.4em]">Capacity Matrix</div>
-                                <div className="h-px bg-white/5 flex-1" />
+                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Capacity Matrix</div>
+                                <div className="h-px bg-border flex-1" />
                             </div>
                             
                             {profile.languages && profile.languages.length > 0 && (
@@ -449,7 +448,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     <div className="text-[8px] font-black uppercase tracking-widest text-emerald-500/40 px-6">Protocol Languages</div>
                                     <div className="flex flex-wrap gap-2 px-1">
                                         {profile.languages.map(lang => (
-                                            <span key={lang} className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40">
+                                            <span key={lang} className="px-4 py-2 rounded-xl bg-muted border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                                                 {lang}
                                             </span>
                                         ))}
@@ -475,7 +474,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
                 {/* Right Unit: Activity & Trust Ledger */}
                 <div className="lg:col-span-8 space-y-12">
-                    <motion.div variants={itemVariants} className="flex gap-8 border-b border-white/5">
+                    <motion.div variants={itemVariants} className="flex gap-8 border-b border-border">
                         {[
                             { id: 'reviews', label: 'Trust Ledger', count: reviews.length, icon: Heart },
                             ...(profile?.role === 'provider' || profile?.role === 'both'
@@ -485,12 +484,12 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id as any)}
-                                className={`relative flex items-center gap-3 px-8 py-5 text-[10px] font-black uppercase tracking-[0.3em] transition-all ${activeTab === tab.id ? "text-primary" : "text-white/20 hover:text-white/40"
+                                className={`relative flex items-center gap-3 px-8 py-5 text-[10px] font-black uppercase tracking-[0.3em] transition-all ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"
                                     }`}
                             >
                                 <tab.icon size={14} />
                                 {tab.label}
-                                <span className={`ml-2 px-2 py-0.5 rounded-md text-[8px] border font-black ${activeTab === tab.id ? "bg-primary/20 border-primary/20" : "bg-white/5 border-white/5"
+                                <span className={`ml-2 px-2 py-0.5 rounded-md text-[8px] border font-black ${activeTab === tab.id ? "bg-primary/20 border-primary/20" : "bg-muted border-border"
                                     }`}>
                                     {tab.count}
                                 </span>
@@ -505,23 +504,23 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         {activeTab === "reviews" && (
                             <div className="space-y-6">
                                 {reviews.length === 0 ? (
-                                    <div className="py-40 text-center border-2 border-dashed border-white/5 rounded-[3rem] bg-white/[0.01]">
+                                    <div className="py-40 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
                                         <div className="relative w-20 h-20 mx-auto mb-8">
-                                            <div className="absolute inset-0 rounded-full border border-white/5 animate-ping opacity-20" />
+                                            <div className="absolute inset-0 rounded-full border border-border animate-ping opacity-20" />
                                             <div className="absolute inset-0 flex items-center justify-center">
-                                                <Star size={32} className="text-white/5" />
+                                                <Star size={32} className="text-muted-foreground" />
                                             </div>
                                         </div>
-                                        <h4 className="text-xl font-black uppercase tracking-tighter opacity-40">Zero Consensus Proofs</h4>
-                                        <p className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] mt-4">No decentralized identity logs recorded.</p>
+                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">Zero Consensus Proofs</h4>
+                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">No decentralized identity logs recorded.</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-6">
                                         {reviews.map((review) => (
-                                            <GlassCard key={review.id} className="group !p-8 border-white/5 bg-white/[0.02] rounded-[2.5rem] hover:bg-white/[0.04] transition-all">
+                                            <GlassCard key={review.id} className="group !p-8 border-border bg-card rounded-[2.5rem] hover:bg-surface-hover transition-all">
                                                 <div className="flex items-start justify-between gap-6 mb-8">
                                                     <div className="flex items-center gap-5">
-                                                        <div className="w-12 h-12 rounded-2xl bg-black border border-white/5 flex items-center justify-center text-xs font-black text-primary overflow-hidden">
+                                                        <div className="w-12 h-12 rounded-2xl bg-muted border border-border flex items-center justify-center text-xs font-black text-primary overflow-hidden">
                                                             {review.reviewer?.avatar_url ? (
                                                                 <img src={review.reviewer.avatar_url} alt="" className="w-full h-full object-cover opacity-50" />
                                                             ) : (
@@ -529,26 +528,23 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                                             )}
                                                         </div>
                                                         <div className="space-y-1">
-                                                            <div className="text-[11px] font-black text-white uppercase tracking-wider">
+                                                            <div className="text-[11px] font-black text-foreground uppercase tracking-wider">
                                                                 @{review.reviewer?.username || "Anonymous"}
                                                             </div>
                                                             <div className="flex gap-1">
                                                                 {Array.from({ length: 5 }).map((_, i) => (
-                                                                    <Star key={i} size={10} className={i < review.rating ? "fill-primary text-primary" : "text-white/10"} />
+                                                                    <Star key={i} size={10} className={i < review.rating ? "fill-primary text-primary" : "text-muted-foreground"} />
                                                                 ))}
                                                             </div>
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
-                                                        <div className="text-[9px] font-black text-white/10 uppercase tracking-widest">{new Date(review.created_at).toLocaleDateString()}</div>
-                                                        <div className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mt-1 flex items-center gap-1 justify-end">
-                                                            <Shield size={8} /> ZK_PROOF_SYNC
-                                                        </div>
+                                                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">{new Date(review.created_at).toLocaleDateString()}</div>
                                                     </div>
                                                 </div>
                                                 <div className="relative pl-6">
                                                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/20 rounded-full" />
-                                                    <p className="text-sm font-black text-white/60 leading-relaxed italic">
+                                                    <p className="text-sm font-black text-foreground leading-relaxed italic">
                                                         "{review.content}"
                                                     </p>
                                                 </div>
@@ -561,20 +557,20 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
                         {activeTab === "listings" && (
                             <Link href={`/marketplace?seller_id=${profile?.id}`} className="group block">
-                                <GlassCard className="!p-12 border-white/5 bg-white/[0.02] rounded-[3rem] items-center justify-between flex group-hover:bg-primary/[0.03] group-hover:border-primary/20 transition-all">
+                                <GlassCard className="!p-12 border-border bg-card rounded-[3rem] items-center justify-between flex group-hover:bg-primary/[0.03] group-hover:border-primary/20 transition-all">
                                     <div className="flex items-center gap-10">
-                                        <div className="w-24 h-24 rounded-[2.5rem] bg-black/40 border border-white/5 flex items-center justify-center text-primary relative overflow-hidden group-hover:border-primary/30 transition-colors">
+                                        <div className="w-24 h-24 rounded-[2.5rem] bg-muted border border-border flex items-center justify-center text-primary relative overflow-hidden group-hover:border-primary/30 transition-colors">
                                             <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                                             <Cpu size={40} className="relative z-10 group-hover:scale-110 transition-transform duration-500" />
                                         </div>
                                         <div className="space-y-2">
-                                            <h3 className="text-3xl font-black uppercase tracking-tighter text-white">Active Grid Assets</h3>
-                                            <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em] flex items-center gap-3">
+                                            <h3 className="text-3xl font-black uppercase tracking-tighter text-foreground">Active Grid Assets</h3>
+                                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] flex items-center gap-3">
                                                 <span className="w-2 h-2 rounded-full bg-primary animate-pulse" /> Synchronize Current Load Factors
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="w-20 h-20 rounded-[2.5rem] bg-white/[0.02] border border-white/5 flex items-center justify-center text-white/20 group-hover:text-primary group-hover:border-primary/20 transition-all">
+                                    <div className="w-20 h-20 rounded-[2.5rem] bg-muted border border-border flex items-center justify-center text-muted-foreground group-hover:text-primary group-hover:border-primary/20 transition-all">
                                         <ArrowRight size={32} className="group-hover:translate-x-2 transition-transform" />
                                     </div>
                                 </GlassCard>

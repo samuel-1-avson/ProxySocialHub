@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,26 +39,28 @@ type EventHandler func(event EscrowEvent)
 
 // Watcher monitors the Solana blockchain for escrow events
 type Watcher struct {
-	rpcClients   []*rpc.Client
-	currentIdx   int
-	wsClient     *ws.Client
-	programID    sol.PublicKey
-	treasuryID   sol.PublicKey // Address to monitor for direct deposits
-	handlers     []EventHandler
-	pollInterval time.Duration
-	lastSlot     uint64
-	running      bool
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	rpcClients     []*rpc.Client
+	currentIdx     int
+	wsClient       *ws.Client
+	programID      sol.PublicKey
+	treasuryID     sol.PublicKey   // Primary legacy treasury (compat)
+	depositAddrs   []sol.PublicKey // All addresses monitored for native deposits
+	handlers       []EventHandler
+	pollInterval   time.Duration
+	lastSlot       uint64
+	running        bool
+	mu             sync.RWMutex
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // WatcherConfig holds configuration for the event watcher
 type WatcherConfig struct {
-	RPCEndpoints []string
-	WSEndpoint   string // Optional WebSocket endpoint
-	TreasuryAddr string // Optional treasury address to monitor
-	PollInterval time.Duration
+	RPCEndpoints   []string
+	WSEndpoint     string   // Optional WebSocket endpoint
+	TreasuryAddr   string   // Optional legacy treasury address to monitor
+	DepositAddrs   []string // Optional additional deposit destinations (vault, etc.)
+	PollInterval   time.Duration
 }
 
 // NewWatcher creates a new event watcher
@@ -84,10 +88,31 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var treasuryID sol.PublicKey
-	if cfg.TreasuryAddr != "" {
-		treasuryID, err = sol.PublicKeyFromBase58(cfg.TreasuryAddr)
+	depositAddrs := make([]sol.PublicKey, 0, 2)
+	seen := map[string]struct{}{}
+	addAddr := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if _, ok := seen[raw]; ok {
+			return
+		}
+		pk, err := sol.PublicKeyFromBase58(raw)
 		if err != nil {
-			log.Printf("[Watcher] Invalid treasury address: %v", err)
+			log.Printf("[Watcher] Invalid deposit address %q: %v", raw, err)
+			return
+		}
+		seen[raw] = struct{}{}
+		depositAddrs = append(depositAddrs, pk)
+	}
+	addAddr(cfg.TreasuryAddr)
+	for _, a := range cfg.DepositAddrs {
+		addAddr(a)
+	}
+	if cfg.TreasuryAddr != "" {
+		if pk, err := sol.PublicKeyFromBase58(cfg.TreasuryAddr); err == nil {
+			treasuryID = pk
 		}
 	}
 
@@ -96,6 +121,7 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 		currentIdx:   0,
 		programID:    programID,
 		treasuryID:   treasuryID,
+		depositAddrs: depositAddrs,
 		handlers:     make([]EventHandler, 0),
 		pollInterval: pollInterval,
 		ctx:          ctx,
@@ -371,6 +397,12 @@ func (w *Watcher) pollForTransactions() {
 	} else {
 		log.Printf("[Watcher] Initial slot fetch failed after retries: %v. Starting from 0.", err)
 	}
+	// Ops override: PROXYHUB_WATCHER_START_SLOT=0 forces a full recent-signature replay
+	// (useful after fixing GetTransaction opts so missed deposits can be credited).
+	if v := strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")); v == "0" {
+		log.Printf("[Watcher] PROXYHUB_WATCHER_START_SLOT=0 — replaying from slot 0")
+		w.lastSlot = 0
+	}
 
 	for {
 		select {
@@ -384,11 +416,23 @@ func (w *Watcher) pollForTransactions() {
 
 // checkRecentTransactions checks for recent transactions for monitored addresses
 func (w *Watcher) checkRecentTransactions() {
-	addresses := []sol.PublicKey{w.programID}
-	if !w.treasuryID.IsZero() {
+	addresses := make([]sol.PublicKey, 0, 1+len(w.depositAddrs))
+	// Prefer deposit addresses first so native SOL credits are not starved by
+	// program-log signature volume under public RPC rate limits.
+	for _, addr := range w.depositAddrs {
+		addresses = append(addresses, addr)
+	}
+	if len(w.depositAddrs) == 0 && !w.treasuryID.IsZero() {
 		addresses = append(addresses, w.treasuryID)
 	}
+	// Skip full program history replay when forcing slot-0 deposit catch-up.
+	if strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")) != "0" {
+		addresses = append(addresses, w.programID)
+	} else if len(addresses) == 0 {
+		addresses = append(addresses, w.programID)
+	}
 
+	maxSeenSlot := w.lastSlot
 	for _, addr := range addresses {
 		// Get recent signatures for the address with failover
 		var sigs []*rpc.TransactionSignature
@@ -422,19 +466,25 @@ func (w *Watcher) checkRecentTransactions() {
 
 			// Fetch transaction details with failover
 			var tx *rpc.GetTransactionResult
+			maxVersion := uint64(0)
 			err = w.withFailover(w.ctx, func(client *rpc.Client) error {
 				var err error
 				tx, err = client.GetTransaction(
 					w.ctx,
 					sig.Signature,
 					&rpc.GetTransactionOpts{
-						Encoding: sol.EncodingBase64,
+						Encoding:                       sol.EncodingBase64,
+						MaxSupportedTransactionVersion: &maxVersion,
 					},
 				)
 				return err
 			})
 			if err != nil {
+				log.Printf("[Watcher] GetTransaction failed for %s: %v", sig.Signature.String(), err)
 				continue
+			}
+			if sig.Slot > maxSeenSlot {
+				maxSeenSlot = sig.Slot
 			}
 
 			// Parse transaction for escrow events OR native transfers
@@ -445,9 +495,12 @@ func (w *Watcher) checkRecentTransactions() {
 		}
 	}
 
-	// Update last slot based on first address (usually programID)
-	// In a real system we'd track lastSlot per address, but for simplicity we use one global
-	// since slots are sequential for the whole chain.
+	// Only advance watermark when we successfully scanned; failed GetTransaction
+	// calls leave those slots below lastSlot so the next poll retries them.
+	// Note: under sustained RPC failures this can stall — acceptable vs silent loss.
+	if maxSeenSlot > w.lastSlot {
+		w.lastSlot = maxSeenSlot
+	}
 }
 
 // parseTransaction extracts escrow events from a transaction
@@ -467,14 +520,14 @@ func (w *Watcher) parseTransaction(tx *rpc.GetTransactionResult, txSig string) *
 	}
 
 	// 2. Check for Direct Native SOL Transfers to Treasury
-	if !w.treasuryID.IsZero() {
+	if len(w.depositAddrs) > 0 || !w.treasuryID.IsZero() {
 		return w.detectNativeTransfer(tx, txSig)
 	}
 
 	return nil
 }
 
-// detectNativeTransfer identifies if a transaction credited the treasury and returns a virtual event
+// detectNativeTransfer identifies if a transaction credited a watched deposit address
 func (w *Watcher) detectNativeTransfer(tx *rpc.GetTransactionResult, txSig string) *EscrowEvent {
 	// Need at least 2 accounts for a transfer
 	decodedTx, err := tx.Transaction.GetTransaction()
@@ -483,21 +536,33 @@ func (w *Watcher) detectNativeTransfer(tx *rpc.GetTransactionResult, txSig strin
 	}
 
 	accountKeys := decodedTx.Message.AccountKeys
-	treasuryIdx := -1
+	watch := w.depositAddrs
+	if len(watch) == 0 && !w.treasuryID.IsZero() {
+		watch = []sol.PublicKey{w.treasuryID}
+	}
+
+	destIdx := -1
+	var destPK sol.PublicKey
 	for i, key := range accountKeys {
-		if key.Equals(w.treasuryID) {
-			treasuryIdx = i
+		for _, watched := range watch {
+			if key.Equals(watched) {
+				destIdx = i
+				destPK = watched
+				break
+			}
+		}
+		if destIdx >= 0 {
 			break
 		}
 	}
 
-	if treasuryIdx == -1 {
+	if destIdx == -1 {
 		return nil
 	}
 
-	// Check if treasury balance increased
-	pre := tx.Meta.PreBalances[treasuryIdx]
-	post := tx.Meta.PostBalances[treasuryIdx]
+	// Check if destination balance increased
+	pre := tx.Meta.PreBalances[destIdx]
+	post := tx.Meta.PostBalances[destIdx]
 	if post <= pre {
 		return nil
 	}
@@ -508,7 +573,7 @@ func (w *Watcher) detectNativeTransfer(tx *rpc.GetTransactionResult, txSig strin
 	sender := ""
 	for i, preBal := range tx.Meta.PreBalances {
 		// Payer is usually index 0, or any account whose balance decreased
-		if preBal > tx.Meta.PostBalances[i] && i != treasuryIdx {
+		if preBal > tx.Meta.PostBalances[i] && i != destIdx {
 			sender = accountKeys[i].String()
 			break
 		}
@@ -517,7 +582,7 @@ func (w *Watcher) detectNativeTransfer(tx *rpc.GetTransactionResult, txSig strin
 	return &EscrowEvent{
 		Type:        "native_deposit",
 		Buyer:       sender, // Sender of funds
-		Seller:      w.treasuryID.String(),
+		Seller:      destPK.String(),
 		Amount:      amount,
 		TxSignature: txSig,
 		Timestamp:   time.Now(),

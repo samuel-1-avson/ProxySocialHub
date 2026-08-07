@@ -277,6 +277,9 @@ export interface SolanaPaymentParams {
     amount_sol: number;
     bandwidth_gb: number;
     oracle_pubkey: string;
+    /** True when buyer/seller PDA already exists and is funded on-chain. */
+    escrow_already_funded?: boolean;
+    on_chain_escrow_status?: string;
 }
 
 export interface ProviderNode {
@@ -337,18 +340,23 @@ export interface MapGeoMeta {
 
 export interface MarketplaceMapPoint {
     id: string;
-    kind: 'listing' | 'node';
+    kind: 'listing' | 'node' | string;
     lat: number;
     lon: number;
     title: string;
     country?: string;
     region?: string;
     city?: string;
+    /** Coarse class only (residential/mobile/datacenter/fiber) — not ISP name. */
+    network_class?: string;
+    /** @deprecated Prefer network_class; raw ISP is no longer returned by map API. */
     isp?: string;
     status: 'active' | 'offline' | 'paused' | 'sold_out' | 'unknown' | string;
     purchasable: boolean;
     listing_id?: string;
+    /** Opaque public node id (not the provider UUID). */
     node_id?: string;
+    /** @deprecated Removed from public map payloads. */
     seller_id?: string;
     proxy_type?: string;
     protocol?: string;
@@ -356,19 +364,16 @@ export interface MarketplaceMapPoint {
     available_bandwidth_gb?: number;
     uptime_percent?: number;
     latency_ms?: number;
+    quality_score?: number;
+    success_rate?: number;
+    trust_badge?: 'high_quality' | 'high_uptime' | 'reliable' | 'standard' | 'basic' | string;
+    trust_label?: string;
     is_validator?: boolean;
     active_sessions?: number;
     sla_source?: 'gateway' | 'explorer' | 'provider' | 'listing' | string;
     geo_source: 'gps' | 'gateway' | 'explorer' | 'provider' | 'country_centroid' | 'region_hub' | 'city_centroid' | 'unknown' | string;
     geo?: MapGeoMeta;
     listing_offer_verified?: boolean;
-    listing_offer_signer?: string;
-    listing_offer_signed_at?: string;
-    listing_offer_verification_error?: string;
-    heartbeat_verified?: boolean;
-    heartbeat_signer?: string;
-    heartbeat_signed_at?: string;
-    heartbeat_verification_error?: string;
     catalog_product?: CatalogProductSummary;
 }
 
@@ -506,6 +511,26 @@ export function getListingProofPolicy() {
     return publicApiGet<ListingProofPolicy>('/v1/system/provider-proof-policy');
 }
 
+export interface PriceSuggestion {
+    suggested_price: number;
+    min_market_price: number;
+    max_market_price: number;
+    soft_cap_price: number;
+    hard_cap_price: number;
+    currency: string;
+    confidence_score: number;
+}
+
+/**
+ * Suggested listing price for a country + proxy type (pricing oracle).
+ */
+export function getSuggestedListingPrice(country: string, proxyType: string) {
+    return publicApiGet<PriceSuggestion>('/v1/suggest-price', {
+        country,
+        proxy_type: proxyType,
+    });
+}
+
 export interface SignListingOfferDevResponse {
     proof: ProviderProofEnvelope;
     dev_server_signing?: boolean;
@@ -577,6 +602,19 @@ export async function createOrder(data: CreateOrderRequest) {
  */
 export function initiateSmartContractPayment(orderId: string) {
     return apiPost<SolanaPaymentParams>(`/v1/orders/${orderId}/pay/solana`);
+}
+
+/**
+ * Confirm an order against an already-funded on-chain escrow PDA
+ * (e.g. after initializeEscrow succeeded, or "account already in use" on retry).
+ */
+export function confirmEscrowPayment(orderId: string, txSignature?: string) {
+    return apiPost<{
+        order: Order;
+        escrow_pda: string;
+        on_chain_status?: string;
+        already_active?: boolean;
+    }>(`/v1/orders/${orderId}/confirm-escrow`, txSignature ? { tx_signature: txSignature } : {});
 }
 
 /**
@@ -674,16 +712,12 @@ export async function getReputationTelemetry() {
 }
 
 /**
- * Submit a generated ZK-reputation proof for verification
+ * Reputation proof verification is not implemented on-chain yet.
+ * Previously returned a fake `ph-local-zk-*` client token (FE-04) — removed.
  */
-export async function verifyReputationProof(proof: any) {
-    // The backend verifier route was removed; keep a short-lived local token so
-    // reputation-gated UX can continue using telemetry while server-side verify
-    // is being reintroduced.
-    void proof;
-    const token = `ph-local-zk-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    return { token, expires_at: expiresAt };
+export async function verifyReputationProof(_proof: unknown): Promise<never> {
+    void _proof;
+    throw Object.assign(new Error('ZK reputation verification is not available'), { status: 501 });
 }
 
 /**

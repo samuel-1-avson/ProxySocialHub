@@ -22,6 +22,7 @@ type SessionStatus string
 const (
 	SessionActive            SessionStatus = "active"
 	SessionDisabled          SessionStatus = "disabled"
+	SessionPendingPayment    SessionStatus = "pending_payment" // Awaiting session escrow fund (Phase 1b)
 	SessionActivationPending SessionStatus = "activation_pending"
 	SessionActivationFailed  SessionStatus = "activation_failed"
 	SessionTerminated        SessionStatus = "terminated"
@@ -58,6 +59,13 @@ type Session struct {
 	ConversationID   *uuid.UUID `gorm:"type:uuid;index" json:"conversation_id,omitempty"`
 	ReviewPrompted   bool       `gorm:"default:false" json:"review_prompted"`
 	ReviewPromptedAt *time.Time `json:"review_prompted_at,omitempty"`
+
+	// Phase 1b prepaid session escrow
+	SessionPDA     string `gorm:"size:64" json:"session_pda,omitempty"`
+	PaymentMethod  string `gorm:"size:50" json:"payment_method,omitempty"` // "solana_session_escrow"
+	BuyerWallet    string `gorm:"size:64" json:"buyer_wallet,omitempty"`
+	SellerWallet   string `gorm:"size:64" json:"seller_wallet,omitempty"`
+	AmountLockedSOL float64 `json:"amount_locked_sol,omitempty"`
 
 	// Preloaded relations
 	Conversation *Conversation `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`

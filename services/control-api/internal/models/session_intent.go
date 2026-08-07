@@ -84,6 +84,13 @@ type SessionIntentRecord struct {
 	UpdatedAt               time.Time              `json:"updated_at"`
 	DeletedAt               gorm.DeletedAt         `gorm:"index" json:"-"`
 
+	// Prepaid SessionEscrow PDA (same on-chain account as instant PAYG; seeds use intent UUID)
+	SessionPDA      string  `gorm:"type:varchar(64)" json:"session_pda,omitempty"`
+	PaymentMethod   string  `gorm:"type:varchar(50)" json:"payment_method,omitempty"`
+	BuyerWallet     string  `gorm:"type:varchar(64)" json:"buyer_wallet,omitempty"`
+	SellerWallet    string  `gorm:"type:varchar(64)" json:"seller_wallet,omitempty"`
+	AmountLockedSOL float64 `gorm:"type:decimal(20,9);default:0" json:"amount_locked_sol,omitempty"`
+
 	Listing *ProxyListing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`
 }
 

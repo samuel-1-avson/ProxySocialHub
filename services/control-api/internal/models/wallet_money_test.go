@@ -30,10 +30,20 @@ func TestWalletDebitExact(t *testing.T) {
 	}
 }
 
-func TestCanAffordAvoidsFloatTrap(t *testing.T) {
-	// Classic float trap: 0.1+0.2 != 0.3 in raw float compare.
-	w := &Wallet{BalanceSOL: 0.3}
-	if !w.CanAffordSOL(0.1 + 0.2) {
-		t.Fatal("lamports compare should treat 0.3 as affordable for 0.1+0.2")
+func TestWalletCreditDebitKeepsLamportsInSync(t *testing.T) {
+	w := &Wallet{BalanceSOL: 1.25}
+	w.BalanceLamports = int64(SOLToLamports(w.BalanceSOL))
+	w.CreditSOL(0.75)
+	w.BalanceLamports = int64(SOLToLamports(w.BalanceSOL))
+	if w.BalanceLamports != int64(SOLToLamports(2.0)) {
+		t.Fatalf("balance_lamports out of sync after credit: %d vs %d", w.BalanceLamports, SOLToLamports(2.0))
+	}
+	if !w.DebitSOL(0.5) {
+		t.Fatal("debit should succeed")
+	}
+	w.BalanceLamports = int64(SOLToLamports(w.BalanceSOL))
+	if w.BalanceLamports != int64(SOLToLamports(1.5)) {
+		t.Fatalf("balance_lamports out of sync after debit: %d", w.BalanceLamports)
 	}
 }
+

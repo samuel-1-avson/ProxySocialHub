@@ -13,10 +13,12 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 )
 
 const (
@@ -93,7 +95,17 @@ type OracleClient struct {
 	hsm            HSMSigner
 	network        string
 	velocity       *VelocityGuard // nil until SetVelocityGuard is called
+
+	balMu    sync.Mutex
+	balCache map[string]balCacheEntry
 }
+
+type balCacheEntry struct {
+	lamports uint64
+	at       time.Time
+}
+
+const balanceCacheTTL = 12 * time.Second
 
 // SetVelocityGuard attaches a VelocityGuard to the client.
 // Call this in main.go after creating the OracleClient and initialising Redis.
@@ -131,7 +143,29 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 	var hsm HSMSigner
 	var oracleKey sol.PrivateKey
 
-	if os.Getenv("USE_AWS_KMS") == "true" {
+	useGCP := os.Getenv("USE_GCP_KMS") == "true"
+	useAWS := os.Getenv("USE_AWS_KMS") == "true"
+	// Prefer GCP Cloud KMS when both flags are set (GCP deployment path).
+	if useGCP {
+		keyName := strings.TrimSpace(os.Getenv("GCP_KMS_KEY_NAME"))
+		pubKeyStr := strings.TrimSpace(os.Getenv("GCP_KMS_PUBLIC_KEY"))
+		signer, err := NewGCPKMSSigner(context.Background(), keyName, pubKeyStr)
+		if err != nil {
+			if gcpKMSStrictEnv() {
+				return nil, fmt.Errorf("USE_GCP_KMS=true but Cloud KMS init failed: %w", err)
+			}
+			fmt.Printf("[SolanaClient] GCP KMS initialization failed (%v). Falling back to mock HSM signer.\n", err)
+			k, keyErr := loadKeypair(cfg.OracleKeypairPath)
+			if keyErr != nil {
+				fmt.Printf("[SolanaClient] Keypair file missing. Generating random key for mock HSM.\n")
+				k, _ = GenerateRandomKeypair()
+			}
+			hsm = NewMockHSMSigner(k)
+		} else {
+			hsm = signer
+			fmt.Printf("[SolanaClient] Initialized GCP Cloud KMS signer: %s (pubkey %s)\n", keyName, signer.PublicKey())
+		}
+	} else if useAWS {
 		kmsKeyID := os.Getenv("AWS_KMS_KEY_ID")
 		kmsPubKeyStr := os.Getenv("AWS_KMS_PUBLIC_KEY")
 
@@ -153,6 +187,12 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		// Attempt to create AWS KMSSigner
 		signer, err := NewAWSKMSSigner(kmsKeyID, pubKey)
 		if err != nil {
+			env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+			strict := env == "production" || env == "prod" || env == "staging" ||
+				strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_REQUIRE_AWS_KMS")), "true")
+			if strict {
+				return nil, fmt.Errorf("USE_AWS_KMS=true but KMS init failed in %s: %w", env, err)
+			}
 			// Fallback to MockHSMSigner using keypair if AWS credentials are not set (e.g. dev/testing)
 			fmt.Printf("[SolanaClient] KMS initialization failed (%v). Falling back to mock HSM signer.\n", err)
 			k, keyErr := loadKeypair(cfg.OracleKeypairPath)
@@ -204,6 +244,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		treasuryHotKey: treasuryHot,
 		hsm:            hsm,
 		network:        cfg.Network,
+		balCache:       make(map[string]balCacheEntry),
 	}
 
 	if err := client.validateCustodySeparation(); err != nil {
@@ -446,9 +487,15 @@ func ValidateConfiguredTreasuryAddresses(oracle *OracleClient) error {
 	oraclePK := oracle.GetOraclePublicKey()
 	payoutPK := oracle.GetPayoutPublicKey()
 
-	hotEnv := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_ADDRESS"))
+	hotExplicit := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_ADDRESS"))
+	legacyTreasury := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_ADDRESS"))
+	hotEnv := hotExplicit
 	if hotEnv == "" {
-		hotEnv = strings.TrimSpace(os.Getenv("SOLANA_TREASURY_ADDRESS"))
+		hotEnv = legacyTreasury
+	}
+	// After vault cutover both must be set and must differ (deposit/legacy addr ≠ payout float).
+	if prod && hotExplicit != "" && legacyTreasury != "" && hotExplicit == legacyTreasury {
+		return fmt.Errorf("BC-08: SOLANA_TREASURY_ADDRESS must differ from SOLANA_TREASURY_HOT_ADDRESS after deposit vault cutover (set treasury to vault PDA)")
 	}
 	if hotEnv != "" {
 		hotPK, err := sol.PublicKeyFromBase58(hotEnv)
@@ -482,6 +529,37 @@ func ValidateConfiguredTreasuryAddresses(oracle *OracleClient) error {
 		}
 	} else if prod {
 		fmt.Printf("[SolanaClient] WARNING: SOLANA_TREASURY_COLD_ADDRESS unset — cold storage not configured\n")
+	}
+
+	vaultEnv := strings.TrimSpace(os.Getenv("SOLANA_DEPOSIT_VAULT_ADDRESS"))
+	if vaultEnv != "" {
+		vaultPK, err := sol.PublicKeyFromBase58(vaultEnv)
+		if err != nil {
+			return fmt.Errorf("invalid SOLANA_DEPOSIT_VAULT_ADDRESS: %w", err)
+		}
+		if vaultPK.Equals(oraclePK) || vaultPK.Equals(payoutPK) {
+			msg := "SOLANA_DEPOSIT_VAULT_ADDRESS must differ from oracle and hot treasury"
+			if prod {
+				return fmt.Errorf("BC-08: %s", msg)
+			}
+			fmt.Printf("[SolanaClient] WARNING: %s\n", msg)
+		}
+		if coldEnv != "" {
+			if coldPK, err := sol.PublicKeyFromBase58(coldEnv); err == nil && vaultPK.Equals(coldPK) {
+				msg := "SOLANA_DEPOSIT_VAULT_ADDRESS must differ from cold treasury"
+				if prod {
+					return fmt.Errorf("BC-08: %s", msg)
+				}
+				fmt.Printf("[SolanaClient] WARNING: %s\n", msg)
+			}
+		}
+		if derived, _, err := oracle.GetDepositVaultPDA(); err == nil && !derived.Equals(vaultPK) {
+			msg := fmt.Sprintf("SOLANA_DEPOSIT_VAULT_ADDRESS %s does not match derived PDA %s", vaultPK, derived)
+			if prod {
+				return fmt.Errorf("BC-08: %s", msg)
+			}
+			fmt.Printf("[SolanaClient] WARNING: %s\n", msg)
+		}
 	}
 
 	_ = env
@@ -606,8 +684,9 @@ func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey)
 	data = data[8:]
 
 	// P2-05: Escrow account field offsets (post-discriminator).
-	// Named constants replace magic numbers so a future IDL change has one place to update.
-	// Layout: buyer(32) seller(32) amount(u64) bw_limit(u64) bw_used(u64) status(u8) created(i64) expires(i64) bump(u8)
+	// Layout must match programs/proxyhub Escrow:
+	// buyer(32) seller(32) amount(u64) bw_limit(u64) bw_used(u64) status(u8)
+	// created(i64) expires(i64) price_oracle(32) price_timestamp(i64) bump(u8)
 	const (
 		escrowOffBuyer            = 0
 		escrowOffSeller           = 32
@@ -617,9 +696,11 @@ func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey)
 		escrowOffStatus           = 88
 		escrowOffCreatedAt        = 89
 		escrowOffExpiresAt        = 97
-		escrowOffBump             = 105
-		escrowMinSize             = 106 // bump byte + 1
+		escrowOffPriceOracle      = 105 // price_oracle pubkey starts here
+		escrowOffBump             = 145 // after price_oracle(32)+price_timestamp(8)
+		escrowMinSize             = 146
 	)
+	_ = escrowOffPriceOracle
 
 	if len(data) < escrowMinSize {
 		return nil, fmt.Errorf("account data too short for escrow: got %d, need %d", len(data), escrowMinSize)
@@ -633,7 +714,7 @@ func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey)
 		BandwidthUsedGB:  bytesToUint64(data[escrowOffBandwidthUsedGB:escrowOffStatus]),
 		Status:           EscrowStatus(data[escrowOffStatus]),
 		CreatedAt:        int64(bytesToUint64(data[escrowOffCreatedAt:escrowOffExpiresAt])),
-		ExpiresAt:        int64(bytesToUint64(data[escrowOffExpiresAt:escrowOffBump])),
+		ExpiresAt:        int64(bytesToUint64(data[escrowOffExpiresAt:escrowOffPriceOracle])),
 		Bump:             data[escrowOffBump],
 	}
 
@@ -649,32 +730,76 @@ func bytesToUint64(b []byte) uint64 {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 }
 
+// GetCurrentSlot returns the cluster's finalized slot.
+func (c *OracleClient) GetCurrentSlot(ctx context.Context) (uint64, error) {
+	var slot uint64
+	err := c.withFailover(ctx, func(client *rpc.Client) error {
+		s, callErr := client.GetSlot(ctx, rpc.CommitmentFinalized)
+		if callErr != nil {
+			return callErr
+		}
+		slot = s
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("GetCurrentSlot: %w", err)
+	}
+	return slot, nil
+}
+
 // GetBalance returns the SOL balance of the specified wallet.
-// Retries briefly on transient RPC failures (e.g. public-devnet 429s).
+// Retries with backoff + RPC failover on transient failures (e.g. public-devnet 429s).
+// Successful reads are cached briefly so withdraw preflight survives RPC blips.
 func (c *OracleClient) GetBalance(ctx context.Context, pubkey sol.PublicKey) (uint64, error) {
+	key := pubkey.String()
+	c.balMu.Lock()
+	if ent, ok := c.balCache[key]; ok && time.Since(ent.at) < balanceCacheTTL {
+		lamports := ent.lamports
+		c.balMu.Unlock()
+		return lamports, nil
+	}
+	c.balMu.Unlock()
+
 	var balance *rpc.GetBalanceResult
 	var lastErr error
-	backoffs := []time.Duration{0, 250 * time.Millisecond, 750 * time.Millisecond}
+	backoffs := []time.Duration{0, 400 * time.Millisecond, 1200 * time.Millisecond, 2500 * time.Millisecond}
 	for attempt, wait := range backoffs {
 		if wait > 0 {
 			select {
 			case <-ctx.Done():
+				// Prefer a recent cached value over failing the whole withdraw.
+				c.balMu.Lock()
+				ent, ok := c.balCache[key]
+				c.balMu.Unlock()
+				if ok && time.Since(ent.at) < 60*time.Second {
+					return ent.lamports, nil
+				}
 				return 0, ctx.Err()
 			case <-time.After(wait):
 			}
 		}
 		err := c.withFailover(ctx, func(client *rpc.Client) error {
 			var callErr error
-			balance, callErr = client.GetBalance(ctx, pubkey, rpc.CommitmentProcessed)
+			balance, callErr = client.GetBalance(ctx, pubkey, rpc.CommitmentConfirmed)
 			return callErr
 		})
 		if err == nil {
+			c.balMu.Lock()
+			c.balCache[key] = balCacheEntry{lamports: balance.Value, at: time.Now()}
+			c.balMu.Unlock()
 			return balance.Value, nil
 		}
 		lastErr = err
 		if attempt+1 < len(backoffs) {
 			c.rotateRPC()
 		}
+	}
+	// Stale cache fallback (up to 60s) beats hard-failing withdrawals on flaky public RPCs.
+	c.balMu.Lock()
+	ent, ok := c.balCache[key]
+	c.balMu.Unlock()
+	if ok && time.Since(ent.at) < 60*time.Second {
+		return ent.lamports, nil
 	}
 	return 0, fmt.Errorf("failed to get balance: %w", lastErr)
 }
@@ -890,29 +1015,74 @@ func (c *OracleClient) HasNFT(ctx context.Context, wallet sol.PublicKey, mint so
 
 // ============== BRIDGE VERIFICATION ==============
 
-// VerifyTransaction checks if a transaction is finalized and transfers SOL to a destination
+func isTxNotFoundErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "was not found") ||
+		strings.Contains(msg, "could not find")
+}
+
+// VerifyTransaction checks if a transaction is confirmed and transfers SOL to a destination.
+// Uses commitment "confirmed" (matches wallet confirmTransaction) and retries briefly while
+// public RPCs catch up — finalized-only lookups commonly return "not found" right after send.
 func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, expectedDest sol.PublicKey) (uint64, error) {
 	sig, err := sol.SignatureFromBase58(signature)
 	if err != nil {
 		return 0, fmt.Errorf("invalid signature: %w", err)
 	}
 
+	maxVersion := uint64(0)
+	opts := &rpc.GetTransactionOpts{
+		Commitment:                     rpc.CommitmentConfirmed,
+		MaxSupportedTransactionVersion: &maxVersion,
+	}
+
+	const (
+		maxAttempts = 12
+		retryDelay  = 1500 * time.Millisecond
+	)
+
 	var tx *rpc.GetTransactionResult
-	err = c.withFailover(ctx, func(client *rpc.Client) error {
-		var err error
-		tx, err = client.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
-			Commitment: rpc.CommitmentFinalized,
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		tx = nil
+		lastErr = c.withFailover(ctx, func(client *rpc.Client) error {
+			var err error
+			tx, err = client.GetTransaction(ctx, sig, opts)
+			return err
 		})
-		return err
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to fetch transaction: %w", err)
+		if lastErr == nil && tx != nil {
+			break
+		}
+		if lastErr != nil && !isTxNotFoundErr(lastErr) {
+			return 0, fmt.Errorf("failed to fetch transaction: %w", lastErr)
+		}
+		if attempt == maxAttempts {
+			if lastErr != nil {
+				return 0, fmt.Errorf("failed to fetch transaction: %w", lastErr)
+			}
+			return 0, fmt.Errorf("transaction not found")
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(retryDelay):
+		}
 	}
 
 	if tx == nil {
 		return 0, fmt.Errorf("transaction not found")
 	}
 
+	if tx.Meta == nil {
+		return 0, fmt.Errorf("transaction meta missing")
+	}
 	if tx.Meta.Err != nil {
 		return 0, fmt.Errorf("transaction failed on-chain")
 	}
@@ -923,12 +1093,30 @@ func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, 
 		return 0, fmt.Errorf("failed to decode transaction: %w", err)
 	}
 
-	// Find index of expectedDest
+	// Find index of expectedDest (legacy account keys + any loaded addresses)
 	destIndex := -1
 	for i, key := range decodedTx.Message.AccountKeys {
 		if key.Equals(expectedDest) {
 			destIndex = i
 			break
+		}
+	}
+	if destIndex == -1 && tx.Meta.LoadedAddresses.Writable != nil {
+		offset := len(decodedTx.Message.AccountKeys)
+		for i, key := range tx.Meta.LoadedAddresses.Writable {
+			if key.Equals(expectedDest) {
+				destIndex = offset + i
+				break
+			}
+		}
+	}
+	if destIndex == -1 && tx.Meta.LoadedAddresses.ReadOnly != nil {
+		offset := len(decodedTx.Message.AccountKeys) + len(tx.Meta.LoadedAddresses.Writable)
+		for i, key := range tx.Meta.LoadedAddresses.ReadOnly {
+			if key.Equals(expectedDest) {
+				destIndex = offset + i
+				break
+			}
 		}
 	}
 
@@ -959,12 +1147,14 @@ func (c *OracleClient) GetTransaction(ctx context.Context, signature string) (*r
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
+	maxVersion := uint64(0)
 	var tx *rpc.GetTransactionResult
 	err = c.withFailover(ctx, func(client *rpc.Client) error {
 		var err error
 		tx, err = client.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{
-			Commitment: rpc.CommitmentFinalized,
-			Encoding:   sol.EncodingBase64,
+			Commitment:                     rpc.CommitmentConfirmed,
+			Encoding:                       sol.EncodingBase64,
+			MaxSupportedTransactionVersion: &maxVersion,
 		})
 		return err
 	})
@@ -1003,6 +1193,18 @@ func SetOracleClientForTest(c *OracleClient) {
 func RegisterOracleClient(c *OracleClient) {
 	globalOracleClient = c
 	oracleClient = c
+}
+
+// GetDepositDestinationAddress returns the address users should send SOL to.
+// When PROXYHUB_DEPOSIT_VAULT_UI is on and vault is configured, returns the vault;
+// otherwise returns the legacy treasury address.
+func GetDepositDestinationAddress() string {
+	if decentralization.DepositVaultUIEnabled() {
+		if v := GetDepositVaultAddress(); v != "" {
+			return v
+		}
+	}
+	return GetTreasuryAddress()
 }
 
 // GetTreasuryAddress returns the configured treasury address from environment

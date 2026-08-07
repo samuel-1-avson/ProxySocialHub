@@ -72,10 +72,20 @@ func ResolveTTL() time.Duration {
 			return ttlSeconds
 		}
 	}
-	return 2 * time.Minute
+	// Traffic-first default: long enough to copy curl / wire a client after mint.
+	return 30 * time.Minute
 }
 
 func Issue(secret string, params Params) (string, Claims, error) {
+	return IssueWithID(secret, params, uuid.New())
+}
+
+// IssueWithID mints a JWT whose jti equals intentID (required for remint of an
+// existing session_intents row so gateway callbacks stay keyed to the same id).
+func IssueWithID(secret string, params Params, intentID uuid.UUID) (string, Claims, error) {
+	if intentID == uuid.Nil {
+		return "", Claims{}, errors.New("intent id is required")
+	}
 	now := time.Now().UTC()
 	claims := Claims{
 		UserID:                  params.UserID.String(),
@@ -98,7 +108,7 @@ func Issue(secret string, params Params) (string, Claims, error) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Audience:  jwt.ClaimStrings{Audience},
 			ExpiresAt: jwt.NewNumericDate(now.Add(ResolveTTL())),
-			ID:        uuid.NewString(),
+			ID:        intentID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    Issuer,
 			NotBefore: jwt.NewNumericDate(now),

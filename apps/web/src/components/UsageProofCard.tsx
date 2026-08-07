@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     ShieldCheck, 
@@ -12,7 +11,6 @@ import {
     ChevronRight,
     Zap,
     History,
-    Loader2
 } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { UsageProof } from '@/lib/api/trustless';
@@ -64,9 +62,6 @@ const STATUS_CONFIG = {
 };
 
 export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: UsageProofCardProps) {
-    const [isVerifying, setIsVerifying] = useState(false);
-    const [isVerified, setIsVerified] = useState(false);
-
     const config = STATUS_CONFIG[proof.status];
     const StatusIcon = config.icon;
 
@@ -165,24 +160,9 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                    <button 
-                                        onClick={async () => {
-                                            setIsVerifying(true);
-                                            // P6-W18: Simulate WASM ZK-verification
-                                            await new Promise(r => setTimeout(r, 1500));
-                                            setIsVerifying(false);
-                                            setIsVerified(true);
-                                        }}
-                                        disabled={isVerifying || isVerified}
-                                        className={`px-4 py-2.5 border rounded-xl text-[10px] font-black font-mono uppercase tracking-widest transition-all flex items-center gap-2 ${
-                                            isVerified ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                                            isVerifying ? 'bg-white/5 border-white/10 text-muted-foreground animate-pulse' :
-                                            'bg-white/5 border-white/10 text-white hover:bg-white/10'
-                                        }`}
-                                    >
-                                        {isVerifying ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                                        {isVerified ? 'ZK-Verified' : isVerifying ? 'Verifying...' : 'Verify ZK'}
-                                    </button>
+                                    <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+                                        On-chain ZK verify not available
+                                    </span>
 
                                     {proof.status === 'pending' && onSign && (
                                         <button 

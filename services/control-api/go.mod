@@ -29,6 +29,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	golang.org/x/crypto v0.53.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/time v0.15.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/driver/postgres v1.6.0
@@ -36,6 +37,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20260403213135-1d43121312d4 // indirect

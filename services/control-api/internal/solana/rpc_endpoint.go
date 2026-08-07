@@ -166,22 +166,28 @@ func NewRPCHTTPClient() *http.Client {
 	}
 }
 
+// HealthyRPCEndpoints probes endpoints and returns them ordered healthy-first.
+// Unhealthy endpoints are kept as fallbacks — dropping them left withdrawals
+// stranded on a single rate-limited public RPC.
 func HealthyRPCEndpoints(ctx context.Context, endpoints []string) []string {
 	normalized := NormalizeRPCEndpoints(endpoints)
 	if len(normalized) == 0 {
 		normalized = []string{DefaultDevnetRPCEndpoint}
 	}
 	healthy := make([]string, 0, len(normalized))
+	unhealthy := make([]string, 0, len(normalized))
 	for _, endpoint := range normalized {
 		probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 		client := NewRPCClient(endpoint)
 		if _, err := client.GetHealth(probeCtx); err == nil {
 			healthy = append(healthy, endpoint)
+		} else {
+			unhealthy = append(unhealthy, endpoint)
 		}
 		cancel()
 	}
 	if len(healthy) == 0 {
 		return normalized
 	}
-	return healthy
+	return append(healthy, unhealthy...)
 }
