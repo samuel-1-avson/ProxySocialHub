@@ -15,8 +15,8 @@ DB-03,Ledger mutable at DB layer,High,confirmed,PG,migrations + archive script,f
 DB-08,Relayer direct wallet writes stale columns,High,likely,relayer,services/relayer/db/db.go,data-corruption,OPEN,2.7
 EV-01,Treasury NATS subjects no stream,High,confirmed,control-api,nats/connector.go treasury_manager.go,events-lost,PARTIAL (TREASURY stream added; consumers pending),R-06
 EV-05,Redis SPOF sessions+metering,High,confirmed,infra,compose + redis usage,reliability,OPEN,2.3
-FE-01,/v1/ws client never authenticates,High,confirmed-static,web,lib/websocket.tsx presence.ts ws-url.ts,realtime-dead,FIXED (?token= on upgrades; backend middleware + tests ✅),1.5
-FE-02,WS same-origin/Docker localhost URL,High,confirmed-static,web+infra,lib/ws-url.ts Dockerfile,realtime-dead,PARTIAL (Docker default fixed; deploy must route /v1/ws via WS-capable proxy),1.5
+FE-01,/v1/ws client never authenticates,High,confirmed-static,web,lib/websocket.tsx presence.ts ws-url.ts,realtime-dead,FIXED (?token= + ticket; NotificationCenter/DMs use shared useRealtime),1.5
+FE-02,WS same-origin/Docker localhost URL,High,confirmed-static,web+infra,lib/ws-url.ts Dockerfile Caddyfile.example,realtime-dead,FIXED (apex→wss://api.proxyhubb.com; NEXT_PUBLIC_WS_URL bake; Caddy Upgrade docs),1.5
 GW-07,DNS-rebinding defense only on provider agent,High,confirmed-static,edge-gateway+provider-node,policy.rs handler.rs,ssrf-conditional,OPEN,1.10
 GW-08,Metering WAL/nonce durability windows,High,likely,edge-gateway+control-api,metering.rs coordinator.go,billing-accuracy,FIXED (exactly-once seq+pending; Redis exactly_once tests),1.1
 SEC-01,Compose DB/Redis host ports exposed,High,confirmed,infra,docker-compose.yml,network-exposure,FIXED,0.8

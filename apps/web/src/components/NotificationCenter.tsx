@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { useWebSocket } from "@/lib/websocket";
+import { useRealtime } from "@/lib/websocket";
 import {
     getNotifications,
     getUnreadCount,
@@ -36,7 +36,7 @@ function isNotificationPayload(value: unknown): value is Notification {
 
 export function NotificationCenter() {
     const { isAuthenticated } = useAuth();
-    const { subscribe, isConnected } = useWebSocket();
+    const { subscribe, isConnected } = useRealtime();
     const [isOpen, setIsOpen] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);

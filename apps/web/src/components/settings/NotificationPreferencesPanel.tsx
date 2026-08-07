@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@/lib/auth";
 import {
     getNotificationPreferences,
     updateNotificationPreferences,
@@ -22,7 +21,6 @@ import {
 } from "lucide-react";
 
 export function NotificationPreferencesPanel() {
-    const { user } = useAuth();
     const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -143,9 +141,9 @@ export function NotificationPreferencesPanel() {
     ];
 
     const channels = [
-        { id: "in_app", label: "In-App", icon: Monitor, description: "Show in notification center" },
-        { id: "email", label: "Email", icon: Mail, description: "Send to your email address" },
-        { id: "push", label: "Push", icon: Smartphone, description: "Mobile push notifications" },
+        { id: "in_app", label: "In-App", icon: Monitor, description: "Show in notification center", live: true },
+        { id: "email", label: "Email", icon: Mail, description: "Coming soon — not delivered yet", live: false },
+        { id: "push", label: "Push", icon: Smartphone, description: "Coming soon — not delivered yet", live: false },
     ];
 
     return (
@@ -153,7 +151,9 @@ export function NotificationPreferencesPanel() {
             <div className="flex items-start justify-between">
                 <div>
                     <h2 className="text-xl font-bold font-mono tracking-tight">Notifications</h2>
-                    <p className="text-muted-foreground mt-1 text-sm">Choose how you want to be notified</p>
+                    <p className="text-muted-foreground mt-1 text-sm">
+                        In-app delivery is live. Email and push preferences are saved for later — they are not delivered yet.
+                    </p>
                 </div>
                 {saving && (
                     <div className="flex items-center gap-2 text-muted-foreground">
@@ -194,32 +194,38 @@ export function NotificationPreferencesPanel() {
                             {channels.map((channel) => {
                                 const prefKey = `${category.id}_${channel.id}` as keyof NotificationPreference;
                                 const isEnabled = preferences[prefKey] as boolean;
+                                const interactive = channel.live;
 
                                 return (
                                     <button
                                         key={channel.id}
                                         type="button"
-                                        onClick={() =>
+                                        onClick={() => {
+                                            if (!interactive) return;
                                             handleToggle(
                                                 category.id as "social" | "business" | "community" | "system",
                                                 channel.id as "in_app" | "email" | "push",
-                                            )
-                                        }
-                                        disabled={saving}
+                                            );
+                                        }}
+                                        disabled={saving || !interactive}
+                                        title={interactive ? undefined : "Coming soon"}
                                         className={`p-4 rounded-xl border text-left transition-all ${
-                                            isEnabled
+                                            !interactive
+                                                ? "bg-secondary/10 border-border opacity-70 cursor-not-allowed"
+                                                : isEnabled
                                                 ? `${category.bgColor} ${category.borderColor} border-2`
                                                 : "bg-secondary/20 border-border hover:border-secondary"
                                         }`}
                                     >
                                         <div className="flex items-center gap-3 mb-2">
                                             <channel.icon
-                                                className={`w-5 h-5 ${isEnabled ? category.color : "text-muted-foreground"}`}
+                                                className={`w-5 h-5 ${isEnabled && interactive ? category.color : "text-muted-foreground"}`}
                                             />
                                             <span
-                                                className={`font-bold font-mono ${isEnabled ? "text-foreground" : "text-muted-foreground"}`}
+                                                className={`font-bold font-mono ${isEnabled && interactive ? "text-foreground" : "text-muted-foreground"}`}
                                             >
                                                 {channel.label}
+                                                {!interactive ? " (soon)" : ""}
                                             </span>
                                         </div>
                                         <p className="text-xs text-muted-foreground">{channel.description}</p>
@@ -238,7 +244,9 @@ export function NotificationPreferencesPanel() {
                     </div>
                     <div>
                         <h3 className="font-bold font-mono text-lg">Email digest</h3>
-                        <p className="text-sm text-muted-foreground">How often you receive email summaries</p>
+                        <p className="text-sm text-muted-foreground">
+                            Saved for later — email digests are not sent yet.
+                        </p>
                     </div>
                 </div>
 
@@ -301,9 +309,8 @@ export function NotificationPreferencesPanel() {
                 <div className="text-sm text-muted-foreground">
                     <p className="mb-2 font-medium text-foreground">Delivery notes</p>
                     <ul className="space-y-1 list-disc list-inside">
-                        <li>In-app notifications appear in your notification center</li>
-                        <li>Email notifications are sent to {user?.email}</li>
-                        <li>Push notifications require the mobile app</li>
+                        <li>In-app notifications appear in your notification center (and over realtime when connected)</li>
+                        <li>Email and push delivery are not live yet — toggles are reserved for a future release</li>
                         <li>Some critical security notifications cannot be disabled</li>
                     </ul>
                 </div>
