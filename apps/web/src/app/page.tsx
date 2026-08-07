@@ -80,8 +80,8 @@ export default function Home() {
         <section className="border-b border-border" aria-label="Network proof points">
           <div className="mx-auto grid max-w-[1120px] grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {[
-              { value: "99.9%", label: "Target uptime" },
-              { value: "<50 ms", label: "Edge routing latency" },
+              { value: "Devnet", label: "Settlement network" },
+              { value: "CONNECT", label: "Buyer proxy protocol" },
               { value: "SOL", label: "Settlement rail" },
             ].map((m) => (
               <div key={m.label} className="px-6 py-10 sm:px-8">

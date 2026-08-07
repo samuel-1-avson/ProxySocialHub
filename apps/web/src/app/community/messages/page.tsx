@@ -13,7 +13,7 @@ import {
 } from "@/lib/social-api";
 import { getFriends, type Friendship } from "@/lib/friends-api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { useWebSocket, WS_MESSAGE_TYPES } from "@/lib/websocket";
+import { useRealtime, WS_MESSAGE_TYPES } from "@/lib/websocket";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
     Send,
@@ -29,7 +29,7 @@ import {
 
 function MessagesContent() {
     const { user } = useAuth();
-    const { subscribe, isConnected } = useWebSocket();
+    const { subscribe, isConnected } = useRealtime();
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -231,7 +231,7 @@ function MessagesContent() {
                             <Loader2 className="animate-spin text-primary" size={24} />
                         </div>
                     ) : filteredConversations.length === 0 ? (
-                        <div className="p-8 text-center" style={{ color: "var(--muted)" }}>
+                        <div className="p-8 text-center" style={{ color: "var(--muted-foreground)" }}>
                             <Inbox className="mx-auto mb-3 text-muted-foreground/40" size={28} />
                             <p className="mb-2 font-mono text-xs uppercase">No conversations</p>
                             <p className="text-[10px] font-mono text-muted-foreground mb-4">

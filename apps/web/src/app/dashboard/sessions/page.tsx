@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createSessionIntent, getSessionIntentStatus, getSessions, listSessionIntents, terminateSession } from '@/lib/api';
+import { createSessionIntent, getSessionIntentStatus, getSessions, listSessionIntents, remintSessionIntent, terminateSession } from '@/lib/api';
 import type { CreateSessionIntentResponse, Session, SessionIntentLifecycle, SessionIntentStatusResponse } from '@/lib/api';
 import {
     ExternalLink,
@@ -133,12 +133,23 @@ function describeLifecycleTimestamp(intent: SessionIntentStatusResponse) {
     return `Expires ${new Date(intent.expires_at).toLocaleTimeString()}`;
 }
 
+function formatTTLRemaining(expiresAt: string, nowMs: number): string {
+    const ms = new Date(expiresAt).getTime() - nowMs;
+    if (ms <= 0) return 'expired';
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}m ${s.toString().padStart(2, '0')}s`;
+}
+
 export default function SessionsPage() {
     const queryClient = useQueryClient();
     const toast = useToast();
 
     const [creating, setCreating] = useState(false);
+    const [remintingId, setRemintingId] = useState<string | null>(null);
     const [newIntent, setNewIntent] = useState<CreateSessionIntentResponse | null>(null);
+    const [nowMs, setNowMs] = useState(() => Date.now());
     const [intentLifecycleFilter, setIntentLifecycleFilter] = useState<IntentLifecycleFilter>('all');
     const [selectedIntentId, setSelectedIntentId] = useState<string | null>(null);
     const [pendingTerminateId, setPendingTerminateId] = useState<string | null>(null);
@@ -147,6 +158,12 @@ export default function SessionsPage() {
     
     // Review Modal State
     const [reviewSessionId, setReviewSessionId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!newIntent) return;
+        const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+        return () => window.clearInterval(id);
+    }, [newIntent]);
 
     const { data: sessions = [], isLoading: loading } = useQuery({
         queryKey: ['sessions'],
@@ -177,12 +194,28 @@ export default function SessionsPage() {
             setNewIntent(result);
             setSelectedIntentId(result.intent.intent_id);
             await queryClient.invalidateQueries({ queryKey: ['session-intents'] });
-            toast.success('Intent issued', 'A signed proxy admission token is ready to use.');
+            toast.success('Intent issued', 'Use the token within the TTL — CONNECT activates the path.');
         } catch (error) {
             console.error('Failed to create session intent:', error);
             toast.error('Intent failed', 'Could not issue a session intent. Please try again.');
         } finally {
             setCreating(false);
+        }
+    }
+
+    async function handleRemint(intentId: string) {
+        setRemintingId(intentId);
+        try {
+            const result = await remintSessionIntent(intentId);
+            setNewIntent(result);
+            setSelectedIntentId(result.intent.intent_id);
+            await queryClient.invalidateQueries({ queryKey: ['session-intents'] });
+            toast.success('Token reminted', 'Fresh JWT issued for the same intent id.');
+        } catch (error) {
+            console.error('Failed to remint session intent:', error);
+            toast.error('Remint failed', getErrorMessage(error) || 'Could not remint this intent.');
+        } finally {
+            setRemintingId(null);
         }
     }
 
@@ -317,6 +350,9 @@ export default function SessionsPage() {
                 cell: ({ row }) => {
                     const ledger = row.original.intent;
                     const canCopyToken = newIntent?.intent.intent_id === ledger.intent_id;
+                    const canRemint =
+                        row.original.lifecycle_state === 'authorized' ||
+                        row.original.lifecycle_state === 'expired';
                     return (
                         <div className="flex flex-wrap items-center justify-end gap-2">
                             <Button
@@ -339,15 +375,24 @@ export default function SessionsPage() {
                                 >
                                     Copy Curl
                                 </Button>
-                            ) : (
-                                <span className="text-xs text-muted-foreground">Token not retained</span>
-                            )}
+                            ) : null}
+                            {canRemint ? (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={remintingId === ledger.intent_id}
+                                    onClick={() => void handleRemint(ledger.intent_id)}
+                                >
+                                    {remintingId === ledger.intent_id ? 'Reminting…' : 'Remint'}
+                                </Button>
+                            ) : null}
                         </div>
                     );
                 },
             },
         ],
-        [newIntent, selectedIntentId, toast]
+        [newIntent, remintingId, selectedIntentId, toast]
     );
 
     const sessionColumns = useMemo<ColumnDef<Session, unknown>[]>(
@@ -498,7 +543,7 @@ export default function SessionsPage() {
             className="space-y-12 pb-20"
         >
             {/* Header Section */}
-            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
+            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border pb-8">
                 <div>
                     <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
                         <Terminal size={12} className="animate-pulse" /> Signal Node Alpha
@@ -507,11 +552,25 @@ export default function SessionsPage() {
                         Session Ledger
                     </h1>
                 </div>
-                <div className="flex bg-white/5 p-1.5 rounded-xl border border-white/10 backdrop-blur-md">
+                <div className="flex bg-secondary p-1.5 rounded-xl border border-border backdrop-blur-md">
                     <span className="px-4 py-2 text-[10px] font-mono font-black uppercase text-primary bg-primary/10 rounded-lg border border-primary/20">
                         {liveIntents.length + activeLegacySessions.length} Active Paths / {intents.length} Intents
                     </span>
                 </div>
+            </motion.div>
+
+            <motion.div variants={itemVariants}>
+                <GlassCard className="p-5 border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/5">
+                    <p className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-amber-900 dark:text-amber-300">
+                        Authorized ≠ active path
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                        Issuing an intent only mints a JWT (~30 min TTL). Live Pulse and Active Paths
+                        update after the gateway accepts a CONNECT with that token. Remint authorized
+                        or expired intents if the token was lost or expired. Usage settles to your
+                        wallet when the intent closes.
+                    </p>
+                </GlassCard>
             </motion.div>
 
             {/* Real-time Session Monitor Section */}
@@ -521,7 +580,7 @@ export default function SessionsPage() {
                         <Radio size={16} className="text-primary animate-pulse" /> Live Pulse Monitor
                     </h2>
                 </div>
-                <div className="rounded-2xl overflow-hidden border border-white/5 shadow-2xl">
+                <div className="rounded-2xl overflow-hidden border border-border shadow-2xl">
                     <SessionLiveCard />
                 </div>
             </motion.div>
@@ -554,19 +613,19 @@ export default function SessionsPage() {
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleCreateSession(btn.type)}
                             disabled={creating}
-                            className={`group relative p-8 glass-card border-white/5 bg-gradient-to-br ${btn.gradient} items-start text-left overflow-hidden disabled:opacity-50 transition-all hover:border-white/20`}
+                            className={`group relative p-8 glass-card border-border bg-gradient-to-br ${btn.gradient} items-start text-left overflow-hidden disabled:opacity-50 transition-all hover:border-border-strong`}
                         >
                             <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 group-hover:opacity-10 transition-all duration-500">
                                 <btn.icon size={120} />
                             </div>
                             <div className="relative z-10">
-                                <div className="p-3 bg-white/5 rounded-xl border border-white/10 w-fit mb-6 group-hover:bg-primary/20 group-hover:border-primary/40 transition-colors">
+                                <div className="p-3 bg-muted rounded-xl border border-border w-fit mb-6 group-hover:bg-primary/20 group-hover:border-primary/40 transition-colors">
                                     <btn.icon size={24} className="text-primary" />
                                 </div>
                                 <h3 className="text-lg font-black font-mono uppercase text-foreground mb-2 tracking-tight group-hover:text-primary transition-colors">
                                     {btn.title}
                                 </h3>
-                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed uppercase font-black">
+                                <p className="text-[10px] font-mono text-muted-foreground leading-relaxed uppercase font-black">
                                     {btn.desc}
                                 </p>
                                 <div className="mt-8 flex items-center gap-2 text-[9px] font-mono font-black text-primary uppercase tracking-[0.2em]">
@@ -596,13 +655,13 @@ export default function SessionsPage() {
                         <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-blue-300/70">Ledger Finalized</div>
                         <div className="mt-3 text-3xl font-mono font-black text-blue-300">{completedIntentCount}</div>
                     </GlassCard>
-                    <GlassCard className="p-5 border-white/10 bg-white/5">
-                        <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/60">Expired Records</div>
+                    <GlassCard className="p-5 border-border bg-muted">
+                        <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Expired Records</div>
                         <div className="mt-3 text-3xl font-mono font-black text-foreground">{expiredIntentCount}</div>
                     </GlassCard>
-                    <GlassCard className="p-5 border-amber-500/20 bg-amber-500/5">
-                        <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-amber-400/70">Ledger Throughput</div>
-                        <div className="mt-3 text-3xl font-mono font-black text-amber-300">{formatBytes(totalIntentBytes)}</div>
+                    <GlassCard className="p-5 border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/5">
+                        <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-amber-800 dark:text-amber-400">Ledger Throughput</div>
+                        <div className="mt-3 text-3xl font-mono font-black text-amber-700 dark:text-amber-300">{formatBytes(totalIntentBytes)}</div>
                     </GlassCard>
                     <GlassCard className="p-5 border-sky-500/20 bg-sky-500/5">
                         <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-sky-400/70">Estimated Spend</div>
@@ -625,7 +684,7 @@ export default function SessionsPage() {
                             className={`px-4 py-2 rounded-xl border text-[9px] font-mono font-black uppercase tracking-[0.2em] transition-all ${
                                 intentLifecycleFilter === filter.id
                                     ? 'border-primary/40 bg-primary/15 text-primary'
-                                    : 'border-white/10 bg-white/5 text-muted-foreground/60 hover:border-white/20 hover:text-foreground'
+                                    : 'border-border bg-muted text-muted-foreground hover:border-border-strong hover:text-foreground'
                             }`}
                         >
                             {filter.label} · {filter.count}
@@ -634,7 +693,7 @@ export default function SessionsPage() {
                     {selectedIntentId && (
                         <button
                             onClick={() => setSelectedIntentId(null)}
-                            className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/60 hover:border-white/20 hover:text-foreground transition-all"
+                            className="px-4 py-2 rounded-xl border border-border bg-muted text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground hover:border-border-strong hover:text-foreground transition-all"
                         >
                             Clear Focus
                         </button>
@@ -642,7 +701,7 @@ export default function SessionsPage() {
                 </div>
 
                 {intents.length === 0 ? (
-                    <GlassCard className="p-20 text-center border-dashed border-white/10 opacity-50">
+                    <GlassCard className="p-20 text-center border-dashed border-border">
                         <p className="text-[10px] font-mono font-black uppercase tracking-[0.5em] text-muted-foreground">
                             No intent ledger entries recorded yet.
                         </p>
@@ -659,6 +718,9 @@ export default function SessionsPage() {
                             const ledger = intentRecord.intent;
                             const totalBytes = (ledger.total_bytes_up ?? 0) + (ledger.total_bytes_down ?? 0);
                             const canCopyToken = newIntent?.intent.intent_id === ledger.intent_id;
+                            const canRemint =
+                                intentRecord.lifecycle_state === 'authorized' ||
+                                intentRecord.lifecycle_state === 'expired';
                             return (
                                 <div className="space-y-3">
                                     <div className="flex items-start justify-between gap-2">
@@ -701,6 +763,17 @@ export default function SessionsPage() {
                                                 Copy Curl
                                             </Button>
                                         ) : null}
+                                        {canRemint ? (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={remintingId === ledger.intent_id}
+                                                onClick={() => void handleRemint(ledger.intent_id)}
+                                            >
+                                                {remintingId === ledger.intent_id ? 'Reminting…' : 'Remint'}
+                                            </Button>
+                                        ) : null}
                                     </div>
                                 </div>
                             );
@@ -716,7 +789,7 @@ export default function SessionsPage() {
                                 <h3 className="mt-2 text-2xl font-black font-mono uppercase tracking-tight text-foreground">
                                     {selectedIntent.intent.intent_id.slice(0, 16)}...
                                 </h3>
-                                <p className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground/60">
+                                <p className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground">
                                     {selectedIntent.intent.session_type} / {formatLifecycleLabel(selectedIntent.lifecycle_state)} / {selectedIntent.billing_snapshot.price_source}
                                 </p>
                             </div>
@@ -726,9 +799,21 @@ export default function SessionsPage() {
                                         Refreshing...
                                     </span>
                                 )}
+                                {(selectedIntent.lifecycle_state === 'authorized' ||
+                                    selectedIntent.lifecycle_state === 'expired') && (
+                                    <button
+                                        onClick={() => void handleRemint(selectedIntent.intent.intent_id)}
+                                        disabled={remintingId === selectedIntent.intent.intent_id}
+                                        className="px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-[9px] font-mono font-black uppercase tracking-[0.2em] text-primary hover:border-primary/50 transition-all disabled:opacity-50"
+                                    >
+                                        {remintingId === selectedIntent.intent.intent_id
+                                            ? 'Reminting…'
+                                            : 'Remint token'}
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => setSelectedIntentId(null)}
-                                    className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/60 hover:border-white/20 hover:text-foreground transition-all"
+                                    className="px-4 py-2 rounded-xl border border-border bg-muted text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground hover:border-border-strong hover:text-foreground transition-all"
                                 >
                                     Close Focus
                                 </button>
@@ -736,81 +821,81 @@ export default function SessionsPage() {
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4 mt-8">
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Route</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Route</div>
                                 <div className="mt-3 text-[11px] font-black uppercase text-foreground break-all">
                                     {selectedIntent.intent.provider_node_id || 'Awaiting provider'}
                                 </div>
-                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
+                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground">
                                     {selectedIntent.intent.target_host || selectedIntent.intent.target_geo || 'No host bound'}
                                 </div>
                             </GlassCard>
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Usage</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Usage</div>
                                 <div className="mt-3 text-[11px] font-black uppercase text-foreground">
                                     {formatBytes(selectedIntent.usage_snapshot.total_bytes)} total
                                 </div>
-                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
+                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground">
                                     Up {formatBytes(selectedIntent.usage_snapshot.total_bytes_up)} / Down {formatBytes(selectedIntent.usage_snapshot.total_bytes_down)}
                                 </div>
-                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
+                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground">
                                     Remaining {selectedIntent.usage_snapshot.unlimited ? 'unlimited' : formatBytes(selectedIntent.usage_snapshot.bytes_remaining)}
                                 </div>
                             </GlassCard>
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Billing</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Billing</div>
                                 <div className="mt-3 text-[11px] font-black uppercase text-foreground">
                                     {formatSOL(selectedIntent.billing_snapshot.estimated_cost_sol)} est.
                                 </div>
-                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
+                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground">
                                     {formatSOL(selectedIntent.billing_snapshot.unit_price_sol_per_gb)} / GB
                                 </div>
-                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground/40">
-                                    Native SOL settlement
+                                <div className="mt-2 text-[9px] font-black uppercase text-muted-foreground">
+                                    Wallet settle on close
                                 </div>
                             </GlassCard>
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Timing</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Timing</div>
                                 <div className="mt-4 grid grid-cols-2 gap-3 text-[10px] font-mono font-black uppercase">
-                                    <div className="text-muted-foreground/70">Issued</div>
+                                    <div className="text-muted-foreground">Issued</div>
                                     <div className="text-right text-foreground">{new Date(selectedIntent.created_at).toLocaleTimeString()}</div>
-                                    <div className="text-muted-foreground/70">Routed</div>
+                                    <div className="text-muted-foreground">Routed</div>
                                     <div className="text-right text-foreground">{selectedIntent.routed_at ? new Date(selectedIntent.routed_at).toLocaleTimeString() : '—'}</div>
-                                    <div className="text-muted-foreground/70">Active</div>
+                                    <div className="text-muted-foreground">Active</div>
                                     <div className="text-right text-foreground">{selectedIntent.activated_at ? new Date(selectedIntent.activated_at).toLocaleTimeString() : '—'}</div>
-                                    <div className="text-muted-foreground/70">Closing</div>
+                                    <div className="text-muted-foreground">Closing</div>
                                     <div className="text-right text-foreground">{selectedIntent.closing_at ? new Date(selectedIntent.closing_at).toLocaleTimeString() : '—'}</div>
-                                    <div className="text-muted-foreground/70">Ledger</div>
+                                    <div className="text-muted-foreground">Ledger</div>
                                     <div className="text-right text-foreground">{selectedIntent.ledger_committed_at ? new Date(selectedIntent.ledger_committed_at).toLocaleTimeString() : '—'}</div>
-                                    <div className="text-muted-foreground/70">Expiry</div>
+                                    <div className="text-muted-foreground">Expiry</div>
                                     <div className="text-right text-foreground">{selectedIntent.expired_at ? new Date(selectedIntent.expired_at).toLocaleTimeString() : new Date(selectedIntent.expires_at).toLocaleTimeString()}</div>
                                 </div>
                             </GlassCard>
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Usage Snapshot</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Usage Snapshot</div>
                                 <div className="mt-4 grid grid-cols-2 gap-3 text-[10px] font-mono font-black uppercase">
-                                    <div className="text-muted-foreground/70">Percent Used</div>
+                                    <div className="text-muted-foreground">Percent Used</div>
                                     <div className="text-right text-foreground">{selectedIntent.usage_snapshot.unlimited ? 'unlimited' : `${selectedIntent.usage_snapshot.percent_used.toFixed(1)}%`}</div>
-                                    <div className="text-muted-foreground/70">Last Delta</div>
+                                    <div className="text-muted-foreground">Last Delta</div>
                                     <div className="text-right text-foreground">{formatBytes(selectedIntent.usage_snapshot.last_bytes_up_delta + selectedIntent.usage_snapshot.last_bytes_down_delta)}</div>
-                                    <div className="text-muted-foreground/70">Meter Syncs</div>
+                                    <div className="text-muted-foreground">Meter Syncs</div>
                                     <div className="text-right text-foreground">{selectedIntent.intent.usage_update_count ?? 0}</div>
-                                    <div className="text-muted-foreground/70">Routing Profile</div>
+                                    <div className="text-muted-foreground">Routing Profile</div>
                                     <div className="text-right text-foreground">{selectedIntent.intent.routing_profile || 'default'}</div>
                                 </div>
                             </GlassCard>
-                            <GlassCard className="p-5 border-white/10 bg-black/20">
-                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/50">Billing Snapshot</div>
+                            <GlassCard className="p-5 border-border bg-muted">
+                                <div className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">Billing Snapshot</div>
                                 <div className="mt-4 grid grid-cols-2 gap-3 text-[10px] font-mono font-black uppercase">
-                                    <div className="text-muted-foreground/70">Price Source</div>
+                                    <div className="text-muted-foreground">Price Source</div>
                                     <div className="text-right text-foreground">{selectedIntent.billing_snapshot.price_source}</div>
-                                    <div className="text-muted-foreground/70">Projected Limit</div>
+                                    <div className="text-muted-foreground">Projected Limit</div>
                                     <div className="text-right text-foreground">{formatSOL(selectedIntent.billing_snapshot.projected_full_limit_cost_sol)}</div>
-                                    <div className="text-muted-foreground/70">Target ISP</div>
-                                    <div className="text-right text-foreground">{selectedIntent.intent.target_isp || 'any'}</div>
+                                    <div className="text-muted-foreground">Requested ISP</div>
+                                    <div className="text-right text-foreground">{selectedIntent.intent.target_isp || 'any'} <span className="text-muted-foreground normal-case font-medium">(best-effort)</span></div>
                                 </div>
                             </GlassCard>
                         </div>
@@ -824,7 +909,7 @@ export default function SessionsPage() {
                     <h2 className="text-xs font-black font-mono uppercase tracking-[0.2em] flex items-center gap-2">
                         <Activity size={16} className="text-primary" /> Legacy Session Compatibility
                     </h2>
-                    <span className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground/40">
+                    <span className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-muted-foreground">
                         Transitional surface while dashboards move to intent-native views
                     </span>
                 </div>
@@ -849,7 +934,7 @@ export default function SessionsPage() {
                 </div>
 
                 {sessions.length === 0 ? (
-                    <GlassCard className="p-20 text-center border-dashed border-white/10 opacity-50">
+                    <GlassCard className="p-20 text-center border-dashed border-border">
                         <p className="text-[10px] font-mono font-black uppercase tracking-[0.5em] text-muted-foreground">
                             No legacy session records detected.
                         </p>
@@ -912,7 +997,7 @@ export default function SessionsPage() {
                     if (!open) setNewIntent(null);
                 }}
                 title="Intent issued"
-                description="Signed gateway admission token ready."
+                description="Use this token now — CONNECT activates the path. Remint if it expires."
                 footer={
                     newIntent ? (
                         <>
@@ -936,6 +1021,17 @@ export default function SessionsPage() {
             >
                 {newIntent ? (
                     <div className="space-y-4 rounded-[var(--radius-md)] border border-border bg-secondary/50 p-4 font-mono text-xs">
+                        <div className="space-y-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                TTL remaining
+                            </p>
+                            <p className="text-primary font-black">
+                                {formatTTLRemaining(newIntent.expires_at, nowMs)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                                Token stays authorized until gateway CONNECT. Then it becomes an active path.
+                            </p>
+                        </div>
                         <div className="space-y-1">
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                                 Endpoint

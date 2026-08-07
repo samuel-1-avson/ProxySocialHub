@@ -1,5 +1,7 @@
 # Caddy on the GCE VM — TLS termination for web + API.
-# Buyer CONNECT and provider tunnel use edge-gateway ports 8090 / 3128 directly (DNS → VM IP).
+# Buyer CONNECT and provider tunnel use edge-gateway ports directly (DNS → VM IP).
+# Provider tunnel: TLS on :3128 with Let's Encrypt certs for proxy.* synced into
+# /opt/proxyhubb/certs (see scripts/gcp-fix-provider-tunnel.sh). Failover :8443.
 #
 # Install: apt install caddy
 # Copy to /etc/caddy/Caddyfile and: systemctl reload caddy
@@ -7,9 +9,13 @@
 # Canonical web hostname is the apex: https://proxyhubb.com
 # Alias hosts (www / app) MUST permanent-redirect to apex so there is one public frontend URL.
 #
+# Authenticated browser WebSockets must hit api.* (Next on :3000 cannot upgrade WS).
+# The web app derives wss://api.proxyhubb.com when served from the apex, or set
+# NEXT_PUBLIC_WS_URL / WS_PUBLIC_URL explicitly at image build time.
+#
 # Cloud DNS A/AAAA (or Cloudflare orange-cloud) → VM external IP for:
 #   proxyhubb.com, www.proxyhubb.com, app.proxyhubb.com,
-#   api.proxyhubb.com, proxy.proxyhubb.com
+#   api.proxyhubb.com, proxy.proxyhubb.com, docs.proxyhubb.com
 
 # --- Production (ProxyHubb) -------------------------------------------------
 
@@ -28,12 +34,21 @@ app.proxyhubb.com {
 
 api.proxyhubb.com {
 	encode gzip
+	# Caddy upgrades WebSocket automatically for /v1/ws
 	reverse_proxy 127.0.0.1:8080
 }
 
-# Health-only HTTPS for proxy hostname (CONNECT still uses :8090, not this vhost)
+# Health + note for proxy hostname.
+# Provider tunnel is TLS on :3128 (and :8443 failover) with Let's Encrypt certs
+# synced from this host into /opt/proxyhubb/certs for edge-gateway.
+# Buyer CONNECT remains on :8090 (not this vhost).
 proxy.proxyhubb.com {
-	respond "ProxyHubb edge — use port 8090 for CONNECT and 3128 for provider tunnel" 200
+	respond "ProxyHubb edge — CONNECT :8090 · provider tunnel :3128 (TLS) · failover :8443" 200
+}
+
+docs.proxyhubb.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:3010
 }
 
 # --- Testnet template (replace example.com) ---------------------------------

@@ -17,6 +17,30 @@ function toWsBase(raw: string): string {
     return trimmed;
 }
 
+/**
+ * When the SPA is served from the apex (proxyhubb.com) but Next cannot
+ * upgrade WebSockets, prefer the API host which Caddy terminates onto
+ * control-api with upgrade support.
+ */
+function deriveProductionApiWsBase(): string {
+    if (typeof window === 'undefined') return '';
+    const host = window.location.hostname.toLowerCase();
+    if (!host || host === 'localhost' || host === '127.0.0.1') return '';
+    if (host.startsWith('api.')) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${host}`;
+    }
+    // Apex / app / www → api.<registrable>
+    if (
+        host === 'proxyhubb.com' ||
+        host === 'www.proxyhubb.com' ||
+        host === 'app.proxyhubb.com'
+    ) {
+        return 'wss://api.proxyhubb.com';
+    }
+    return '';
+}
+
 function getWsBaseFromEnv(): string {
     const explicitWs = toWsBase(process.env.NEXT_PUBLIC_WS_URL || '');
     if (explicitWs) return explicitWs;
@@ -24,7 +48,7 @@ function getWsBaseFromEnv(): string {
     const apiAsWs = toWsBase(process.env.NEXT_PUBLIC_API_URL || '');
     if (apiAsWs) return apiAsWs;
 
-    return '';
+    return deriveProductionApiWsBase();
 }
 
 function getWsUrl(path: string): string {
@@ -69,12 +93,19 @@ export function withWsTicket(url: string, ticket: string): string {
     return `${url}${separator}ticket=${encodeURIComponent(ticket)}`;
 }
 
+function ticketApiBase(): string {
+    const fromEnv = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+    if (fromEnv) return fromEnv;
+    // Same-origin /v1 rewrite works for HTTP ticket mint even when WS uses api.*
+    return '';
+}
+
 /**
  * Prefer POST /v1/ws/ticket then fall back to ?token=.
  * Keeps JWT out of URLs when the ticket endpoint is available.
  */
 export async function resolveAuthedWsUrl(wsUrl: string, accessToken: string): Promise<string> {
-    const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+    const apiBase = ticketApiBase();
     try {
         const res = await fetch(`${apiBase}/v1/ws/ticket`, {
             method: 'POST',

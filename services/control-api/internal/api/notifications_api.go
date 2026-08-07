@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -161,18 +162,67 @@ func updateNotificationPreferences(c *gin.Context) {
 		return
 	}
 
-	var req models.NotificationPreference
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Partial JSON merge — clients toggle one field at a time and must not
+	// zero the rest of the preference row.
+	var patch map[string]interface{}
+	if err := c.ShouldBindJSON(&patch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	req.UserID = uid
+	var prefs models.NotificationPreference
+	err := db.Social().First(&prefs, "user_id = ?", uid).Error
+	if err != nil {
+		prefs = notify.DefaultPreferences(uid)
+	}
 
-	if err := db.Social().Save(&req).Error; err != nil {
+	applyNotificationPreferencePatch(&prefs, patch)
+	prefs.UserID = uid
+	prefs.UpdatedAt = time.Now().UTC()
+
+	if err := db.Social().Save(&prefs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, req)
+	c.JSON(http.StatusOK, prefs)
+}
+
+func applyNotificationPreferencePatch(prefs *models.NotificationPreference, patch map[string]interface{}) {
+	boolFields := map[string]*bool{
+		"social_in_app":    &prefs.SocialInApp,
+		"social_email":     &prefs.SocialEmail,
+		"social_push":      &prefs.SocialPush,
+		"business_in_app":  &prefs.BusinessInApp,
+		"business_email":   &prefs.BusinessEmail,
+		"business_push":    &prefs.BusinessPush,
+		"community_in_app": &prefs.CommunityInApp,
+		"community_email":  &prefs.CommunityEmail,
+		"community_push":   &prefs.CommunityPush,
+		"system_in_app":    &prefs.SystemInApp,
+		"system_email":     &prefs.SystemEmail,
+		"system_push":      &prefs.SystemPush,
+	}
+	for key, dest := range boolFields {
+		if raw, ok := patch[key]; ok {
+			switch v := raw.(type) {
+			case bool:
+				*dest = v
+			}
+		}
+	}
+	if raw, ok := patch["email_digest_frequency"].(string); ok && raw != "" {
+		prefs.EmailDigestFrequency = raw
+	}
+	if raw, ok := patch["digest_day"].(string); ok && raw != "" {
+		prefs.DigestDay = raw
+	}
+	if raw, ok := patch["digest_hour"]; ok {
+		switch v := raw.(type) {
+		case float64:
+			prefs.DigestHour = int(v)
+		case int:
+			prefs.DigestHour = v
+		}
+	}
 }

@@ -115,7 +115,7 @@ GET,/v1/explorer/analytics|leaderboard,explorer,pub,-,works,
 GET,/v1/explorer/sessions|earnings,explorer,pub,-,works,flag-gated
 GET,/v1/explorer/health/history,explorer,pub,-,works,
 GET,/v1/explorer/ws,explorer,pub,-,works,WS
-GET,/v1/ws,ws,jwt,-,broken-client,FE-01/02
+GET,/v1/ws,ws,jwt,-,ok,FE-01/02 fixed (ticket+Upgrade via api host)
 CRUD,/v1/forum/*,forum,pub/jwt,-,works,
 CRUD,/v1/conversations*,social,jwt,self,works,
 CRUD,/v1/messages*,social,jwt,self,works,
