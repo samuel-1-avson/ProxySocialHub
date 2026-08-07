@@ -7,6 +7,7 @@ const {
   resolvePlatform,
   resolveArch,
   cachedBinaryPath,
+  ensureBinaries,
 } = require("../lib/index.js");
 
 describe("@proxyhubb/provider", () => {
@@ -31,5 +32,9 @@ describe("@proxyhubb/provider", () => {
     assert.ok(["amd64", "arm64"].includes(resolveArch()));
     const p = cachedBinaryPath("wrapper", "1.0.4");
     assert.match(p, /proxyhubb[/\\]cli/);
+  });
+
+  it("exports ensureBinaries", () => {
+    assert.equal(typeof ensureBinaries, "function");
   });
 });

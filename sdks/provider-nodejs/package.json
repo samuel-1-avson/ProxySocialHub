@@ -1,6 +1,6 @@
 {
   "name": "@proxyhubb/provider",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Download and run ProxyHubb provider-cli / provider-node binaries",
   "license": "MIT",
   "author": "ProxyHubb",
