@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxyhubb-provider"
+version = "0.1.0"
+description = "Download and run ProxyHubb provider-cli / provider-node binaries"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "ProxyHubb" }]
+keywords = ["proxyhubb", "provider", "cli", "provider-node"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = []
+
+
+[project.urls]
+Homepage = "https://proxyhubb.com"
+Repository = "https://github.com/samuel-1-avson/ProxySocialHub"
+
+[project.scripts]
+proxyhubb-provider = "proxyhubb_provider.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["proxyhubb_provider*"]

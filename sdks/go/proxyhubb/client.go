@@ -1,5 +1,5 @@
 // Package proxyhubb provides a Go client for the ProxyHubb Control API
-// (session intents, order credentials, and bulk pools).
+// (buyer Connect/bulk pools and seller/provider APIs).
 package proxyhubb
 
 import (
@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -71,10 +72,26 @@ type CreateSessionIntentRequest struct {
 	MaxPricePerGB           float64  `json:"max_price_per_gb,omitempty"`
 }
 
+// CreateProviderTokenRequest is POST /v1/provider/tokens.
+type CreateProviderTokenRequest struct {
+	Name      string `json:"name,omitempty"`
+	ExpiresIn int    `json:"expires_in,omitempty"`
+	NodeID    string `json:"node_id,omitempty"`
+}
+
+// CreateProviderNodeRequest is POST /v1/provider/nodes.
+type CreateProviderNodeRequest struct {
+	Name           string `json:"name"`
+	IPAddress      string `json:"ip_address,omitempty"`
+	Country        string `json:"country,omitempty"`
+	City           string `json:"city,omitempty"`
+	ConnectionType string `json:"connection_type,omitempty"`
+}
+
 // Client is an HTTP client for the ProxyHubb API.
 type Client struct {
 	APIKey        string
-	AccessToken   string
+	AccessToken   string // Dashboard JWT or provider token (Bearer)
 	BaseURL       string
 	ProxyEndpoint string
 	HTTPClient    *http.Client
@@ -121,7 +138,7 @@ func NewClient(apiKey string) *Client {
 }
 
 // NewClientWithToken creates a client authenticated with a dashboard JWT
-// (required for session intents and order credentials).
+// (required for session intents, order credentials, and seller/provider ops).
 func NewClientWithToken(accessToken string) *Client {
 	return &Client{
 		AccessToken:   accessToken,
@@ -131,9 +148,20 @@ func NewClientWithToken(accessToken string) *Client {
 	}
 }
 
+// NewClientWithProviderToken is an alias of NewClientWithToken — provider
+// tokens use the same Authorization Bearer header as dashboard JWTs.
+func NewClientWithProviderToken(providerToken string) *Client {
+	return NewClientWithToken(providerToken)
+}
+
+// SetProviderToken sets the Bearer credential (JWT or provider token).
+func (c *Client) SetProviderToken(token string) {
+	c.AccessToken = token
+}
+
 // do executes an HTTP request, attaching auth headers.
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
-	url := c.BaseURL + path
+	fullURL := c.BaseURL + path
 
 	var reqBody io.Reader
 	if body != nil {
@@ -144,7 +172,7 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		reqBody = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
@@ -193,6 +221,21 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 
 	return nil
+}
+
+func pageQuery(page, limit int) string {
+	q := url.Values{}
+	if page > 0 {
+		q.Set("page", strconv.Itoa(page))
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return ""
+	}
+	return "?" + encoded
 }
 
 // CreateSessionIntent issues a signed session intent (requires AccessToken).
@@ -293,4 +336,191 @@ func (c *Client) GetProxies(ctx context.Context, poolID string) ([]Endpoint, err
 func (c *Client) RevokePool(ctx context.Context, poolID string) error {
 	path := fmt.Sprintf("/v1/bulk/pools/%s", poolID)
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// ListProviderTokens returns masked provider tokens.
+func (c *Client) ListProviderTokens(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/provider/tokens", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateProviderToken creates a token; plaintext "token" is returned once.
+func (c *Client) CreateProviderToken(ctx context.Context, req CreateProviderTokenRequest) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodPost, "/v1/provider/tokens", req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RotateProviderToken rotates a token; new plaintext "token" is returned once.
+func (c *Client) RotateProviderToken(ctx context.Context, tokenID string) (map[string]interface{}, error) {
+	if tokenID == "" {
+		return nil, fmt.Errorf("tokenID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/provider/tokens/%s/rotate", tokenID)
+	if err := c.do(ctx, http.MethodPost, path, map[string]interface{}{}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RevokeProviderToken revokes a provider token.
+func (c *Client) RevokeProviderToken(ctx context.Context, tokenID string) error {
+	if tokenID == "" {
+		return fmt.Errorf("tokenID is required")
+	}
+	path := fmt.Sprintf("/v1/provider/tokens/%s", tokenID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// GetProviderReadiness returns onboarding readiness checks.
+func (c *Client) GetProviderReadiness(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/provider/readiness", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListProviderNodes lists nodes for the authenticated provider.
+func (c *Client) ListProviderNodes(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/provider/nodes", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateProviderNode registers a new provider node.
+func (c *Client) CreateProviderNode(ctx context.Context, req CreateProviderNodeRequest) (map[string]interface{}, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodPost, "/v1/provider/nodes", req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateProviderNode updates a provider node.
+func (c *Client) UpdateProviderNode(ctx context.Context, nodeID string, req CreateProviderNodeRequest) (map[string]interface{}, error) {
+	if nodeID == "" {
+		return nil, fmt.Errorf("nodeID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/provider/nodes/%s", nodeID)
+	if err := c.do(ctx, http.MethodPut, path, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteProviderNode deletes a provider node.
+func (c *Client) DeleteProviderNode(ctx context.Context, nodeID string) error {
+	if nodeID == "" {
+		return fmt.Errorf("nodeID is required")
+	}
+	path := fmt.Sprintf("/v1/provider/nodes/%s", nodeID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// GetNodeConnect returns join/start hints for provider-cli / provider-node.
+func (c *Client) GetNodeConnect(ctx context.Context, nodeID string) (map[string]interface{}, error) {
+	if nodeID == "" {
+		return nil, fmt.Errorf("nodeID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/provider/nodes/%s/connect", nodeID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListMyListings returns the authenticated seller's listings.
+func (c *Client) ListMyListings(ctx context.Context, page, limit int) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	path := "/v1/listings/my" + pageQuery(page, limit)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetListing returns a listing by ID.
+func (c *Client) GetListing(ctx context.Context, listingID string) (map[string]interface{}, error) {
+	if listingID == "" {
+		return nil, fmt.Errorf("listingID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/listings/%s", listingID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateListing creates a marketplace listing as seller.
+func (c *Client) CreateListing(ctx context.Context, fields map[string]interface{}) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodPost, "/v1/listings", fields, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateListing updates a listing. Pause/activate with status "active"|"paused".
+func (c *Client) UpdateListing(ctx context.Context, listingID string, fields map[string]interface{}) (map[string]interface{}, error) {
+	if listingID == "" {
+		return nil, fmt.Errorf("listingID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/listings/%s", listingID)
+	if err := c.do(ctx, http.MethodPatch, path, fields, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteListing deletes a listing.
+func (c *Client) DeleteListing(ctx context.Context, listingID string) error {
+	if listingID == "" {
+		return fmt.Errorf("listingID is required")
+	}
+	path := fmt.Sprintf("/v1/listings/%s", listingID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// GetEarningsSummary returns provider earnings summary.
+func (c *Client) GetEarningsSummary(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/provider/earnings/summary", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListEarnings returns paginated earnings rows.
+func (c *Client) ListEarnings(ctx context.Context, page, limit int) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	path := "/v1/provider/earnings" + pageQuery(page, limit)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListEarningsHistory returns paid payout history.
+func (c *Client) ListEarningsHistory(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/provider/earnings/history", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

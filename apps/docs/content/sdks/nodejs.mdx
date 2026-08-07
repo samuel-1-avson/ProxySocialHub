@@ -1,0 +1,83 @@
+---
+title: Node.js SDK
+description: npm install @proxyhubb/sdk — Connect intents, credentials, and pools.
+---
+
+```bash
+npm install @proxyhubb/sdk
+# optional HTTPS agent helper
+npm install https-proxy-agent
+```
+
+Default API: `https://api.proxyhubb.com`  
+Buyer proxy: `proxy.proxyhubb.com:8090` (override with `PROXYHUBB_PROXY_ENDPOINT`)
+
+## Connect (JWT)
+
+```js
+const { ProxyHubClient } = require("@proxyhubb/sdk");
+const { HttpsProxyAgent } = require("https-proxy-agent");
+
+const client = new ProxyHubClient({ accessToken: process.env.PROXYHUBB_JWT });
+const intent = await client.createSessionIntent("rotating", { targetGeo: "US" });
+const proxyUrl = client.sessionIntentProxyUrl(intent.token);
+
+const agent = new HttpsProxyAgent(proxyUrl);
+const res = await fetch("https://httpbin.org/ip", { agent });
+console.log(await res.json());
+```
+
+## Order credentials
+
+```js
+const { proxy_credentials } = await client.getOrderCredentials("ORDER_UUID");
+const url = client.proxyUrlFromCredentials(proxy_credentials);
+```
+
+## Bulk pools
+
+```js
+const client = new ProxyHubClient(process.env.PROXYHUBB_API_KEY);
+const pool = await client.createPool("scrapers", { size: 5 });
+const url = await client.proxyUrlForPool(pool.id);
+```
+
+## Seller / provider (JWT or provider token)
+
+Buyer `pk_` / `phub_` API keys do **not** work here. Use a dashboard JWT or a provider token as Bearer:
+
+```js
+const client = new ProxyHubClient({
+  providerToken: process.env.PROXYHUBB_PROVIDER_TOKEN,
+  // or: accessToken: process.env.PROXYHUBB_JWT,
+});
+
+const created = await client.createProviderToken({ name: "edge-01", nodeId: "NODE_UUID" });
+// created.token is plaintext once — store it securely
+
+const node = await client.createProviderNode({ name: "my-node", connectionType: "residential" });
+const connect = await client.getNodeConnect(node.id);
+
+const listing = await client.createListing({
+  title: "US residential",
+  proxy_type: "residential",
+  protocol: "http",
+  price_per_gb: 0.5,
+  available_bandwidth_gb: 100,
+  provider_node_id: node.id,
+});
+await client.updateListing(listing.id, { status: "paused" });
+
+const summary = await client.getEarningsSummary();
+```
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| Intent create `401`/`403` | Pass `{ accessToken }`, not only an API key |
+| `fetch` ignores proxy | Node’s native fetch needs an agent (`https-proxy-agent`) or a proxy-aware client |
+| Undici / agent warnings | Use a Node version compatible with your agent package, or Axios with `proxy: false` + agent |
+| Wrong exit host in URL | Check `PROXYHUBB_PROXY_ENDPOINT` |
+
+npm: [@proxyhubb/sdk](https://www.npmjs.com/package/@proxyhubb/sdk) · Protocol notes: [Buyer proxy](/docs/buyer/proxy)

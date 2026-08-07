@@ -36,6 +36,13 @@ describe("ProxyHubClient", () => {
     assert.equal(client._accessToken, "jwt");
   });
 
+  it("accepts providerToken as Bearer alias", () => {
+    const client = new ProxyHubClient({ providerToken: "ptok" });
+    assert.equal(client._accessToken, "ptok");
+    client.setProviderToken("ptok2");
+    assert.equal(client._accessToken, "ptok2");
+  });
+
   it("builds proxy URLs", () => {
     assert.equal(
       proxyUrl("u", "p", "proxy.proxyhubb.com:8090"),
@@ -92,5 +99,51 @@ describe("ProxyHubClient", () => {
       client.proxyUrlFromCredentials(out),
       "http://u:p@h:8090"
     );
+  });
+
+  it("createProviderToken posts and returns plaintext once", async () => {
+    const client = new ProxyHubClient({ providerToken: "ptok" });
+    mock.method(global, "fetch", async (url, init) => {
+      assert.match(String(url), /\/v1\/provider\/tokens$/);
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers.Authorization, "Bearer ptok");
+      const body = JSON.parse(init.body);
+      assert.equal(body.name, "edge-01");
+      assert.equal(body.node_id, "node-1");
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        text: async () =>
+          JSON.stringify({ id: "t1", name: "edge-01", token: "raw-once" }),
+      };
+    });
+    const out = await client.createProviderToken({
+      name: "edge-01",
+      nodeId: "node-1",
+    });
+    assert.equal(out.token, "raw-once");
+  });
+
+  it("getNodeConnect and earnings summary", async () => {
+    const client = new ProxyHubClient({ accessToken: "jwt" });
+    const calls = [];
+    mock.method(global, "fetch", async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => JSON.stringify({ ok: true }),
+      };
+    });
+    await client.getNodeConnect("n1");
+    await client.getEarningsSummary();
+    await client.listMyListings({ page: 1, limit: 10 });
+    await client.updateListing("l1", { status: "paused" });
+    assert.match(calls[0].url, /\/v1\/provider\/nodes\/n1\/connect$/);
+    assert.match(calls[1].url, /\/v1\/provider\/earnings\/summary$/);
+    assert.match(calls[2].url, /\/v1\/listings\/my\?page=1&limit=10$/);
+    assert.equal(calls[3].method, "PATCH");
   });
 });

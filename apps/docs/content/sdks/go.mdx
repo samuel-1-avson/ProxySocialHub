@@ -1,0 +1,91 @@
+---
+title: Go SDK
+description: Go module for Connect intents, credentials, and bulk pools.
+---
+
+```bash
+go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.3.0
+```
+
+Default API: `https://api.proxyhubb.com`  
+Buyer proxy: `proxy.proxyhubb.com:8090` (override with `PROXYHUBB_PROXY_ENDPOINT`)
+
+## Connect (JWT)
+
+```go
+package main
+
+import (
+  "context"
+  "fmt"
+  "net/http"
+  "net/url"
+  "os"
+  "time"
+
+  proxyhubb "github.com/samuel-1-avson/ProxySocialHub/sdks/go"
+)
+
+func main() {
+  client := proxyhubb.NewClientWithToken(os.Getenv("PROXYHUBB_JWT"))
+  ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+  defer cancel()
+
+  intent, err := client.CreateSessionIntent(ctx, proxyhubb.CreateSessionIntentRequest{
+    Type:      "rotating",
+    TargetGeo: "US",
+  })
+  if err != nil {
+    panic(err)
+  }
+
+  proxyURL, err := url.Parse(client.SessionIntentProxyURL(intent.Token))
+  if err != nil {
+    panic(err)
+  }
+  httpClient := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+  resp, err := httpClient.Get("https://httpbin.org/ip")
+  if err != nil {
+    panic(err)
+  }
+  defer resp.Body.Close()
+  fmt.Println(resp.Status)
+}
+```
+
+## Order credentials
+
+```go
+creds, err := client.GetOrderCredentials(ctx, "ORDER_UUID")
+url := client.ProxyURLFromCredentials(creds)
+```
+
+## Bulk pools
+
+```go
+client := proxyhubb.NewClient("phub_...")
+pool, err := client.CreatePool(ctx, "scrapers", 5)
+```
+
+## Seller / provider
+
+```go
+client := proxyhubb.NewClientWithProviderToken(os.Getenv("PROXYHUBB_PROVIDER_TOKEN"))
+tok, _ := client.CreateProviderToken(ctx, proxyhubb.CreateProviderTokenRequest{Name: "edge-01"})
+node, _ := client.CreateProviderNode(ctx, proxyhubb.CreateProviderNodeRequest{Name: "my-node"})
+connect, _ := client.GetNodeConnect(ctx, node["id"].(string))
+_, _ = tok, connect
+summary, _ := client.GetEarningsSummary(ctx)
+_ = summary
+```
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| Intent create unauthorized | Use `NewClientWithToken`, not API-key-only client |
+| Provider route unauthorized with API key | Use `NewClientWithProviderToken` / JWT Bearer |
+| HTTP client bypasses proxy | Set `Transport.Proxy` from `SessionIntentProxyURL` / credential URL |
+| Module not found | Pin `@v0.3.0` (or newer) and run `go mod tidy` |
+
+pkg.go.dev: [sdks/go](https://pkg.go.dev/github.com/samuel-1-avson/ProxySocialHub/sdks/go) · Protocol notes: [Buyer proxy](/docs/buyer/proxy)

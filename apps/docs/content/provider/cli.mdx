@@ -1,0 +1,115 @@
+---
+title: Provider CLI
+description: Install proxyhubb-cli / provider-node, join with a token, start the tunnel — do not re-register after the wizard.
+---
+
+Providers sell bandwidth by running the **provider-node** tunnel daemon against **`proxy.proxyhubb.com:3128`**. The companion CLI binary is **`proxyhubb-cli`**.
+
+Do **not** confuse provider tunnel **`:3128`** with buyer CONNECT **`:8090`**.
+
+## Recommended path
+
+1. Complete the in-app [provider setup wizard](https://proxyhubb.com/dashboard/provider/setup)
+2. Download CLI + `provider.toml` from [CLI Tools](https://proxyhubb.com/dashboard/provider/cli)
+3. Start the node — **do not run `join` / register again** after the wizard (reuse the downloaded config / `--node-id`)
+
+## Downloads
+
+Binaries ship via GitHub Releases and:
+
+```http
+GET /v1/cli/download?platform=…&arch=…&version=…&package_type=…
+```
+
+The dashboard detects OS/arch and offers the matching asset. Packages are **not** published to crates.io for day-to-day installs.
+
+### npm / pip (same binaries)
+
+Sellers and providers can also install a thin wrapper that downloads `provider-cli` / `provider-node` from the API and proxies commands:
+
+```bash
+# npm
+npm install -g @proxyhubb/provider
+proxyhubb-provider doctor
+# or: npx @proxyhubb/provider doctor
+
+# PyPI
+pip install proxyhubb-provider
+proxyhubb-provider doctor
+# or: pipx run proxyhubb-provider doctor
+```
+
+Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download, `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
+
+There is **no separate “seller CLI”** — marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
+
+## CLI commands
+
+| Command | Purpose |
+|---------|---------|
+| `join` | Enroll with provider token; write `provider.toml` |
+| `start` | Start the tunnel daemon |
+| `stop` | Stop |
+| `status` | Local status |
+| `doctor` | Config / connectivity checks |
+| `dashboard` | Open provider dashboard helpers |
+| `watch` | Follow logs / health |
+| `install` | Service install helpers |
+| `paths` | Show config/data paths |
+
+### Join (fresh enroll)
+
+```bash
+proxyhubb-cli join \
+  --api-url https://api.proxyhubb.com \
+  --key <provider_token> \
+  --gateway proxy.proxyhubb.com:3128
+
+# Reuse a dashboard-created node (skip re-register):
+proxyhubb-cli join … --node-id <uuid>
+```
+
+### Start / doctor
+
+```bash
+proxyhubb-cli doctor --config provider.toml
+proxyhubb-cli start --config provider.toml
+
+# Or run the daemon binary directly:
+./provider-node --config provider.toml
+```
+
+Confirm the node goes **online** under [My nodes](https://proxyhubb.com/dashboard/provider/nodes). Browser “ping” is not a real tunnel — use Connect + CLI start.
+
+## Config (`provider.toml`)
+
+Typical fields (written by `join` / validated by provider-node):
+
+| Field | Notes |
+|-------|--------|
+| `control_api_url` | e.g. `https://api.proxyhubb.com` |
+| `gateway_addr` / `gateway_addrs` | Tunnel endpoint (`host:3128`) |
+| `jwt_token` / `api_key` | Auth material from join |
+| `node_id` | Registered node UUID |
+| `provider_signing_key` | Usage proof signing — keep secret |
+| `connection_type` | `residential` \| `mobile` \| `datacenter` \| `fiber` |
+| `use_tls` | TLS to gateway when required |
+| `metrics_port` | Default `9090` |
+| `max_connections`, `bandwidth_limit_mbps` | Capacity caps |
+
+Keep `provider.toml` private. Never commit signing keys.
+
+## Proof signing
+
+If the dashboard shows unsigned usage / “Fix proof”, ensure `provider_signing_key` matches the key bound at registration. CLI `join`/`register` generates it; web-only flows may need the fix banner path.
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| Node stays offline | Run `doctor`; check `:3128` reachability and token |
+| Accidental second node | Use wizard config / `--node-id`; don’t re-`join` blindly |
+| Unsigned usage | Align `provider_signing_key` with registered key |
+| Connected to wrong port | Providers use **3128**, buyers use **8090** |
+
+Next: [Provider nodes](/docs/provider/nodes) — heartbeats, lease, listings.

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "sdk-v*"
+      - "provider-sdk-v*"
   workflow_dispatch:
     inputs:
       target:
@@ -16,12 +17,20 @@ on:
           - npm
           - pypi
           - go
+          - provider
+          - provider-npm
+          - provider-pypi
 
 permissions:
   contents: read
 
 jobs:
   test-js:
+    if: >
+      startsWith(github.ref, 'refs/tags/sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'both' || inputs.target == 'npm' || inputs.target == 'go' || inputs.target == 'pypi'
+      ))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +42,11 @@ jobs:
         run: npm test
 
   test-python:
+    if: >
+      startsWith(github.ref, 'refs/tags/sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'both' || inputs.target == 'npm' || inputs.target == 'go' || inputs.target == 'pypi'
+      ))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,10 +56,15 @@ jobs:
       - name: Install and test
         working-directory: sdks/python
         run: |
-          python -m pip install -e ".[dev]" 2>/dev/null || python -m pip install -e .
-          python -c "from proxyhubb import ProxyHubClient; c=ProxyHubClient('phub_x'); assert c._base_url=='https://api.proxyhubb.com'"
+          python -m pip install -e .
+          python -m pytest tests/test_client.py -q
 
   test-go:
+    if: >
+      startsWith(github.ref, 'refs/tags/sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'both' || inputs.target == 'go'
+      ))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +74,40 @@ jobs:
       - name: Test Go SDK
         working-directory: sdks/go
         run: go test ./...
+
+  test-provider-js:
+    if: >
+      startsWith(github.ref, 'refs/tags/provider-sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'provider' || inputs.target == 'provider-npm'
+      ))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Test @proxyhubb/provider
+        working-directory: sdks/provider-nodejs
+        run: npm test
+
+  test-provider-python:
+    if: >
+      startsWith(github.ref, 'refs/tags/provider-sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'provider' || inputs.target == 'provider-pypi'
+      ))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test proxyhubb-provider
+        working-directory: sdks/provider-python
+        run: |
+          python -m pip install -e .
+          python -m pytest tests/test_cli.py -q
 
   publish-npm:
     needs: [test-js]
@@ -99,7 +152,7 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
   # Go has no package registry publish step. After npm/PyPI tag sdk-v*, also push:
-  #   git tag -a sdks/go/v0.2.0 -m "Go SDK v0.2.0" && git push origin sdks/go/v0.2.0
+  #   git tag -a sdks/go/v0.3.0 -m "Go SDK v0.3.0" && git push origin sdks/go/v0.3.0
   # See sdks/PUBLISH.md
   publish-go:
     needs: [test-go]
@@ -118,3 +171,49 @@ jobs:
           go test ./...
           echo "Publish Go by tagging: git tag -a sdks/go/vX.Y.Z && git push origin sdks/go/vX.Y.Z"
           echo "See sdks/PUBLISH.md"
+
+  publish-provider-npm:
+    needs: [test-provider-js]
+    if: >
+      startsWith(github.ref, 'refs/tags/provider-sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'provider' || inputs.target == 'provider-npm'
+      ))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@proxyhubb"
+      - name: Publish @proxyhubb/provider
+        working-directory: sdks/provider-nodejs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  publish-provider-pypi:
+    needs: [test-provider-python]
+    if: >
+      startsWith(github.ref, 'refs/tags/provider-sdk-v') ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.target == 'provider' || inputs.target == 'provider-pypi'
+      ))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        working-directory: sdks/provider-python
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Publish proxyhubb-provider to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/provider-python/dist/
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}

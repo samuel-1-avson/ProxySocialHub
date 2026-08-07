@@ -97,3 +97,71 @@ func TestGetOrderCredentials(t *testing.T) {
 		t.Fatalf("proxy url: %q", url)
 	}
 }
+
+func TestCreateProviderToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/provider/tokens" || r.Method != http.MethodPost {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer ptok" {
+			t.Fatalf("auth: %q", got)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":    "t1",
+			"token": "raw-once",
+		})
+	}))
+	defer srv.Close()
+
+	c := proxyhubb.NewClientWithProviderToken("ptok")
+	c.BaseURL = srv.URL
+	out, err := c.CreateProviderToken(context.Background(), proxyhubb.CreateProviderTokenRequest{
+		Name:   "edge",
+		NodeID: "n1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["token"] != "raw-once" {
+		t.Fatalf("token: %#v", out["token"])
+	}
+}
+
+func TestSellerListingAndEarnings(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.RequestURI())
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := proxyhubb.NewClientWithToken("jwt")
+	c.BaseURL = srv.URL
+	if _, err := c.GetNodeConnect(context.Background(), "n1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetEarningsSummary(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ListMyListings(context.Background(), 1, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UpdateListing(context.Background(), "l1", map[string]interface{}{"status": "paused"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /v1/provider/nodes/n1/connect",
+		"GET /v1/provider/earnings/summary",
+		"GET /v1/listings/my?limit=10&page=1",
+		"PATCH /v1/listings/l1",
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("seen=%v", seen)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("seen[%d]=%q want %q", i, seen[i], want[i])
+		}
+	}
+}

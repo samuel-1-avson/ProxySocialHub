@@ -32,6 +32,13 @@ def test_access_token_only():
     assert "X-API-Key" not in client._session.headers
 
 
+def test_provider_token_alias():
+    client = ProxyHubClient(provider_token="ptok")
+    assert client._session.headers["Authorization"] == "Bearer ptok"
+    client.set_provider_token("ptok2")
+    assert client._session.headers["Authorization"] == "Bearer ptok2"
+
+
 def test_proxy_url_helpers():
     assert (
         proxy_url("user", "pass", host="proxy.proxyhubb.com:8090")
@@ -108,3 +115,39 @@ def test_as_requests_proxy_from_intent():
     client = ProxyHubClient(access_token="jwt")
     proxies = client.as_requests_proxy_from_intent("tok")
     assert "session-intent:tok@" in proxies["http"]
+
+
+def test_create_provider_token():
+    client = ProxyHubClient(provider_token="ptok")
+    mock_resp = MagicMock()
+    mock_resp.ok = True
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {"id": "t1", "token": "raw-once"}
+    with patch.object(client._session, "post", return_value=mock_resp) as post:
+        out = client.create_provider_token(name="edge", node_id="n1")
+    assert out["token"] == "raw-once"
+    assert post.call_args[0][0].endswith("/v1/provider/tokens")
+    assert post.call_args[1]["json"]["node_id"] == "n1"
+
+
+def test_seller_listing_and_earnings():
+    client = ProxyHubClient(access_token="jwt")
+    mock_resp = MagicMock()
+    mock_resp.ok = True
+    mock_resp.status_code = 200
+    mock_resp.content = b"{}"
+    mock_resp.json.return_value = {"ok": True}
+
+    with patch.object(client._session, "get", return_value=mock_resp) as get:
+        client.get_node_connect("n1")
+        client.get_earnings_summary()
+        client.list_my_listings(page=1, limit=5)
+    paths = [c.args[0] for c in get.call_args_list]
+    assert paths[0].endswith("/v1/provider/nodes/n1/connect")
+    assert paths[1].endswith("/v1/provider/earnings/summary")
+    assert "page=1" in paths[2] and "limit=5" in paths[2]
+
+    with patch.object(client._session, "patch", return_value=mock_resp) as patch_call:
+        client.update_listing("l1", status="paused")
+    assert patch_call.call_args[0][0].endswith("/v1/listings/l1")
+    assert patch_call.call_args[1]["json"]["status"] == "paused"
