@@ -1,0 +1,38 @@
+{
+  "name": "@proxyhubb/provider",
+  "version": "0.1.0",
+  "description": "Download and run ProxyHubb provider-cli / provider-node binaries",
+  "license": "MIT",
+  "author": "ProxyHubb",
+  "homepage": "https://proxyhubb.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samuel-1-avson/ProxySocialHub.git",
+    "directory": "sdks/provider-nodejs"
+  },
+  "bin": {
+    "proxyhubb-provider": "bin/proxyhubb-provider.js"
+  },
+  "main": "lib/index.js",
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "proxyhubb",
+    "provider",
+    "cli",
+    "provider-node"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

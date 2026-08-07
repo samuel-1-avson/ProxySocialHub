@@ -1,7 +1,7 @@
 {
   "name": "@proxyhubb/sdk",
-  "version": "0.2.0",
-  "description": "Official Node.js SDK for ProxyHubb (session intents, orders, bulk pools)",
+  "version": "0.3.0",
+  "description": "Official Node.js SDK for ProxyHubb (buyer Connect/bulk + seller/provider APIs)",
   "license": "MIT",
   "author": "ProxyHubb",
   "homepage": "https://proxyhubb.com",

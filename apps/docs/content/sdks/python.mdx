@@ -1,0 +1,75 @@
+---
+title: Python SDK
+description: pip install proxyhubb — Connect intents, credentials, and pools.
+---
+
+```bash
+pip install proxyhubb
+```
+
+Default API: `https://api.proxyhubb.com`  
+Buyer proxy: `proxy.proxyhubb.com:8090` (override with `PROXYHUBB_PROXY_ENDPOINT`)
+
+## Connect (JWT)
+
+```python
+from proxyhubb import ProxyHubClient
+import requests
+
+client = ProxyHubClient(access_token="eyJ...")
+intent = client.create_session_intent("rotating", target_geo="US")
+proxies = client.as_requests_proxy_from_intent(intent["token"])
+print(requests.get("https://httpbin.org/ip", proxies=proxies).json())
+```
+
+## Order credentials
+
+```python
+creds = client.get_order_credentials("ORDER_UUID")
+proxies = client.as_requests_proxy_from_credentials(creds)
+print(requests.get("https://httpbin.org/ip", proxies=proxies).json())
+```
+
+## Bulk pools (API key)
+
+```python
+client = ProxyHubClient("phub_...")
+pool = client.create_pool("scrapers", size=5)
+proxies = client.as_requests_proxy(pool["id"])
+```
+
+## Seller / provider (JWT or provider token)
+
+Buyer `pk_` / `phub_` API keys do **not** work here:
+
+```python
+client = ProxyHubClient(provider_token="...")  # or access_token="eyJ..."
+
+tok = client.create_provider_token(name="edge-01", node_id="NODE_UUID")
+# tok["token"] is plaintext once
+
+node = client.create_provider_node("my-node", connection_type="residential")
+connect = client.get_node_connect(node["id"])
+
+listing = client.create_listing(
+    title="US residential",
+    proxy_type="residential",
+    protocol="http",
+    price_per_gb=0.5,
+    available_bandwidth_gb=100,
+    provider_node_id=node["id"],
+)
+client.update_listing(listing["id"], status="paused")
+print(client.get_earnings_summary())
+```
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| `TypeError` / auth errors on intent | Construct with `access_token=...`, not only an API key string, for Connect |
+| `requests` hits destination without tunnel | Pass `proxies=` from the helper; do not omit it |
+| `409` on credentials | Order not active — wait for escrow/session |
+| SSL / proxy URL parse errors | Prefer SDK helpers over hand-built URLs with special characters |
+
+PyPI: [proxyhubb](https://pypi.org/project/proxyhubb/) · Protocol notes: [Buyer proxy](/docs/buyer/proxy)

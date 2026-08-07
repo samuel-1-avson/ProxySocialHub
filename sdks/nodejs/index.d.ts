@@ -7,7 +7,10 @@ export function sessionIntentProxyUrl(token: string, host?: string): string;
 
 export interface ClientOptions {
   apiKey?: string;
+  /** Dashboard JWT or provider token (Bearer). */
   accessToken?: string;
+  /** Alias of accessToken — provider tokens use the same Bearer header. */
+  providerToken?: string;
   baseUrl?: string;
   proxyEndpoint?: string;
 }
@@ -46,6 +49,76 @@ export interface SessionIntentOptions {
   max_price_per_gb?: number;
 }
 
+export interface ProviderTokenCreateOptions {
+  name?: string;
+  expiresIn?: number;
+  expires_in?: number;
+  nodeId?: string;
+  node_id?: string;
+}
+
+export interface ProviderNodeOptions {
+  name?: string;
+  ipAddress?: string;
+  ip_address?: string;
+  country?: string;
+  city?: string;
+  connectionType?: string;
+  connection_type?: string;
+}
+
+export interface ListingCreateOptions {
+  title?: string;
+  description?: string;
+  providerNodeId?: string;
+  provider_node_id?: string;
+  proxyType?: string;
+  proxy_type?: string;
+  protocol?: string;
+  rotationType?: string;
+  rotation_type?: string;
+  country?: string;
+  isp?: string;
+  pricePerGb?: number;
+  price_per_gb?: number;
+  minPurchaseGb?: number;
+  min_purchase_gb?: number;
+  availableBandwidthGb?: number;
+  available_bandwidth_gb?: number;
+  maxConcurrency?: number;
+  max_concurrency?: number;
+  bulkDiscounts?: unknown[];
+  bulk_discounts?: unknown[];
+  listingOfferExpiresAt?: number;
+  listing_offer_expires_at?: number;
+  proof?: Record<string, unknown>;
+}
+
+export interface ListingUpdateOptions {
+  title?: string;
+  description?: string;
+  pricePerGb?: number;
+  price_per_gb?: number;
+  minPurchaseGb?: number;
+  min_purchase_gb?: number;
+  availableBandwidthGb?: number;
+  available_bandwidth_gb?: number;
+  maxConcurrency?: number;
+  max_concurrency?: number;
+  bulkDiscounts?: unknown[];
+  bulk_discounts?: unknown[];
+  /** Pause or activate: "active" | "paused" */
+  status?: "active" | "paused" | string;
+  listingOfferExpiresAt?: number;
+  listing_offer_expires_at?: number;
+  proof?: Record<string, unknown>;
+}
+
+export interface PageOptions {
+  page?: number;
+  limit?: number;
+}
+
 export interface ProxyEndpoint {
   host: string;
   port: number;
@@ -69,6 +142,7 @@ export declare class ProxyHubClient {
 
   readonly proxyEndpoint: string;
   setAccessToken(token: string): void;
+  setProviderToken(token: string): void;
 
   createSessionIntent(
     type?: "rotating" | "sticky" | string,
@@ -88,4 +162,30 @@ export declare class ProxyHubClient {
   getProxies(poolId: string): Promise<ProxyEndpoint[]>;
   revokePool(poolId: string): Promise<null>;
   proxyUrlForPool(poolId: string, index?: number): Promise<string>;
+
+  // Provider tokens
+  listProviderTokens(): Promise<Record<string, unknown>>;
+  createProviderToken(options?: ProviderTokenCreateOptions): Promise<Record<string, unknown>>;
+  rotateProviderToken(tokenId: string): Promise<Record<string, unknown>>;
+  revokeProviderToken(tokenId: string): Promise<Record<string, unknown>>;
+
+  // Provider nodes
+  getProviderReadiness(): Promise<Record<string, unknown>>;
+  listProviderNodes(): Promise<Record<string, unknown>>;
+  createProviderNode(options: ProviderNodeOptions & { name: string }): Promise<Record<string, unknown>>;
+  updateProviderNode(nodeId: string, options?: ProviderNodeOptions): Promise<Record<string, unknown>>;
+  deleteProviderNode(nodeId: string): Promise<Record<string, unknown>>;
+  getNodeConnect(nodeId: string): Promise<Record<string, unknown>>;
+
+  // Listings (seller)
+  listMyListings(options?: PageOptions): Promise<Record<string, unknown>>;
+  getListing(listingId: string): Promise<Record<string, unknown>>;
+  createListing(options: ListingCreateOptions): Promise<Record<string, unknown>>;
+  updateListing(listingId: string, options?: ListingUpdateOptions): Promise<Record<string, unknown>>;
+  deleteListing(listingId: string): Promise<Record<string, unknown>>;
+
+  // Earnings
+  getEarningsSummary(): Promise<Record<string, unknown>>;
+  listEarnings(options?: PageOptions): Promise<Record<string, unknown>>;
+  listEarningsHistory(): Promise<Record<string, unknown>>;
 }
