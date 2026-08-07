@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -35,6 +36,10 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 		sessions.GET("/intents/", listSessionIntents)
 		sessions.GET("/intents/:id", getSessionIntent)
 		sessions.GET("/intents/:id/", getSessionIntent)
+		sessions.POST("/intents/:id/fund/solana", fundSessionIntentSolana)
+		sessions.POST("/intents/:id/fund/solana/", fundSessionIntentSolana)
+		sessions.POST("/intents/:id/confirm-escrow", confirmSessionIntentEscrow)
+		sessions.POST("/intents/:id/confirm-escrow/", confirmSessionIntentEscrow)
 		sessions.POST("/intent", createSessionIntent)
 		sessions.POST("/intent/", createSessionIntent)
 		sessions.POST("/instant", createInstantSession)
@@ -44,6 +49,10 @@ func RegisterSessionRoutes(r *gin.RouterGroup) {
 		sessions.GET("/", listSessions)
 		sessions.GET("/:id", getSession)
 		sessions.GET("/:id/", getSession)
+		sessions.POST("/:id/fund/solana", fundSessionSolana)
+		sessions.POST("/:id/fund/solana/", fundSessionSolana)
+		sessions.POST("/:id/confirm-escrow", confirmSessionEscrow)
+		sessions.POST("/:id/confirm-escrow/", confirmSessionEscrow)
 		sessions.POST("/:id/terminate", terminateSession)
 		sessions.POST("/:id/terminate/", terminateSession)
 		sessions.DELETE("/:id", terminateSession)
@@ -98,6 +107,10 @@ func legacyDirectSessionCreationEnabled() bool {
 }
 
 func blockDeprecatedDirectSessionCreation(c *gin.Context, flow string) bool {
+	// Phase 1b prepaid PAYG is the supported replacement for custodial instant sessions.
+	if flow == "instant_session" && decentralization.RequireSessionPDAEnabled() {
+		return false
+	}
 	if legacyDirectSessionCreationEnabled() {
 		return false
 	}
@@ -187,6 +200,19 @@ func createSessionIntent(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
+	}
+
+	requireSessionPDA := decentralization.RequireSessionPDAEnabled()
+	if requireSessionPDA {
+		var linked models.LinkedWallet
+		if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", userUUID, models.ChainSolana).
+			First(&linked).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Link a Solana wallet before creating a prepaid session intent",
+				"code":  "linked_wallet_required",
+			})
+			return
+		}
 	}
 
 	var user models.User
@@ -286,7 +312,7 @@ func createSessionIntent(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"token":           tokenString,
 		"expires_at":      claims.ExpiresAt.Time,
 		"lifecycle_state": string(models.SessionIntentAuthorized),
@@ -310,7 +336,12 @@ func createSessionIntent(c *gin.Context) {
 			"max_concurrency":           claims.MaxConcurrency,
 			"max_price_per_gb":          claims.MaxPricePerGB,
 		},
-	})
+	}
+	if requireSessionPDA {
+		resp["code"] = "session_escrow_required"
+		resp["next"] = "POST /v1/sessions/intents/" + claims.ID + "/fund/solana"
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func createSession(c *gin.Context) {
@@ -423,11 +454,18 @@ func createSession(c *gin.Context) {
 			return
 		}
 	}
-	nodeID := node.ID
+	sessionNodeID := marketplace.SessionNodeIDForProvider(&node)
+	if sessionNodeID == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Provider node is not ready for sessions (missing nodes mirror)",
+			"code":  "provider_node_mirror_missing",
+		})
+		return
+	}
 
 	session := models.Session{
 		UserID:          userUUID,
-		NodeID:          &nodeID,
+		NodeID:          sessionNodeID,
 		Type:            models.SessionType(req.Type),
 		Status:          models.SessionActive,
 		CredentialsUser: credUser,
@@ -464,7 +502,7 @@ func createSession(c *gin.Context) {
 			BuyerWallet:         buyerWallet,
 			SellerWallet:        sellerWallet,
 			BandwidthLimitBytes: uint64(sess.BandwidthLimit),
-			PricePerGBLamports:  uint64(node.BasePricePerGB * 1e9),
+			PricePerGBLamports:  models.SOLToLamports(node.BasePricePerGB),
 		})
 		if err != nil {
 			logging.Error(err).Str("session_id", sess.ID.String()).Msg("createSession: LockSessionCommitment failed (non-fatal)")
@@ -661,6 +699,24 @@ func terminateSession(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
+
+	// Marketplace escrow sessions are owned by the order lifecycle. Terminating
+	// them here orphaned ACTIVE orders (credentials 409) after buyers cleaned up
+	// sessions from the dashboard.
+	var linkedOrder models.Order
+	if err := db.DB.Where(
+		"session_id = ? AND status IN ?",
+		session.ID,
+		[]models.OrderStatus{models.OrderStatusPending, models.OrderStatusPendingPayment, models.OrderStatusActive},
+	).First(&linkedOrder).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":    "This session is linked to an active marketplace order. Cancel or settle the order instead of terminating the session.",
+			"order_id": linkedOrder.ID.String(),
+			"status":   linkedOrder.Status,
+		})
+		return
+	}
+
 	if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -733,17 +789,29 @@ func createInstantSession(c *gin.Context) {
 		return
 	}
 	userID := userUUID.String()
+	requireSessionPDA := decentralization.RequireSessionPDAEnabled()
 
-	// 1. Check Wallet Balance
-	var wallet models.Wallet
-	if err := db.DB.Where("user_id = ?", userUUID).First(&wallet).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	if wallet.BalanceSOL <= 0 {
-		c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient wallet balance. Please deposit funds."})
-		return
+	// 1. Payment rail: custodial balance_sol OR linked wallet for session PDA
+	if requireSessionPDA {
+		var linked models.LinkedWallet
+		if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", userUUID, models.ChainSolana).
+			First(&linked).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Link a Solana wallet before creating a prepaid session",
+				"code":  "linked_wallet_required",
+			})
+			return
+		}
+	} else {
+		var wallet models.Wallet
+		if err := db.DB.Where("user_id = ?", userUUID).First(&wallet).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
+			return
+		}
+		if wallet.BalanceSOL <= 0 {
+			c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient wallet balance. Please deposit funds."})
+			return
+		}
 	}
 
 	// 2. Select best provider node using geographic routing
@@ -761,12 +829,25 @@ func createInstantSession(c *gin.Context) {
 		req.BandwidthLimit = 1 * 1024 * 1024 * 1024
 	}
 
-	nodeID := node.ID
+	status := models.SessionActive
+	if requireSessionPDA {
+		status = models.SessionPendingPayment
+	}
+
+	// sessions.node_id FK targets legacy nodes.id, not provider_nodes.id
+	sessionNodeID := marketplace.SessionNodeIDForProvider(node)
+	if sessionNodeID == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Provider node is not ready for sessions (missing nodes mirror)",
+			"code":  "provider_node_mirror_missing",
+		})
+		return
+	}
 	session := models.Session{
 		UserID:          userUUID,
-		NodeID:          &nodeID,
+		NodeID:          sessionNodeID,
 		Type:            models.SessionUniversal,
-		Status:          models.SessionActive,
+		Status:          status,
 		CredentialsUser: credUser,
 		CredentialsPass: credPass,
 		Strategy:        req.Strategy,
@@ -774,9 +855,21 @@ func createInstantSession(c *gin.Context) {
 		BandwidthLimit:  req.BandwidthLimit,
 		Config:          "{}",
 	}
+	if session.MaxPrice <= 0 {
+		session.MaxPrice = node.BasePricePerGB
+	}
 
 	if err := db.DB.Create(&session).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	if requireSessionPDA {
+		c.JSON(http.StatusCreated, gin.H{
+			"session": session,
+			"next":    "POST /v1/sessions/" + session.ID.String() + "/fund/solana",
+			"code":    "session_escrow_required",
+		})
 		return
 	}
 

@@ -11,6 +11,7 @@
 #   ... --profile observability up -d
 #
 # See docs/GCP_TESTNET_PHASE_A.md
+# HA lite recovery notes: docs/ops/GCP_HA_LITE.md
 
 services:
   control-api:
@@ -24,6 +25,16 @@ services:
       - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-false}
       - PROXYHUB_ALLOW_DEV_LISTING_SIGN=${PROXYHUB_ALLOW_DEV_LISTING_SIGN:-false}
       - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-true}
+      # Marketplace settle must use on-chain escrow PDAs (no custodial seller credit fallback)
+      - PROXYHUB_REQUIRE_ESCROW_PDA=${PROXYHUB_REQUIRE_ESCROW_PDA:-true}
+      # PAYG prepaid session PDAs (enable after smoke)
+      - PROXYHUB_REQUIRE_SESSION_PDA=${PROXYHUB_REQUIRE_SESSION_PDA:-true}
+      # Deposit vault cutover: credit vault, advertise vault UI, freeze legacy EOA credit
+      - PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED=${PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED:-true}
+      - PROXYHUB_DEPOSIT_VAULT_UI=${PROXYHUB_DEPOSIT_VAULT_UI:-true}
+      - PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT=${PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT:-false}
+      - PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=${PROXYHUB_DEPOSIT_REQUIRE_FINALIZED:-true}
+      - SOLANA_DEPOSIT_VAULT_ADDRESS=${SOLANA_DEPOSIT_VAULT_ADDRESS:-}
       - INDEXER_INDEX_ALL=${INDEXER_INDEX_ALL:-false}
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
@@ -32,26 +43,86 @@ services:
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:?SOLANA_TREASURY_HOT_ADDRESS must be set}
       - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS:?SOLANA_TREASURY_ADDRESS must be set}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
+      # Realistic testnet hot float (not mainnet 100/200 SOL floors)
+      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-5}
+      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-50}
+      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-15}
+      - SOLANA_VAULT_TOPUP_MAX_SOL=${SOLANA_VAULT_TOPUP_MAX_SOL:-20}
+      - SOLANA_VAULT_DAILY_TOPUP_CAP_SOL=${SOLANA_VAULT_DAILY_TOPUP_CAP_SOL:-200}
+      - SOLANA_VAULT_RESERVE_FLOOR_SOL=${SOLANA_VAULT_RESERVE_FLOOR_SOL:-0.01}
+      - SOLANA_TREASURY_SWEEP_ENABLED=${SOLANA_TREASURY_SWEEP_ENABLED:-true}
+      # GCP Cloud KMS oracle signer (preferred over file keypair when enabled)
+      # Sprint E: fail-closed oracle KMS on GCP testnet (hot payouts remain file keypair)
+      - USE_GCP_KMS=${USE_GCP_KMS:-true}
+      - GCP_KMS_KEY_NAME=${GCP_KMS_KEY_NAME:-}
+      - GCP_KMS_PUBLIC_KEY=${GCP_KMS_PUBLIC_KEY:-}
+      - PROXYHUB_REQUIRE_GCP_KMS=${PROXYHUB_REQUIRE_GCP_KMS:-true}
+      - USE_AWS_KMS=${USE_AWS_KMS:-false}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./secrets/treasury-hot-keypair.json:/run/secrets/treasury-hot-keypair.json:ro
+    # HA lite: keep one replica; caps avoid noisy-neighbor OOM on e2-standard-4
+    mem_limit: 1536m
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   web:
     ports:
       - "127.0.0.1:3000:3000"
+    mem_limit: 768m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   edge-gateway:
     ports:
       - "${EDGE_GATEWAY_PORT:-8090}:8090"
       - "${EDGE_GATEWAY_TUNNEL_PORT:-3128}:3128"
+      - "${EDGE_GATEWAY_TUNNEL_ALT_PORT:-8443}:3128"
       - "${EDGE_GATEWAY_TUNNEL_UDP_PORT:-3128}:3128/udp"
+    mem_limit: 1536m
+    cpus: 1.5
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   postgres:
     ports: []
+    # Shared host: leave headroom for Redis/API/edge on e2-standard-4
+    # (overrides base 1GB shared_buffers which is too large for mem_limit)
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c max_connections=200
+    mem_limit: 1536m
+    cpus: 1.0
 
   redis:
     ports: []
+    mem_limit: 640m
+    cpus: 0.5
+
+  nats:
+    mem_limit: 256m
+    cpus: 0.25
 
   redis-exporter:
     profiles: [observability]

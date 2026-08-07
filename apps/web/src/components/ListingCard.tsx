@@ -155,7 +155,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                     </div>
                     <div className="flex items-center gap-2">
                         <ShieldCheck size={10} className="text-primary/40" />
-                        ZK-MultiSig
+                        Multi-Sig
                     </div>
                 </div>
                 <div className="p-1 px-2 rounded-lg bg-black/40 border border-white/5 group-hover:border-primary/20 transition-colors">

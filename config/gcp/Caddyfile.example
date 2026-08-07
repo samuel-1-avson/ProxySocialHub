@@ -21,7 +21,12 @@
 
 proxyhubb.com {
 	encode gzip
-	reverse_proxy 127.0.0.1:3000
+	reverse_proxy 127.0.0.1:3000 {
+		health_uri /
+		health_interval 30s
+		health_timeout 3s
+		fail_duration 30s
+	}
 }
 
 www.proxyhubb.com {
@@ -34,8 +39,18 @@ app.proxyhubb.com {
 
 api.proxyhubb.com {
 	encode gzip
-	# Caddy upgrades WebSocket automatically for /v1/ws
-	reverse_proxy 127.0.0.1:8080
+	# Prefer failing closed when control-api is down (HA lite).
+	# health_uri hits the upstream; dial/response timeouts keep hang time bounded.
+	reverse_proxy 127.0.0.1:8080 {
+		health_uri /health
+		health_interval 15s
+		health_timeout 3s
+		fail_duration 30s
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 30s
+		}
+	}
 }
 
 # Health + note for proxy hostname.

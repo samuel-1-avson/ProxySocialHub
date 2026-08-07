@@ -186,7 +186,8 @@ func TestDebitBuyerWallet_InsufficientBalance(t *testing.T) {
 	}
 
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		return debitBuyerWallet(tx, &session, 1_000_000, 1.0, 150.0)
+		_, err := debitBuyerWallet(tx, &session, 1_000_000, 1.0, 150.0)
+		return err
 	})
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
@@ -241,7 +242,7 @@ func TestCreditProviderWallet_Atomic(t *testing.T) {
 		var ok bool
 		txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 			var txErr error
-			ok, txErr = creditProviderWallet(tx, &session, 1_000_000, 0.5)
+			ok, _, txErr = creditProviderWallet(tx, &session, 1_000_000, 0.5)
 			return txErr
 		})
 		return ok, txErr
@@ -327,7 +328,8 @@ func TestDebitBuyerWallet_Success(t *testing.T) {
 
 	costSOL := 1.25
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		return debitBuyerWallet(tx, &session, 1_000_000, costSOL, 250.0)
+		_, err := debitBuyerWallet(tx, &session, 1_000_000, costSOL, 250.0)
+		return err
 	}); err != nil {
 		t.Fatalf("debitBuyerWallet: %v", err)
 	}
@@ -392,7 +394,7 @@ func TestCreditProviderWallet_ReturnsQueueWhenAtOrAboveThreshold(t *testing.T) {
 	var shouldQueue bool
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		shouldQueue, err = creditProviderWallet(tx, &session, 1_000_000, creditSOL)
+		shouldQueue, _, err = creditProviderWallet(tx, &session, 1_000_000, creditSOL)
 		return err
 	}); err != nil {
 		t.Fatalf("creditProviderWallet: %v", err)

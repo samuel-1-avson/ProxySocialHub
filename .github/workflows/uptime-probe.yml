@@ -1,7 +1,8 @@
 name: Uptime Probe
 
 # External blackbox: detects VM / Caddy / API down from outside the box.
-# Set repository variable UPTIME_API_BASE_URL (e.g. https://api.proxyhubb.com).
+# Required: repository variable UPTIME_API_BASE_URL (e.g. https://api.proxyhubb.com).
+# Soft-skip only when repository variable UPTIME_PROBE_OPTIONAL=true.
 
 on:
   schedule:
@@ -17,17 +18,28 @@ jobs:
       - name: Curl public health
         env:
           BASE: ${{ vars.UPTIME_API_BASE_URL }}
+          OPTIONAL: ${{ vars.UPTIME_PROBE_OPTIONAL }}
         run: |
           set -euo pipefail
           if [ -z "${BASE:-}" ]; then
-            echo "UPTIME_API_BASE_URL not set — skipping (configure repo variable)."
-            exit 0
+            if [ "${OPTIONAL:-}" = "true" ]; then
+              echo "UPTIME_API_BASE_URL unset and UPTIME_PROBE_OPTIONAL=true — skipping."
+              exit 0
+            fi
+            echo "FAIL: set repository variable UPTIME_API_BASE_URL (e.g. https://api.proxyhubb.com)"
+            echo "Or set UPTIME_PROBE_OPTIONAL=true to soft-skip."
+            exit 1
           fi
           BASE="${BASE%/}"
           echo "Probing ${BASE}/health"
           curl -fsS --max-time 20 "${BASE}/health"
           echo ""
-          echo "Probing ${BASE}/ready"
-          curl -fsS --max-time 20 "${BASE}/ready" || curl -fsS --max-time 20 "${BASE}/v1/health/system" || true
-          echo ""
+          echo "Probing ready endpoints (best-effort)"
+          if curl -fsS --max-time 20 "${BASE}/ready"; then
+            echo ""
+          elif curl -fsS --max-time 20 "${BASE}/v1/health/system"; then
+            echo ""
+          else
+            echo "(ready/system not required if /health passed)"
+          fi
           echo "OK"

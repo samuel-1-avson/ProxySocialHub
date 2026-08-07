@@ -24,6 +24,7 @@ import (
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
+	"github.com/proxyhubb/control-api/internal/gov"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/health"
 	"github.com/proxyhubb/control-api/internal/indexer"
@@ -32,6 +33,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
+	"github.com/proxyhubb/control-api/internal/ops"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
@@ -85,6 +87,18 @@ func main() {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
 	db.SeedAll()
+
+	// One-shot recovery: credit stuck on-chain deposits that failed ledger dual-write.
+	// RECREDIT_DEPOSITS=sig:lamports,sig:lamports  RECREDIT_DRY_RUN=true (optional)
+	if raw := strings.TrimSpace(os.Getenv("RECREDIT_DEPOSITS")); raw != "" {
+		dry := strings.EqualFold(strings.TrimSpace(os.Getenv("RECREDIT_DRY_RUN")), "true")
+		trust := strings.EqualFold(strings.TrimSpace(os.Getenv("RECREDIT_TRUST_CLI")), "true")
+		if err := ops.RecreditDepositsOpts(raw, dry, trust); err != nil {
+			log.Fatalf("RECREDIT_DEPOSITS failed: %v", err)
+		}
+		log.Println("RECREDIT_DEPOSITS complete — exiting")
+		return
+	}
 
 	// MIGRATE_ONLY mode: run schema migrations (+ optional credential encryption) then exit.
 	// Used by the db-migrate init container in Docker Compose.
@@ -291,11 +305,27 @@ func main() {
 	}
 
 	// Initialize Treasury Auto-Topup Service
-	treasuryManager := treasury.NewTreasuryManager()
+	treasury.SetColdToHotProposer(func(amountSOL float64, hotAddress string) (string, error) {
+		id, err := gov.GetGovernor().ProposeColdToHot(hotAddress, amountSOL, "system")
+		if err != nil {
+			return "", err
+		}
+		return id.String(), nil
+	})
+	treasury.SetHotToColdProposer(func(amountSOL float64, coldAddress string) (string, error) {
+		id, err := gov.GetGovernor().ProposeHotToCold(coldAddress, amountSOL, "system")
+		if err != nil {
+			return "", err
+		}
+		return id.String(), nil
+	})
+	treasuryManager := treasury.GetManager()
 	worker.GoSupervised("TreasuryAutoTopupMonitor", 5*time.Second, func() {
 		treasuryManager.StartAutoTopupMonitor(context.Background())
 	})
 	log.Println("Treasury auto-topup monitor started")
+	worker.StartWithdrawalPayoutWorker(context.Background())
+	log.Println("Withdrawal payout worker started")
 
 	// Initialize Usage Milestone Worker (PAYG Social Feature)
 	worker.InitUsageMilestoneWorker()
@@ -328,6 +358,7 @@ func main() {
 		RPCEndpoints: rpcEndpoints,
 		WSEndpoint:   wsEndpoint,
 		TreasuryAddr: os.Getenv("SOLANA_TREASURY_ADDRESS"),
+		DepositAddrs: []string{os.Getenv("SOLANA_DEPOSIT_VAULT_ADDRESS")},
 		PollInterval: 30 * time.Second,
 	}); err != nil {
 		log.Printf("Warning: Failed to init Solana watcher: %v", err)
@@ -784,7 +815,7 @@ func main() {
 		// Enhanced with treasury monitoring and multi-sig support
 		singleTransferFunc := func(ctx context.Context, recipient string, amountSOL float64) error {
 			// Get treasury manager for monitoring
-			tm := treasury.NewTreasuryManager()
+			tm := treasury.GetManager()
 
 			// Record outgoing transfer for velocity monitoring
 			if err := tm.RecordOutgoingTransfer(ctx, amountSOL); err != nil {

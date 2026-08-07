@@ -15,6 +15,7 @@ func StartAll(queue events.EventQueue) {
 	// 2. Session Lifecycle Workers (Phase 17)
 	StartSessionReaper()
 	StartSessionActivationRetryWorker()
+	StartSessionIntentExpireWorker()
 	StartSubscriptionRenewalWorker()
 	StartTelemetryWorker()
 	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine

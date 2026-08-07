@@ -4,7 +4,7 @@ ref,item,phase,component,complexity,depends_on,status,acceptance,tests
 0.3,On-chain payout binding,0,proxyhub program,S,-,DONE-source,wrong-recipient fails,cargo check PASS
 0.4,Redeploy program + unify IDs,0,chain/ops,M,0.3,DONE (devnet deploy + live settle smoke PASS),devnet e2e passes,live_escrow_settle_smoke.ts ✅
 0.5,Session program Config PDA,0,session program,L,-,OPEN,unauthorized slash/complete fail,session.ts adversarial
-0.6,Rotate/vault keys KMS cold treasury,0,ops/chain,M,-,OPEN,no keys on disk,ops smoke
+0.6,Rotate/vault keys KMS cold treasury,0,ops/chain,M,-,OPEN (Sprint E: oracle KMS fail-closed on testnet; hot still file keypair; not mainnet-ready),no keys on disk + hot via KMS,ops smoke
 0.7,k8s data-store credentials,0,infra,S,-,OPEN,unauth fails,cluster smoke
 0.8,Compose loopback + dev flags off,0,infra,S,-,DONE,ports not exposed,config validation PASS
 0.9,FE e2e wallet prod guard,0,web,S,-,DONE,prod build clean,tsc PASS
@@ -24,15 +24,15 @@ ref,item,phase,component,complexity,depends_on,status,acceptance,tests
 1.9,TEST-01 order authority header,1,control-api,S,-,DONE (test wiring),CI green,3/3 ✅
 1.10,Provider leases required,1,gateway/provider,S,-,DONE (explicit prod=true dev=false),unleased rejected,compose config ✅
 1.11,HTTP forward proxy or docs,1,gateway+docs,M,-,DONE (CONNECT-only docs + real 501),documented; non-CONNECT→501,docs/buyer-proxy.md + gateway 501
-2.1,Double-entry ledger + immutability,2,control-api+DB,XL,1.1,OPEN,balanced journal always,ledger invariant tests
-2.2,Integer lamports end-to-end,2,control-api+DB,L,2.1,OPEN,no float money,migration tests
+2.1,Double-entry ledger + immutability,2,control-api+DB,XL,1.1,PARTIAL (immutability/000116 done; double-entry still OPEN),balanced journal always,ledger invariant tests
+2.2,Integer lamports end-to-end,2,control-api+DB,L,2.1,PARTIAL (dual-write + orders/escrow/passes/session/P2P write paths),no float money,migration tests
 2.3,Redis HA + WAL PG fallback,2,infra,M,-,OPEN,session survives Redis loss,failover test
 2.4,DLQ + retries + lag metrics,2,messaging,M,0.10,OPEN,poison isolated,consumer tests
-2.5,Outbox for P2P settle + retry queue,2,control-api,M,-,OPEN,no silent settle loss,outbox tests
-2.6,Finalized deposits,2,control-api,S,-,OPEN,no reorg credit,reorg test
+2.5,Outbox for P2P settle + retry queue,2,control-api,M,-,FIXED (p2p_settle in compensation_outbox 000139),no silent settle loss,outbox tests
+2.6,Finalized deposits,2,control-api,S,-,FIXED (gcp-testnet REQUIRE_FINALIZED=true),no reorg credit,reorg test
 2.7,Wire/delete unwired packages,2,control-api,S,-,OPEN,decision per package,build
 2.8,Preventive reconciliation invariants,2,control-api,L,2.1,OPEN,tx-time invariant,tests
-2.9,Backup verify automation DR runbook,2,ops,S,-,OPEN,drill scheduled,drill log
+2.9,Backup verify automation DR runbook,2,ops,S,-,FIXED (gcp-ha-lite-install weekly verify + GCP_HA_LITE.md),drill scheduled,drill log
 3.1,k6 product suite SLOs,3,testing,M,-,OPEN,p95/p99 SLOs defined,load report
 3.2,ClickHouse telemetry pipeline,3,analytics,L,-,OPEN,OLTP hot window only,rollup checks
 3.3,Metrics label audit tracing backend,3,observability,S,-,OPEN,cardinality bounded,dashboards

@@ -12,11 +12,22 @@ import (
 // LargeTreasuryWithdrawalSOL is the amount above which admin withdrawals require 2-of-3 approval.
 const LargeTreasuryWithdrawalSOL = 100.0
 
-// Hot wallet tuning (SOL). Override via env for each deployment.
+// Hot wallet tuning defaults (SOL). Override via env for each deployment.
+// Non-mainnet defaults stay small so testnet/staging capital does not false-CRITICAL.
 const (
-	defaultHotMinSOL      = 100.0
-	defaultHotMaxSOL      = 500.0
-	defaultReplenishSOL   = 200.0
+	defaultHotMinMainnet    = 100.0
+	defaultHotMaxMainnet    = 500.0
+	defaultReplenishMainnet = 200.0
+
+	defaultHotMinStaging    = 5.0
+	defaultHotMaxStaging    = 50.0
+	defaultReplenishStaging = 15.0
+
+	defaultHotMinDev    = 0.1
+	defaultHotMaxDev    = 10.0
+	defaultReplenishDev = 2.0
+
+	defaultVaultReserveFloorSOL = 0.01
 )
 
 // GetHotTreasuryPubkey returns the operational hot treasury address.
@@ -52,19 +63,91 @@ func GetColdTreasuryPubkey() sol.PublicKey {
 	return pubkeyFromEnv("SOLANA_TREASURY_COLD_ADDRESS")
 }
 
+// GetDepositVaultPubkey returns the program deposit vault PDA when configured.
+func GetDepositVaultPubkey() sol.PublicKey {
+	return pubkeyFromEnv("SOLANA_DEPOSIT_VAULT_ADDRESS")
+}
+
 // HotMinBalanceSOL returns the minimum hot-wallet balance before replenish is recommended.
 func HotMinBalanceSOL() float64 {
-	return envFloatSOL("SOLANA_TREASURY_HOT_MIN_BALANCE", defaultHotMinSOL)
+	return envFloatSOL("SOLANA_TREASURY_HOT_MIN_BALANCE", defaultHotMinSOL())
 }
 
 // HotMaxBalanceSOL returns the target ceiling for hot-wallet balance after replenish.
 func HotMaxBalanceSOL() float64 {
-	return envFloatSOL("SOLANA_TREASURY_HOT_MAX_BALANCE", defaultHotMaxSOL)
+	return envFloatSOL("SOLANA_TREASURY_HOT_MAX_BALANCE", defaultHotMaxSOL())
 }
 
-// HotReplenishAmountSOL is the suggested cold→hot transfer size (requires multi-sig in 4.2).
+// HotReplenishAmountSOL is the suggested vault→hot (or cold→hot proposal) transfer size.
 func HotReplenishAmountSOL() float64 {
-	return envFloatSOL("SOLANA_TREASURY_REPLENISH_AMOUNT", defaultReplenishSOL)
+	return envFloatSOL("SOLANA_TREASURY_REPLENISH_AMOUNT", defaultReplenishSOL())
+}
+
+// VaultReserveFloorSOL is the SOL that must remain in the deposit vault (rent + ops buffer).
+func VaultReserveFloorSOL() float64 {
+	return envFloatSOL("SOLANA_VAULT_RESERVE_FLOOR_SOL", defaultVaultReserveFloorSOL)
+}
+
+// VaultTopUpMaxSOL caps a single vault→hot auto top-up.
+func VaultTopUpMaxSOL() float64 {
+	return envFloatSOL("SOLANA_VAULT_TOPUP_MAX_SOL", HotReplenishAmountSOL())
+}
+
+// VaultDailyTopUpCapSOL caps aggregate vault→hot auto top-ups per UTC day.
+func VaultDailyTopUpCapSOL() float64 {
+	fallback := 200.0
+	if isMainnetEnv() {
+		fallback = 2000.0
+	} else if isDevEnv() {
+		fallback = 50.0
+	}
+	return envFloatSOL("SOLANA_VAULT_DAILY_TOPUP_CAP_SOL", fallback)
+}
+
+func defaultHotMinSOL() float64 {
+	if isMainnetEnv() {
+		return defaultHotMinMainnet
+	}
+	if isStagingEnv() {
+		return defaultHotMinStaging
+	}
+	return defaultHotMinDev
+}
+
+func defaultHotMaxSOL() float64 {
+	if isMainnetEnv() {
+		return defaultHotMaxMainnet
+	}
+	if isStagingEnv() {
+		return defaultHotMaxStaging
+	}
+	return defaultHotMaxDev
+}
+
+func defaultReplenishSOL() float64 {
+	if isMainnetEnv() {
+		return defaultReplenishMainnet
+	}
+	if isStagingEnv() {
+		return defaultReplenishStaging
+	}
+	return defaultReplenishDev
+}
+
+func isMainnetEnv() bool {
+	network := strings.ToLower(strings.TrimSpace(os.Getenv("SOLANA_NETWORK")))
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	return network == "mainnet-beta" || network == "mainnet" || appEnv == "production" || appEnv == "prod"
+}
+
+func isStagingEnv() bool {
+	network := strings.ToLower(strings.TrimSpace(os.Getenv("SOLANA_NETWORK")))
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	return network == "staging" || appEnv == "staging"
+}
+
+func isDevEnv() bool {
+	return !isMainnetEnv() && !isStagingEnv()
 }
 
 func getLegacyTreasuryPubkey() sol.PublicKey {

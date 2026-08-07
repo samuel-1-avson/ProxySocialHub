@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// StartCompensationOutboxWorker retries failed withdraw/P2P compensating DB refunds.
+// StartCompensationOutboxWorker retries failed withdraw/P2P compensating DB refunds
+// and durable forward P2P settles (BE-10).
 func StartCompensationOutboxWorker() {
 	go func() {
 		ticker := time.NewTicker(2 * time.Minute)
@@ -37,6 +39,7 @@ func EnqueueCompensation(kind string, userID uuid.UUID, counterparty *uuid.UUID,
 		CounterpartyUserID: counterparty,
 		AmountSOL:          amountSOL,
 		ReferenceID:        referenceID,
+		Metadata:           "{}",
 		Status:             models.CompensationStatusPending,
 		NextRetryAt:        time.Now().UTC(),
 		LastError:          &reason,
@@ -62,6 +65,55 @@ func EnqueueCompensation(kind string, userID uuid.UUID, counterparty *uuid.UUID,
 		Msg("compensation outbox: enqueued after failed inline refund")
 }
 
+// p2pSettleMeta is stored in compensation_outbox.metadata for p2p_settle rows.
+type p2pSettleMeta struct {
+	SenderWallet      string `json:"sender_wallet"`
+	RecipientWallet   string `json:"recipient_wallet"`
+	SenderUserID      string `json:"sender_user_id"`
+	RecipientUserID   string `json:"recipient_user_id"`
+	SenderWalletID    string `json:"sender_wallet_id"`
+	RecipientWalletID string `json:"recipient_wallet_id"`
+}
+
+// EnqueueP2PSettle records a durable forward on-chain settle after ledger commit (BE-10).
+func EnqueueP2PSettle(amountSOL float64, ref string, senderUserID, recipientUserID, senderWalletID, recipientWalletID uuid.UUID, senderAddr, recipientAddr string) {
+	if amountSOL <= 0 || ref == "" || senderAddr == "" || recipientAddr == "" {
+		return
+	}
+	meta, _ := json.Marshal(p2pSettleMeta{
+		SenderWallet:      senderAddr,
+		RecipientWallet:   recipientAddr,
+		SenderUserID:      senderUserID.String(),
+		RecipientUserID:   recipientUserID.String(),
+		SenderWalletID:    senderWalletID.String(),
+		RecipientWalletID: recipientWalletID.String(),
+	})
+	cp := recipientUserID
+	entry := models.CompensationOutbox{
+		Kind:               models.CompensationKindP2PSettle,
+		UserID:             senderUserID,
+		CounterpartyUserID: &cp,
+		AmountSOL:          amountSOL,
+		ReferenceID:        ref,
+		Metadata:           string(meta),
+		Status:             models.CompensationStatusPending,
+		NextRetryAt:        time.Now().UTC(),
+	}
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "kind"}, {Name: "reference_id"}},
+		DoNothing: true,
+	}).Create(&entry).Error; err != nil {
+		logging.Error(err).Str("reference_id", ref).Msg("p2p settle outbox: enqueue failed")
+		alerts.Send(alerts.Critical, "P2P Settle Outbox Enqueue Failed",
+			fmt.Sprintf("ref=%s sender=%s amount=%.9f err=%v", ref, senderUserID, amountSOL, err))
+		return
+	}
+	logging.Info().
+		Str("reference_id", ref).
+		Float64("amount_sol", amountSOL).
+		Msg("p2p settle outbox: enqueued")
+}
+
 // ApplyCompensationOutboxEntry applies one pending compensation. Safe to retry.
 func ApplyCompensationOutboxEntry(entry *models.CompensationOutbox) error {
 	switch entry.Kind {
@@ -69,6 +121,8 @@ func ApplyCompensationOutboxEntry(entry *models.CompensationOutbox) error {
 		return applyWithdrawalCompensation(entry)
 	case models.CompensationKindP2PRefund:
 		return applyP2PCompensation(entry)
+	case models.CompensationKindP2PSettle:
+		return applyP2PSettle(entry)
 	default:
 		return fmt.Errorf("unknown compensation kind %q", entry.Kind)
 	}
@@ -100,6 +154,59 @@ func applyWithdrawalCompensation(entry *models.CompensationOutbox) error {
 			Delete(&models.SpendingRecord{}).Error
 		return nil
 	})
+}
+
+// applyP2PSettle runs the forward on-chain transfer for a durable outbox row (BE-10).
+func applyP2PSettle(entry *models.CompensationOutbox) error {
+	var meta p2pSettleMeta
+	if err := json.Unmarshal([]byte(entry.Metadata), &meta); err != nil {
+		return fmt.Errorf("p2p_settle metadata: %w", err)
+	}
+	if meta.SenderWallet == "" || meta.RecipientWallet == "" {
+		return nil // custodial-only; nothing to settle on-chain
+	}
+
+	// Idempotent: already settled if ledger has tx_hash for this ref.
+	var settled int64
+	if err := db.DB.Model(&models.WalletLedgerEntry{}).
+		Where("reference_id = ? AND type = ? AND tx_hash IS NOT NULL AND tx_hash <> ''", entry.ReferenceID, "p2p_sent").
+		Count(&settled).Error; err != nil {
+		return err
+	}
+	if settled > 0 {
+		return nil
+	}
+	// Already refunded — do not re-send.
+	var refunded int64
+	if err := db.DB.Model(&models.WalletLedgerEntry{}).
+		Where("reference_id = ? AND type = ?", entry.ReferenceID, "p2p_failed_refund").
+		Count(&refunded).Error; err != nil {
+		return err
+	}
+	if refunded > 0 {
+		return nil
+	}
+
+	senderUID, err := uuid.Parse(meta.SenderUserID)
+	if err != nil {
+		return fmt.Errorf("sender_user_id: %w", err)
+	}
+	recipientUID, err := uuid.Parse(meta.RecipientUserID)
+	if err != nil {
+		return fmt.Errorf("recipient_user_id: %w", err)
+	}
+	senderWID, err := uuid.Parse(meta.SenderWalletID)
+	if err != nil {
+		return fmt.Errorf("sender_wallet_id: %w", err)
+	}
+	recipientWID, err := uuid.Parse(meta.RecipientWalletID)
+	if err != nil {
+		return fmt.Errorf("recipient_wallet_id: %w", err)
+	}
+
+	sw, rw := meta.SenderWallet, meta.RecipientWallet
+	settleP2POnChain(&sw, &rw, entry.AmountSOL, senderUID, senderWID, recipientUID, recipientWID, entry.ReferenceID)
+	return nil
 }
 
 func applyP2PCompensation(entry *models.CompensationOutbox) error {

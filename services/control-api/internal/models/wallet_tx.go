@@ -23,7 +23,7 @@ func LockWalletForUpdate(tx *gorm.DB, userID uuid.UUID) (*Wallet, error) {
 // LedgerOpts optional fields for Credit/Debit helpers.
 type LedgerOpts struct {
 	TxHash string
-	// JournalKind overrides default journal mapping: "", "treasury", "stake", "unstake", "skip"
+	// JournalKind overrides default journal mapping: "", "treasury", "deposit_vault", "stake", "unstake", "skip"
 	JournalKind string
 }
 
@@ -149,6 +149,9 @@ func postCreditJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryTyp
 	}
 	if kind == "unstake" || entryType == "unstake" {
 		return postUnstakeJournal(tx, walletID, lamports, entryType, ref, desc)
+	}
+	if kind == "deposit_vault" {
+		return postUserCreditJournalFromVault(tx, walletID, lamports, entryType, ref, desc)
 	}
 	return postUserCreditJournal(tx, walletID, lamports, entryType, ref, desc)
 }
