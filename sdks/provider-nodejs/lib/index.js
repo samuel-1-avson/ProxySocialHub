@@ -101,6 +101,22 @@ async function downloadBinary({ packageType = "wrapper", force = false } = {}) {
   return dest;
 }
 
+/** provider-cli delegates doctor/start/etc to provider-node via PROXYHUB_PROVIDER_NODE. */
+async function ensureBinaries({ packageType = "wrapper", force = false } = {}) {
+  if (packageType === "daemon") {
+    const daemon = await downloadBinary({ packageType: "daemon", force });
+    return { program: daemon, env: {} };
+  }
+  const [cli, daemon] = await Promise.all([
+    downloadBinary({ packageType: "wrapper", force }),
+    downloadBinary({ packageType: "daemon", force }),
+  ]);
+  return {
+    program: cli,
+    env: { PROXYHUB_PROVIDER_NODE: daemon },
+  };
+}
+
 function parseArgs(argv) {
   const args = [...argv];
   let packageType = "wrapper";
@@ -129,21 +145,32 @@ async function main(argv = process.argv.slice(2)) {
   const cmd = passthrough[0];
 
   if (cmd === "install") {
-    const dest = await downloadBinary({ packageType, force: true });
-    console.log(dest);
+    const { program, env } = await ensureBinaries({ packageType, force: true });
+    if (env.PROXYHUB_PROVIDER_NODE) {
+      console.log(program);
+      console.log(env.PROXYHUB_PROVIDER_NODE);
+    } else {
+      console.log(program);
+    }
     return 0;
   }
 
   if (cmd === "path") {
-    const dest = await downloadBinary({ packageType, force: false });
-    console.log(dest);
+    const { program, env } = await ensureBinaries({ packageType, force: false });
+    if (env.PROXYHUB_PROVIDER_NODE) {
+      console.log(program);
+      console.log(env.PROXYHUB_PROVIDER_NODE);
+    } else {
+      console.log(program);
+    }
     return 0;
   }
 
-  const dest = await downloadBinary({ packageType, force: false });
-  const result = spawnSync(dest, passthrough, {
+  const { program, env } = await ensureBinaries({ packageType, force: false });
+  const result = spawnSync(program, passthrough, {
     stdio: "inherit",
     windowsHide: true,
+    env: { ...process.env, ...env },
   });
   if (result.error) {
     console.error(result.error.message);
@@ -159,6 +186,7 @@ module.exports = {
   cacheDir,
   cachedBinaryPath,
   downloadBinary,
+  ensureBinaries,
   parseArgs,
   main,
 };

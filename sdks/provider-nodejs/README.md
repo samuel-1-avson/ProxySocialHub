@@ -1,7 +1,10 @@
 # @proxyhubb/provider
 
-Thin npm wrapper that downloads official **provider-cli** / **provider-node** binaries from
-`GET /v1/cli/download` and proxies CLI arguments.
+Thin npm wrapper that downloads official **provider-cli** and **provider-node**
+binaries from `GET /v1/cli/download` and proxies CLI arguments.
+
+`doctor` / `start` / `status` need the daemon — this package downloads both and
+sets `PROXYHUB_PROVIDER_NODE` automatically.
 
 ```bash
 npm install -g @proxyhubb/provider

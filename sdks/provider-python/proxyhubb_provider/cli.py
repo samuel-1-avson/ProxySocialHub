@@ -17,7 +17,7 @@ from urllib.request import urlopen
 
 DEFAULT_API_URL = "https://api.proxyhubb.com"
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def api_base() -> str:
@@ -116,6 +116,18 @@ def download_binary(
     return dest
 
 
+def ensure_binaries(
+    *, package_type: str = "wrapper", force: bool = False
+) -> tuple[Path, dict[str, str]]:
+    """Return (program, extra_env). CLI mode also downloads provider-node."""
+    if package_type == "daemon":
+        daemon = download_binary(package_type="daemon", force=force)
+        return daemon, {}
+    cli = download_binary(package_type="wrapper", force=force)
+    daemon = download_binary(package_type="daemon", force=force)
+    return cli, {"PROXYHUB_PROVIDER_NODE": str(daemon)}
+
+
 def parse_args(argv: list[str]) -> tuple[str, list[str]]:
     package_type = "wrapper"
     args = list(argv)
@@ -139,18 +151,18 @@ def run(argv: Optional[list[str]] = None) -> int:
     package_type, passthrough = parse_args(argv)
     cmd = passthrough[0] if passthrough else None
 
-    if cmd == "install":
-        path = download_binary(package_type=package_type, force=True)
-        print(path)
+    if cmd in ("install", "path"):
+        force = cmd == "install"
+        program, extra_env = ensure_binaries(package_type=package_type, force=force)
+        print(program)
+        if "PROXYHUB_PROVIDER_NODE" in extra_env:
+            print(extra_env["PROXYHUB_PROVIDER_NODE"])
         return 0
 
-    if cmd == "path":
-        path = download_binary(package_type=package_type, force=False)
-        print(path)
-        return 0
-
-    path = download_binary(package_type=package_type, force=False)
-    completed = subprocess.run([str(path), *passthrough])
+    program, extra_env = ensure_binaries(package_type=package_type, force=False)
+    env = os.environ.copy()
+    env.update(extra_env)
+    completed = subprocess.run([str(program), *passthrough], env=env)
     return completed.returncode
 
 
