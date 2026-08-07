@@ -242,3 +242,9 @@ certs/
 .tmp-*
 .tmp-go-build/
 bootstrap-out.txt
+
+# Offline program upgrade authority (never commit)
+infra/secrets/
+
+*.egg-info/
+
