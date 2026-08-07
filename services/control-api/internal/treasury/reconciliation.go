@@ -28,13 +28,15 @@ type ReconciliationService struct {
 
 // ReconciliationReport contains the results of a reconciliation run
 type ReconciliationReport struct {
-	Timestamp         time.Time              `json:"timestamp"`
-	TreasuryBalance   float64                `json:"treasury_balance_sol"`
-	InternalLiabilities float64              `json:"internal_liabilities_sol"`
-	Discrepancy       float64                `json:"discrepancy_sol"`
-	Status            string                 `json:"status"` // MATCHED, DISCREPANCY, ERROR
-	UserBalances      []UserBalanceSummary   `json:"user_balances,omitempty"`
-	Issues            []ReconciliationIssue  `json:"issues,omitempty"`
+	Timestamp           time.Time             `json:"timestamp"`
+	TreasuryBalance     float64               `json:"treasury_balance_sol"`
+	VaultBalance        float64               `json:"vault_balance_sol,omitempty"`
+	CombinedBackingSOL  float64               `json:"combined_backing_sol,omitempty"`
+	InternalLiabilities float64               `json:"internal_liabilities_sol"`
+	Discrepancy         float64               `json:"discrepancy_sol"`
+	Status              string                `json:"status"` // MATCHED, DISCREPANCY, ERROR
+	UserBalances        []UserBalanceSummary  `json:"user_balances,omitempty"`
+	Issues              []ReconciliationIssue `json:"issues,omitempty"`
 }
 
 // UserBalanceSummary represents a user's balance for reconciliation (SOL-only)
@@ -162,6 +164,22 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 	}
 	report.TreasuryBalance = treasuryBalance
 
+	// 1b. Include deposit vault balance in backing when configured
+	vaultBalance := 0.0
+	if vaultPK := GetDepositVaultPubkey(); !vaultPK.IsZero() && rs.oracle != nil {
+		if vb, verr := rs.oracle.GetBalance(ctx, vaultPK); verr == nil {
+			vaultBalance = solana.LamportsToSOL(vb)
+		} else {
+			report.Issues = append(report.Issues, ReconciliationIssue{
+				Type:        "VAULT_READ_ERROR",
+				Severity:    "WARNING",
+				Description: fmt.Sprintf("Failed to read deposit vault balance: %v", verr),
+			})
+		}
+	}
+	report.VaultBalance = vaultBalance
+	report.CombinedBackingSOL = treasuryBalance + vaultBalance
+
 	// 2. Calculate internal liabilities (sum of all user balances)
 	internalLiabilities, userBalances, err := rs.calculateInternalLiabilities()
 	if err != nil {
@@ -175,10 +193,8 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 	report.InternalLiabilities = internalLiabilities
 	report.UserBalances = userBalances
 
-	// 3. Calculate discrepancy
-	// The treasury should have at least the sum of all user balances
-	// Plus platform fees collected (positive discrepancy)
-	discrepancy := treasuryBalance - internalLiabilities
+	// 3. Calculate discrepancy against combined hot+vault backing
+	discrepancy := report.CombinedBackingSOL - internalLiabilities
 	report.Discrepancy = discrepancy
 
 	// 4. Determine status

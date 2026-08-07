@@ -1,20 +1,20 @@
 finding_id,title,severity,confidence,component,affected_files,impact,status,fix_ref
 BC-01,Escrow settle payout accounts unconstrained,Critical,confirmed-static,proxyhub program,programs/proxyhub/src/lib.rs:3415+3272,financial-theft,FIXED-source (redeploy pending),R-01
 BC-02,Jury verdict escrow/recipients unconstrained,Critical,confirmed-static,proxyhub program,lib.rs:3339,financial-theft,FIXED-source (redeploy pending),R-01
-BC-03,session complete_session unconstrained oracle,Critical,confirmed-static,session program,programs/session/src/lib.rs:507,financial,OPEN,R-02
-BC-04,session slash_gateway unconstrained admin/treasury,Critical,confirmed-static,session program,session/src/lib.rs:565,financial-theft,OPEN,R-02
+BC-03,session complete_session unconstrained oracle,Critical,confirmed-static,session program,programs/session/src/lib.rs:507,financial,OPEN (undeployed by policy; PROXYHUB_REQUIRE_SESSION_PDA ≠ this program),R-02
+BC-04,session slash_gateway unconstrained admin/treasury,Critical,confirmed-static,session program,session/src/lib.rs:565,financial-theft,OPEN (undeployed by policy),R-02
 FE-03,NEXT_PUBLIC e2e wallet secret in bundle,Critical,confirmed-static,web,SolanaWalletProvider.tsx,secret-leak,FIXED,0.9
 OPS-01,deploy.yml missing kustomize overlays,Critical,confirmed,ci/cd,.github/workflows/deploy.yml,deploy-broken,OPEN,R-05
 BE-01,Usage signature soft-accept,High,confirmed,control-api,internal/billing/aggregator.go,financial-fraud,FIXED,0.1
 BC-05,submit_usage_proof/write_kyc_attestation lack admin binding,High,confirmed-static,proxyhub program,lib.rs,integrity-forgery,OPEN,4.2
-BC-08,Custodial oracle hot wallet = deposit treasury,High,confirmed,chain+control-api,settlement.go + gcp-align script,financial-custody,PARTIAL (SendSOL uses SOLANA_TREASURY_HOT_KEYPAIR; prod refuses identical keys; cold addr optional; ops must fund/wire distinct hot + rotate),R-03
-BC-09,Real keypairs on workstation disk,High,confirmed,ops,treasury-keypair.json infra/oracle-keypair.json,key-compromise,PARTIAL (gitignored; docs/custody-split.md; gen script; Secret Manager mount path in prod compose; rotate after exposure),R-03
+BC-08,Custodial oracle hot wallet = deposit treasury,High,confirmed,chain+control-api,settlement.go + gcp-align script,financial-custody,PARTIAL (Sprint E: vault deposits + distinct hot Feunr… + GCP KMS oracle on testnet; hot still file; align script quarantined; 0.6 OPEN),R-03
+BC-09,Real keypairs on workstation disk,High,confirmed,ops,treasury-keypair.json infra/oracle-keypair.json,key-compromise,PARTIAL (gitignored; Secret Manager + hot mount on VM; oracle signs via KMS; rotate after exposure; no keys on disk not met),R-03
 DB-01,Not a double-entry ledger,High,confirmed,control-api+PG,wallet_tx.go 000001,financial-integrity,OPEN,2.1
-DB-02,float64 money in app / DOUBLE PRECISION columns,High,confirmed,control-api+PG,models/wallet.go 000073/77/79,financial-precision,OPEN,2.2
-DB-03,Ledger mutable at DB layer,High,confirmed,PG,migrations + archive script,financial-tampering,OPEN,2.1
+DB-02,float64 money in app / DOUBLE PRECISION columns,High,confirmed,control-api+PG,models/wallet.go wallet_money.go,financial-precision,PARTIAL (lamports dual-write + P2P/orders/escrow/passes/session write paths use SOLToLamports; float API remains),2.2
+DB-03,Ledger mutable at DB layer,High,confirmed,PG,migrations/000116 + archive script,financial-tampering,FIXED (append-only triggers; archive/GDPR GUC exception),2.1
 DB-08,Relayer direct wallet writes stale columns,High,likely,relayer,services/relayer/db/db.go,data-corruption,OPEN,2.7
 EV-01,Treasury NATS subjects no stream,High,confirmed,control-api,nats/connector.go treasury_manager.go,events-lost,PARTIAL (TREASURY stream added; consumers pending),R-06
-EV-05,Redis SPOF sessions+metering,High,confirmed,infra,compose + redis usage,reliability,OPEN,2.3
+EV-05,Redis SPOF sessions+metering,High,confirmed,infra,compose + redis usage,reliability,OPEN (AOF+volume+optional GCS copy; no Sentinel; metering WAL still Redis-only),2.3
 FE-01,/v1/ws client never authenticates,High,confirmed-static,web,lib/websocket.tsx presence.ts ws-url.ts,realtime-dead,FIXED (?token= + ticket; NotificationCenter/DMs use shared useRealtime),1.5
 FE-02,WS same-origin/Docker localhost URL,High,confirmed-static,web+infra,lib/ws-url.ts Dockerfile Caddyfile.example,realtime-dead,FIXED (apex→wss://api.proxyhubb.com; NEXT_PUBLIC_WS_URL bake; Caddy Upgrade docs),1.5
 GW-07,DNS-rebinding defense only on provider agent,High,confirmed-static,edge-gateway+provider-node,policy.rs handler.rs,ssrf-conditional,OPEN,1.10
@@ -29,11 +29,11 @@ BE-04,11 unwired Register* packages,Medium,confirmed,control-api,main.go + api p
 BE-06,Dev HMAC fallback secret in bulk API,Medium,confirmed,control-api,bulk.go:192,credential-predictability,OPEN,
 BE-07,No graceful shutdown prod main,Medium,confirmed,control-api,main.go,reliability,FIXED,0.12
 BE-08,Treasury NATS no stream (dup EV-01),Medium,confirmed,control-api,,events-lost,OPEN,R-06
-BE-10,Async P2P on-chain settle post-commit,Medium,confirmed,control-api,wallet.go:600,consistency,OPEN,2.5
+BE-10,Async P2P on-chain settle post-commit,Medium,confirmed,control-api,wallet.go compensation_outbox.go,consistency,FIXED (p2p_settle outbox + worker; migration 000139),2.5
 BC-06,Multisig settle nonce not bumped,Medium,likely,proxyhub program,lib.rs,replay-hygiene,OPEN,4.3
-BC-07,Deposits confirmed-not-finalized,Medium,confirmed,control-api,verify.go:84,reorg-risk,OPEN,2.6
+BC-07,Deposits confirmed-not-finalized,Medium,confirmed,control-api,verify.go DepositRequireFinalized,reorg-risk,FIXED (PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=true on gcp-testnet),2.6
 BC-10,Program ID defaults diverge,Medium,confirmed,config,compose files + solana.ts,misconfig,OPEN,0.4
-BC-11,Reputation/ZK verification incomplete,Medium,confirmed,chain,programs/reputation zk submit,false-assurance,OPEN,4.5
+BC-11,Reputation/ZK verification incomplete,Medium,confirmed,chain,programs/reputation zk submit,false-assurance,PARTIAL (FE fake claims removed; real Halo2/reputation still deferred),4.5
 BC-13,admin-cli destructive drop unguarded,Medium,confirmed,admin-cli,main.rs:52-67,ops-risk,OPEN,
 DB-04,usage_records no FKs writer unused,Medium,confirmed,PG+control-api,000053 analytics.go,data-integrity,OPEN,
 DB-05,Marketplace filter index gaps,Medium,confirmed,PG,discovery/query.go migrations,performance,FIXED (migration 000110),1.8
@@ -42,7 +42,7 @@ EV-02,manifests.coordinated never consumed,Medium,confirmed,control-api,coordina
 EV-03,Redis billing consumer log-only,Medium,confirmed,control-api,worker.go:44,false-signal,OPEN,2.4
 EV-06,No DLQ/poison handling,Medium,confirmed,messaging,-,reliability,OPEN,2.4
 EV-07,No consumer-lag metrics,Medium,confirmed,observability,-,observability,OPEN,2.4
-FE-04,Client-side fake ZK verify,Medium,confirmed-static,web,lib/api/marketplace.ts:677,trust-spoof,OPEN,4.5
+FE-04,Client-side fake ZK verify,Medium,confirmed-static,web,lib/api/marketplace.ts useZKReputation UsageProofCard,trust-spoof,FIXED (fake ph-local-zk + simulate verify removed),4.5
 FE-05,/v1/network/status missing backend,Medium,confirmed,web+control-api,dashboard/analytics + network.go,feature-dead,FIXED (implemented + tests ✅),1.6
 FE-06,Hardcoded provider uptime,Medium,confirmed-static,web,providers/[id]/page.tsx:83,trust-signal,OPEN,5.3
 FE-08,Inconsistent NEXT_PUBLIC_API_URL usage,Medium,confirmed-static,web,settings/security analytics provider.ts,config-drift,OPEN,5.3

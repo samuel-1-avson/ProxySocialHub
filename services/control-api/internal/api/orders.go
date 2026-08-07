@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ func RegisterPartnerPurchaseRoutes(rg *gin.RouterGroup) {
 	rg.GET("/orders/:id", requireBulkScope("orders:create"), getOrder)
 	rg.GET("/orders/:id/credentials", requireBulkScope("orders:create"), getOrderCredentials)
 	rg.POST("/orders/:id/pay/solana", requireBulkScope("orders:create"), initiateSolanaPayment)
+	rg.POST("/orders/:id/confirm-escrow", requireBulkScope("orders:create"), confirmEscrow)
 	rg.POST("/orders/:id/cancel", requireBulkScope("orders:create"), cancelOrder)
 	rg.POST("/orders/:id/activate-dev", requireBulkScope("orders:create"), activateDevOrder)
 }
@@ -119,6 +121,10 @@ func initiateSolanaPayment(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
 		return
 	}
+	if pda.IsZero() {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Derived escrow PDA is empty"})
+		return
+	}
 
 	// Calculate Amount in SOL
 	// Assuming Order.TotalPrice is USD (or whatever listing currency was)
@@ -137,7 +143,7 @@ func initiateSolanaPayment(c *gin.Context) {
 	// Smart contract usually locks specific SOL amount.
 	// Amount in SOL = TotalPrice / SOL_Price
 	amountSOL := order.TotalPrice / solPrice
-	amountLamports := uint64(amountSOL * 1e9)
+	amountLamports := models.SOLToLamports(amountSOL)
 
 	// H-02: Verify buyer has sufficient on-chain SOL balance before recording the PDA.
 	// Without this check the DB row would reference an escrow that can never be funded.
@@ -184,15 +190,30 @@ func initiateSolanaPayment(c *gin.Context) {
 		},
 	})
 
+	// PDA seeds are [escrow, buyer, seller] — only one account per pair. If it
+	// already exists and is funded, the client should confirm rather than re-init.
+	escrowAlreadyFunded := false
+	onChainStatus := ""
+	if existing, fetchErr := oracle.FetchEscrow(c.Request.Context(), pda); fetchErr == nil && existing != nil {
+		onChainStatus = existing.Status.String()
+		if (existing.Status == solana.EscrowPending || existing.Status == solana.EscrowActive) &&
+			existing.Amount > 0 &&
+			(existing.ExpiresAt == 0 || time.Now().Unix() < existing.ExpiresAt) {
+			escrowAlreadyFunded = true
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"program_id":      solana.ProgramID,
-		"escrow_pda":      pda.String(),
-		"buyer_pubkey":    buyerWallet.Address,
-		"seller_pubkey":   sellerWallet.Address,
-		"amount_lamports": amountLamports,
-		"amount_sol":      amountSOL,
-		"bandwidth_gb":    order.BandwidthGB,
-		"oracle_pubkey":   oracle.GetOraclePublicKey().String(),
+		"program_id":             solana.ProgramID,
+		"escrow_pda":             pda.String(),
+		"buyer_pubkey":           buyerWallet.Address,
+		"seller_pubkey":          sellerWallet.Address,
+		"amount_lamports":        amountLamports,
+		"amount_sol":             amountSOL,
+		"bandwidth_gb":           order.BandwidthGB,
+		"oracle_pubkey":          oracle.GetOraclePublicKey().String(),
+		"escrow_already_funded":  escrowAlreadyFunded,
+		"on_chain_escrow_status": onChainStatus,
 	})
 }
 
@@ -236,6 +257,13 @@ func createOrder(c *gin.Context) {
 	}
 	if !listing.Status.IsPurchasable() {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Listing is not available (status: %s)", listing.Status)})
+		return
+	}
+	if listing.SellerID == buyerID {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "You cannot buy your own listing. Connect with a different Solana wallet (buyer), or open someone else's listing.",
+			"code":  "self_purchase_forbidden",
+		})
 		return
 	}
 	if listing.AvailableBandwidthGB > 0 && req.BandwidthGB > listing.AvailableBandwidthGB {
@@ -536,12 +564,19 @@ func getOrderCredentials(c *gin.Context) {
 		return
 	}
 
-	// Opportunistic repair: order is funded/active but Redis sync may have failed.
-	// Never roll the order back — kick ActivateOrderSession once before 409.
-	if session.Status == models.SessionActivationFailed || session.Status == models.SessionActivationPending {
+	// Opportunistic repair: order is funded/active but Redis sync may have failed,
+	// never left disabled, or the linked session was terminated while the order
+	// is still active. Never roll the order back — kick ActivateOrderSession once.
+	if session.Status == models.SessionDisabled ||
+		session.Status == models.SessionTerminated ||
+		session.Status == models.SessionActivationFailed ||
+		session.Status == models.SessionActivationPending {
 		if actErr := marketplacepkg.ActivateOrderSession(c.Request.Context(), order.ID); actErr != nil {
-			// fall through to status check / retryable 409
-			_ = actErr
+			logging.Warn().
+				Err(actErr).
+				Str("order_id", order.ID.String()).
+				Str("session_status", string(session.Status)).
+				Msg("credentials: ActivateOrderSession repair failed")
 		} else if err := db.DB.First(&session, "id = ?", *order.SessionID).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Session not found after activation retry"})
 			return

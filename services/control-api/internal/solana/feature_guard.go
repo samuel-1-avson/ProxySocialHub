@@ -283,6 +283,8 @@ func supportsMissingFromCompiled(instructionNames ...string) []string {
 		"submit_zk_batch":           {},
 		"write_admin_attestation":   {},
 		"lock_session_commitment":   {},
+		"initialize_session_escrow": {},
+		"settle_session_escrow":     {},
 	}
 
 	missing := make([]string, 0)

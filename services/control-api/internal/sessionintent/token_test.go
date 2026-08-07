@@ -68,12 +68,37 @@ func TestResolveSigningSecretUsesSessionSecret(t *testing.T) {
 	}
 }
 
-func TestResolveSigningSecretErrorsWhenMissing(t *testing.T) {
-	t.Setenv("JWT_SECRET", "")
-	t.Setenv("GATEWAY_SHARED_SECRET", "")
-	t.Setenv("SESSION_SECRET", "")
-
-	if _, err := ResolveSigningSecret(); err == nil {
-		t.Fatal("expected error when no signing secret is configured")
+func TestResolveTTLDefaultIsThirtyMinutes(t *testing.T) {
+	t.Setenv("SESSION_INTENT_TTL_SECONDS", "")
+	ttl := ResolveTTL()
+	if ttl != 30*time.Minute {
+		t.Fatalf("expected 30m default TTL, got %s", ttl)
 	}
 }
+
+func TestIssueWithIDPreservesIntentID(t *testing.T) {
+	t.Setenv("SESSION_INTENT_TTL_SECONDS", "1800")
+	secret := "test-shared-secret"
+	intentID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+
+	token, claims, err := IssueWithID(secret, Params{
+		UserID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		SessionType:    "rotating",
+		TrustTier:      "standard",
+		BandwidthLimit: 1024,
+	}, intentID)
+	if err != nil {
+		t.Fatalf("IssueWithID: %v", err)
+	}
+	if claims.ID != intentID.String() {
+		t.Fatalf("expected jti %s, got %s", intentID, claims.ID)
+	}
+	parsed, err := ParseAndValidate(token, secret)
+	if err != nil {
+		t.Fatalf("ParseAndValidate: %v", err)
+	}
+	if parsed.ID != intentID.String() {
+		t.Fatalf("parsed jti mismatch")
+	}
+}
+

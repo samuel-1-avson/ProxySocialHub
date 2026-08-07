@@ -1,10 +1,13 @@
 package worker
 
 import (
+	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
 )
@@ -30,31 +33,56 @@ func reap() {
 	db.DB.Where("status = ?", models.SessionActive).Find(&activeSessions)
 
 	ghostCount := 0
+	repairedCount := 0
 	for _, session := range activeSessions {
-		// Check if credentials still exist in Redis
-		exists, err := redis.SessionExists(session.CredentialsUser)
-		if err != nil {
+		credUser := strings.TrimSpace(session.CredentialsUser)
+		if credUser == "" {
+			// Decrypt failure would otherwise look like a missing Redis key and
+			// falsely terminate marketplace sessions (credentials → 407).
+			log.Printf("[SessionReaper] Skipping session %s: empty credentials_user", session.ID)
 			continue
 		}
 
-		if !exists {
-			// Ghost detected! DB thinks it's active, but Gateway can't auth it.
-			log.Printf("[SessionReaper] Ghost detected: %s (Terminating in DB)", session.ID)
-			if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
-				log.Printf("[SessionReaper] Invalid termination transition for session %s: %v", session.ID, err)
-				continue
-			}
-			db.DB.Model(&session).Update("status", models.SessionTerminated)
-			ghostCount++
+		exists, err := redis.SessionExists(credUser)
+		if err != nil {
+			continue
 		}
+		if exists {
+			continue
+		}
+
+		var order models.Order
+		orderLinked := db.DB.Where(
+			"session_id = ? AND status IN ?",
+			session.ID,
+			[]models.OrderStatus{
+				models.OrderStatusPending,
+				models.OrderStatusPendingPayment,
+				models.OrderStatusActive,
+			},
+		).First(&order).Error == nil
+
+		if orderLinked {
+			// Escrow-backed orders must stay usable; re-sync Redis instead of kill.
+			log.Printf("[SessionReaper] Redis missing for order-linked session %s (order %s); re-syncing", session.ID, order.ID)
+			if syncErr := marketplace.ActivateOrderSession(context.Background(), order.ID); syncErr != nil {
+				log.Printf("[SessionReaper] Re-sync failed for session %s: %v", session.ID, syncErr)
+			} else {
+				repairedCount++
+			}
+			continue
+		}
+
+		log.Printf("[SessionReaper] Ghost detected: %s (Terminating in DB)", session.ID)
+		if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
+			log.Printf("[SessionReaper] Invalid termination transition for session %s: %v", session.ID, err)
+			continue
+		}
+		db.DB.Model(&session).Update("status", models.SessionTerminated)
+		ghostCount++
 	}
 
-	// 2. Zombie Detection: Gateway auth exists in Redis but DB says it's terminated
-	// This is slightly harder without Scanning all keys, but we can do it via a set if we had one.
-	// For now, we rely on TTL in Redis (24h) to clean up most zombies.
-	// Future: Implement a 'sessions:active' set in Redis.
-
-	if ghostCount > 0 {
-		log.Printf("[SessionReaper] Cycle complete. Purged %d ghost sessions.", ghostCount)
+	if ghostCount > 0 || repairedCount > 0 {
+		log.Printf("[SessionReaper] Cycle complete. Purged %d ghosts, repaired %d order-linked sessions.", ghostCount, repairedCount)
 	}
 }

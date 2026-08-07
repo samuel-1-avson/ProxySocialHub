@@ -81,6 +81,23 @@ services:
       - SOLANA_TREASURY_HOT_KEYPAIR=${SOLANA_TREASURY_HOT_KEYPAIR:-}
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:-}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
+      # Hot float / vault→hot automation (staging-friendly defaults; override for mainnet)
+      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-5}
+      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-50}
+      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-15}
+      - SOLANA_VAULT_TOPUP_MAX_SOL=${SOLANA_VAULT_TOPUP_MAX_SOL:-20}
+      - SOLANA_VAULT_DAILY_TOPUP_CAP_SOL=${SOLANA_VAULT_DAILY_TOPUP_CAP_SOL:-200}
+      - SOLANA_VAULT_RESERVE_FLOOR_SOL=${SOLANA_VAULT_RESERVE_FLOOR_SOL:-0.01}
+      - SOLANA_TREASURY_SWEEP_ENABLED=${SOLANA_TREASURY_SWEEP_ENABLED:-true}
+      # Phase 1 deposit vault PDA (inbound SOL outside hot EOA)
+      - SOLANA_DEPOSIT_VAULT_ADDRESS=${SOLANA_DEPOSIT_VAULT_ADDRESS:-}
+      - PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED=${PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED:-false}
+      - PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT=${PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT:-true}
+      - PROXYHUB_DEPOSIT_VAULT_UI=${PROXYHUB_DEPOSIT_VAULT_UI:-false}
+      - PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=${PROXYHUB_DEPOSIT_REQUIRE_FINALIZED:-false}
+      - PROXYHUB_REQUIRE_ESCROW_PDA=${PROXYHUB_REQUIRE_ESCROW_PDA:-false}
+      - PROXYHUB_REQUIRE_SESSION_PDA=${PROXYHUB_REQUIRE_SESSION_PDA:-false}
+      - PROXYHUB_WATCHER_START_SLOT=${PROXYHUB_WATCHER_START_SLOT:-}
       # PHB_TOKEN_MINT: SPL token mint address for the platform token.
       # Used to display platform token balances on wallet details pages.
       - PHB_TOKEN_MINT=${PHB_TOKEN_MINT:-}
@@ -92,10 +109,11 @@ services:
       - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway:8090}
       - EDGE_GATEWAY_BUYER_HOST=${EDGE_GATEWAY_BUYER_HOST:-localhost}
       - EDGE_GATEWAY_BUYER_PORT=${EDGE_GATEWAY_BUYER_PORT:-8090}
-      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.0}
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.4}
       - CLI_DIST_PATH=/app/cli-dist
       - PROVIDER_PUBLIC_CONTROL_API_URL=${PROVIDER_PUBLIC_CONTROL_API_URL:-${API_BASE_URL:-http://localhost:18080}}
       - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
+      - PROVIDER_TUNNEL_PUBLIC_ADDRS=${PROVIDER_TUNNEL_PUBLIC_ADDRS:-}
       # --- Halo2 Prover ---
       - HALO2_PROVER_URL=${HALO2_PROVER_URL:-http://zk-prover:8095}
       - HALO2_PROVER_TIMEOUT_MS=${HALO2_PROVER_TIMEOUT_MS:-15000}
@@ -309,10 +327,13 @@ services:
   # ==================== NATS (Message Bus) ====================
   nats:
     image: nats:2.10-alpine
-    command: ["-js", "-m", "8222"]
+    # JetStream with durable store — recreate without wiping streams (HA lite).
+    command: ["-js", "-m", "8222", "-sd", "/data"]
     ports:
       - "127.0.0.1:4222:4222"
       - "127.0.0.1:8222:8222"
+    volumes:
+      - nats_data:/data
     networks:
       - backend
     healthcheck:
@@ -381,6 +402,27 @@ services:
     depends_on:
       control-api:
         condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+
+  # ==================== Docs (public docs.proxyhubb.com) ====================
+  docs:
+    build:
+      context: ./apps/docs
+      dockerfile: Dockerfile
+    ports:
+      - "3010:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
     networks:
       - backend
     healthcheck:
@@ -520,6 +562,7 @@ volumes:
   grafana_data:
   postgres_data:
   prometheus_data:
+  nats_data:
 
 networks:
   backend:

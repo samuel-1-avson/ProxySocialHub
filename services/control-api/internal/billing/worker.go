@@ -11,10 +11,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/sessionintent"
+	"github.com/proxyhubb/control-api/internal/solana"
+	sol "github.com/gagliardetto/solana-go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -194,22 +197,71 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		return err
 	}
 
+	if skip, refuse, reason := evaluateEscrowCustodialGate(&session); refuse {
+		return fmt.Errorf("PROXYHUB_REQUIRE_ESCROW_PDA: refusing custodial settle for session %s (%s)", sessionID, reason)
+	} else if skip {
+		logging.Info().
+			Str("session_id", sessionID).
+			Str("reason", reason).
+			Msg("billing: skipping custodial settle for escrow-backed marketplace session")
+		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
+			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete escrow-settled Redis key")
+		}
+		if err := markSettlementArtifactsSettled(session.ID); err != nil {
+			logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark escrow session artifacts settled")
+		}
+		return nil
+	}
+
+	if skip, reason := shouldSettleOnChainSessionPDA(&session); skip {
+		logging.Info().
+			Str("session_id", sessionID).
+			Str("reason", reason).
+			Msg("billing: settling session escrow PDA on-chain (skip custodial)")
+		if err := settleSessionEscrowOnChain(&session, totalBytes); err != nil {
+			logging.Error(err).Str("session_id", sessionID).Msg("billing: session escrow on-chain settle failed")
+			return err
+		}
+		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
+			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete session-pda Redis key")
+		}
+		if err := markSettlementArtifactsSettled(session.ID); err != nil {
+			logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark session-pda artifacts settled")
+		}
+		return nil
+	}
+
+	if decentralization.RequireSessionPDAEnabled() {
+		return fmt.Errorf("PROXYHUB_REQUIRE_SESSION_PDA: session %s has no session_pda; custodial balance_sol settle disabled", sessionID)
+	}
+
 	costSOL, costUSD := computeSessionCost(&session, totalBytes)
 
 	// queuePayoutAfterCommit is set inside the tx and consumed after commit (FW-02).
 	var queuePayoutAfterCommit uuid.UUID
 
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := debitBuyerWallet(tx, &session, totalBytes, costSOL, costUSD); err != nil {
+		buyerWallet, err := debitBuyerWallet(tx, &session, totalBytes, costSOL, costUSD)
+		if err != nil {
 			return err
 		}
 
-		shouldQueue, err := creditProviderWallet(tx, &session, totalBytes, costSOL)
+		shouldQueue, providerWalletID, err := creditProviderWallet(tx, &session, totalBytes, costSOL)
 		if err != nil {
 			return err
 		}
 		if shouldQueue && session.Listing != nil {
 			queuePayoutAfterCommit = session.Listing.SellerID
+		}
+
+		buyerDebit := int64(models.SOLToLamports(costSOL))
+		providerCredit := int64(0)
+		if providerWalletID != uuid.Nil {
+			providerCredit = buyerDebit // full amount to provider in current model
+		}
+		desc := fmt.Sprintf("Usage settle %s", session.ID.String())
+		if err := models.PostUsageJournal(tx, buyerWallet, providerWalletID, buyerDebit, providerCredit, 0, session.ID.String(), desc); err != nil {
+			return err
 		}
 
 		// Clear Redis key after successful settlement (I6).
@@ -239,6 +291,96 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		go queueProviderPayout(queuePayoutAfterCommit)
 	}
 	return nil
+}
+
+// evaluateEscrowCustodialGate decides marketplace escrow settle behavior when
+// PROXYHUB_REQUIRE_ESCROW_PDA is enabled.
+//
+//	skip=true  — order is on-chain escrow; do not touch balance_sol
+//	refuse=true — marketplace order exists without PDA (or order lookup failed);
+//	              never fall through to custodial debit
+//	both false — no marketplace order (PAYG / other); continue to session-PDA or custodial
+func evaluateEscrowCustodialGate(session *models.Session) (skip bool, refuse bool, reason string) {
+	if !decentralization.RequireEscrowPDAEnabled() {
+		return false, false, ""
+	}
+	if session == nil {
+		return false, true, "nil_session"
+	}
+	var order models.Order
+	err := db.DB.Select("id", "escrow_pda", "payment_method").
+		Where("session_id = ?", session.ID).
+		Order("updated_at DESC").
+		First(&order).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Not a marketplace escrow session — let session-PDA / custodial paths decide.
+			return false, false, ""
+		}
+		return false, true, "order_lookup_failed"
+	}
+	if order.PaymentMethod == "solana_escrow" || strings.TrimSpace(order.EscrowPDA) != "" {
+		return true, false, "order_escrow_pda"
+	}
+	return false, true, "order_missing_escrow_pda"
+}
+
+// shouldSkipCustodialSettleForEscrow is kept for older call sites/tests; prefer evaluateEscrowCustodialGate.
+func shouldSkipCustodialSettleForEscrow(session *models.Session) (bool, string) {
+	skip, refuse, reason := evaluateEscrowCustodialGate(session)
+	if refuse {
+		return false, reason
+	}
+	return skip, reason
+}
+
+// shouldSettleOnChainSessionPDA is true when PAYG settlement should use SessionEscrow PDA.
+func shouldSettleOnChainSessionPDA(session *models.Session) (bool, string) {
+	if session == nil {
+		return false, ""
+	}
+	if !decentralization.RequireSessionPDAEnabled() {
+		// Still settle on-chain if the session was funded via session escrow,
+		// even when the require flag is off (avoid double-debit).
+		if session.PaymentMethod == "solana_session_escrow" || strings.TrimSpace(session.SessionPDA) != "" {
+			return true, "session_escrow_pda"
+		}
+		return false, ""
+	}
+	if session.PaymentMethod == "solana_session_escrow" || strings.TrimSpace(session.SessionPDA) != "" {
+		return true, "session_escrow_pda"
+	}
+	return false, ""
+}
+
+func settleSessionEscrowOnChain(session *models.Session, totalBytes int64) error {
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		return fmt.Errorf("oracle client not available")
+	}
+	buyer, err := sol.PublicKeyFromBase58(session.BuyerWallet)
+	if err != nil {
+		return fmt.Errorf("invalid buyer wallet: %w", err)
+	}
+	seller, err := sol.PublicKeyFromBase58(session.SellerWallet)
+	if err != nil {
+		return fmt.Errorf("invalid seller wallet: %w", err)
+	}
+	var sidBytes [16]byte
+	copy(sidBytes[:], session.ID[:])
+	bytesUsed := uint64(totalBytes)
+	if bytesUsed == 0 && session.BytesUsed > 0 {
+		bytesUsed = uint64(session.BytesUsed)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	_, err = oracle.SettleSessionEscrow(ctx, "billing.settle_session_pda", solana.SettleSessionEscrowParams{
+		SessionID: sidBytes,
+		Buyer:     buyer,
+		Seller:    seller,
+		BytesUsed: bytesUsed,
+	})
+	return err
 }
 
 func markSettlementArtifactsSettled(sessionID uuid.UUID) error {
@@ -358,11 +500,12 @@ func computeSessionCost(session *models.Session, totalBytes int64) (costSOL, cos
 
 // debitBuyerWallet checks spending limits, deducts costSOL from the buyer's locked
 // wallet, records spending, and writes the debit ledger entry — all within tx.
-func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL, costUSD float64) error {
+// Returns buyer wallet ID for PostUsageJournal (journal lines skipped here).
+func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL, costUSD float64) (uuid.UUID, error) {
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ?", session.UserID).First(&wallet).Error; err != nil {
-		return err
+		return uuid.Nil, err
 	}
 
 	if err := wallet.CheckSpendingLimit(tx, costSOL, models.SpendingUsage); err != nil {
@@ -373,16 +516,16 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 				Float64("limit", spendingErr.Limit).
 				Float64("attempted", costSOL).
 				Msg("Billing: spending limit would be exceeded")
-			return fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
+			return uuid.Nil, fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
 		}
-		return err
+		return uuid.Nil, err
 	}
 
 	if !wallet.CanAffordSOL(costSOL) {
 		logging.Warn().Str("session_id", session.ID.String()).
 			Float64("need", costSOL).Float64("have", wallet.BalanceSOL).
 			Msg("Billing: insufficient SOL balance")
-		return fmt.Errorf("insufficient SOL balance")
+		return uuid.Nil, fmt.Errorf("insufficient SOL balance")
 	}
 
 	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
@@ -391,17 +534,20 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 
 	solPriceUSD := GetSOLPriceUSD()
 	desc := fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD)
-	return models.DebitWalletLocked(tx, &wallet, costSOL, models.TransactionUsage, session.ID.String(), desc)
+	if err := models.DebitWalletLockedOpts(tx, &wallet, costSOL, models.TransactionUsage, session.ID.String(), desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+		return uuid.Nil, err
+	}
+	return wallet.ID, nil
 }
 
 // creditProviderWallet credits the provider's wallet with costSOL inside tx and
-// updates their quality score. Returns (true, nil) when the balance crosses the
+// updates their quality score. Returns (true, providerWalletID, nil) when the balance crosses the
 // payout threshold — caller must queue a batch payout after the tx commits (FW-02).
 //
 // Provider resolution order:
 //  1. session.Listing.SellerID  — marketplace sessions (from-listing path)
 //  2. node.ProviderUserID       — quick-start / instant sessions (node assigned, no listing)
-func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL float64) (bool, error) {
+func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL float64) (bool, uuid.UUID, error) {
 	var providerID uuid.UUID
 
 	if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
@@ -415,7 +561,7 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 	}
 
 	if providerID == uuid.Nil {
-		return false, nil
+		return false, uuid.Nil, nil
 	}
 
 	// P0-01: FirstOrCreate inside the locked tx — never silently lose funds.
@@ -423,13 +569,13 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ?", providerID).
 		FirstOrCreate(&providerWallet, models.Wallet{UserID: providerID}).Error; err != nil {
-		return false, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
+		return false, uuid.Nil, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
 	}
 
 	ref := session.ID.String() + ":provider"
 	desc := fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
-	if err := models.CreditWalletLocked(tx, &providerWallet, costSOL, "provider_earning", ref, desc); err != nil {
-		return false, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
+	if err := models.CreditWalletLockedOpts(tx, &providerWallet, costSOL, "provider_earning", ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+		return false, uuid.Nil, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
 	}
 
 	var score models.ProviderScore
@@ -438,7 +584,7 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 		tx.Save(&score)
 	}
 
-	return providerWallet.BalanceSOL >= providerPayoutThresholdSOL, nil
+	return providerWallet.BalanceSOL >= providerPayoutThresholdSOL, providerWallet.ID, nil
 }
 
 // triggerProviderPayout sends accumulated SOL from treasury to provider's linked Solana wallet.

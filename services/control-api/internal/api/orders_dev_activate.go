@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
@@ -16,6 +17,9 @@ import (
 
 // devEscrowActivateEnabled gates POST /v1/orders/:id/activate-dev (local/docker E2E only).
 func devEscrowActivateEnabled() bool {
+	if decentralization.RequireEscrowPDAEnabled() {
+		return false
+	}
 	if isTruthyEnv(os.Getenv("PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE")) {
 		return true
 	}

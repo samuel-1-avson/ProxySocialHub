@@ -47,6 +47,18 @@ func ActivateOrderSession(ctx context.Context, orderID uuid.UUID) error {
 		return fmt.Errorf("session not found: %w", err)
 	}
 
+	// Escrow-backed orders can have their Redis session wiped (manual terminate,
+	// reaper false-positive). Allow resurrect from terminated → disabled first.
+	if session.Status == models.SessionTerminated {
+		if err := db.DB.Model(&session).Updates(map[string]interface{}{
+			"status":   models.SessionDisabled,
+			"end_time": time.Time{},
+		}).Error; err != nil {
+			return fmt.Errorf("failed to reset terminated session for reactivation: %w", err)
+		}
+		session.Status = models.SessionDisabled
+	}
+
 	if err := transitionSessionActivationStatus(&session, models.SessionActivationPending); err != nil {
 		return err
 	}

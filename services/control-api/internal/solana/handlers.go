@@ -52,7 +52,10 @@ func InitOracleFromEnv() error {
 
 	oracleClient = client
 	globalOracleClient = client
-	fmt.Printf("[Solana] Oracle initialized on %s: %s\n", network, client.GetOraclePublicKey().String())
+	fmt.Printf("[Solana] Oracle initialized on %s: %s (rpc_endpoints=%d)\n", network, client.GetOraclePublicKey().String(), len(rpcEndpoints))
+	for i, ep := range rpcEndpoints {
+		fmt.Printf("[Solana]   rpc[%d]=%s\n", i, ep)
+	}
 	return nil
 }
 

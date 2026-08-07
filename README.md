@@ -5,6 +5,7 @@ Solana-settled residential proxy marketplace. Buyers discover listings, fund esc
 | Surface | URL |
 |---------|-----|
 | Web | https://proxyhubb.com |
+| Docs | https://docs.proxyhubb.com |
 | API | https://api.proxyhubb.com |
 | Buyer proxy | `proxy.proxyhubb.com:8090` (HTTP CONNECT / SOCKS5 only — [docs/buyer-proxy.md](docs/buyer-proxy.md)) |
 
@@ -45,6 +46,7 @@ Repo: [samuel-1-avson/ProxySocialHub](https://github.com/samuel-1-avson/ProxySoc
 | Path | Role |
 |------|------|
 | `apps/web` | Next.js product UI |
+| `apps/docs` | Public docs site (Fumadocs → docs.proxyhubb.com) |
 | `services/control-api` | Go REST control plane (`/v1`) |
 | `services/edge-gateway` | Buyer CONNECT + provider tunnels |
 | `services/provider-node` | Provider tunnel client |
@@ -172,6 +174,8 @@ Useful scripts:
 | `scripts/gcp-verify-web-deploy.sh` | Image source + route + hostname redirect checks |
 | `scripts/gcp-testnet-verify.sh` | Smoke checks |
 | `scripts/gcp-postgres-backup.sh` | DB backups |
+| `scripts/gcp-ha-lite-install.sh` | Backup verify + Redis copy cron (HA lite) |
+| `docs/ops/GCP_HA_LITE.md` | Single-VM recovery limits (not multi-node HA) |
 
 Env template: `config/gcp-testnet.env.example`.
 

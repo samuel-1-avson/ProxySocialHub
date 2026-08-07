@@ -19,6 +19,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"github.com/proxyhubb/control-api/internal/treasury"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -552,17 +553,18 @@ func transferP2P(c *gin.Context) {
 		return
 	}
 
-	// FIN-001: After the DB commits, fire an on-chain SOL transfer when both
-	// parties have linked Solana wallets. The DB balance adjustment is the
-	// platform ledger; the chain transfer is the verifiable settlement record.
-	// If the chain call fails we issue a compensating DB credit (no double-debit).
-	settle := func() {
-		settleP2POnChain(senderUser.WalletAddress, recipient.WalletAddress, req.Amount, senderUUID, senderWallet.ID, recipient.ID, recipientWallet.ID, refID)
-	}
-	if testP2PSettleSynchronously {
-		settle()
-	} else {
-		go settle()
+	// FIN-001 / BE-10: After DB commit, enqueue durable on-chain settle when both
+	// parties have linked Solana wallets. Worker retries across process restarts.
+	if senderUser.WalletAddress != nil && *senderUser.WalletAddress != "" &&
+		recipient.WalletAddress != nil && *recipient.WalletAddress != "" {
+		EnqueueP2PSettle(req.Amount, refID, senderUUID, recipient.ID, senderWallet.ID, recipientWallet.ID,
+			*senderUser.WalletAddress, *recipient.WalletAddress)
+		if testP2PSettleSynchronously {
+			ProcessCompensationOutboxOnce(50)
+		} else {
+			// Best-effort immediate attempt; outbox row survives if this process dies.
+			go ProcessCompensationOutboxOnce(20)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transfer complete", "reference": refID})
@@ -675,26 +677,52 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Preflight: payout (treasury hot) wallet must cover withdrawal + fee headroom before we debit the user.
+	// Preflight: payout (treasury hot) wallet must cover withdrawal + fee headroom.
+	// If thin: event-driven vault→hot, recheck once; still short → queue (202 processing).
 	const feeHeadroomLamports uint64 = 10_000 // rent/fee buffer
 	needLamports := models.SOLToLamports(req.Amount) + feeHeadroomLamports
 	payoutPK := oracle.GetPayoutPublicKey()
-	payoutBal, balErr := oracle.GetBalance(c.Request.Context(), payoutPK)
+	balCtx, balCancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer balCancel()
+	payoutBal, balErr := oracle.GetBalance(balCtx, payoutPK)
 	if balErr != nil {
-		logging.Error(balErr).Msg("withdraw: failed to read payout wallet balance")
+		logging.Error(balErr).
+			Str("payout_wallet", payoutPK.String()).
+			Msg("withdraw: failed to read payout wallet balance")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify treasury payout balance. Try again shortly."})
 		return
 	}
+
+	tm := treasury.GetManager()
 	if payoutBal < needLamports {
+		topCtx, topCancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+		txHash, topErr := tm.EnsureHotLiquidity(topCtx, needLamports)
+		topCancel()
+		if topErr != nil {
+			logging.Warn().Err(topErr).
+				Str("payout_wallet", payoutPK.String()).
+				Uint64("need_lamports", needLamports).
+				Msg("withdraw: immediate vault→hot failed; will queue if debit succeeds")
+		} else if txHash != "" {
+			logging.Info().Str("tx_hash", txHash).Msg("withdraw: vault→hot submitted before payout")
+		}
+		reCtx, reCancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+		payoutBal, balErr = oracle.GetBalance(reCtx, payoutPK)
+		reCancel()
+		if balErr != nil {
+			logging.Error(balErr).Msg("withdraw: recheck payout balance failed")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify treasury payout balance. Try again shortly."})
+			return
+		}
+	}
+
+	queueInstead := payoutBal < needLamports
+	if queueInstead {
 		logging.Warn().
 			Str("payout_wallet", payoutPK.String()).
 			Uint64("payout_lamports", payoutBal).
 			Uint64("need_lamports", needLamports).
-			Msg("withdraw blocked: payout wallet underfunded")
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "Platform payout wallet is temporarily unable to process this withdrawal. Please try again shortly.",
-		})
-		return
+			Msg("withdraw: hot still thin after vault top-up — enqueueing payout")
 	}
 
 	// Check if user is flagged/frozen
@@ -755,6 +783,60 @@ func withdrawSOL(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Hot still thin after vault top-up: enqueue for payout worker (202 processing).
+	if queueInstead {
+		walletID := walletRecord.ID
+		queued := models.WithdrawalPayout{
+			UserID:      userUUID,
+			WalletID:    &walletID,
+			Reference:   withdrawalRef,
+			Destination: destAddress,
+			AmountSOL:   req.Amount,
+			Status:      models.WithdrawalPayoutRequested,
+		}
+		if qErr := db.DB.Create(&queued).Error; qErr != nil {
+			logging.Error(qErr).Str("ref", withdrawalRef).Msg("withdraw: failed to enqueue payout — refunding")
+			_ = db.DB.Transaction(func(tx *gorm.DB) error {
+				var refundWallet models.Wallet
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
+					return err
+				}
+				desc := "Withdrawal queue failed — balance restored"
+				if err := models.CreditWalletLocked(tx, &refundWallet, req.Amount, "withdrawal_failed_refund", withdrawalRef, desc); err != nil {
+					return err
+				}
+				return tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
+					refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
+					Delete(&models.SpendingRecord{}).Error
+			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "Platform payout wallet is temporarily unable to process this withdrawal. Please try again shortly.",
+			})
+			return
+		}
+		// Kick vault top-up + worker asynchronously.
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			_, _ = tm.EnsureHotLiquidity(bg, needLamports)
+			treasury.NotifyPayoutDrain()
+		}()
+		logging.Info().
+			Str("user_id", userUUID.String()).
+			Str("reference", withdrawalRef).
+			Float64("amount_sol", req.Amount).
+			Msg("SOL withdrawal queued (processing)")
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":      "processing",
+			"reference":   withdrawalRef,
+			"amount_sol":  req.Amount,
+			"destination": destAddress,
+			"new_balance": walletRecord.BalanceSOL,
+			"message":     "Withdrawal submitted — usually completes in under a few minutes",
+		})
 		return
 	}
 
@@ -1003,7 +1085,7 @@ func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount floa
 	if oracle == nil {
 		return
 	}
-	lamports := uint64(amount * 1e9)
+	lamports := models.SOLToLamports(amount)
 	ctx2, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 

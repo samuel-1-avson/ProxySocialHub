@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 )
 
@@ -69,9 +72,19 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// VerifyTransaction verifies a Solana transaction exists and was successful
+// VerifyTransaction verifies a Solana transaction exists and was successful.
+// Retries across SOLANA_RPC_ENDPOINTS when RPC returns null/"not found" or rate limits.
 func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, error) {
 	client := NewRPCHTTPClient()
+	endpoints := RPCEndpointsFromEnv()
+	if len(endpoints) == 0 {
+		endpoints = []string{rpcEndpoint}
+	}
+
+	commitment := "confirmed"
+	if decentralization.DepositRequireFinalized() {
+		commitment = "finalized"
+	}
 
 	reqBody := rpcRequest{
 		Jsonrpc: "2.0",
@@ -81,7 +94,7 @@ func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, 
 			txHash,
 			map[string]interface{}{
 				"encoding":                       "json",
-				"commitment":                     "confirmed",
+				"commitment":                     commitment,
 				"maxSupportedTransactionVersion": 0,
 			},
 		},
@@ -92,48 +105,86 @@ func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", rpcEndpoint, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	const (
+		maxAttempts = 12
+		retryDelay  = 1500 * time.Millisecond
+	)
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		endpoint := endpoints[(attempt-1)%len(endpoints)]
+		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("RPC request failed: %w", err)
+		} else {
+			status := resp.StatusCode
+			var rpcResp rpcResponse
+			decodeErr := json.NewDecoder(resp.Body).Decode(&rpcResp)
+			resp.Body.Close()
+			if decodeErr != nil {
+				lastErr = fmt.Errorf("failed to decode response: %w", decodeErr)
+			} else if status == http.StatusTooManyRequests {
+				lastErr = errors.New("RPC error: Connection rate limits exceeded")
+			} else if rpcResp.Error != nil {
+				lastErr = fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+			} else if string(rpcResp.Result) == "null" {
+				lastErr = errors.New("transaction not found")
+			} else {
+				var txResult TransactionResult
+				if err := json.Unmarshal(rpcResp.Result, &txResult); err != nil {
+					return nil, fmt.Errorf("failed to parse transaction: %w", err)
+				}
+				if txResult.Meta != nil && txResult.Meta.Err != nil {
+					return nil, fmt.Errorf("transaction failed on-chain: %v", txResult.Meta.Err)
+				}
+				logging.Info().
+					Str("tx_hash", txHash).
+					Str("rpc", endpoint).
+					Uint64("slot", txResult.Slot).
+					Msg("Solana transaction verified")
+				rpcEndpoint = endpoint
+				return &txResult, nil
+			}
+		}
+
+		msg := ""
+		if lastErr != nil {
+			msg = strings.ToLower(lastErr.Error())
+		}
+		retryable := lastErr != nil && (strings.Contains(msg, "not found") ||
+			strings.Contains(msg, "rpc request failed") ||
+			strings.Contains(msg, "rate limit") ||
+			strings.Contains(msg, "429") ||
+			strings.Contains(msg, "too many") ||
+			strings.Contains(msg, "timeout") ||
+			strings.Contains(msg, "temporar"))
+		if !retryable || attempt == maxAttempts {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, errors.New("transaction not found")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(retryDelay):
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("RPC request failed: %w", err)
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	defer resp.Body.Close()
-
-	var rpcResp rpcResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	// Check if transaction exists
-	if string(rpcResp.Result) == "null" {
-		return nil, errors.New("transaction not found")
-	}
-
-	var txResult TransactionResult
-	if err := json.Unmarshal(rpcResp.Result, &txResult); err != nil {
-		return nil, fmt.Errorf("failed to parse transaction: %w", err)
-	}
-
-	// Check if transaction failed
-	if txResult.Meta != nil && txResult.Meta.Err != nil {
-		return nil, fmt.Errorf("transaction failed on-chain: %v", txResult.Meta.Err)
-	}
-
-	logging.Info().
-		Str("tx_hash", txHash).
-		Uint64("slot", txResult.Slot).
-		Msg("Solana transaction verified")
-
-	return &txResult, nil
+	return nil, errors.New("transaction not found")
 }
 
 // VerifyTransferAmount verifies the transfer amount to a specific recipient

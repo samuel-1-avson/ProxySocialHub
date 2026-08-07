@@ -12,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
+	"github.com/proxyhubb/control-api/internal/worker"
 )
 
 // RegisterTreasuryPublicRoutes exposes read-only treasury transparency (no auth).
@@ -52,11 +53,47 @@ func getPublicTreasury(c *gin.Context) {
 		Timestamp:        time.Now().UTC(),
 	}
 
-	tm := treasury.NewTreasuryManager()
+	tm := treasury.GetManager()
 	if stats, err := tm.GetTreasuryStats(ctx); err == nil {
+		depth, oldestAge := worker.QueueDepthStats()
+		stats.AttachQueueMetrics(depth, oldestAge)
 		resp.Treasury = stats
 		if stats.Status == "HEALTHY" || stats.Status == "BELOW_TARGET" {
 			resp.OperationalHealthy = true
+		}
+		// Queue backlog or critical hot balance → not fully healthy.
+		if depth > 0 && oldestAge > 300 {
+			resp.OperationalHealthy = false
+		}
+	} else {
+		// Still expose configured addresses when stats fail hard (misconfig).
+		hot := treasury.GetHotTreasuryPubkey()
+		if !hot.IsZero() {
+			view := &treasury.TreasuryStats{
+				Address: hot.String(),
+				Hot: treasury.WalletBalanceView{
+					Address:            hot.String(),
+					BalanceUnavailable: true,
+					MinBalanceSOL:      treasury.HotMinBalanceSOL(),
+					MaxBalanceSOL:      treasury.HotMaxBalanceSOL(),
+					ReplenishSOL:       treasury.HotReplenishAmountSOL(),
+				},
+				Status:        "RPC_UNAVAILABLE",
+				LastCheckedAt: time.Now().UTC(),
+			}
+			if cold := treasury.GetColdTreasuryPubkey(); !cold.IsZero() {
+				view.Cold = &treasury.WalletBalanceView{
+					Address:            cold.String(),
+					BalanceUnavailable: true,
+				}
+			}
+			if vault := treasury.GetDepositVaultPubkey(); !vault.IsZero() {
+				view.Vault = &treasury.WalletBalanceView{
+					Address:            vault.String(),
+					BalanceUnavailable: true,
+				}
+			}
+			resp.Treasury = view
 		}
 	}
 

@@ -176,14 +176,15 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 var treasuryAddress = os.Getenv("SOLANA_TREASURY_ADDRESS")
 
 func handleNativeDeposit(event solana.EscrowEvent) {
-	// 0. Verify deposit was sent TO the platform treasury
-	// For native_deposit events, Seller is set to the treasury address by the watcher.
-	if treasuryAddress != "" && event.Seller != treasuryAddress {
+	// 0. Verify deposit was sent to an allowed destination (legacy treasury and/or vault).
+	destKind := solana.ResolveDepositDestination(event.Seller)
+	if destKind == "" {
 		logging.Warn().
 			Str("sender", event.Buyer).
 			Str("recipient", event.Seller).
-			Str("expected_treasury", treasuryAddress).
-			Msg("Auto-Deposit ignored: recipient is not platform treasury")
+			Str("legacy_treasury", treasuryAddress).
+			Str("vault", solana.GetDepositVaultAddress()).
+			Msg("Auto-Deposit ignored: recipient is not an allowed deposit destination")
 		return
 	}
 
@@ -251,9 +252,43 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}
 
 	solAmount := float64(event.Amount) / 1e9
+	maxSingle := models.MaxSingleDepositSOL()
+	if solAmount > maxSingle {
+		tx.Rollback()
+		logging.Warn().
+			Str("user_id", userID.String()).
+			Str("tx_signature", event.TxSignature).
+			Float64("amount_sol", solAmount).
+			Float64("max_sol", maxSingle).
+			Msg("Auto-Deposit skipped: exceeds single deposit cap")
+		return
+	}
+	maxDaily := models.MaxDailyDepositSOL()
+	depositedToday, depErr := models.SumDepositsSince(tx, wallet.ID, time.Now().UTC().Add(-24*time.Hour))
+	if depErr != nil {
+		tx.Rollback()
+		logging.Error(depErr).
+			Str("user_id", userID.String()).
+			Msg("Auto-Deposit: failed to check daily deposit limit")
+		return
+	}
+	if depositedToday+solAmount > maxDaily {
+		tx.Rollback()
+		logging.Warn().
+			Str("user_id", userID.String()).
+			Str("tx_signature", event.TxSignature).
+			Float64("amount_sol", solAmount).
+			Float64("used_sol", depositedToday).
+			Float64("max_sol", maxDaily).
+			Msg("Auto-Deposit skipped: exceeds daily deposit cap")
+		return
+	}
 	if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, "deposit_auto", event.TxSignature,
 		fmt.Sprintf("Auto-Deposit: %.6f SOL", solAmount),
-		models.LedgerOpts{TxHash: event.TxSignature},
+		models.LedgerOpts{
+			TxHash:      event.TxSignature,
+			JournalKind: solana.JournalKindForDeposit(destKind),
+		},
 	); err != nil {
 		tx.Rollback()
 		log.Printf("[Worker] Auto-Deposit: Failed to credit user %s: %v", userID, err)
@@ -262,16 +297,17 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 
 	// Log Transaction
 	pendingTx := models.PendingTransaction{
-		ID:             uuid.New(),
-		UserID:         userID,
-		Reference:      event.TxSignature,
-		IdempotencyKey: event.TxSignature,
-		Type:           "crypto_deposit",
-		Amount:         solAmount,
-		Currency:       "SOL",
-		Provider:       "blockchain_auto",
-		Status:         "completed",
-		ExternalRef:    event.TxSignature,
+		ID:              uuid.New(),
+		UserID:          userID,
+		Reference:       event.TxSignature,
+		IdempotencyKey:  event.TxSignature,
+		Type:            "crypto_deposit",
+		Amount:          solAmount,
+		Currency:        "SOL",
+		Provider:        "blockchain_auto",
+		Status:          "completed",
+		ExternalRef:     event.TxSignature,
+		DestinationKind: string(destKind),
 	}
 	tx.Create(&pendingTx)
 

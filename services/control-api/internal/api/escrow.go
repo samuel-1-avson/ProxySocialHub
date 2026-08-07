@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
@@ -150,6 +151,14 @@ func releaseEscrow(c *gin.Context) {
 
 	if err := fsm.Validate(order.Status, models.OrderStatusCompleted, "api.escrow.release"); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if decentralization.RequireEscrowPDAEnabled() && (order.EscrowPDA == "" || order.SellerWallet == "") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "PROXYHUB_REQUIRE_ESCROW_PDA: on-chain escrow PDA required to release; custodial complete is disabled",
+			"code":  "escrow_pda_required",
+		})
 		return
 	}
 
@@ -436,6 +445,16 @@ func AutoReleaseExpiredEscrows() {
 
 			var settleTxHash string
 			hasPDA := order.EscrowPDA != "" && order.SellerWallet != ""
+			if !hasPDA && decentralization.RequireEscrowPDAEnabled() {
+				log.Printf("[escrow] AutoReleaseExpiredEscrows skipping custodial settle for escrow %s (REQUIRE_ESCROW_PDA)", escrow.ID)
+				alerts.Send(
+					alerts.Warning,
+					"Custodial escrow settle blocked",
+					fmt.Sprintf("Escrow %s / order %s has no PDA; PROXYHUB_REQUIRE_ESCROW_PDA is enabled", escrow.ID, order.ID),
+				)
+				reclaimEscrowToHeld(escrow.ID)
+				continue
+			}
 			if hasPDA {
 				oracle := solanaClient.GetOracleClient()
 				if oracle == nil {
@@ -491,6 +510,9 @@ func AutoReleaseExpiredEscrows() {
 
 				// PDA settle already paid the seller on-chain — do not custodial-credit.
 				if !hasPDA {
+					if decentralization.RequireEscrowPDAEnabled() {
+						return fmt.Errorf("PROXYHUB_REQUIRE_ESCROW_PDA: refusing custodial seller credit for escrow %s without PDA", escrow.ID)
+					}
 					sellerWallet, err := models.LockWalletForUpdate(tx, escrow.SellerID)
 					if err != nil {
 						return err
