@@ -1,4 +1,9 @@
-from proxyhubb_provider.cli import parse_args, resolve_arch, resolve_platform
+from proxyhubb_provider.cli import (
+    ensure_binaries,
+    parse_args,
+    resolve_arch,
+    resolve_platform,
+)
 
 
 def test_parse_daemon():
@@ -16,3 +21,18 @@ def test_parse_wrapper_default():
 def test_resolve_platform_arch():
     assert resolve_platform() in ("windows", "macos", "linux")
     assert resolve_arch() in ("amd64", "arm64")
+
+
+def test_ensure_binaries_sets_daemon_env(monkeypatch, tmp_path):
+    cli = tmp_path / "provider-cli.exe"
+    daemon = tmp_path / "provider-node.exe"
+    cli.write_bytes(b"cli")
+    daemon.write_bytes(b"node")
+
+    def fake_download(*, package_type="wrapper", force=False):
+        return daemon if package_type == "daemon" else cli
+
+    monkeypatch.setattr("proxyhubb_provider.cli.download_binary", fake_download)
+    program, env = ensure_binaries(package_type="wrapper")
+    assert program == cli
+    assert env["PROXYHUB_PROVIDER_NODE"] == str(daemon)
