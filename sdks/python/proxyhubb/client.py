@@ -1,10 +1,10 @@
-"""ProxyHubb Python SDK — Control API client (Connect + bulk pools)."""
+"""ProxyHubb Python SDK — Control API client (buyer + seller/provider)."""
 
 from __future__ import annotations
 
 import os
 from typing import Any, Mapping, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 
@@ -46,14 +46,18 @@ def as_requests_proxies(proxy: str) -> dict[str, str]:
 
 
 class ProxyHubClient:
-    """Client for ProxyHubb Control API (session intents, orders, bulk pools).
+    """Client for ProxyHubb Control API (buyer Connect/bulk + seller/provider).
 
     Parameters
     ----------
     api_key:
         ``phub_…`` / ``pk_…`` key for bulk pool endpoints (``X-API-Key``).
+        Buyer keys do **not** authorize provider/seller routes.
     access_token:
-        Dashboard JWT for session intents and order credentials (``Authorization: Bearer``).
+        Dashboard JWT for session intents, order credentials, and seller ops
+        (``Authorization: Bearer``).
+    provider_token:
+        Provider CLI/dashboard token; alias of ``access_token`` (same Bearer header).
     base_url:
         Control API base URL. Defaults to production.
     proxy_endpoint:
@@ -65,13 +69,15 @@ class ProxyHubClient:
         api_key: Optional[str] = None,
         *,
         access_token: Optional[str] = None,
+        provider_token: Optional[str] = None,
         base_url: str = DEFAULT_BASE_URL,
         proxy_endpoint: Optional[str] = None,
     ) -> None:
-        if not api_key and not access_token:
-            raise ValueError("api_key or access_token is required")
+        bearer = access_token or provider_token or ""
+        if not api_key and not bearer:
+            raise ValueError("api_key, access_token, or provider_token is required")
         self._api_key = api_key or ""
-        self._access_token = access_token or ""
+        self._access_token = bearer
         self._base_url = base_url.rstrip("/")
         self._proxy_endpoint = (
             proxy_endpoint.strip()
@@ -91,29 +97,69 @@ class ProxyHubClient:
         return self._proxy_endpoint
 
     def set_access_token(self, token: str) -> None:
-        """Update Bearer JWT used for session intent / order credential calls."""
+        """Update Bearer JWT / provider token used for authenticated calls."""
         self._access_token = token
         if token:
             self._session.headers["Authorization"] = f"Bearer {token}"
         else:
             self._session.headers.pop("Authorization", None)
 
-    def _url(self, path: str) -> str:
-        return f"{self._base_url}{path}"
+    def set_provider_token(self, token: str) -> None:
+        """Alias for :meth:`set_access_token` (same Bearer header)."""
+        self.set_access_token(token)
 
-    def _get(self, path: str) -> dict[str, Any]:
-        resp = self._session.get(self._url(path))
-        resp.raise_for_status()
+    def _url(self, path: str, query: Optional[Mapping[str, Any]] = None) -> str:
+        url = f"{self._base_url}{path}"
+        if query:
+            filtered = {
+                k: v for k, v in query.items() if v is not None and v != ""
+            }
+            if filtered:
+                url = f"{url}?{urlencode(filtered)}"
+        return url
+
+    def _raise(self, resp: requests.Response) -> None:
+        if resp.ok:
+            return
+        try:
+            data = resp.json()
+            message = data.get("error") or resp.reason
+        except Exception:
+            message = resp.reason or resp.text
+        raise requests.HTTPError(
+            f"ProxyHubb API error {resp.status_code}: {message}",
+            response=resp,
+        )
+
+    def _get(self, path: str, *, query: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+        resp = self._session.get(self._url(path, query))
+        self._raise(resp)
         return resp.json()
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         resp = self._session.post(self._url(path), json=payload)
-        resp.raise_for_status()
+        self._raise(resp)
         return resp.json()
 
-    def _delete(self, path: str) -> None:
+    def _put(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        resp = self._session.put(self._url(path), json=payload)
+        self._raise(resp)
+        return resp.json()
+
+    def _patch(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        resp = self._session.patch(self._url(path), json=payload)
+        self._raise(resp)
+        return resp.json()
+
+    def _delete(self, path: str) -> dict[str, Any] | None:
         resp = self._session.delete(self._url(path))
-        resp.raise_for_status()
+        self._raise(resp)
+        if resp.status_code == 204 or not resp.content:
+            return None
+        try:
+            return resp.json()
+        except Exception:
+            return None
 
     # ── Session intent (Connect) ──────────────────────────────────────────
 
@@ -258,3 +304,150 @@ class ProxyHubClient:
                 host=f"{ep['host']}:{ep['port']}",
             )
         )
+
+    # ── Provider tokens ───────────────────────────────────────────────────
+
+    def list_provider_tokens(self) -> dict[str, Any]:
+        """List provider tokens (masked). Requires JWT or provider token Bearer."""
+        return self._get("/v1/provider/tokens")
+
+    def create_provider_token(
+        self,
+        *,
+        name: Optional[str] = None,
+        expires_in: Optional[int] = None,
+        node_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a provider token. Plaintext ``token`` is returned once."""
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if expires_in is not None:
+            payload["expires_in"] = expires_in
+        if node_id is not None:
+            payload["node_id"] = node_id
+        return self._post("/v1/provider/tokens", payload)
+
+    def rotate_provider_token(self, token_id: str) -> dict[str, Any]:
+        """Rotate a provider token; returns new plaintext ``token`` once."""
+        if not token_id:
+            raise ValueError("token_id is required")
+        return self._post(f"/v1/provider/tokens/{token_id}/rotate", {})
+
+    def revoke_provider_token(self, token_id: str) -> dict[str, Any] | None:
+        """Revoke a provider token."""
+        if not token_id:
+            raise ValueError("token_id is required")
+        return self._delete(f"/v1/provider/tokens/{token_id}")
+
+    # ── Provider nodes ────────────────────────────────────────────────────
+
+    def get_provider_readiness(self) -> dict[str, Any]:
+        return self._get("/v1/provider/readiness")
+
+    def list_provider_nodes(self) -> dict[str, Any]:
+        return self._get("/v1/provider/nodes")
+
+    def create_provider_node(
+        self,
+        name: str,
+        *,
+        ip_address: Optional[str] = None,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        connection_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if not name:
+            raise ValueError("name is required")
+        payload: dict[str, Any] = {"name": name}
+        if ip_address is not None:
+            payload["ip_address"] = ip_address
+        if country is not None:
+            payload["country"] = country
+        if city is not None:
+            payload["city"] = city
+        if connection_type is not None:
+            payload["connection_type"] = connection_type
+        return self._post("/v1/provider/nodes", payload)
+
+    def update_provider_node(
+        self,
+        node_id: str,
+        *,
+        name: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        connection_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if not node_id:
+            raise ValueError("node_id is required")
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if ip_address is not None:
+            payload["ip_address"] = ip_address
+        if country is not None:
+            payload["country"] = country
+        if city is not None:
+            payload["city"] = city
+        if connection_type is not None:
+            payload["connection_type"] = connection_type
+        return self._put(f"/v1/provider/nodes/{node_id}", payload)
+
+    def delete_provider_node(self, node_id: str) -> dict[str, Any] | None:
+        if not node_id:
+            raise ValueError("node_id is required")
+        return self._delete(f"/v1/provider/nodes/{node_id}")
+
+    def get_node_connect(self, node_id: str) -> dict[str, Any]:
+        """Connect hints for provider-cli / provider-node join."""
+        if not node_id:
+            raise ValueError("node_id is required")
+        return self._get(f"/v1/provider/nodes/{node_id}/connect")
+
+    # ── Listings (seller) ─────────────────────────────────────────────────
+
+    def list_my_listings(
+        self, *, page: Optional[int] = None, limit: Optional[int] = None
+    ) -> dict[str, Any]:
+        return self._get("/v1/listings/my", query={"page": page, "limit": limit})
+
+    def get_listing(self, listing_id: str) -> dict[str, Any]:
+        if not listing_id:
+            raise ValueError("listing_id is required")
+        return self._get(f"/v1/listings/{listing_id}")
+
+    def create_listing(self, **fields: Any) -> dict[str, Any]:
+        """Create a marketplace listing as seller.
+
+        Required fields typically include ``title``, ``proxy_type``, ``protocol``,
+        ``price_per_gb``, ``available_bandwidth_gb``.
+        """
+        return self._post("/v1/listings", dict(fields))
+
+    def update_listing(self, listing_id: str, **fields: Any) -> dict[str, Any]:
+        """Update a listing. Pause/activate with ``status="active"|"paused"``."""
+        if not listing_id:
+            raise ValueError("listing_id is required")
+        return self._patch(f"/v1/listings/{listing_id}", dict(fields))
+
+    def delete_listing(self, listing_id: str) -> dict[str, Any] | None:
+        if not listing_id:
+            raise ValueError("listing_id is required")
+        return self._delete(f"/v1/listings/{listing_id}")
+
+    # ── Earnings ──────────────────────────────────────────────────────────
+
+    def get_earnings_summary(self) -> dict[str, Any]:
+        return self._get("/v1/provider/earnings/summary")
+
+    def list_earnings(
+        self, *, page: Optional[int] = None, limit: Optional[int] = None
+    ) -> dict[str, Any]:
+        return self._get(
+            "/v1/provider/earnings", query={"page": page, "limit": limit}
+        )
+
+    def list_earnings_history(self) -> dict[str, Any]:
+        return self._get("/v1/provider/earnings/history")
