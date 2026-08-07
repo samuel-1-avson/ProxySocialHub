@@ -20,11 +20,11 @@ route,role,main_features,api_calls,ws,status,problems
 /dashboard/analytics,auth,usage charts,/v1/analytics/* /v1/network/status,,partial,network/status missing (FE-05)
 /dashboard/monitoring,auth,ops metrics alerts,/v1/monitoring/*,,works,
 /dashboard/proxy,auth,session intents connect,/v1/sessions*,,works,
-/dashboard/sessions,auth,session list,/v1/sessions,intended,partial,realtime broken (FE-01)
+/dashboard/sessions,auth,session list,/v1/sessions,intended,ok,FE-01/02 fixed (WS ticket+api host)
 /dashboard/usage,auth,usage billing,/v1/usage/*,,works,
 /dashboard/subscriptions,auth,plans CRUD,/v1/subscriptions*,,works,
 /dashboard/trustless,auth,usage proofs,/v1/trustless/*,,works,
-/dashboard/wallet,auth,balance deposit withdraw whitelist,/v1/wallet*,explorer,partial,WS reachability (FE-02)
+/dashboard/wallet,auth,balance deposit withdraw whitelist,/v1/wallet*,explorer,ok,FE-02 fixed (wss://api.proxyhubb.com)
 /dashboard/wallet/callback,auth,deposit verify callback,/v1/wallet/deposit/crypto,,works,
 /dashboard/become-provider,auth,provider application,/v1/provider/apply,,works,
 /dashboard/provider,auth,provider hub,/v1/provider/readiness,,works,
@@ -40,12 +40,12 @@ route,role,main_features,api_calls,ws,status,problems
 /dashboard/provider/cli,provider,CLI downloads,/v1/cli/downloads*,,works,
 /dashboard/settings/identity,auth,profile edit,/v1/profile,,works,
 /dashboard/settings/account,auth,account/tier,/v1/wallet /v1/profile,,works,
-/dashboard/settings/notifications,auth,notification prefs,/v1/notification-preferences,notif,partial,WS auth gap (FE-01)
+/dashboard/settings/notifications,auth,notification prefs,/v1/notification-preferences,notif,partial,prefs merge+honesty; email/push coming soon
 /dashboard/settings/api-keys,auth,API keys,/v1/api-keys,,works,
 /dashboard/settings/devices,auth,sessions panel,/v1/security/sessions,,works,
 /dashboard/settings/security,auth,MFA watchtower,/v1/2fa* /v1/system/watchtower/status,,works,inconsistent API URL prefix (FE-08)
 /community/feed,public*,activity discover,/v1/feed /v1/discover /v1/trending,,works,
-/community/messages,auth,DM inbox,/v1/conversations*,new_message,partial,WS auth gap (FE-01)
+/community/messages,auth,DM inbox,/v1/conversations*,new_message,ok,shared useRealtime (FE-01/02)
 /community/forum/*,public/auth,forum full surface,/v1/forum/*,,works,
 /community/beta,public,beta tasks,/v1/beta-program*,,works,
 /explorer,public,chain overview,/v1/explorer/metrics /stats,explorer,works,

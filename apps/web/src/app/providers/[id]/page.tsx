@@ -80,7 +80,8 @@ export default function ProviderProfilePage() {
     const totalBandwidth = profile.total_bandwidth_sold > 0 
         ? `${(profile.total_bandwidth_sold / 1024).toFixed(1)} TB` 
         : "0 GB";
-    const avgUptime = "99.8%"; // Still hardcoded as it's not in public profile yet
+    // Public profile does not yet expose measured uptime — show unavailable, not a fake %.
+    const avgUptime = "—";
     const reputationScore = Math.round(profile.avg_rating * 20) || 0; // Convert 0-5 to 0-100
     const providerSince = profile.created_at ? new Date(profile.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : "Joined recently";
     const location = profile.location || "Global";
@@ -124,7 +125,7 @@ export default function ProviderProfilePage() {
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             <ProfileStat label="Reputation" value={`${reputationScore}/100`} sub="Node Trust Score" color="purple" />
                             <ProfileStat label="Total Shared" value={totalBandwidth} sub="Lifetime Traffic" color="blue" />
-                            <ProfileStat label="Avg. Uptime" value={avgUptime} sub="Last 30 Days" color="emerald" />
+                            <ProfileStat label="Avg. Uptime" value={avgUptime} sub={avgUptime === "—" ? "Unavailable" : "Last 30 Days"} color="emerald" />
                             <ProfileStat label="SLA Tier" value={profile.trust_tier || "Standard"} sub="Guaranteed Quality" color="amber" />
                         </div>
                     </div>
@@ -230,7 +231,7 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
             <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase">Rate</span>
-                    <span className="text-sm font-black text-emerald-400">{(listing.price_per_gb || 0.05).toFixed(6)} SOL<span className="text-[10px] text-muted-foreground">/GB</span></span>
+                    <span className="text-sm font-black text-emerald-400">${(listing.price_per_gb || 0.05).toFixed(4)}<span className="text-[10px] text-muted-foreground">/GB</span></span>
                 </div>
                 <Link href={`/marketplace/${listing.id}`} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground">
                     <ExternalLink size={16} />
