@@ -148,10 +148,10 @@ export default function DashboardPage() {
                             />
                             <ActionCard
                                 title="Usage proofs"
-                                description="Verify trustless usage proofs"
+                                description="Oracle-attested Merkle usage anchors"
                                 icon={ShieldCheck}
                                 href="/dashboard/trustless"
-                                ctaLabel="Verify"
+                                ctaLabel="View"
                             />
                         </div>
                     </>

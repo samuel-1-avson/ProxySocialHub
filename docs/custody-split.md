@@ -118,14 +118,17 @@ Dev may still fall back to the local oracle keypair.
 
 ## GCP Cloud KMS (preferred on GCP)
 
-**Live `proxyhubb-testnet` (Sprint E, 2026-08-07, still on Solana devnet):**
+**Live `proxyhubb-testnet` (Sprint H finish / 0.6, 2026-08-07, still on Solana devnet):**
 
 - Oracle settle/attest: **GCP Cloud KMS** (`USE_GCP_KMS=true`, `PROXYHUB_REQUIRE_GCP_KMS=true`)
 - Deposits: **vault PDA** (`destination_kind=vault`; `SOLANA_TREASURY_ADDRESS` = vault ≠ hot)
-- Payouts: **treasury hot** file keypair at `/run/secrets/treasury-hot-keypair.json` (not KMS)
-- Cold: pubkey-only in app; key in Secret Manager / on-VM path — **not** mounted into `control-api`
-- Backlog **0.6 remains OPEN** until hot signing is KMS and “no keys on disk” is true
-- Do **not** claim mainnet-ready or “withdrawals via KMS”
+- Payouts: **treasury hot via Cloud KMS** (`USE_GCP_KMS_HOT=true`, pubkey `Feunr…`)
+- Compose: **no oracle/hot private key JSON mounts** on gcp-testnet (`volumes: !override`)
+- App VM: quarantine + `treasury-cold-keypair.json` + root `oracle`/`treasury` JSON **shredded**; backups in Secret Manager / KMS (`SPRINT_06_KEYS_OFFBOX_OK`)
+- Backlog **0.6**: **FIXED on app VM** (no oracle/hot/cold private JSON under `/opt/proxyhubb`); workstation/CI scrub still unverified. Still **not** mainnet-ready.
+- Do **not** claim mainnet-ready
+
+**Prior Sprint G note:** hot KMS was live while file mounts could remain for rollback.
 
 Primary path for `proxyhubb-testnet` / GCP deployments:
 
@@ -135,23 +138,37 @@ ORACLE_KP=./infra/oracle-keypair.json \
 EXPECT_PUBKEY=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2 \
 bash scripts/gcp-kms-oracle-provision.sh
 
-# 2) Enable on the VM
+# 2) Enable oracle KMS on the VM
 GCP_KMS_KEY_NAME=projects/<proj>/locations/us-central1/keyRings/proxyhubb-oracle/cryptoKeys/oracle-ed25519/cryptoKeyVersions/1 \
 GCP_KMS_PUBLIC_KEY=8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2 \
 bash scripts/gcp-kms-oracle-enable.sh
+
+# 3) Import treasury-hot key (keeps pubkey Feunr…)
+HOT_KP=/opt/proxyhubb/secrets/treasury-hot-keypair.json \
+EXPECT_PUBKEY=FeunrDoACmUi4fFQtiw3fPHAqB3N9UrAsj8ZzqSsGPa3 \
+bash scripts/gcp-kms-hot-provision.sh
+
+# 4) Enable hot KMS on the VM
+GCP_KMS_HOT_KEY_NAME=projects/<proj>/locations/us-central1/keyRings/proxyhubb-treasury/cryptoKeys/hot-ed25519/cryptoKeyVersions/1 \
+GCP_KMS_HOT_PUBLIC_KEY=FeunrDoACmUi4fFQtiw3fPHAqB3N9UrAsj8ZzqSsGPa3 \
+bash scripts/gcp-kms-hot-enable.sh
 ```
 
 Env:
 
 | Var | Purpose |
 |-----|---------|
-| `USE_GCP_KMS=true` | Prefer Cloud KMS over local keypair / AWS |
-| `GCP_KMS_KEY_NAME` | Full `.../cryptoKeyVersions/N` resource |
+| `USE_GCP_KMS=true` | Prefer Cloud KMS over local keypair / AWS (oracle) |
+| `GCP_KMS_KEY_NAME` | Full `.../cryptoKeyVersions/N` resource (oracle) |
 | `GCP_KMS_PUBLIC_KEY` | Solana base58 pubkey (must match on-chain admin) |
-| `PROXYHUB_REQUIRE_GCP_KMS=true` | Fail closed even outside staging |
+| `PROXYHUB_REQUIRE_GCP_KMS=true` | Fail closed even outside staging (oracle) |
+| `USE_GCP_KMS_HOT=true` | Cloud KMS for treasury-hot `SendSOL` fee payer |
+| `GCP_KMS_HOT_KEY_NAME` | Full hot cryptoKeyVersions resource |
+| `GCP_KMS_HOT_PUBLIC_KEY` | Hot Solana pubkey (`Feunr…`) |
+| `PROXYHUB_REQUIRE_GCP_KMS_HOT=true` | Fail closed for hot KMS init |
 
-GCE instance SA needs `roles/cloudkms.signerVerifier` on the key.
-Treasury **hot** payouts still use `SOLANA_TREASURY_HOT_KEYPAIR` (not KMS yet).
+GCE instance SA needs `roles/cloudkms.signerVerifier` on **both** oracle and hot keys.
+Treasury **hot** payouts use Cloud KMS when `USE_GCP_KMS_HOT=true` (Sprint G); file keypair is fallback only when REQUIRE is false.
 
 When both `USE_GCP_KMS` and `USE_AWS_KMS` are true, **GCP wins**.
 

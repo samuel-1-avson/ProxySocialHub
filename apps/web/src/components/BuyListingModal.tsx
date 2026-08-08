@@ -15,6 +15,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Listing,
+  confirmEscrowPayment,
   createOrderWithProvisioning,
   getOrderProxyCredentials,
   initiateSmartContractPayment,
@@ -24,10 +25,17 @@ import {
 } from '@/lib/api/marketplace';
 import { getSystemConfig } from '@/lib/api/config';
 import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
-import { initializeEscrow } from '@/lib/solana';
+import {
+  initializeEscrow,
+  initializeEscrowMultisig,
+  isEscrowAccountAlreadyInUse,
+  getEscrowInfo,
+  getEscrowInfoByPDA,
+} from '@/lib/solana';
 import { formatSolanaWalletError } from '@/lib/solana-transfer';
 import { useToast } from '@/stores';
 import { getErrorMessage } from '@/lib/utils';
+import { ApiError } from '@/lib/api/client';
 import Link from 'next/link';
 import { ROUTES } from '@/lib/navigation/routes';
 import {
@@ -38,6 +46,31 @@ import { Modal } from '@/components/patterns/Modal';
 import { Button } from '@/components/ui/button';
 import { MoneyRailHint } from '@/components/MoneyRailHint';
 import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
+
+async function waitForFundedEscrow(
+  buyer: string,
+  seller: string,
+  opts?: { timeoutMs?: number; intervalMs?: number; escrowPda?: string }
+): Promise<boolean> {
+  const timeoutMs = opts?.timeoutMs ?? 45_000;
+  const intervalMs = opts?.intervalMs ?? 1500;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const info = opts?.escrowPda
+      ? await getEscrowInfoByPDA(opts.escrowPda)
+      : await getEscrowInfo(buyer, seller);
+    if (
+      info &&
+      info.amount > 0 &&
+      (info.status === 'Pending' || info.status === 'Active') &&
+      (info.expiresAt === 0 || info.expiresAt * 1000 > Date.now())
+    ) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
 
 interface BuyListingModalProps {
   listing: Listing;
@@ -120,15 +153,95 @@ export function BuyListingModal({
       const order = orderResult.order;
 
       const params = await initiateSmartContractPayment(order.id);
+      const buyerPk = params.buyer_pubkey || publicKey?.toBase58() || '';
+      const sellerPk = params.seller_pubkey;
 
-      const { tx } = await initializeEscrow(
-        e2eMockBuy ? { publicKey: null } : wallet,
-        params.seller_pubkey,
-        params.amount_lamports,
-        params.bandwidth_gb
-      );
+      let escrowTx: string | undefined;
+      const useMultisig = params.escrow_seed_kind === 'multisig';
+      const escrowPdaHint = params.escrow_pda;
+      const ensureEscrowOnChain = async () => {
+        if (e2eMockBuy) return;
+        if (!buyerPk || !sellerPk) {
+          throw new Error('Missing buyer/seller wallet for escrow.');
+        }
+        const already = escrowPdaHint
+          ? await getEscrowInfoByPDA(escrowPdaHint)
+          : await getEscrowInfo(buyerPk, sellerPk);
+        if (
+          already &&
+          already.amount > 0 &&
+          (already.status === 'Pending' || already.status === 'Active')
+        ) {
+          return;
+        }
+        try {
+          if (useMultisig) {
+            if (!params.escrow_expires_at) {
+              throw new Error('Missing escrow_expires_at for multisig escrow init.');
+            }
+            const { tx } = await initializeEscrowMultisig(
+              wallet,
+              sellerPk,
+              params.amount_lamports,
+              params.bandwidth_gb,
+              params.escrow_expires_at
+            );
+            escrowTx = tx;
+          } else {
+            const { tx } = await initializeEscrow(
+              wallet,
+              sellerPk,
+              params.amount_lamports,
+              params.bandwidth_gb
+            );
+            escrowTx = tx;
+          }
+        } catch (initErr: unknown) {
+          if (!isEscrowAccountAlreadyInUse(initErr)) {
+            throw initErr;
+          }
+        }
+        const funded = await waitForFundedEscrow(buyerPk, sellerPk, {
+          escrowPda: escrowPdaHint,
+        });
+        if (!funded) {
+          throw new Error(
+            'Escrow transaction did not land on-chain. Approve the wallet popup, ensure you have enough SOL, then try again.'
+          );
+        }
+      };
 
-      console.log('Solana escrow tx:', tx);
+      if (params.escrow_already_funded) {
+        // Re-verify before confirming — stale flags / RPC lag happen on public devnet.
+        if (!e2eMockBuy) {
+          const ok = await waitForFundedEscrow(buyerPk, sellerPk, {
+            timeoutMs: 12_000,
+            intervalMs: 1000,
+            escrowPda: escrowPdaHint,
+          });
+          if (!ok) {
+            await ensureEscrowOnChain();
+          }
+        }
+      } else {
+        await ensureEscrowOnChain();
+      }
+
+      try {
+        await confirmEscrowPayment(order.id, escrowTx);
+      } catch (confirmErr: unknown) {
+        const code =
+          confirmErr instanceof ApiError
+            ? confirmErr.code
+            : undefined;
+        const msg = getErrorMessage(confirmErr);
+        if (code === 'escrow_missing' || /escrow not found/i.test(msg)) {
+          await ensureEscrowOnChain();
+          await confirmEscrowPayment(order.id, escrowTx);
+        } else {
+          throw confirmErr;
+        }
+      }
 
       await waitForOrderActive(order.id, {
         timeoutMs: e2eMockBuy ? 15_000 : 60_000,
@@ -149,9 +262,10 @@ export function BuyListingModal({
     } catch (err: unknown) {
       console.error(err);
       const walletMsg = formatSolanaWalletError(err);
+      const apiMsg = getErrorMessage(err);
       setError(
         walletMsg ||
-          getErrorMessage(err) ||
+          apiMsg ||
           'Failed to connect. Check your on-chain SOL wallet balance (devnet).'
       );
     } finally {

@@ -230,21 +230,41 @@ web_endpoint_refs_raw.csv
 # Framework build artifacts
 **/.next/
 
-# Repository publication policy: retain only the root project README.
-# Documentation, notes, transcripts, and generated text belong outside Git.
+# Repository publication policy: retain only the root project README by default.
+# Ops/audit markdown under docs/ is explicitly allowed for evidence packs.
 *.md
 *.txt
 !/README.md
+!docs/
+!docs/**
 
 # Local security and tooling material (including development TLS keypairs).
 certs/
 .history/
 .tmp-*
 .tmp-go-build/
+.tmp-bc*/
 bootstrap-out.txt
 
 # Offline program upgrade authority (never commit)
 infra/secrets/
+
+# Deploy staging trees and tarball artifacts (may contain env/secrets)
+.deploy-stage*/
+.deploy-*/
+*-deploy*.tar.gz
+*-deploy.tar.gz
+*.tar.gz
+!docs/**/*.tar.gz
+
+# ZK prover stable SRS / keys (never commit)
+.zk-keys/
+**/params.bin
+**/vk.bin
+**/pk.bin
+**/pk.ready
+**/vk.sha256
+services/zk-prover/.zk-keys/
 
 *.egg-info/
 

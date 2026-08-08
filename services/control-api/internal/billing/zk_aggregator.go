@@ -15,6 +15,8 @@ package billing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -192,6 +194,20 @@ func (z *ZKAggregator) attachHalo2Proof(ctx context.Context, batch *zk.BatchProo
 		return nil
 	}
 
+	// BC-11 Sprint A: when prover is required, verify before accepting the blob.
+	if z.halo2.Required() {
+		signals := halo2PublicSignals(batch)
+		ok, vErr := z.halo2.VerifyBatchProof(ctx, proofBytes, signals)
+		if vErr != nil {
+			recordZKProverResult("verify_failed", elapsed)
+			return fmt.Errorf("halo2 verify for root %s: %w", rootHex, vErr)
+		}
+		if !ok {
+			recordZKProverResult("verify_rejected", elapsed)
+			return fmt.Errorf("halo2 verify rejected proof for root %s", rootHex)
+		}
+	}
+
 	batch.Proof = proofBytes
 	recordZKProverResult("success", elapsed)
 
@@ -201,6 +217,39 @@ func (z *ZKAggregator) attachHalo2Proof(ctx context.Context, batch *zk.BatchProo
 		Msg("ZKAggregator: external Halo2 proof attached")
 
 	return nil
+}
+
+// halo2PublicSignals builds [digest_hex, session_count, total_bytes] matching zk-prover v2 API.
+func halo2PublicSignals(batch *zk.BatchProof) []string {
+	digest := computeHalo2BatchDigest(batch)
+	return []string{
+		hex.EncodeToString(digest[:]),
+		fmt.Sprintf("%d", batch.SessionCount),
+		fmt.Sprintf("%d", batch.TotalBytes),
+	}
+}
+
+func computeHalo2BatchDigest(batch *zk.BatchProof) [32]byte {
+	h := sha256.New()
+	h.Write(batch.Root[:])
+	var sc [4]byte
+	binary.LittleEndian.PutUint32(sc[:], batch.SessionCount)
+	h.Write(sc[:])
+	var tb [8]byte
+	binary.LittleEndian.PutUint64(tb[:], batch.TotalBytes)
+	h.Write(tb[:])
+	var ps [8]byte
+	binary.LittleEndian.PutUint64(ps[:], uint64(batch.PeriodStart))
+	h.Write(ps[:])
+	var pe [8]byte
+	binary.LittleEndian.PutUint64(pe[:], uint64(batch.PeriodEnd))
+	h.Write(pe[:])
+	for _, leaf := range batch.LeafHashes {
+		h.Write(leaf[:])
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 // submitBatchOnChain submits the batch root to Solana and returns the TX sig.
@@ -225,12 +274,19 @@ func (z *ZKAggregator) submitBatchOnChain(ctx context.Context, batch *zk.BatchPr
 		return "already_anchored_" + rootHex[:8], nil
 	}
 
+	// BC-11 Sprint A: required prover mode refuses zero proof_hash (no blob).
+	proofHash := solana.ProofHashFromBytes(batch.Proof)
+	if z.halo2 != nil && z.halo2.Required() && proofHash == ([32]byte{}) {
+		return "", fmt.Errorf("HALO2_PROVER_REQUIRED: refusing on-chain submit without non-zero proof_hash")
+	}
+
 	txSig, _, err := oracle.SubmitZKBatch(ctx, solana.ZKBatchParams{
 		BatchRoot:    batch.Root,
 		SessionCount: batch.SessionCount,
 		TotalBytes:   batch.TotalBytes,
 		PeriodStart:  batch.PeriodStart,
 		PeriodEnd:    batch.PeriodEnd,
+		ProofHash:    proofHash,
 	})
 	if err != nil {
 		return "", fmt.Errorf("SubmitZKBatch RPC: %w", err)
