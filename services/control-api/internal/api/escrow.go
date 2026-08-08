@@ -83,9 +83,11 @@ func RegisterEscrowRoutes(rg *gin.RouterGroup) {
 	rg.GET("/escrow/disputes", getMyEscrowDisputes)
 }
 
-// CreateEscrowForOrder creates an escrow when order is placed
+// CreateEscrowForOrder creates an escrow when order is placed.
+// Hold / challenge window comes from PROXYHUB_ESCROW_CHALLENGE_DAYS (default 7).
 func CreateEscrowForOrder(orderID, buyerID, sellerID uuid.UUID, amount float64) error {
-	autoRelease := time.Now().AddDate(0, 0, 7) // 7 days from now
+	days := decentralization.EscrowChallengeDays()
+	autoRelease := time.Now().UTC().AddDate(0, 0, days)
 
 	escrow := models.EscrowTransaction{
 		OrderID:       orderID,
@@ -93,11 +95,62 @@ func CreateEscrowForOrder(orderID, buyerID, sellerID uuid.UUID, amount float64) 
 		SellerID:      sellerID,
 		Amount:        amount,
 		Status:        models.EscrowHeld,
-		HeldAt:        time.Now(),
+		HeldAt:        time.Now().UTC(),
 		AutoReleaseAt: &autoRelease,
 	}
 
 	return db.DB.Create(&escrow).Error
+}
+
+// StartEscrowAutoReleaseWorker periodically releases held escrows past auto_release_at
+// when no buyer challenge / dispute / jury is open.
+func StartEscrowAutoReleaseWorker() {
+	go func() {
+		log.Println("[escrow] AutoRelease worker started (interval=15m)")
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		AutoReleaseExpiredEscrows()
+		for range ticker.C {
+			AutoReleaseExpiredEscrows()
+		}
+	}()
+}
+
+// autoReleaseBlockReason returns a non-empty reason when auto-release must not settle.
+// Exported for tests via the same package.
+func autoReleaseBlockReason(order *models.Order, escrow *models.EscrowTransaction) string {
+	if escrow != nil && escrow.Status == models.EscrowDisputed {
+		return "escrow_disputed"
+	}
+	if order != nil && order.Status == models.OrderStatusDisputed {
+		return "order_disputed"
+	}
+	if order == nil {
+		return ""
+	}
+	var n int64
+	if err := db.DB.Model(&models.EscrowDispute{}).
+		Where("order_id = ? AND status IN ?", order.ID, []models.DisputeStatus{
+			models.DisputeOpen, models.DisputeUnderReview,
+		}).Count(&n).Error; err == nil && n > 0 {
+		return "open_escrow_dispute"
+	}
+	if err := db.DB.Model(&models.DisputeJury{}).
+		Where("(dispute_id = ? OR escrow_id = ?) AND status IN ?",
+			order.ID, escrow.ID,
+			[]models.JuryStatus{models.JuryVoting, models.JuryReview, models.JuryAppealed},
+		).Count(&n).Error; err == nil && n > 0 {
+		return "open_dispute_jury"
+	}
+	return ""
+}
+
+func parkEscrowDisputed(escrowID uuid.UUID) {
+	if err := db.DB.Model(&models.EscrowTransaction{}).
+		Where("id = ? AND status IN ?", escrowID, []models.EscrowStatus{models.EscrowReleasing, models.EscrowHeld}).
+		Update("status", models.EscrowDisputed).Error; err != nil {
+		log.Printf("[escrow] parkEscrowDisputed failed for %s: %v", escrowID, err)
+	}
 }
 
 // getEscrowStatus returns escrow status for an order
@@ -173,34 +226,41 @@ func releaseEscrow(c *gin.Context) {
 	// escrow is not marked released in DB while funds remain locked on-chain.
 	var settleTxHash string
 	if order.EscrowPDA != "" && order.SellerWallet != "" {
-		oracle := solanaClient.GetOracleClient()
-		if oracle == nil {
+		if solanaClient.GetOracleClient() == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oracle client not available"})
 			return
 		}
-
-		escrowPDA, parseErr := sol.PublicKeyFromBase58(order.EscrowPDA)
-		sellerKey, parseErr2 := sol.PublicKeyFromBase58(order.SellerWallet)
-		buyerKey, parseErr3 := sol.PublicKeyFromBase58(order.BuyerWallet)
-		if parseErr != nil || parseErr2 != nil || parseErr3 != nil {
-			log.Printf("[escrow] invalid key for order %s: pda=%v seller=%v buyer=%v", order.ID, parseErr, parseErr2, parseErr3)
+		if _, parseErr := sol.PublicKeyFromBase58(order.EscrowPDA); parseErr != nil {
+			log.Printf("[escrow] invalid escrow_pda for order %s: %v", order.ID, parseErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid escrow key data"})
+			return
+		}
+		if _, parseErr := sol.PublicKeyFromBase58(order.SellerWallet); parseErr != nil {
+			log.Printf("[escrow] invalid seller_wallet for order %s: %v", order.ID, parseErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid escrow key data"})
+			return
+		}
+		if _, parseErr := sol.PublicKeyFromBase58(order.BuyerWallet); parseErr != nil {
+			log.Printf("[escrow] invalid buyer_wallet for order %s: %v", order.ID, parseErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid escrow key data"})
 			return
 		}
 
 		var txErr error
-		settleTxHash, txErr = oracle.SettleEscrow(c.Request.Context(), "api.escrow.release", solanaClient.SettleEscrowParams{
-			EscrowPDA:       escrowPDA,
-			Seller:          sellerKey,
-			Buyer:           buyerKey,
-			BandwidthUsedGB: order.BandwidthLimitGB,
-		})
+		settleTxHash, txErr = SettleOrderEscrow(c.Request.Context(), "api.escrow.release", &order)
 		if txErr != nil {
-			log.Printf("[escrow] on-chain settlement failed for order %s: %v", order.ID, txErr)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "on-chain settlement failed: " + txErr.Error()})
+			log.Printf("[escrow] on-chain settlement failed for order %s: %v — enqueueing retry", order.ID, txErr)
+			EnqueueEscrowSettle(&order, "api.escrow.release")
+			c.JSON(http.StatusAccepted, gin.H{
+				"status":  "settle_queued",
+				"code":    "escrow_settle_queued",
+				"error":   "on-chain settlement failed; queued for retry",
+				"details": txErr.Error(),
+				"order_id": order.ID,
+			})
 			return
 		}
-		log.Printf("[escrow] on-chain settlement submitted for order %s: txHash=%s", order.ID, settleTxHash)
+		log.Printf("[escrow] on-chain settlement submitted for order %s: txHash=%s seed_kind=%s", order.ID, settleTxHash, order.EscrowSeedKind)
 	}
 
 	// Update DB state only after on-chain success (or if no on-chain escrow)
@@ -443,6 +503,15 @@ func AutoReleaseExpiredEscrows() {
 				continue
 			}
 
+			// Buyer challenge / dispute gate (jury path may leave escrow held while order disputed).
+			if reason := autoReleaseBlockReason(&order, &escrow); reason != "" {
+				log.Printf("[escrow] AutoReleaseExpiredEscrows blocked escrow=%s order=%s reason=%s", escrow.ID, order.ID, reason)
+				alerts.Send(alerts.Warning, "Escrow Auto-Release Blocked",
+					fmt.Sprintf("escrow=%s order=%s reason=%s", escrow.ID, order.ID, reason))
+				parkEscrowDisputed(escrow.ID)
+				continue
+			}
+
 			var settleTxHash string
 			hasPDA := order.EscrowPDA != "" && order.SellerWallet != ""
 			if !hasPDA && decentralization.RequireEscrowPDAEnabled() {
@@ -456,42 +525,43 @@ func AutoReleaseExpiredEscrows() {
 				continue
 			}
 			if hasPDA {
-				oracle := solanaClient.GetOracleClient()
-				if oracle == nil {
+				if solanaClient.GetOracleClient() == nil {
 					log.Printf("[escrow] AutoReleaseExpiredEscrows oracle client not available, reclaiming escrow %s", escrow.ID)
 					reclaimEscrowToHeld(escrow.ID)
 					continue
 				}
-
-				escrowPDA, parseErr := sol.PublicKeyFromBase58(order.EscrowPDA)
-				sellerKey, parseErr2 := sol.PublicKeyFromBase58(order.SellerWallet)
-				buyerKey, parseErr3 := sol.PublicKeyFromBase58(order.BuyerWallet)
-				if parseErr != nil || parseErr2 != nil || parseErr3 != nil {
-					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid key for order %s: pda=%v seller=%v buyer=%v", order.ID, parseErr, parseErr2, parseErr3)
+				if _, parseErr := sol.PublicKeyFromBase58(order.EscrowPDA); parseErr != nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid escrow_pda for order %s: %v", order.ID, parseErr)
+					reclaimEscrowToHeld(escrow.ID)
+					continue
+				}
+				if _, parseErr := sol.PublicKeyFromBase58(order.SellerWallet); parseErr != nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid seller_wallet for order %s: %v", order.ID, parseErr)
+					reclaimEscrowToHeld(escrow.ID)
+					continue
+				}
+				if _, parseErr := sol.PublicKeyFromBase58(order.BuyerWallet); parseErr != nil {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows invalid buyer_wallet for order %s: %v", order.ID, parseErr)
 					reclaimEscrowToHeld(escrow.ID)
 					continue
 				}
 
 				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 				var txErr error
-				settleTxHash, txErr = oracle.SettleEscrow(ctx, "api.escrow.auto_release", solanaClient.SettleEscrowParams{
-					EscrowPDA:       escrowPDA,
-					Seller:          sellerKey,
-					Buyer:           buyerKey,
-					BandwidthUsedGB: order.BandwidthLimitGB,
-				})
+				settleTxHash, txErr = SettleOrderEscrow(ctx, "api.escrow.auto_release", &order)
 				cancel()
 				if txErr != nil {
-					log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement failed for order %s: %v", order.ID, txErr)
+					log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement failed for order %s: %v — enqueueing retry", order.ID, txErr)
+					EnqueueEscrowSettle(&order, "api.escrow.auto_release")
 					alerts.Send(
 						alerts.Warning,
 						"Auto-release escrow settlement failed",
-						fmt.Sprintf("order=%s escrow=%s error=%v", order.ID, escrow.ID, txErr),
+						fmt.Sprintf("order=%s escrow=%s queued=true error=%v", order.ID, escrow.ID, txErr),
 					)
 					reclaimEscrowToHeld(escrow.ID)
 					continue
 				}
-				log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement succeeded for order %s: txHash=%s", order.ID, settleTxHash)
+				log.Printf("[escrow] AutoReleaseExpiredEscrows on-chain settlement succeeded for order %s: txHash=%s seed_kind=%s", order.ID, settleTxHash, order.EscrowSeedKind)
 			}
 
 			if txErr := db.DB.Transaction(func(tx *gorm.DB) error {

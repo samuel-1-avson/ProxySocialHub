@@ -142,7 +142,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
         id: "advanced",
         title: "Advanced",
         items: [
-            navItem("dashboardTrustless", "Usage proofs", ShieldCheck, { description: "Trustless integrity checks" }),
+            navItem("dashboardTrustless", "Usage proofs", ShieldCheck, { description: "Oracle-attested Merkle anchors (not trustless ZK yet)" }),
             navItem("dashboardAgents", "Agent console", Bot, {
                 description: "Experimental — no payment or EXECUTE yet",
             }),

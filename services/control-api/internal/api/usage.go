@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/events"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -39,6 +43,70 @@ func RegisterUsageRoutes(r *gin.RouterGroup) {
 // Edge gateway must call POST /v1/gateway/usage/report (not /v1/usage/report).
 func RegisterGatewayUsageRoutes(r *gin.RouterGroup) {
 	r.POST("/usage/report", reportUsage)
+	r.POST("/metering/spill", spillMeteringWAL)
+}
+
+type meteringSpillRequest struct {
+	SessionUsername string `json:"session_username" binding:"required"`
+	BytesUp         int64  `json:"bytes_up"`
+	BytesDown       int64  `json:"bytes_down"`
+	Seq             *int64 `json:"seq"`
+	Source          string `json:"source"`
+}
+
+// spillMeteringWAL accepts edge spill when Redis WAL/pending writes fail (EV-05 lite).
+func spillMeteringWAL(c *gin.Context) {
+	setAuthorityHeaders(c, authorityModeHybridAsyncChain, "async_write", "source_of_truth")
+
+	var req meteringSpillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.BytesUp < 0 || req.BytesDown < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bytes must be non-negative"})
+		return
+	}
+	if req.BytesUp+req.BytesDown == 0 {
+		c.JSON(http.StatusOK, gin.H{"status": "ignored", "reason": "zero_bytes"})
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		source = "redis_wal_fail"
+	}
+	if len(source) > 64 {
+		source = source[:64]
+	}
+
+	row := models.MeteringWalSpill{
+		SessionUsername: strings.TrimSpace(req.SessionUsername),
+		BytesUp:         req.BytesUp,
+		BytesDown:       req.BytesDown,
+		Seq:             req.Seq,
+		Status:          models.MeteringWalSpillPending,
+		Source:          source,
+	}
+	if row.SessionUsername == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_username required"})
+		return
+	}
+	if err := db.DB.Create(&row).Error; err != nil {
+		logging.Error(err).Str("session", row.SessionUsername).Msg("metering spill insert failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "spill insert failed"})
+		return
+	}
+	logging.Info().
+		Str("spill_id", row.ID.String()).
+		Str("session_username", row.SessionUsername).
+		Int64("bytes_up", row.BytesUp).
+		Int64("bytes_down", row.BytesDown).
+		Str("source", row.Source).
+		Msg("metering WAL spill accepted")
+	c.JSON(http.StatusAccepted, gin.H{
+		"status":  "pending",
+		"spill_id": row.ID.String(),
+	})
 }
 
 type usageReportRequest struct {
@@ -393,8 +461,18 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		PeriodEnd:   terminatedAt.Unix(),
 	})
 	if err != nil {
-		logging.Error(err).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: SubmitUsageProof failed (non-fatal)")
-		// Continue to settle escrow even if proof anchoring failed
+		logging.Error(err).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: SubmitUsageProof failed")
+		alerts.Send(alerts.Critical, "Usage Proof Anchor Failed",
+			fmt.Sprintf("session=%s order=%s escrow=%s err=%v", sessionID, order.ID, order.EscrowPDA, err))
+		// BC-05: do not settle without a successful on-chain usage proof when gated.
+		if decentralization.RequireUsageProofBeforeSettle() {
+			logging.Error(err).
+				Str("session_id", sessionID).
+				Str("order_id", order.ID.String()).
+				Msg("anchorUsageProofAndSettle: refusing settle (PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE)")
+			return
+		}
+		logging.Warn().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: continuing settle without proof (fail-open)")
 	} else {
 		// Persist the on-chain reference in the usage_proofs table.
 		db.DB.Model(&models.UsageProof{}).
@@ -417,17 +495,15 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		bandwidthUsedGB = 1 // round up to 1 GB minimum so partial usage still credits provider
 	}
 
-	settleSig, err := oracle.SettleEscrow(ctx, "api.usage.anchor_and_settle", solanaClient.SettleEscrowParams{
-		Buyer:           mustPubkey(order.BuyerWallet),
-		Seller:          mustPubkey(order.SellerWallet),
-		EscrowPDA:       escrowPDA,
-		BandwidthUsedGB: bandwidthUsedGB,
-	})
+	settleSig, err := SettleOrderEscrowUsage(ctx, "api.usage.anchor_and_settle", &order, bandwidthUsedGB)
 	if err != nil {
 		logging.Error(err).
 			Str("order_id", order.ID.String()).
 			Str("escrow_pda", order.EscrowPDA).
-			Msg("anchorUsageProofAndSettle: SettleEscrow failed")
+			Str("seed_kind", order.EscrowSeedKind).
+			Msg("anchorUsageProofAndSettle: SettleOrderEscrow failed")
+		// Proof succeeded (or fail-open); durable settle retry via compensation outbox.
+		EnqueueEscrowSettleUsage(&order, "api.usage.anchor_and_settle", bandwidthUsedGB)
 		return
 	}
 
@@ -504,9 +580,33 @@ func mustPubkey(addr string) sol.PublicKey {
 	return pk
 }
 
-// getSessionUsage returns usage stats for a specific session
+// getSessionUsage returns usage stats for a specific session.
+// session_id is the gateway credentials username (see dashboard usage page).
 func getSessionUsage(c *gin.Context) {
-	sessionID := c.Param("session_id")
+	sessionID := strings.TrimSpace(c.Param("session_id"))
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id required"})
+		return
+	}
+
+	userID := c.GetString("userID")
+	if userID == "" {
+		userID = c.GetString("user_id")
+	}
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	allowed, found := canAccessSessionUsage(c, userID, sessionID)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
 
 	// Get from Redis
 	usage, err := redisClient.GetUsage(sessionID)
@@ -542,6 +642,50 @@ func getSessionUsage(c *gin.Context) {
 		"cost_sol":        gbUsed * costPerGBSOL,
 		"last_updated_at": time.Now(),
 	})
+}
+
+// canAccessSessionUsage returns (allowed, found). Callers that are not the
+// buyer, listing seller, or admin must not see another party's metering.
+func canAccessSessionUsage(c *gin.Context, userID, sessionKey string) (allowed bool, found bool) {
+	if isAdmin(c) {
+		return true, true
+	}
+
+	if sessionData, err := redisClient.GetSession(sessionKey); err == nil && sessionData != nil {
+		found = true
+		if sessionData.UserID != "" && sessionData.UserID == userID {
+			return true, true
+		}
+		if sessionData.ProviderID != "" && sessionData.ProviderID == userID {
+			return true, true
+		}
+	}
+
+	if db.DB == nil {
+		return false, found
+	}
+
+	var session models.Session
+	q := db.DB.Where("credentials_user = ?", sessionKey)
+	if id, err := uuid.Parse(sessionKey); err == nil {
+		q = db.DB.Where("credentials_user = ? OR id = ?", sessionKey, id)
+	}
+	if err := q.First(&session).Error; err != nil {
+		return false, found
+	}
+	found = true
+	if session.UserID.String() == userID {
+		return true, true
+	}
+	if session.ListingID != nil {
+		var listing models.ProxyListing
+		if err := db.DB.Select("seller_id").First(&listing, "id = ?", *session.ListingID).Error; err == nil {
+			if listing.SellerID.String() == userID {
+				return true, true
+			}
+		}
+	}
+	return false, true
 }
 
 // getUserUsage returns aggregated usage for the authenticated user

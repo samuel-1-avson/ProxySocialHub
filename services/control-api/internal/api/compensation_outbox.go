@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
+	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -75,6 +78,68 @@ type p2pSettleMeta struct {
 	RecipientWalletID string `json:"recipient_wallet_id"`
 }
 
+// escrowSettleMeta is stored in compensation_outbox.metadata for escrow_settle rows.
+type escrowSettleMeta struct {
+	OrderID         string `json:"order_id"`
+	EscrowPDA       string `json:"escrow_pda"`
+	BuyerWallet     string `json:"buyer_wallet"`
+	SellerWallet    string `json:"seller_wallet"`
+	BandwidthUsedGB uint64 `json:"bandwidth_used_gb"`
+	Source          string `json:"source"`
+}
+
+// EnqueueEscrowSettle records a durable marketplace escrow SettleEscrow retry (M5 / 2.5).
+func EnqueueEscrowSettle(order *models.Order, source string) {
+	EnqueueEscrowSettleUsage(order, source, 0)
+}
+
+// EnqueueEscrowSettleUsage records settle retry with explicit bandwidth used (usage path).
+func EnqueueEscrowSettleUsage(order *models.Order, source string, bandwidthUsedGB uint64) {
+	if order == nil || order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
+		return
+	}
+	ref := "escrow_settle:" + order.ID.String()
+	bw := bandwidthUsedGB
+	if bw == 0 {
+		bw = order.BandwidthLimitGB
+	}
+	if bw == 0 && order.BandwidthGB > 0 {
+		bw = uint64(order.BandwidthGB)
+	}
+	meta, _ := json.Marshal(escrowSettleMeta{
+		OrderID:         order.ID.String(),
+		EscrowPDA:       order.EscrowPDA,
+		BuyerWallet:     order.BuyerWallet,
+		SellerWallet:    order.SellerWallet,
+		BandwidthUsedGB: bw,
+		Source:          source,
+	})
+	entry := models.CompensationOutbox{
+		Kind:        models.CompensationKindEscrowSettle,
+		UserID:      order.BuyerID,
+		AmountSOL:   order.AmountLockedSOL,
+		ReferenceID: ref,
+		Metadata:    string(meta),
+		Status:      models.CompensationStatusPending,
+		NextRetryAt: time.Now().UTC(),
+	}
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "kind"}, {Name: "reference_id"}},
+		DoNothing: true,
+	}).Create(&entry).Error; err != nil {
+		logging.Error(err).Str("order_id", order.ID.String()).Msg("escrow settle outbox: enqueue failed")
+		alerts.Send(alerts.Critical, "Escrow Settle Outbox Enqueue Failed",
+			fmt.Sprintf("order=%s pda=%s err=%v", order.ID, order.EscrowPDA, err))
+		return
+	}
+	logging.Warn().
+		Str("order_id", order.ID.String()).
+		Str("escrow_pda", order.EscrowPDA).
+		Str("source", source).
+		Uint64("bandwidth_used_gb", bw).
+		Msg("escrow settle outbox: enqueued after on-chain settle failure")
+}
+
 // EnqueueP2PSettle records a durable forward on-chain settle after ledger commit (BE-10).
 func EnqueueP2PSettle(amountSOL float64, ref string, senderUserID, recipientUserID, senderWalletID, recipientWalletID uuid.UUID, senderAddr, recipientAddr string) {
 	if amountSOL <= 0 || ref == "" || senderAddr == "" || recipientAddr == "" {
@@ -123,6 +188,8 @@ func ApplyCompensationOutboxEntry(entry *models.CompensationOutbox) error {
 		return applyP2PCompensation(entry)
 	case models.CompensationKindP2PSettle:
 		return applyP2PSettle(entry)
+	case models.CompensationKindEscrowSettle:
+		return applyEscrowSettle(entry)
 	default:
 		return fmt.Errorf("unknown compensation kind %q", entry.Kind)
 	}
@@ -153,6 +220,69 @@ func applyWithdrawalCompensation(entry *models.CompensationOutbox) error {
 			wallet.ID, entry.UserID, models.SpendingWithdraw, entry.ReferenceID).
 			Delete(&models.SpendingRecord{}).Error
 		return nil
+	})
+}
+
+// applyEscrowSettle retries marketplace SettleEscrow and completes the order on success.
+func applyEscrowSettle(entry *models.CompensationOutbox) error {
+	var meta escrowSettleMeta
+	if err := json.Unmarshal([]byte(entry.Metadata), &meta); err != nil {
+		return fmt.Errorf("escrow_settle metadata: %w", err)
+	}
+	orderID, err := uuid.Parse(meta.OrderID)
+	if err != nil {
+		return fmt.Errorf("order_id: %w", err)
+	}
+	var order models.Order
+	if err := db.DB.First(&order, "id = ?", orderID).Error; err != nil {
+		return err
+	}
+	if order.Status == models.OrderStatusCompleted && order.TxSignature != "" {
+		return nil // already settled
+	}
+
+	if solanaClient.GetOracleClient() == nil {
+		return fmt.Errorf("oracle client not available")
+	}
+	// Prefer live order wallets/PDA/seed kind (BC-06 multisig) over stale metadata.
+	if order.EscrowPDA == "" {
+		order.EscrowPDA = meta.EscrowPDA
+	}
+	if order.SellerWallet == "" {
+		order.SellerWallet = meta.SellerWallet
+	}
+	if order.BuyerWallet == "" {
+		order.BuyerWallet = meta.BuyerWallet
+	}
+	if order.BandwidthLimitGB == 0 {
+		order.BandwidthLimitGB = meta.BandwidthUsedGB
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	source := meta.Source
+	if source == "" {
+		source = "outbox.escrow_settle"
+	}
+	settleTxHash, txErr := SettleOrderEscrowUsage(ctx, source, &order, meta.BandwidthUsedGB)
+	if txErr != nil {
+		return txErr
+	}
+
+	if order.Status == models.OrderStatusCompleted {
+		_ = db.DB.Model(&order).Update("tx_signature", settleTxHash).Error
+		return nil
+	}
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&order, "id = ?", orderID).Error; err != nil {
+			return err
+		}
+		if order.Status == models.OrderStatusCompleted {
+			return tx.Model(&order).Update("tx_signature", settleTxHash).Error
+		}
+		return fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, "outbox.escrow_settle", map[string]interface{}{
+			"tx_signature": settleTxHash,
+		})
 	})
 }
 

@@ -42,6 +42,19 @@ type Halo2BatchProofResponse struct {
 	PublicSignals []string `json:"public_signals,omitempty"`
 }
 
+// Halo2VerifyRequest is the wire request for POST /v1/verify.
+type Halo2VerifyRequest struct {
+	ProofBase64   string   `json:"proof_base64"`
+	PublicSignals []string `json:"public_signals"`
+}
+
+// Halo2VerifyResponse is the prover verify response.
+type Halo2VerifyResponse struct {
+	Valid       bool   `json:"valid"`
+	ProofSystem string `json:"proof_system,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
 // NewHalo2ClientFromEnv creates a prover client from process environment.
 //
 // Environment:
@@ -142,6 +155,62 @@ func (c *Halo2Client) GenerateBatchProof(ctx context.Context, batch *BatchProof)
 	}
 
 	return proofBytes, nil
+}
+
+// VerifyBatchProof calls POST /v1/verify on the prover service.
+// publicSignals should be [digest_hex, session_count, total_bytes] (optional trailing fields ignored by prover).
+func (c *Halo2Client) VerifyBatchProof(ctx context.Context, proof []byte, publicSignals []string) (bool, error) {
+	if len(proof) == 0 {
+		return false, fmt.Errorf("empty proof")
+	}
+	if c == nil || c.baseURL == "" {
+		if c != nil && c.required {
+			return false, fmt.Errorf("HALO2 prover is required but HALO2_PROVER_URL is not configured")
+		}
+		return false, fmt.Errorf("HALO2 prover URL not configured")
+	}
+
+	body, err := json.Marshal(Halo2VerifyRequest{
+		ProofBase64:   base64.StdEncoding.EncodeToString(proof),
+		PublicSignals: publicSignals,
+	})
+	if err != nil {
+		return false, fmt.Errorf("marshal halo2 verify request: %w", err)
+	}
+
+	endpoint := c.baseURL + "/v1/verify"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return false, fmt.Errorf("build halo2 verify request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("call halo2 verify: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return false, fmt.Errorf("read halo2 verify response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("halo2 verify returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed Halo2VerifyResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return false, fmt.Errorf("decode halo2 verify response: %w", err)
+	}
+	if !parsed.Valid {
+		if parsed.Error != "" {
+			return false, fmt.Errorf("halo2 verify invalid: %s", parsed.Error)
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 func (c *Halo2Client) buildRequest(batch *BatchProof) Halo2BatchProofRequest {

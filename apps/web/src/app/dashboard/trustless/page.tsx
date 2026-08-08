@@ -125,11 +125,15 @@ export default function TrustlessPage() {
             <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
                 <div>
                     <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
-                        <ShieldCheck size={12} className="animate-pulse" /> Cryptographic Integrity Layer
+                        <ShieldCheck size={12} className="animate-pulse" /> Oracle-attested usage anchors
                     </div>
                     <h1 className="text-4xl font-black font-mono uppercase tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
-                        Trustless Proofs
+                        Usage Proofs
                     </h1>
+                    <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+                        Batches are Merkle-committed on Solana and signed by the oracle.
+                        On-chain Halo2 verification is not live yet — these are not trustless ZK proofs.
+                    </p>
                 </div>
                 <div className="flex gap-4">
                     <GlassCard className="px-6 py-3 flex items-center gap-4 bg-primary/5 border-primary/20">

@@ -97,6 +97,11 @@ services:
       - PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=${PROXYHUB_DEPOSIT_REQUIRE_FINALIZED:-false}
       - PROXYHUB_REQUIRE_ESCROW_PDA=${PROXYHUB_REQUIRE_ESCROW_PDA:-false}
       - PROXYHUB_REQUIRE_SESSION_PDA=${PROXYHUB_REQUIRE_SESSION_PDA:-false}
+      - PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE=${PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE:-false}
+      - PROXYHUB_ESCROW_CHALLENGE_DAYS=${PROXYHUB_ESCROW_CHALLENGE_DAYS:-7}
+      - PROXYHUB_MULTISIG_SETTLE_ENABLED=${PROXYHUB_MULTISIG_SETTLE_ENABLED:-false}
+      - PROXYHUB_MULTISIG_SETTLE_AMOUNT_LAMPORTS=${PROXYHUB_MULTISIG_SETTLE_AMOUNT_LAMPORTS:-100000000}
+      - PROXYHUB_MULTISIG_COSIGNER_KEYPAIR=${PROXYHUB_MULTISIG_COSIGNER_KEYPAIR:-}
       - PROXYHUB_WATCHER_START_SLOT=${PROXYHUB_WATCHER_START_SLOT:-}
       # PHB_TOKEN_MINT: SPL token mint address for the platform token.
       # Used to display platform token balances on wallet details pages.
@@ -158,6 +163,8 @@ services:
       - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL:-}
       - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
       - PAGERDUTY_ROUTING_KEY=${PAGERDUTY_ROUTING_KEY:-}
+      # Grafana → control-api forwarder (POST /internal/alerts/webhook)
+      - INTERNAL_ALERT_WEBHOOK_TOKEN=${INTERNAL_ALERT_WEBHOOK_TOKEN:-}
       # Alert SMTP sender (can share values with SMTP_USER/SMTP_PASS above)
       - SMTP_USERNAME=${SMTP_USERNAME:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
@@ -223,6 +230,10 @@ services:
     environment:
       - PORT=8095
       - RUST_LOG=${ZK_PROVER_LOG:-info}
+      - ZK_PROVER_KEYS_DIR=${ZK_PROVER_KEYS_DIR:-/var/lib/proxyhubb-zk}
+      - PROXYHUB_ZK_ONCHAIN_GROTH16=${PROXYHUB_ZK_ONCHAIN_GROTH16:-false}
+    volumes:
+      - zk_prover_keys:/var/lib/proxyhubb-zk
     networks:
       - backend
     healthcheck:
@@ -317,7 +328,8 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8090/health"]
+      # GET not HEAD: edge historically returned 501 on HEAD; wget --spider uses HEAD.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8090/health"]
       interval: 30s
       timeout: 10s
       start_period: 60s
@@ -563,6 +575,7 @@ volumes:
   postgres_data:
   prometheus_data:
   nats_data:
+  zk_prover_keys:
 
 networks:
   backend:

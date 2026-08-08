@@ -1,0 +1,22 @@
+[package]
+name = "proxy-reputation"
+version = "0.1.0"
+description = "ProxyHubb reputation program (BC-11). NOT deployable until a real program ID replaces the placeholder."
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "proxy_reputation"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+# Sprint B: enable when BN254 Groth16 on-chain verify is wired.
+onchain-groth16 = []
+
+[dependencies]
+anchor-lang = "0.30.1"
