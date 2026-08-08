@@ -74,6 +74,43 @@ func TestHalo2ClientGenerateBatchProof_HTTPError(t *testing.T) {
 	}
 }
 
+func TestHalo2ClientVerifyBatchProof_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/verify" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"valid":true,"proof_system":"halo2-ipa-pasta-v2-batch-digest"}`))
+	}))
+	defer ts.Close()
+
+	client := NewHalo2Client(ts.URL, 2*time.Second, true)
+	ok, err := client.VerifyBatchProof(context.Background(), []byte("proof"), []string{"aa", "1", "2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected valid=true")
+	}
+}
+
+func TestHalo2ClientVerifyBatchProof_Invalid(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"valid":false,"error":"bad proof"}`))
+	}))
+	defer ts.Close()
+
+	client := NewHalo2Client(ts.URL, 2*time.Second, true)
+	ok, err := client.VerifyBatchProof(context.Background(), []byte("proof"), []string{"aa", "1", "2"})
+	if err == nil {
+		t.Fatal("expected error when valid=false with error message")
+	}
+	if ok {
+		t.Fatal("expected valid=false")
+	}
+}
+
 func testBatchProof() *BatchProof {
 	return &BatchProof{
 		Root:         [32]byte{1, 2, 3, 4},

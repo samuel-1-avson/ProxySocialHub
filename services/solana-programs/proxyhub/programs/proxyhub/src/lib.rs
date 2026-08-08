@@ -59,6 +59,10 @@ pub enum EscrowError {
     SignerNotFound,
     #[msg("Staking lockup period is active")]
     LockupPeriodActive,
+    #[msg("Withdraw destination must equal vault hot treasury")]
+    InvalidVaultDestination,
+    #[msg("Deposit vault hot treasury cannot be default pubkey")]
+    InvalidHotTreasury,
 }
 
 // =============================================================================
@@ -352,6 +356,34 @@ impl InsurancePool {
         1;   // bump
 }
 
+/// Platform deposit vault — holds inbound user SOL outside the hot EOA.
+/// Users transfer SOL natively to this PDA; admin/oracle withdraws only to hot_treasury.
+/// PDA seeds: ["deposit_vault"]
+#[account]
+#[derive(Default)]
+pub struct DepositVault {
+    pub authority: Pubkey,            // Admin that may withdraw / update hot
+    pub withdraw_authority: Pubkey,   // Oracle (or ops) key also allowed to withdraw
+    pub hot_treasury: Pubkey,         // Sole allowed withdraw destination
+    pub total_deposited: u64,         // Accounting hint (native deposits may exceed tracked)
+    pub total_withdrawn: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub bump: u8,
+}
+
+impl DepositVault {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // authority
+        32 + // withdraw_authority
+        32 + // hot_treasury
+        8 +  // total_deposited
+        8 +  // total_withdrawn
+        8 +  // created_at
+        8 +  // updated_at
+        1;   // bump
+}
+
 /// Streaming Escrow Account - supports pay-as-you-go flow
 #[account]
 #[derive(Default)]
@@ -582,6 +614,56 @@ impl SessionCommitment {
         1;   // bump (total = 113)
 }
 
+/// Funded prepaid session escrow (Phase 1b).
+/// Holds locked SOL for PAYG/gateway sessions; oracle settles pro-rata by bytes used.
+/// PDA seeds: ["session_escrow", session_id (16 bytes UUID)]
+#[account]
+#[derive(Default)]
+pub struct SessionEscrow {
+    pub session_id:            [u8; 16],
+    pub buyer:                 Pubkey,
+    pub seller:                Pubkey,
+    pub amount:                u64,  // locked lamports
+    pub bandwidth_limit_bytes: u64,
+    pub bytes_used:            u64,  // written at settle
+    pub price_per_gb_lamports: u64,
+    pub status:                EscrowStatus,
+    pub created_at:            i64,
+    pub expires_at:            i64,
+    pub bump:                  u8,
+}
+
+impl SessionEscrow {
+    pub const LEN: usize = 8 + // discriminator
+        16 + // session_id
+        32 + // buyer
+        32 + // seller
+        8 +  // amount
+        8 +  // bandwidth_limit_bytes
+        8 +  // bytes_used
+        8 +  // price_per_gb_lamports
+        1 +  // status
+        8 +  // created_at
+        8 +  // expires_at
+        1;   // bump
+}
+
+/// Integer pro-rata split for session escrow (no f64).
+/// Returns `(seller_payout, buyer_refund)`.
+pub fn compute_session_escrow_payout(escrow_amount: u64, bytes_used: u64, bytes_limit: u64) -> (u64, u64) {
+    let billed_bytes = std::cmp::min(bytes_used, bytes_limit);
+    let seller_payout = if bytes_limit > 0 {
+        (escrow_amount as u128)
+            .saturating_mul(billed_bytes as u128)
+            .checked_div(bytes_limit as u128)
+            .unwrap_or(0) as u64
+    } else {
+        0
+    };
+    let buyer_refund = escrow_amount.saturating_sub(seller_payout);
+    (seller_payout, buyer_refund)
+}
+
 // =============================================================================
 // GOVERNANCE PDAs (GOV-001/002/003)
 // =============================================================================
@@ -624,7 +706,7 @@ pub struct GovernanceVote {
     pub proposal:     Pubkey,   // GovernanceProposal PDA
     pub voter:        Pubkey,   // Voter's wallet
     pub vote_yes:     bool,
-    pub voting_power: u64,      // Staked SOL in lamports at time of vote
+    pub voting_power: u64,      // Fixed at 1 on-chain until stake/token CPI exists
     pub voted_at:     i64,
     pub bump:         u8,
 }
@@ -982,6 +1064,26 @@ pub struct SessionCommitmentLocked {
 }
 
 #[event]
+pub struct SessionEscrowInitialized {
+    pub session_escrow: Pubkey,
+    pub session_id: [u8; 16],
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub bandwidth_limit_bytes: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct SessionEscrowSettled {
+    pub session_escrow: Pubkey,
+    pub session_id: [u8; 16],
+    pub seller_payout: u64,
+    pub buyer_refund: u64,
+    pub bytes_used: u64,
+}
+
+#[event]
 pub struct ProposalCreated {
     pub proposal_pda: Pubkey,
     pub proposer: Pubkey,
@@ -1065,6 +1167,28 @@ pub struct SpendingEventLogged {
     pub logged_at: i64,
 }
 
+#[event]
+pub struct DepositVaultInitialized {
+    pub vault: Pubkey,
+    pub authority: Pubkey,
+    pub hot_treasury: Pubkey,
+}
+
+#[event]
+pub struct DepositVaultWithdrawn {
+    pub vault: Pubkey,
+    pub destination: Pubkey,
+    pub amount: u64,
+    pub authority: Pubkey,
+}
+
+#[event]
+pub struct DepositVaultHotUpdated {
+    pub vault: Pubkey,
+    pub old_hot: Pubkey,
+    pub new_hot: Pubkey,
+}
+
 // =============================================================================
 // PROGRAM MODULE
 // =============================================================================
@@ -1138,6 +1262,148 @@ pub mod proxyhub {
         pool.bump = ctx.bumps.insurance_pool;
 
         msg!("Insurance pool initialized");
+        Ok(())
+    }
+
+    /// Initialize the platform deposit vault PDA (seeds: ["deposit_vault"]).
+    /// Binds the sole hot-treasury withdraw destination and an oracle withdraw authority.
+    /// Users deposit via native SOL transfer to the vault address.
+    pub fn initialize_deposit_vault(
+        ctx: Context<InitializeDepositVault>,
+        hot_treasury: Pubkey,
+        withdraw_authority: Pubkey,
+    ) -> Result<()> {
+        require!(hot_treasury != Pubkey::default(), EscrowError::InvalidHotTreasury);
+        require!(
+            withdraw_authority != Pubkey::default(),
+            EscrowError::Unauthorized
+        );
+
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let vault = &mut ctx.accounts.deposit_vault;
+        let clock = Clock::get()?;
+
+        vault.authority = ctx.accounts.admin.key();
+        vault.withdraw_authority = withdraw_authority;
+        vault.hot_treasury = hot_treasury;
+        vault.total_deposited = 0;
+        vault.total_withdrawn = 0;
+        vault.created_at = clock.unix_timestamp;
+        vault.updated_at = clock.unix_timestamp;
+        vault.bump = ctx.bumps.deposit_vault;
+
+        emit!(DepositVaultInitialized {
+            vault: vault.key(),
+            authority: vault.authority,
+            hot_treasury,
+        });
+
+        msg!(
+            "Deposit vault initialized: {} hot={} withdraw_authority={}",
+            vault.key(),
+            hot_treasury,
+            withdraw_authority
+        );
+        Ok(())
+    }
+
+    /// Withdraw SOL from the deposit vault to the bound hot treasury only.
+    /// Authority: vault.authority, vault.withdraw_authority, or program_state.admin.
+    pub fn withdraw_from_vault(
+        ctx: Context<WithdrawFromVault>,
+        amount: u64,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(amount > 0, EscrowError::InsufficientFunds);
+
+        let authority = ctx.accounts.authority.key();
+        let vault_ref = &ctx.accounts.deposit_vault;
+        require!(
+            authority == vault_ref.authority
+                || authority == vault_ref.withdraw_authority
+                || authority == state.admin,
+            EscrowError::Unauthorized
+        );
+
+        let dest = ctx.accounts.hot_treasury.key();
+        require!(
+            dest == vault_ref.hot_treasury,
+            EscrowError::InvalidVaultDestination
+        );
+
+        let rent = Rent::get()?;
+        let min_balance = rent.minimum_balance(DepositVault::LEN);
+        let vault_ai = ctx.accounts.deposit_vault.to_account_info();
+        let dest_ai = ctx.accounts.hot_treasury.to_account_info();
+        let available = vault_ai.lamports().saturating_sub(min_balance);
+        require!(available >= amount, EscrowError::InsufficientFunds);
+
+        **vault_ai.try_borrow_mut_lamports()? = vault_ai
+            .lamports()
+            .checked_sub(amount)
+            .ok_or(EscrowError::InsufficientFunds)?;
+        **dest_ai.try_borrow_mut_lamports()? = dest_ai
+            .lamports()
+            .checked_add(amount)
+            .ok_or(EscrowError::InsufficientFunds)?;
+
+        let vault = &mut ctx.accounts.deposit_vault;
+        let clock = Clock::get()?;
+        vault.total_withdrawn = vault.total_withdrawn.saturating_add(amount);
+        vault.updated_at = clock.unix_timestamp;
+
+        emit!(DepositVaultWithdrawn {
+            vault: vault.key(),
+            destination: dest,
+            amount,
+            authority,
+        });
+
+        msg!(
+            "Deposit vault withdrawn: amount={} to={}",
+            amount,
+            dest
+        );
+        Ok(())
+    }
+
+    /// Rotate the hot treasury binding on the deposit vault (admin/authority only).
+    pub fn update_deposit_vault_hot(
+        ctx: Context<UpdateDepositVaultHot>,
+        new_hot_treasury: Pubkey,
+    ) -> Result<()> {
+        require!(new_hot_treasury != Pubkey::default(), EscrowError::InvalidHotTreasury);
+
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let authority = ctx.accounts.authority.key();
+        let vault_authority = ctx.accounts.deposit_vault.authority;
+        require!(
+            authority == vault_authority || authority == state.admin,
+            EscrowError::Unauthorized
+        );
+
+        let vault = &mut ctx.accounts.deposit_vault;
+        let old_hot = vault.hot_treasury;
+        let clock = Clock::get()?;
+        vault.hot_treasury = new_hot_treasury;
+        vault.updated_at = clock.unix_timestamp;
+
+        emit!(DepositVaultHotUpdated {
+            vault: vault.key(),
+            old_hot,
+            new_hot: new_hot_treasury,
+        });
+
+        msg!(
+            "Deposit vault hot updated: {} -> {}",
+            old_hot,
+            new_hot_treasury
+        );
         Ok(())
     }
 
@@ -1461,7 +1727,7 @@ pub mod proxyhub {
         require!(!state.paused, EscrowError::ProgramPaused);
 
         let escrow = &mut ctx.accounts.escrow;
-        let multisig = &ctx.accounts.multisig_oracle;
+        let multisig = &mut ctx.accounts.multisig_oracle;
         let clock = Clock::get()?;
 
         require!(
@@ -1609,8 +1875,16 @@ pub mod proxyhub {
             bandwidth_used: bandwidth_used_gb,
         });
 
-        msg!("Escrow settled with multi-sig: {} to seller, {} refunded", 
-            seller_payout, buyer_refund);
+        // BC-06: bump global multisig nonce after successful settle so settlement
+        // messages (and oracle_sig PDAs) cannot be replayed across escrows.
+        multisig.nonce = multisig
+            .nonce
+            .checked_add(1)
+            .ok_or(EscrowError::InvalidStatus)?;
+        multisig.last_update = clock.unix_timestamp;
+
+        msg!("Escrow settled with multi-sig (BC06 nonce bump): {} to seller, {} refunded, nonce={}", 
+            seller_payout, buyer_refund, multisig.nonce);
         Ok(())
     }
 
@@ -2170,6 +2444,8 @@ pub mod proxyhub {
     ) -> Result<()> {
         let state = &ctx.accounts.program_state;
         require!(!state.paused, EscrowError::ProgramPaused);
+        // BC-05: only program admin/oracle may anchor usage proofs.
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
         require!(total_bytes > 0, EscrowError::InvalidStatus);
         require!(period_end > period_start, EscrowError::InvalidStatus);
 
@@ -2340,6 +2616,11 @@ pub mod proxyhub {
         kyc_status: u8,
     ) -> Result<()> {
         require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+        // BC-05: only program admin/oracle may write KYC attestations.
+        require!(
+            ctx.accounts.oracle.key() == ctx.accounts.program_state.admin,
+            EscrowError::Unauthorized
+        );
         require!(trust_tier <= 2, EscrowError::InvalidStatus);
         require!(kyc_status <= 3, EscrowError::InvalidStatus);
 
@@ -2408,6 +2689,129 @@ pub mod proxyhub {
     }
 
     // =========================================================================
+    // SESSION ESCROW (Phase 1b prepaid PAYG)
+    // =========================================================================
+
+    /// Initialize a funded session escrow PDA. Buyer pays rent + locks `amount` lamports.
+    pub fn initialize_session_escrow(
+        ctx: Context<InitializeSessionEscrow>,
+        session_id: [u8; 16],
+        amount: u64,
+        bandwidth_limit_bytes: u64,
+        price_per_gb_lamports: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+        require!(amount > 0, EscrowError::InsufficientFunds);
+        require!(bandwidth_limit_bytes > 0, EscrowError::InvalidStatus);
+
+        let clock = Clock::get()?;
+        require!(expires_at > clock.unix_timestamp, EscrowError::InvalidStatus);
+
+        let buyer_key = ctx.accounts.buyer.key();
+        let seller_key = ctx.accounts.seller.key();
+        let escrow_key = ctx.accounts.session_escrow.key();
+        let buyer_info = ctx.accounts.buyer.to_account_info();
+        let escrow_info = ctx.accounts.session_escrow.to_account_info();
+        let system_program_info = ctx.accounts.system_program.to_account_info();
+
+        let escrow = &mut ctx.accounts.session_escrow;
+        escrow.session_id = session_id;
+        escrow.buyer = buyer_key;
+        escrow.seller = seller_key;
+        escrow.amount = amount;
+        escrow.bandwidth_limit_bytes = bandwidth_limit_bytes;
+        escrow.bytes_used = 0;
+        escrow.price_per_gb_lamports = price_per_gb_lamports;
+        escrow.status = EscrowStatus::Active;
+        escrow.created_at = clock.unix_timestamp;
+        escrow.expires_at = expires_at;
+        escrow.bump = ctx.bumps.session_escrow;
+
+        let cpi_context = CpiContext::new(
+            system_program_info,
+            system_program::Transfer {
+                from: buyer_info,
+                to: escrow_info,
+            },
+        );
+        system_program::transfer(cpi_context, amount)?;
+
+        emit!(SessionEscrowInitialized {
+            session_escrow: escrow_key,
+            session_id,
+            buyer: buyer_key,
+            seller: seller_key,
+            amount,
+            bandwidth_limit_bytes,
+            expires_at,
+        });
+
+        msg!(
+            "Session escrow initialized: {} amount={} session={:?}",
+            escrow_key,
+            amount,
+            session_id
+        );
+        Ok(())
+    }
+
+    /// Settle session escrow pro-rata by bytes_used. Oracle (program admin) only.
+    /// Seller receives billed share; buyer receives unused escrow + rent (account closed).
+    pub fn settle_session_escrow(
+        ctx: Context<SettleSessionEscrow>,
+        bytes_used: u64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
+
+        let escrow = &mut ctx.accounts.session_escrow;
+        require!(
+            escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
+            EscrowError::InvalidStatus
+        );
+
+        let clock = Clock::get()?;
+        // Allow settle after expiry (refund unused); block only if never funded.
+        let _ = clock;
+
+        let (seller_payout, buyer_refund) = compute_session_escrow_payout(
+            escrow.amount,
+            bytes_used,
+            escrow.bandwidth_limit_bytes,
+        );
+
+        escrow.bytes_used = bytes_used;
+        escrow.status = EscrowStatus::Settled;
+
+        let session_id = escrow.session_id;
+        let escrow_key = escrow.key();
+
+        if seller_payout > 0 {
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= seller_payout;
+            **ctx.accounts.seller.try_borrow_mut_lamports()? += seller_payout;
+        }
+
+        // Remaining lamports (buyer_refund + rent) go to buyer via `close = buyer`.
+        let _ = buyer_refund;
+
+        emit!(SessionEscrowSettled {
+            session_escrow: escrow_key,
+            session_id,
+            seller_payout,
+            buyer_refund,
+            bytes_used,
+        });
+
+        msg!(
+            "Session escrow settled: {} seller={} refund={}",
+            escrow_key,
+            seller_payout,
+            buyer_refund
+        );
+        Ok(())
+    }
+
+    // =========================================================================
     // GOVERNANCE (GOV-001/002/003)
     // =========================================================================
 
@@ -2448,11 +2852,15 @@ pub mod proxyhub {
 
     /// Cast an on-chain governance vote.  The voter signs the transaction
     /// directly — the server cannot forge votes on their behalf.
-    /// voting_power is provided by the oracle (staked SOL balance).
+    ///
+    /// `voting_power` remains in the instruction IDL for compatibility but is
+    /// **ignored**. Weight is fixed at 1 (one wallet = one vote) until a
+    /// stake/token CPI can prove voting power on-chain. Clients cannot inflate
+    /// yes/no totals by editing the unsigned transaction.
     pub fn cast_governance_vote(
         ctx: Context<CastGovernanceVote>,
         vote_yes: bool,
-        voting_power: u64,
+        _voting_power: u64,
     ) -> Result<()> {
         require!(!ctx.accounts.program_state.paused, EscrowError::ProgramPaused);
 
@@ -2463,6 +2871,9 @@ pub mod proxyhub {
         // Voting must be open.
         require!(proposal.status == 0, EscrowError::InvalidStatus);
         require!(current_slot <= proposal.end_slot, EscrowError::Expired);
+
+        // One wallet = one vote (client-supplied weight is discarded).
+        let voting_power: u64 = 1;
 
         // Record the immutable vote.
         let vote = &mut ctx.accounts.governance_vote;
@@ -2738,16 +3149,19 @@ pub mod proxyhub {
     // an immutable PDA.  One Solana TX replaces N individual submit_usage_proof
     // TXes for high-throughput settlement.
     //
-    // In Phase 5 the proof_bytes field will carry a Halo2 proof π verified
-    // on-chain by the Solana ZK-proof syscall (Ed25519 alt_bn128 / Groth16).
+    // In Phase 5 / full BC-11 the proof_bytes field will carry a Halo2 (or
+    // Groth16) proof verified on-chain. Today proof_hash is an oracle-attested
+    // SHA-256 of an optional off-chain proof blob — not on-chain ZK verify.
+    // Sprint B gate: PROXYHUB_ZK_ONCHAIN_GROTH16 (default false) — see
+    // docs/ops/BC11_GROTH16_PATH.md. Do not claim trustless verification.
+    //
     // For Phase 4 the root is a SHA-256 Merkle commitment (auditable off-chain).
     //
     // PDA seeds: [b"zk_batch", batch_root (32 bytes)]
     /// `proof_hash`    — SHA-256 of the off-chain ZK proof blob.  Set to all-zeros
-    ///                   to skip verification (devnet only; mainnet will require a
-    ///                   verified Ed25519 signature over the proof via
-    ///                   `ed25519_program` introspection).  When non-zero the
-    ///                   oracle attests it verified the proof off-chain.
+    ///                   when no off-chain proof was attached. Non-zero means the
+    ///                   oracle attested it produced/verified that blob off-chain;
+    ///                   Solana does not yet verify Halo2 inside this instruction.
     pub fn submit_zk_batch(
         ctx: Context<SubmitZKBatch>,
         batch_root: [u8; 32],
@@ -3183,6 +3597,44 @@ pub struct InitializeInsurancePool<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeDepositVault<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = DepositVault::LEN,
+        seeds = [b"deposit_vault"],
+        bump
+    )]
+    pub deposit_vault: Account<'info, DepositVault>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    #[account(mut, address = program_state.admin)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawFromVault<'info> {
+    #[account(mut, seeds = [b"deposit_vault"], bump = deposit_vault.bump)]
+    pub deposit_vault: Account<'info, DepositVault>,
+    /// CHECK: must equal vault.hot_treasury (enforced by address constraint)
+    #[account(mut, address = deposit_vault.hot_treasury)]
+    pub hot_treasury: AccountInfo<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateDepositVaultHot<'info> {
+    #[account(mut, seeds = [b"deposit_vault"], bump = deposit_vault.bump)]
+    pub deposit_vault: Account<'info, DepositVault>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct InitializePriceOracle<'info> {
     #[account(init, payer = authority, space = PriceOracle::LEN, seeds = [b"price_oracle"], bump)]
     pub price_oracle: Account<'info, PriceOracle>,
@@ -3278,7 +3730,7 @@ pub struct SettleEscrowMultiSig<'info> {
     /// CHECK: Seller account — bound to the escrow record so payouts cannot be redirected.
     #[account(mut, address = escrow.seller)]
     pub seller: AccountInfo<'info>,
-    #[account(seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
+    #[account(mut, seeds = [b"multisig_oracle"], bump = multisig_oracle.bump)]
     pub multisig_oracle: Account<'info, MultiSigOracle>,
     #[account(
         init,
@@ -3477,8 +3929,8 @@ pub struct UnstakeProvider<'info> {
 #[derive(Accounts)]
 #[instruction(proof_index: u32)]
 pub struct SubmitUsageProof<'info> {
-    /// Oracle pays for the PDA rent.
-    #[account(mut)]
+    /// Oracle/admin pays for the PDA rent. Bound to program_state.admin (BC-05).
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
 
     /// The escrow PDA this proof belongs to.  Accepted as unchecked AccountInfo
@@ -3518,8 +3970,9 @@ pub struct SubmitUsageProof<'info> {
 #[derive(Accounts)]
 #[instruction(wallet: Pubkey)]
 pub struct WriteKYCAttestation<'info> {
-    /// Oracle pays for the PDA rent on first creation.
-    #[account(mut)]
+    /// Oracle/admin pays for the PDA rent on first creation. Bound to
+    /// program_state.admin so arbitrary signers cannot forge KYC (BC-05).
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
 
     /// KYC attestation PDA.  Created on first call, updated on subsequent calls.
@@ -3554,6 +4007,48 @@ pub struct LockSessionCommitment<'info> {
     )]
     pub session_commitment: Account<'info, SessionCommitment>,
     pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+#[instruction(session_id: [u8; 16])]
+pub struct InitializeSessionEscrow<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    /// CHECK: Seller receives pro-rata payout on settle.
+    pub seller: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = buyer,
+        space = SessionEscrow::LEN,
+        seeds = [b"session_escrow", session_id.as_ref()],
+        bump
+    )]
+    pub session_escrow: Account<'info, SessionEscrow>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct SettleSessionEscrow<'info> {
+    /// Oracle must be the current program admin.
+    #[account(address = program_state.admin)]
+    pub oracle: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"session_escrow", session_escrow.session_id.as_ref()],
+        bump = session_escrow.bump,
+        close = buyer,
+    )]
+    pub session_escrow: Account<'info, SessionEscrow>,
+    /// CHECK: Buyer receives unused escrow + rent.
+    #[account(mut, address = session_escrow.buyer)]
+    pub buyer: UncheckedAccount<'info>,
+    /// CHECK: Seller receives billed share.
+    #[account(mut, address = session_escrow.seller)]
+    pub seller: UncheckedAccount<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
 }

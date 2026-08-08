@@ -83,6 +83,28 @@ export const deriveEscrowPDA = (buyerPubkey: string, sellerPubkey: string) => {
     return { pda: escrowPda.toString(), bump };
 };
 
+/** BC-06: escrow_multisig PDA seeds include expires_at (unix seconds). */
+export const deriveEscrowMultiSigPDA = (
+    buyerPubkey: string,
+    sellerPubkey: string,
+    expiresAt: number
+) => {
+    const buyer = new PublicKey(buyerPubkey);
+    const seller = new PublicKey(sellerPubkey);
+    const tsBuffer = Buffer.alloc(8);
+    tsBuffer.writeBigInt64LE(BigInt(expiresAt));
+    const [escrowPda, bump] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from('escrow_multisig'),
+            buyer.toBuffer(),
+            seller.toBuffer(),
+            tsBuffer,
+        ],
+        PROGRAM_ID
+    );
+    return { pda: escrowPda.toString(), bump };
+};
+
 export const initializeEscrow = async (
     wallet: any,
     sellerPubkey: string,
@@ -157,6 +179,87 @@ export const initializeEscrow = async (
     }
 };
 
+/** BC-06: initialize escrow with escrow_multisig seeds (amount-gated path). */
+export const initializeEscrowMultisig = async (
+    wallet: any,
+    sellerPubkey: string,
+    amountLamports: number,
+    limitGb: number,
+    expiresAtUnix: number
+) => {
+    const e2eMockBuy =
+        process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
+        (typeof globalThis !== 'undefined' &&
+            !!(globalThis as typeof globalThis & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
+    if (e2eMockBuy) {
+        return {
+            tx: 'e2e-mock-escrow-multisig-tx',
+            escrowPda: 'e2e-mock-escrow-multisig-pda',
+            explorerUrl: '#e2e-mock',
+        };
+    }
+
+    if (!wallet) throw new Error('Wallet not connected');
+    if (!expiresAtUnix || expiresAtUnix <= Math.floor(Date.now() / 1000)) {
+        throw new Error('escrow_expires_at must be a future unix timestamp');
+    }
+
+    const program = getProgram(wallet);
+    const buyer = wallet.publicKey;
+    const seller = new PublicKey(sellerPubkey);
+    const { pda } = deriveEscrowMultiSigPDA(buyer.toBase58(), sellerPubkey, expiresAtUnix);
+    const escrowPda = new PublicKey(pda);
+    const [programState] = PublicKey.findProgramAddressSync(
+        [Buffer.from('program_state')],
+        program.programId
+    );
+    const [priceOracle] = PublicKey.findProgramAddressSync(
+        [Buffer.from('price_oracle')],
+        program.programId
+    );
+
+    console.log('Initializing Multisig Escrow PDA:', escrowPda.toString(), 'expiresAt:', expiresAtUnix);
+
+    try {
+        const tx = await program.methods
+            .initializeEscrowMultisig(
+                new BN(amountLamports),
+                new BN(limitGb),
+                new BN(expiresAtUnix)
+            )
+            .accounts({
+                buyer,
+                seller,
+                escrow: escrowPda,
+                programState,
+                priceOracle,
+                systemProgram: web3.SystemProgram.programId,
+            })
+            .rpc();
+
+        return {
+            tx,
+            escrowPda: escrowPda.toString(),
+            explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=${SOLANA_NETWORK}`,
+        };
+    } catch (err) {
+        console.error('Multisig Escrow Init Error:', err);
+        throw err;
+    }
+};
+
+/** True when initializeEscrow fails because the buyer/seller PDA already exists. */
+export function isEscrowAccountAlreadyInUse(err: unknown): boolean {
+    const raw =
+        err instanceof Error
+            ? err.message
+            : typeof err === 'object' && err !== null && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err ?? '');
+    const lower = raw.toLowerCase();
+    return lower.includes('already in use') || lower.includes('accountalreadyinus');
+}
+
 // Refund an expired escrow (buyer only)
 export const refundEscrow = async (
     wallet: any,
@@ -202,31 +305,19 @@ export const refundEscrow = async (
     }
 };
 
-// Fetch escrow info from on-chain
-export const getEscrowInfo = async (
-    buyerPubkey: string,
-    sellerPubkey: string
-): Promise<EscrowInfo | null> => {
+async function parseEscrowAccount(pda: string): Promise<EscrowInfo | null> {
     const connection = getConnection();
-    const { pda } = deriveEscrowPDA(buyerPubkey, sellerPubkey);
     const escrowPda = new PublicKey(pda);
-
     try {
         const accountInfo = await connection.getAccountInfo(escrowPda);
-
         if (!accountInfo || !accountInfo.data) {
             return null;
         }
-
-        // Skip 8-byte discriminator
         const data = accountInfo.data.slice(8);
-
-        if (data.length < 106) {
-            console.error("Escrow data too short");
+        if (data.length < 146) {
+            console.error('Escrow data too short');
             return null;
         }
-
-        // Parse escrow data (matches Anchor layout)
         const buyer = new PublicKey(data.slice(0, 32)).toString();
         const seller = new PublicKey(data.slice(32, 64)).toString();
         const amount = Number(data.readBigUInt64LE(64));
@@ -235,7 +326,6 @@ export const getEscrowInfo = async (
         const statusIndex = data[88];
         const createdAt = Number(data.readBigInt64LE(89));
         const expiresAt = Number(data.readBigInt64LE(97));
-
         return {
             buyer,
             seller,
@@ -246,13 +336,26 @@ export const getEscrowInfo = async (
             status: STATUS_MAP[statusIndex] || 'Pending',
             createdAt,
             expiresAt,
-            pda
+            pda,
         };
-
     } catch (err) {
-        console.error("Error fetching escrow info:", err);
+        console.error('Error fetching escrow info:', err);
         return null;
     }
+}
+
+/** Fetch escrow by exact PDA (legacy or escrow_multisig). */
+export const getEscrowInfoByPDA = async (escrowPda: string): Promise<EscrowInfo | null> => {
+    return parseEscrowAccount(escrowPda);
+};
+
+// Fetch escrow info from on-chain (legacy ["escrow", buyer, seller] PDA)
+export const getEscrowInfo = async (
+    buyerPubkey: string,
+    sellerPubkey: string
+): Promise<EscrowInfo | null> => {
+    const { pda } = deriveEscrowPDA(buyerPubkey, sellerPubkey);
+    return parseEscrowAccount(pda);
 };
 
 // Request settlement via backend oracle

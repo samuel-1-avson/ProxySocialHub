@@ -193,9 +193,15 @@ func getReputationTelemetry(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":            userID,
+		"user_id":             userID,
 		"settled_proof_count": len(proofs),
 		"total_bytes_settled": totalBytes,
-		"proofs":             proofs,
+		"proofs":              proofs,
+		// BC-11 honesty: batches are oracle-attested Merkle anchors; on-chain
+		// Groth16 / trustless ZK reputation is not live (Sprint B).
+		"verification_mode":          "oracle_attested_merkle",
+		"onchain_groth16":            false,
+		"onchain_zk_verify_available": false,
+		"reputation_program":         "oracle_gated_stub_not_deployed",
 	})
 }

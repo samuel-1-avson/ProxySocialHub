@@ -1,5 +1,5 @@
 use axum::{
-    extract::Json,
+    extract::{Json, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -7,20 +7,20 @@ use axum::{
 };
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner, Value},
-    pasta::{EqAffine, Fp},
-    plonk::{
-        create_proof, keygen_pk, keygen_vk, verify_proof, Advice, Circuit, Column,
-        ConstraintSystem, Error, Instance, SingleVerifier,
-    },
-    poly::commitment::Params,
-    transcript::{Blake2bRead, Blake2bWrite, Challenge255},
+use proxyhubb_zk_prover::{
+    circuit::{PROOF_SYSTEM, PROVER_K},
+    digest::normalize_hex32,
+    keys::load_or_create_prover_keys,
+    prove::{prove_batch, public_inputs_from_signals, verify_batch, BatchWitness},
+    ProverKeys,
 };
-use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
+
+#[derive(Clone)]
+struct AppState {
+    keys: Arc<ProverKeys>,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 struct ProveBatchRequest {
@@ -39,74 +39,35 @@ struct ProveBatchResponse {
     public_signals: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct VerifyBatchRequest {
+    proof_base64: String,
+    /// [digest_hex, session_count, total_bytes] (batch_root optional trailing)
+    public_signals: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct VerifyBatchResponse {
+    valid: bool,
+    proof_system: String,
+    error: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     ok: bool,
     mode: String,
+    k: u32,
+    keys_loaded: bool,
+    proof_system: String,
+    keys_dir: String,
+    params_sha256: String,
+    onchain_groth16: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
-}
-
-#[derive(Clone, Debug)]
-struct BatchDigestConfig {
-    advice: Column<Advice>,
-    instance: Column<Instance>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct BatchDigestCircuit {
-    digest: Option<Fp>,
-}
-
-impl Circuit<Fp> for BatchDigestCircuit {
-    type Config = BatchDigestConfig;
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self { digest: None }
-    }
-
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let advice = meta.advice_column();
-        let instance = meta.instance_column();
-
-        meta.enable_equality(advice);
-        meta.enable_equality(instance);
-
-        BatchDigestConfig { advice, instance }
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
-    ) -> Result<(), Error> {
-        // During key generation Halo2 calls synthesize() on a circuit returned
-        // by without_witnesses(). That circuit has no witnesses, so we must not
-        // error. Instead we assign an unknown value and still emit constraints.
-        let digest = match self.digest {
-            Some(value) => Value::known(value),
-            None => Value::unknown(),
-        };
-
-        let assigned = layouter.assign_region(
-            || "assign digest witness",
-            |mut region| {
-                region.assign_advice(|| "digest", config.advice, 0, || digest)
-            },
-        )?;
-
-        layouter.constrain_instance(assigned.cell(), config.instance, 0)
-    }
-}
-
-#[derive(Debug)]
-struct ProvingOutput {
-    proof_bytes: Vec<u8>,
-    digest_hex: String,
 }
 
 #[tokio::main]
@@ -120,6 +81,30 @@ async fn main() {
         .compact()
         .init();
 
+    let keys_dir = env::var("ZK_PROVER_KEYS_DIR").unwrap_or_else(|_| {
+        if PathBuf::from("/var/lib/proxyhubb-zk").exists()
+            || env::var("ZK_PROVER_USE_VAR_LIB").ok().as_deref() == Some("1")
+        {
+            "/var/lib/proxyhubb-zk".to_string()
+        } else {
+            "./.zk-keys".to_string()
+        }
+    });
+
+    let keys = load_or_create_prover_keys(&keys_dir).unwrap_or_else(|e| {
+        panic!("failed to load/create prover keys in {keys_dir}: {e}");
+    });
+    tracing::info!(
+        keys_dir = %keys.keys_dir.display(),
+        params_sha256 = %keys.params_sha256_hex,
+        created_new = keys.created_new_params,
+        "Halo2 prover keys ready"
+    );
+
+    let state = AppState {
+        keys: Arc::new(keys),
+    };
+
     let port = env::var("PORT")
         .ok()
         .and_then(|s| s.parse::<u16>().ok())
@@ -127,10 +112,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/prove/batch", post(prove_batch));
+        .route("/v1/prove/batch", post(prove_batch_handler))
+        .route("/v1/verify", post(verify_batch_handler))
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("starting proxyhubb-zk-prover scaffold on {}", addr);
+    tracing::info!("starting proxyhubb-zk-prover ({PROOF_SYSTEM}) on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -141,44 +128,43 @@ async fn main() {
         .expect("zk-prover server failed");
 }
 
-async fn healthz() -> Json<HealthResponse> {
+async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
-        mode: "phase5a_halo2".to_string(),
+        mode: "bc11_sprint_a_halo2_stable_keys".to_string(),
+        k: PROVER_K,
+        keys_loaded: true,
+        proof_system: PROOF_SYSTEM.to_string(),
+        keys_dir: state.keys.keys_dir.display().to_string(),
+        params_sha256: state.keys.params_sha256_hex.clone(),
+        onchain_groth16: false,
     })
 }
 
-async fn prove_batch(Json(req): Json<ProveBatchRequest>) -> impl IntoResponse {
-    if req.batch_root.len() != 64 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "batch_root must be 64 hex characters".to_string(),
-            }),
-        )
-            .into_response();
-    }
+async fn prove_batch_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ProveBatchRequest>,
+) -> impl IntoResponse {
+    let witness = match build_witness(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response();
+        }
+    };
 
-    if req.session_count == 0 || req.leaf_hashes.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "session_count and leaf_hashes must be non-empty".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    let req_for_proving = req.clone();
-    let proving_result =
-        tokio::task::spawn_blocking(move || prove_halo2_batch(req_for_proving)).await;
+    let keys = state.keys.clone();
+    let proving_result = tokio::task::spawn_blocking(move || prove_batch(&keys, &witness)).await;
     let proving_output = match proving_result {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!("proving failed: {}", e),
+                    error: format!("proving failed: {e}"),
                 }),
             )
                 .into_response();
@@ -187,140 +173,137 @@ async fn prove_batch(Json(req): Json<ProveBatchRequest>) -> impl IntoResponse {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("proving task join error: {}", e),
+                    error: format!("proving task join error: {e}"),
                 }),
             )
                 .into_response();
         }
     };
 
-    let proof_bytes = proving_output.proof_bytes;
-    let proof_base64 = STANDARD.encode(proof_bytes);
-
     let response = ProveBatchResponse {
-        proof_base64,
-        proof_system: "halo2-ipa-pasta-v1".to_string(),
+        proof_base64: STANDARD.encode(&proving_output.proof_bytes),
+        proof_system: proving_output.proof_system,
         public_signals: vec![
             proving_output.digest_hex,
-            req.batch_root,
+            req.session_count.to_string(),
             req.total_bytes.to_string(),
+            req.batch_root,
         ],
     };
-
     (StatusCode::OK, Json(response)).into_response()
 }
 
-fn prove_halo2_batch(req: ProveBatchRequest) -> Result<ProvingOutput, String> {
-    let batch_root = normalize_hex32(&req.batch_root, "batch_root")?;
+async fn verify_batch_handler(
+    State(state): State<AppState>,
+    Json(req): Json<VerifyBatchRequest>,
+) -> impl IntoResponse {
+    let proof_bytes = match STANDARD.decode(req.proof_base64.trim()) {
+        Ok(b) if !b.is_empty() => b,
+        Ok(_) => {
+            return Json(VerifyBatchResponse {
+                valid: false,
+                proof_system: PROOF_SYSTEM.to_string(),
+                error: Some("empty proof".into()),
+            })
+            .into_response();
+        }
+        Err(e) => {
+            return Json(VerifyBatchResponse {
+                valid: false,
+                proof_system: PROOF_SYSTEM.to_string(),
+                error: Some(format!("invalid proof_base64: {e}")),
+            })
+            .into_response();
+        }
+    };
 
+    if req.public_signals.len() < 3 {
+        return Json(VerifyBatchResponse {
+            valid: false,
+            proof_system: PROOF_SYSTEM.to_string(),
+            error: Some(
+                "public_signals requires [digest_hex, session_count, total_bytes]".into(),
+            ),
+        })
+        .into_response();
+    }
+
+    let digest_hex = req.public_signals[0].trim();
+    let session_count: u32 = match req.public_signals[1].parse() {
+        Ok(v) => v,
+        Err(_) => {
+            return Json(VerifyBatchResponse {
+                valid: false,
+                proof_system: PROOF_SYSTEM.to_string(),
+                error: Some("session_count must be u32".into()),
+            })
+            .into_response();
+        }
+    };
+    let total_bytes: u64 = match req.public_signals[2].parse() {
+        Ok(v) => v,
+        Err(_) => {
+            return Json(VerifyBatchResponse {
+                valid: false,
+                proof_system: PROOF_SYSTEM.to_string(),
+                error: Some("total_bytes must be u64".into()),
+            })
+            .into_response();
+        }
+    };
+
+    let public_inputs = match public_inputs_from_signals(digest_hex, session_count, total_bytes) {
+        Ok(pi) => pi,
+        Err(e) => {
+            return Json(VerifyBatchResponse {
+                valid: false,
+                proof_system: PROOF_SYSTEM.to_string(),
+                error: Some(e),
+            })
+            .into_response();
+        }
+    };
+
+    let keys = state.keys.clone();
+    let result =
+        tokio::task::spawn_blocking(move || verify_batch(&keys, &proof_bytes, &public_inputs))
+            .await;
+
+    match result {
+        Ok(Ok(())) => Json(VerifyBatchResponse {
+            valid: true,
+            proof_system: PROOF_SYSTEM.to_string(),
+            error: None,
+        })
+        .into_response(),
+        Ok(Err(e)) => Json(VerifyBatchResponse {
+            valid: false,
+            proof_system: PROOF_SYSTEM.to_string(),
+            error: Some(e),
+        })
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("verify task join error: {e}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+fn build_witness(req: &ProveBatchRequest) -> Result<BatchWitness, String> {
+    let batch_root = normalize_hex32(&req.batch_root, "batch_root")?;
     let mut leaf_hashes = Vec::with_capacity(req.leaf_hashes.len());
     for (idx, leaf) in req.leaf_hashes.iter().enumerate() {
-        let normalized = normalize_hex32(leaf, &format!("leaf_hashes[{}]", idx))?;
-        leaf_hashes.push(normalized);
+        leaf_hashes.push(normalize_hex32(leaf, &format!("leaf_hashes[{idx}]"))?);
     }
-
-    let digest = compute_batch_digest(
+    Ok(BatchWitness {
         batch_root,
-        req.session_count,
-        req.total_bytes,
-        req.period_start,
-        req.period_end,
-        &leaf_hashes,
-    );
-    let digest_hex = hex::encode(digest);
-    let digest_field = digest_to_field(digest);
-    let proof_bytes = generate_halo2_proof(digest_field)?;
-
-    Ok(ProvingOutput {
-        proof_bytes,
-        digest_hex,
+        session_count: req.session_count,
+        total_bytes: req.total_bytes,
+        period_start: req.period_start,
+        period_end: req.period_end,
+        leaf_hashes,
     })
-}
-
-fn normalize_hex32(input: &str, field_name: &str) -> Result<[u8; 32], String> {
-    let stripped = input.trim();
-    if stripped.len() != 64 {
-        return Err(format!(
-            "{} must be 64 hex characters (got {})",
-            field_name,
-            stripped.len()
-        ));
-    }
-
-    let decoded =
-        hex::decode(stripped).map_err(|e| format!("{} must be valid hex: {}", field_name, e))?;
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&decoded);
-    Ok(out)
-}
-
-fn compute_batch_digest(
-    batch_root: [u8; 32],
-    session_count: u32,
-    total_bytes: u64,
-    period_start: i64,
-    period_end: i64,
-    leaf_hashes: &[[u8; 32]],
-) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(batch_root);
-    h.update(session_count.to_le_bytes());
-    h.update(total_bytes.to_le_bytes());
-    h.update(period_start.to_le_bytes());
-    h.update(period_end.to_le_bytes());
-
-    for leaf in leaf_hashes {
-        h.update(leaf);
-    }
-
-    h.finalize().into()
-}
-
-fn digest_to_field(digest: [u8; 32]) -> Fp {
-    let mut first_limb = [0u8; 8];
-    first_limb.copy_from_slice(&digest[..8]);
-    Fp::from(u64::from_le_bytes(first_limb))
-}
-
-fn generate_halo2_proof(digest_field: Fp) -> Result<Vec<u8>, String> {
-    let k = 7;
-    let params = Params::<EqAffine>::new(k);
-
-    let empty_circuit = BatchDigestCircuit::default();
-    let vk = keygen_vk(&params, &empty_circuit).map_err(|e| format!("keygen_vk failed: {}", e))?;
-    let pk =
-        keygen_pk(&params, vk, &empty_circuit).map_err(|e| format!("keygen_pk failed: {}", e))?;
-
-    let circuit = BatchDigestCircuit {
-        digest: Some(digest_field),
-    };
-    let public_inputs = vec![digest_field];
-
-    let mut prover_transcript =
-        Blake2bWrite::<Vec<u8>, EqAffine, Challenge255<EqAffine>>::init(vec![]);
-    create_proof(
-        &params,
-        &pk,
-        &[circuit],
-        &[&[&public_inputs]],
-        OsRng,
-        &mut prover_transcript,
-    )
-    .map_err(|e| format!("create_proof failed: {}", e))?;
-
-    let proof_bytes = prover_transcript.finalize();
-
-    // Verify before returning so the API never emits an invalid proof payload.
-    let mut verifier_transcript =
-        Blake2bRead::<_, EqAffine, Challenge255<EqAffine>>::init(&proof_bytes[..]);
-    verify_proof(
-        &params,
-        pk.get_vk(),
-        SingleVerifier::new(&params),
-        &[&[&public_inputs]],
-        &mut verifier_transcript,
-    )
-    .map_err(|e| format!("verify_proof failed: {}", e))?;
-
-    Ok(proof_bytes)
 }

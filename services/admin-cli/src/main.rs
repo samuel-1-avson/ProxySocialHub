@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod bc13_test;
+
 use clap::{Parser, Subcommand};
 use colored::*;
 use sqlx::postgres::PgPoolOptions;
@@ -49,7 +52,49 @@ async fn get_db_pool() -> anyhow::Result<sqlx::PgPool> {
     Ok(pool)
 }
 
+/// BC-13: returns an error message when CleanupDb must refuse to run.
+fn cleanup_db_refusal(
+    allow_destructive: Option<&str>,
+    confirm_drop_tables: Option<&str>,
+    app_env: Option<&str>,
+) -> Option<&'static str> {
+    let allow = allow_destructive
+        .map(|v| {
+            let v = v.to_lowercase();
+            matches!(v.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false);
+    if !allow {
+        return Some(
+            "refusing CleanupDb: set PROXYHUB_ALLOW_DESTRUCTIVE_ADMIN=true to enable destructive admin-cli commands",
+        );
+    }
+    if confirm_drop_tables.unwrap_or("") != "DROP_TABLES" {
+        return Some(
+            "refusing CleanupDb: set PROXYHUB_CONFIRM_DROP_TABLES=DROP_TABLES to confirm irreversible table drops",
+        );
+    }
+    let is_prod = app_env
+        .map(|v| {
+            let v = v.to_lowercase();
+            matches!(v.as_str(), "production" | "prod")
+        })
+        .unwrap_or(false);
+    if is_prod {
+        return Some("refusing CleanupDb in production APP_ENV");
+    }
+    None
+}
+
 async fn handle_cleanup_db() -> anyhow::Result<()> {
+    if let Some(msg) = cleanup_db_refusal(
+        env::var("PROXYHUB_ALLOW_DESTRUCTIVE_ADMIN").ok().as_deref(),
+        env::var("PROXYHUB_CONFIRM_DROP_TABLES").ok().as_deref(),
+        env::var("APP_ENV").ok().as_deref(),
+    ) {
+        anyhow::bail!("{msg}");
+    }
+
     println!("{}", "Dropping problematic tables to fix FK references...".yellow());
     let pool = get_db_pool().await?;
     

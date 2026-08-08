@@ -280,6 +280,10 @@ export interface SolanaPaymentParams {
     /** True when buyer/seller PDA already exists and is funded on-chain. */
     escrow_already_funded?: boolean;
     on_chain_escrow_status?: string;
+    /** BC-06: "legacy" | "multisig" */
+    escrow_seed_kind?: string;
+    /** Unix seconds; required for escrow_multisig PDA seeds. */
+    escrow_expires_at?: number;
 }
 
 export interface ProviderNode {

@@ -311,7 +311,7 @@ export default function ProviderDashboard() {
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
-                                                        {(node.base_price_per_gb || 0).toFixed(6)} SOL/GB
+                                                        {(node.base_price_per_gb || 0).toFixed(4)} USD/GB
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center gap-2">
@@ -518,7 +518,7 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
                         <ul className="space-y-3">
                             {[
                                 "Privacy-preserving architecture",
-                                "Trustless usage verifications",
+                                "Oracle-attested usage anchors",
                                 "Manual on-chain claim when ready",
                                 "Enterprise-grade security"
                             ].map((item, idx) => (

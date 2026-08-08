@@ -42,6 +42,55 @@
             ]
         },
         {
+            "name": "initializeEscrowMultisig",
+            "accounts": [
+                {
+                    "name": "escrow",
+                    "isMut": true,
+                    "isSigner": false
+                },
+                {
+                    "name": "buyer",
+                    "isMut": true,
+                    "isSigner": true
+                },
+                {
+                    "name": "seller",
+                    "isMut": false,
+                    "isSigner": false
+                },
+                {
+                    "name": "programState",
+                    "isMut": false,
+                    "isSigner": false
+                },
+                {
+                    "name": "priceOracle",
+                    "isMut": false,
+                    "isSigner": false
+                },
+                {
+                    "name": "systemProgram",
+                    "isMut": false,
+                    "isSigner": false
+                }
+            ],
+            "args": [
+                {
+                    "name": "amount",
+                    "type": "u64"
+                },
+                {
+                    "name": "bandwidthLimitGb",
+                    "type": "u64"
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "i64"
+                }
+            ]
+        },
+        {
             "name": "settleEscrow",
             "accounts": [
                 {
