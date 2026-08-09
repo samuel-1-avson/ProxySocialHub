@@ -198,11 +198,11 @@ export function getCLIDownloadUrl(platform: string, arch: string, version?: stri
     return url;
 }
 
-/** Prefer dashboard CLI downloads; GitHub Releases require a public repo/assets. */
+/** GitHub Releases page for provider-node / provider-cli binaries (provider-v* tags). */
 export function getProviderCliReleasesUrl(): string {
     return (
         process.env.NEXT_PUBLIC_PROVIDER_CLI_RELEASES_URL ||
-        '/dashboard/provider/cli'
+        'https://github.com/samuel-1-avson/ProxySocialHub/releases/tag/provider-v1.0.5'
     );
 }
 

@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$version = if ($env:CLI_DIST_VERSION) { $env:CLI_DIST_VERSION } else { "1.0.0" }
+$version = if ($env:CLI_DIST_VERSION) { $env:CLI_DIST_VERSION } else { "1.0.5" }
 
 $repoRoot = $PSScriptRoot
 

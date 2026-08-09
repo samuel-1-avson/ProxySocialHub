@@ -34,17 +34,32 @@ function resolveDownload(
     arch: string,
 ): CLIDownload | undefined {
     if (!downloads) return undefined;
+    // Prefer the live daemon binary (Control API latest) over an older zip bundle.
     const keys = [
-        `${platform}_${arch}_bundle`,
         `${platform}_${arch}`,
-        `${platform}-${arch}`,
         `${platform}_${arch}_daemon`,
+        `${platform}-${arch}`,
+        `${platform}_${arch}_bundle`,
     ];
     for (const key of keys) {
         if (downloads[key]) return downloads[key];
     }
-    return Object.values(downloads).find(
-        (d) => d.platform === platform && d.arch === arch && (d.package_type === 'daemon' || d.package_type === 'bundle' || !d.package_type),
+    const normPlat = platform.toLowerCase();
+    const normArch = arch === 'amd64' ? 'x64' : arch;
+    const pool = Object.values(downloads).filter((d) => {
+        const p = (d.platform || '').toLowerCase();
+        const a = (d.arch || '').toLowerCase();
+        const platOk =
+            p === normPlat ||
+            (normPlat === 'windows' && p === 'windows') ||
+            (normPlat === 'macos' && (p === 'macos' || p === 'darwin')) ||
+            (normPlat === 'linux' && p === 'linux');
+        const archOk = a === arch || a === normArch || (arch === 'amd64' && a === 'x64');
+        return platOk && archOk;
+    });
+    return (
+        pool.find((d) => !d.package_type || d.package_type === 'daemon') ??
+        pool[0]
     );
 }
 
