@@ -319,38 +319,60 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
     }
 
     let pid_path = crate::paths::pid_file();
+    let mut daemon_provider_alive = false;
     match std::fs::read_to_string(&pid_path) {
         Ok(s) => {
             let pid: u32 = s.trim().parse().unwrap_or(0);
-            if pid > 0 && crate::process_util::process_alive(pid) {
-                push(
-                    &mut checks,
-                    "daemon",
-                    true,
-                    "info",
-                    format!("Provider node running (PID {pid})"),
-                );
-            } else if pid > 0 {
-                push_fix(
-                    &mut checks,
-                    "daemon",
-                    false,
-                    "warn",
-                    format!("Stale PID file (process {pid} not running) — remove {} or stop the old node",
-                        pid_path.display()),
-                    "Run provider-node stop, or remove the stale PID file if the process is already gone.",
-                    "daemon_stale_pid",
-                );
-            } else {
-                push_fix(
-                    &mut checks,
-                    "daemon",
-                    false,
-                    "warn",
-                    format!("Stale PID file at {}", pid_path.display()),
-                    "Run provider-node stop, or remove the stale PID file if the process is already gone.",
-                    "daemon_stale_pid",
-                );
+            match crate::process_util::classify_pid(pid) {
+                crate::process_util::PidLiveness::ProviderAlive => {
+                    daemon_provider_alive = true;
+                    push(
+                        &mut checks,
+                        "daemon",
+                        true,
+                        "info",
+                        format!("Provider node running (PID {pid})"),
+                    );
+                }
+                crate::process_util::PidLiveness::ForeignAlive => {
+                    push_fix(
+                        &mut checks,
+                        "daemon",
+                        false,
+                        "warn",
+                        format!(
+                            "PID file points to unrelated process {pid} (PID reuse) — remove {}",
+                            pid_path.display()
+                        ),
+                        "Run provider-node stop, delete the stale PID file, then provider-node start.",
+                        "daemon_pid_reused",
+                    );
+                }
+                crate::process_util::PidLiveness::Dead if pid > 0 => {
+                    push_fix(
+                        &mut checks,
+                        "daemon",
+                        false,
+                        "warn",
+                        format!(
+                            "Stale PID file (process {pid} not running) — remove {} or stop the old node",
+                            pid_path.display()
+                        ),
+                        "Run provider-node stop, or remove the stale PID file if the process is already gone.",
+                        "daemon_stale_pid",
+                    );
+                }
+                _ => {
+                    push_fix(
+                        &mut checks,
+                        "daemon",
+                        false,
+                        "warn",
+                        format!("Stale PID file at {}", pid_path.display()),
+                        "Run provider-node stop, or remove the stale PID file if the process is already gone.",
+                        "daemon_stale_pid",
+                    );
+                }
             }
         }
         Err(_) => {
@@ -367,37 +389,59 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
     }
 
     let metrics_url = format!("http://127.0.0.1:{}/stats", cfg.metrics_port);
-    match reqwest::get(&metrics_url).await {
-        Ok(resp) if resp.status().is_success() => {
-            push(
-                &mut checks,
-                "metrics",
-                true,
-                "info",
-                format!("Local metrics at {metrics_url}"),
-            );
-        }
-        Ok(resp) => {
-            push_fix(
-                &mut checks,
-                "metrics",
-                false,
-                "warn",
-                format!("Metrics HTTP {}", resp.status()),
-                "Restart provider-node and confirm metrics_port is not blocked by another local service.",
-                "metrics_unhealthy",
-            );
-        }
-        Err(_) => {
-            push_fix(
-                &mut checks,
-                "metrics",
-                false,
-                "warn",
-                format!("Metrics not reachable at {metrics_url} (start the daemon?)"),
-                "Start provider-node, or check metrics_enabled and metrics_port in provider.toml.",
-                "metrics_unreachable",
-            );
+    if !cfg.metrics_enabled {
+        push(
+            &mut checks,
+            "metrics",
+            true,
+            "info",
+            "metrics_enabled=false (local /stats probe skipped)",
+        );
+    } else {
+        match reqwest::get(&metrics_url).await {
+            Ok(resp) if resp.status().is_success() => {
+                push(
+                    &mut checks,
+                    "metrics",
+                    true,
+                    "info",
+                    format!("Local metrics at {metrics_url}"),
+                );
+            }
+            Ok(resp) => {
+                let severity = if daemon_provider_alive { "error" } else { "warn" };
+                push_fix(
+                    &mut checks,
+                    "metrics",
+                    false,
+                    severity,
+                    format!("Metrics HTTP {}", resp.status()),
+                    "Restart provider-node and confirm metrics_port is not blocked by another local service.",
+                    "metrics_unhealthy",
+                );
+            }
+            Err(_) => {
+                let (severity, hint) = if daemon_provider_alive {
+                    (
+                        "error",
+                        "Daemon PID is alive but /stats is down — check metrics_port bind failure or firewall.",
+                    )
+                } else {
+                    (
+                        "warn",
+                        "Start provider-node, or check metrics_enabled and metrics_port in provider.toml.",
+                    )
+                };
+                push_fix(
+                    &mut checks,
+                    "metrics",
+                    false,
+                    severity,
+                    format!("Metrics not reachable at {metrics_url}"),
+                    hint,
+                    "metrics_unreachable",
+                );
+            }
         }
     }
 

@@ -41,7 +41,7 @@ pub async fn run() -> anyhow::Result<()> {
         println!("  [4] Start/restart daemon in background");
         println!("  [5] Start daemon in this window (foreground / blocks)");
         println!("  [6] Print install paths & hints");
-        println!("  [7] Update CLI in place (no re-download / delete)");
+        println!("  [7] Update CLI in place (download latest from Control API)");
         println!("  [h] Help / recommended first-run");
         println!("  [q] Quit");
         print!("\n  Choice> ");

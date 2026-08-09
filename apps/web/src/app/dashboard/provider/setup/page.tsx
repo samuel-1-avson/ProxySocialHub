@@ -52,11 +52,26 @@ export default function SetupPage() {
     });
 
     const nodeMutation = useMutation({
-        mutationFn: () => createNode({ name: nodeName, country: nodeCountry || undefined, city: nodeCity || undefined }),
-        onSuccess: (node) => {
+        mutationFn: async () => {
+            const node = await createNode({
+                name: nodeName,
+                country: nodeCountry || undefined,
+                city: nodeCity || undefined,
+            });
+            // Always mint a fresh token bound to this node so Install never needs hand-editing.
+            const token = await createProviderToken({
+                name: `${nodeName || 'node'}-cli`.slice(0, 100),
+                node_id: node.id,
+            });
+            return { node, token };
+        },
+        onSuccess: ({ node, token }) => {
             setNodeCreated(true);
             setRegisteredNodeId(node.id);
+            setCreatedToken(token);
+            saveProviderApiKey(token.token, node.id);
             qc.invalidateQueries({ queryKey: ['my-nodes'] });
+            qc.invalidateQueries({ queryKey: ['provider-tokens'] });
             setStep(3);
         },
     });
@@ -376,9 +391,10 @@ function InstallStep({
         <GlassCard hoverEffect={false}>
             <div className="space-y-5">
                 <div>
-                    <h2 className="text-lg font-bold font-mono mb-1">Install the CLI</h2>
+                    <h2 className="text-lg font-bold font-mono mb-1">Install &amp; start</h2>
                     <p className="text-xs text-muted-foreground font-mono">
-                        Download the binary, save config on your machine (not in this git repo), then start the node.
+                        Download the CLI once, paste the install script (writes config for you), then start. No editing{' '}
+                        <code className="text-primary/80">provider.toml</code> by hand.
                     </p>
                 </div>
 
@@ -404,7 +420,7 @@ function InstallStep({
                                 2
                             </div>
                             <div className="flex-1">
-                                <p className="text-xs font-bold font-mono mb-2">Download config & run</p>
+                                <p className="text-xs font-bold font-mono mb-2">Install config &amp; run</p>
                                 <ProviderNodeConnectPanel
                                     nodeId={nodeId}
                                     apiKey={token?.token ?? null}
