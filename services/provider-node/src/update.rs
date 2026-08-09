@@ -1,8 +1,8 @@
 //! In-place self-update for provider-node.
 //!
-//! Downloads the latest `provider-v*` GitHub Release asset for this OS/arch,
-//! verifies SHA-256 when `SHA256SUMS.txt` is present, then swaps the binary
-//! using a rename dance so Windows can replace a running `.exe`.
+//! Primary source: Control API public CLI distribution
+//! (`GET /v1/cli/downloads/latest` + `/v1/cli/download`).
+//! Optional fallback: GitHub Releases (only works when the repo/assets are public).
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
@@ -11,6 +11,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+const DEFAULT_API_URL: &str = "https://api.proxyhubb.com";
 const GITHUB_REPO: &str = "samuel-1-avson/ProxySocialHub";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -21,8 +22,18 @@ pub struct UpdateInfo {
     pub tag: String,
     pub asset_name: String,
     pub asset_url: String,
+    pub checksum: Option<String>,
     pub checksum_url: Option<String>,
     pub already_latest: bool,
+    pub source: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiLatest {
+    version: String,
+    download_url: String,
+    checksum: Option<String>,
+    filename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,27 +48,18 @@ struct GhAsset {
     browser_download_url: String,
 }
 
-/// Check GitHub for a newer provider-node release (no download).
+/// Check for a newer provider-node release (no download).
 pub async fn check() -> Result<UpdateInfo> {
-    let release = fetch_latest_provider_release().await?;
-    let version = tag_to_version(&release.tag_name)?;
-    let (asset_name, asset_url) = pick_asset(&release, &version)?;
-    let checksum_url = release
-        .assets
-        .iter()
-        .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
-        .map(|a| a.browser_download_url.clone());
-
-    let already = version_cmp(&version, CURRENT_VERSION) <= 0;
-    Ok(UpdateInfo {
-        current: CURRENT_VERSION.to_string(),
-        latest: version,
-        tag: release.tag_name,
-        asset_name,
-        asset_url,
-        checksum_url,
-        already_latest: already,
-    })
+    match fetch_latest_from_api().await {
+        Ok(info) => Ok(info),
+        Err(api_err) => match fetch_latest_from_github().await {
+            Ok(info) => Ok(info),
+            Err(gh_err) => Err(anyhow!(
+                "update check failed via Control API ({api_err:#}); GitHub fallback also failed ({gh_err:#}). \
+                 Download from Dashboard → Provider → CLI, or set PROXYHUB_API_URL."
+            )),
+        },
+    }
 }
 
 /// Download + install the latest release over this binary. Stops the background
@@ -65,7 +67,7 @@ pub async fn check() -> Result<UpdateInfo> {
 pub async fn run(check_only: bool, yes: bool) -> Result<()> {
     let info = check().await?;
     println!("Current:  v{}", info.current);
-    println!("Latest:   v{} ({})", info.latest, info.tag);
+    println!("Latest:   v{} ({}) via {}", info.latest, info.tag, info.source);
 
     if info.already_latest {
         println!("Already up to date.");
@@ -96,7 +98,10 @@ pub async fn run(check_only: bool, yes: bool) -> Result<()> {
     println!("Downloading {}…", info.asset_name);
     let bytes = download_bytes(&info.asset_url).await?;
 
-    if let Some(sums_url) = &info.checksum_url {
+    if let Some(want) = &info.checksum {
+        verify_checksum_hex(&bytes, want)?;
+        println!("Checksum OK");
+    } else if let Some(sums_url) = &info.checksum_url {
         match verify_sha256(&bytes, &info.asset_name, sums_url).await {
             Ok(()) => println!("Checksum OK"),
             Err(e) => eprintln!("Warning: checksum check skipped/failed: {e:#}"),
@@ -105,7 +110,7 @@ pub async fn run(check_only: bool, yes: bool) -> Result<()> {
 
     if info.asset_name.ends_with(".zip") {
         bail!(
-            "latest asset is a zip ({}) — expected a raw binary asset on the release",
+            "latest asset is a zip ({}) — expected a raw binary asset",
             info.asset_name
         );
     }
@@ -139,12 +144,77 @@ pub fn print_check(info: &UpdateInfo) {
     }
 }
 
-async fn fetch_latest_provider_release() -> Result<GhRelease> {
-    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=20");
-    let client = reqwest::Client::builder()
-        .user_agent(format!("proxyhubb-provider-node/{CURRENT_VERSION}"))
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+fn update_api_base() -> String {
+    if let Ok(v) = std::env::var("PROXYHUB_API_URL") {
+        let t = v.trim().trim_end_matches('/').to_string();
+        if !t.is_empty() {
+            return t;
+        }
+    }
+    // Prefer control_api_url from the local provider.toml when present.
+    let cfg_path = crate::paths::config_file();
+    if let Some(path) = cfg_path.to_str() {
+        if let Ok(cfg) = crate::config::Config::load(path) {
+            let t = cfg.control_api_url.trim().trim_end_matches('/');
+            if !t.is_empty() && !t.contains("localhost") && !t.contains("127.0.0.1") {
+                return t.to_string();
+            }
+        }
+    }
+    DEFAULT_API_URL.to_string()
+}
+
+async fn fetch_latest_from_api() -> Result<UpdateInfo> {
+    let (os, arch) = current_target();
+    let base = update_api_base();
+    let meta_url = format!(
+        "{base}/v1/cli/downloads/latest?platform={os}&arch={arch}&package_type=daemon"
+    );
+    let client = http_client(30)?;
+    let resp = client
+        .get(&meta_url)
+        .send()
+        .await
+        .context("Control API latest metadata request failed")?;
+    if !resp.status().is_success() {
+        bail!("Control API latest HTTP {}", resp.status());
+    }
+    let meta: ApiLatest = resp.json().await.context("parse Control API latest")?;
+    let version = meta.version.trim().trim_start_matches('v').to_string();
+    if version.is_empty() {
+        bail!("Control API returned empty version");
+    }
+    let asset_url = if meta.download_url.starts_with("http") {
+        meta.download_url
+    } else if meta.download_url.starts_with('/') {
+        format!("{base}{}", meta.download_url)
+    } else {
+        format!(
+            "{base}/v1/cli/download?platform={os}&arch={arch}&package_type=daemon&version={version}"
+        )
+    };
+    let asset_name = meta.filename.unwrap_or_else(|| {
+        let ext = if os == "windows" { ".exe" } else { "" };
+        format!("provider-node-{version}-{os}-{arch}{ext}")
+    });
+    let already = version_cmp(&version, CURRENT_VERSION) <= 0;
+    Ok(UpdateInfo {
+        current: CURRENT_VERSION.to_string(),
+        latest: version.clone(),
+        tag: format!("provider-v{version}"),
+        asset_name,
+        asset_url,
+        checksum: meta.checksum.filter(|s| !s.trim().is_empty()),
+        checksum_url: None,
+        already_latest: already,
+        source: "control-api".to_string(),
+    })
+}
+
+async fn fetch_latest_from_github() -> Result<UpdateInfo> {
+    let repo = std::env::var("PROXYHUB_UPDATE_REPO").unwrap_or_else(|_| GITHUB_REPO.to_string());
+    let url = format!("https://api.github.com/repos/{repo}/releases?per_page=20");
+    let client = http_client(30)?;
     let resp = client
         .get(&url)
         .header("Accept", "application/vnd.github+json")
@@ -152,13 +222,46 @@ async fn fetch_latest_provider_release() -> Result<GhRelease> {
         .await
         .context("GitHub releases request failed")?;
     if !resp.status().is_success() {
+        if resp.status().as_u16() == 404 {
+            bail!(
+                "GitHub releases HTTP 404 — repo `{repo}` is private or missing; \
+                 self-update uses Control API by default (Dashboard → Provider → CLI)"
+            );
+        }
         bail!("GitHub releases HTTP {}", resp.status());
     }
     let releases: Vec<GhRelease> = resp.json().await.context("parse GitHub releases")?;
-    releases
+    let release = releases
         .into_iter()
         .find(|r| r.tag_name.starts_with("provider-v"))
-        .ok_or_else(|| anyhow!("no provider-v* release found on GitHub"))
+        .ok_or_else(|| anyhow!("no provider-v* release found on GitHub"))?;
+    let version = tag_to_version(&release.tag_name)?;
+    let (asset_name, asset_url) = pick_asset(&release, &version)?;
+    let checksum_url = release
+        .assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
+        .map(|a| a.browser_download_url.clone());
+    let already = version_cmp(&version, CURRENT_VERSION) <= 0;
+    Ok(UpdateInfo {
+        current: CURRENT_VERSION.to_string(),
+        latest: version,
+        tag: release.tag_name,
+        asset_name,
+        asset_url,
+        checksum: None,
+        checksum_url,
+        already_latest: already,
+        source: "github".to_string(),
+    })
+}
+
+fn http_client(timeout_secs: u64) -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .user_agent(format!("proxyhubb-provider-node/{CURRENT_VERSION}"))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()?)
 }
 
 fn tag_to_version(tag: &str) -> Result<String> {
@@ -218,11 +321,7 @@ fn current_target() -> (&'static str, &'static str) {
 }
 
 async fn download_bytes(url: &str) -> Result<Vec<u8>> {
-    let client = reqwest::Client::builder()
-        .user_agent(format!("proxyhubb-provider-node/{CURRENT_VERSION}"))
-        .timeout(std::time::Duration::from_secs(180))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()?;
+    let client = http_client(180)?;
     let resp = client.get(url).send().await.context("download failed")?;
     if !resp.status().is_success() {
         bail!("download HTTP {}", resp.status());
@@ -231,17 +330,26 @@ async fn download_bytes(url: &str) -> Result<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
+fn verify_checksum_hex(bytes: &[u8], want: &str) -> Result<()> {
+    let want = want.trim();
+    let want = want
+        .strip_prefix("sha256:")
+        .or_else(|| want.strip_prefix("SHA256:"))
+        .unwrap_or(want);
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let got = format!("{:x}", hasher.finalize());
+    if !got.eq_ignore_ascii_case(want) {
+        bail!("checksum mismatch: expected {want}, got {got}");
+    }
+    Ok(())
+}
+
 async fn verify_sha256(bytes: &[u8], asset_name: &str, sums_url: &str) -> Result<()> {
     let text = String::from_utf8(download_bytes(sums_url).await?)?;
     let want = parse_sha256sums(&text, asset_name)
         .ok_or_else(|| anyhow!("asset {asset_name} not listed in SHA256SUMS.txt"))?;
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let got = format!("{:x}", hasher.finalize());
-    if !got.eq_ignore_ascii_case(&want) {
-        bail!("checksum mismatch: expected {want}, got {got}");
-    }
-    Ok(())
+    verify_checksum_hex(bytes, &want)
 }
 
 fn parse_sha256sums(text: &str, asset_name: &str) -> Option<String> {

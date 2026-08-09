@@ -733,16 +733,31 @@ fn collect_alerts(
                 });
             }
         } else if let Some(rt) = &s.runtime {
-            if !rt.tunnel_connected {
+            if let Some(e) = &rt.last_session_error {
+                if is_auth_session_error(e) {
+                    alerts.push(Alert {
+                        level: AlertLevel::Error,
+                        text: format!("AUTH FAIL: {}", truncate(e, 96)),
+                    });
+                } else if !rt.tunnel_connected {
+                    alerts.push(Alert {
+                        level: AlertLevel::Error,
+                        text: "Tunnel down — check gateway transport and signing key".into(),
+                    });
+                    alerts.push(Alert {
+                        level: AlertLevel::Warn,
+                        text: format!("Session: {}", truncate(e, 56)),
+                    });
+                } else {
+                    alerts.push(Alert {
+                        level: AlertLevel::Warn,
+                        text: format!("Session: {}", truncate(e, 56)),
+                    });
+                }
+            } else if !rt.tunnel_connected {
                 alerts.push(Alert {
                     level: AlertLevel::Error,
                     text: "Tunnel down — check gateway transport and signing key".into(),
-                });
-            }
-            if let Some(e) = &rt.last_session_error {
-                alerts.push(Alert {
-                    level: AlertLevel::Warn,
-                    text: format!("Session: {}", truncate(e, 56)),
                 });
             }
         }
@@ -2157,7 +2172,10 @@ fn tunnel_status_style(snap: Option<&OperatorSnapshot>) -> (&'static str, ratatu
         if rt.tunnel_connected {
             return ("TUNNEL UP", theme::PHOSPHOR);
         }
-        if rt.last_session_error.is_some() {
+        if let Some(err) = &rt.last_session_error {
+            if is_auth_session_error(err) {
+                return ("AUTH FAIL", theme::ALERT);
+            }
             return ("RECONNECTING", theme::WARN);
         }
     }
@@ -2167,6 +2185,14 @@ fn tunnel_status_style(snap: Option<&OperatorSnapshot>) -> (&'static str, ratatu
         }
     }
     ("STARTING", theme::WARN)
+}
+
+fn is_auth_session_error(err: &str) -> bool {
+    let m = err.to_ascii_lowercase();
+    m.contains("invalid or inactive provider token")
+        || m.contains("provider token expired")
+        || m.contains("auth failed")
+        || (m.contains("authentication failed") && m.contains("token"))
 }
 
 fn truncate_path(s: &str, max: usize) -> String {
