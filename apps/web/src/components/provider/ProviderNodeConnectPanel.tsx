@@ -10,6 +10,7 @@ import {
     buildUnixInstallScript,
     buildWindowsInstallScript,
     defaultProviderConfigPath,
+    downloadProviderConfig,
     downloadProviderToml,
     getOrCreateProviderSigningKey,
     getProviderEndpoints,
@@ -125,9 +126,10 @@ export function ProviderNodeConnectPanel({
                         {title}
                     </p>
                     <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                        We mint a token and embed it in config. Paste the install script once to write{' '}
-                        <code className="text-primary/80">{configPath}</code>, then restart the node.
-                        Downloading the file alone does not update AppData.
+                        We mint a token and embed it in config. The CLI reads{' '}
+                        <code className="text-primary/80">{configPath}</code> — not your Downloads folder.
+                        Paste the install script (or run the Windows apply <code className="text-primary/80">.ps1</code>
+                        ), then restart. Do not only download <code className="text-primary/80">provider.toml</code>.
                     </p>
                 </div>
             )}
@@ -182,9 +184,12 @@ export function ProviderNodeConnectPanel({
                     <p className="text-[10px] font-mono text-emerald-200/90">
                         Token ready for gateway{' '}
                         <code className="text-emerald-100">{endpoints.gatewayTunnelAddr}</code>.
-                        Required next step: paste the install script (or run the join command) so{' '}
+                        Required next step: paste the install script (or run the downloaded{' '}
+                        <code className="text-emerald-100">Apply-ProxyHubb-Provider.ps1</code>) so{' '}
                         <code className="text-emerald-100">{configPath}</code> gets the new{' '}
-                        <code className="text-emerald-100">api_key</code>, then{' '}
+                        <code className="text-emerald-100">api_key</code>. A file sitting in Downloads is{' '}
+                        <strong className="text-emerald-100">not</strong> used by{' '}
+                        <code className="text-emerald-100">provider-node</code>. Then{' '}
                         <code className="text-emerald-100">provider-node stop</code> and{' '}
                         <code className="text-emerald-100">provider-node start</code>.
                     </p>
@@ -228,12 +233,37 @@ export function ProviderNodeConnectPanel({
                 <button
                     type="button"
                     disabled={!ready}
-                    onClick={() => downloadProviderToml('provider.toml', toml)}
+                    onClick={() => {
+                        const kind = downloadProviderConfig(toml);
+                        if (kind === 'ps1') {
+                            copy(installScript, 'download');
+                        } else {
+                            setCopied('download');
+                            setTimeout(() => setCopied(null), 2000);
+                        }
+                    }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
                 >
-                    <Download size={12} />
-                    Download provider.toml
+                    {copied === 'download' ? (
+                        <CheckCircle2 size={12} className="text-emerald-400" />
+                    ) : (
+                        <Download size={12} />
+                    )}
+                    {isWindowsClient()
+                        ? 'Download apply script (.ps1)'
+                        : 'Download provider.toml'}
                 </button>
+                {isWindowsClient() ? (
+                    <button
+                        type="button"
+                        disabled={!ready}
+                        onClick={() => downloadProviderToml('provider.toml', toml)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
+                    >
+                        <Download size={12} />
+                        Raw provider.toml
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     onClick={() => copy(startCmd, 'start')}
@@ -251,8 +281,10 @@ export function ProviderNodeConnectPanel({
             <ol className="text-[9px] font-mono text-muted-foreground/80 space-y-1 list-decimal list-inside">
                 <li>Install the CLI from Dashboard → CLI &amp; Tools (once).</li>
                 <li>
-                    Paste the <strong className="text-foreground/80">install script</strong> in PowerShell /
-                    Terminal (writes config automatically).
+                    Paste the <strong className="text-foreground/80">install script</strong> in PowerShell, or run
+                    the downloaded <code className="text-primary">Apply-ProxyHubb-Provider.ps1</code> — this writes{' '}
+                    <code className="text-primary">{configPath}</code>. A raw TOML in Downloads is ignored until
+                    you copy it there.
                 </li>
                 <li>
                     Run <code className="text-primary">{startCmd}</code> — do not edit files or run{' '}

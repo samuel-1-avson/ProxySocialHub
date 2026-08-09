@@ -320,3 +320,25 @@ export function downloadProviderToml(filename: string, contents: string) {
     a.click();
     URL.revokeObjectURL(url);
 }
+
+/** Windows: download a .ps1 that writes %APPDATA%\\proxyhubb\\provider.toml when run. */
+export function downloadWindowsApplyScript(toml: string) {
+    const script = `${buildWindowsInstallScript(toml)}\n`;
+    const blob = new Blob([script], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Apply-ProxyHubb-Provider.ps1';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/** Prefer an apply script on Windows; raw toml elsewhere (still needs manual install). */
+export function downloadProviderConfig(toml: string) {
+    if (isWindowsClient()) {
+        downloadWindowsApplyScript(toml);
+        return 'ps1' as const;
+    }
+    downloadProviderToml('provider.toml', toml);
+    return 'toml' as const;
+}
