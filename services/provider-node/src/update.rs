@@ -67,7 +67,10 @@ pub async fn check() -> Result<UpdateInfo> {
 pub async fn run(check_only: bool, yes: bool) -> Result<()> {
     let info = check().await?;
     println!("Current:  v{}", info.current);
-    println!("Latest:   v{} ({}) via {}", info.latest, info.tag, info.source);
+    println!(
+        "Latest:   v{} ({}) via {}",
+        info.latest, info.tag, info.source
+    );
 
     if info.already_latest {
         println!("Already up to date.");
@@ -167,9 +170,8 @@ fn update_api_base() -> String {
 async fn fetch_latest_from_api() -> Result<UpdateInfo> {
     let (os, arch) = current_target();
     let base = update_api_base();
-    let meta_url = format!(
-        "{base}/v1/cli/downloads/latest?platform={os}&arch={arch}&package_type=daemon"
-    );
+    let meta_url =
+        format!("{base}/v1/cli/downloads/latest?platform={os}&arch={arch}&package_type=daemon");
     let client = http_client(30)?;
     let resp = client
         .get(&meta_url)

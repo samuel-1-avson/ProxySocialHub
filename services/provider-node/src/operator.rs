@@ -100,7 +100,10 @@ fn compute_health(snap: &OperatorSnapshot) -> HealthSummary {
     if let Some(m) = &snap.status.metrics {
         if m.last_heartbeat_ago_ms > 90_000 {
             score -= 20;
-            reasons.push(format!("Heartbeat stale ({}s ago)", m.last_heartbeat_ago_ms / 1000));
+            reasons.push(format!(
+                "Heartbeat stale ({}s ago)",
+                m.last_heartbeat_ago_ms / 1000
+            ));
         }
     } else {
         score -= 15;
@@ -127,7 +130,11 @@ fn compute_health(snap: &OperatorSnapshot) -> HealthSummary {
     }
     .to_string();
 
-    HealthSummary { state, score, reasons }
+    HealthSummary {
+        state,
+        score,
+        reasons,
+    }
 }
 
 fn config_summary_from(cfg: &Config) -> ConfigSummary {

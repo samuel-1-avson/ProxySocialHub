@@ -265,7 +265,13 @@ fn handle_mouse_event(
         // node row click: approximate body start
         if app.tab == Tab::Nodes && y >= 10 {
             let row = (y - 10) as usize;
-            if row < data.snapshot.as_ref().map(|s| s.status.control_api.nodes.len()).unwrap_or(0) {
+            if row
+                < data
+                    .snapshot
+                    .as_ref()
+                    .map(|s| s.status.control_api.nodes.len())
+                    .unwrap_or(0)
+            {
                 app.node_cursor = row;
                 set_hint(app, "Node selected — Enter for detail");
             }
@@ -634,7 +640,14 @@ fn handle_key_event(
         KeyCode::Enter => {
             if app.tab == Tab::Nodes {
                 app.node_detail = !app.node_detail;
-                set_hint(app, if app.node_detail { "Node detail" } else { "Node list" });
+                set_hint(
+                    app,
+                    if app.node_detail {
+                        "Node detail"
+                    } else {
+                        "Node list"
+                    },
+                );
             }
         }
         KeyCode::Char('e') | KeyCode::Char('a') => {
@@ -643,7 +656,11 @@ fn handle_key_event(
                 app.log_scroll = 0;
                 set_hint(
                     app,
-                    if app.log_errors_only { "Logs: errors only" } else { "Logs: all" },
+                    if app.log_errors_only {
+                        "Logs: errors only"
+                    } else {
+                        "Logs: all"
+                    },
                 );
             }
         }
@@ -870,17 +887,12 @@ fn render_banner(
         tunnel_status_style(snap)
     };
 
-    let nodes_n = snap
-        .map(|s| s.status.control_api.nodes.len())
-        .unwrap_or(0);
+    let nodes_n = snap.map(|s| s.status.control_api.nodes.len()).unwrap_or(0);
     let pulse = if tick % 20 < 10 { "●" } else { "○" };
     let lines = vec![
         Line::from(vec![
             Span::styled(" PROXYHUB ", theme::value().add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("v{} ", env!("CARGO_PKG_VERSION")),
-                theme::dim(),
-            ),
+            Span::styled(format!("v{} ", env!("CARGO_PKG_VERSION")), theme::dim()),
             Span::styled("· operator ", theme::muted()),
         ]),
         Line::from(vec![
@@ -936,13 +948,12 @@ fn render_tab_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &DashboardApp
     spans.push(Span::styled("? help", theme::muted()));
 
     frame.render_widget(
-        Paragraph::new(Line::from(spans))
-            .block(
-                Block::default()
-                    .borders(Borders::BOTTOM)
-                    .border_style(theme::panel_border(false))
-                    .style(Style::default().bg(theme::SURFACE)),
-            ),
+        Paragraph::new(Line::from(spans)).block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(theme::panel_border(false))
+                .style(Style::default().bg(theme::SURFACE)),
+        ),
         area,
     );
 }
@@ -1026,24 +1037,18 @@ fn render_health_banner(
         ("LOADING", theme::muted(), "…".to_string())
     };
 
-    let lines = vec![
-        Line::from(vec![
-            Span::styled(" HEALTH ", theme::label()),
-            Span::styled(format!(" {label} "), style),
-            Span::styled(format!(" {detail}"), theme::dim()),
-        ]),
-    ];
+    let lines = vec![Line::from(vec![
+        Span::styled(" HEALTH ", theme::label()),
+        Span::styled(format!(" {label} "), style),
+        Span::styled(format!(" {detail}"), theme::dim()),
+    ])];
     frame.render_widget(
         Paragraph::new(lines).block(panel_block("STATUS", true)),
         area,
     );
 }
 
-fn render_kpi_row(
-    frame: &mut ratatui::Frame<'_>,
-    area: Rect,
-    snap: Option<&OperatorSnapshot>,
-) {
+fn render_kpi_row(frame: &mut ratatui::Frame<'_>, area: Rect, snap: Option<&OperatorSnapshot>) {
     let block = panel_block("KEY METRICS", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1102,7 +1107,10 @@ fn render_kpi_row(
     for (i, (k, v)) in items.iter().enumerate() {
         let line = vec![
             Line::from(Span::styled(*k, theme::muted())),
-            Line::from(Span::styled(v.clone(), theme::value().add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                v.clone(),
+                theme::value().add_modifier(Modifier::BOLD),
+            )),
         ];
         frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), cells[i]);
     }
@@ -1117,7 +1125,10 @@ fn render_doctor_summary(
     let (title, lines) = if let Some(e) = doctor_err {
         (
             "DOCTOR  error",
-            vec![Line::from(Span::styled(format!("ERR │ {e}"), theme::alert()))],
+            vec![Line::from(Span::styled(
+                format!("ERR │ {e}"),
+                theme::alert(),
+            ))],
         )
     } else if let Some(d) = doctor {
         let failing: Vec<&Check> = d.checks.iter().filter(|c| !c.ok).collect();
@@ -1129,7 +1140,11 @@ fn render_doctor_summary(
         } else {
             let mut lines = Vec::new();
             for c in failing.iter().take(4) {
-                let style = if c.severity == "error" { theme::alert() } else { theme::warn() };
+                let style = if c.severity == "error" {
+                    theme::alert()
+                } else {
+                    theme::warn()
+                };
                 lines.push(Line::from(Span::styled(
                     format!("{} │ {}", c.id, truncate(&c.message, 40)),
                     style,
@@ -1144,7 +1159,10 @@ fn render_doctor_summary(
             ("DOCTOR  action needed", lines)
         }
     } else {
-        ("DOCTOR  …", vec![Line::from(Span::styled("checking…", theme::dim()))])
+        (
+            "DOCTOR  …",
+            vec![Line::from(Span::styled("checking…", theme::dim()))],
+        )
     };
 
     frame.render_widget(Paragraph::new(lines).block(retro_block(title, true)), area);
@@ -1158,13 +1176,19 @@ fn render_overview_footer(
     let text = if let Some(s) = snap {
         let rt = s.runtime.as_ref();
         let gw = rt.map(|r| r.active_gateway.as_str()).unwrap_or("—");
-        let link = rt.map(|r| if r.tunnel_connected { "UP" } else { "DOWN" }).unwrap_or("—");
+        let link = rt
+            .map(|r| if r.tunnel_connected { "UP" } else { "DOWN" })
+            .unwrap_or("—");
         format!(
             "Gateway {} · link {} · transport {} · sign {}",
             gw,
             link,
             s.config.transport,
-            if s.config.signing_configured { "OK" } else { "MISSING" }
+            if s.config.signing_configured {
+                "OK"
+            } else {
+                "MISSING"
+            }
         )
     } else {
         "…".to_string()
@@ -1210,52 +1234,54 @@ fn render_gateway_info(
     snap: Option<&OperatorSnapshot>,
     err: Option<&str>,
 ) {
-    let lines = if let Some(e) = err {
-        vec![Line::from(Span::styled(format!("ERR │ {e}"), theme::alert()))]
-    } else if let Some(s) = snap {
-        let rt = s.runtime.as_ref();
-        vec![
-            line_kv(
-                "GATEWAY",
-                rt.map(|r| {
-                    format!(
-                        "{} ({}/{})",
-                        r.active_gateway,
-                        r.gateway_index + 1,
-                        r.gateway_total
-                    )
-                })
-                .unwrap_or_else(|| s.config.gateways.join(", ")),
-            ),
-            line_kv(
-                "LINK",
-                rt.map(|r| if r.tunnel_connected { "UP" } else { "DOWN" })
-                    .unwrap_or("—"),
-            ),
-            line_kv(
-                "TLS",
-                if s.config.gateways.iter().any(|g| g.contains("proxyhubb.com") || g.parse::<std::net::Ipv4Addr>().is_ok()) {
-                    "ON"
-                } else {
-                    "—"
-                },
-            ),
-            line_kv("TRANSPORT", &s.config.transport),
-        ]
-    } else {
-        vec![Line::from(Span::styled("SYNC │ …", theme::dim()))]
-    };
+    let lines =
+        if let Some(e) = err {
+            vec![Line::from(Span::styled(
+                format!("ERR │ {e}"),
+                theme::alert(),
+            ))]
+        } else if let Some(s) = snap {
+            let rt = s.runtime.as_ref();
+            vec![
+                line_kv(
+                    "GATEWAY",
+                    rt.map(|r| {
+                        format!(
+                            "{} ({}/{})",
+                            r.active_gateway,
+                            r.gateway_index + 1,
+                            r.gateway_total
+                        )
+                    })
+                    .unwrap_or_else(|| s.config.gateways.join(", ")),
+                ),
+                line_kv(
+                    "LINK",
+                    rt.map(|r| if r.tunnel_connected { "UP" } else { "DOWN" })
+                        .unwrap_or("—"),
+                ),
+                line_kv(
+                    "TLS",
+                    if s.config.gateways.iter().any(|g| {
+                        g.contains("proxyhubb.com") || g.parse::<std::net::Ipv4Addr>().is_ok()
+                    }) {
+                        "ON"
+                    } else {
+                        "—"
+                    },
+                ),
+                line_kv("TRANSPORT", &s.config.transport),
+            ]
+        } else {
+            vec![Line::from(Span::styled("SYNC │ …", theme::dim()))]
+        };
     frame.render_widget(
         Paragraph::new(lines).block(retro_block("GATEWAY", true)),
         area,
     );
 }
 
-fn render_throughput_graph(
-    frame: &mut ratatui::Frame<'_>,
-    area: Rect,
-    app: &DashboardApp,
-) {
+fn render_throughput_graph(frame: &mut ratatui::Frame<'_>, area: Rect, app: &DashboardApp) {
     let up = &app.spark_up;
     let down = &app.spark_down;
     let max = up
@@ -1333,7 +1359,10 @@ fn render_latency_panel(
         Gauge::default()
             .gauge_style(Style::default().fg(theme::AMBER).bg(theme::MUTED))
             .percent((m.latency_avg_ms.min(500) as u16 * 100 / 500).max(3))
-            .label(format!("AVG {} ms · MAX {} ms", m.latency_avg_ms, m.latency_max_ms)),
+            .label(format!(
+                "AVG {} ms · MAX {} ms",
+                m.latency_avg_ms, m.latency_max_ms
+            )),
         rows[1],
     );
     let sess_pct = m.active_connections.clamp(0, 100) as u16;
@@ -1660,7 +1689,10 @@ fn render_earnings(
                 line_kv("30 DAYS", format!("{:.4} SOL", e.last_30_days_sol)),
                 line_kv(
                     "SERVED",
-                    format!("{} sessions · {:.2} GB", e.total_sessions, e.total_bandwidth_gb),
+                    format!(
+                        "{} sessions · {:.2} GB",
+                        e.total_sessions, e.total_bandwidth_gb
+                    ),
                 ),
                 Line::from(Span::styled(
                     "Earnings settle on-chain; pending may take a few minutes to update.",
@@ -1678,7 +1710,10 @@ fn render_earnings(
     let lines = vec![
         Line::from(""),
         Line::from(Span::styled("  EARNINGS CHANNEL OFFLINE", theme::warn())),
-        Line::from(Span::styled("  check api_key and control-api", theme::dim())),
+        Line::from(Span::styled(
+            "  check api_key and control-api",
+            theme::dim(),
+        )),
     ];
     frame.render_widget(
         Paragraph::new(lines)
@@ -1896,10 +1931,7 @@ fn render_node_detail(
         lines.push(Line::from(Span::styled("Esc back to list", theme::muted())));
     }
 
-    frame.render_widget(
-        Paragraph::new(lines).block(panel_block(title, true)),
-        area,
-    );
+    frame.render_widget(Paragraph::new(lines).block(panel_block(title, true)), area);
 }
 
 fn render_logs(
@@ -1935,7 +1967,11 @@ fn render_logs(
                     .map(|l| {
                         Line::from(Span::styled(
                             format!("› {l}"),
-                            if is_err(l) { theme::warn() } else { theme::dim() },
+                            if is_err(l) {
+                                theme::warn()
+                            } else {
+                                theme::dim()
+                            },
                         ))
                     })
                     .collect()
@@ -2049,10 +2085,7 @@ fn render_command_bar(
     let mut spans = vec![
         Span::styled(" ", theme::dim()),
         Span::styled(context, theme::dim()),
-        Span::styled(
-            format!("  ·  {refresh_ms}ms"),
-            theme::muted(),
-        ),
+        Span::styled(format!("  ·  {refresh_ms}ms"), theme::muted()),
     ];
     if !sync_hint.is_empty() {
         spans.push(Span::styled(format!("  {sync_hint}"), theme::warn()));
@@ -2080,27 +2113,66 @@ fn render_help_overlay(frame: &mut ratatui::Frame<'_>, area: Rect) {
     );
 
     let text = vec![
-        Line::from(Span::styled(" PROXYHUB PROVIDER DASHBOARD ", theme::label())),
+        Line::from(Span::styled(
+            " PROXYHUB PROVIDER DASHBOARD ",
+            theme::label(),
+        )),
         Line::from(""),
         Line::from(Span::styled(" Navigation ", theme::value())),
-        Line::from(Span::styled("  1-5 / Tab / click   switch panels", theme::dim())),
-        Line::from(Span::styled("  j/k / wheel         scroll logs / nodes", theme::dim())),
-        Line::from(Span::styled("  Enter               node detail (Nodes tab)", theme::dim())),
-        Line::from(Span::styled("  Esc                 back / quit", theme::dim())),
+        Line::from(Span::styled(
+            "  1-5 / Tab / click   switch panels",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  j/k / wheel         scroll logs / nodes",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Enter               node detail (Nodes tab)",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Esc                 back / quit",
+            theme::dim(),
+        )),
         Line::from(""),
         Line::from(Span::styled(" Actions ", theme::value())),
-        Line::from(Span::styled("  r   refresh local + remote data", theme::dim())),
+        Line::from(Span::styled(
+            "  r   refresh local + remote data",
+            theme::dim(),
+        )),
         Line::from(Span::styled("  d   re-run doctor checks", theme::dim())),
-        Line::from(Span::styled("  e/a errors only / all logs (Logs tab)", theme::dim())),
-        Line::from(Span::styled("  w   toggle log wrap (Logs tab)", theme::dim())),
+        Line::from(Span::styled(
+            "  e/a errors only / all logs (Logs tab)",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  w   toggle log wrap (Logs tab)",
+            theme::dim(),
+        )),
         Line::from(Span::styled("  q   quit", theme::dim())),
         Line::from(""),
         Line::from(Span::styled(" Tabs ", theme::value())),
-        Line::from(Span::styled("  Overview  health, KPIs, alerts, doctor", theme::dim())),
-        Line::from(Span::styled("  Network   throughput, latency, sessions, gateway", theme::dim())),
-        Line::from(Span::styled("  Nodes     registry + per-node detail", theme::dim())),
-        Line::from(Span::styled("  Earnings  SOL totals + served bandwidth", theme::dim())),
-        Line::from(Span::styled("  Logs      live daemon log stream", theme::dim())),
+        Line::from(Span::styled(
+            "  Overview  health, KPIs, alerts, doctor",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Network   throughput, latency, sessions, gateway",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Nodes     registry + per-node detail",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Earnings  SOL totals + served bandwidth",
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "  Logs      live daemon log stream",
+            theme::dim(),
+        )),
         Line::from(""),
         Line::from(Span::styled(" Setup ", theme::value())),
         Line::from(Span::styled(

@@ -96,7 +96,9 @@ impl Collector {
     }
 
     pub fn record_connection_failed(&self) {
-        self.inner.failed_connections.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .failed_connections
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_bytes_up(&self, n: u64) {
@@ -180,7 +182,10 @@ impl Collector {
                 (0, 0)
             } else {
                 let sum: u64 = samples.iter().sum();
-                (sum / samples.len() as u64, *samples.iter().max().unwrap_or(&0))
+                (
+                    sum / samples.len() as u64,
+                    *samples.iter().max().unwrap_or(&0),
+                )
             }
         };
         Snapshot {
