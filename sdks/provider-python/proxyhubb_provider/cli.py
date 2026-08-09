@@ -4,20 +4,23 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
+import json
 
 DEFAULT_API_URL = "https://api.proxyhubb.com"
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 def api_base() -> str:
@@ -71,11 +74,84 @@ def cached_binary_path(package_type: str, version: Optional[str] = None) -> Path
     )
 
 
+def _parse_filename(content_disposition: Optional[str]) -> str:
+    if not content_disposition:
+        return ""
+    star = re.search(r"filename\*=(?:UTF-8''|utf-8'')([^;]+)", content_disposition, re.I)
+    if star:
+        try:
+            from urllib.parse import unquote
+
+            return unquote(star.group(1).strip().strip('"'))
+        except Exception:
+            pass
+    plain = re.search(r'filename="([^"]+)"|filename=([^;]+)', content_disposition, re.I)
+    if not plain:
+        return ""
+    return (plain.group(1) or plain.group(2) or "").strip().strip('"')
+
+
+def resolve_version(package_type: str) -> str:
+    pinned = (os.environ.get("PROXYHUBB_CLI_VERSION") or "").strip()
+    if pinned:
+        return pinned
+    params = {
+        "platform": resolve_platform(),
+        "arch": resolve_arch(),
+        "package_type": package_type,
+    }
+    url = f"{api_base()}/v1/cli/downloads/latest?{urlencode(params)}"
+    try:
+        with urlopen(url) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"Failed to resolve latest {package_type}: HTTP {exc.code} {body}"
+        ) from exc
+    except URLError as exc:
+        raise RuntimeError(f"Failed to resolve latest {package_type}: {exc}") from exc
+    version = str(data.get("version") or "").strip()
+    if not version:
+        raise RuntimeError(f"Latest {package_type} response missing version")
+    return version
+
+
+def _extract_zip_to_binary(zip_path: Path, dest: Path, package_type: str) -> None:
+    want = binary_name(package_type, resolve_platform())
+    prefix = "provider-node" if package_type == "daemon" else "provider-cli"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        members = zf.namelist()
+        match = next(
+            (m for m in members if Path(m).name.lower() == want.lower()),
+            None,
+        )
+        if match is None:
+            match = next(
+                (
+                    m
+                    for m in members
+                    if Path(m).name.lower().startswith(prefix.lower())
+                    and not m.endswith("/")
+                ),
+                None,
+            )
+        if match is None:
+            raise RuntimeError(
+                f"Zip {zip_path.name} did not contain {want} (or {prefix}*)"
+            )
+        with zf.open(match) as src, open(dest, "wb") as out:
+            shutil.copyfileobj(src, out)
+    if sys.platform != "win32":
+        dest.chmod(dest.stat().st_mode | stat.S_IEXEC | 0o755)
+
+
 def download_binary(
     *, package_type: str = "wrapper", force: bool = False
 ) -> Path:
-    version = (os.environ.get("PROXYHUBB_CLI_VERSION") or "").strip()
-    dest = cached_binary_path(package_type, version or "latest")
+    version = resolve_version(package_type)
+    dest = cached_binary_path(package_type, version)
     if dest.exists() and not force:
         return dest
 
@@ -83,14 +159,15 @@ def download_binary(
         "platform": resolve_platform(),
         "arch": resolve_arch(),
         "package_type": package_type,
+        "version": version,
     }
-    if version:
-        params["version"] = version
     url = f"{api_base()}/v1/cli/download?{urlencode(params)}"
 
     try:
         with urlopen(url) as resp:
             data = resp.read()
+            filename = _parse_filename(resp.headers.get("Content-Disposition"))
+            header_version = (resp.headers.get("X-CLI-Version") or "").strip()
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(
@@ -99,21 +176,39 @@ def download_binary(
     except URLError as exc:
         raise RuntimeError(f"Failed to download {package_type}: {exc}") from exc
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix="proxyhubb-cli-", dir=str(dest.parent))
+    final_dest = cached_binary_path(package_type, header_version or version)
+    final_dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if filename.lower().endswith(".zip"):
+        fd, tmp_name = tempfile.mkstemp(
+            prefix="proxyhubb-cli-", suffix=".zip", dir=str(final_dest.parent)
+        )
+        try:
+            with os.fdopen(fd, "wb") as tmp:
+                tmp.write(data)
+            _extract_zip_to_binary(Path(tmp_name), final_dest, package_type)
+        finally:
+            if os.path.exists(tmp_name):
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+        return final_dest
+
+    fd, tmp_name = tempfile.mkstemp(prefix="proxyhubb-cli-", dir=str(final_dest.parent))
     try:
         with os.fdopen(fd, "wb") as tmp:
             tmp.write(data)
         if sys.platform != "win32":
             os.chmod(tmp_name, os.stat(tmp_name).st_mode | stat.S_IEXEC | 0o755)
-        shutil.move(tmp_name, dest)
+        shutil.move(tmp_name, final_dest)
     finally:
         if os.path.exists(tmp_name):
             try:
                 os.unlink(tmp_name)
             except OSError:
                 pass
-    return dest
+    return final_dest
 
 
 def ensure_binaries(

@@ -101,8 +101,12 @@ services:
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:-${SOLANA_TREASURY_ADDRESS}}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
       - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-0.1}
-      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-500}
-      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-200}
+      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-10}
+      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-2}
+      - SOLANA_VAULT_TOPUP_MAX_SOL=${SOLANA_VAULT_TOPUP_MAX_SOL:-5}
+      - SOLANA_VAULT_DAILY_TOPUP_CAP_SOL=${SOLANA_VAULT_DAILY_TOPUP_CAP_SOL:-50}
+      - SOLANA_VAULT_RESERVE_FLOOR_SOL=${SOLANA_VAULT_RESERVE_FLOOR_SOL:-0.01}
+      - SOLANA_TREASURY_SWEEP_ENABLED=${SOLANA_TREASURY_SWEEP_ENABLED:-true}
       - TREASURY_MULTISIG_ADMIN_IDS=${TREASURY_MULTISIG_ADMIN_IDS:-}
       - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
       # PHB_TOKEN_MINT: platform SPL token mint address for wallet balance display
@@ -137,7 +141,7 @@ services:
       # --- Provider Token Auth (HMAC-SHA256) ---
       - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
       # --- Alert Channels ---
-      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
       # --- Oracle Velocity Guard ---
       - ORACLE_MAX_SINGLE_TRANSFER_SOL=${ORACLE_MAX_SINGLE_TRANSFER_SOL:-50}
@@ -154,7 +158,7 @@ services:
       # Phase 5: aggregate session_intents → map_node_links for GET /v1/map/links
       - MAP_TOPOLOGY_ENABLED=${MAP_TOPOLOGY_ENABLED:-true}
       - CLI_DIST_PATH=/app/cli-dist
-      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.0}
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.5}
       - PROVIDER_NODE_STALE_AFTER=${PROVIDER_NODE_STALE_AFTER:-5m}
       - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
       - PROVIDER_PUBLIC_CONTROL_API_URL=${API_BASE_URL:-http://localhost:18080}
@@ -403,7 +407,7 @@ services:
       - NET_BIND_SERVICE
 
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8090/health" ]
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8090/health" ]
       interval: 30s
       timeout: 10s
       start_period: 60s

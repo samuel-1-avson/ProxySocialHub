@@ -30,8 +30,14 @@ describe("@proxyhubb/provider", () => {
   it("resolves platform/arch", () => {
     assert.ok(["windows", "macos", "linux"].includes(resolvePlatform()));
     assert.ok(["amd64", "arm64"].includes(resolveArch()));
-    const p = cachedBinaryPath("wrapper", "1.0.4");
+    const p = cachedBinaryPath("wrapper", "1.0.5");
     assert.match(p, /proxyhubb[/\\]cli/);
+    assert.match(p, /1\.0\.5/);
+  });
+
+  it("exports resolveVersion", () => {
+    const { resolveVersion } = require("../lib/index.js");
+    assert.equal(typeof resolveVersion, "function");
   });
 
   it("exports ensureBinaries", () => {

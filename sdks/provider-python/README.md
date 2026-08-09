@@ -1,25 +1,29 @@
 # proxyhubb-provider
 
-Thin PyPI wrapper that downloads official **provider-cli** and **provider-node**
-binaries from `GET /v1/cli/download` and proxies CLI arguments.
-
-`doctor` / `start` / `status` need the daemon — this package downloads both and
-sets `PROXYHUB_PROVIDER_NODE` automatically.
+Thin Python wrapper that downloads official **provider-cli** and **provider-node**
+binaries from `GET /v1/cli/download` (resolves version via `/v1/cli/downloads/latest`)
+and proxies CLI arguments.
 
 ```bash
-pip install proxyhubb-provider
-proxyhubb-provider doctor
-# or
-pipx run proxyhubb-provider doctor
+pip install -U proxyhubb-provider
+proxyhubb-provider install
+proxyhubb-provider --daemon doctor
+proxyhubb-provider --daemon start
 ```
 
 | Command | Behavior |
 |---------|----------|
-| `proxyhubb-provider install` | Force re-download binary, print path |
-| `proxyhubb-provider path` | Ensure cached binary exists, print path |
+| `proxyhubb-provider install` | Force re-download binaries, print path(s) |
+| `proxyhubb-provider path` | Ensure cached binary exists, print path(s) |
 | `proxyhubb-provider …` | Forward args to `provider-cli` |
 | `proxyhubb-provider --daemon …` | Forward to `provider-node` |
 
 Env: `PROXYHUBB_API_URL` (default `https://api.proxyhubb.com`), `PROXYHUBB_CLI_VERSION`.
 
-There is no separate “seller CLI” — sellers are providers. Automate listings with `pip install proxyhubb`.
+## Rust / cargo
+
+```bash
+cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.5 --path services/provider-node
+```
+
+Not published to crates.io — use Releases, this pip package, or `cargo install --git`.

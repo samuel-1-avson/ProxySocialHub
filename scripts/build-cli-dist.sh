@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${CLI_DIST_VERSION:-1.0.0}"
+VERSION="${CLI_DIST_VERSION:-1.0.5}"
 DIST_DIR="$REPO_ROOT/cli-dist/$VERSION"
 NODE_DIR="$REPO_ROOT/services/provider-node"
 CLI_DIR="$REPO_ROOT/cli"

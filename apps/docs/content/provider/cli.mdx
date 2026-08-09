@@ -29,17 +29,22 @@ Sellers and providers can also install a thin wrapper that downloads `provider-c
 
 ```bash
 # npm
-npm install -g @proxyhubb/provider
-proxyhubb-provider doctor
-# or: npx @proxyhubb/provider doctor
+npm install -g @proxyhubb/provider@latest
+proxyhubb-provider install
+proxyhubb-provider --daemon doctor
+# or: npx @proxyhubb/provider --daemon doctor
 
 # PyPI
-pip install proxyhubb-provider
-proxyhubb-provider doctor
-# or: pipx run proxyhubb-provider doctor
+pip install -U proxyhubb-provider
+proxyhubb-provider install
+proxyhubb-provider --daemon doctor
+# or: pipx run proxyhubb-provider --daemon doctor
+
+# Cargo (from source — not crates.io)
+cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.5 --path services/provider-node
 ```
 
-Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download, `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
+Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download of the current latest binary (1.0.5+), `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
 
 There is **no separate “seller CLI”** — marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
 
