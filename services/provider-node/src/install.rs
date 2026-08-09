@@ -17,7 +17,9 @@ pub fn print_paths_and_hints() {
     println!("  provider-node start           # foreground-only (optional)");
     println!();
     println!("Windows: unzip a GitHub Release and double-click Launch-Provider-Console.cmd");
-    println!("Later updates: run `provider-node update` from the same folder — do not delete first.");
+    println!(
+        "Later updates: run `provider-node update` from the same folder — do not delete first."
+    );
 
     if let Ok(path) = which_provider_node() {
         println!("provider-node binary: {}", path.display());

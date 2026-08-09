@@ -211,7 +211,8 @@ impl TunnelClient {
 
         // Overlap Control API lease fetch with Yamux AUTH RTT.
         let lease_task = tokio::spawn(async move {
-            crate::ip::fetch_provider_lease(&control_api_url, &token_for_lease, &lease_request).await
+            crate::ip::fetch_provider_lease(&control_api_url, &token_for_lease, &lease_request)
+                .await
         });
 
         // AUTH
