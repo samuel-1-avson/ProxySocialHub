@@ -111,7 +111,11 @@ pub async fn exchange_gateway_token(api_url: &str, api_key: &str) -> Result<Gate
         .await
         .unwrap_or(GatewayTokenError { error: None });
     let msg = err.error.unwrap_or_else(|| format!("HTTP {status}"));
-    anyhow::bail!("Authentication failed: {msg}");
+    anyhow::bail!(
+        "Authentication failed: {msg}. Create a fresh token in Dashboard → Provider → Connect, \
+         paste the install script (writes %APPDATA%\\proxyhubb\\provider.toml on Windows), \
+         or run: provider-node join --force --api-key <token> --node-id <node_id>, then restart."
+    );
 }
 
 /// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.

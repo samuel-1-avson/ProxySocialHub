@@ -32,7 +32,7 @@ pub async fn ensure_running(config: &Path) -> anyhow::Result<DaemonEnsureResult>
 
     paths::ensure_state_dirs()?;
 
-    if let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::process_alive(p)) {
+    if let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::provider_process_alive(p)) {
         return Ok(DaemonEnsureResult::AlreadyRunning { pid });
     }
     let _ = process_util::remove_stale_pid_file();
@@ -70,7 +70,7 @@ pub fn describe(result: DaemonEnsureResult) -> String {
 
 /// Stop a live daemon if one is present. Returns true if a process was signaled.
 pub async fn stop_if_running() -> anyhow::Result<bool> {
-    let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::process_alive(p)) else {
+    let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::provider_process_alive(p)) else {
         let _ = process_util::remove_stale_pid_file();
         return Ok(false);
     };
@@ -173,7 +173,7 @@ fn spawn_detached(config: &Path) -> anyhow::Result<()> {
 async fn wait_for_pid(timeout: Duration) -> Option<u32> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::process_alive(p))
+        if let Some(pid) = process_util::read_pid_file().filter(|&p| process_util::provider_process_alive(p))
         {
             return Some(pid);
         }
