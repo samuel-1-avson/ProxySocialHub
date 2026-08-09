@@ -22,15 +22,32 @@ Manual: Actions → SDK Publish → `workflow_dispatch` with target `npm` / `pyp
 
 Packages: `@proxyhubb/provider` (`sdks/provider-nodejs`) and `proxyhubb-provider` (`sdks/provider-python`).
 
-1. Bump versions in both package manifests (keep in sync).
+1. Bump versions in both package manifests (keep in sync). Also bump `proxyhubb_provider/cli.py` `__version__`.
 2. Tag and push:
 
 ```bash
-git tag -a provider-sdk-v0.1.0 -m "Provider CLI wrappers v0.1.0"
-git push origin provider-sdk-v0.1.0
+git tag -a provider-sdk-v0.1.2 -m "Provider CLI wrappers v0.1.2"
+git push origin provider-sdk-v0.1.2
 ```
 
 Or use workflow_dispatch target `provider` / `provider-npm` / `provider-pypi` on the same SDK Publish workflow.
+
+Install:
+
+```bash
+npm install -g @proxyhubb/provider@0.1.2
+pip install -U proxyhubb-provider==0.1.2
+```
+
+## Cargo (`cargo install`)
+
+`provider-node` is **not** on crates.io (`publish = false`). Install from the release tag:
+
+```bash
+cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.5 --path services/provider-node
+```
+
+Prefer GitHub Releases / `@proxyhubb/provider` / `proxyhubb-provider` for prebuilt binaries.
 
 ## Go module tag
 

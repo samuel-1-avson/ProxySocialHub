@@ -3,6 +3,7 @@ from proxyhubb_provider.cli import (
     parse_args,
     resolve_arch,
     resolve_platform,
+    resolve_version,
 )
 
 
@@ -21,6 +22,11 @@ def test_parse_wrapper_default():
 def test_resolve_platform_arch():
     assert resolve_platform() in ("windows", "macos", "linux")
     assert resolve_arch() in ("amd64", "arm64")
+
+
+def test_resolve_version_pinned(monkeypatch):
+    monkeypatch.setenv("PROXYHUBB_CLI_VERSION", "1.0.5")
+    assert resolve_version("daemon") == "1.0.5"
 
 
 def test_ensure_binaries_sets_daemon_env(monkeypatch, tmp_path):
