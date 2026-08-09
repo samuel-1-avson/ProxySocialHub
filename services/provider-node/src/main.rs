@@ -22,8 +22,9 @@ mod tunnel;
 mod update;
 mod watch;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::info;
+use tracing::{info, warn};
 
 /// ProxyHubb Provider Node — share your bandwidth and earn rewards.
 ///
@@ -70,6 +71,41 @@ enum Commands {
         config: Option<String>,
     },
 
+    /// Write a ready-to-run provider.toml for an existing dashboard node (no hand-editing)
+    Join {
+        /// Provider API key / token from Dashboard Connect
+        #[arg(long, env = "PROXYHUB_API_KEY")]
+        api_key: String,
+
+        /// Provider node UUID from the dashboard
+        #[arg(long)]
+        node_id: String,
+
+        /// Control API URL
+        #[arg(
+            long,
+            env = "PROXYHUB_API_URL",
+            default_value = "https://api.proxyhubb.com"
+        )]
+        api_url: String,
+
+        /// Primary Edge Gateway address (host:port)
+        #[arg(
+            long,
+            env = "PROXYHUB_GATEWAY_ADDR",
+            default_value = "proxy.proxyhubb.com:3128"
+        )]
+        gateway_addr: String,
+
+        /// Overwrite an existing provider.toml
+        #[arg(long, default_value_t = false)]
+        force: bool,
+
+        /// Write config to this path (default: platform config dir)
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+
     /// Generate a provider heartbeat signing key for provider.toml
     Keygen {
         /// Emit JSON for scripts
@@ -85,7 +121,7 @@ enum Commands {
 
     /// Connect to the Edge Gateway and start serving proxy traffic
     Start {
-        /// Path to configuration file (default: ~/.config/proxyhubb/provider.toml or %USERPROFILE%\\.proxyhubb\\provider.toml)
+        /// Path to configuration file (default: ~/.config/proxyhubb/provider.toml or %APPDATA%\\proxyhubb\\provider.toml)
         #[arg(short, long)]
         config: Option<String>,
 
@@ -225,6 +261,20 @@ enum ConfigCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Install a provider.toml into the canonical operator path (stdin or --from file)
+    Install {
+        /// Path to a TOML file, or "-" to read stdin
+        #[arg(long, short = 'f', default_value = "-")]
+        from: String,
+
+        /// Overwrite an existing provider.toml
+        #[arg(long, default_value_t = false)]
+        force: bool,
+
+        /// Destination path (default: platform config dir)
+        #[arg(short, long)]
+        config: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -345,6 +395,84 @@ async fn main() -> anyhow::Result<()> {
             println!("  provider-node start --config {}", config_path.display());
         }
 
+        Commands::Join {
+            api_key,
+            node_id,
+            api_url,
+            gateway_addr,
+            force,
+            config,
+        } => {
+            init_logging(false);
+            println!("Joining existing dashboard node…");
+            println!("Authenticating with Control API…");
+            let (_user_id, _jwt) = ip::validate_api_key(&api_url, &api_key).await?;
+            println!("✓ API token accepted");
+
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::config_file);
+            if config_path.exists() && !force {
+                eprintln!(
+                    "Config already exists at {}. Re-run with --force to overwrite.",
+                    config_path.display()
+                );
+                std::process::exit(1);
+            }
+
+            let host = gateway_addr
+                .split(':')
+                .next()
+                .unwrap_or("proxy.proxyhubb.com")
+                .to_string();
+            let mut gateway_addrs = vec![];
+            if gateway_addr.ends_with(":3128") {
+                gateway_addrs.push(format!("{host}:8443"));
+            }
+            let use_tls = host != "localhost" && host != "127.0.0.1";
+            // Preserve existing hotkey on --force unless the file has none.
+            let signing_key = if force && config_path.exists() {
+                match config::Config::load(config_path.to_str().unwrap_or("")) {
+                    Ok(existing) if !existing.provider_signing_key.trim().is_empty() => {
+                        existing.provider_signing_key
+                    }
+                    _ => resolve_registration_signing_key(None, false)?,
+                }
+            } else {
+                resolve_registration_signing_key(None, false)?
+            };
+
+            let cfg = config::Config {
+                control_api_url: api_url.clone(),
+                gateway_addr: gateway_addr.clone(),
+                gateway_addrs,
+                api_key: api_key.clone(),
+                node_id: node_id.clone(),
+                connection_type: "residential".to_string(),
+                provider_signing_key: signing_key,
+                use_tls,
+                tls_skip_verify: false,
+                ..config::Config::default()
+            };
+            cfg.save(&config_path)?;
+
+            println!();
+            println!("╔══════════════════════════════════════════════════════════╗");
+            println!("║              ✓ PROVIDER CONFIG INSTALLED                 ║");
+            println!("╚══════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Node ID: {node_id}");
+            println!("Gateway: {gateway_addr} (TLS={use_tls})");
+            if !cfg.provider_signing_key.is_empty() {
+                let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
+                println!("Provider hotkey: {}", signer.public_key());
+            }
+            println!("Config written to: {}", config_path.display());
+            println!();
+            println!("Next:");
+            println!("  provider-node start");
+        }
+
         Commands::Keygen { json } => {
             init_logging(false);
             let generated = proofs::ProviderSigner::generate()?;
@@ -381,6 +509,42 @@ async fn main() -> anyhow::Result<()> {
             if !report.ok {
                 std::process::exit(1);
             }
+        }
+
+        Commands::Config {
+            command: ConfigCommands::Install { from, force, config },
+        } => {
+            init_logging(false);
+            let contents = if from == "-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("Failed to read provider.toml from stdin")?;
+                buf
+            } else {
+                std::fs::read_to_string(&from)
+                    .with_context(|| format!("Failed to read {from}"))?
+            };
+            // Parse to validate before writing.
+            let _: config::Config =
+                toml::from_str(&contents).context("Invalid provider.toml contents")?;
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::config_file);
+            if config_path.exists() && !force {
+                eprintln!(
+                    "Config already exists at {}. Re-run with --force to overwrite.",
+                    config_path.display()
+                );
+                std::process::exit(1);
+            }
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&config_path, contents)?;
+            println!("Installed provider.toml → {}", config_path.display());
+            println!("Next: provider-node start");
         }
 
         // ── Start ───────────────────────────────────────────────────
@@ -444,6 +608,26 @@ async fn main() -> anyhow::Result<()> {
             if !cfg.use_tls && config::gateway_looks_public(&cfg.gateway_addr) {
                 cfg.use_tls = true;
             }
+            // Raw IP + TLS cannot present a hostname matching Let's Encrypt — skip verify
+            // only in that case (prefer gateway_addr = proxy.proxyhubb.com:3128).
+            if cfg.use_tls && !cfg.tls_skip_verify {
+                let host = cfg
+                    .gateway_addr
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if host.parse::<std::net::Ipv4Addr>().is_ok()
+                    || host.parse::<std::net::Ipv6Addr>().is_ok()
+                {
+                    warn!(
+                        gateway = %cfg.gateway_addr,
+                        "gateway_addr is a raw IP with TLS; enabling tls_skip_verify. Prefer hostname proxy.proxyhubb.com:3128"
+                    );
+                    cfg.tls_skip_verify = true;
+                }
+            }
             if let Some(lanes) = yamux_conns_per_node {
                 cfg.yamux_conns_per_node = tunnel::mux::normalize_lane_count(lanes);
             } else if let Some(lanes) = config::yamux_conns_per_node_from_env() {
@@ -475,7 +659,7 @@ async fn main() -> anyhow::Result<()> {
             // PID file — refuse double-start; clear stale file from crashed runs.
             let pid_path = paths::pid_file();
             if let Some(live) = crate::process_util::read_pid_file()
-                .filter(|&pid| crate::process_util::process_alive(pid))
+                .filter(|&pid| crate::process_util::provider_process_alive(pid))
             {
                 eprintln!("Error: provider-node already running (PID {live}).");
                 eprintln!("Stop it first: proxyhubb-cli stop");
@@ -598,10 +782,28 @@ async fn main() -> anyhow::Result<()> {
                             gateway_total: gw_count,
                             transport: transport_label.to_string(),
                             tunnel_connected: false,
-                            last_session_error: Some(msg),
+                            last_session_error: Some(msg.clone()),
                             updated_at_unix: runtime_state::unix_now(),
                         };
                         let _ = rt.write(&paths::runtime_state_file());
+
+                        if is_fatal_provider_auth_error(&msg) {
+                            tracing::error!(
+                                error = %msg,
+                                "Fatal provider auth failure — stopping reconnect loop"
+                            );
+                            eprintln!();
+                            eprintln!("FATAL: {msg}");
+                            eprintln!(
+                                "Fix: Dashboard → Provider → My nodes → Connect → paste the Windows install script,"
+                            );
+                            eprintln!(
+                                "or: provider-node join --force --api-key <fresh_token> --node-id {}",
+                                cfg.node_id
+                            );
+                            eprintln!("Then: provider-node stop && provider-node start");
+                            return Err(e);
+                        }
                     }
                 }
 
@@ -752,51 +954,55 @@ async fn main() -> anyhow::Result<()> {
                 Ok(pid_str) => {
                     let pid_trim = pid_str.trim();
                     let pid_num: u32 = pid_trim.parse().unwrap_or(0);
-                    let alive = pid_num > 0 && crate::process_util::process_alive(pid_num);
-                    if alive {
-                        println!("Sending stop signal to PID {pid_trim}");
-                    } else {
-                        println!("Removing stale PID file (process {pid_trim} not running)");
-                    }
-                    // On Unix we'd send SIGTERM; on Windows we just inform the user.
-                    #[cfg(unix)]
-                    if alive {
-                        {
-                            use nix::sys::signal::{kill, Signal};
-                            use nix::unistd::Pid;
-                            let pid: i32 = pid_trim.parse()?;
-                            kill(Pid::from_raw(pid), Signal::SIGTERM)?;
-                            println!("Stop signal sent successfully.");
-                        }
-                    }
-                    #[cfg(windows)]
-                    if alive {
-                        match std::process::Command::new("taskkill")
-                            .args(["/PID", pid_trim, "/F"])
-                            .output()
-                        {
-                            Ok(output) if output.status.success() => {
+                    match crate::process_util::classify_pid(pid_num) {
+                        crate::process_util::PidLiveness::ProviderAlive => {
+                            println!("Sending stop signal to PID {pid_trim}");
+                            #[cfg(unix)]
+                            {
+                                use nix::sys::signal::{kill, Signal};
+                                use nix::unistd::Pid;
+                                let pid: i32 = pid_trim.parse()?;
+                                kill(Pid::from_raw(pid), Signal::SIGTERM)?;
                                 println!("Stop signal sent successfully.");
                             }
-                            Ok(output) => {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                println!("Failed to stop process {pid_trim}: {}", stderr.trim());
+                            #[cfg(windows)]
+                            {
+                                match std::process::Command::new("taskkill")
+                                    .args(["/PID", pid_trim, "/F"])
+                                    .output()
+                                {
+                                    Ok(output) if output.status.success() => {
+                                        println!("Stop signal sent successfully.");
+                                    }
+                                    Ok(output) => {
+                                        let stderr = String::from_utf8_lossy(&output.stderr);
+                                        println!(
+                                            "Failed to stop process {pid_trim}: {}",
+                                            stderr.trim()
+                                        );
+                                    }
+                                    Err(err) => {
+                                        println!("Failed to run taskkill for PID {pid_trim}: {err}");
+                                    }
+                                }
                             }
-                            Err(err) => {
-                                println!("Failed to run taskkill for PID {pid_trim}: {err}");
+                            #[cfg(all(not(unix), not(windows)))]
+                            {
+                                println!(
+                                    "Please terminate the provider-node process manually (PID: {pid_trim})"
+                                );
                             }
                         }
-                    }
-                    #[cfg(all(not(unix), not(windows)))]
-                    if alive {
-                        println!(
-                            "Please terminate the provider-node process manually (PID: {pid_trim})"
-                        );
+                        crate::process_util::PidLiveness::ForeignAlive => {
+                            println!(
+                                "PID file points to unrelated process {pid_trim} — removing stale PID file only"
+                            );
+                        }
+                        crate::process_util::PidLiveness::Dead => {
+                            println!("Removing stale PID file (process {pid_trim} not running)");
+                        }
                     }
                     let _ = std::fs::remove_file(&pid_path);
-                    if !alive {
-                        println!("Stale PID file removed.");
-                    }
                 }
                 Err(_) => {
                     println!("No running node found (PID file not found).");
@@ -818,6 +1024,15 @@ fn init_logging(debug: bool) {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
     tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
+/// True when reconnecting cannot succeed until the operator replaces api_key.
+fn is_fatal_provider_auth_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("invalid or inactive provider token")
+        || m.contains("provider token expired")
+        || (m.contains("authentication failed")
+            && (m.contains("token") || m.contains("api key") || m.contains("unauthorized")))
 }
 
 fn write_pid_file(path: &std::path::Path) -> anyhow::Result<()> {

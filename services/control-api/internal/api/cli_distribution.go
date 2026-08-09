@@ -45,14 +45,14 @@ func normalizeCLIArch(arch string) string {
 
 // RegisterCLIDistributionRoutes registers CLI download routes
 func RegisterCLIDistributionRoutes(rg *gin.RouterGroup) {
-	// Public endpoint - no auth required for downloads
+	// Public endpoints — provider-node self-update + dashboard downloads (no auth)
 	rg.GET("/cli/download", getCLIDownload)
+	rg.GET("/cli/downloads/latest", getLatestCLI)
 
 	// Protected endpoints - require authentication
 	protected := rg.Group("/cli")
 	{
 		protected.GET("/downloads", listCLIDownloads)
-		protected.GET("/downloads/latest", getLatestCLI)
 		protected.POST("/downloads", middleware.RequireAdmin(), uploadCLIBinary)
 	}
 }

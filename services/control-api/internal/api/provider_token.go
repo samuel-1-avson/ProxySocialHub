@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
@@ -147,6 +149,11 @@ func rotateProviderToken(c *gin.Context) {
 	}
 
 	tx := db.DB.Begin()
+	if err := tx.Model(&oldToken).Update("is_active", false).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke old token"})
+		return
+	}
 	if err := tx.Delete(&oldToken).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke old token"})
@@ -176,6 +183,9 @@ func rotateProviderToken(c *gin.Context) {
 type CreateTokenRequest struct {
 	Name      string `json:"name" binding:"required,max=100"`
 	ExpiresIn int    `json:"expires_in"` // Days until expiration, 0 = no expiration
+	// Optional: bind this token to an existing provider_nodes row so CLI
+	// validate/heartbeat use that node_id (not a newly auto-created one).
+	NodeID string `json:"node_id"`
 }
 
 // createProviderToken creates a new provider token
@@ -191,6 +201,21 @@ func createProviderToken(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	var bindNodeID uuid.UUID
+	if strings.TrimSpace(req.NodeID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(req.NodeID))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node_id"})
+			return
+		}
+		var pn models.ProviderNode
+		if err := db.DB.Where("id = ? AND user_id = ?", parsed, userID).First(&pn).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+			return
+		}
+		bindNodeID = pn.ID
 	}
 
 	// Generate raw token
@@ -228,6 +253,37 @@ func createProviderToken(c *gin.Context) {
 		return
 	}
 
+	if bindNodeID != uuid.Nil {
+		// Deactivate prior tokens bound to this node so stale AppData api_keys fail closed.
+		var priorRegs []models.ProviderNodeRegistration
+		if err := db.DB.Where("node_id = ? AND user_id = ? AND is_active = ?", bindNodeID, userID, true).
+			Find(&priorRegs).Error; err == nil {
+			for _, reg := range priorRegs {
+				_ = db.DB.Model(&models.ProviderToken{}).
+					Where("id = ? AND user_id = ? AND id <> ?", reg.TokenID, userID, token.ID).
+					Updates(map[string]interface{}{"is_active": false}).Error
+				_ = db.DB.Model(&models.ProviderNodeRegistration{}).
+					Where("id = ?", reg.ID).
+					Update("is_active", false).Error
+			}
+		}
+
+		registration := models.ProviderNodeRegistration{
+			UserID:    userID,
+			TokenID:   token.ID,
+			NodeID:    bindNodeID,
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+			IsActive:  true,
+		}
+		if err := db.DB.Create(&registration).Error; err != nil {
+			logging.Warn().Err(err).
+				Str("token_id", token.ID.String()).
+				Str("node_id", bindNodeID.String()).
+				Msg("createProviderToken: failed to bind token to node")
+		}
+	}
+
 	// Return response with raw token (only time it's shown)
 	c.JSON(http.StatusCreated, TokenResponse{
 		ID:        token.ID,
@@ -254,12 +310,15 @@ func revokeProviderToken(c *gin.Context) {
 		return
 	}
 
-	// Soft delete - only user's own tokens
-	result := db.DB.Where("id = ? AND user_id = ?", tokenID, userID).Delete(&models.ProviderToken{})
+	// Soft delete + mark inactive so gateway-token checks and ops scripts stay consistent.
+	result := db.DB.Model(&models.ProviderToken{}).
+		Where("id = ? AND user_id = ?", tokenID, userID).
+		Updates(map[string]interface{}{"is_active": false})
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
 		return
 	}
+	_ = db.DB.Where("id = ? AND user_id = ?", tokenID, userID).Delete(&models.ProviderToken{}).Error
 
 	c.JSON(http.StatusOK, gin.H{"message": "Token revoked successfully"})
 }
