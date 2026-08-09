@@ -97,6 +97,18 @@ func SeedCLIDownloads() {
 	}
 }
 
+// cliArtifactPreference ranks runnable binaries above archives.
+// Zip/tar assets are fine for humans; npm/pip/cargo wrappers need the raw exe.
+func cliArtifactPreference(filename string) int {
+	lower := strings.ToLower(filename)
+	switch {
+	case strings.HasSuffix(lower, ".zip"), strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		return 10
+	default:
+		return 0
+	}
+}
+
 func upsertCLIDownload(version, platform, arch, packageType, filename, filePath string, size int64, checksum string) error {
 	var existing models.CLIDownload
 	err := DB.Where("platform = ? AND arch = ? AND version = ? AND package_type = ?", platform, arch, version, packageType).First(&existing).Error
@@ -122,7 +134,15 @@ func upsertCLIDownload(version, platform, arch, packageType, filename, filePath 
 	} else if err != nil {
 		return err
 	} else {
-		if err := DB.Model(&existing).Updates(map[string]interface{}{
+		// Keep an existing runnable binary instead of overwriting it with a zip.
+		if cliArtifactPreference(filename) > cliArtifactPreference(existing.Filename) {
+			if err := DB.Model(&existing).Updates(map[string]interface{}{
+				"is_active": true,
+				"is_latest": true,
+			}).Error; err != nil {
+				return err
+			}
+		} else if err := DB.Model(&existing).Updates(map[string]interface{}{
 			"filename":     record.Filename,
 			"file_path":    record.FilePath,
 			"file_size":    record.FileSize,

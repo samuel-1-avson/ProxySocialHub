@@ -58,11 +58,107 @@ function cachedBinaryPath(packageType, version) {
   );
 }
 
+function parseFilenameFromDisposition(header) {
+  if (!header) return "";
+  const star = /filename\*=(?:UTF-8''|utf-8'')([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename="([^"]+)"|filename=([^;]+)/i.exec(header);
+  if (!plain) return "";
+  return (plain[1] || plain[2] || "").trim().replace(/^"|"$/g, "");
+}
+
+async function resolveVersion(packageType) {
+  const pinned = (process.env.PROXYHUBB_CLI_VERSION || "").trim();
+  if (pinned) return pinned;
+
+  const params = new URLSearchParams({
+    platform: resolvePlatform(),
+    arch: resolveArch(),
+    package_type: packageType,
+  });
+  const url = `${apiBase()}/v1/cli/downloads/latest?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Failed to resolve latest ${packageType}: ${res.status} ${text}`
+    );
+  }
+  const data = await res.json();
+  if (!data.version) {
+    throw new Error(`Latest ${packageType} response missing version`);
+  }
+  return String(data.version);
+}
+
+function extractZipToBinary(zipPath, dest, packageType) {
+  const tmpDir = fs.mkdtempSync(path.join(path.dirname(dest), "extract-"));
+  try {
+    let result;
+    if (process.platform === "win32") {
+      result = spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${tmpDir.replace(/'/g, "''")}' -Force`,
+        ],
+        { encoding: "utf8" }
+      );
+    } else {
+      result = spawnSync("unzip", ["-o", zipPath, "-d", tmpDir], {
+        encoding: "utf8",
+      });
+    }
+    if (result.status !== 0) {
+      throw new Error(
+        `Failed to extract ${path.basename(zipPath)}: ${result.stderr || result.stdout || "unknown error"}`
+      );
+    }
+
+    const want = binaryName(packageType, resolvePlatform());
+    const prefix = packageType === "daemon" ? "provider-node" : "provider-cli";
+    const found = [];
+    const walk = (dir) => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) walk(full);
+        else found.push(full);
+      }
+    };
+    walk(tmpDir);
+
+    const match =
+      found.find((f) => path.basename(f).toLowerCase() === want.toLowerCase()) ||
+      found.find((f) =>
+        path.basename(f).toLowerCase().startsWith(prefix.toLowerCase())
+      );
+    if (!match) {
+      throw new Error(
+        `Zip ${path.basename(zipPath)} did not contain ${want} (or ${prefix}*)`
+      );
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(match, dest);
+    if (process.platform !== "win32") {
+      fs.chmodSync(dest, 0o755);
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 async function downloadBinary({ packageType = "wrapper", force = false } = {}) {
   const platform = resolvePlatform();
   const arch = resolveArch();
-  const version = (process.env.PROXYHUBB_CLI_VERSION || "").trim();
-  const dest = cachedBinaryPath(packageType, version || "latest");
+  const version = await resolveVersion(packageType);
+  const dest = cachedBinaryPath(packageType, version);
 
   if (!force && fs.existsSync(dest)) {
     return dest;
@@ -72,8 +168,8 @@ async function downloadBinary({ packageType = "wrapper", force = false } = {}) {
     platform,
     arch,
     package_type: packageType,
+    version,
   });
-  if (version) params.set("version", version);
 
   const url = `${apiBase()}/v1/cli/download?${params}`;
   const res = await fetch(url);
@@ -90,15 +186,33 @@ async function downloadBinary({ packageType = "wrapper", force = false } = {}) {
     );
   }
 
+  const filename =
+    parseFilenameFromDisposition(res.headers.get("content-disposition")) ||
+    res.headers.get("x-cli-filename") ||
+    "";
+  const headerVersion = (res.headers.get("x-cli-version") || "").trim();
+  const effectiveVersion = headerVersion || version;
+  const finalDest = cachedBinaryPath(packageType, effectiveVersion);
   const buf = Buffer.from(await res.arrayBuffer());
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const tmp = `${dest}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, buf);
-  if (process.platform !== "win32") {
-    fs.chmodSync(tmp, 0o755);
+  fs.mkdirSync(path.dirname(finalDest), { recursive: true });
+
+  if (/\.zip$/i.test(filename)) {
+    const zipPath = `${finalDest}.download.zip`;
+    fs.writeFileSync(zipPath, buf);
+    try {
+      extractZipToBinary(zipPath, finalDest, packageType);
+    } finally {
+      fs.rmSync(zipPath, { force: true });
+    }
+  } else {
+    const tmp = `${finalDest}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, buf);
+    if (process.platform !== "win32") {
+      fs.chmodSync(tmp, 0o755);
+    }
+    fs.renameSync(tmp, finalDest);
   }
-  fs.renameSync(tmp, dest);
-  return dest;
+  return finalDest;
 }
 
 /** provider-cli delegates doctor/start/etc to provider-node via PROXYHUB_PROVIDER_NODE. */
@@ -185,6 +299,7 @@ module.exports = {
   resolveArch,
   cacheDir,
   cachedBinaryPath,
+  resolveVersion,
   downloadBinary,
   ensureBinaries,
   parseArgs,
