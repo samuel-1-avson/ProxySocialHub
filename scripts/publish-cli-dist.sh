@@ -3,8 +3,8 @@
 # ./cli-dist into control-api, then restart control-api so SeedCLIDownloads re-indexes.
 #
 # Usage:
-#   CLI_DIST_VERSION=1.0.5 SSH_HOST=user@vm ./scripts/publish-cli-dist.sh
-#   CLI_DIST_VERSION=1.0.5 SSH_HOST=user@vm REMOTE_DIR=/opt/proxyhubb ./scripts/publish-cli-dist.sh
+#   CLI_DIST_VERSION=1.0.6 SSH_HOST=user@vm ./scripts/publish-cli-dist.sh
+#   CLI_DIST_VERSION=1.0.6 SSH_HOST=user@vm REMOTE_DIR=/opt/proxyhubb ./scripts/publish-cli-dist.sh
 #
 # Prerequisites:
 #   - Local artifacts already built (rebuild-cli.ps1 and/or scripts/build-cli-dist.sh --all)
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${CLI_DIST_VERSION:-1.0.5}"
+VERSION="${CLI_DIST_VERSION:-1.0.6}"
 SSH_HOST="${SSH_HOST:?Set SSH_HOST (e.g. user@proxyhubb-vm)}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/proxyhubb}"
 LOCAL_DIR="$REPO_ROOT/cli-dist/$VERSION"

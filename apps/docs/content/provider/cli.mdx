@@ -28,23 +28,26 @@ The dashboard detects OS/arch and offers the matching asset. Packages are **not*
 Sellers and providers can also install a thin wrapper that downloads `provider-cli` / `provider-node` from the API and proxies commands:
 
 ```bash
+# Easiest (Windows / macOS / Linux) — Dashboard → My nodes → Connect → Setup this PC
+# Downloads a one-click setup script that writes config, installs the CLI, and starts the node.
+
 # npm
 npm install -g @proxyhubb/provider@latest
 proxyhubb-provider install
 proxyhubb-provider --daemon doctor
-# or: npx @proxyhubb/provider --daemon doctor
 
 # PyPI
 pip install -U proxyhubb-provider
 proxyhubb-provider install
 proxyhubb-provider --daemon doctor
-# or: pipx run proxyhubb-provider --daemon doctor
 
 # Cargo (from source — not crates.io)
-cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.5 --path services/provider-node
+cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.6 --path services/provider-node
 ```
 
-Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download of the current latest binary (1.0.5+), `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
+Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download of the current latest binary, `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
+
+On Windows, if you only download `provider.toml` into Downloads, recent `provider-node` builds auto-import it into `%APPDATA%\proxyhubb\provider.toml` on start/doctor.
 
 There is **no separate “seller CLI”** — marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
 

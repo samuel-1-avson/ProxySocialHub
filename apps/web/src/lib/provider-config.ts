@@ -293,6 +293,94 @@ export function buildWindowsInstallScript(toml: string): string {
     ].join('\n');
 }
 
+/**
+ * One-shot Windows setup for non-technical users:
+ * write AppData config, download provider-node if needed, stop/start, doctor.
+ */
+export function buildWindowsSetupThisPcScript(toml: string, apiBase = 'https://api.proxyhubb.com'): string {
+    const escaped = toml.replace(/'/g, "''");
+    const api = apiBase.replace(/\/$/, '').replace(/'/g, "''");
+    return [
+        `$ErrorActionPreference = 'Stop'`,
+        `Write-Host ''`,
+        `Write-Host 'ProxyHubb — Setup this PC' -ForegroundColor Cyan`,
+        `Write-Host 'This writes your node config, installs the CLI if needed, and starts it.'`,
+        `Write-Host ''`,
+        `$cfgDir = Join-Path $env:APPDATA 'proxyhubb'`,
+        `New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null`,
+        `$cfgPath = Join-Path $cfgDir 'provider.toml'`,
+        `@'`,
+        escaped.trimEnd(),
+        `'@ | Set-Content -Encoding utf8 $cfgPath`,
+        `Write-Host "OK  Config saved to $cfgPath" -ForegroundColor Green`,
+        `$binDir = Join-Path $env:LOCALAPPDATA 'proxyhubb\\bin'`,
+        `New-Item -ItemType Directory -Force -Path $binDir | Out-Null`,
+        `$exe = Join-Path $binDir 'provider-node.exe'`,
+        `$candidates = @(`,
+        `  $exe,`,
+        `  (Join-Path $env:USERPROFILE 'Downloads\\provider-node-1.0.6-windows-amd64\\provider-node-1.0.6-windows-amd64.exe'),`,
+        `  (Join-Path $env:USERPROFILE 'Downloads\\provider-node-1.0.5-windows-amd64\\provider-node-1.0.5-windows-amd64.exe'),`,
+        `  (Join-Path $env:USERPROFILE 'Downloads\\provider-node-1.0.6-windows-amd64.exe'),`,
+        `  (Join-Path $env:USERPROFILE 'Downloads\\provider-node-1.0.5-windows-amd64.exe')`,
+        `) | Where-Object { $_ -and (Test-Path $_) }`,
+        `if (-not $candidates -or -not (Test-Path $exe)) {`,
+        `  Write-Host 'Downloading provider-node (latest)...'`,
+        `  $tmp = Join-Path $env:TEMP ('proxyhubb-node-' + [guid]::NewGuid().ToString() + '.bin')`,
+        `  $url = '${api}/v1/cli/download?platform=windows&arch=amd64&package_type=daemon'`,
+        `  Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing`,
+        `  $isZip = $false`,
+        `  try {`,
+        `    $bytes = [System.IO.File]::ReadAllBytes($tmp)`,
+        `    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0x50 -and $bytes[1] -eq 0x4B) { $isZip = $true }`,
+        `  } catch {}`,
+        `  if ($isZip) {`,
+        `    $unzip = Join-Path $env:TEMP ('proxyhubb-unz-' + [guid]::NewGuid().ToString())`,
+        `    New-Item -ItemType Directory -Force -Path $unzip | Out-Null`,
+        `    Expand-Archive -LiteralPath $tmp -DestinationPath $unzip -Force`,
+        `    $found = Get-ChildItem -Path $unzip -Recurse -Filter 'provider-node*.exe' | Select-Object -First 1`,
+        `    if (-not $found) { throw 'Download zip did not contain provider-node.exe' }`,
+        `    Copy-Item -Force $found.FullName $exe`,
+        `    Remove-Item -Recurse -Force $unzip -ErrorAction SilentlyContinue`,
+        `  } else {`,
+        `    Copy-Item -Force $tmp $exe`,
+        `  }`,
+        `  Remove-Item -Force $tmp -ErrorAction SilentlyContinue`,
+        `  Write-Host "OK  CLI installed to $exe" -ForegroundColor Green`,
+        `} else {`,
+        `  if (-not (Test-Path $exe) -and $candidates) { Copy-Item -Force $candidates[0] $exe }`,
+        `  Write-Host "OK  Using CLI at $exe" -ForegroundColor Green`,
+        `}`,
+        `Remove-Item -Force (Join-Path $env:USERPROFILE '.proxyhubb\\provider.pid') -ErrorAction SilentlyContinue`,
+        `try { & $exe stop | Out-Host } catch {}`,
+        `Write-Host 'Starting node...'`,
+        `Start-Process -FilePath $exe -ArgumentList @('start') -WindowStyle Hidden`,
+        `Start-Sleep -Seconds 4`,
+        `Write-Host ''`,
+        `Write-Host 'Running health check...'`,
+        `& $exe doctor`,
+        `Write-Host ''`,
+        `Write-Host 'Done. Keep this PC on and connected to the internet.' -ForegroundColor Cyan`,
+        `Write-Host 'Open Dashboard → My nodes to confirm ONLINE.'`,
+        `Write-Host ''`,
+    ].join('\n');
+}
+
+/** Double-clickable launcher that runs the setup script with ExecutionPolicy Bypass. */
+export function buildWindowsSetupCmdWrapper(): string {
+    return [
+        '@echo off',
+        'title ProxyHubb Provider Setup',
+        'echo.',
+        'echo  ProxyHubb Provider Setup',
+        'echo  ------------------------',
+        'echo.',
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-ProxyHubb-Provider.ps1"',
+        'echo.',
+        'pause',
+        '',
+    ].join('\r\n');
+}
+
 /** Bash that writes provider.toml to ~/.config/proxyhubb (no hand-editing). */
 export function buildUnixInstallScript(toml: string): string {
     return [
@@ -306,13 +394,59 @@ export function buildUnixInstallScript(toml: string): string {
     ].join('\n');
 }
 
+/**
+ * One-shot macOS/Linux setup: write config, prefer existing binary, otherwise curl download.
+ */
+export function buildUnixSetupThisPcScript(toml: string, apiBase = 'https://api.proxyhubb.com'): string {
+    const api = apiBase.replace(/\/$/, '');
+    return [
+        'set -euo pipefail',
+        'echo ""',
+        'echo "ProxyHubb — Setup this PC"',
+        'mkdir -p ~/.config/proxyhubb',
+        "cat > ~/.config/proxyhubb/provider.toml << 'PROXYHUBB_EOF'",
+        toml.trimEnd(),
+        'PROXYHUBB_EOF',
+        'echo "OK  Config saved to ~/.config/proxyhubb/provider.toml"',
+        'BIN_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/proxyhubb/bin"',
+        'mkdir -p "$BIN_DIR"',
+        'EXE="$BIN_DIR/provider-node"',
+        'OS=$(uname -s | tr "[:upper:]" "[:lower:]")',
+        'ARCH=$(uname -m)',
+        'case "$OS" in darwin) PLAT=macos ;; *) PLAT=linux ;; esac',
+        'case "$ARCH" in arm64|aarch64) A=arm64 ;; *) A=amd64 ;; esac',
+        'if [ ! -x "$EXE" ]; then',
+        `  echo "Downloading provider-node..."`,
+        `  curl -fsSL "${api}/v1/cli/download?platform=$PLAT&arch=$A&package_type=daemon" -o "$EXE.download"`,
+        '  if file "$EXE.download" | grep -qi zip; then',
+        '    TMP=$(mktemp -d)',
+        '    unzip -o "$EXE.download" -d "$TMP" >/dev/null',
+        '    FOUND=$(find "$TMP" -type f -name "provider-node*" | head -n1)',
+        '    cp "$FOUND" "$EXE"',
+        '    rm -rf "$TMP"',
+        '  else',
+        '    mv "$EXE.download" "$EXE"',
+        '  fi',
+        '  chmod +x "$EXE"',
+        '  echo "OK  CLI installed to $EXE"',
+        'fi',
+        '"$EXE" stop >/dev/null 2>&1 || true',
+        'nohup "$EXE" start >/dev/null 2>&1 &',
+        'sleep 3',
+        '"$EXE" doctor || true',
+        'echo ""',
+        'echo "Done. Keep this machine online. Check Dashboard → My nodes."',
+        '',
+    ].join('\n');
+}
+
 export function isWindowsClient(): boolean {
     if (typeof navigator === 'undefined') return false;
     return /win/i.test(navigator.platform || '') || /windows/i.test(navigator.userAgent || '');
 }
 
-export function downloadProviderToml(filename: string, contents: string) {
-    const blob = new Blob([contents], { type: 'application/toml;charset=utf-8' });
+export function downloadTextFile(filename: string, contents: string, mime = 'text/plain;charset=utf-8') {
+    const blob = new Blob([contents], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -321,16 +455,28 @@ export function downloadProviderToml(filename: string, contents: string) {
     URL.revokeObjectURL(url);
 }
 
+export function downloadProviderToml(filename: string, contents: string) {
+    downloadTextFile(filename, contents, 'application/toml;charset=utf-8');
+}
+
 /** Windows: download a .ps1 that writes %APPDATA%\\proxyhubb\\provider.toml when run. */
 export function downloadWindowsApplyScript(toml: string) {
-    const script = `${buildWindowsInstallScript(toml)}\n`;
-    const blob = new Blob([script], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Apply-ProxyHubb-Provider.ps1';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile('Apply-ProxyHubb-Provider.ps1', `${buildWindowsInstallScript(toml)}\n`);
+}
+
+/** Download the full Setup-this-PC pack (ps1 + cmd on Windows). */
+export function downloadSetupThisPc(toml: string, apiBase?: string) {
+    if (isWindowsClient()) {
+        const ps1 = buildWindowsSetupThisPcScript(toml, apiBase);
+        downloadTextFile('Setup-ProxyHubb-Provider.ps1', ps1);
+        // Slight delay so the browser queues both downloads.
+        setTimeout(() => {
+            downloadTextFile('Setup-ProxyHubb-Provider.cmd', buildWindowsSetupCmdWrapper());
+        }, 250);
+        return 'windows' as const;
+    }
+    downloadTextFile('setup-proxyhubb-provider.sh', buildUnixSetupThisPcScript(toml, apiBase));
+    return 'unix' as const;
 }
 
 /** Prefer an apply script on Windows; raw toml elsewhere (still needs manual install). */

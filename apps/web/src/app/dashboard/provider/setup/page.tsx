@@ -463,8 +463,8 @@ function DoneStep({ nodeCreated, onFinish }: { nodeCreated: boolean; onFinish: (
                     <h2 className="text-xl font-bold font-mono mb-2">You're all set!</h2>
                     <p className="text-sm text-muted-foreground max-w-sm mx-auto">
                         {nodeCreated
-                            ? 'Download provider.toml from the install step, save it on your machine, then run provider-node start — no repo edits needed.'
-                            : 'Register a node and download provider.toml from the install step.'}
+                            ? 'Open Connect → Setup this PC (one click). It saves config, installs the app if needed, and starts your node.'
+                            : 'Register a node, then use Connect → Setup this PC (one click).'}
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
