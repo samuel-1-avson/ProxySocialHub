@@ -2,16 +2,25 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Copy, Download, Loader2, Terminal } from 'lucide-react';
+import {
+    AlertCircle,
+    CheckCircle2,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Download,
+    Loader2,
+    MonitorPlay,
+    Terminal,
+} from 'lucide-react';
 import {
     buildJoinCommand,
     buildProviderToml,
-    buildStartCommand,
-    buildUnixInstallScript,
-    buildWindowsInstallScript,
+    buildUnixSetupThisPcScript,
+    buildWindowsSetupThisPcScript,
     defaultProviderConfigPath,
-    downloadProviderConfig,
     downloadProviderToml,
+    downloadSetupThisPc,
     getOrCreateProviderSigningKey,
     getProviderEndpoints,
     isWindowsClient,
@@ -38,7 +47,9 @@ export function ProviderNodeConnectPanel({
 }: ProviderNodeConnectPanelProps) {
     const [copied, setCopied] = useState<string | null>(null);
     const [sessionToken, setSessionToken] = useState<string | null>(null);
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const autoMintStarted = useRef(false);
+    const windows = isWindowsClient();
 
     const { data: connectInfo, isLoading, error } = useQuery({
         queryKey: ['node-connect', nodeId],
@@ -95,24 +106,20 @@ export function ProviderNodeConnectPanel({
     });
 
     const configPath =
-        (isWindowsClient()
+        (windows
             ? connectInfo?.config_path_windows
             : connectInfo?.config_path_unix) ??
         connectInfo?.config_path_hint ??
         defaultProviderConfigPath();
-    const startCmd = connectInfo?.start_command ?? buildStartCommand(configPath);
     const joinCmd = apiKey ? buildJoinCommand(apiKey, nodeId, endpoints.controlApiUrl) : '';
-    const installScript = isWindowsClient()
-        ? buildWindowsInstallScript(toml)
-        : buildUnixInstallScript(toml);
-    const installLabel = isWindowsClient()
-        ? 'Copy install script (Windows)'
-        : 'Copy install script (macOS/Linux)';
+    const setupScript = windows
+        ? buildWindowsSetupThisPcScript(toml, endpoints.controlApiUrl)
+        : buildUnixSetupThisPcScript(toml, endpoints.controlApiUrl);
 
     function copy(text: string, key: string) {
         navigator.clipboard.writeText(text);
         setCopied(key);
-        setTimeout(() => setCopied(null), 2000);
+        setTimeout(() => setCopied(null), 2500);
     }
 
     const title = nodeName ? `Connect "${nodeName}"` : 'Connect this node';
@@ -125,11 +132,9 @@ export function ProviderNodeConnectPanel({
                     <p className="text-xs font-bold font-mono uppercase tracking-wider text-primary">
                         {title}
                     </p>
-                    <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                        We mint a token and embed it in config. The CLI reads{' '}
-                        <code className="text-primary/80">{configPath}</code> — not your Downloads folder.
-                        Paste the install script (or run the Windows apply <code className="text-primary/80">.ps1</code>
-                        ), then restart. Do not only download <code className="text-primary/80">provider.toml</code>.
+                    <p className="text-sm text-muted-foreground mt-1">
+                        One step: run <strong className="text-foreground">Setup this PC</strong>. It saves your
+                        config in the right place, installs the app if needed, and starts your node.
                     </p>
                 </div>
             )}
@@ -179,118 +184,141 @@ export function ProviderNodeConnectPanel({
             )}
 
             {ready && (
-                <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
-                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-[10px] font-mono text-emerald-200/90">
-                        Token ready for gateway{' '}
-                        <code className="text-emerald-100">{endpoints.gatewayTunnelAddr}</code>.
-                        Required next step: paste the install script (or run the downloaded{' '}
-                        <code className="text-emerald-100">Apply-ProxyHubb-Provider.ps1</code>) so{' '}
-                        <code className="text-emerald-100">{configPath}</code> gets the new{' '}
-                        <code className="text-emerald-100">api_key</code>. A file sitting in Downloads is{' '}
-                        <strong className="text-emerald-100">not</strong> used by{' '}
-                        <code className="text-emerald-100">provider-node</code>. Then{' '}
-                        <code className="text-emerald-100">provider-node stop</code> and{' '}
-                        <code className="text-emerald-100">provider-node start</code>.
-                    </p>
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                        <CheckCircle2 size={18} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-sm font-semibold text-emerald-100">Ready to connect this computer</p>
+                            <p className="text-xs text-emerald-200/80 mt-1">
+                                Do <strong>not</strong> only download a TOML file — the app does not read your
+                                Downloads folder. Use Setup this PC below.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                            type="button"
+                            disabled={!ready}
+                            onClick={() => {
+                                downloadSetupThisPc(toml, endpoints.controlApiUrl);
+                                copy(setupScript, 'setup');
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50"
+                        >
+                            {copied === 'setup' ? (
+                                <CheckCircle2 size={16} />
+                            ) : (
+                                <MonitorPlay size={16} />
+                            )}
+                            {windows
+                                ? '1. Download Setup this PC (.cmd)'
+                                : '1. Download setup script'}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!ready}
+                            onClick={() => copy(setupScript, 'setup-copy')}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/10 text-sm font-medium disabled:opacity-50"
+                        >
+                            {copied === 'setup-copy' ? (
+                                <CheckCircle2 size={16} className="text-emerald-400" />
+                            ) : (
+                                <Copy size={16} />
+                            )}
+                            Or copy script
+                        </button>
+                    </div>
+
+                    <ol className="text-xs text-emerald-100/90 space-y-1.5 list-decimal list-inside">
+                        {windows ? (
+                            <>
+                                <li>
+                                    Open your <strong>Downloads</strong> folder and double-click{' '}
+                                    <code className="bg-black/30 px-1 rounded">Setup-ProxyHubb-Provider.cmd</code>
+                                </li>
+                                <li>If Windows asks, choose <strong>More info → Run anyway</strong></li>
+                                <li>Wait until it says Done, then refresh this page — status should become ONLINE</li>
+                            </>
+                        ) : (
+                            <>
+                                <li>
+                                    In Terminal: <code className="bg-black/30 px-1 rounded">bash ~/Downloads/setup-proxyhubb-provider.sh</code>
+                                    {' '}(or paste the copied script)
+                                </li>
+                                <li>Refresh this page — status should become ONLINE</li>
+                            </>
+                        )}
+                    </ol>
                 </div>
             )}
 
-            {ready && (
-                <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-40 overflow-auto">
-                    {toml}
-                </pre>
+            <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            >
+                {showAdvanced ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                Advanced / troubleshooting
+            </button>
+
+            {showAdvanced && (
+                <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[10px] font-mono text-muted-foreground">
+                        Config path the app reads: <code className="text-primary/80">{configPath}</code>
+                    </p>
+
+                    {ready && (
+                        <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-40 overflow-auto">
+                            {toml}
+                        </pre>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                        {joinCmd ? (
+                            <button
+                                type="button"
+                                onClick={() => copy(joinCmd, 'join')}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
+                            >
+                                {copied === 'join' ? (
+                                    <CheckCircle2 size={12} className="text-emerald-400" />
+                                ) : (
+                                    <Copy size={12} />
+                                )}
+                                Copy join command
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            disabled={!ready}
+                            onClick={() => downloadProviderToml('provider.toml', toml)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
+                        >
+                            <Download size={12} />
+                            Raw provider.toml
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => copy('provider-node start', 'start')}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
+                        >
+                            {copied === 'start' ? (
+                                <CheckCircle2 size={12} className="text-emerald-400" />
+                            ) : (
+                                <Terminal size={12} />
+                            )}
+                            Copy start command
+                        </button>
+                    </div>
+
+                    <p className="text-[9px] font-mono text-muted-foreground/80">
+                        Tip: if you already downloaded <code className="text-primary">provider.toml</code> into
+                        Downloads, open the provider app / run doctor — recent builds auto-import it into{' '}
+                        {configPath}.
+                    </p>
+                </div>
             )}
-
-            <div className="flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    disabled={!ready}
-                    onClick={() => copy(installScript, 'install')}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase disabled:opacity-50"
-                >
-                    {copied === 'install' ? (
-                        <CheckCircle2 size={12} className="text-emerald-200" />
-                    ) : (
-                        <Terminal size={12} />
-                    )}
-                    {installLabel}
-                </button>
-                {joinCmd ? (
-                    <button
-                        type="button"
-                        onClick={() => copy(joinCmd, 'join')}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
-                    >
-                        {copied === 'join' ? (
-                            <CheckCircle2 size={12} className="text-emerald-400" />
-                        ) : (
-                            <Copy size={12} />
-                        )}
-                        Copy join command
-                    </button>
-                ) : null}
-                <button
-                    type="button"
-                    disabled={!ready}
-                    onClick={() => {
-                        const kind = downloadProviderConfig(toml);
-                        if (kind === 'ps1') {
-                            copy(installScript, 'download');
-                        } else {
-                            setCopied('download');
-                            setTimeout(() => setCopied(null), 2000);
-                        }
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
-                >
-                    {copied === 'download' ? (
-                        <CheckCircle2 size={12} className="text-emerald-400" />
-                    ) : (
-                        <Download size={12} />
-                    )}
-                    {isWindowsClient()
-                        ? 'Download apply script (.ps1)'
-                        : 'Download provider.toml'}
-                </button>
-                {isWindowsClient() ? (
-                    <button
-                        type="button"
-                        disabled={!ready}
-                        onClick={() => downloadProviderToml('provider.toml', toml)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
-                    >
-                        <Download size={12} />
-                        Raw provider.toml
-                    </button>
-                ) : null}
-                <button
-                    type="button"
-                    onClick={() => copy(startCmd, 'start')}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
-                >
-                    {copied === 'start' ? (
-                        <CheckCircle2 size={12} className="text-emerald-400" />
-                    ) : (
-                        <Terminal size={12} />
-                    )}
-                    Copy start command
-                </button>
-            </div>
-
-            <ol className="text-[9px] font-mono text-muted-foreground/80 space-y-1 list-decimal list-inside">
-                <li>Install the CLI from Dashboard → CLI &amp; Tools (once).</li>
-                <li>
-                    Paste the <strong className="text-foreground/80">install script</strong> in PowerShell, or run
-                    the downloaded <code className="text-primary">Apply-ProxyHubb-Provider.ps1</code> — this writes{' '}
-                    <code className="text-primary">{configPath}</code>. A raw TOML in Downloads is ignored until
-                    you copy it there.
-                </li>
-                <li>
-                    Run <code className="text-primary">{startCmd}</code> — do not edit files or run{' '}
-                    <code className="text-primary">register</code> again.
-                </li>
-            </ol>
         </div>
     );
 }

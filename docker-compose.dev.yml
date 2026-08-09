@@ -158,7 +158,7 @@ services:
       # Phase 5: aggregate session_intents → map_node_links for GET /v1/map/links
       - MAP_TOPOLOGY_ENABLED=${MAP_TOPOLOGY_ENABLED:-true}
       - CLI_DIST_PATH=/app/cli-dist
-      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.5}
+      - CLI_DIST_VERSION=${CLI_DIST_VERSION:-1.0.6}
       - PROVIDER_NODE_STALE_AFTER=${PROVIDER_NODE_STALE_AFTER:-5m}
       - PROVIDER_TUNNEL_PUBLIC_ADDR=${PROVIDER_TUNNEL_PUBLIC_ADDR:-localhost:3128}
       - PROVIDER_PUBLIC_CONTROL_API_URL=${API_BASE_URL:-http://localhost:18080}
