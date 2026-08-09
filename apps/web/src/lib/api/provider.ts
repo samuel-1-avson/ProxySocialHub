@@ -79,6 +79,8 @@ export interface ProviderReadinessResponse {
 export interface CreateTokenRequest {
     name: string;
     expires_in?: number; // Days until expiration, 0 = no expiration
+    /** Bind token to an existing provider node so CLI heartbeats hit the right UUID. */
+    node_id?: string;
 }
 
 export interface CreateTokenResponse {
@@ -196,11 +198,11 @@ export function getCLIDownloadUrl(platform: string, arch: string, version?: stri
     return url;
 }
 
-/** Public GitHub Releases page for provider-node / provider-cli binaries. */
+/** Prefer dashboard CLI downloads; GitHub Releases require a public repo/assets. */
 export function getProviderCliReleasesUrl(): string {
     return (
         process.env.NEXT_PUBLIC_PROVIDER_CLI_RELEASES_URL ||
-        'https://github.com/samuel-1-avson/ProxySocialHub/releases?q=provider-v&expanded=true'
+        '/dashboard/provider/cli'
     );
 }
 
@@ -372,10 +374,15 @@ export interface NodeConnectInfo {
     node_id: string;
     control_api_url: string;
     gateway_tunnel_addr: string;
+    gateway_tunnel_addrs?: string[];
     use_tls: boolean;
+    tls_skip_verify?: boolean;
     connection_type: string;
     config_path_hint: string;
+    config_path_windows?: string;
+    config_path_unix?: string;
     start_command: string;
+    join_hint?: string;
 }
 
 export async function getNodeConnectInfo(nodeId: string): Promise<NodeConnectInfo> {
@@ -547,4 +554,13 @@ export async function updateProviderServiceConfig(
     updates: Partial<ProviderServiceConfig>
 ): Promise<ProviderServiceConfig> {
     return apiPut<ProviderServiceConfig>(`/v1/provider/services/${nodeId}`, updates);
+}
+
+/**
+ * Create a service config for a node that doesn't have one yet.
+ */
+export async function createProviderServiceConfig(
+    payload: { node_id: string } & Partial<ProviderServiceConfig>
+): Promise<ProviderServiceConfig> {
+    return apiPost<ProviderServiceConfig>('/v1/provider/services', payload);
 }

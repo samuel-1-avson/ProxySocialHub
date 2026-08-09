@@ -115,7 +115,7 @@ pub async fn collect_with_mode(
     let (running, pid) = match std::fs::read_to_string(&pid_path) {
         Ok(s) => {
             let p: u32 = s.trim().parse().unwrap_or(0);
-            let alive = p > 0 && crate::process_util::process_alive(p);
+            let alive = p > 0 && crate::process_util::provider_process_alive(p);
             (alive, if alive { Some(p) } else { None })
         }
         Err(_) => (false, None),
