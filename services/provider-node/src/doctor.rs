@@ -409,7 +409,11 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
                 );
             }
             Ok(resp) => {
-                let severity = if daemon_provider_alive { "error" } else { "warn" };
+                let severity = if daemon_provider_alive {
+                    "error"
+                } else {
+                    "warn"
+                };
                 push_fix(
                     &mut checks,
                     "metrics",

@@ -108,7 +108,8 @@ pub async fn run() -> anyhow::Result<()> {
                 println!("Config: {}", config.display());
                 println!("Press Ctrl+C to stop.\n");
                 println!("Tip: prefer [4] background + [1] dashboard in one window.\n");
-                let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("provider-node"));
+                let exe =
+                    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("provider-node"));
                 let status = std::process::Command::new(&exe)
                     .arg("start")
                     .arg("--config")

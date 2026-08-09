@@ -512,7 +512,12 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::Config {
-            command: ConfigCommands::Install { from, force, config },
+            command:
+                ConfigCommands::Install {
+                    from,
+                    force,
+                    config,
+                },
         } => {
             init_logging(false);
             let contents = if from == "-" {
@@ -523,8 +528,7 @@ async fn main() -> anyhow::Result<()> {
                     .context("Failed to read provider.toml from stdin")?;
                 buf
             } else {
-                std::fs::read_to_string(&from)
-                    .with_context(|| format!("Failed to read {from}"))?
+                std::fs::read_to_string(&from).with_context(|| format!("Failed to read {from}"))?
             };
             // Parse to validate before writing.
             let _: config::Config =
@@ -884,7 +888,10 @@ async fn main() -> anyhow::Result<()> {
                 Ok(result) => info!("{}", daemon_ctrl::describe(result)),
                 Err(e) => {
                     eprintln!("Warning: could not auto-start daemon: {e:#}");
-                    eprintln!("Start it with: provider-node start --config {}", config_path.display());
+                    eprintln!(
+                        "Start it with: provider-node start --config {}",
+                        config_path.display()
+                    );
                 }
             }
             tui::dashboard::run(config_path, refresh_ms).await?;
@@ -982,7 +989,9 @@ async fn main() -> anyhow::Result<()> {
                                         );
                                     }
                                     Err(err) => {
-                                        println!("Failed to run taskkill for PID {pid_trim}: {err}");
+                                        println!(
+                                            "Failed to run taskkill for PID {pid_trim}: {err}"
+                                        );
                                     }
                                 }
                             }
