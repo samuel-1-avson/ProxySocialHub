@@ -374,5 +374,43 @@ func getLatestVersion(downloads []models.CLIDownload) string {
 	if len(downloads) == 0 {
 		return ""
 	}
-	return downloads[0].Version
+	best := downloads[0].Version
+	for _, d := range downloads {
+		if cmpSemver(d.Version, best) > 0 {
+			best = d.Version
+		}
+	}
+	return best
+}
+
+// cmpSemver returns -1/0/1 for a<b / a==b / a>b (numeric major.minor.patch only).
+func cmpSemver(a, b string) int {
+	pa := parseSemverParts(a)
+	pb := parseSemverParts(b)
+	for i := 0; i < 3; i++ {
+		if pa[i] < pb[i] {
+			return -1
+		}
+		if pa[i] > pb[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+func parseSemverParts(s string) [3]int {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+	var out [3]int
+	parts := strings.Split(s, ".")
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n := 0
+		for _, c := range parts[i] {
+			if c < '0' || c > '9' {
+				break
+			}
+			n = n*10 + int(c-'0')
+		}
+		out[i] = n
+	}
+	return out
 }
