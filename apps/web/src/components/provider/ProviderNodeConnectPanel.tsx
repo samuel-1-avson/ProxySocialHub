@@ -1,16 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Copy, Download, KeyRound, Terminal } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Copy, Download, Loader2, Terminal } from 'lucide-react';
 import {
+    buildJoinCommand,
     buildProviderToml,
     buildStartCommand,
+    buildUnixInstallScript,
+    buildWindowsInstallScript,
     defaultProviderConfigPath,
     downloadProviderToml,
     getOrCreateProviderSigningKey,
     getProviderEndpoints,
+    isWindowsClient,
     loadProviderApiKey,
+    sanitizeProviderEndpoints,
     saveProviderApiKey,
 } from '@/lib/provider-config';
 import { createProviderToken, getNodeConnectInfo } from '@/lib/api/provider';
@@ -32,6 +37,7 @@ export function ProviderNodeConnectPanel({
 }: ProviderNodeConnectPanelProps) {
     const [copied, setCopied] = useState<string | null>(null);
     const [sessionToken, setSessionToken] = useState<string | null>(null);
+    const autoMintStarted = useRef(false);
 
     const { data: connectInfo, isLoading, error } = useQuery({
         queryKey: ['node-connect', nodeId],
@@ -40,22 +46,41 @@ export function ProviderNodeConnectPanel({
     });
 
     const tokenMutation = useMutation({
-        mutationFn: () => createProviderToken({ name: `node-${nodeId.slice(0, 8)}` }),
+        mutationFn: () =>
+            createProviderToken({
+                name: `node-${nodeId.slice(0, 8)}`,
+                node_id: nodeId,
+            }),
         onSuccess: (res) => {
-            saveProviderApiKey(res.token);
+            saveProviderApiKey(res.token, nodeId);
             setSessionToken(res.token);
         },
     });
 
-    const apiKey = apiKeyProp ?? sessionToken ?? loadProviderApiKey();
-    const providerSigningKey = useMemo(() => getOrCreateProviderSigningKey(), []);
+    const apiKey = apiKeyProp ?? sessionToken ?? loadProviderApiKey(nodeId);
+
+    // Auto-mint a node-bound token so users never hand-edit api_key.
+    useEffect(() => {
+        if (!nodeId || apiKey || autoMintStarted.current) return;
+        if (tokenMutation.isPending || tokenMutation.isSuccess || tokenMutation.isError) return;
+        autoMintStarted.current = true;
+        tokenMutation.mutate();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mint once per mount when missing
+    }, [nodeId, apiKey]);
+
+    const providerSigningKey = useMemo(
+        () => getOrCreateProviderSigningKey(nodeId),
+        [nodeId],
+    );
     const endpoints = useMemo(() => {
         if (connectInfo) {
-            return {
+            return sanitizeProviderEndpoints({
                 controlApiUrl: connectInfo.control_api_url,
                 gatewayTunnelAddr: connectInfo.gateway_tunnel_addr,
+                gatewayTunnelAddrs: connectInfo.gateway_tunnel_addrs ?? [],
                 useTls: connectInfo.use_tls,
-            };
+                tlsSkipVerify: connectInfo.tls_skip_verify ?? false,
+            });
         }
         return getProviderEndpoints();
     }, [connectInfo]);
@@ -68,8 +93,20 @@ export function ProviderNodeConnectPanel({
         endpoints,
     });
 
-    const configPath = connectInfo?.config_path_hint ?? defaultProviderConfigPath();
+    const configPath =
+        (isWindowsClient()
+            ? connectInfo?.config_path_windows
+            : connectInfo?.config_path_unix) ??
+        connectInfo?.config_path_hint ??
+        defaultProviderConfigPath();
     const startCmd = connectInfo?.start_command ?? buildStartCommand(configPath);
+    const joinCmd = apiKey ? buildJoinCommand(apiKey, nodeId, endpoints.controlApiUrl) : '';
+    const installScript = isWindowsClient()
+        ? buildWindowsInstallScript(toml)
+        : buildUnixInstallScript(toml);
+    const installLabel = isWindowsClient()
+        ? 'Copy install script (Windows)'
+        : 'Copy install script (macOS/Linux)';
 
     function copy(text: string, key: string) {
         navigator.clipboard.writeText(text);
@@ -78,17 +115,19 @@ export function ProviderNodeConnectPanel({
     }
 
     const title = nodeName ? `Connect "${nodeName}"` : 'Connect this node';
+    const ready = Boolean(apiKey);
 
     return (
         <div className={`space-y-3 ${compact ? '' : 'rounded-2xl border border-white/10 bg-black/20 p-4'}`}>
             {!compact && (
                 <div>
                     <p className="text-xs font-bold font-mono uppercase tracking-wider text-primary">
-                        Run on your machine
+                        {title}
                     </p>
                     <p className="text-[10px] font-mono text-muted-foreground mt-1">
-                        Save the config outside this repo (home directory or any server). No edits to{' '}
-                        <code className="text-primary/80">cli/provider.toml</code> in git.
+                        We mint a token and embed it in config. Paste the install script once to write{' '}
+                        <code className="text-primary/80">{configPath}</code>, then restart the node.
+                        Downloading the file alone does not update AppData.
                     </p>
                 </div>
             )}
@@ -99,98 +138,127 @@ export function ProviderNodeConnectPanel({
             {error && (
                 <p className="text-[10px] font-mono text-red-400 flex items-center gap-1">
                     <AlertCircle size={12} />
-                    Could not load server endpoints.
+                    Could not load server endpoints — using production defaults.
                 </p>
             )}
 
-            {!apiKey && (
-                <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-                    <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                    <div className="space-y-2">
-                        <p className="text-[10px] font-mono text-amber-200/90">
-                            This config needs a provider API token. Create one now — it will be embedded in the
-                            downloaded <code className="text-amber-100">provider.toml</code> (shown once).
-                        </p>
-                        <button
-                            type="button"
-                            onClick={() => tokenMutation.mutate()}
-                            disabled={tokenMutation.isPending}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase disabled:opacity-50"
-                        >
-                            <KeyRound size={12} />
-                            {tokenMutation.isPending ? 'Creating token…' : 'Create connection token'}
-                        </button>
-                        {tokenMutation.isError && (
-                            <p className="text-[10px] font-mono text-red-400">
-                                Could not create a token. Try again or use{' '}
-                                <Link href="/dashboard/provider/tokens" className="underline text-primary">
-                                    API Tokens
-                                </Link>
-                                .
-                            </p>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {providerSigningKey && (
-                <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
-                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-[10px] font-mono text-emerald-200/90">
-                        Includes a device <code className="text-emerald-100">provider_signing_key</code> for
-                        heartbeat proofs. The first verified heartbeat binds it to this node — no copy/paste needed.
+            {!ready && (tokenMutation.isPending || autoMintStarted.current) && (
+                <div className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2">
+                    <Loader2 size={14} className="text-primary animate-spin shrink-0" />
+                    <p className="text-[10px] font-mono text-primary/90">
+                        Creating a connection token for this node…
                     </p>
                 </div>
             )}
 
-            <p className="text-[9px] font-mono text-muted-foreground/80">
-                After download: run <code className="text-primary">provider-node start</code> only — do not{' '}
-                <code className="text-primary">register</code> again for this node.
-            </p>
+            {tokenMutation.isError && !ready && (
+                <div className="flex items-start gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2">
+                    <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                    <div className="space-y-2">
+                        <p className="text-[10px] font-mono text-red-200/90">
+                            Could not auto-create a token. Retry or use{' '}
+                            <Link href="/dashboard/provider/tokens" className="underline text-primary">
+                                API Tokens
+                            </Link>
+                            .
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                autoMintStarted.current = true;
+                                tokenMutation.mutate();
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase"
+                        >
+                            Retry token create
+                        </button>
+                    </div>
+                </div>
+            )}
 
-            {apiKey ? (
-                <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-48 overflow-auto">
+            {ready && (
+                <div className="flex items-start gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
+                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-[10px] font-mono text-emerald-200/90">
+                        Token ready for gateway{' '}
+                        <code className="text-emerald-100">{endpoints.gatewayTunnelAddr}</code>.
+                        Required next step: paste the install script (or run the join command) so{' '}
+                        <code className="text-emerald-100">{configPath}</code> gets the new{' '}
+                        <code className="text-emerald-100">api_key</code>, then{' '}
+                        <code className="text-emerald-100">provider-node stop</code> and{' '}
+                        <code className="text-emerald-100">provider-node start</code>.
+                    </p>
+                </div>
+            )}
+
+            {ready && (
+                <pre className="text-[10px] font-mono text-muted-foreground bg-black/30 rounded-xl px-3 py-3 whitespace-pre-wrap max-h-40 overflow-auto">
                     {toml}
                 </pre>
-            ) : (
-                <p className="text-[10px] font-mono text-muted-foreground/70">
-                    The config preview appears after a token is created.
-                </p>
             )}
 
             <div className="flex flex-wrap gap-2">
                 <button
                     type="button"
-                    disabled={!apiKey}
-                    onClick={() => downloadProviderToml(`provider-${nodeId.slice(0, 8)}.toml`, toml)}
+                    disabled={!ready}
+                    onClick={() => copy(installScript, 'install')}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase disabled:opacity-50"
+                >
+                    {copied === 'install' ? (
+                        <CheckCircle2 size={12} className="text-emerald-200" />
+                    ) : (
+                        <Terminal size={12} />
+                    )}
+                    {installLabel}
+                </button>
+                {joinCmd ? (
+                    <button
+                        type="button"
+                        onClick={() => copy(joinCmd, 'join')}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
+                    >
+                        {copied === 'join' ? (
+                            <CheckCircle2 size={12} className="text-emerald-400" />
+                        ) : (
+                            <Copy size={12} />
+                        )}
+                        Copy join command
+                    </button>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={!ready}
+                    onClick={() => downloadProviderToml('provider.toml', toml)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
                 >
                     <Download size={12} />
                     Download provider.toml
                 </button>
                 <button
                     type="button"
-                    disabled={!apiKey}
-                    onClick={() => copy(toml, 'toml')}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase disabled:opacity-50"
-                >
-                    {copied === 'toml' ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                    Copy config
-                </button>
-                <button
-                    type="button"
                     onClick={() => copy(startCmd, 'start')}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 font-mono text-[10px] font-bold uppercase"
                 >
-                    {copied === 'start' ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Terminal size={12} />}
+                    {copied === 'start' ? (
+                        <CheckCircle2 size={12} className="text-emerald-400" />
+                    ) : (
+                        <Terminal size={12} />
+                    )}
                     Copy start command
                 </button>
             </div>
 
-            <p className="text-[9px] font-mono text-muted-foreground/70">
-                Save to <code className="text-muted-foreground">{configPath}</code>, then:{' '}
-                <code className="text-primary/80">{startCmd}</code>
-            </p>
+            <ol className="text-[9px] font-mono text-muted-foreground/80 space-y-1 list-decimal list-inside">
+                <li>Install the CLI from Dashboard → CLI &amp; Tools (once).</li>
+                <li>
+                    Paste the <strong className="text-foreground/80">install script</strong> in PowerShell /
+                    Terminal (writes config automatically).
+                </li>
+                <li>
+                    Run <code className="text-primary">{startCmd}</code> — do not edit files or run{' '}
+                    <code className="text-primary">register</code> again.
+                </li>
+            </ol>
         </div>
     );
 }

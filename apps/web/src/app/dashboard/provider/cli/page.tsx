@@ -67,9 +67,9 @@ function formatChecksum(raw: string | undefined): string {
 /** Shell-safe --config flag for the selected OS (PowerShell on Windows). */
 function configFlag(platform: string): string {
     if (platform === 'windows') {
-        return '--config "$env:USERPROFILE\\.proxyhubb\\provider.toml"';
+        return '--config "$env:APPDATA\\proxyhubb\\provider.toml"';
     }
-    return '--config ~/.proxyhubb/provider.toml';
+    return '--config ~/.config/proxyhubb/provider.toml';
 }
 
 export default function CLIPage() {
@@ -216,13 +216,13 @@ metrics_port = 9090`;
                     </Link>
                     <Link
                         href="/dashboard/provider/nodes"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
                     >
                         My nodes
                     </Link>
                     <Link
                         href="/dashboard/provider/tokens"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
                     >
                         API tokens
                     </Link>
@@ -230,7 +230,7 @@ metrics_port = 9090`;
                         href={releasesUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 font-mono text-[10px] font-bold uppercase hover:text-foreground"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
                     >
                         <Github size={12} /> GitHub Releases
                     </a>
@@ -261,8 +261,8 @@ metrics_port = 9090`;
                                     selectedPlatform === p.id
                                         ? 'bg-primary text-primary-foreground'
                                         : available
-                                        ? 'bg-white/5 hover:bg-white/10 text-muted-foreground'
-                                        : 'bg-white/[0.02] text-muted-foreground/40 cursor-not-allowed'
+                                        ? 'border border-border text-foreground hover:bg-surface-hover'
+                                        : 'border border-border bg-muted text-muted-foreground cursor-not-allowed opacity-60'
                                 }`}
                                 title={available ? undefined : 'No build published for this OS yet'}
                             >
@@ -288,10 +288,10 @@ metrics_port = 9090`;
                                     onClick={() => setSelectedArch(a)}
                                     className={`px-3 py-1.5 rounded-lg font-mono text-xs transition-colors ${
                                         selectedArch === a
-                                            ? 'bg-white/15 text-foreground font-bold'
+                                            ? 'bg-primary/15 border border-primary/30 text-foreground font-bold'
                                             : available
-                                            ? 'bg-white/5 text-muted-foreground hover:bg-white/10'
-                                            : 'bg-white/[0.02] text-muted-foreground/40 cursor-not-allowed'
+                                            ? 'border border-border text-foreground hover:bg-surface-hover'
+                                            : 'border border-border bg-muted text-muted-foreground cursor-not-allowed opacity-60'
                                     }`}
                                 >
                                     {a}
@@ -313,7 +313,7 @@ metrics_port = 9090`;
                     </div>
                 ) : downloadInfo ? (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-4 bg-white/5 rounded-xl px-4 py-3">
+                        <div className="flex items-center justify-between gap-4 bg-muted rounded-xl px-4 py-3">
                             <div className="flex items-center gap-3">
                                 <Server size={16} className="text-primary" />
                                 <div>
@@ -337,8 +337,8 @@ metrics_port = 9090`;
                         {checksum && (
                             <div className="space-y-2">
                                 <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">SHA256 Checksum</p>
-                                <div className="flex items-center gap-2 bg-black/20 rounded-xl px-4 py-2.5 font-mono text-xs">
-                                    <span className="text-muted-foreground flex-1 break-all select-all">{checksum}</span>
+                                <div className="flex items-center gap-2 bg-muted border border-border rounded-xl px-4 py-2.5 font-mono text-xs">
+                                    <span className="font-mono text-foreground flex-1 break-all select-all">{checksum}</span>
                                     <button
                                         type="button"
                                         onClick={() => copy(checksum, 'checksum')}
@@ -423,7 +423,7 @@ metrics_port = 9090`;
                     <button
                         type="button"
                         onClick={() => refetchNodes()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-mono text-[10px] font-bold uppercase text-muted-foreground hover:text-foreground"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border font-mono text-[10px] font-bold uppercase text-foreground hover:bg-surface-hover"
                     >
                         Refresh
                     </button>
@@ -456,7 +456,7 @@ metrics_port = 9090`;
                             {nodes.map((node) => {
                                 const online = /online|active|healthy/i.test(node.status);
                                 return (
-                                    <div key={node.id} className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 space-y-1">
+                                    <div key={node.id} className="rounded-xl bg-muted border border-border px-4 py-3 space-y-1">
                                         <div className="flex items-center justify-between gap-2">
                                             <p className="font-mono text-xs font-bold truncate">{node.name || node.id}</p>
                                             <span className={`font-mono text-[10px] uppercase font-bold ${online ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -493,7 +493,7 @@ metrics_port = 9090`;
                     />
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                         {steps.map((s) => (
-                            <div key={s.step} className="flex items-start gap-3 bg-white/5 rounded-xl p-3">
+                            <div key={s.step} className="flex items-start gap-3 bg-muted rounded-xl p-3">
                                 <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-xs font-black shrink-0">
                                     {s.step}
                                 </div>
@@ -548,7 +548,7 @@ metrics_port = 9090`;
                     Save as <code className="text-primary">provider.toml</code> at{' '}
                     <code className="text-primary">{configPath}</code>. Prefer My nodes → Connect for a filled file.
                 </p>
-                <div className="mb-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 space-y-1.5">
+                <div className="mb-3 rounded-lg border border-border bg-muted px-3 py-2 space-y-1.5">
                     <p className="text-[11px] font-mono text-foreground">Auth split:</p>
                     <p className="text-[11px] font-mono text-muted-foreground">
                         <code className="text-primary">api_key</code> — long-lived provider token from dashboard.
@@ -585,7 +585,7 @@ metrics_port = 9090`;
                         { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: creates a NEW node (skip after wizard)' },
                         { cmd: `proxyhubb-cli join --api-url ${endpoints.controlApiUrl} --key <TOKEN> --gateway ${endpoints.gatewayTunnelAddr}`, desc: 'Onboarding wrapper' },
                     ].map(({ cmd, desc }) => (
-                        <div key={cmd} className="flex items-center justify-between gap-4 px-4 py-2.5 rounded-xl hover:bg-white/5 transition-colors group">
+                        <div key={cmd} className="flex items-center justify-between gap-4 px-4 py-2.5 rounded-xl hover:bg-surface-hover transition-colors group">
                             <div className="flex items-center gap-3 min-w-0">
                                 <code className="text-xs font-mono text-primary truncate">{cmd}</code>
                             </div>
@@ -612,7 +612,7 @@ metrics_port = 9090`;
                 </Link>
                 <Link
                     href="/dashboard/provider/tokens"
-                    className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl font-mono text-xs transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 border border-border text-foreground hover:bg-surface-hover rounded-xl font-mono text-xs transition-colors"
                 >
                     <ExternalLink size={12} />
                     API tokens
@@ -631,12 +631,12 @@ function CodeBlock({
     onCopy: () => void;
 }) {
     return (
-        <div className="relative bg-black/30 rounded-xl p-4 font-mono text-xs">
-            <pre className="text-muted-foreground whitespace-pre-wrap break-all pr-8">{code}</pre>
+        <div className="relative bg-zinc-900 rounded-xl p-4 font-mono text-xs">
+            <pre className="text-zinc-100 whitespace-pre-wrap break-all pr-8">{code}</pre>
             <button
                 type="button"
                 onClick={onCopy}
-                className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute top-3 right-3 text-zinc-400 hover:text-zinc-100 transition-colors"
             >
                 {copied ? <CheckCircle2 size={14} className="text-emerald-400" /> : <Copy size={14} />}
             </button>

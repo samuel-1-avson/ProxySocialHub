@@ -170,7 +170,9 @@ pub fn stop() -> Result<()> {
 
 pub fn status(config: Option<PathBuf>) -> ServiceStatus {
     let pid = process_util::read_pid_file();
-    let running = pid.map(process_util::process_alive).unwrap_or(false);
+    let running = pid
+        .map(process_util::provider_process_alive)
+        .unwrap_or(false);
     let unit_path = platform_unit_path();
     let installed = unit_path
         .as_ref()
