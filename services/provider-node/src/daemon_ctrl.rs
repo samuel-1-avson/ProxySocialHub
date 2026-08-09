@@ -23,9 +23,10 @@ pub enum DaemonEnsureResult {
 /// If a live PID file exists, returns immediately. Otherwise spawns
 /// `provider-node start --config …` detached and waits briefly for the PID file.
 pub async fn ensure_running(config: &Path) -> anyhow::Result<DaemonEnsureResult> {
+    let _ = crate::config_adopt::maybe_adopt_downloaded_config(config);
     if !config.is_file() {
         anyhow::bail!(
-            "config not found at {} — download provider.toml from the dashboard first",
+            "config not found at {} — open Dashboard → My nodes → Connect and click Setup this PC",
             config.display()
         );
     }

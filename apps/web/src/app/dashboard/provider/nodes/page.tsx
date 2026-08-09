@@ -206,6 +206,10 @@ function NodeCard({
     const online = node.status === 'online';
     const pending = node.status === 'pending';
     const needsConnect = pending || !online;
+    const needsProof =
+        online &&
+        !node.latest_heartbeat_verified &&
+        !node.latest_heartbeat_verification_error;
 
     return (
         <motion.div
@@ -217,7 +221,7 @@ function NodeCard({
             {needsConnect && (
                 <div className="mb-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-2 justify-between">
                     <p className="text-[10px] font-mono text-amber-200/90">
-                        Needs CLI tunnel. Download config, then start — do not register again.
+                        Needs CLI tunnel. Click Connect → Setup this PC — do not register again.
                     </p>
                     <div className="flex gap-2">
                         <button type="button" onClick={onConnect} className="px-2 py-1 rounded-lg bg-primary/15 text-primary text-[9px] font-bold uppercase">
@@ -227,6 +231,22 @@ function NodeCard({
                         <Link href="/dashboard/provider/health" className="px-2 py-1 rounded-lg bg-white/10 text-[9px] font-bold uppercase text-muted-foreground">Diagnostics</Link>
                         <Link href="/dashboard/provider/earnings" className="px-2 py-1 rounded-lg bg-white/10 text-[9px] font-bold uppercase text-muted-foreground">Income</Link>
                     </div>
+                </div>
+            )}
+            {needsProof && (
+                <div className="mb-3 rounded-xl border border-blue-500/25 bg-blue-500/5 px-3 py-2 flex flex-wrap items-center gap-2 justify-between">
+                    <p className="text-[10px] font-mono text-blue-100/90">
+                        Tunnel is up, but heartbeats are unsigned (no{' '}
+                        <code className="text-blue-50">provider_signing_key</code> in the CLI config).
+                        Download Connect → Setup this PC and restart — do not register again.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onConnect}
+                        className="px-2 py-1 rounded-lg bg-primary/15 text-primary text-[9px] font-bold uppercase shrink-0"
+                    >
+                        Fix proof
+                    </button>
                 </div>
             )}
             <div className="flex items-start justify-between gap-4">

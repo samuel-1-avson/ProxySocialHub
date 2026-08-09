@@ -1,4 +1,5 @@
 mod config;
+mod config_adopt;
 mod config_validate;
 mod daemon_ctrl;
 mod doctor;
@@ -572,6 +573,15 @@ async fn main() -> anyhow::Result<()> {
 
             let config_path =
                 config.unwrap_or_else(|| paths::config_file().to_string_lossy().into_owned());
+            let config_path_buf = std::path::PathBuf::from(&config_path);
+            if let Some(adopted) = config_adopt::maybe_adopt_downloaded_config(&config_path_buf) {
+                println!(
+                    "Imported newer config from {} → {} ({})",
+                    adopted.from.display(),
+                    adopted.to.display(),
+                    adopted.reason
+                );
+            }
 
             let _ = paths::ensure_state_dirs();
             let provider_run_id = runtime_state::new_provider_run_id();

@@ -202,7 +202,7 @@ export function getCLIDownloadUrl(platform: string, arch: string, version?: stri
 export function getProviderCliReleasesUrl(): string {
     return (
         process.env.NEXT_PUBLIC_PROVIDER_CLI_RELEASES_URL ||
-        'https://github.com/samuel-1-avson/ProxySocialHub/releases/tag/provider-v1.0.5'
+        'https://github.com/samuel-1-avson/ProxySocialHub/releases/tag/provider-v1.0.6'
     );
 }
 
