@@ -23,7 +23,10 @@ func LockWalletForUpdate(tx *gorm.DB, userID uuid.UUID) (*Wallet, error) {
 // LedgerOpts optional fields for Credit/Debit helpers.
 type LedgerOpts struct {
 	TxHash string
-	// JournalKind overrides default journal mapping: "", "treasury", "deposit_vault", "stake", "unstake", "skip"
+	// JournalKind overrides default journal mapping: "", "treasury", "deposit_vault", "stake", "unstake", "skip".
+	// JournalKind "skip" disables the per-leg dual-write; the caller MUST PostBalancedJournal /
+	// PostUsageJournal (or equivalent) in the SAME DB transaction. New skip sites must be added
+	// to journal_skip_sites_test.go allowlist.
 	JournalKind string
 }
 
@@ -34,12 +37,16 @@ func CreditWalletLocked(tx *gorm.DB, wallet *Wallet, amount float64, entryType, 
 
 // CreditWalletLockedOpts is CreditWalletLocked with optional tx hash / journal kind.
 func CreditWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryType, referenceID, description string, opts LedgerOpts) error {
-	if amount <= 0 {
-		return fmt.Errorf("credit amount must be positive")
+	return CreditWalletLockedLamports(tx, wallet, int64(SOLToLamports(amount)), entryType, referenceID, description, opts)
+}
+
+// CreditWalletLockedLamports credits an exact lamports delta (Sprint I / DB-02 lite).
+// BalanceSOL is derived from BalanceLamports for legacy float columns only.
+func CreditWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entryType, referenceID, description string, opts LedgerOpts) error {
+	if lamports <= 0 {
+		return fmt.Errorf("credit lamports must be positive")
 	}
-	delta := int64(SOLToLamports(amount))
-	wallet.CreditSOL(amount)
-	wallet.BalanceLamports = int64(SOLToLamports(wallet.BalanceSOL))
+	wallet.CreditLamports(lamports)
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
 		"balance_sol":      wallet.BalanceSOL,
 		"balance_lamports": wallet.BalanceLamports,
@@ -48,9 +55,9 @@ func CreditWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTy
 	}
 	entry := WalletLedgerEntry{
 		WalletID:             wallet.ID,
-		Amount:               amount,
+		Amount:               LamportsToSOL(uint64(lamports)),
 		BalanceAfter:         wallet.BalanceSOL,
-		AmountLamports:       delta,
+		AmountLamports:       lamports,
 		BalanceAfterLamports: wallet.BalanceLamports,
 		Type:                 entryType,
 		ReferenceID:          referenceID,
@@ -61,7 +68,7 @@ func CreditWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTy
 	if err := tx.Create(&entry).Error; err != nil {
 		return err
 	}
-	return postCreditJournal(tx, wallet.ID, delta, entryType, referenceID, description, opts.JournalKind)
+	return postCreditJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind)
 }
 
 // DebitWalletLocked debits amount using lamports math, appends a ledger row, and dual-writes journal.
@@ -71,14 +78,18 @@ func DebitWalletLocked(tx *gorm.DB, wallet *Wallet, amount float64, entryType, r
 
 // DebitWalletLockedOpts is DebitWalletLocked with optional tx hash / journal kind.
 func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryType, referenceID, description string, opts LedgerOpts) error {
-	if amount <= 0 {
-		return fmt.Errorf("debit amount must be positive")
+	return DebitWalletLockedLamports(tx, wallet, int64(SOLToLamports(amount)), entryType, referenceID, description, opts)
+}
+
+// DebitWalletLockedLamports debits an exact lamports delta (Sprint I / DB-02 lite).
+func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entryType, referenceID, description string, opts LedgerOpts) error {
+	if lamports <= 0 {
+		return fmt.Errorf("debit lamports must be positive")
 	}
-	delta := int64(SOLToLamports(amount))
-	if !wallet.DebitSOL(amount) {
-		return fmt.Errorf("insufficient SOL balance: have %.9f, need %.9f", wallet.BalanceSOL, amount)
+	have := wallet.EffectiveBalanceLamports()
+	if !wallet.DebitLamports(lamports) {
+		return fmt.Errorf("insufficient SOL balance: have %d lamports, need %d", have, lamports)
 	}
-	wallet.BalanceLamports = int64(SOLToLamports(wallet.BalanceSOL))
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
 		"balance_sol":      wallet.BalanceSOL,
 		"balance_lamports": wallet.BalanceLamports,
@@ -87,9 +98,9 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 	}
 	entry := WalletLedgerEntry{
 		WalletID:             wallet.ID,
-		Amount:               -amount,
+		Amount:               -LamportsToSOL(uint64(lamports)),
 		BalanceAfter:         wallet.BalanceSOL,
-		AmountLamports:       -delta,
+		AmountLamports:       -lamports,
 		BalanceAfterLamports: wallet.BalanceLamports,
 		Type:                 entryType,
 		ReferenceID:          referenceID,
@@ -100,7 +111,7 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 	if err := tx.Create(&entry).Error; err != nil {
 		return err
 	}
-	return postDebitJournal(tx, wallet.ID, delta, entryType, referenceID, description, opts.JournalKind)
+	return postDebitJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind)
 }
 
 // TransferP2PLocked debits sender and credits recipient with one balanced P2P journal.

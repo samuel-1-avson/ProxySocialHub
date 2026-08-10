@@ -68,6 +68,8 @@ type MarketplaceGeoResponse struct {
 }
 
 // MarketplaceMapPoint is the unified map payload used by marketplace-first map views.
+// Public fields are privacy-hardened: no seller_id, no raw ISP, opaque node ids,
+// approximate geo only, and quality signals without identity.
 type MarketplaceMapPoint struct {
 	ID                   string                        `json:"id"`
 	Kind                 string                        `json:"kind"`
@@ -77,31 +79,27 @@ type MarketplaceMapPoint struct {
 	Country              string                        `json:"country,omitempty"`
 	Region               string                        `json:"region,omitempty"`
 	City                 string                        `json:"city,omitempty"`
-	ISP                  string                        `json:"isp,omitempty"`
+	NetworkClass         string                        `json:"network_class,omitempty"`
 	Status               string                        `json:"status"`
 	Purchasable          bool                          `json:"purchasable"`
 	ListingID            string                        `json:"listing_id,omitempty"`
-	NodeID               string                        `json:"node_id,omitempty"`
-	SellerID             string                        `json:"seller_id,omitempty"`
+	NodeID               string                        `json:"node_id,omitempty"` // opaque public id
 	ProxyType            string                        `json:"proxy_type,omitempty"`
 	Protocol             string                        `json:"protocol,omitempty"`
 	PricePerGB           float64                       `json:"price_per_gb,omitempty"`
 	AvailableBandwidthGB float64                       `json:"available_bandwidth_gb,omitempty"`
 	UptimePercent        float64                       `json:"uptime_percent,omitempty"`
 	LatencyMs            int                           `json:"latency_ms,omitempty"`
-	IsValidator          bool                          `json:"is_validator,omitempty"`
+	QualityScore         float64                       `json:"quality_score,omitempty"`
+	SuccessRate          float64                       `json:"success_rate,omitempty"`
+	TrustBadge           string                        `json:"trust_badge,omitempty"`
+	TrustLabel           string                        `json:"trust_label,omitempty"`
+	IsValidator          bool                          `json:"is_validator,omitempty"` // legacy; prefer trust_badge
 	ActiveSessions       int                           `json:"active_sessions,omitempty"`
 	SLASource            string                        `json:"sla_source,omitempty"`
 	GeoSource            string                        `json:"geo_source"`
 	Geo                  *geo.MapGeoMeta               `json:"geo,omitempty"`
 	ListingOfferVerified bool                          `json:"listing_offer_verified,omitempty"`
-	ListingOfferSigner   string                        `json:"listing_offer_signer,omitempty"`
-	ListingOfferSignedAt string                        `json:"listing_offer_signed_at,omitempty"`
-	ListingOfferError    string                        `json:"listing_offer_verification_error,omitempty"`
-	HeartbeatVerified    bool                          `json:"heartbeat_verified,omitempty"`
-	HeartbeatSigner      string                        `json:"heartbeat_signer,omitempty"`
-	HeartbeatSignedAt    string                        `json:"heartbeat_signed_at,omitempty"`
-	HeartbeatError       string                        `json:"heartbeat_verification_error,omitempty"`
 	CatalogProduct       *models.CatalogProductSummary `json:"catalog_product,omitempty"`
 }
 
@@ -141,6 +139,7 @@ type marketplaceGeoRow struct {
 	Country              string     `gorm:"column:country"`
 	ISP                  string     `gorm:"column:isp"`
 	City                 string     `gorm:"column:city"`
+	Region               string     `gorm:"column:region"`
 	PricePerGB           float64    `gorm:"column:price_per_gb"`
 	AvailableBandwidthGB float64    `gorm:"column:available_bandwidth_gb"`
 	Lat                  float64    `gorm:"column:lat"`
@@ -149,6 +148,8 @@ type marketplaceGeoRow struct {
 	NodeActive           bool       `gorm:"column:node_active"`
 	UptimePercent        float64    `gorm:"column:uptime_percent"`
 	LatencyMs            int        `gorm:"column:latency_ms"`
+	QualityScore         float64    `gorm:"column:quality_score"`
+	SuccessRate          float64    `gorm:"column:success_rate"`
 	SLASource            string     `gorm:"column:sla_source"`
 	GeoResolved          bool       `gorm:"column:geo_resolved"`
 	ListingOfferVerified bool       `gorm:"column:listing_offer_verified"`
@@ -170,6 +171,9 @@ type marketplaceMapNodeRow struct {
 	IsValidator       bool       `gorm:"column:is_validator"`
 	UptimePercent     float64    `gorm:"column:uptime_percent"`
 	ActiveSessions    int        `gorm:"column:active_sessions"`
+	QualityScore      float64    `gorm:"column:quality_score"`
+	SuccessRate       float64    `gorm:"column:success_rate"`
+	ConnectionType    string     `gorm:"column:connection_type"`
 	Country           string     `gorm:"column:country"`
 	Region            string     `gorm:"column:region"`
 	City              string     `gorm:"column:city"`
@@ -220,11 +224,8 @@ func buildMarketplaceMapFilters(c *gin.Context) marketplaceMapFilters {
 		}
 	}
 	includeProofs := false
-	if raw := strings.TrimSpace(c.Query("include_proofs")); raw != "" {
-		if parsed, err := strconv.ParseBool(raw); err == nil {
-			includeProofs = parsed
-		}
-	}
+	// Public map never returns wallet/signer proof material.
+	_ = c.Query("include_proofs")
 	return marketplaceMapFilters{
 		Country:         strings.TrimSpace(c.Query("country")),
 		ProxyType:       strings.TrimSpace(c.Query("proxy_type")),
@@ -313,7 +314,8 @@ SELECT
     pl.protocol,
     COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) AS country,
     COALESCE(NULLIF(pl.isp, ''), NULLIF(pn.isp, ''), NULLIF(en.isp, ''), NULLIF(gw.isp, ''), '') AS isp,
-    COALESCE(NULLIF(en.city, ''), NULLIF(pn.city, ''), NULLIF(gw.city, ''), '') AS city,
+    COALESCE(NULLIF(pn.city, ''), NULLIF(en.city, ''), NULLIF(gw.city, ''), '') AS city,
+    COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
     pl.price_per_gb,
     pl.available_bandwidth_gb,
     COALESCE(en.latitude, 0) AS lat,
@@ -327,6 +329,8 @@ SELECT
         ELSE COALESCE(pl.uptime_percent, 0)
     END AS uptime_percent,
     COALESCE(gw.latency_ms, 0) AS latency_ms,
+    COALESCE(pl.quality_score, pn.quality_score, 100) AS quality_score,
+    COALESCE(pl.success_rate, pn.success_rate, 100) AS success_rate,
     CASE
         WHEN gw.id IS NOT NULL THEN 'gateway'
         WHEN en.node_id IS NOT NULL AND COALESCE(en.uptime_percent, 0) > 0 THEN 'explorer'
@@ -352,8 +356,11 @@ LEFT JOIN LATERAL (
         pn.gateway_node_id,
         pn.status,
         pn.uptime_percent,
+        pn.quality_score,
+        pn.success_rate,
         pn.city,
         pn.country,
+        pn.region,
         pn.isp,
         pn.latest_heartbeat_verified,
         pn.latest_heartbeat_signer,
@@ -361,8 +368,11 @@ LEFT JOIN LATERAL (
         pn.latest_heartbeat_verification_error
     FROM provider_nodes pn
     WHERE
-        (pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id)
-        OR (pl.provider_node_id IS NULL AND pn.user_id = pl.seller_id)
+        pn.deleted_at IS NULL
+        AND (
+            (pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id)
+            OR (pl.provider_node_id IS NULL AND pn.user_id = pl.seller_id)
+        )
     ORDER BY
         CASE WHEN pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id THEN 0 ELSE 1 END,
         CASE WHEN pn.status = 'online' THEN 0 ELSE 1 END,
@@ -389,7 +399,7 @@ LEFT JOIN explorer_nodes en ON
         AND en.provider_user_id = pl.seller_id
     )
 LEFT JOIN LATERAL (
-    SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.country_code, n.isp
+    SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.region, n.country_code, n.isp
     FROM nodes n
     WHERE n.deleted_at IS NULL
       AND (
@@ -431,7 +441,7 @@ WHERE pl.status = 'active'
 	for _, r := range rows {
 		purchasable := r.AvailableBandwidthGB > 0
 		anchor := geo.MapGeoAnchor(r.NodeID, r.SellerID, r.ListingID)
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, anchor)
+		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor)
 		centroidOK := fallbackGeo != "unknown"
 		if hasBBox && !geo.PinInBBox(lat, lon, west, south, east, north) {
 			continue
@@ -498,7 +508,8 @@ SELECT
     pl.protocol,
     COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) AS country,
     COALESCE(NULLIF(pl.isp, ''), NULLIF(pn.isp, ''), NULLIF(en.isp, ''), NULLIF(gw.isp, ''), '') AS isp,
-    COALESCE(NULLIF(en.city, ''), NULLIF(pn.city, ''), NULLIF(gw.city, ''), '') AS city,
+    COALESCE(NULLIF(pn.city, ''), NULLIF(en.city, ''), NULLIF(gw.city, ''), '') AS city,
+    COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
     pl.price_per_gb,
     pl.available_bandwidth_gb,
     COALESCE(en.latitude, 0) AS lat,
@@ -512,6 +523,8 @@ SELECT
         ELSE COALESCE(pl.uptime_percent, 0)
     END AS uptime_percent,
     COALESCE(gw.latency_ms, 0) AS latency_ms,
+    COALESCE(pl.quality_score, pn.quality_score, 100) AS quality_score,
+    COALESCE(pl.success_rate, pn.success_rate, 100) AS success_rate,
     CASE
         WHEN gw.id IS NOT NULL THEN 'gateway'
         WHEN en.node_id IS NOT NULL AND COALESCE(en.uptime_percent, 0) > 0 THEN 'explorer'
@@ -537,8 +550,11 @@ LEFT JOIN LATERAL (
         pn.gateway_node_id,
         pn.status,
         pn.uptime_percent,
+        pn.quality_score,
+        pn.success_rate,
         pn.city,
         pn.country,
+        pn.region,
         pn.isp,
         pn.latest_heartbeat_verified,
         pn.latest_heartbeat_signer,
@@ -546,8 +562,11 @@ LEFT JOIN LATERAL (
         pn.latest_heartbeat_verification_error
     FROM provider_nodes pn
     WHERE
-        (pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id)
-        OR (pl.provider_node_id IS NULL AND pn.user_id = pl.seller_id)
+        pn.deleted_at IS NULL
+        AND (
+            (pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id)
+            OR (pl.provider_node_id IS NULL AND pn.user_id = pl.seller_id)
+        )
     ORDER BY
         CASE WHEN pl.provider_node_id IS NOT NULL AND pn.id = pl.provider_node_id THEN 0 ELSE 1 END,
         CASE WHEN pn.status = 'online' THEN 0 ELSE 1 END,
@@ -574,7 +593,7 @@ LEFT JOIN explorer_nodes en ON
         AND en.provider_user_id = pl.seller_id
     )
 LEFT JOIN LATERAL (
-    SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.country_code, n.isp
+    SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.region, n.country_code, n.isp
     FROM nodes n
     WHERE n.deleted_at IS NULL
       AND (
@@ -660,46 +679,49 @@ WHERE pl.status <> 'deleted'`
 	points := make([]MarketplaceMapPoint, 0, len(rows))
 	for _, r := range rows {
 		anchor := geo.MapGeoAnchor(r.NodeID, r.SellerID, r.ListingID)
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, anchor)
+		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor)
+		// Never publish unresolved/raw GeoIP coordinates on the public map.
+		if fallbackGeo == "unknown" {
+			continue
+		}
 		if hasBBox && !geo.PinInBBox(lat, lon, west, south, east, north) {
 			continue
 		}
 		purchasable := r.Status == "active" && r.AvailableBandwidthGB > 0
 		listingGeoSource := marketplaceGeoSource(r, fallbackGeo)
 		listingGeoMeta := geo.BuildMapGeoMeta(listingGeoSource)
+		networkClass := coarseNetworkClass(r.ProxyType, "")
+		badge := mapTrustBadge(r.UptimePercent, r.QualityScore, r.SuccessRate, r.QualityScore >= 90)
+		opaqueNode := mapOpaqueID("node", r.NodeID)
 		pt := MarketplaceMapPoint{
 			ID:                   "listing:" + r.ListingID,
 			Kind:                 "listing",
 			Latitude:             lat,
 			Longitude:            lon,
-			Title:                r.Title,
+			Title:                sanitizeListingMapTitle(r.Title),
 			Country:              r.Country,
 			City:                 r.City,
-			ISP:                  r.ISP,
+			Region:               r.Region,
+			NetworkClass:         networkClass,
 			Status:               r.Status,
 			Purchasable:          purchasable,
 			ListingID:            r.ListingID,
-			NodeID:               r.NodeID,
-			SellerID:             r.SellerID,
+			NodeID:               opaqueNode,
 			ProxyType:            r.ProxyType,
 			Protocol:             r.Protocol,
 			PricePerGB:           r.PricePerGB,
 			AvailableBandwidthGB: r.AvailableBandwidthGB,
 			UptimePercent:        r.UptimePercent,
 			LatencyMs:            r.LatencyMs,
+			QualityScore:         r.QualityScore,
+			SuccessRate:          r.SuccessRate,
+			TrustBadge:           badge,
+			TrustLabel:           mapTrustLabel(badge),
+			IsValidator:          false,
 			SLASource:            r.SLASource,
 			GeoSource:            listingGeoSource,
 			Geo:                  &listingGeoMeta,
-		}
-		if filters.IncludeProofs {
-			pt.ListingOfferVerified = r.ListingOfferVerified
-			pt.ListingOfferSigner = r.ListingOfferSigner
-			pt.ListingOfferSignedAt = proofTimeString(r.ListingOfferSignedAt)
-			pt.ListingOfferError = r.ListingOfferError
-			pt.HeartbeatVerified = r.HeartbeatVerified
-			pt.HeartbeatSigner = r.HeartbeatSigner
-			pt.HeartbeatSignedAt = proofTimeString(r.HeartbeatSignedAt)
-			pt.HeartbeatError = r.HeartbeatError
+			ListingOfferVerified: r.ListingOfferVerified,
 		}
 		points = append(points, pt)
 	}
@@ -769,23 +791,6 @@ func enrichMarketplaceMapCatalog(points []MarketplaceMapPoint, viewer *uuid.UUID
 	return nil
 }
 
-func marketplaceGeoSource(row marketplaceGeoRow, fallbackGeo string) string {
-	// Map pins use regional hubs (major city areas) when available.
-	if _, _, _, ok := geo.ApplyRegionalHubCoords(row.Country, row.City, "", 0, 0); ok {
-		return "region_hub"
-	}
-	if fallbackGeo == "region_hub" {
-		return "region_hub"
-	}
-	if country := strings.TrimSpace(row.Country); country != "" {
-		return "country_centroid"
-	}
-	if fallbackGeo != "" && fallbackGeo != "unknown" {
-		return fallbackGeo
-	}
-	return "unknown"
-}
-
 func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, north float64, hasBBox bool) ([]MarketplaceMapPoint, error) {
 	query := db.DB.Table("explorer_nodes en").
 		Select(`
@@ -797,6 +802,9 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
             en.is_validator,
             en.uptime_percent,
             en.active_sessions,
+            COALESCE(pn_live.quality_score, 100) AS quality_score,
+            COALESCE(pn_live.success_rate, 100) AS success_rate,
+            COALESCE(pn_live.connection_type, '') AS connection_type,
             COALESCE(
                 CASE WHEN en.country IS NULL OR TRIM(en.country) = '' OR LOWER(TRIM(en.country)) = 'unknown' THEN NULL ELSE TRIM(en.country) END,
                 CASE WHEN pn.country IS NULL OR TRIM(pn.country) = '' OR LOWER(TRIM(pn.country)) = 'unknown' THEN NULL ELSE TRIM(pn.country) END,
@@ -812,16 +820,14 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
                 CASE WHEN pn.city IS NULL OR TRIM(pn.city) = '' OR LOWER(TRIM(pn.city)) = 'unknown' THEN NULL ELSE TRIM(pn.city) END,
                 CASE WHEN n.city IS NULL OR TRIM(n.city) = '' OR LOWER(TRIM(n.city)) = 'unknown' THEN NULL ELSE TRIM(n.city) END
             ) AS city,
-            COALESCE(
-                CASE WHEN en.isp IS NULL OR TRIM(en.isp) = '' OR LOWER(TRIM(en.isp)) = 'unknown' THEN NULL ELSE TRIM(en.isp) END,
-                CASE WHEN pn.isp IS NULL OR TRIM(pn.isp) = '' OR LOWER(TRIM(pn.isp)) = 'unknown' THEN NULL ELSE TRIM(pn.isp) END,
-                CASE WHEN n.isp IS NULL OR TRIM(n.isp) = '' OR LOWER(TRIM(n.isp)) = 'unknown' THEN NULL ELSE TRIM(n.isp) END
-            ) AS isp,
             COALESCE(en.geo_source, '') AS geo_source,
             COALESCE(pn.latest_heartbeat_verified, false) AS heartbeat_verified,
             COALESCE(pn.latest_heartbeat_signer, '') AS heartbeat_signer,
             pn.latest_heartbeat_signed_at AS heartbeat_signed_at,
             COALESCE(pn.latest_heartbeat_verification_error, '') AS heartbeat_verification_error
+        `).
+		Joins(`
+            LEFT JOIN provider_nodes pn_live ON pn_live.id::text = en.node_id AND pn_live.deleted_at IS NULL
         `).
 		Joins(`
             LEFT JOIN nodes n ON n.deleted_at IS NULL
@@ -840,26 +846,68 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
                     pn.isp
                 FROM provider_nodes pn
                 WHERE
-                    (n.provider_node_id IS NOT NULL AND pn.id = n.provider_node_id)
-                    OR (
-                        n.provider_node_id IS NULL
-                        AND n.gateway_node_id IS NOT NULL
-                        AND n.gateway_node_id <> ''
-                        AND pn.gateway_node_id = n.gateway_node_id
-                    )
-                    OR (
-						en.provider_user_id IS NOT NULL
-						AND pn.user_id::text = en.provider_user_id::text
+                    pn.deleted_at IS NULL
+                    AND (
+                        (n.provider_node_id IS NOT NULL AND pn.id = n.provider_node_id)
+                        OR (
+                            n.provider_node_id IS NULL
+                            AND n.gateway_node_id IS NOT NULL
+                            AND n.gateway_node_id <> ''
+                            AND pn.gateway_node_id = n.gateway_node_id
+                        )
+                        OR (
+                            en.provider_user_id IS NOT NULL
+                            AND pn.user_id::text = en.provider_user_id::text
+                        )
+                        OR pn.id::text = en.node_id
                     )
                 ORDER BY
+                    CASE WHEN pn.id::text = en.node_id THEN 0 ELSE 1 END,
                     CASE WHEN pn.status = 'online' THEN 0 ELSE 1 END,
                     pn.last_seen_at DESC NULLS LAST,
                     pn.created_at DESC
                 LIMIT 1
             ) pn ON TRUE
         `)
+	// Never plot soft-deleted provider nodes or orphan explorer footprints.
+	// Dead/deleted inventory must not appear on the public map.
+	query = query.Where(`
+		EXISTS (
+			SELECT 1 FROM provider_nodes pn_live
+			WHERE pn_live.id::text = en.node_id
+			  AND pn_live.deleted_at IS NULL
+		)
+	`)
 	if filters.ActiveNodesOnly {
 		query = query.Where("en.is_active = ?", true)
+		query = query.Where(`
+			EXISTS (
+				SELECT 1 FROM provider_nodes pn_online
+				WHERE pn_online.id::text = en.node_id
+				  AND pn_online.deleted_at IS NULL
+				  AND (
+					pn_online.status = 'online'
+					OR pn_online.last_seen_at > NOW() - INTERVAL '48 hours'
+				  )
+			)
+		`)
+	} else {
+		// Even when Active Only is off, hide clearly-dead inventory:
+		// must be online now, or marked active with a recent heartbeat.
+		query = query.Where(`
+			EXISTS (
+				SELECT 1 FROM provider_nodes pn_alive
+				WHERE pn_alive.id::text = en.node_id
+				  AND pn_alive.deleted_at IS NULL
+				  AND (
+					pn_alive.status = 'online'
+					OR (
+						en.is_active = true
+						AND pn_alive.last_seen_at > NOW() - INTERVAL '48 hours'
+					)
+				  )
+			)
+		`)
 	}
 	if filters.ValidatorsOnly {
 		query = query.Where("en.is_validator = ?", true)
@@ -907,9 +955,11 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 		country := normalizeMarketplaceMapCountry(r.Country)
 		region := normalizeMarketplaceMapText(r.Region)
 		city := normalizeMarketplaceMapText(r.City)
-		isp := normalizeMarketplaceMapText(r.ISP)
 		anchor := geo.MapGeoAnchor(r.NodeID, "", "")
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, country, city, anchor)
+		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, country, city, region, anchor)
+		if fallbackGeo == "unknown" {
+			continue
+		}
 		if hasBBox && !geo.PinInBBox(lat, lon, west, south, east, north) {
 			continue
 		}
@@ -917,37 +967,40 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 		if r.IsActive {
 			status = "active"
 		}
-		title := r.Name
-		if title == "" {
-			title = r.NodeID
+		networkClass := coarseNetworkClass("", r.ConnectionType)
+		badge := mapTrustBadge(r.UptimePercent, r.QualityScore, r.SuccessRate, r.IsValidator || r.QualityScore >= 90)
+		opaqueNode := mapOpaqueID("node", r.NodeID)
+		nodeGeoSource := fallbackGeo
+		if nodeGeoSource == "" || nodeGeoSource == "unknown" {
+			nodeGeoSource = nodeMapGeoSource(r.GeoSource, country, city, region, r.Lat, r.Lon, fallbackGeo)
 		}
-		nodeGeoSource := nodeMapGeoSource(r.GeoSource, country, city, region, r.Lat, r.Lon, fallbackGeo)
+		if nodeGeoSource == "unknown" {
+			continue
+		}
 		nodeGeoMeta := geo.BuildMapGeoMeta(nodeGeoSource)
 		pt := MarketplaceMapPoint{
-			ID:                   "node:" + r.NodeID,
+			ID:                   "node:" + opaqueNode,
 			Kind:                 "node",
 			Latitude:             lat,
 			Longitude:            lon,
-			Title:                title,
+			Title:                privacyNodeTitle(city, country, networkClass),
 			Country:              country,
 			Region:               region,
 			City:                 city,
-			ISP:                  isp,
+			NetworkClass:         networkClass,
 			Status:               status,
 			Purchasable:          false,
-			NodeID:               r.NodeID,
+			NodeID:               opaqueNode,
 			UptimePercent:        r.UptimePercent,
+			QualityScore:         r.QualityScore,
+			SuccessRate:          r.SuccessRate,
+			TrustBadge:           badge,
+			TrustLabel:           mapTrustLabel(badge),
 			IsValidator:          r.IsValidator,
 			ActiveSessions:       r.ActiveSessions,
 			GeoSource:            nodeGeoSource,
 			Geo:                  &nodeGeoMeta,
 			AvailableBandwidthGB: 0,
-		}
-		if filters.IncludeProofs {
-			pt.HeartbeatVerified = r.HeartbeatVerified
-			pt.HeartbeatSigner = r.HeartbeatSigner
-			pt.HeartbeatSignedAt = proofTimeString(r.HeartbeatSignedAt)
-			pt.HeartbeatError = r.HeartbeatError
 		}
 		points = append(points, pt)
 	}
@@ -959,6 +1012,39 @@ func nodeMapGeoSource(stored, country, city, region string, rawLat, rawLon float
 		return src
 	}
 	return geo.ResolveNodeMapGeoSource(country, city, region, rawLat, rawLon, fallbackGeo)
+}
+
+// marketplaceGeoSource remaps exact GPS-like labels to privacy-safe hub/centroid sources.
+// Public marketplace pins are regional hubs, never street-level GPS.
+func marketplaceGeoSource(row marketplaceGeoRow, candidate string) string {
+	src := strings.ToLower(strings.TrimSpace(candidate))
+	switch src {
+	case "region_hub", "city_centroid", "country_centroid", "unknown":
+		return src
+	}
+
+	country := normalizeMarketplaceMapCountry(row.Country)
+	city := normalizeMarketplaceMapText(row.City)
+	region := normalizeMarketplaceMapText(row.Region)
+
+	// gps/explorer/gateway/provider (and empty) must not leak as precise coordinates.
+	if src == "gps" || src == "explorer" || src == "gateway" || src == "provider" || src == "" {
+		if _, _, _, ok := geo.ApplyRegionalHubCoords(country, city, region, 0, 0); ok {
+			return "region_hub"
+		}
+		if _, _, ok := geo.CityCentroid(city, country); ok {
+			return "city_centroid"
+		}
+		if country != "" {
+			return "country_centroid"
+		}
+		return "unknown"
+	}
+
+	if src != "" {
+		return src
+	}
+	return "unknown"
 }
 
 func normalizeMarketplaceMapCountry(country string) string {
