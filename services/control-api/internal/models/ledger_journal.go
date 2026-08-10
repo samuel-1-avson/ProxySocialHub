@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +13,7 @@ import (
 // Chart of accounts codes (seeded in 000124).
 const (
 	AccountTreasuryCash        = "1000"
+	AccountDepositVaultCash    = "1001"
 	AccountUserWalletLiability = "2100"
 	AccountEscrowLiability     = "2200"
 	AccountPlatformRevenue     = "4000"
@@ -77,6 +80,10 @@ type JournalLineSpec struct {
 }
 
 // PostBalancedJournal inserts a journal header + balanced lines in the same tx.
+//
+// Lines MUST be inserted in a single multi-row INSERT. Migration 000124 installs
+// trg_journal_lines_balanced as AFTER INSERT FOR EACH STATEMENT; per-row Creates
+// would each fire the trigger with only one line and fail with "unbalanced".
 func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string, lines []JournalLineSpec) error {
 	if len(lines) < 2 {
 		return fmt.Errorf("journal requires at least 2 lines")
@@ -91,10 +98,19 @@ func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string
 	if sum != 0 {
 		return fmt.Errorf("journal unbalanced: sum=%d", sum)
 	}
-	// Soft-skip when journal schema not yet migrated (tests / pre-000124).
 	var n int64
-	if err := tx.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='ledger_journals'`).Scan(&n).Error; err != nil || n == 0 {
-		return nil
+	if err := tx.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='ledger_journals'`).Scan(&n).Error; err != nil {
+		return fmt.Errorf("journal schema check: %w", err)
+	}
+	if n == 0 {
+		// Soft-skip only outside staging/production (unit tests / pre-migration local).
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		switch env {
+		case "production", "prod", "staging":
+			return fmt.Errorf("ledger_journals table missing; run migration 000124+")
+		default:
+			return nil
+		}
 	}
 	j := LedgerJournal{
 		ExternalRef: externalRef,
@@ -104,16 +120,21 @@ func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string
 	if err := tx.Create(&j).Error; err != nil {
 		return err
 	}
+	now := time.Now().UTC()
+	rows := make([]LedgerJournalLine, 0, len(lines))
 	for _, ln := range lines {
-		row := LedgerJournalLine{
+		rows = append(rows, LedgerJournalLine{
+			ID:             uuid.New(),
 			JournalID:      j.ID,
 			AccountCode:    ln.AccountCode,
 			WalletID:       ln.WalletID,
 			AmountLamports: ln.AmountLamports,
-		}
-		if err := tx.Create(&row).Error; err != nil {
-			return err
-		}
+			CreatedAt:      now,
+		})
+	}
+	// One statement so the statement-level balance trigger sees all lines together.
+	if err := tx.Create(&rows).Error; err != nil {
+		return err
 	}
 	return nil
 }
@@ -124,6 +145,16 @@ func postUserCreditJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entr
 	wid := walletID
 	return PostBalancedJournal(tx, entryType, ref, desc, []JournalLineSpec{
 		{AccountCode: AccountTreasuryCash, AmountLamports: lamports},
+		{AccountCode: AccountUserWalletLiability, WalletID: &wid, AmountLamports: -lamports},
+	})
+}
+
+// postUserCreditJournalFromVault: liability funded from deposit vault cash.
+// Dr 1001 deposit_vault_cash / Cr 2100 user liability
+func postUserCreditJournalFromVault(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryType, ref, desc string) error {
+	wid := walletID
+	return PostBalancedJournal(tx, entryType, ref, desc, []JournalLineSpec{
+		{AccountCode: AccountDepositVaultCash, AmountLamports: lamports},
 		{AccountCode: AccountUserWalletLiability, WalletID: &wid, AmountLamports: -lamports},
 	})
 }
@@ -168,18 +199,33 @@ func postP2PJournal(tx *gorm.DB, senderID, recipientID uuid.UUID, lamports int64
 	})
 }
 
-// postUsageJournal: buyer pays, optional provider earn + platform fee.
+// PostUsageJournal: buyer pays, optional provider earn + platform fee.
 // Dr 2100 buyer; Cr 2100 provider (net); Cr 4000 fee
-func postUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, buyerDebit, providerCredit, feeLamports int64, ref, desc string) error {
-	b, p := buyerWalletID, providerWalletID
+func PostUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, buyerDebit, providerCredit, feeLamports int64, ref, desc string) error {
+	if buyerDebit <= 0 {
+		return nil
+	}
+	b := buyerWalletID
 	lines := []JournalLineSpec{
 		{AccountCode: AccountUserWalletLiability, WalletID: &b, AmountLamports: buyerDebit},
 	}
-	if providerCredit > 0 {
+	if providerCredit > 0 && providerWalletID != uuid.Nil {
+		p := providerWalletID
 		lines = append(lines, JournalLineSpec{AccountCode: AccountUserWalletLiability, WalletID: &p, AmountLamports: -providerCredit})
 	}
+	remaining := buyerDebit - providerCredit
 	if feeLamports > 0 {
 		lines = append(lines, JournalLineSpec{AccountCode: AccountPlatformRevenue, AmountLamports: -feeLamports})
+		remaining -= feeLamports
+	}
+	if remaining != 0 {
+		// Absorb residual into platform revenue so the journal stays balanced.
+		lines = append(lines, JournalLineSpec{AccountCode: AccountPlatformRevenue, AmountLamports: -remaining})
 	}
 	return PostBalancedJournal(tx, TransactionUsage, ref, desc, lines)
+}
+
+// postUsageJournal kept as unexported alias for older call sites.
+func postUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, buyerDebit, providerCredit, feeLamports int64, ref, desc string) error {
+	return PostUsageJournal(tx, buyerWalletID, providerWalletID, buyerDebit, providerCredit, feeLamports, ref, desc)
 }
