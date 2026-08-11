@@ -122,6 +122,7 @@ type NewBlockUpdate struct {
 // move or recolour a marker without a full re-fetch.
 type NodeUpdate struct {
 	NodeID         string  `json:"node_id"`
+	OpaqueNodeID   string  `json:"opaque_node_id,omitempty"`
 	IsActive       bool    `json:"is_active"`
 	UptimePercent  float64 `json:"uptime_percent"`
 	ActiveSessions int     `json:"active_sessions"`
@@ -661,9 +662,10 @@ func NotifyNodeUpdate(node *models.ExplorerNode) {
 
 func snapExplorerNodeUpdate(node *models.ExplorerNode) NodeUpdate {
 	anchor := geo.MapGeoAnchor(node.NodeID, node.ProviderUserID, "")
-	lat, lon, _ := geo.ApplyMapCoords(node.Latitude, node.Longitude, node.Country, node.City, anchor)
+	lat, lon, _ := geo.ApplyMapCoords(node.Latitude, node.Longitude, node.Country, node.City, node.Region, anchor)
 	return NodeUpdate{
 		NodeID:         node.NodeID,
+		OpaqueNodeID:   mapOpaqueID("node", node.NodeID),
 		IsActive:       node.IsActive,
 		UptimePercent:  node.UptimePercent,
 		ActiveSessions: node.ActiveSessions,

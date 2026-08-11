@@ -180,20 +180,36 @@ func sha256hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// bulkEndpointPassword derives a stable per-endpoint secret from a server-side
-// HMAC key so knowing only the pool UUID is not enough to reconstruct passwords.
-func bulkEndpointPassword(poolID uuid.UUID, index int) string {
+// bulkEndpointHMACSecret resolves the server-side key used to derive pool
+// endpoint passwords. Staging/production require BULK_ENDPOINT_HMAC_SECRET or
+// JWT_SECRET — the hardcoded fallback is development-only (BE-06 / SEC).
+func bulkEndpointHMACSecret() (string, error) {
 	secret := strings.TrimSpace(os.Getenv("BULK_ENDPOINT_HMAC_SECRET"))
 	if secret == "" {
 		secret = strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	}
-	if secret == "" {
-		// Last-resort local/dev fallback — still not UUID-only.
-		secret = "proxyhubb-dev-bulk-endpoint-secret"
+	if secret != "" {
+		return secret, nil
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	switch env {
+	case "", "development", "dev", "test", "local":
+		return "proxyhubb-dev-bulk-endpoint-secret", nil
+	default:
+		return "", fmt.Errorf("BULK_ENDPOINT_HMAC_SECRET (or JWT_SECRET) required when APP_ENV=%s", env)
+	}
+}
+
+// bulkEndpointPassword derives a stable per-endpoint secret from a server-side
+// HMAC key so knowing only the pool UUID is not enough to reconstruct passwords.
+func bulkEndpointPassword(poolID uuid.UUID, index int) (string, error) {
+	secret, err := bulkEndpointHMACSecret()
+	if err != nil {
+		return "", err
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = fmt.Fprintf(mac, "%s:%d", poolID.String(), index)
-	return hex.EncodeToString(mac.Sum(nil))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // ─── Pool handlers ────────────────────────────────────────────────────────────
@@ -307,11 +323,16 @@ func GetPoolEndpoints(c *gin.Context) {
 	endpoints := make([]poolEndpoint, pool.Size)
 	for i := 0; i < pool.Size; i++ {
 		username := fmt.Sprintf("pool-%s-%03d", poolShort, i+1)
+		password, err := bulkEndpointPassword(pool.ID, i+1)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
 		endpoints[i] = poolEndpoint{
 			Host:        proxyHost,
 			Port:        proxyPort,
 			Username:    username,
-			Password:    bulkEndpointPassword(pool.ID, i+1),
+			Password:    password,
 			SessionType: pool.SessionType,
 		}
 	}

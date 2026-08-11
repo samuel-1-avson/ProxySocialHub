@@ -322,6 +322,7 @@ func getWallet(c *gin.Context) {
 	walletResp := gin.H{
 		"wallet_id":             wallet.ID,
 		"balance_sol":           wallet.BalanceSOL,
+		"balance_lamports":      wallet.EffectiveBalanceLamports(),
 		"transactions":          transactions,
 		"linked_solana_address": user.WalletAddress,
 	}
@@ -330,6 +331,7 @@ func getWallet(c *gin.Context) {
 		walletResp["on_chain_sol"] = *onChainSOL
 		// available_sol: the smaller of on-chain + platform balance for spending
 		walletResp["available_sol"] = wallet.BalanceSOL
+		walletResp["available_lamports"] = wallet.EffectiveBalanceLamports()
 	}
 	if solanaNetwork != "" {
 		walletResp["solana_network"] = solanaNetwork

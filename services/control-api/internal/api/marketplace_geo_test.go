@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -221,8 +222,11 @@ func TestGetMarketplaceMap_UsesProviderGeoWhenListingGeoBlank(t *testing.T) {
 		t.Fatalf("expected provider-geo listing under GH filter, got total=%d points=%#v", resp.Total, resp.Points)
 	}
 	point := resp.Points[0]
-	if point.Country != "GH" || point.City != "Accra" || point.ISP != "MTN Ghana" {
-		t.Fatalf("expected provider geo on map point, got country=%q city=%q isp=%q", point.Country, point.City, point.ISP)
+	if point.Country != "GH" || point.City != "Accra" {
+		t.Fatalf("expected provider geo on map point, got country=%q city=%q", point.Country, point.City)
+	}
+	if point.NetworkClass != "residential" {
+		t.Fatalf("expected residential network class, got %q", point.NetworkClass)
 	}
 	if point.GeoSource != "region_hub" {
 		t.Fatalf("expected region_hub geo source, got %q", point.GeoSource)
@@ -329,9 +333,94 @@ func TestGetMarketplaceMap_NeverReturnsDeletedListings(t *testing.T) {
 	}
 }
 
+func TestGetMarketplaceMap_ExcludesSoftDeletedProviderNodeFootprints(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_deleted_map"), "provider")
+	liveID := uuid.New()
+	deletedID := uuid.New()
+
+	live := models.ProviderNode{
+		ID:      liveID,
+		UserID:  provider.ID,
+		Name:    "Live Accra",
+		Country: "GH",
+		City:    "Accra",
+		Status:  models.NodeOnline,
+	}
+	deleted := models.ProviderNode{
+		ID:      deletedID,
+		UserID:  provider.ID,
+		Name:    "Deleted Accra",
+		Country: "GH",
+		City:    "Accra",
+		Status:  models.NodeOffline,
+	}
+	if err := db.DB.Create(&live).Error; err != nil {
+		t.Fatalf("create live provider node: %v", err)
+	}
+	if err := db.DB.Create(&deleted).Error; err != nil {
+		t.Fatalf("create deleted provider node: %v", err)
+	}
+	if err := db.DB.Delete(&deleted).Error; err != nil {
+		t.Fatalf("soft-delete provider node: %v", err)
+	}
+
+	nodes := []models.ExplorerNode{
+		{
+			NodeID:        liveID.String(),
+			Name:          "Live footprint",
+			Latitude:      5.6037,
+			Longitude:     -0.1870,
+			IsActive:      true,
+			UptimePercent: 99,
+			Country:       "GH",
+			City:          "Accra",
+		},
+		{
+			NodeID:        deletedID.String(),
+			Name:          "Ghost footprint",
+			Latitude:      5.61,
+			Longitude:     -0.19,
+			IsActive:      false,
+			IsValidator:   true,
+			UptimePercent: 100,
+			Country:       "GH",
+			City:          "Accra",
+		},
+	}
+	for _, node := range nodes {
+		if err := db.DB.Create(&node).Error; err != nil {
+			t.Fatalf("create explorer node: %v", err)
+		}
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map?include_nodes=true", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.NodeCount != 1 {
+		t.Fatalf("expected only live provider footprint, got node_count=%d points=%#v", resp.NodeCount, resp.Points)
+	}
+	wantOpaque := mapOpaqueID("node", liveID.String())
+	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != wantOpaque {
+		t.Fatalf("expected live opaque node point %q, got %#v", wantOpaque, resp.Points[0])
+	}
+}
+
 func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "proxy_listings", "explorer_nodes")
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
 
 	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_market_nodes"), "provider")
 	listing := models.ProxyListing{
@@ -347,9 +436,37 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	if err := db.DB.Create(&listing).Error; err != nil {
 		t.Fatalf("failed to create listing fixture: %v", err)
 	}
+	activeID := uuid.New()
+	offlineID := uuid.New()
+	now := time.Now().UTC()
+	providerNodes := []models.ProviderNode{
+		{
+			ID:         activeID,
+			UserID:     provider.ID,
+			Name:       "Active US Node",
+			Country:    "US",
+			City:       "New York",
+			Status:     models.NodeOnline,
+			LastSeenAt: &now,
+		},
+		{
+			ID:         offlineID,
+			UserID:     provider.ID,
+			Name:       "Offline US Node",
+			Country:    "US",
+			City:       "San Francisco",
+			Status:     models.NodeOffline,
+			LastSeenAt: &now,
+		},
+	}
+	for _, pn := range providerNodes {
+		if err := db.DB.Create(&pn).Error; err != nil {
+			t.Fatalf("failed to create provider node: %v", err)
+		}
+	}
 	nodes := []models.ExplorerNode{
 		{
-			NodeID:         "node-active-us",
+			NodeID:         activeID.String(),
 			Name:           "Active US Node",
 			Latitude:       40.7128,
 			Longitude:      -74.0060,
@@ -363,7 +480,7 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 			ISP:            "ExampleNet",
 		},
 		{
-			NodeID:        "node-offline-us",
+			NodeID:        offlineID.String(),
 			Name:          "Offline US Node",
 			Latitude:      37.7749,
 			Longitude:     -122.4194,
@@ -393,13 +510,14 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp.ListingCount != 1 || resp.NodeCount != 2 || resp.Total != 3 {
-		t.Fatalf("expected one listing and two node points, got listing=%d node=%d total=%d", resp.ListingCount, resp.NodeCount, resp.Total)
+	if resp.ListingCount != 1 || resp.NodeCount != 1 || resp.Total != 2 {
+		t.Fatalf("expected one listing and one live node (offline dead filtered), got listing=%d node=%d total=%d", resp.ListingCount, resp.NodeCount, resp.Total)
 	}
 
 	var activeNode *MarketplaceMapPoint
+	wantActiveOpaque := mapOpaqueID("node", activeID.String())
 	for i := range resp.Points {
-		if resp.Points[i].Kind == "node" && resp.Points[i].NodeID == "node-active-us" {
+		if resp.Points[i].Kind == "node" && resp.Points[i].NodeID == wantActiveOpaque {
 			activeNode = &resp.Points[i]
 			break
 		}
@@ -407,8 +525,14 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	if activeNode == nil {
 		t.Fatal("expected active node point")
 	}
-	if activeNode.Purchasable || activeNode.Status != "active" || !activeNode.IsValidator || activeNode.ActiveSessions != 4 {
+	if activeNode.Purchasable || activeNode.Status != "active" || activeNode.ActiveSessions != 4 {
 		t.Fatalf("unexpected active node payload: %#v", activeNode)
+	}
+	if activeNode.TrustBadge == "" || activeNode.TrustLabel == "" {
+		t.Fatalf("expected trust badge on node point, got %#v", activeNode)
+	}
+	if activeNode.Title == "Active US Node" || strings.Contains(activeNode.Title, "ExampleNet") {
+		t.Fatalf("expected privacy title, got %q", activeNode.Title)
 	}
 	if activeNode.GeoSource != "region_hub" {
 		t.Fatalf("expected region_hub geo source for NYC hub match, got %q", activeNode.GeoSource)
@@ -423,11 +547,23 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 
 func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "proxy_listings", "explorer_nodes")
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
 
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_active_only"), "provider")
+	activeID := uuid.New()
+	offlineID := uuid.New()
+	now := time.Now().UTC()
+	for _, pn := range []models.ProviderNode{
+		{ID: activeID, UserID: provider.ID, Name: "Active", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
+		{ID: offlineID, UserID: provider.ID, Name: "Offline", Country: "US", Status: models.NodeOffline, LastSeenAt: &now},
+	} {
+		if err := db.DB.Create(&pn).Error; err != nil {
+			t.Fatalf("failed to create provider node: %v", err)
+		}
+	}
 	nodes := []models.ExplorerNode{
 		{
-			NodeID:        "node-active-only",
+			NodeID:        activeID.String(),
 			Latitude:      40,
 			Longitude:     -74,
 			IsActive:      true,
@@ -436,7 +572,7 @@ func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 			Region:        "us-east",
 		},
 		{
-			NodeID:        "node-offline-filtered",
+			NodeID:        offlineID.String(),
 			Latitude:      41,
 			Longitude:     -75,
 			IsActive:      false,
@@ -467,18 +603,31 @@ func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 	if resp.NodeCount != 1 {
 		t.Fatalf("expected only one active node, got node_count=%d points=%#v", resp.NodeCount, resp.Points)
 	}
-	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != "node-active-only" {
-		t.Fatalf("expected active node point, got %#v", resp.Points)
+	wantOpaque := mapOpaqueID("node", activeID.String())
+	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != wantOpaque {
+		t.Fatalf("expected active opaque node point %q, got %#v", wantOpaque, resp.Points)
 	}
 }
 
 func TestGetMarketplaceMap_ValidatorsOnly(t *testing.T) {
 	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "proxy_listings", "explorer_nodes")
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
 
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_validator_only"), "provider")
+	validatorID := uuid.New()
+	proxyID := uuid.New()
+	now := time.Now().UTC()
+	for _, pn := range []models.ProviderNode{
+		{ID: validatorID, UserID: provider.ID, Name: "Validator", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
+		{ID: proxyID, UserID: provider.ID, Name: "Proxy", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
+	} {
+		if err := db.DB.Create(&pn).Error; err != nil {
+			t.Fatalf("failed to create provider node: %v", err)
+		}
+	}
 	nodes := []models.ExplorerNode{
 		{
-			NodeID:        "node-validator-only",
+			NodeID:        validatorID.String(),
 			Latitude:      40,
 			Longitude:     -74,
 			IsActive:      true,
@@ -488,7 +637,7 @@ func TestGetMarketplaceMap_ValidatorsOnly(t *testing.T) {
 			Region:        "us-east",
 		},
 		{
-			NodeID:        "node-proxy-only",
+			NodeID:        proxyID.String(),
 			Latitude:      41,
 			Longitude:     -75,
 			IsActive:      true,
@@ -520,8 +669,12 @@ func TestGetMarketplaceMap_ValidatorsOnly(t *testing.T) {
 	if resp.NodeCount != 1 {
 		t.Fatalf("expected one validator node, got node_count=%d", resp.NodeCount)
 	}
-	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != "node-validator-only" || !resp.Points[0].IsValidator {
-		t.Fatalf("expected validator node point, got %#v", resp.Points[0])
+	wantOpaque := mapOpaqueID("node", validatorID.String())
+	if resp.Points[0].Kind != "node" || resp.Points[0].NodeID != wantOpaque {
+		t.Fatalf("expected validator opaque node point %q, got %#v", wantOpaque, resp.Points[0])
+	}
+	if resp.Points[0].TrustBadge == "" {
+		t.Fatalf("expected trust badge on validator node, got %#v", resp.Points[0])
 	}
 }
 
@@ -605,5 +758,122 @@ func TestMarketplaceGeoSource_RegionalHubNotGPS(t *testing.T) {
 	row = marketplaceGeoRow{Country: "GH", SLASource: "explorer"}
 	if got := marketplaceGeoSource(row, "gps"); got != "country_centroid" {
 		t.Fatalf("expected country_centroid, got %q", got)
+	}
+}
+
+func TestGetMarketplaceMap_PrivacyHardening(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_map_privacy"), "provider")
+	nodeID := uuid.New()
+	node := models.ProviderNode{
+		ID:      nodeID,
+		UserID:  provider.ID,
+		Name:    "Sensitive Node Name",
+		Country: "US",
+		City:    "New York",
+		ISP:     "SecretCarrier ISP",
+		Status:  models.NodeOnline,
+	}
+	if err := db.DB.Create(&node).Error; err != nil {
+		t.Fatalf("create provider node: %v", err)
+	}
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		ProviderNodeID:       &nodeID,
+		Title:                "Public Listing Title",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		Country:              "US",
+		ISP:                  "SecretCarrier ISP",
+		PricePerGB:           2.5,
+		AvailableBandwidthGB: 20,
+		Status:               models.ListingStatusActive,
+		QualityScore:         92,
+		SuccessRate:          97,
+		UptimePercent:        99.2,
+		ListingOfferVerified: true,
+		ListingOfferSigner:   "SensitiveSignerPubkey11111111111111111111",
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("create listing: %v", err)
+	}
+	if err := db.DB.Create(&models.ExplorerNode{
+		NodeID:         nodeID.String(),
+		Name:           "Sensitive Explorer Name",
+		Latitude:       40.7128,
+		Longitude:      -74.0060,
+		IsActive:       true,
+		IsValidator:    true,
+		UptimePercent:  99.2,
+		ActiveSessions: 3,
+		Country:        "US",
+		City:           "New York",
+		ISP:            "SecretCarrier ISP",
+	}).Error; err != nil {
+		t.Fatalf("create explorer node: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map?include_nodes=true&include_proofs=true&country=US", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	raw := w.Body.String()
+	for _, forbidden := range []string{
+		`"seller_id"`,
+		`"isp"`,
+		"SecretCarrier",
+		"SensitiveSigner",
+		"Sensitive Node",
+		"Sensitive Explorer",
+		provider.ID.String(),
+		nodeID.String(),
+		`"listing_offer_signer"`,
+		`"heartbeat_signer"`,
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("public map leaked %q in payload: %s", forbidden, raw)
+		}
+	}
+
+	var resp MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ListingCount < 1 || resp.NodeCount < 1 {
+		t.Fatalf("expected listing+node points, got %#v", resp)
+	}
+
+	var listingPt, nodePt *MarketplaceMapPoint
+	for i := range resp.Points {
+		switch resp.Points[i].Kind {
+		case "listing":
+			listingPt = &resp.Points[i]
+		case "node":
+			nodePt = &resp.Points[i]
+		}
+	}
+	if listingPt == nil || nodePt == nil {
+		t.Fatalf("missing listing/node points: %#v", resp.Points)
+	}
+	if listingPt.TrustBadge == "" || listingPt.QualityScore < 90 {
+		t.Fatalf("expected quality trust on listing, got %#v", listingPt)
+	}
+	if listingPt.NetworkClass != "residential" {
+		t.Fatalf("expected residential class, got %q", listingPt.NetworkClass)
+	}
+	wantOpaque := mapOpaqueID("node", nodeID.String())
+	if nodePt.NodeID != wantOpaque || listingPt.NodeID != wantOpaque {
+		t.Fatalf("expected opaque node id %q, listing=%q node=%q", wantOpaque, listingPt.NodeID, nodePt.NodeID)
+	}
+	if nodePt.ID != "node:"+wantOpaque {
+		t.Fatalf("expected opaque point id, got %q", nodePt.ID)
 	}
 }

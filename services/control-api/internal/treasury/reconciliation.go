@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -563,6 +565,52 @@ func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
 			Int64("diff", diff).
 			Msg("JOURNAL LIABILITY vs WALLET MISMATCH")
 		alerts.Send(alerts.Critical, "Journal Liability Mismatch", msg)
+	}
+
+	// Per-wallet dual-write check (journal SoT progress): for each wallet with
+	// journal activity, Σ(2100 lines for wallet_id) + balance_lamports == 0.
+	type walletJournalDrift struct {
+		WalletID     string `gorm:"column:wallet_id"`
+		LiabilitySum int64  `gorm:"column:liability_sum"`
+		Balance      int64  `gorm:"column:balance_lamports"`
+	}
+	var drifts []walletJournalDrift
+	if err := db.DB.WithContext(ctx).Raw(`
+		SELECT w.id::text AS wallet_id,
+			COALESCE(j.liability_sum, 0) AS liability_sum,
+			w.balance_lamports
+		FROM wallets w
+		LEFT JOIN (
+			SELECT wallet_id, SUM(amount_lamports) AS liability_sum
+			FROM ledger_journal_lines
+			WHERE account_code = '2100' AND wallet_id IS NOT NULL
+			GROUP BY wallet_id
+		) j ON j.wallet_id = w.id
+		WHERE COALESCE(j.liability_sum, 0) + w.balance_lamports <> 0
+		ORDER BY ABS(COALESCE(j.liability_sum, 0) + w.balance_lamports) DESC
+		LIMIT 50
+	`).Scan(&drifts).Error; err != nil {
+		return err
+	}
+	for _, d := range drifts {
+		diff := d.LiabilitySum + d.Balance
+		msg := fmt.Sprintf(
+			"wallet %s: 2100 lines (%d) + balance_lamports (%d) = %d (expected 0)",
+			d.WalletID, d.LiabilitySum, d.Balance, diff,
+		)
+		logging.Error(nil).
+			Str("wallet_id", d.WalletID).
+			Int64("liability_sum", d.LiabilitySum).
+			Int64("balance_lamports", d.Balance).
+			Int64("diff", diff).
+			Msg("JOURNAL vs WALLET PER-WALLET DRIFT")
+		// Testnet may run with incomplete historical dual-writes; keep log signal but
+		// optionally suppress critical paging until M4 journal-as-SoT lands.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_JOURNAL_DRIFT_ALERTS")), "0") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_JOURNAL_DRIFT_ALERTS")), "false") {
+			continue
+		}
+		alerts.Send(alerts.Critical, "Journal Per-Wallet Drift", msg)
 	}
 
 	return nil

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	sol "github.com/gagliardetto/solana-go"
 )
 
 func writeSolanaKeypair(t *testing.T, path string, seed []byte) {
@@ -103,4 +105,38 @@ func TestGetPayoutPublicKeyUsesTreasuryHot(t *testing.T) {
 	if client.GetPayoutPublicKey().Equals(client.GetOraclePublicKey()) {
 		t.Fatal("payout pubkey must differ from oracle")
 	}
+}
+
+func TestGetPayoutPublicKeyPrefersHotHSM(t *testing.T) {
+	oracleSeed := make([]byte, 32)
+	hotSeed := make([]byte, 32)
+	for i := range oracleSeed {
+		oracleSeed[i] = 5
+		hotSeed[i] = 6
+	}
+	oraclePriv := ed25519.NewKeyFromSeed(oracleSeed)
+	hotPriv := ed25519.NewKeyFromSeed(hotSeed)
+	oraclePK := solPrivateFromEd25519(oraclePriv)
+	hotPK := solPrivateFromEd25519(hotPriv)
+
+	client := &OracleClient{
+		hsm:            NewMockHSMSigner(oraclePK),
+		hotHsm:         NewMockHSMSigner(hotPK),
+		treasuryHotKey: nil, // KMS-only hot
+	}
+	if !client.HasSeparateTreasuryHot() {
+		t.Fatal("expected HasSeparateTreasuryHot with hotHsm")
+	}
+	if !client.GetPayoutPublicKey().Equals(hotPK.PublicKey()) {
+		t.Fatalf("payout=%s want hot=%s", client.GetPayoutPublicKey(), hotPK.PublicKey())
+	}
+	if err := client.validateCustodySeparation(); err != nil {
+		t.Fatalf("validateCustodySeparation: %v", err)
+	}
+}
+
+func solPrivateFromEd25519(priv ed25519.PrivateKey) sol.PrivateKey {
+	out := make(sol.PrivateKey, len(priv))
+	copy(out, priv)
+	return out
 }

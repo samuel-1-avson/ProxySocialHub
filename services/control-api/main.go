@@ -36,6 +36,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/ops"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
+	"github.com/proxyhubb/control-api/internal/sessioncache"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 	"github.com/proxyhubb/control-api/internal/worker"
@@ -48,7 +49,10 @@ func main() {
 		log.Printf("Warning: env files not found or failed to load: %v", err)
 	}
 
-	// Initialise alert channels (Slack / email) — must be first so all downstream code can call alerts.Send()
+	// Structured logger must init before alerts / workers (zerolog nop otherwise).
+	logging.Init()
+
+	// Initialise platform-native alerts (durable journal + NATS; no Slack/PagerDuty)
 	alerts.Init()
 
 	// Fail-closed guards: never allow dev financial escapes in production.
@@ -232,6 +236,17 @@ func main() {
 	if err := redisClient.Init(); err != nil {
 		log.Printf("Warning: Failed to init Redis: %v", err)
 	}
+	// Sprint J0: dual-write Redis session blobs to PG for edge hydrate on miss.
+	redisClient.AfterStoreSession = func(username string, data *redisClient.SessionData, ttl time.Duration) {
+		if err := sessioncache.Upsert(username, data, ttl); err != nil {
+			logging.Warn().Err(err).Str("username", username).Msg("session_gateway_cache upsert failed")
+		}
+	}
+	redisClient.AfterDeleteSession = func(username string) {
+		if err := sessioncache.DeleteByUsername(username); err != nil {
+			logging.Warn().Err(err).Str("username", username).Msg("session_gateway_cache delete failed")
+		}
+	}
 	api.LogRateLimitBackend()
 
 	// Initialize Config Manager (Redis + DB Sync)
@@ -252,6 +267,7 @@ func main() {
 		log.Printf("Warning: Failed to init NATS: %v", err)
 	} else {
 		defer internalNats.Close()
+		internalNats.StartConsumerLagScraper(30 * time.Second)
 	}
 
 	// Initialize OpenTelemetry Tracing
@@ -280,28 +296,11 @@ func main() {
 	log.Printf("Solana RPC endpoints configured: %d", len(rpcEndpoints))
 
 	// 1. Initialize Global Oracle (API Handlers)
+	// On gcp-testnet, SOLANA_ORACLE_KEYPAIR is empty (KMS); the production oracle
+	// is registered later via NewOracleClient + RegisterOracleClient (BC-06 multisig
+	// init must follow that registration).
 	if err := solanaClient.InitOracleFromEnv(); err != nil {
 		log.Printf("Warning: Failed to init Solana oracle: %v", err)
-	}
-
-	// 1.5 Initialize Multi-Sig Oracle (Critical Security Enhancement)
-	// This enables 3-of-5 multi-signature requirements for treasury operations
-	if oracle := solanaClient.GetOracleClient(); oracle != nil {
-		if err := solanaClient.InitMultiSigOracle(oracle); err != nil {
-			log.Printf("Warning: Failed to init Multi-Sig oracle: %v", err)
-		} else {
-			// Load multi-sig config from chain
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if ms := solanaClient.GetMultiSigOracle(); ms != nil {
-				if err := ms.LoadMultiSigConfig(ctx); err != nil {
-					log.Printf("Warning: Failed to load multi-sig config: %v", err)
-				} else {
-					log.Printf("Multi-Sig Oracle initialized - Threshold: %d, Signers: %d",
-						ms.GetThreshold(), len(ms.GetSigners()))
-				}
-			}
-		}
 	}
 
 	// Initialize Treasury Auto-Topup Service
@@ -372,6 +371,12 @@ func main() {
 	r := gin.Default()
 	r.RedirectTrailingSlash = false
 	r.RemoveExtraSlash = false
+
+	// Only trust X-Forwarded-For / X-Real-IP from loopback (host Caddy) by default.
+	// Override with TRUSTED_PROXIES (comma-separated) or TRUSTED_PROXIES=none.
+	if err := middleware.ConfigureTrustedProxies(r); err != nil {
+		log.Fatalf("Failed to configure trusted proxies: %v", err)
+	}
 
 	// CORS (Robust for Hybrid Dev Environments)
 	r.Use(func(c *gin.Context) {
@@ -502,6 +507,7 @@ func main() {
 
 	// Metrics and Monitoring Endpoints
 	monitoring.RegisterMetricsRoutes(r)
+	api.RegisterInternalAlertWebhook(r)
 
 	// Circuit Breaker Stats Endpoint
 	r.GET("/metrics/circuit-breakers", middleware.CircuitBreakerStatsHandler())
@@ -659,6 +665,7 @@ func main() {
 		api.RegisterAdminListingModerationRoutes(adminProtected)
 		api.RegisterAdminForumModerationRoutes(adminProtected)
 		api.RegisterAdminPayoutRoutes(adminProtected)
+		api.RegisterAdminNodeHealthRoutes(adminProtected)
 		api.RegisterAdminMeRoute(adminProtected)
 		log.Println("Admin API enabled (ADMIN_API_ENABLED=true)")
 	} else {
@@ -806,7 +813,32 @@ func main() {
 		}
 		oracleClient.SetVelocityGuard(vg)
 		solanaClient.RegisterOracleClient(oracleClient)
+		treasury.GetManager().RefreshOracle()
 		log.Println("Oracle velocity guard attached")
+
+		// BC-06: multi-sig settle client (oracle KMS + local cosigner)
+		if err := solanaClient.InitMultiSigOracle(oracleClient); err != nil {
+			log.Printf("Warning: Failed to init Multi-Sig oracle: %v", err)
+		} else if ms := solanaClient.GetMultiSigOracle(); ms != nil {
+			var loadErr error
+			for attempt := 1; attempt <= 4; attempt++ {
+				ctxMS, cancelMS := context.WithTimeout(context.Background(), 15*time.Second)
+				loadErr = ms.LoadMultiSigConfig(ctxMS)
+				cancelMS()
+				if loadErr == nil {
+					break
+				}
+				log.Printf("Warning: multi-sig config load attempt %d/4: %v", attempt, loadErr)
+				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			}
+			if loadErr != nil {
+				log.Printf("Warning: Failed to load multi-sig config after retries: %v (will reload on settle)", loadErr)
+			} else {
+				log.Printf("Multi-Sig Oracle initialized - Threshold: %d, Signers: %d, authorized_local=%v, cosigner_env=%v",
+					ms.GetThreshold(), len(ms.GetSigners()), ms.IsAuthorizedSigner(),
+					strings.TrimSpace(os.Getenv("PROXYHUB_MULTISIG_COSIGNER_KEYPAIR")) != "")
+			}
+		}
 
 		solanaClient.InitStakingService(oracleClient)
 		solanaClient.InitProofService(oracleClient)
@@ -873,6 +905,10 @@ func main() {
 		log.Println("Payout retry worker started")
 		api.StartCompensationOutboxWorker()
 		log.Println("Compensation outbox worker started")
+		api.StartEscrowAutoReleaseWorker()
+		log.Println("Escrow auto-release worker started (challenge window gated)")
+		api.StartDisputeExpiryWorker()
+		log.Println("Dispute expiry worker started")
 
 		// Wire the batch processor into the earnings API so recordProviderEarning can queue payouts
 		api.SetBatchPayoutProcessor(billing.GetBatchProcessor())
@@ -938,6 +974,10 @@ func main() {
 	} else {
 		log.Println("Settlement Coordinator Worker started")
 	}
+
+	// EV-05 lite: drain metering_wal_spill → usage_receipts when Redis WAL writes fail.
+	worker.StartMeteringSpillDrainWorker(context.Background())
+	log.Println("Metering Spill Drain Worker started")
 
 	// Start Marketplace Watcher (Phase 9.1 Real-time Telemetry)
 	mw := worker.NewMarketplaceWatcher()

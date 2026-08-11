@@ -43,14 +43,16 @@ func CountryCentroid(country, anchor string) (lat, lon float64, ok bool) {
 
 // ApplyListingCoords uses GPS/explorer coords when present, else city centroid, else country centroid.
 func ApplyListingCoords(lat, lon float64, country, city, anchor string) (outLat, outLon float64, resolved bool) {
-	outLat, outLon, src := ApplyMapCoords(lat, lon, country, city, anchor)
+	outLat, outLon, src := ApplyMapCoords(lat, lon, country, city, "", anchor)
 	return outLat, outLon, src != "unknown"
 }
 
 // ApplyMapCoords resolves map coordinates and reports how they were derived.
 // Pins use regional hubs (major city areas) when configured for the country.
-func ApplyMapCoords(lat, lon float64, country, city, anchor string) (outLat, outLon float64, geoSource string) {
-	if _, hLat, hLon, ok := ApplyRegionalHubCoords(country, city, "", lat, lon); ok {
+// region is used when city is empty/wrong (e.g. "Western North" → Bibiani).
+func ApplyMapCoords(lat, lon float64, country, city, region, anchor string) (outLat, outLon float64, geoSource string) {
+	country, city, region = SanitizeMapPlace(country, city, region)
+	if _, hLat, hLon, ok := ApplyRegionalHubCoords(country, city, region, lat, lon); ok {
 		return hLat, hLon, "region_hub"
 	}
 	if lat2, lon2, ok := CityCentroid(city, country); ok {
@@ -60,6 +62,40 @@ func ApplyMapCoords(lat, lon float64, country, city, anchor string) (outLat, out
 		return lat2, lon2, "country_centroid"
 	}
 	return lat, lon, "unknown"
+}
+
+// SanitizeMapPlace drops a city that belongs to another country's hub catalog
+// (classic failure: explorer city "Chicago" with provider country "GH").
+func SanitizeMapPlace(country, city, region string) (string, string, string) {
+	country = NormalizeCountryCode(strings.TrimSpace(country))
+	city = strings.TrimSpace(city)
+	region = strings.TrimSpace(region)
+	if country == "" || city == "" {
+		return country, city, region
+	}
+	if cityBelongsToOtherCountry(country, city) {
+		city = ""
+	}
+	return country, city, region
+}
+
+func cityBelongsToOtherCountry(country, city string) bool {
+	for otherCC, hubs := range regionalHubsByCountry {
+		if otherCC == country {
+			continue
+		}
+		if h, ok := matchRegionalHubByText(hubs, city); ok {
+			if normalizePlaceKey(h.Name) == normalizePlaceKey(city) {
+				return true
+			}
+			for _, alias := range h.Aliases {
+				if normalizePlaceKey(alias) == normalizePlaceKey(city) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // MapGeoAnchor picks a stable grouping key so co-located listings share coordinates.

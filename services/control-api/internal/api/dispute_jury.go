@@ -14,6 +14,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
+	"gorm.io/gorm"
 )
 
 // RegisterDisputeJuryRoutes registers decentralized dispute resolution routes
@@ -94,7 +95,7 @@ func createDisputeJury(c *gin.Context) {
 		return
 	}
 
-	// Create jury
+	// Create jury + mark order/escrow disputed in one txn so auto-release cannot settle.
 	jury := models.DisputeJury{
 		DisputeID:      order.ID,
 		BuyerID:        order.BuyerID,
@@ -113,12 +114,21 @@ func createDisputeJury(c *gin.Context) {
 		jury.SellerEvidence = req.SellerEvidence
 	}
 
-	if err := db.DB.Create(&jury).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create jury"})
-		return
-	}
-
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, "api.dispute_jury.create", nil); err != nil {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var escrow models.EscrowTransaction
+		if err := tx.Where("order_id = ?", order.ID).First(&escrow).Error; err == nil {
+			jury.EscrowID = escrow.ID
+			if escrow.Status == models.EscrowHeld || escrow.Status == models.EscrowReleasing {
+				if err := tx.Model(&escrow).Update("status", models.EscrowDisputed).Error; err != nil {
+					return err
+				}
+			}
+		}
+		if err := tx.Create(&jury).Error; err != nil {
+			return err
+		}
+		return fsm.TransitionOrder(tx, &order, models.OrderStatusDisputed, "api.dispute_jury.create", nil)
+	}); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

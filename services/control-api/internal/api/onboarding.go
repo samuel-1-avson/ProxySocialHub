@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/middleware"
@@ -403,16 +404,28 @@ func syncApplicationDecision(user *models.User, app *models.ProviderApplication,
 
 func detectProviderGeo(c *gin.Context) ProviderDetectedGeo {
 	clientIP := providerClientIP(c)
-	effectiveIP := geoip.NormalizeIPForGeo(clientIP)
-	if result, ok := geoip.Resolve(effectiveIP); ok {
-		return ProviderDetectedGeo{
-			IP:       effectiveIP,
-			ISP:      firstNonEmpty(result.ISP, "Unknown ISP"),
-			Location: providerGeoLocation(result),
-			City:     result.City,
-			Region:   result.Region,
-			Country:  result.Country,
-			Detected: true,
+	effectiveIP := geoip.PublicIPForGeo(clientIP)
+	if effectiveIP == "" {
+		effectiveIP = strings.TrimSpace(clientIP)
+	}
+	if lookupIP := geoip.PublicIPForGeo(effectiveIP); lookupIP != "" {
+		if result, ok := geoip.Resolve(lookupIP); ok {
+			country := geo.NormalizeCountryCode(result.Country)
+			if country == "" {
+				country = strings.ToUpper(strings.TrimSpace(result.Country))
+				if len(country) != 2 {
+					country = ""
+				}
+			}
+			return ProviderDetectedGeo{
+				IP:       lookupIP,
+				ISP:      firstNonEmpty(result.ISP, "Unknown ISP"),
+				Location: providerGeoLocation(result),
+				City:     result.City,
+				Region:   result.Region,
+				Country:  country,
+				Detected: country != "",
+			}
 		}
 	}
 

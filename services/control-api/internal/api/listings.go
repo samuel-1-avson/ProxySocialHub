@@ -82,13 +82,11 @@ func getListings(c *gin.Context) {
 		return
 	}
 
-	// Map domain entities back to API response models
+	// Map domain entities back to API response models.
+	// Seller-set PricePerGB is authoritative (do not overwrite with fair-price hints).
 	apiListings := make([]models.ProxyListing, len(entities))
 	for i, e := range entities {
 		listingModel := listingEntityToModel(e)
-
-		// Apply Elastic Pricing adjustment
-		listingModel.PricePerGB = CalculateFairPrice(listingModel)
 
 		// Apply ZK-Privacy Obfuscation (Security Audit Sweep)
 		sentry := privacy.NewZKMetadataSentry()
@@ -353,6 +351,11 @@ func createListing(c *gin.Context) {
 		return
 	}
 
+	if _, hard := services.ValidateListingPriceUSD(req.PricePerGB, req.Country, string(req.ProxyType)); hard != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": hard})
+		return
+	}
+
 	providerNodeID, err := resolveListingProviderNode(userID, req.ProviderNodeID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -431,7 +434,9 @@ func createListing(c *gin.Context) {
 			return
 		}
 		if proofResult.Verified {
-			maybeBindProviderHotkey(proofContext.ProviderNodeID, userID, proofResult.Signer, true)
+			// Device hotkey is bound from CLI heartbeats only. Listing offers may be
+			// signed by the profile wallet (or dev server key); binding that here
+			// breaks enforce-mode heartbeats that use provider_signing_key.
 		}
 		entity.ListingOfferHash = proofResult.Hash
 		entity.ListingOfferSignature = proofResult.Signature
@@ -539,6 +544,18 @@ func updateListing(c *gin.Context) {
 		updates.Description = req.Description
 	}
 	if req.PricePerGB != nil {
+		var existingForPrice models.ProxyListing
+		if err := db.DB.Select("country", "proxy_type", "price_per_gb").
+			Where("id = ? AND seller_id = ? AND status != ?", listingID, userID, models.ListingStatusDeleted).
+			First(&existingForPrice).Error; err == nil {
+			if _, hard := services.ValidateListingPriceUSD(*req.PricePerGB, existingForPrice.Country, string(existingForPrice.ProxyType)); hard != "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": hard})
+				return
+			}
+		} else if *req.PricePerGB > services.ListingPriceHardCapUSD {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "price_per_gb exceeds the $50/GB hard limit"})
+			return
+		}
 		updates.PricePerGB = req.PricePerGB
 	}
 	if req.MinPurchaseGB != nil {
@@ -631,7 +648,7 @@ func updateListing(c *gin.Context) {
 				return
 			}
 			if proofResult.Verified {
-				maybeBindProviderHotkey(proofContext.ProviderNodeID, userID, proofResult.Signer, true)
+				// Do not bind listing signer as device hotkey (see createListing).
 			}
 			updates.ListingOfferHash = &proofResult.Hash
 			updates.ListingOfferSignature = &proofResult.Signature

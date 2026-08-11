@@ -187,7 +187,7 @@ type ProviderNode struct {
 	SuccessRate       float64        `gorm:"default:1.0" json:"success_rate"`
 	TotalBandwidthGB  float64        `gorm:"type:numeric(20,4);default:0" json:"total_bandwidth_gb"`
 	QualityScore      float64        `gorm:"default:100" json:"quality_score"` // Network Trust Score
-	BasePricePerGB    float64        `gorm:"type:decimal(10,4);default:0.20" json:"base_price_per_gb"`
+	BasePricePerGB    float64        `gorm:"type:decimal(10,4);default:0.99" json:"base_price_per_gb"`
 	LastSeenAt        *time.Time     `json:"last_seen_at,omitempty"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`

@@ -10,6 +10,9 @@ const (
 	CompensationKindWithdrawalRefund = "withdrawal_refund"
 	CompensationKindP2PRefund        = "p2p_refund"
 	CompensationKindP2PSettle        = "p2p_settle"
+	// CompensationKindEscrowSettle retries marketplace/session escrow SettleEscrow
+	// after a transient on-chain failure (roadmap 2.5 / M5).
+	CompensationKindEscrowSettle = "escrow_settle"
 
 	CompensationStatusPending         = "pending"
 	CompensationStatusSucceeded       = "succeeded"
