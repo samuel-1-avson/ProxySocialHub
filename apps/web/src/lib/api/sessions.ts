@@ -203,6 +203,16 @@ export function createSessionIntent(data: CreateSessionIntentRequest) {
     return apiPost<CreateSessionIntentResponse>('/v1/sessions/intent', data);
 }
 
+/**
+ * Re-issue JWT for an authorized/expired intent (same intent_id / jti).
+ */
+export function remintSessionIntent(id: string) {
+    return apiPost<CreateSessionIntentResponse & { reminted?: boolean }>(
+        `/v1/sessions/intents/${id}/remint`,
+        {}
+    );
+}
+
 export function getSessionIntentStatus(id: string) {
     return apiGet<SessionIntentStatusResponse>(`/v1/sessions/intents/${id}`);
 }
