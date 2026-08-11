@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -238,6 +239,19 @@ func isAdmin(c *gin.Context) bool {
 	role, _ := c.Get("userRole")
 	authType, _ := c.Get("auth_type")
 	return role == "admin" || authType == "admin"
+}
+
+// StartDisputeExpiryWorker periodically closes open session disputes past ExpiresAt.
+func StartDisputeExpiryWorker() {
+	go func() {
+		log.Println("[disputes] AutoCloseExpiredDisputes worker started (interval=1h)")
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		AutoCloseExpiredDisputes()
+		for range ticker.C {
+			AutoCloseExpiredDisputes()
+		}
+	}()
 }
 
 // AutoCloseExpiredDisputes closes open disputes whose ExpiresAt has passed.

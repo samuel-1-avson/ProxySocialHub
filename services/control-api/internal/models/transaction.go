@@ -21,6 +21,7 @@ type PendingTransaction struct {
 	Phone          *string   `gorm:"type:varchar(20)"`               // Deprecated: kept for backward compatibility
 	Status         string    `gorm:"type:varchar(20);default:'pending'"` // "pending", "completed", "failed"
 	FailureReason  string    `gorm:"type:text"`
+	DestinationKind string   `gorm:"type:varchar(20);column:destination_kind" json:"destination_kind,omitempty"` // treasury | vault
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

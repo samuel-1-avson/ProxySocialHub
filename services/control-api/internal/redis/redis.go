@@ -48,6 +48,13 @@ const Nil = redis.Nil
 var Client RedisClient
 var ctx = context.Background()
 
+// AfterStoreSession is an optional dual-write hook (Sprint J0 session_gateway_cache).
+// Wired from main to sessioncache.Upsert; must not call StoreSession recursively.
+var AfterStoreSession func(username string, data *SessionData, ttl time.Duration)
+
+// AfterDeleteSession is an optional dual-write cleanup hook.
+var AfterDeleteSession func(username string)
+
 type SessionData struct {
 	UserID         string    `json:"user_id"`
 	SessionID      string    `json:"session_id"`
@@ -84,6 +91,10 @@ type SessionData struct {
 }
 
 func Init() error {
+	// M2: prefer Redis Sentinel failover when configured.
+	if addrs := strings.TrimSpace(os.Getenv("REDIS_SENTINEL_ADDRS")); addrs != "" {
+		return initSentinel(addrs)
+	}
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
 		redisURL = "redis://localhost:6379"
@@ -92,6 +103,44 @@ func Init() error {
 		return initCluster(redisURL)
 	}
 	return initSingle(redisURL)
+}
+
+func initSentinel(addrsCSV string) error {
+	master := strings.TrimSpace(os.Getenv("REDIS_SENTINEL_MASTER"))
+	if master == "" {
+		master = "mymaster"
+	}
+	var addrs []string
+	for _, a := range strings.Split(addrsCSV, ",") {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		addrs = append(addrs, a)
+	}
+	if len(addrs) == 0 {
+		return fmt.Errorf("REDIS_SENTINEL_ADDRS is empty")
+	}
+	password := strings.TrimSpace(os.Getenv("REDIS_PASSWORD"))
+	if password == "" {
+		// Fall back to password embedded in REDIS_URL if present.
+		if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+			if opt, err := redis.ParseURL(redisURL); err == nil {
+				password = opt.Password
+			}
+		}
+	}
+	client := redis.NewFailoverClient(&redis.FailoverOptions{
+		MasterName:       master,
+		SentinelAddrs:    addrs,
+		Password:         password,
+		SentinelPassword: strings.TrimSpace(os.Getenv("REDIS_SENTINEL_PASSWORD")),
+	})
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		return fmt.Errorf("failed to connect to Redis via Sentinel: %w", err)
+	}
+	Client = client
+	return nil
 }
 
 func initSingle(redisURL string) error {
@@ -129,11 +178,16 @@ func StoreSession(sessionID string, data *SessionData, ttl time.Duration) error 
 	if err != nil {
 		return err
 	}
-	if Client == nil {
-		return nil
+	var redisErr error
+	if Client != nil {
+		key := "session:" + sessionID
+		redisErr = Client.Set(ctx, key, jsonData, ttl).Err()
 	}
-	key := "session:" + sessionID
-	return Client.Set(ctx, key, jsonData, ttl).Err()
+	// Dual-write even when Redis is down so hydrate can recover (J0).
+	if AfterStoreSession != nil && data != nil {
+		AfterStoreSession(sessionID, data, ttl)
+	}
+	return redisErr
 }
 
 // --- WS ticket store (short-lived, single-use WebSocket auth tickets) ---
@@ -168,6 +222,9 @@ func ConsumeWSTicket(ticket string) (userID string, role string, err error) {
 }
 
 func GetSession(sessionID string) (*SessionData, error) {
+	if Client == nil {
+		return nil, fmt.Errorf("redis not initialized")
+	}
 	key := "session:" + sessionID
 	val, err := Client.Get(ctx, key).Result()
 	if err != nil {
@@ -181,11 +238,15 @@ func GetSession(sessionID string) (*SessionData, error) {
 }
 
 func DeleteSession(sessionID string) error {
-	if Client == nil {
-		return nil
+	var redisErr error
+	if Client != nil {
+		key := "session:" + sessionID
+		redisErr = Client.Del(ctx, key).Err()
 	}
-	key := "session:" + sessionID
-	return Client.Del(ctx, key).Err()
+	if AfterDeleteSession != nil {
+		AfterDeleteSession(sessionID)
+	}
+	return redisErr
 }
 
 func SessionExists(sessionID string) (bool, error) {
@@ -211,6 +272,9 @@ func Exists(key string) (bool, error) {
 const usageTTL = 48 * time.Hour
 
 func IncrementUsage(sessionID string, bytes int64) error {
+	if Client == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
 	key := "session:" + sessionID + ":usage"
 	// Pipeline: increment + refresh TTL atomically so the counter never expires
 	// mid-session but is always cleaned up within 48 h of the last write (I6).
@@ -222,6 +286,9 @@ func IncrementUsage(sessionID string, bytes int64) error {
 }
 
 func GetUsage(sessionID string) (int64, error) {
+	if Client == nil {
+		return 0, fmt.Errorf("redis client not initialized")
+	}
 	key := "session:" + sessionID + ":usage"
 	return Client.Get(ctx, key).Int64()
 }

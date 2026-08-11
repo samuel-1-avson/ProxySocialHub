@@ -19,10 +19,11 @@ func ResolveListingProviderNode(listing *models.ProxyListing) (*models.ProviderN
 	if listing.ProviderNodeID != nil && *listing.ProviderNodeID != uuid.Nil {
 		err := db.DB.Where("id = ? AND user_id = ? AND deleted_at IS NULL", *listing.ProviderNodeID, listing.SellerID).
 			First(&node).Error
-		if err != nil {
-			return nil, fmt.Errorf("listing provider node not found: %w", err)
+		if err == nil {
+			return &node, nil
 		}
-		return &node, nil
+		// Pinned node may have been soft-deleted while the listing stayed active.
+		// Fall through to another live node for this seller so escrow can activate.
 	}
 
 	err := db.DB.

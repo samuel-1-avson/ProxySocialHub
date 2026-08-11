@@ -11,11 +11,11 @@ import (
 
 // PricingEvaluator runs periodically to evaluate and update the dynamic pricing tiers of proxy nodes.
 //
-// Tier thresholds based on Quality Score (0-100):
+// Tier thresholds based on Quality Score (0-100), USD/GB guidance for nodes:
 //
-//	Bronze: 0 - 69   (Base price: $0.20/GB)
-//	Silver: 70 - 89  (Base price: $1.00/GB)
-//	Gold:   90+      (Base price: $2.50/GB)
+//	Bronze: 0 - 69   (Base price: $0.80/GB)
+//	Silver: 70 - 89  (Base price: $0.99/GB)
+//	Gold:   90+      (Base price: $1.25/GB)
 type PricingEvaluator struct{}
 
 // StartPricingEvaluator starts a background goroutine that evaluates node pricing tiers every 15 minutes.
@@ -38,11 +38,11 @@ func computeDynamicPricingTier(node models.Node) (score float64, tier string, pr
 	score = node.CalculateQualityScore()
 
 	if score >= 90 {
-		return score, "Gold", 2.50
+		return score, "Gold", 1.25
 	} else if score >= 70 {
-		return score, "Silver", 1.00
+		return score, "Silver", 0.99
 	} else {
-		return score, "Bronze", 0.20
+		return score, "Bronze", 0.80
 	}
 }
 

@@ -3,8 +3,11 @@ package solana
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"os"
 	"sort"
+	"strings"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -83,9 +86,10 @@ func (m *MultiSigOracleClient) LoadMultiSigConfig(ctx context.Context) error {
 		return fmt.Errorf("multisig oracle not initialized")
 	}
 
-	// Parse account data (skip 8-byte discriminator)
+	// Parse account data (skip 8-byte discriminator).
+	// Borsh Vec<Pubkey> is len(u32) + len*32 — not a fixed 5-slot array.
 	data := accountInfo.Value.Data.GetBinary()
-	if len(data) < 8+4+(32*5)+1+8+8+1 {
+	if len(data) < 8+4+1+8+8+1 {
 		return fmt.Errorf("multisig account data too short")
 	}
 
@@ -93,26 +97,23 @@ func (m *MultiSigOracleClient) LoadMultiSigConfig(ctx context.Context) error {
 
 	// Parse signers vector
 	m.config = &MultiSigConfig{}
-	
+
 	// Number of signers (u32)
 	numSigners := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
 	if numSigners > 5 {
 		return fmt.Errorf("invalid multisig signers count: %d (max 5)", numSigners)
 	}
 	data = data[4:]
+	need := int(numSigners)*32 + 1 + 8 + 8 + 1
+	if len(data) < need {
+		return fmt.Errorf("multisig account data too short for %d signers", numSigners)
+	}
 
-	// Parse each signer
-	for i := 0; i < int(numSigners) && i < 5; i++ {
-		if len(data) < 32 {
-			break
-		}
+	for i := 0; i < int(numSigners); i++ {
 		pubkey := sol.PublicKeyFromBytes(data[:32])
 		m.config.Signers = append(m.config.Signers, pubkey)
 		data = data[32:]
 	}
-
-	// Skip remaining space in vector (5 - numSigners) * 32
-	data = data[(5-int(numSigners))*32:]
 
 	// Parse threshold
 	m.config.Threshold = data[0]
@@ -125,18 +126,139 @@ func (m *MultiSigOracleClient) LoadMultiSigConfig(ctx context.Context) error {
 	// Parse last_update
 	m.config.LastUpdate = int64(bytesToUint64(data[:8]))
 
-	// Check if this client is a signer
+	// Check if this client can contribute a signature (local cosigner keys
+	// and/or the oracle pubkey via SignMessage / KMS).
 	m.isSigner = false
-	for _, signerKey := range m.signers {
-		for _, authorizedSigner := range m.config.Signers {
+	oraclePub := m.GetOraclePublicKey()
+	for _, authorizedSigner := range m.config.Signers {
+		if authorizedSigner.Equals(oraclePub) {
+			m.isSigner = true
+			break
+		}
+		for _, signerKey := range m.signers {
 			if signerKey.PublicKey().Equals(authorizedSigner) {
 				m.isSigner = true
 				break
 			}
 		}
+		if m.isSigner {
+			break
+		}
 	}
 
 	return nil
+}
+
+// GetEscrowMultiSigPDA derives the escrow_multisig PDA (buyer, seller, expires_at).
+func (c *OracleClient) GetEscrowMultiSigPDA(buyer, seller sol.PublicKey, expiresAt int64) (sol.PublicKey, uint8, error) {
+	expiresBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(expiresBytes, uint64(expiresAt))
+	pda, bump, err := sol.FindProgramAddress(
+		[][]byte{
+			[]byte("escrow_multisig"),
+			buyer.Bytes(),
+			seller.Bytes(),
+			expiresBytes,
+		},
+		c.programID,
+	)
+	if err != nil {
+		return sol.PublicKey{}, 0, fmt.Errorf("failed to derive escrow_multisig PDA: %w", err)
+	}
+	return pda, bump, nil
+}
+
+// SettlementMessage builds the canonical settle message bytes for Ed25519 signing.
+func SettlementMessage(req MultiSigSettlementRequest) []byte {
+	return []byte(fmt.Sprintf(
+		"settle:%s:%s:%s:%d:%d",
+		req.EscrowPDA.String(),
+		req.Buyer.String(),
+		req.Seller.String(),
+		req.BandwidthUsedGB,
+		req.Nonce,
+	))
+}
+
+// SignSettlementWithOracle signs the settle message with the oracle key / KMS (SignMessage).
+func (m *MultiSigOracleClient) SignSettlementWithOracle(
+	ctx context.Context,
+	req MultiSigSettlementRequest,
+) (*SettlementSignature, error) {
+	if m.config == nil {
+		return nil, fmt.Errorf("multisig config not loaded")
+	}
+	oraclePub := m.GetOraclePublicKey()
+	authorized := false
+	for _, auth := range m.config.Signers {
+		if oraclePub.Equals(auth) {
+			authorized = true
+			break
+		}
+	}
+	if !authorized {
+		return nil, fmt.Errorf("oracle %s is not an authorized multisig signer", oraclePub.String())
+	}
+	msg := SettlementMessage(req)
+	sigBytes, err := m.SignMessage(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("oracle SignMessage failed: %w", err)
+	}
+	if len(sigBytes) != 64 {
+		return nil, fmt.Errorf("oracle signature length %d, want 64", len(sigBytes))
+	}
+	var sig [64]byte
+	copy(sig[:], sigBytes)
+	return &SettlementSignature{
+		Signer:    oraclePub,
+		Signature: sig,
+	}, nil
+}
+
+// CollectLocalSettlementSignatures gathers oracle (SignMessage) + local cosigner
+// signatures until the on-chain threshold is met.
+func (m *MultiSigOracleClient) CollectLocalSettlementSignatures(
+	ctx context.Context,
+	req MultiSigSettlementRequest,
+) ([]*SettlementSignature, error) {
+	if m.config == nil {
+		return nil, fmt.Errorf("multisig config not loaded")
+	}
+	need := int(m.config.Threshold)
+	if need < 1 {
+		return nil, fmt.Errorf("invalid multisig threshold %d", need)
+	}
+	out := make([]*SettlementSignature, 0, need)
+	seen := map[string]bool{}
+
+	if oracleSig, err := m.SignSettlementWithOracle(ctx, req); err == nil {
+		out = append(out, oracleSig)
+		seen[oracleSig.Signer.String()] = true
+	}
+
+	for _, key := range m.signers {
+		if len(out) >= need {
+			break
+		}
+		pub := key.PublicKey()
+		if seen[pub.String()] {
+			continue
+		}
+		sig, err := m.SignSettlement(req, key)
+		if err != nil {
+			continue
+		}
+		out = append(out, sig)
+		seen[pub.String()] = true
+	}
+
+	if len(out) < need {
+		return nil, fmt.Errorf(
+			"insufficient local multisig signatures: got %d, need %d (load PROXYHUB_MULTISIG_COSIGNER_KEYPAIR and ensure oracle is on-chain signer)",
+			len(out), need,
+		)
+	}
+	return out[:need], nil
 }
 
 // SignSettlement creates an Ed25519 signature for a settlement
@@ -274,7 +396,32 @@ func (m *MultiSigOracleClient) AggregateSettlementSignatures(
 	return validSigners, nil
 }
 
-// SettleEscrowMultiSig submits a settlement with multi-sig verification
+// SettleEscrowMultiSigLocal reloads on-chain nonce, collects oracle+cosigner
+// signatures for that nonce, then submits settle_escrow_multisig (BC-06).
+func (m *MultiSigOracleClient) SettleEscrowMultiSigLocal(
+	ctx context.Context,
+	params SettleEscrowParams,
+) (string, error) {
+	if err := m.LoadMultiSigConfig(ctx); err != nil {
+		return "", fmt.Errorf("reload multisig config: %w", err)
+	}
+	req := MultiSigSettlementRequest{
+		EscrowPDA:       params.EscrowPDA,
+		Buyer:           params.Buyer,
+		Seller:          params.Seller,
+		BandwidthUsedGB: params.BandwidthUsedGB,
+		Nonce:           m.config.Nonce,
+	}
+	sigs, err := m.CollectLocalSettlementSignatures(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return m.SettleEscrowMultiSig(ctx, params, sigs)
+}
+
+// SettleEscrowMultiSig submits a settlement with multi-sig verification.
+// Callers must LoadMultiSigConfig (or use SettleEscrowMultiSigLocal) so sigs
+// match the current on-chain nonce.
 func (m *MultiSigOracleClient) SettleEscrowMultiSig(
 	ctx context.Context,
 	params SettleEscrowParams,
@@ -435,7 +582,7 @@ func (m *MultiSigOracleClient) buildMultiSigSettleInstruction(
 			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},
 			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},
-			{PublicKey: multisigPDA, IsSigner: false, IsWritable: false},
+			{PublicKey: multisigPDA, IsSigner: false, IsWritable: true}, // BC-06: nonce bump
 			{PublicKey: oracleSigPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: m.GetOraclePublicKey(), IsSigner: true, IsWritable: true},
 			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
@@ -459,6 +606,14 @@ func (m *MultiSigOracleClient) GetThreshold() uint8 {
 	return m.config.Threshold
 }
 
+// GetNonce returns the current on-chain multisig nonce (after LoadMultiSigConfig).
+func (m *MultiSigOracleClient) GetNonce() uint64 {
+	if m.config == nil {
+		return 0
+	}
+	return m.config.Nonce
+}
+
 // GetSigners returns the list of authorized signers
 func (m *MultiSigOracleClient) GetSigners() []sol.PublicKey {
 	if m.config == nil {
@@ -475,6 +630,13 @@ func InitMultiSigOracle(baseClient *OracleClient) error {
 	client, err := NewMultiSigOracleClient(baseClient)
 	if err != nil {
 		return err
+	}
+	if path := strings.TrimSpace(os.Getenv("PROXYHUB_MULTISIG_COSIGNER_KEYPAIR")); path != "" {
+		key, loadErr := LoadKeypairFromFile(path)
+		if loadErr != nil {
+			return fmt.Errorf("PROXYHUB_MULTISIG_COSIGNER_KEYPAIR: %w", loadErr)
+		}
+		client.AddSignerKey(key)
 	}
 	globalMultiSigOracle = client
 	return nil

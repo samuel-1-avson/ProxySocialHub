@@ -86,6 +86,12 @@ func (s *Session) AfterFind(tx *gorm.DB) error {
 	return s.decryptCredentials()
 }
 
+// DecryptCredentialsForGateway re-runs credential decryption after in-memory
+// fields may have been re-encrypted by BeforeSave during a partial UPDATE.
+func (s *Session) DecryptCredentialsForGateway() error {
+	return s.decryptCredentials()
+}
+
 // CredentialEncryptFn and CredentialDecryptFn are wired from main.go after the
 // crypto package is initialised. Using function variables avoids an import cycle
 // between models ↔ crypto (crypto imports db which imports models).

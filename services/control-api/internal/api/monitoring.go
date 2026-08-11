@@ -10,6 +10,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
+	"github.com/proxyhubb/control-api/internal/worker"
 )
 
 type OperationalMetrics struct {
@@ -92,7 +93,7 @@ func getTreasuryStats(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	tm := treasury.NewTreasuryManager()
+	tm := treasury.GetManager()
 	stats, err := tm.GetTreasuryStats(ctx)
 	if err != nil {
 		logging.Error(err).Msg("Failed to get treasury stats")
@@ -102,13 +103,15 @@ func getTreasuryStats(c *gin.Context) {
 		})
 		return
 	}
+	depth, oldestAge := worker.QueueDepthStats()
+	stats.AttachQueueMetrics(depth, oldestAge)
 
 	c.JSON(http.StatusOK, stats)
 }
 
 // getTreasuryThresholds returns the current threshold configuration
 func getTreasuryThresholds(c *gin.Context) {
-	tm := treasury.NewTreasuryManager()
+	tm := treasury.GetManager()
 	thresholds := tm.GetThresholds()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -153,7 +156,7 @@ func getNetworkFromThresholds(thresholds treasury.TreasuryThresholds) string {
 	if thresholds.MinSOLLamports >= 100*1_000_000_000 {
 		return "mainnet-beta"
 	}
-	if thresholds.MinSOLLamports >= 50*1_000_000_000 {
+	if thresholds.MinSOLLamports >= 5*1_000_000_000 {
 		return "staging"
 	}
 	return "devnet"

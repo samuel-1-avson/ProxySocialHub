@@ -169,6 +169,8 @@ func NewRPCHTTPClient() *http.Client {
 // HealthyRPCEndpoints probes endpoints and returns them ordered healthy-first.
 // Unhealthy endpoints are kept as fallbacks — dropping them left withdrawals
 // stranded on a single rate-limited public RPC.
+// Probe uses getLatestBlockhash (not GetHealth) because free-tier providers often
+// pass health checks while rate-limiting JSON-RPC methods used by settle/withdraw.
 func HealthyRPCEndpoints(ctx context.Context, endpoints []string) []string {
 	normalized := NormalizeRPCEndpoints(endpoints)
 	if len(normalized) == 0 {
@@ -179,7 +181,8 @@ func HealthyRPCEndpoints(ctx context.Context, endpoints []string) []string {
 	for _, endpoint := range normalized {
 		probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 		client := NewRPCClient(endpoint)
-		if _, err := client.GetHealth(probeCtx); err == nil {
+		_, err := client.GetLatestBlockhash(probeCtx, rpc.CommitmentConfirmed)
+		if err == nil {
 			healthy = append(healthy, endpoint)
 		} else {
 			unhealthy = append(unhealthy, endpoint)

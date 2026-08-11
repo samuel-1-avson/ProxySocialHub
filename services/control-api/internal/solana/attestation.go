@@ -103,7 +103,7 @@ func (c *OracleClient) WriteKYCAttestation(ctx context.Context, params WriteKYCA
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},  // oracle
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true}, // oracle (admin / KMS)
 			{PublicKey: attestPDA, IsSigner: false, IsWritable: true},               // attestation PDA
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},    // system_program
 			{PublicKey: statePDA, IsSigner: false, IsWritable: false},               // program_state

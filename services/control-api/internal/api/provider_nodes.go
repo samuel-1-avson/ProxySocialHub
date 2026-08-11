@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/nats"
 	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
+	"gorm.io/gorm"
 )
 
 // RegisterProviderNodeRoutes registers provider node management routes
@@ -65,6 +67,18 @@ func createNode(c *gin.Context) {
 	}
 
 	req.IPAddress, req.Country, req.City = normalizeProviderNodeGeo(req.IPAddress, req.Country, req.City)
+	if stored := geoip.ProviderIPForStorage(req.IPAddress); stored != "" {
+		req.IPAddress = stored
+	} else if geoip.IsControlPlanePublicIP(req.IPAddress) {
+		req.IPAddress = ""
+	}
+	// Auto-detect country from the registering client's public IP when omitted.
+	// City stays optional — never force-fill a city from GeoIP at registration time.
+	if strings.TrimSpace(req.Country) == "" {
+		if detected := detectProviderGeo(c); detected.Detected && detected.Country != "" {
+			req.Country = detected.Country
+		}
+	}
 
 	// Duplicate IP detection — same IP cannot be registered by the same provider twice
 	if req.IPAddress != "" {
@@ -173,6 +187,15 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 		title = node.Name + " — " + loc
 	}
 
+	// Default USD/GB by infrastructure type (traffic-first vs centralized mid-market).
+	pricePerGB := 0.99
+	switch proxyType {
+	case models.ProxyTypeMobile:
+		pricePerGB = 3.50
+	case models.ProxyTypeDatacenter:
+		pricePerGB = 0.15
+	}
+
 	nodeID := node.ID
 	listing := models.ProxyListing{
 		ID:                   uuid.New(),
@@ -180,7 +203,7 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 		ProviderNodeID:       &nodeID,
 		Title:                title,
 		Description:          autoProviderListingDescriptionPrefix + ". It becomes public after the node sends a healthy heartbeat.",
-		PricePerGB:           0.50, // default SOL-denominated price per GB; provider can adjust
+		PricePerGB:           pricePerGB,
 		MinPurchaseGB:        1,
 		AvailableBandwidthGB: 100, // default 100 GB; provider can adjust
 		ProxyType:            proxyType,
@@ -230,6 +253,11 @@ func updateNode(c *gin.Context) {
 	}
 
 	req.IPAddress, req.Country, req.City = normalizeProviderNodeGeo(req.IPAddress, req.Country, req.City)
+	if stored := geoip.ProviderIPForStorage(req.IPAddress); stored != "" {
+		req.IPAddress = stored
+	} else if geoip.IsControlPlanePublicIP(req.IPAddress) {
+		req.IPAddress = ""
+	}
 
 	updates := map[string]interface{}{
 		"name":    req.Name,
@@ -263,6 +291,18 @@ func deleteNode(c *gin.Context) {
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
+	}
+
+	// Remove marketplace/explorer map footprints immediately (do not wait for NodeSync/cleanup).
+	if err := db.DB.Where("node_id = ?", nodeID.String()).Delete(&models.ExplorerNode{}).Error; err != nil {
+		logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("failed to delete explorer_nodes footprint after provider node delete")
+	}
+
+	// Pause listings bound to this node so they stop appearing as purchasable supply.
+	if err := db.DB.Model(&models.ProxyListing{}).
+		Where("provider_node_id = ? AND status = ?", nodeID, models.ListingStatusActive).
+		Update("status", models.ListingStatusPaused).Error; err != nil {
+		logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("failed to pause listings after provider node delete")
 	}
 
 	invalidateMarketplaceReadModels()
@@ -356,23 +396,55 @@ func getNodeConnectInfo(c *gin.Context) {
 	}
 
 	controlURL := strings.TrimRight(providerPublicControlAPIURL(), "/")
-	tunnelAddr := providerPublicTunnelAddr()
-	// Provider tunnel is TLS on production; keep true for https control API or public tunnel hosts.
-	useTLS := true
+	tunnelAddr := sanitizeProviderTunnelAddr(providerPublicTunnelAddr(), controlURL)
+	tunnelAddrs := providerPublicTunnelAddrs(tunnelAddr)
+	// Public tunnel uses TLS (Let's Encrypt on proxy.*). Localhost stays plain.
+	useTLS := !strings.HasPrefix(tunnelAddr, "localhost") && !strings.HasPrefix(tunnelAddr, "127.0.0.1")
+	skipVerify := false
+	ua := strings.ToLower(c.GetHeader("User-Agent"))
 	configHint := "~/.config/proxyhubb/provider.toml"
-	startCmd := "provider-node start --config " + configHint
+	if strings.Contains(ua, "windows") || strings.Contains(ua, "win64") || strings.Contains(ua, "win32") {
+		configHint = `%APPDATA%\proxyhubb\provider.toml`
+	}
+	startCmd := "provider-node start"
 
 	c.JSON(http.StatusOK, gin.H{
-		"node_id":             node.ID.String(),
-		"control_api_url":     controlURL,
-		"gateway_tunnel_addr": tunnelAddr,
-		"use_tls":             useTLS,
-		"connection_type":     "residential",
-		"config_path_hint":    configHint,
-		"start_command":       startCmd,
+		"node_id":              node.ID.String(),
+		"control_api_url":      controlURL,
+		"gateway_tunnel_addr":  tunnelAddr,
+		"gateway_tunnel_addrs": tunnelAddrs,
+		"use_tls":              useTLS,
+		"tls_skip_verify":      skipVerify,
+		"connection_type":      "residential",
+		"config_path_hint":     configHint,
+		"config_path_windows":  `%APPDATA%\proxyhubb\provider.toml`,
+		"config_path_unix":     "~/.config/proxyhubb/provider.toml",
+		"start_command":        startCmd,
+		"join_hint":            "provider-node join --api-key <token> --node-id " + node.ID.String(),
 		// provider.toml must use this UUID as node_id (not nodes.id). See docs/NODE_REGISTRY.md.
 		"registry_note": "Set provider.toml node_id to node_id above (provider_nodes UUID). Gateway identity is node_<profile_uuid> when linked.",
 	})
+}
+
+// sanitizeProviderTunnelAddr rewrites raw VM IPs to the public hostname so TLS
+// SNI matches Let's Encrypt (proxy.proxyhubb.com). Localhost is left alone.
+func sanitizeProviderTunnelAddr(addr, controlURL string) string {
+	addr = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(addr, "https://"), "http://"))
+	if addr == "" {
+		return addr
+	}
+	host, port, ok := strings.Cut(addr, ":")
+	if !ok {
+		host = addr
+		port = "3128"
+	}
+	if host == "localhost" || host == "127.0.0.1" {
+		return host + ":" + port
+	}
+	if ip := net.ParseIP(host); ip != nil && strings.Contains(controlURL, "proxyhubb.com") {
+		return "proxy.proxyhubb.com:" + port
+	}
+	return host + ":" + port
 }
 
 func providerPublicControlAPIURL() string {
@@ -398,6 +470,34 @@ func providerPublicTunnelAddr() string {
 	return "localhost:3128"
 }
 
+// providerPublicTunnelAddrs returns failover tunnel endpoints (primary first).
+func providerPublicTunnelAddrs(primary string) []string {
+	out := make([]string, 0, 4)
+	add := func(a string) {
+		a = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(a, "https://"), "http://"))
+		if a == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == a {
+				return
+			}
+		}
+		out = append(out, a)
+	}
+	add(primary)
+	if raw := os.Getenv("PROVIDER_TUNNEL_PUBLIC_ADDRS"); raw != "" {
+		for _, part := range strings.Split(raw, ",") {
+			add(part)
+		}
+	}
+	// Sensible default failover: same host on 8443 when primary is :3128.
+	if host, port, ok := strings.Cut(primary, ":"); ok && port == "3128" && host != "" && host != "localhost" && host != "127.0.0.1" {
+		add(host + ":8443")
+	}
+	return out
+}
+
 // nodeHeartbeat is called by provider-node about every 120s (see provider.toml) to keep the node online.
 // Rows go offline after PROVIDER_NODE_STALE_AFTER (default 5m) without a heartbeat.
 // POST /v1/provider/nodes/:id/heartbeat
@@ -412,12 +512,25 @@ func nodeHeartbeat(c *gin.Context) {
 	}
 
 	// Fetch existing status to detect transition to online and verify optional provider proof.
-	var currentNode models.ProviderNode
-	if err := db.DB.Model(&models.ProviderNode{}).
-		Where("id = ? AND user_id = ?", nodeID, userID).
-		First(&currentNode).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+	currentNode, restored, err := loadProviderNodeForHeartbeat(nodeID, userID)
+	if err != nil {
+		activeIDs := listActiveProviderNodeIDs(userID)
+		payload := gin.H{
+			"error": "Node not found",
+			"hint":  "provider.toml node_id is missing or was deleted; update it to an active node id from GET /v1/provider/nodes",
+		}
+		if len(activeIDs) > 0 {
+			payload["active_node_ids"] = activeIDs
+			payload["suggested_node_id"] = activeIDs[0]
+		}
+		c.JSON(http.StatusNotFound, payload)
 		return
+	}
+	if restored {
+		logging.Info().
+			Str("node_id", nodeID.String()).
+			Str("user_id", userID.String()).
+			Msg("nodeHeartbeat: restored soft-deleted provider node after live heartbeat")
 	}
 	currentStatus := string(currentNode.Status)
 	nodeName := currentNode.Name
@@ -466,6 +579,7 @@ func nodeHeartbeat(c *gin.Context) {
 	updates := map[string]interface{}{
 		"last_seen_at":                        now,
 		"status":                              models.NodeOnline,
+		"is_healthy":                          true,
 		"latest_heartbeat_hash":               proofResult.Hash,
 		"latest_heartbeat_signature":          proofResult.Signature,
 		"latest_heartbeat_signer":             proofResult.Signer,
@@ -594,6 +708,51 @@ func activateProviderListingDraftIfReady(userID uuid.UUID, nodeID uuid.UUID, pro
 			Int64("listings", result.RowsAffected).
 			Msg("activateProviderListingDraftIfReady: provider listing published")
 	}
+}
+
+// loadProviderNodeForHeartbeat returns the owned provider node, restoring it if it was soft-deleted.
+// A live heartbeat is treated as proof the provider still intends to run that node_id.
+func loadProviderNodeForHeartbeat(nodeID, userID uuid.UUID) (models.ProviderNode, bool, error) {
+	var currentNode models.ProviderNode
+	err := db.DB.Model(&models.ProviderNode{}).
+		Where("id = ? AND user_id = ?", nodeID, userID).
+		First(&currentNode).Error
+	if err == nil {
+		return currentNode, false, nil
+	}
+
+	var deleted models.ProviderNode
+	if unscopedErr := db.DB.Unscoped().
+		Where("id = ? AND user_id = ? AND deleted_at IS NOT NULL", nodeID, userID).
+		First(&deleted).Error; unscopedErr != nil {
+		return models.ProviderNode{}, false, err
+	}
+
+	if restoreErr := db.DB.Unscoped().
+		Model(&deleted).
+		Updates(map[string]interface{}{
+			"deleted_at": nil,
+			"status":     models.NodeOnline,
+			"is_healthy": true,
+		}).Error; restoreErr != nil {
+		return models.ProviderNode{}, false, restoreErr
+	}
+	deleted.DeletedAt = gorm.DeletedAt{}
+	return deleted, true, nil
+}
+
+func listActiveProviderNodeIDs(userID uuid.UUID) []string {
+	var nodes []models.ProviderNode
+	if err := db.DB.Where("user_id = ?", userID).
+		Order("last_seen_at DESC NULLS LAST, created_at DESC").
+		Find(&nodes).Error; err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.ID.String())
+	}
+	return ids
 }
 
 // UpdateNodeStatus updates a node's online status (called by gateway)

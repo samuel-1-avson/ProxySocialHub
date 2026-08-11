@@ -130,12 +130,7 @@ func (c *OracleClient) SettleEscrow(ctx context.Context, source string, params S
 	instruction := c.buildSettleInstruction(params)
 
 	// Get recent blockhash
-	var recentBlockhash *rpc.GetLatestBlockhashResult
-	err := c.withFailover(ctx, func(client *rpc.Client) error {
-		var err error
-		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
-		return err
-	})
+	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
@@ -207,12 +202,7 @@ func (c *OracleClient) BatchSettleEscrows(ctx context.Context, source string, ba
 	}
 
 	// Get recent blockhash
-	var recentBlockhash *rpc.GetLatestBlockhashResult
-	err := c.withFailover(ctx, func(client *rpc.Client) error {
-		var err error
-		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
-		return err
-	})
+	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		recordSettlementTelemetry(source, "", err)
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
@@ -342,9 +332,10 @@ func (c *OracleClient) SlashStake(ctx context.Context, params SlashStakeParams) 
 	return c.sendInstruction(ctx, instruction)
 }
 
-// SubmitUsageProof executes a submit_usage_proof instruction
+// SubmitUsageProof executes a submit_usage_proof instruction.
+// Account order must match SubmitUsageProof in programs/proxyhub (incl. program_state for BC-05).
 func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageProofParams) (string, error) {
-	usageProofPDA, _, _ := sol.FindProgramAddress(
+	usageProofPDA, _, err := sol.FindProgramAddress(
 		[][]byte{
 			[]byte("usage_proof"),
 			params.EscrowPDA.Bytes(),
@@ -352,6 +343,13 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 		},
 		c.programID,
 	)
+	if err != nil {
+		return "", fmt.Errorf("SubmitUsageProof: usage_proof PDA: %w", err)
+	}
+	statePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
+	if err != nil {
+		return "", fmt.Errorf("SubmitUsageProof: program_state PDA: %w", err)
+	}
 
 	// Encode data (Disc + index(u32) + bytes(u64) + start(i64) + end(i64))
 	data := make([]byte, 8+4+8+8+8)
@@ -372,11 +370,12 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true}, // submitter
-			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},
-			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},
-			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false},
-			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true}, // 0 oracle (admin)
+			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: false},     // 1 escrow
+			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},         // 2 usage_proof
+			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false}, // 3
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},  // 4
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},             // 5 program_state (BC-05)
 		},
 		data: data,
 	}
@@ -390,14 +389,9 @@ func (c *OracleClient) sendInstruction(ctx context.Context, instruction sol.Inst
 }
 
 func (c *OracleClient) sendInstructionAsPayer(ctx context.Context, instruction sol.Instruction, payer sol.PublicKey) (string, error) {
-	var recentBlockhash *rpc.GetLatestBlockhashResult
-	err := c.withFailover(ctx, func(client *rpc.Client) error {
-		var err error
-		recentBlockhash, err = client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
-		return err
-	})
+	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 
 	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, recentBlockhash.Value.Blockhash, sol.TransactionPayer(payer))
@@ -549,7 +543,7 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 	}
 
 	// Build and sign transaction with all instructions
-	recentBlockhash, err := c.rpc().GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
@@ -570,13 +564,18 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 	}
 
 	// Send transaction
-	sig, err := c.rpc().SendTransactionWithOpts(ctx, tx,
-		rpc.TransactionOpts{
-			Encoding:            "base64",
-			SkipPreflight:       false,
-			PreflightCommitment: rpc.CommitmentConfirmed,
-		},
-	)
+	var sig sol.Signature
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var callErr error
+		sig, callErr = client.SendTransactionWithOpts(ctx, tx,
+			rpc.TransactionOpts{
+				Encoding:            "base64",
+				SkipPreflight:       false,
+				PreflightCommitment: rpc.CommitmentConfirmed,
+			},
+		)
+		return callErr
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to send transaction: %w", err)
 	}

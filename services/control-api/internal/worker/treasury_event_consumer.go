@@ -26,31 +26,36 @@ func (w *TreasuryEventConsumer) Start(ctx context.Context) error {
 		return fmt.Errorf("NATS JetStream not initialized")
 	}
 
-	consumer, err := nats.JS.CreateOrUpdateConsumer(ctx, "TREASURY", jetstream.ConsumerConfig{
-		Durable:       "treasury-event-consumer",
-		FilterSubject: "proxy.treasury.v1.>",
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		MaxDeliver:    5,
-		AckWait:       30 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create treasury consumer: %w", err)
-	}
+	log.Printf("Treasury Event Consumer starting")
 
-	iter, err := consumer.Messages()
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Treasury Event Consumer started")
-
+	// Recreate the pull subscription inside the supervised loop so NATS
+	// reconnects / API restarts do not leave a dead Messages() iterator.
 	GoSupervised("TreasuryEventConsumer", 5*time.Second, func() {
+		consumer, err := nats.JS.CreateOrUpdateConsumer(ctx, "TREASURY", jetstream.ConsumerConfig{
+			Durable:       "treasury-event-consumer",
+			FilterSubject: "proxy.treasury.v1.>",
+			AckPolicy:     jetstream.AckExplicitPolicy,
+			MaxDeliver:    5,
+			AckWait:       30 * time.Second,
+		})
+		if err != nil {
+			log.Printf("TreasuryEventConsumer: create consumer failed: %v", err)
+			return
+		}
+
+		iter, err := consumer.Messages()
+		if err != nil {
+			log.Printf("TreasuryEventConsumer: messages iterator failed: %v", err)
+			return
+		}
+		defer iter.Stop()
+
+		log.Printf("Treasury Event Consumer started")
 		for {
 			msg, err := iter.Next()
 			if err != nil {
-				log.Printf("TreasuryEventConsumer error: %v", err)
-				time.Sleep(1 * time.Second)
-				continue
+				log.Printf("TreasuryEventConsumer iterator error: %v — recreating", err)
+				return
 			}
 
 			RunSafely("TreasuryEventConsumer.handle", func() {
@@ -66,12 +71,18 @@ func (w *TreasuryEventConsumer) handle(ctx context.Context, msg jetstream.Msg) {
 	var event map[string]interface{}
 	if err := json.Unmarshal(msg.Data(), &event); err != nil {
 		log.Printf("TreasuryEventConsumer: malformed event on %s: %v", msg.Subject(), err)
-		msg.Term()
+		_ = msg.Term()
 		return
 	}
 
 	subject := msg.Subject()
-	log.Printf("TreasuryEventConsumer: %s event=%v", subject, event)
+	marker, _ := event["marker"].(string)
+	eventType, _ := event["type"].(string)
+	if marker != "" {
+		log.Printf("TreasuryEventConsumer: subject=%s type=%s marker=%s", subject, eventType, marker)
+	} else {
+		log.Printf("TreasuryEventConsumer: subject=%s type=%s event=%v", subject, eventType, event)
+	}
 
 	// Treasury events are observability/accounting signals. Processing is
 	// intentionally side-effect-light: log for the audit trail and ack. Downstream

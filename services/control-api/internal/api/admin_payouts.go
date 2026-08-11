@@ -14,10 +14,11 @@ import (
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
-// RegisterAdminPayoutRoutes registers admin payout management routes.
-// P0-19: all routes are protected by JWT auth + admin-permission check.
+// RegisterAdminPayoutRoutes registers batch payout management routes.
+// Mount under the admin-JWT group (AdminAuthMiddleware) — paths are
+// /v1/admin/payouts/*. Do not wrap with the deprecated AuthMiddleware().
 func RegisterAdminPayoutRoutes(r *gin.RouterGroup) {
-	payouts := r.Group("/admin/payouts", AuthMiddleware(), RequirePermission("admin"))
+	payouts := r.Group("/payouts")
 	{
 		// Batch payout management
 		payouts.GET("/queue", getPayoutQueue)

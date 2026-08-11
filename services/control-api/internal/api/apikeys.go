@@ -149,8 +149,8 @@ func createAPIKey(c *gin.Context) {
 
 // getAPIKey returns details for a specific API key
 func getAPIKey(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -180,8 +180,8 @@ func getAPIKey(c *gin.Context) {
 
 // revokeAPIKey revokes an API key
 func revokeAPIKey(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -222,8 +222,8 @@ func revokeAPIKey(c *gin.Context) {
 
 // updateAPIKey updates an API key's settings
 func updateAPIKey(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}

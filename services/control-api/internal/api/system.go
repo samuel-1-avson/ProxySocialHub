@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/map/topology"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -114,14 +115,25 @@ func getPublicSystemConfig(c *gin.Context) {
 		val = ""
 	}
 	val = strings.TrimSpace(val)
-	// Prefer env when DB/Redis still holds an empty seeded value — deposits
-	// verify against SOLANA_TREASURY_ADDRESS, so the UI must use the same source.
-	if val == "" {
+	// Prefer deposit destination helper (vault when PROXYHUB_DEPOSIT_VAULT_UI is on).
+	if dest := strings.TrimSpace(solana.GetDepositDestinationAddress()); dest != "" {
+		val = dest
+	} else if val == "" {
 		val = strings.TrimSpace(solana.GetTreasuryAddress())
+	}
+
+	kind := "treasury"
+	if decentralization.DepositVaultUIEnabled() && solana.GetDepositVaultAddress() != "" &&
+		val == solana.GetDepositVaultAddress() {
+		kind = "vault"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"treasury_solana":              val,
+		"deposit_address":              val,
+		"destination_kind":             kind,
+		"vault_address":                solana.GetDepositVaultAddress(),
+		"legacy_treasury":              solana.GetTreasuryAddress(),
 		"treasury_configured":          val != "",
 		"sol_price_usd":                billing.GetSOLPriceUSD(),
 		"large_withdraw_threshold_sol": getLargeWithdrawalThresholdSOL(),

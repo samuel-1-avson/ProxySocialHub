@@ -571,47 +571,25 @@ func getExplorerMetrics(c *gin.Context) {
 		if err == nil && cached != "" {
 			var response ExplorerMetricsResponse
 			if err := json.Unmarshal([]byte(cached), &response); err == nil {
-				if response.TpsWindowHours == 24 && response.TPS == 0 {
-					response.TPS = explorerCompute24hTPS(chain)
+				// Reject stale/empty aggregated snapshots that look like "network is dead"
+				// while live tables still have activity (hourly buckets are per-window, not totals).
+				if response.DataSource != "aggregated" || response.BlockHeight > 0 || response.TotalTransactions > 0 || response.ActiveNodes > 0 {
+					if response.TpsWindowHours == 24 && response.TPS == 0 {
+						response.TPS = explorerCompute24hTPS(chain)
+					}
+					ts, agg := explorerMetricsResponseExtras(chain)
+					response.TimeSeriesAvailable = ts
+					response.MetricsAggregatorEnabled = agg
+					c.JSON(http.StatusOK, response)
+					return
 				}
-				ts, agg := explorerMetricsResponseExtras(chain)
-				response.TimeSeriesAvailable = ts
-				response.MetricsAggregatorEnabled = agg
-				c.JSON(http.StatusOK, response)
-				return
 			}
 		}
 	}
 
-	// Get from database cache (hourly aggregated)
-	var metrics models.ExplorerMetrics
-	if err := db.GetReadDB().Where("chain = ? AND period = ?", chain, "hourly").
-		Order("period_start DESC").First(&metrics).Error; err == nil {
-		// Cache hit, return cached data
-		response := ExplorerMetricsResponse{
-			Chain:               metrics.Chain,
-			TotalTransactions:   metrics.TotalTransactions,
-			TotalVolume:         metrics.TotalVolume,
-			ActiveWallets:       metrics.ActiveWallets,
-			ActiveNodes:         metrics.ActiveNodes,
-			AvgBlockTime:        metrics.AverageBlockTime,
-			TotalBandwidthGB:    float64(metrics.TotalBandwidthBytes) / (1024 * 1024 * 1024),
-			TPS:                 explorerCompute24hTPS(chain),
-			TpsWindowHours:      24,
-			LastUpdated:         metrics.CreatedAt,
-			DataSource:          "aggregated",
-			TimeSeriesAvailable: explorerTimeSeriesAvailable(chain),
-			MetricsAggregatorEnabled: explorerMetricsAggregatorEnabled(),
-		}
-
-		// Cache in Redis
-		cacheResponse(c, cacheKey, response, 30*time.Second)
-
-		c.JSON(http.StatusOK, response)
-		return
-	}
-
-	// Cache miss - compute live metrics from real data only
+	// NOTE: explorer_metrics hourly/daily rows are per-window rollups for charts.
+	// They must NOT be used as lifetime network totals — a quiet hour would zero the
+	// whole dashboard. Always compute live totals from explorer_* tables.
 	var txCount int64
 	var nodeCount int64
 	var totalVolume float64
@@ -667,17 +645,17 @@ func getExplorerMetrics(c *gin.Context) {
 	}
 
 	response := ExplorerMetricsResponse{
-		Chain:               chain,
-		TotalTransactions:   uint64(txCount),
-		TotalVolume:         totalVolume,
-		ActiveWallets:       activeWallets,
-		ActiveNodes:         uint64(nodeCount),
-		BlockHeight:         blockHeight,
-		AvgBlockTime:        avgBlockTimeMs,
-		TotalBandwidthGB:    float64(totalBandwidthBytes) / (1024 * 1024 * 1024),
-		TPS:                 tps,
-		TpsWindowHours:      24,
-		RegionDistribution:  regionDist,
+		Chain:                    chain,
+		TotalTransactions:        uint64(txCount),
+		TotalVolume:              totalVolume,
+		ActiveWallets:            activeWallets,
+		ActiveNodes:              uint64(nodeCount),
+		BlockHeight:              blockHeight,
+		AvgBlockTime:             avgBlockTimeMs,
+		TotalBandwidthGB:         float64(totalBandwidthBytes) / (1024 * 1024 * 1024),
+		TPS:                      tps,
+		TpsWindowHours:           24,
+		RegionDistribution:       regionDist,
 		LastUpdated:              time.Now(),
 		DataSource:               "live",
 		TimeSeriesAvailable:      explorerTimeSeriesAvailable(chain),
@@ -963,9 +941,19 @@ func listBlocks(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	var total int64
 	query := db.GetReadDB().Model(&models.ExplorerBlock{}).Where("chain = ? AND is_orphaned = ?", chain, false)
-	query.Count(&total)
+
+	// Exact COUNT(*) on multi-million explorer_blocks is multi-second and makes
+	// overview/blocks pages look dead. Prefer planner estimate; refine when small.
+	var total int64
+	_ = db.GetReadDB().Raw(`
+		SELECT COALESCE((
+			SELECT reltuples::bigint FROM pg_class WHERE oid = 'public.explorer_blocks'::regclass
+		), 0)
+	`).Scan(&total).Error
+	if total < 10_000 {
+		query.Count(&total)
+	}
 
 	var blocks []models.ExplorerBlock
 	if err := query.Order("block_number DESC").Offset(offset).Limit(pageSize).Find(&blocks).Error; err != nil {
@@ -1150,8 +1138,11 @@ func getExplorerNodesGeo(c *gin.Context) {
 	points := make([]NodeGeoPoint, len(nodes))
 	for i, n := range nodes {
 		anchor := geo.MapGeoAnchor(n.NodeID, "", "")
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(n.Latitude, n.Longitude, n.Country, n.City, anchor)
-		geoSource := nodeMapGeoSource(n.GeoSource, n.Country, n.City, n.Region, n.Latitude, n.Longitude, fallbackGeo)
+		lat, lon, fallbackGeo := geo.ApplyMapCoords(n.Latitude, n.Longitude, n.Country, n.City, n.Region, anchor)
+		geoSource := fallbackGeo
+		if geoSource == "" || geoSource == "unknown" {
+			geoSource = nodeMapGeoSource(n.GeoSource, n.Country, n.City, n.Region, n.Latitude, n.Longitude, fallbackGeo)
+		}
 		meta := geo.BuildMapGeoMeta(geoSource)
 		points[i] = NodeGeoPoint{
 			NodeID:         n.NodeID,

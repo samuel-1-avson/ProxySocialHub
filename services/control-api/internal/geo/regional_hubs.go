@@ -55,15 +55,41 @@ func matchRegionalHubByText(hubs []regionalHub, raw string) (regionalHub, bool) 
 	if key == "" {
 		return regionalHub{}, false
 	}
+	// Exact name/alias first, then longest substring match so "western north"
+	// does not incorrectly hit Takoradi's shorter "western" alias.
+	var best regionalHub
+	bestScore := 0
 	for _, h := range hubs {
-		if normalizePlaceKey(h.Name) == key {
+		nameKey := normalizePlaceKey(h.Name)
+		if nameKey == key {
 			return h, true
 		}
-		for _, alias := range h.Aliases {
-			if normalizePlaceKey(alias) == key || strings.Contains(key, normalizePlaceKey(alias)) || strings.Contains(normalizePlaceKey(alias), key) {
-				return h, true
+		if nameKey != "" && (strings.Contains(key, nameKey) || strings.Contains(nameKey, key)) {
+			score := len(nameKey)
+			if score > bestScore {
+				best = h
+				bestScore = score
 			}
 		}
+		for _, alias := range h.Aliases {
+			aliasKey := normalizePlaceKey(alias)
+			if aliasKey == "" {
+				continue
+			}
+			if aliasKey == key {
+				return h, true
+			}
+			if strings.Contains(key, aliasKey) || strings.Contains(aliasKey, key) {
+				score := len(aliasKey)
+				if score > bestScore {
+					best = h
+					bestScore = score
+				}
+			}
+		}
+	}
+	if bestScore > 0 {
+		return best, true
 	}
 	return regionalHub{}, false
 }

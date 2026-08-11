@@ -44,6 +44,9 @@ type Order struct {
 	BandwidthLimitGB uint64  `json:"bandwidth_limit_gb,omitempty"`
 	PaymentMethod    string  `gorm:"size:50" json:"payment_method,omitempty"` // "fiat", "solana_escrow"
 	TxSignature      string  `gorm:"size:128" json:"tx_signature,omitempty"`
+	// EscrowSeedKind: ""|"legacy" = ["escrow",buyer,seller]; "multisig" = escrow_multisig + expires_at (BC-06).
+	EscrowSeedKind  string `gorm:"size:16;default:''" json:"escrow_seed_kind,omitempty"`
+	EscrowExpiresAt int64  `gorm:"default:0" json:"escrow_expires_at,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

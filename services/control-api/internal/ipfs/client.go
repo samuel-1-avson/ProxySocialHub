@@ -71,7 +71,20 @@ func (c *IPFSClient) UploadText(content string) (string, error) {
 	if c.UsePinata {
 		return c.uploadToPinata(content)
 	}
-	return c.uploadToLocalNode(content)
+	cid, err := c.uploadToLocalNode(content)
+	if err != nil {
+		// Devnet/testnet convenience: if neither Pinata nor a local node is
+		// available, fall back to the deterministic stub so governance UX works.
+		network := strings.ToLower(strings.TrimSpace(os.Getenv("SOLANA_NETWORK")))
+		appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if network == "devnet" || network == "testnet" || appEnv == "testnet" || appEnv == "development" || appEnv == "dev" {
+			cid = stubCID(content)
+			logging.Warn().Err(err).Str("cid", cid).Msg("IPFS unavailable — using GOVERNANCE stub CID on non-mainnet")
+			return cid, nil
+		}
+		return "", err
+	}
+	return cid, nil
 }
 
 // UploadData uploads binary data to IPFS and returns the CID

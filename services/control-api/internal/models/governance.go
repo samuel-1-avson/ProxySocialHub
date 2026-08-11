@@ -48,6 +48,9 @@ type Proposal struct {
 	IPFSHash    string `gorm:"column:ipfs_hash;type:varchar(100)" json:"ipfs_hash"`
 	ArweaveTxID string `gorm:"column:arweave_tx_id;type:varchar(64)" json:"arweave_tx_id,omitempty"`
 
+	// On-chain PDA (base58) when created via chain-authoritative flow
+	OnChainPDA string `gorm:"column:onchain_pda;type:varchar(64)" json:"onchain_pda,omitempty"`
+
 	// Vote Counts (Cached)
 	YesVotes float64 `gorm:"default:0" json:"yes_votes"`
 	NoVotes  float64 `gorm:"default:0" json:"no_votes"`

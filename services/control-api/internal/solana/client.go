@@ -90,9 +90,11 @@ type OracleClient struct {
 	oracleKey  sol.PrivateKey
 	// treasuryHotKey is the operational payout wallet (BC-08). When set and
 	// distinct from oracleKey, SendSOL / BatchTransferSOL spend from this key
-	// instead of the oracle signing key. Empty means legacy "oracle == treasury".
+	// instead of the oracle signing key. Empty means legacy "oracle == treasury"
+	// unless hotHsm is set (Sprint G: Cloud KMS hot signer).
 	treasuryHotKey sol.PrivateKey
 	hsm            HSMSigner
+	hotHsm         HSMSigner // optional GCP/AWS KMS signer for treasury hot payouts
 	network        string
 	velocity       *VelocityGuard // nil until SetVelocityGuard is called
 
@@ -217,12 +219,37 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 	}
 
 	var treasuryHot sol.PrivateKey
+	var hotHsm HSMSigner
+	useGCPHot := os.Getenv("USE_GCP_KMS_HOT") == "true"
+	if useGCPHot {
+		keyName := strings.TrimSpace(os.Getenv("GCP_KMS_HOT_KEY_NAME"))
+		pubKeyStr := strings.TrimSpace(os.Getenv("GCP_KMS_HOT_PUBLIC_KEY"))
+		signer, err := NewGCPKMSSigner(context.Background(), keyName, pubKeyStr)
+		if err != nil {
+			if gcpKMSHotStrictEnv() {
+				return nil, fmt.Errorf("USE_GCP_KMS_HOT=true but Cloud KMS hot init failed: %w", err)
+			}
+			fmt.Printf("[SolanaClient] GCP KMS hot initialization failed (%v). Falling back to file hot keypair.\n", err)
+		} else {
+			hotHsm = signer
+			fmt.Printf("[SolanaClient] Initialized GCP Cloud KMS hot signer: %s (pubkey %s)\n", keyName, signer.PublicKey())
+		}
+	}
+
 	if path := strings.TrimSpace(cfg.TreasuryHotKeypairPath); path != "" {
 		tk, err := loadKeypair(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load treasury hot keypair: %w", err)
+			// Sprint G: when hot KMS is required and loaded, missing/unreadable file is OK.
+			if hotHsm != nil && gcpKMSHotStrictEnv() {
+				fmt.Printf("[SolanaClient] treasury hot keypair file unavailable (%v); using Cloud KMS hot only\n", err)
+			} else if hotHsm != nil {
+				fmt.Printf("[SolanaClient] WARNING: treasury hot keypair file unavailable (%v); using Cloud KMS hot\n", err)
+			} else {
+				return nil, fmt.Errorf("failed to load treasury hot keypair: %w", err)
+			}
+		} else {
+			treasuryHot = tk
 		}
-		treasuryHot = tk
 	}
 
 	cfg.RPCEndpoints = NormalizeRPCEndpoints(cfg.RPCEndpoints)
@@ -243,6 +270,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		oracleKey:      oracleKey,
 		treasuryHotKey: treasuryHot,
 		hsm:            hsm,
+		hotHsm:         hotHsm,
 		network:        cfg.Network,
 		balCache:       make(map[string]balCacheEntry),
 	}
@@ -271,11 +299,61 @@ func (c *OracleClient) rotateRPC() {
 // Used by the auth challenge endpoint (D-A1) to embed a network-verifiable
 // entropy source in login nonces.
 func (c *OracleClient) GetRecentBlockhash(ctx context.Context) (string, error) {
-	result, err := c.rpc().GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	result, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return "", fmt.Errorf("GetRecentBlockhash: %w", err)
 	}
 	return result.Value.Blockhash.String(), nil
+}
+
+// getLatestBlockhashWithRetry fetches a blockhash with RPC failover + backoff.
+// Public / free-tier RPCs (OnFinality public, api.devnet.solana.com) frequently
+// 429 under indexer + settlement load; a single-shot call strands settle/withdraw.
+func (c *OracleClient) getLatestBlockhashWithRetry(ctx context.Context, commitment rpc.CommitmentType) (*rpc.GetLatestBlockhashResult, error) {
+	var result *rpc.GetLatestBlockhashResult
+	var lastErr error
+	backoffs := []time.Duration{0, 350 * time.Millisecond, 900 * time.Millisecond, 1800 * time.Millisecond}
+	for attempt, wait := range backoffs {
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				if lastErr != nil {
+					return nil, lastErr
+				}
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		err := c.withFailover(ctx, func(client *rpc.Client) error {
+			var callErr error
+			result, callErr = client.GetLatestBlockhash(ctx, commitment)
+			return callErr
+		})
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if attempt+1 < len(backoffs) {
+			c.rotateRPC()
+		}
+	}
+	return nil, lastErr
+}
+
+// isTransientRPCError reports rate-limit / timeout style failures that warrant
+// rotating endpoints and retrying.
+func isTransientRPCError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "temporar")
 }
 
 // loadKeypair loads a Solana keypair from a file.
@@ -428,20 +506,23 @@ func (c *OracleClient) GetOraclePublicKey() sol.PublicKey {
 }
 
 // GetPayoutPublicKey returns the wallet that funds SendSOL / BatchTransferSOL.
-// Prefer the dedicated treasury hot key (BC-08); fall back to oracle for legacy deploys.
+// Prefer Cloud KMS hot (Sprint G), then file hot keypair, then oracle (legacy).
 func (c *OracleClient) GetPayoutPublicKey() sol.PublicKey {
+	if c.hotHsm != nil {
+		return c.hotHsm.PublicKey()
+	}
 	if len(c.treasuryHotKey) > 0 {
 		return c.treasuryHotKey.PublicKey()
 	}
 	return c.GetOraclePublicKey()
 }
 
-// HasSeparateTreasuryHot reports whether a distinct treasury hot keypair is loaded.
+// HasSeparateTreasuryHot reports whether a distinct treasury hot payout key is configured.
 func (c *OracleClient) HasSeparateTreasuryHot() bool {
-	if len(c.treasuryHotKey) == 0 {
+	if c.hotHsm == nil && len(c.treasuryHotKey) == 0 {
 		return false
 	}
-	return !c.treasuryHotKey.PublicKey().Equals(c.GetOraclePublicKey())
+	return !c.GetPayoutPublicKey().Equals(c.GetOraclePublicKey())
 }
 
 func isProdLikeEnv() bool {
@@ -458,19 +539,20 @@ func isProdLikeEnv() bool {
 // not be the same wallet as the treasury hot payout key.
 func (c *OracleClient) validateCustodySeparation() error {
 	prod := isProdLikeEnv()
+	hasHotMaterial := c.hotHsm != nil || len(c.treasuryHotKey) > 0
 
-	if len(c.treasuryHotKey) == 0 {
+	if !hasHotMaterial {
 		if prod {
-			return fmt.Errorf("BC-08: SOLANA_TREASURY_HOT_KEYPAIR is required in %s (oracle must not fund payouts)", strings.TrimSpace(os.Getenv("APP_ENV")))
+			return fmt.Errorf("BC-08: treasury hot required in %s (set USE_GCP_KMS_HOT or SOLANA_TREASURY_HOT_KEYPAIR; oracle must not fund payouts)", strings.TrimSpace(os.Getenv("APP_ENV")))
 		}
 		return nil
 	}
 
-	if c.treasuryHotKey.PublicKey().Equals(c.GetOraclePublicKey()) {
+	if c.GetPayoutPublicKey().Equals(c.GetOraclePublicKey()) {
 		if prod {
-			return fmt.Errorf("BC-08: treasury hot keypair pubkey equals oracle pubkey — custody not split")
+			return fmt.Errorf("BC-08: treasury hot pubkey equals oracle pubkey — custody not split")
 		}
-		fmt.Printf("[SolanaClient] WARNING: treasury hot keypair matches oracle (legacy custody); set distinct keys before production\n")
+		fmt.Printf("[SolanaClient] WARNING: treasury hot matches oracle (legacy custody); set distinct keys before production\n")
 	}
 	return nil
 }
@@ -595,6 +677,11 @@ func (c *OracleClient) SignTransaction(ctx context.Context, tx *sol.Transaction)
 		var sigBytes []byte
 
 		switch {
+		case c.hotHsm != nil && key.Equals(c.hotHsm.PublicKey()):
+			sigBytes, err = c.hotHsm.Sign(ctx, msgBytes)
+			if err != nil {
+				return fmt.Errorf("failed to sign with hot HSM: %w", err)
+			}
 		case len(c.treasuryHotKey) > 0 && key.Equals(c.treasuryHotKey.PublicKey()):
 			sigBytes = ed25519.Sign(ed25519.PrivateKey(c.treasuryHotKey), msgBytes)
 		case c.hsm != nil && key.Equals(c.hsm.PublicKey()):
@@ -654,6 +741,13 @@ func (c *OracleClient) withFailover(ctx context.Context, f func(client *rpc.Clie
 			return nil
 		}
 		lastErr = err
+		if isTransientRPCError(err) {
+			select {
+			case <-ctx.Done():
+				return lastErr
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
 		c.rotateRPC() // rotate unconditionally — full cycle restores starting index
 	}
 	return lastErr

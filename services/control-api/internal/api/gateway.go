@@ -21,6 +21,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/settlement"
 	"gorm.io/gorm"
 )
 
@@ -35,6 +36,8 @@ func RegisterGatewayRoutes(rg *gin.RouterGroup, cfg *config.Config) {
 		gateway.POST("/nodes/:id/status", updateGatewayNodeStatus)
 		gateway.POST("/session-intents/:id/state", updateGatewaySessionIntentState)
 		gateway.POST("/session-intents/:id/usage", updateGatewaySessionIntentUsage)
+		// Sprint J0: edge Redis-miss hydrate from PG dual-write cache
+		gateway.GET("/sessions/hydrate", hydrateGatewaySession)
 		RegisterGatewayUsageRoutes(gateway)
 	}
 }
@@ -102,6 +105,14 @@ func updateGatewaySessionIntentState(c *gin.Context) {
 	if nextState == models.SessionIntentActive && record.ExpiresAt.Before(now) && record.LifecycleState.IsPreActivation() {
 		nextState = models.SessionIntentExpired
 	}
+	if nextState == models.SessionIntentActive && intentRequiresFundedSessionPDA(&record) {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error": "Prepaid session escrow required before activation",
+			"code":  "session_escrow_required",
+			"next":  "POST /v1/sessions/intents/" + intentID.String() + "/fund/solana",
+		})
+		return
+	}
 	applySessionIntentLifecycleTransition(&record, updates, nextState, now)
 
 	if err := db.DB.Model(&record).Updates(updates).Error; err != nil {
@@ -113,6 +124,15 @@ func updateGatewaySessionIntentState(c *gin.Context) {
 	if err := db.DB.Where("id = ?", intentID).First(&record).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload session intent state"})
 		return
+	}
+
+	if nextState == models.SessionIntentLedgerCommitted || nextState == models.SessionIntentClosing {
+		if err := settlement.SettleSessionIntent(intentID); err != nil {
+			logging.Error(err).Str("intent_id", intentID.String()).Msg("Failed to settle session intent usage")
+			// Still return status — usage is durable; settle can be retried.
+		} else if err := db.DB.Where("id = ?", intentID).First(&record).Error; err == nil {
+			// refresh after settle/archive
+		}
 	}
 
 	c.JSON(http.StatusOK, buildSessionIntentStatusResponse(&record))
@@ -182,6 +202,22 @@ func updateGatewaySessionIntentUsage(c *gin.Context) {
 	if err := db.DB.Where("id = ?", intentID).First(&record).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload session intent usage"})
 		return
+	}
+
+	if req.BytesUpDelta != 0 || req.BytesDownDelta != 0 {
+		unitPriceUSD, _ := resolveIntentUnitPrice(&record)
+		nonce := uint64(record.UsageUpdateCount)
+		if nonce == 0 {
+			nonce = uint64(time.Now().UTC().UnixNano())
+		}
+		receipt, created, receiptErr := settlement.AppendIntentUsageReceipt(
+			&record, req.BytesUpDelta, req.BytesDownDelta, nonce, unitPriceUSD,
+		)
+		if receiptErr != nil {
+			logging.Error(receiptErr).Str("intent_id", intentID.String()).Msg("Failed to append intent usage receipt")
+		} else if created && receipt != nil {
+			go settlement.BestEffortPublishIntentReceipt(c.Request.Context(), receipt)
+		}
 	}
 
 	c.JSON(http.StatusOK, buildSessionIntentStatusResponse(&record))
@@ -312,8 +348,8 @@ func registerGatewayNode(c *gin.Context) {
 	// carries no real ISP name (the edge gateway historically sent the raw IP
 	// in this field and cannot GeoIP-resolve it itself).
 	if req.ISP == "" || net.ParseIP(req.ISP) != nil {
-		if effectiveIP := geoip.NormalizeIPForGeo(req.IPAddress); effectiveIP != "" {
-			if result, ok := geoip.Resolve(effectiveIP); ok && result.ISP != "" {
+		if effectiveIP := geoip.ProviderIPForStorage(req.IPAddress); effectiveIP != "" {
+			if result, ok := geoip.Resolve(effectiveIP); ok && result.ISP != "" && !geoip.IsCloudHostedISP(result.ISP) {
 				req.ISP = result.ISP
 			}
 		}
@@ -350,18 +386,26 @@ func registerGatewayNode(c *gin.Context) {
 	}
 
 	if err != nil {
+		createIP := geoip.ProviderIPForStorage(req.IPAddress)
+		createCountry, createCity, createRegion, createISP := req.CountryCode, req.City, req.Region, req.ISP
+		if geoip.IsUntrustedGatewayGeo(req.IPAddress, req.ISP) {
+			createIP = ""
+			createCountry, createCity, createRegion, createISP = "", "", "", ""
+		} else if geoip.IsCloudHostedISP(createISP) {
+			createISP = ""
+		}
 		node := models.Node{
 			ID:                  uuid.New(),
 			UserID:              providerID,
 			ProviderUserID:      providerID,
 			GatewayNodeID:       req.NodeID,
-			IPAddress:           req.IPAddress,
+			IPAddress:           createIP,
 			Port:                req.Port,
 			Protocol:            "http",
-			CountryCode:         req.CountryCode,
-			Region:              req.Region,
-			City:                req.City,
-			ISP:                 req.ISP,
+			CountryCode:         createCountry,
+			Region:              createRegion,
+			City:                createCity,
+			ISP:                 createISP,
 			ConnectionType:      req.ConnectionType,
 			IsHealthy:           true,
 			ActiveConnections:   0,
@@ -405,11 +449,19 @@ func registerGatewayNode(c *gin.Context) {
 		updates := map[string]interface{}{
 			"is_healthy":      true,
 			"last_seen_at":    time.Now(),
-			"region":          req.Region,
-			"country_code":    req.CountryCode,
-			"city":            req.City,
-			"isp":             req.ISP,
 			"connection_type": req.ConnectionType,
+		}
+		// Never let control-plane / cloud MaxMind (Chicago) overwrite a good pin.
+		if !geoip.IsUntrustedGatewayGeo(req.IPAddress, req.ISP) {
+			updates["region"] = req.Region
+			updates["country_code"] = req.CountryCode
+			updates["city"] = req.City
+			if strings.TrimSpace(req.ISP) != "" && !geoip.IsCloudHostedISP(req.ISP) {
+				updates["isp"] = req.ISP
+			}
+			if stored := geoip.ProviderIPForStorage(req.IPAddress); stored != "" {
+				updates["ip_address"] = stored
+			}
 		}
 		if req.Port > 0 {
 			updates["port"] = req.Port
@@ -473,11 +525,6 @@ func upsertProviderNodeFromGateway(providerID uuid.UUID, req RegisterGatewayNode
 
 	updates := map[string]interface{}{
 		"gateway_node_id":    req.NodeID,
-		"ip_address":         req.IPAddress,
-		"country":            req.CountryCode,
-		"city":               req.City,
-		"region":             req.Region,
-		"isp":                req.ISP,
 		"connection_type":    req.ConnectionType,
 		"protocol":           "http",
 		"status":             models.NodeOnline,
@@ -489,16 +536,63 @@ func upsertProviderNodeFromGateway(providerID uuid.UUID, req RegisterGatewayNode
 		"last_seen_at":       now,
 		"updated_at":         now,
 	}
+	// Only overwrite IP when the gateway reports a real public address that is
+	// NOT this host's WAN / cloud egress. Private peers, control-plane WAN, and
+	// Google Cloud MaxMind must not wipe a corrected residential location
+	// (Ghana Bibiani, etc.).
+	untrustedGeo := geoip.IsUntrustedGatewayGeo(req.IPAddress, req.ISP)
+	storedIP := geoip.ProviderIPForStorage(req.IPAddress)
+	if storedIP != "" && !untrustedGeo {
+		updates["ip_address"] = storedIP
+	} else if untrustedGeo && !created {
+		// Explicitly clear a previously persisted control-plane/cloud WAN.
+		if geoip.IsControlPlanePublicIP(node.IPAddress) || geoip.IsCloudHostedISP(node.ISP) {
+			updates["ip_address"] = nil
+			updates["isp"] = nil
+		}
+	}
+	// Do not blank out a corrected country/city with empty gateway MaxMind fields.
+	// Also ignore US/cloud labels derived from the control-plane / cloud WAN IP.
+	if !untrustedGeo {
+		if strings.TrimSpace(req.CountryCode) != "" {
+			updates["country"] = req.CountryCode
+		} else if created {
+			updates["country"] = req.CountryCode
+		}
+		if strings.TrimSpace(req.City) != "" {
+			updates["city"] = req.City
+		} else if created {
+			updates["city"] = req.City
+		}
+		if strings.TrimSpace(req.Region) != "" {
+			updates["region"] = req.Region
+		} else if created {
+			updates["region"] = req.Region
+		}
+		if strings.TrimSpace(req.ISP) != "" && !geoip.IsCloudHostedISP(req.ISP) {
+			updates["isp"] = req.ISP
+		}
+	}
 	if req.Port > 0 {
 		updates["port"] = req.Port
 	}
 
 	if created {
-		node.IPAddress = req.IPAddress
-		node.Country = req.CountryCode
-		node.City = req.City
-		node.Region = req.Region
-		node.ISP = req.ISP
+		if v, ok := updates["ip_address"].(string); ok {
+			node.IPAddress = v
+		}
+		if v, ok := updates["country"].(string); ok {
+			node.Country = v
+		}
+		if v, ok := updates["city"].(string); ok {
+			node.City = v
+		}
+		if v, ok := updates["region"].(string); ok {
+			node.Region = v
+		}
+		if v, ok := updates["isp"].(string); ok {
+			node.ISP = v
+		}
 		node.ConnectionType = req.ConnectionType
 		node.Protocol = "http"
 		node.Status = models.NodeOnline

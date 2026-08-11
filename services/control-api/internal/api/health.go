@@ -9,20 +9,33 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 )
 
-// RegisterHealthRoutes registers node health monitoring endpoints
+// maxAdminNodeHealthList caps GET /health/nodes responses (admin-only).
+const maxAdminNodeHealthList = 2000
+
+// RegisterHealthRoutes registers public, non-sensitive health endpoints.
+// Node inventory / mutations are intentionally NOT registered here — see
+// RegisterAdminNodeHealthRoutes (SEC-R1 / PRODUCTION_AUDIT P0).
 func RegisterHealthRoutes(r *gin.RouterGroup) {
+	h := r.Group("/health")
+	{
+		h.GET("/stats", getHealthStats)
+		h.GET("/system", getSystemHealth)
+	}
+}
+
+// RegisterAdminNodeHealthRoutes registers node health inspection and mutation
+// endpoints. Must be mounted behind AdminAuthMiddleware.
+func RegisterAdminNodeHealthRoutes(r *gin.RouterGroup) {
 	h := r.Group("/health")
 	{
 		h.GET("/nodes", getNodesHealth)
 		h.GET("/nodes/:id", getNodeHealth)
 		h.POST("/nodes/:id/check", triggerNodeHealthCheck)
 		h.POST("/nodes/:id/reactivate", reactivateNode)
-		h.GET("/stats", getHealthStats)
-		h.GET("/system", getSystemHealth)
 	}
 }
 
-// getNodesHealth returns health status for all nodes
+// getNodesHealth returns health status for nodes (admin-only; may include IPs).
 func getNodesHealth(c *gin.Context) {
 	if db.DB == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Database not available"})
@@ -41,22 +54,22 @@ func getNodesHealth(c *gin.Context) {
 	}
 
 	var nodes []models.Node
-	if result := query.Order("last_seen_at DESC").Find(&nodes); result.Error != nil {
+	if result := query.Order("last_seen_at DESC").Limit(maxAdminNodeHealthList).Find(&nodes); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch nodes"})
 		return
 	}
 
-	// Add health summary
 	stats := health.GetNodeHealthStats()
 
 	c.JSON(http.StatusOK, gin.H{
 		"nodes": nodes,
 		"count": len(nodes),
+		"limit": maxAdminNodeHealthList,
 		"stats": stats,
 	})
 }
 
-// getNodeHealth returns detailed health info for a specific node
+// getNodeHealth returns detailed health info for a specific node (admin-only).
 func getNodeHealth(c *gin.Context) {
 	nodeID := c.Param("id")
 
@@ -71,7 +84,6 @@ func getNodeHealth(c *gin.Context) {
 		return
 	}
 
-	// Get recent health history from audit logs
 	var recentEvents []models.AuditLog
 	db.DB.Where("target_type = ? AND target_id = ?", "node", nodeID).
 		Order("created_at DESC").
@@ -87,7 +99,7 @@ func getNodeHealth(c *gin.Context) {
 	})
 }
 
-// triggerNodeHealthCheck manually triggers a health check for a node
+// triggerNodeHealthCheck manually triggers a health check for a node (admin-only).
 func triggerNodeHealthCheck(c *gin.Context) {
 	nodeID := c.Param("id")
 
@@ -106,7 +118,7 @@ func triggerNodeHealthCheck(c *gin.Context) {
 	})
 }
 
-// reactivateNode manually reactivates a node
+// reactivateNode manually reactivates a node (admin-only).
 func reactivateNode(c *gin.Context) {
 	nodeID := c.Param("id")
 
@@ -124,7 +136,7 @@ func reactivateNode(c *gin.Context) {
 	})
 }
 
-// getHealthStats returns aggregate health statistics
+// getHealthStats returns aggregate health statistics (no node IPs).
 func getHealthStats(c *gin.Context) {
 	stats := health.GetNodeHealthStats()
 	c.JSON(http.StatusOK, stats)

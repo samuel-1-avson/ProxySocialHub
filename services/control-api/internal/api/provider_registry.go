@@ -24,8 +24,11 @@ func resolveProviderNodeForGateway(providerUserID uuid.UUID, gatewayNodeID strin
 	var node models.ProviderNode
 
 	if gatewayNodeID != "" {
+		// Prefer the node that is currently online / recently heartbeating for this
+		// gateway identity. Ordering only by created_at incorrectly binds tunnels to
+		// a newer sibling row that shares the same gateway_node_id.
 		if err := db.DB.Where("user_id = ? AND gateway_node_id = ?", providerUserID, gatewayNodeID).
-			Order("created_at DESC").
+			Order("CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC NULLS LAST, created_at DESC").
 			First(&node).Error; err == nil {
 			return &node
 		}
@@ -115,6 +118,7 @@ func syncProviderNodeFromGateway(providerUserID uuid.UUID, gatewayNodeID string,
 	updates := map[string]interface{}{
 		"last_seen_at": now,
 		"status":       models.NodeOnline,
+		"is_healthy":   true,
 	}
 	if latencyMs > 0 {
 		updates["avg_latency_ms"] = latencyMs

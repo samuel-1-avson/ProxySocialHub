@@ -67,6 +67,16 @@ func ActivateOrderSession(ctx context.Context, orderID uuid.UUID) error {
 		return fmt.Errorf("failed to record session activation attempt: %w", err)
 	}
 
+	// GORM BeforeSave encrypts credentials in-place on the session struct even when
+	// only status is updated. Re-decrypt so Redis is keyed by the plaintext username
+	// buyers actually use (and password hash matches the credentials API).
+	if err := ensureSessionCredentialsPlaintext(&session); err != nil {
+		_ = transitionSessionActivationStatus(&session, models.SessionActivationFailed)
+		sessionActivationAttemptsTotal.WithLabelValues("failed").Inc()
+		_ = RecordSessionActivationEvent(&order, &session, models.EscrowReconciliationStatusActivationFailed, "credential_decrypt_failed", err.Error(), false)
+		return fmt.Errorf("session activation failed: %w", err)
+	}
+
 	if err := syncSessionToRedis(ctx, &order, &session); err != nil {
 		_ = transitionSessionActivationStatus(&session, models.SessionActivationFailed)
 		sessionActivationAttemptsTotal.WithLabelValues("failed").Inc()
@@ -103,6 +113,9 @@ func transitionSessionActivationStatus(session *models.Session, next models.Sess
 func syncSessionToRedis(ctx context.Context, order *models.Order, session *models.Session) error {
 	if redisClient.Client == nil {
 		return fmt.Errorf("redis client unavailable")
+	}
+	if err := ensureSessionCredentialsPlaintext(session); err != nil {
+		return err
 	}
 
 	var buyer models.User
@@ -143,6 +156,25 @@ func syncSessionToRedis(ctx context.Context, order *models.Order, session *model
 
 	if err := redisClient.StoreSession(session.CredentialsUser, sessionData, 24*time.Hour); err != nil {
 		return fmt.Errorf("redis session sync failed: %w", err)
+	}
+	return nil
+}
+
+// ensureSessionCredentialsPlaintext decrypts ENC:-prefixed credential fields in-place.
+// Needed after GORM updates: BeforeSave encrypts the in-memory struct even when the
+// SQL only touches non-credential columns.
+func ensureSessionCredentialsPlaintext(session *models.Session) error {
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if err := session.DecryptCredentialsForGateway(); err != nil {
+		return fmt.Errorf("decrypt session credentials: %w", err)
+	}
+	if session.CredentialsUser == "" || session.CredentialsPass == "" {
+		return fmt.Errorf("session credentials missing after decrypt")
+	}
+	if len(session.CredentialsUser) > 4 && session.CredentialsUser[:4] == "ENC:" {
+		return fmt.Errorf("session credentials_user still encrypted after decrypt")
 	}
 	return nil
 }

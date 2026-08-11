@@ -30,7 +30,7 @@ type Node struct {
 	SuccessRate       float64   `gorm:"default:1.0" json:"success_rate"`
 	QualityScore      float64   `gorm:"default:100" json:"quality_score"`
 	CurrentTier       string    `gorm:"type:varchar(50);default:'Bronze'" json:"current_tier"`
-	BasePricePerGB    float64   `gorm:"type:decimal(10,4);default:0.20" json:"base_price_per_gb"`
+	BasePricePerGB    float64   `gorm:"type:decimal(10,4);default:0.99" json:"base_price_per_gb"`
 	LastSeenAt        time.Time `json:"last_seen_at"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`

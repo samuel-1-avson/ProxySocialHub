@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	marketplacepkg "github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
@@ -109,20 +110,9 @@ func initiateSolanaPayment(c *gin.Context) {
 		return
 	}
 
-	// Derive PDA
 	oracle := solana.GetOracle()
 	if oracle == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
-		return
-	}
-
-	pda, _, err := oracle.GetEscrowPDA(buyerPubKey, sellerPubKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
-		return
-	}
-	if pda.IsZero() {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Derived escrow PDA is empty"})
 		return
 	}
 
@@ -145,6 +135,32 @@ func initiateSolanaPayment(c *gin.Context) {
 	amountSOL := order.TotalPrice / solPrice
 	amountLamports := models.SOLToLamports(amountSOL)
 
+	// BC-06: amount-gated escrow_multisig PDA (legacy below threshold).
+	seedKind := "legacy"
+	var escrowExpiresAt int64
+	var pda sol.PublicKey
+	if decentralization.MultisigSettleEnabled() && amountLamports >= decentralization.MultisigSettleAmountLamports() {
+		seedKind = escrowSeedKindMultisig
+		escrowExpiresAt = time.Now().UTC().AddDate(0, 0, decentralization.EscrowChallengeDays()).Unix()
+		var derErr error
+		pda, _, derErr = oracle.GetEscrowMultiSigPDA(buyerPubKey, sellerPubKey, escrowExpiresAt)
+		if derErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive multisig escrow PDA"})
+			return
+		}
+	} else {
+		var derErr error
+		pda, _, derErr = oracle.GetEscrowPDA(buyerPubKey, sellerPubKey)
+		if derErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
+			return
+		}
+	}
+	if pda.IsZero() {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Derived escrow PDA is empty"})
+		return
+	}
+
 	// H-02: Verify buyer has sufficient on-chain SOL balance before recording the PDA.
 	// Without this check the DB row would reference an escrow that can never be funded.
 	// When the RPC is rate-limited (common on public devnet), skip the precheck and let
@@ -165,19 +181,25 @@ func initiateSolanaPayment(c *gin.Context) {
 		return
 	}
 
-	// Update Order with Intent ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â move to pending_payment so the order is not
+	// Update Order with Intent — move to pending_payment so the order is not
 	// treated as active until the on-chain escrow deposit is confirmed.
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, "api.orders.pay_solana", map[string]interface{}{
+	extras := map[string]interface{}{
 		"payment_method":     "solana_escrow",
 		"escrow_pda":         pda.String(),
 		"buyer_wallet":       buyerWallet.Address,
 		"seller_wallet":      sellerWallet.Address,
 		"amount_locked_sol":  amountSOL,
 		"bandwidth_limit_gb": uint64(order.BandwidthGB),
-	}); err != nil {
+		"escrow_seed_kind":   seedKind,
+		"escrow_expires_at":  escrowExpiresAt,
+	}
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, "api.orders.pay_solana", extras); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	order.EscrowPDA = pda.String()
+	order.EscrowSeedKind = seedKind
+	order.EscrowExpiresAt = escrowExpiresAt
 
 	funnel.Record(c.Request.Context(), funnel.RecordParams{
 		EventName: models.FunnelEscrowInitiated,
@@ -186,12 +208,12 @@ func initiateSolanaPayment(c *gin.Context) {
 		OrderID:   &order.ID,
 		Surface:   "api",
 		Meta: map[string]interface{}{
-			"escrow_pda": pda.String(),
+			"escrow_pda":       pda.String(),
+			"escrow_seed_kind": seedKind,
 		},
 	})
 
-	// PDA seeds are [escrow, buyer, seller] — only one account per pair. If it
-	// already exists and is funded, the client should confirm rather than re-init.
+	// Legacy PDA is one account per buyer/seller pair. Multisig PDAs include expires_at.
 	escrowAlreadyFunded := false
 	onChainStatus := ""
 	if existing, fetchErr := oracle.FetchEscrow(c.Request.Context(), pda); fetchErr == nil && existing != nil {
@@ -214,6 +236,8 @@ func initiateSolanaPayment(c *gin.Context) {
 		"oracle_pubkey":          oracle.GetOraclePublicKey().String(),
 		"escrow_already_funded":  escrowAlreadyFunded,
 		"on_chain_escrow_status": onChainStatus,
+		"escrow_seed_kind":       seedKind,
+		"escrow_expires_at":      escrowExpiresAt,
 	})
 }
 

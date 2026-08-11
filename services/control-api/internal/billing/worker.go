@@ -235,18 +235,18 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		return fmt.Errorf("PROXYHUB_REQUIRE_SESSION_PDA: session %s has no session_pda; custodial balance_sol settle disabled", sessionID)
 	}
 
-	costSOL, costUSD := computeSessionCost(&session, totalBytes)
+	costLamports, costUSD, costSOL := computeSessionCostLamports(&session, totalBytes)
 
 	// queuePayoutAfterCommit is set inside the tx and consumed after commit (FW-02).
 	var queuePayoutAfterCommit uuid.UUID
 
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		buyerWallet, err := debitBuyerWallet(tx, &session, totalBytes, costSOL, costUSD)
+		buyerWallet, err := debitBuyerWallet(tx, &session, totalBytes, costLamports, costSOL, costUSD)
 		if err != nil {
 			return err
 		}
 
-		shouldQueue, providerWalletID, err := creditProviderWallet(tx, &session, totalBytes, costSOL)
+		shouldQueue, providerWalletID, err := creditProviderWallet(tx, &session, totalBytes, costLamports, costSOL)
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			queuePayoutAfterCommit = session.Listing.SellerID
 		}
 
-		buyerDebit := int64(models.SOLToLamports(costSOL))
+		buyerDebit := costLamports
 		providerCredit := int64(0)
 		if providerWalletID != uuid.Nil {
 			providerCredit = buyerDebit // full amount to provider in current model
@@ -488,24 +488,33 @@ func findSessionIntentForSettlement(tx *gorm.DB, session *models.Session) (model
 }
 
 // computeSessionCost returns (costSOL, costUSD) for totalBytes of consumption.
+// Deprecated for money mutations — prefer computeSessionCostLamports (Sprint I).
 func computeSessionCost(session *models.Session, totalBytes int64) (costSOL, costUSD float64) {
+	_, costUSD, costSOL = computeSessionCostLamports(session, totalBytes)
+	return
+}
+
+// computeSessionCostLamports returns lamports SoT plus display USD/SOL (Sprint I / DB-02 lite).
+func computeSessionCostLamports(session *models.Session, totalBytes int64) (costLamports int64, costUSD, costSOL float64) {
 	pricePerGB := 0.50 // USD/GB default
 	if session.Listing != nil && session.Listing.PricePerGB > 0 {
 		pricePerGB = session.Listing.PricePerGB
 	}
-	costUSD = float64(totalBytes) / (1024 * 1024 * 1024) * pricePerGB
-	costSOL = USDToSOL(costUSD)
-	return
+	return CostFromBytesUSD(totalBytes, pricePerGB)
 }
 
-// debitBuyerWallet checks spending limits, deducts costSOL from the buyer's locked
+// debitBuyerWallet checks spending limits, deducts costLamports from the buyer's locked
 // wallet, records spending, and writes the debit ledger entry — all within tx.
 // Returns buyer wallet ID for PostUsageJournal (journal lines skipped here).
-func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL, costUSD float64) (uuid.UUID, error) {
+func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL, costUSD float64) (uuid.UUID, error) {
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ?", session.UserID).First(&wallet).Error; err != nil {
 		return uuid.Nil, err
+	}
+
+	if costLamports <= 0 {
+		return wallet.ID, nil
 	}
 
 	if err := wallet.CheckSpendingLimit(tx, costSOL, models.SpendingUsage); err != nil {
@@ -521,9 +530,9 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 		return uuid.Nil, err
 	}
 
-	if !wallet.CanAffordSOL(costSOL) {
+	if !wallet.CanAffordLamports(costLamports) {
 		logging.Warn().Str("session_id", session.ID.String()).
-			Float64("need", costSOL).Float64("have", wallet.BalanceSOL).
+			Int64("need_lamports", costLamports).Int64("have_lamports", wallet.EffectiveBalanceLamports()).
 			Msg("Billing: insufficient SOL balance")
 		return uuid.Nil, fmt.Errorf("insufficient SOL balance")
 	}
@@ -534,20 +543,20 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 
 	solPriceUSD := GetSOLPriceUSD()
 	desc := fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD)
-	if err := models.DebitWalletLockedOpts(tx, &wallet, costSOL, models.TransactionUsage, session.ID.String(), desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+	if err := models.DebitWalletLockedLamports(tx, &wallet, costLamports, models.TransactionUsage, session.ID.String(), desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return uuid.Nil, err
 	}
 	return wallet.ID, nil
 }
 
-// creditProviderWallet credits the provider's wallet with costSOL inside tx and
+// creditProviderWallet credits the provider's wallet with costLamports inside tx and
 // updates their quality score. Returns (true, providerWalletID, nil) when the balance crosses the
 // payout threshold — caller must queue a batch payout after the tx commits (FW-02).
 //
 // Provider resolution order:
 //  1. session.Listing.SellerID  — marketplace sessions (from-listing path)
 //  2. node.ProviderUserID       — quick-start / instant sessions (node assigned, no listing)
-func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costSOL float64) (bool, uuid.UUID, error) {
+func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL float64) (bool, uuid.UUID, error) {
 	var providerID uuid.UUID
 
 	if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
@@ -563,6 +572,9 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 	if providerID == uuid.Nil {
 		return false, uuid.Nil, nil
 	}
+	if costLamports <= 0 {
+		return false, uuid.Nil, nil
+	}
 
 	// P0-01: FirstOrCreate inside the locked tx — never silently lose funds.
 	var providerWallet models.Wallet
@@ -574,7 +586,7 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 
 	ref := session.ID.String() + ":provider"
 	desc := fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
-	if err := models.CreditWalletLockedOpts(tx, &providerWallet, costSOL, "provider_earning", ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, "provider_earning", ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return false, uuid.Nil, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
 	}
 
@@ -640,9 +652,21 @@ func triggerProviderPayout(providerID uuid.UUID) {
 			ErrorMessage:    &errMsg,
 		}
 		if dbErr := db.DB.Create(&entry).Error; dbErr != nil {
-			db.DB.Model(&models.Wallet{}).Where("user_id = ?", providerID).
-				Update("balance_sol", gorm.Expr("balance_sol + ?", payoutAmount))
-			logging.Error(dbErr).Str("provider_id", providerID.String()).Msg("Provider payout: failed to enqueue retry — balance restored")
+			restoreErr := db.DB.Transaction(func(tx *gorm.DB) error {
+				var w models.Wallet
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+					Where("user_id = ?", providerID).First(&w).Error; err != nil {
+					return err
+				}
+				ref := fmt.Sprintf("payout-restore:%s:%s", providerID.String(), uuid.New().String())
+				desc := fmt.Sprintf("Restore after payout enqueue failure (%.6f SOL)", payoutAmount)
+				return models.CreditWalletLocked(tx, &w, payoutAmount, "payout_restore", ref, desc)
+			})
+			if restoreErr != nil {
+				logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("Provider payout: enqueue failed and balance restore failed")
+			} else {
+				logging.Error(dbErr).Str("provider_id", providerID.String()).Msg("Provider payout: failed to enqueue retry — balance restored via ledger")
+			}
 		} else {
 			logging.Error(err).Str("provider_id", providerID.String()).Str("retry_id", entry.ID.String()).Msg("Provider payout: on-chain transfer failed, queued for retry")
 		}

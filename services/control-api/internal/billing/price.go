@@ -2,12 +2,14 @@ package billing
 
 import (
 	"context"
+	"math"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
@@ -161,4 +163,27 @@ func USDToSOL(usd float64) float64 {
 // SOLToUSD converts a SOL amount to USD using the live price.
 func SOLToUSD(sol float64) float64 {
 	return sol * GetSOLPriceUSD()
+}
+
+const bytesPerGB = 1024 * 1024 * 1024
+
+// CostFromBytesUSD computes usage cost with lamports as money SoT (Sprint I / DB-02 lite).
+// costUSD remains float for display/limits; costSOL is derived from rounded lamports.
+func CostFromBytesUSD(totalBytes int64, pricePerGBUSD float64) (costLamports int64, costUSD, costSOL float64) {
+	if totalBytes <= 0 || pricePerGBUSD <= 0 {
+		return 0, 0, 0
+	}
+	costUSD = float64(totalBytes) / float64(bytesPerGB) * pricePerGBUSD
+	solPrice := GetSOLPriceUSD()
+	if solPrice <= 0 {
+		return 0, costUSD, 0
+	}
+	numer := float64(totalBytes) * pricePerGBUSD * models.LamportsPerSOL
+	denom := float64(bytesPerGB) * solPrice
+	costLamports = int64(math.Round(numer / denom))
+	if costLamports < 0 {
+		costLamports = 0
+	}
+	costSOL = models.LamportsToSOL(uint64(costLamports))
+	return
 }

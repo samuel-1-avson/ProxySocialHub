@@ -35,11 +35,12 @@ const (
 	AuditWalletWithdraw AuditEventType = "wallet.withdraw"
 
 	// Order Events
-	AuditOrderCreated      AuditEventType = "order.created"
-	AuditOrderCompleted    AuditEventType = "order.completed"
-	AuditOrderCancelled    AuditEventType = "order.cancelled"
-	AuditOrderDisputed     AuditEventType = "order.disputed"
-	AuditOrderDevActivated AuditEventType = "order.dev_activated"
+	AuditOrderCreated         AuditEventType = "order.created"
+	AuditOrderCompleted       AuditEventType = "order.completed"
+	AuditOrderCancelled       AuditEventType = "order.cancelled"
+	AuditOrderDisputed        AuditEventType = "order.disputed"
+	AuditOrderDevActivated    AuditEventType = "order.dev_activated"
+	AuditOrderEscrowConfirmed AuditEventType = "order.escrow_confirmed"
 
 	// API key Events
 	AuditAPIKeyCreated AuditEventType = "api_key.created"
