@@ -15,6 +15,7 @@ jobs:
     name: Go Vulnerability Scan
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       security-events: write
     defaults:
@@ -39,9 +40,18 @@ jobs:
       continue-on-error: true
       with:
         args: '-fmt sarif -out gosec.sarif ./...'
+
+    - name: Upload Gosec SARIF artifact
+      if: always() && hashFiles('services/control-api/gosec.sarif') != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-sarif
+        path: services/control-api/gosec.sarif
     
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@v3
+      # Code Scanning may be disabled for this repo; do not fail the job when upload is blocked.
+      continue-on-error: true
       if: always() && hashFiles('services/control-api/gosec.sarif') != ''
       with:
         sarif_file: ./services/control-api/gosec.sarif
@@ -52,6 +62,7 @@ jobs:
     name: Node.js Dependency Audit
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:
@@ -75,9 +86,18 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
+
+    - name: Upload Trivy SARIF artifact
+      if: success() && hashFiles('trivy-results.sarif') != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-fs-sarif
+        path: trivy-results.sarif
     
     - name: Upload Trivy scan results
       uses: github/codeql-action/upload-sarif@v3
+      # Fails with "Resource not accessible by integration" when Code Scanning is not enabled.
+      continue-on-error: true
       if: success() && hashFiles('trivy-results.sarif') != ''
       with:
         sarif_file: 'trivy-results.sarif'
@@ -129,6 +149,7 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       security-events: write
     defaults:
@@ -156,6 +177,7 @@ jobs:
     
     - name: Upload Slither SARIF
       uses: github/codeql-action/upload-sarif@v3
+      continue-on-error: true
       if: success() && hashFiles('packages/contracts/slither.sarif') != ''
       with:
         sarif_file: ./packages/contracts/slither.sarif
@@ -166,6 +188,7 @@ jobs:
     name: Container Image Scan
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:
@@ -194,8 +217,19 @@ jobs:
         output: 'trivy-web.sarif'
         exit-code: '0'
 
+    - name: Upload Trivy SARIF artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-container-sarif
+        path: |
+          trivy-control-api.sarif
+          trivy-web.sarif
+        if-no-files-found: ignore
+
     - name: Upload Trivy results
       uses: github/codeql-action/upload-sarif@v3
+      continue-on-error: true
       if: success() && hashFiles('trivy-control-api.sarif') != ''
       with:
         sarif_file: 'trivy-control-api.sarif'
@@ -203,6 +237,7 @@ jobs:
 
     - name: Upload Trivy results (Web)
       uses: github/codeql-action/upload-sarif@v3
+      continue-on-error: true
       if: success() && hashFiles('trivy-web.sarif') != ''
       with:
         sarif_file: 'trivy-web.sarif'
@@ -234,5 +269,7 @@ jobs:
     
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
+      # Same Code Scanning gate as SARIF upload; keep language matrix informative without red X.
+      continue-on-error: true
       with:
         category: "/language:${{matrix.language}}"
