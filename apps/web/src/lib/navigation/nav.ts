@@ -133,7 +133,8 @@ export const NAV_SECTIONS: NavigationSection[] = [
             navItem("marketplaceMap", "Supply map", MapPin, {
                 id: "sellSupplyMap",
                 description: "See where listings appear globally",
-                policy: "provider",
+                // Must match ROUTE_POLICIES.marketplaceMap — map is a public discovery surface.
+                policy: "public",
                 providerBadge: true,
             }),
         ],
