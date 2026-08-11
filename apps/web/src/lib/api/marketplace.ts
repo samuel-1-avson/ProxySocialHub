@@ -378,6 +378,14 @@ export interface MarketplaceMapPoint {
     geo_source: 'gps' | 'gateway' | 'explorer' | 'provider' | 'country_centroid' | 'region_hub' | 'city_centroid' | 'unknown' | string;
     geo?: MapGeoMeta;
     listing_offer_verified?: boolean;
+    /** Optional proof metadata when include_proofs / enriched map payloads are requested. */
+    listing_offer_signer?: string;
+    listing_offer_signed_at?: string;
+    listing_offer_verification_error?: string;
+    heartbeat_verified?: boolean;
+    heartbeat_signer?: string;
+    heartbeat_signed_at?: string;
+    heartbeat_verification_error?: string;
     catalog_product?: CatalogProductSummary;
 }
 
