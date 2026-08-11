@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -184,14 +185,26 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 		isValidator = true
 	}
 
-	// P0-13: resolve real coordinates from the node's IP address instead of
-	// leaving them as the default (0, 0) forever.
-	effectiveIP := geoip.NormalizeIPForGeo(node.IPAddress)
-	if effectiveIP != "" && effectiveIP != node.IPAddress {
-		node.IPAddress = effectiveIP
-		_ = ns.db.Model(&node).Update("ip_address", effectiveIP).Error
+	// P0-13: resolve coordinates from a public provider IP when available.
+	// Never rewrite the stored IP to the control-api WAN / cloud egress.
+	effectiveIP := geoip.PublicIPForGeo(node.IPAddress)
+	if effectiveIP == "" || geoip.IsControlPlanePublicIP(effectiveIP) || geoip.IsUntrustedGatewayGeo(effectiveIP, node.ISP) {
+		if alt := ns.residentialIPForProvider(node.ID.String()); alt != "" {
+			effectiveIP = alt
+		} else {
+			effectiveIP = ""
+		}
 	}
-
+	// Scrub a poisoned control-plane/cloud IP off provider_nodes so it cannot
+	// keep re-geolocating the explorer pin on every sync tick.
+	if geoip.IsControlPlanePublicIP(node.IPAddress) || geoip.IsUntrustedGatewayGeo(node.IPAddress, node.ISP) {
+		_ = ns.db.Model(&node).Updates(map[string]interface{}{
+			"ip_address": nil,
+			"isp":        nil,
+		}).Error
+		node.IPAddress = ""
+		node.ISP = ""
+	}
 	country, cityHint := geo.NormalizeProviderLocation(
 		firstNonEmpty(node.Country, ns.getCountryFromRegion(region)),
 		node.City,
@@ -211,43 +224,69 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 	)
 	providerUpdates := map[string]interface{}{}
 	ipRegion := region
-	if node.IPAddress != "" {
-		if geoResult, ok := geoip.Resolve(node.IPAddress); ok {
-			lat, lon = geoResult.Latitude, geoResult.Longitude
-			city = geoResult.City
-			isp = geoResult.ISP
+	explicitCountry := country
+	explicitCity := firstNonEmpty(node.City, cityHint)
+	if effectiveIP != "" {
+		if geoResult, ok := geoip.Resolve(effectiveIP); ok {
+			ipCountry := ""
 			if countryCode := geo.NormalizeCountryCode(geoResult.Country); countryCode != "" {
-				country = countryCode
+				ipCountry = countryCode
 			}
-			if geoResult.Region != "" {
-				ipRegion = geoResult.Region
-				if region == "unknown" {
-					region = geoResult.Region
+			if geoip.IsCloudHostedISP(geoResult.ISP) {
+				// Cloud MaxMind must never drive map pins when we have (or expect)
+				// a residential provider location.
+				lat, lon = 0, 0
+				city = ""
+			} else {
+				isp = geoResult.ISP
+				lat, lon = geoResult.Latitude, geoResult.Longitude
+				// Prefer a declared city (Bibiani / Western North) over IP-city
+				// snaps (often Accra for Ghana mobile egress).
+				if explicitCity == "" {
+					city = geoResult.City
 				}
-				if node.Region == "" {
-					providerUpdates["region"] = geoResult.Region
-					node.Region = geoResult.Region
+				if explicitCountry == "" {
+					country = ipCountry
+				} else if ipCountry != "" && ipCountry != explicitCountry {
+					lat, lon = 0, 0
+					city = ""
+				}
+				if geoResult.Region != "" && (region == "" || region == "unknown") && explicitCity == "" {
+					ipRegion = geoResult.Region
+					region = geoResult.Region
+					if node.Region == "" && (explicitCountry == "" || ipCountry == "" || ipCountry == explicitCountry) {
+						providerUpdates["region"] = geoResult.Region
+						node.Region = geoResult.Region
+					}
 				}
 			}
 		}
 	}
 	if isp == "" {
-		isp = node.ISP
-	} else if isp != node.ISP {
+		if !geoip.IsCloudHostedISP(node.ISP) {
+			isp = node.ISP
+		}
+	} else if isp != node.ISP && !geoip.IsCloudHostedISP(isp) {
 		providerUpdates["isp"] = isp
 		node.ISP = isp
+	}
+	if explicitCountry != "" {
+		country = explicitCountry
 	}
 	if country != "" && country != node.Country {
 		providerUpdates["country"] = country
 		node.Country = country
 	}
-	if city == "" {
-		city = firstNonEmpty(node.City, cityHint)
+	city = firstNonEmpty(explicitCity, city, node.City, cityHint)
+	// Declared region wins for hub selection (Western North → Bibiani).
+	hubRegion := firstNonEmpty(node.Region, region)
+	if hubRegion == "unknown" {
+		hubRegion = ipRegion
 	}
 	hubCity, hubLat, hubLon, hubOK := geo.ApplyRegionalHubCoords(
 		firstNonEmpty(node.Country, country),
 		city,
-		ipRegion,
+		hubRegion,
 		lat,
 		lon,
 	)
@@ -282,18 +321,46 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 		}
 	}
 
+	mapCountry := firstNonEmpty(node.Country, country, ns.getCountryFromRegion(region))
+	mapCity := city
+	mapLat, mapLon := lat, lon
+	mapIP := effectiveIP
+	if mapIP == "" || geoip.IsControlPlanePublicIP(mapIP) || geoip.IsUntrustedGatewayGeo(mapIP, isp) {
+		mapIP = ""
+	}
+	// Preserve a previously corrected residential hub when this sync tick has no
+	// trustworthy IP geo (classic race: gateway re-advertises GCP WAN → Chicago).
+	if explorerNode.ID != uuid.Nil {
+		existingCountry := geo.NormalizeCountryCode(explorerNode.Country)
+		incomingCountry := geo.NormalizeCountryCode(mapCountry)
+		existingHubOK := math.Abs(explorerNode.Latitude) > 0.01 && math.Abs(explorerNode.Longitude) > 0.01
+		incomingWeak := math.Abs(mapLat) < 0.01 && math.Abs(mapLon) < 0.01
+		cloudFlip := existingCountry != "" && incomingCountry != "" && existingCountry != incomingCountry &&
+			(geoip.IsCloudHostedISP(isp) || mapIP == "")
+		poisonedExisting := existingCountry == "US" && strings.EqualFold(explorerNode.City, "Chicago")
+		if existingHubOK && !poisonedExisting && (incomingWeak || cloudFlip) {
+			mapCountry = explorerNode.Country
+			mapCity = explorerNode.City
+			mapLat = explorerNode.Latitude
+			mapLon = explorerNode.Longitude
+			if region == "" || region == "unknown" {
+				region = explorerNode.Region
+			}
+		}
+	}
+
 	explorerNodeData := models.ExplorerNode{
 		NodeID:           node.ID.String(),
 		Chain:            "solana",
 		Name:             ns.getNodeName(node),
-		IP:               node.IPAddress,
+		IP:               mapIP,
 		Region:           region,
-		Country:          firstNonEmpty(node.Country, country, ns.getCountryFromRegion(region)),
-		City:             city,
+		Country:          mapCountry,
+		City:             mapCity,
 		ISP:              isp,
-		Latitude:         lat,
-		Longitude:        lon,
-		IsActive:         node.IsHealthy,
+		Latitude:         mapLat,
+		Longitude:        mapLon,
+		IsActive:         node.IsHealthy || node.Status == models.NodeOnline,
 		IsValidator:      isValidator,
 		UptimePercent:    uptime,
 		TotalBandwidth:   bandwidth,
@@ -406,15 +473,29 @@ func (ns *NodeSync) markInactiveNodes(activeNodes []models.ProviderNode) error {
 
 	if len(activeIDs) == 0 {
 		// No active nodes, mark all as inactive
-		return ns.db.Model(&models.ExplorerNode{}).
+		if err := ns.db.Model(&models.ExplorerNode{}).
 			Where("is_active = ?", true).
-			Update("is_active", false).Error
+			Update("is_active", false).Error; err != nil {
+			return err
+		}
+	} else {
+		// Mark nodes not in active list as inactive
+		if err := ns.db.Model(&models.ExplorerNode{}).
+			Where("node_id NOT IN ?", activeIDs).
+			Update("is_active", false).Error; err != nil {
+			return err
+		}
 	}
 
-	// Mark nodes not in active list as inactive
-	return ns.db.Model(&models.ExplorerNode{}).
-		Where("node_id NOT IN ?", activeIDs).
-		Update("is_active", false).Error
+	// Drop map footprints for soft-deleted provider nodes (node_id = provider_nodes.id).
+	return ns.db.Exec(`
+		DELETE FROM explorer_nodes en
+		WHERE EXISTS (
+			SELECT 1 FROM provider_nodes pn
+			WHERE pn.id::text = en.node_id
+			  AND pn.deleted_at IS NOT NULL
+		)
+	`).Error
 }
 
 // getNodeName gets a display name for the node
@@ -479,6 +560,37 @@ func firstNonEmpty(values ...string) string {
 		if value != "" {
 			return value
 		}
+	}
+	return ""
+}
+
+// residentialIPForProvider picks a non-cloud public IP from the linked nodes
+// table (real provider egress), ignoring control-plane / datacenter WAN.
+func (ns *NodeSync) residentialIPForProvider(providerNodeID string) string {
+	if providerNodeID == "" {
+		return ""
+	}
+	var ips []string
+	_ = ns.db.Raw(`
+		SELECT DISTINCT TRIM(ip_address::text) AS ip
+		FROM nodes
+		WHERE deleted_at IS NULL
+		  AND provider_node_id = ?::uuid
+		  AND ip_address IS NOT NULL
+		  AND TRIM(ip_address::text) <> ''
+		ORDER BY ip
+		LIMIT 8
+	`, providerNodeID).Scan(&ips).Error
+	for _, raw := range ips {
+		ip := strings.TrimSuffix(strings.TrimSpace(raw), "/32")
+		ip = geoip.PublicIPForGeo(ip)
+		if ip == "" || geoip.IsControlPlanePublicIP(ip) {
+			continue
+		}
+		if geoip.IsUntrustedGatewayGeo(ip, "") {
+			continue
+		}
+		return ip
 	}
 	return ""
 }

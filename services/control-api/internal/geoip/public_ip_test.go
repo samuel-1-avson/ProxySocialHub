@@ -43,6 +43,45 @@ func TestNormalizeIPForGeoKeepsPublic(t *testing.T) {
 	}
 }
 
+func TestNormalizeIPForGeoDoesNotSubstituteHostWAN(t *testing.T) {
+	// Previously replaced LAN peers with DetectPublicIP() (control-api WAN).
+	got := NormalizeIPForGeo("172.19.0.2")
+	if got != "172.19.0.2" {
+		t.Fatalf("LAN IP must stay unchanged, got %q", got)
+	}
+	if PublicIPForGeo("172.19.0.2") != "" {
+		t.Fatal("LAN IP is not usable for GeoIP")
+	}
+	if PublicIPForGeo("203.0.113.10") != "203.0.113.10" {
+		t.Fatal("public IP should pass through PublicIPForGeo")
+	}
+}
+
+func TestProviderIPForStorageRejectsLAN(t *testing.T) {
+	if ProviderIPForStorage("172.19.0.2") != "" {
+		t.Fatal("LAN IP must not be stored as provider egress")
+	}
+	if ProviderIPForStorage("203.0.113.10") != "203.0.113.10" {
+		t.Fatal("documentation public IP should be storable")
+	}
+}
+
+func TestIsUntrustedGatewayGeoCloudISP(t *testing.T) {
+	if !IsUntrustedGatewayGeo("203.0.113.10", "Google LLC") {
+		t.Fatal("Google LLC ISP must be untrusted for gateway geo")
+	}
+	if IsUntrustedGatewayGeo("203.0.113.10", "Scancom MTNGhana") {
+		t.Fatal("residential ISP must remain trusted without cloud Resolve")
+	}
+}
+
+func TestControlPlanePublicIPsFromEnv(t *testing.T) {
+	rememberControlPlaneIP("35.255.62.196")
+	if !IsControlPlanePublicIP("35.255.62.196") {
+		t.Fatal("remembered control-plane IP must match")
+	}
+}
+
 func TestNormalizeCountryCodeUsesISO2(t *testing.T) {
 	cases := map[string]string{
 		"Ghana":                    "GH",

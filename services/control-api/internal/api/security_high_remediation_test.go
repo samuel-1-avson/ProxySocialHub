@@ -51,9 +51,18 @@ func TestAllowedWebSocketOrigin_FailClosedInProd(t *testing.T) {
 func TestBulkEndpointPasswordStableAndNotUUIDDerived(t *testing.T) {
 	t.Setenv("BULK_ENDPOINT_HMAC_SECRET", "unit-test-secret")
 	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	a := bulkEndpointPassword(id, 1)
-	b := bulkEndpointPassword(id, 1)
-	c := bulkEndpointPassword(id, 2)
+	a, err := bulkEndpointPassword(id, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bulkEndpointPassword(id, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := bulkEndpointPassword(id, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if a != b {
 		t.Fatal("password should be stable for same pool/index")
 	}

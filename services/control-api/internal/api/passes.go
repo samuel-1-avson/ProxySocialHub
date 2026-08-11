@@ -191,7 +191,7 @@ func preparePassPurchase(c *gin.Context) {
 		return
 	}
 
-	lamports := uint64(price * 1e9)
+	lamports := models.SOLToLamports(price)
 	purchaseID := uuid.New()
 	idem := strings.TrimSpace(req.IdempotencyKey)
 	if idem == "" {
@@ -292,7 +292,7 @@ func confirmPassPurchase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction verification failed: " + err.Error()})
 		return
 	}
-	expected := uint64(purchase.AmountSOL * 1e9)
+	expected := models.SOLToLamports(purchase.AmountSOL)
 	// Allow 1% under/over for rounding
 	if lamports+expected/100 < expected {
 		c.JSON(http.StatusBadRequest, gin.H{

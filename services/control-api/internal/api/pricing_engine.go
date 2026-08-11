@@ -13,11 +13,12 @@ import (
 	"github.com/proxyhubb/control-api/internal/redis"
 )
 
-// Base Prices (in SOL)
+// Base Prices (USD per GB) — traffic-first floors for fair-price hints only.
+// Seller-set listing.price_per_gb is authoritative on buy/checkout.
 const (
-	BasePriceResidential = 0.50
-	BasePriceMobile      = 0.80
-	BasePriceDatacenter  = 0.20
+	BasePriceResidential = 0.99
+	BasePriceMobile      = 3.50
+	BasePriceDatacenter  = 0.15
 )
 
 // Multipliers

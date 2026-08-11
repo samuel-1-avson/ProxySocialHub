@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -322,11 +322,6 @@ type cryptoDepositRequest struct {
 	Chain  string  `json:"chain" binding:"required"` // "solana"
 }
 
-const (
-	defaultMaxSingleDepositSOL = 10000.0
-	defaultMaxDailyDepositSOL  = 50000.0
-)
-
 func getMaxSingleDepositSOL() float64 {
 	if cm := GetConfigManager(); cm != nil {
 		if raw, err := cm.Get("max_single_deposit_sol"); err == nil {
@@ -335,12 +330,7 @@ func getMaxSingleDepositSOL() float64 {
 			}
 		}
 	}
-	if raw := strings.TrimSpace(os.Getenv("MAX_SINGLE_DEPOSIT_SOL")); raw != "" {
-		if max, err := strconv.ParseFloat(raw, 64); err == nil && max > 0 {
-			return max
-		}
-	}
-	return defaultMaxSingleDepositSOL
+	return models.MaxSingleDepositSOL()
 }
 
 func getMaxDailyDepositSOL() float64 {
@@ -351,21 +341,11 @@ func getMaxDailyDepositSOL() float64 {
 			}
 		}
 	}
-	if raw := strings.TrimSpace(os.Getenv("MAX_DAILY_DEPOSIT_SOL")); raw != "" {
-		if max, err := strconv.ParseFloat(raw, 64); err == nil && max > 0 {
-			return max
-		}
-	}
-	return defaultMaxDailyDepositSOL
+	return models.MaxDailyDepositSOL()
 }
 
 func getWalletDepositsSince(tx *gorm.DB, walletID uuid.UUID, since time.Time) (float64, error) {
-	var total float64
-	err := tx.Model(&models.WalletLedgerEntry{}).
-		Where("wallet_id = ? AND type = ? AND created_at >= ?", walletID, "deposit", since).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&total).Error
-	return total, err
+	return models.SumDepositsSince(tx, walletID, since)
 }
 
 // verifyCryptoDeposit verifies an external crypto transfer and credits the internal wallet
@@ -391,12 +371,11 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	// 1. Verify Transaction On-Chain (REAL VERIFICATION)
 	var verifiedAmount float64
+	var depositDestKind solana.DepositDestinationKind
 
 	if req.Chain == "solana" {
-		// Get treasury address
-		treasuryAddress := solana.GetTreasuryAddress()
-		if treasuryAddress == "" {
-			logging.Error(nil).Msg("SOLANA_TREASURY_ADDRESS not configured")
+		if solana.GetTreasuryAddress() == "" && solana.GetDepositVaultAddress() == "" {
+			logging.Error(nil).Msg("No deposit destination configured (treasury or vault)")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Treasury not configured"})
 			return
 		}
@@ -409,11 +388,41 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
-		// Verify amount was sent to treasury
-		valid, receivedSOL, err := solana.VerifyTransferAmount(txResult, treasuryAddress, 0)
-		if err != nil || !valid {
-			logging.Warn().Str("tx_hash", req.TxHash).Msg("Transaction did not credit treasury")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction does not credit platform treasury"})
+		// Prefer vault when both are credited in the same tx (unlikely); check vault first if enabled.
+		var receivedSOL float64
+		var valid bool
+		candidates := []struct {
+			addr string
+			kind solana.DepositDestinationKind
+		}{}
+		if v := solana.GetDepositVaultAddress(); v != "" {
+			candidates = append(candidates, struct {
+				addr string
+				kind solana.DepositDestinationKind
+			}{v, solana.DepositDestVault})
+		}
+		if t := solana.GetTreasuryAddress(); t != "" {
+			candidates = append(candidates, struct {
+				addr string
+				kind solana.DepositDestinationKind
+			}{t, solana.DepositDestTreasury})
+		}
+		for _, cand := range candidates {
+			ok, amt, verr := solana.VerifyTransferAmount(txResult, cand.addr, 0)
+			if verr == nil && ok && amt > 0 {
+				kind := solana.ResolveDepositDestination(cand.addr)
+				if kind == "" {
+					continue // flag disabled for this destination
+				}
+				valid = true
+				receivedSOL = amt
+				depositDestKind = kind
+				break
+			}
+		}
+		if !valid {
+			logging.Warn().Str("tx_hash", req.TxHash).Msg("Transaction did not credit an allowed deposit destination")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction does not credit platform treasury or deposit vault"})
 			return
 		}
 
@@ -452,6 +461,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 			Str("tx_hash", req.TxHash).
 			Float64("amount_sol", verifiedAmount).
 			Str("sender", sender).
+			Str("destination_kind", string(depositDestKind)).
 			Msg("Solana deposit verified on-chain with sender ownership confirmed")
 
 	} else if req.Chain == "ethereum" {
@@ -559,7 +569,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	if err := models.CreditWalletLockedOpts(tx, &wallet, creditedAmount, "deposit", req.TxHash,
 		fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
-		models.LedgerOpts{TxHash: req.TxHash},
+		models.LedgerOpts{
+			TxHash:      req.TxHash,
+			JournalKind: solana.JournalKindForDeposit(depositDestKind),
+		},
 	); err != nil {
 		tx.Rollback()
 		logging.Error(err).Str("tx_hash", req.TxHash).Str("user_id", userID).Msg("Failed to credit wallet / ledger")
@@ -569,15 +582,16 @@ func verifyCryptoDeposit(c *gin.Context) {
 
 	// 4. Log Transaction
 	pendingTx := models.PendingTransaction{
-		UserID:         userUUID,
-		Reference:      req.TxHash,
-		IdempotencyKey: req.TxHash,
-		Type:           "crypto_deposit",
-		Amount:         creditedAmount,
-		Currency:       currency,
-		Provider:       "blockchain",
-		Status:         "completed",
-		ExternalRef:    req.TxHash,
+		UserID:          userUUID,
+		Reference:       req.TxHash,
+		IdempotencyKey:  req.TxHash,
+		Type:            "crypto_deposit",
+		Amount:          creditedAmount,
+		Currency:        currency,
+		Provider:        "blockchain",
+		Status:          "completed",
+		ExternalRef:     req.TxHash,
+		DestinationKind: string(depositDestKind),
 	}
 	if err := tx.Create(&pendingTx).Error; err != nil {
 		tx.Rollback()
@@ -735,18 +749,28 @@ func emergencyPause(c *gin.Context) {
 	})
 }
 
-// getTreasuryAddress returns the configured treasury address
+// getTreasuryAddress returns the configured deposit destination for users.
 func getTreasuryAddress(c *gin.Context) {
-	address := solana.GetTreasuryAddress()
+	address := solana.GetDepositDestinationAddress()
 	if address == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Treasury not configured"})
 		return
 	}
 
+	kind := "treasury"
+	if decentralization.DepositVaultUIEnabled() && solana.GetDepositVaultAddress() != "" &&
+		address == solana.GetDepositVaultAddress() {
+		kind = "vault"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"treasury_address": address,
-		"chain":            "solana",
-		"network":          "devnet",
+		"treasury_address":  address,
+		"deposit_address":   address,
+		"destination_kind":  kind,
+		"vault_address":     solana.GetDepositVaultAddress(),
+		"legacy_treasury":   solana.GetTreasuryAddress(),
+		"chain":             "solana",
+		"network":           "devnet",
 	})
 }
 

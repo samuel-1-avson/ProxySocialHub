@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -342,9 +345,21 @@ func MetricsMiddleware() gin.HandlerFunc {
 
 // RegisterMetricsRoutes registers metrics endpoints
 func RegisterMetricsRoutes(r *gin.Engine) {
-	// Prometheus metrics endpoint (no auth required for scraping)
+	// Prometheus metrics endpoint (no auth required for scraping).
+	// Emit the hand-rolled proxyhubb_* series plus the default registry
+	// (promauto gauges such as nats_consumer_num_pending).
 	r.GET("/metrics", func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(GetMetrics().PrometheusFormat()))
+		var buf bytes.Buffer
+		buf.WriteString(GetMetrics().PrometheusFormat())
+		buf.WriteByte('\n')
+		if mfs, err := prometheus.DefaultGatherer.Gather(); err == nil {
+			for _, mf := range mfs {
+				if _, err := expfmt.MetricFamilyToText(&buf, mf); err != nil {
+					continue
+				}
+			}
+		}
+		c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", buf.Bytes())
 	})
 
 	// JSON metrics endpoint (for internal use)

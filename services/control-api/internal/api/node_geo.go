@@ -9,8 +9,9 @@ import (
 )
 
 // normalizeGatewayGeo prepares IP and location fields before persisting a gateway node.
+// Private peer IPs are kept as-is (never rewritten to the control-api WAN).
 func normalizeGatewayGeo(ip, country, city string) (string, string, string) {
-	ip = geoip.NormalizeIPForGeo(strings.TrimSpace(ip))
+	ip = strings.TrimSpace(ip)
 	country, city = geo.NormalizeProviderLocation(country, city)
 	return ip, country, city
 }
@@ -21,6 +22,7 @@ func normalizeProviderNodeGeo(ip, country, city string) (string, string, string)
 }
 
 // scheduleNodeGeoEnrich syncs explorer_nodes and resolves coordinates immediately.
+// Uses force enrich so sticky wrong hubs (e.g. Chicago from control-api WAN) get corrected.
 func scheduleNodeGeoEnrich(providerNodeID string) {
 	if providerNodeID == "" {
 		return
@@ -29,7 +31,7 @@ func scheduleNodeGeoEnrich(providerNodeID string) {
 		if ns := indexer.GetNodeSync(); ns != nil {
 			_ = ns.SyncNodeNow(id)
 		}
-		geoip.EnrichExplorerForProviderNode(id)
+		geoip.ForceEnrichExplorerForProviderNode(id)
 		geoip.ResolveNextBatch()
 	}(providerNodeID)
 }

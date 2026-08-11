@@ -55,7 +55,7 @@ type APIKey struct {
 	KeyHash         string          `gorm:"size:64;not null" json:"-"` // Never expose hash
 	KeyPrefix       string          `gorm:"size:12;not null" json:"key_prefix"`
 	Permissions     PermissionsList `gorm:"type:jsonb" json:"permissions"`
-	RateLimitPerMin int             `gorm:"default:100" json:"rate_limit_per_minute"`
+	RateLimitPerMin int             `gorm:"column:rate_limit_per_minute;default:100" json:"rate_limit_per_minute"`
 	LastUsedAt      *time.Time      `json:"last_used_at,omitempty"`
 	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`

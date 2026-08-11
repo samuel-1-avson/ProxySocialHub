@@ -111,6 +111,18 @@ func blockDeprecatedDirectSessionCreation(c *gin.Context, flow string) bool {
 	if flow == "instant_session" && decentralization.RequireSessionPDAEnabled() {
 		return false
 	}
+	// Sprint J1: when session PDA is required, refuse other direct/custodial create paths
+	// even if PROXYHUB_ALLOW_LEGACY_DIRECT_SESSIONS_IN_PROD / non-prod legacy is on.
+	if decentralization.RequireSessionPDAEnabled() {
+		c.JSON(http.StatusGone, gin.H{
+			"error":       "Custodial direct session creation disabled while PROXYHUB_REQUIRE_SESSION_PDA is on",
+			"code":        "session_pda_required",
+			"flow":        flow,
+			"replacement": "POST /v1/sessions/instant (pending_payment) → fund/solana → confirm-escrow, or marketplace escrow orders",
+			"intent_path": "/v1/sessions/intent",
+		})
+		return true
+	}
 	if legacyDirectSessionCreationEnabled() {
 		return false
 	}
@@ -552,6 +564,7 @@ func createSession(c *gin.Context) {
 		RotationType:            rotationType,
 		RotationIntervalSeconds: rotationInterval,
 		TimeLimitMinutes:        req.TimeLimitMinutes,
+		CredentialPasswordHash: marketplace.HashCredentialPassword(credPass),
 		// Routing fields — edge-gateway uses these to forward traffic
 		NodeID:     node.ID.String(),
 		NodeHost:   node.IPAddress,
@@ -875,17 +888,21 @@ func createInstantSession(c *gin.Context) {
 
 	// 4. Store in Redis for Gateway — includes provider routing info
 	sessionData := &redisClient.SessionData{
-		UserID:         userID,
-		ProviderID:     node.UserID.String(),
-		SessionID:      session.ID.String(),
-		Type:           "universal",
-		Status:         "active",
-		BandwidthLimit: req.BandwidthLimit,
-		TrustTier:      "verified",
-		TargetGeo:      req.TargetCountry,
-		ExpiresAt:      time.Now().Add(24 * time.Hour),
-		CreatedAt:      time.Now(),
-		PricePerGB:     node.BasePricePerGB,
+		UserID:                 userID,
+		ProviderID:             node.UserID.String(),
+		SessionID:              session.ID.String(),
+		Type:                   "universal",
+		Status:                 "active",
+		BandwidthLimit:         req.BandwidthLimit,
+		TrustTier:              "verified",
+		TargetGeo:              req.TargetCountry,
+		ExpiresAt:              time.Now().Add(24 * time.Hour),
+		CreatedAt:              time.Now(),
+		PricePerGB:             node.BasePricePerGB,
+		NodeID:                 node.ID.String(),
+		NodeHost:               node.IPAddress,
+		NodePort:               node.Port,
+		CredentialPasswordHash: marketplace.HashCredentialPassword(credPass),
 	}
 
 	// Store

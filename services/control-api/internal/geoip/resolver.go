@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,14 +34,15 @@ type Result struct {
 
 // ipAPIResponse mirrors the ip-api.com JSON response.
 type ipAPIResponse struct {
-	Status  string  `json:"status"`
-	Lat     float64 `json:"lat"`
-	Lon     float64 `json:"lon"`
-	City    string  `json:"city"`
-	Region  string  `json:"regionName"`
-	Country string  `json:"country"`
-	ISP     string  `json:"isp"`
-	Message string  `json:"message,omitempty"`
+	Status      string  `json:"status"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	City        string  `json:"city"`
+	Region      string  `json:"regionName"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	ISP         string  `json:"isp"`
+	Message     string  `json:"message,omitempty"`
 }
 
 var (
@@ -66,7 +68,7 @@ func Resolve(ip string) (Result, bool) {
 	}
 	cacheMu.RUnlock()
 
-	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,isp,message", ip)
+	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,countryCode,isp,message", ip)
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return Result{}, false
@@ -81,20 +83,48 @@ func Resolve(ip string) (Result, bool) {
 		return Result{}, false
 	}
 
+	country := strings.TrimSpace(apiResp.CountryCode)
+	if country == "" {
+		country = normalizeCountryCode(apiResp.Country)
+	} else {
+		country = strings.ToUpper(country)
+	}
+
 	result := Result{
 		Latitude:  apiResp.Lat,
 		Longitude: apiResp.Lon,
 		City:      apiResp.City,
 		Region:    apiResp.Region,
-		Country:   apiResp.Country,
+		Country:   country,
 		ISP:       apiResp.ISP,
 	}
 
 	cacheMu.Lock()
 	cache[ip] = result
 	cacheMu.Unlock()
-
 	return result, true
+}
+
+// IsCloudHostedISP reports whether an ISP string looks like a cloud/datacenter
+// host (not a residential provider egress). Map pins must not use these when a
+// provider has declared a home country — classic failure was Google Cloud WAN
+// on the control-api host geolocating every mis-keyed node to Chicago.
+func IsCloudHostedISP(isp string) bool {
+	s := strings.ToLower(strings.TrimSpace(isp))
+	if s == "" {
+		return false
+	}
+	needles := []string{
+		"google", "amazon", "aws", "microsoft", "azure", "digitalocean",
+		"linode", "akamai", "cloudflare", "hetzner", "ovh", "vultr",
+		"oracle cloud", "alibaba", "tencent", "softlayer", "ibm cloud",
+	}
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeCountryCode(country string) string {
@@ -126,21 +156,31 @@ func ResolveNextBatch() int {
 
 	updated := 0
 	for _, node := range nodes {
-		effectiveIP := NormalizeIPForGeo(node.IP)
-		if effectiveIP == "" {
+		effectiveIP := PublicIPForGeo(node.IP)
+		if effectiveIP == "" || IsControlPlanePublicIP(effectiveIP) || IsUntrustedGatewayGeo(effectiveIP, node.ISP) {
+			// Drop poisoned control-plane / cloud IPs so they cannot keep
+			// backfilling Chicago (or other cloud hubs) forever.
+			_ = db.DB.Model(&models.ExplorerNode{}).Where("id = ?", node.ID).Updates(map[string]interface{}{
+				"ip":  "",
+				"isp": "",
+			}).Error
 			continue
 		}
 		result, ok := Resolve(effectiveIP)
 		if !ok {
 			continue
 		}
+		if IsCloudHostedISP(result.ISP) {
+			_ = db.DB.Model(&models.ExplorerNode{}).Where("id = ?", node.ID).Updates(map[string]interface{}{
+				"ip":  "",
+				"isp": "",
+			}).Error
+			continue
+		}
 
 		updates := map[string]interface{}{
 			"latitude":  result.Latitude,
 			"longitude": result.Longitude,
-		}
-		if effectiveIP != node.IP {
-			updates["ip"] = effectiveIP
 		}
 		if result.City != "" {
 			updates["city"] = result.City

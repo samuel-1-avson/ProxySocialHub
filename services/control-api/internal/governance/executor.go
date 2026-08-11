@@ -3,6 +3,7 @@ package governance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,10 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 )
+
+// ErrTreasuryAwaitingCustody is returned when a treasury proposal is queued for
+// manual/multisig custody instead of auto-spending from the hot wallet.
+var ErrTreasuryAwaitingCustody = errors.New("treasury transfer queued for custody; automatic hot-wallet spend is disabled")
 
 // ProposalExecutor handles execution of passed proposals
 type ProposalExecutor struct {
@@ -102,77 +107,38 @@ func (e *ProposalExecutor) ExecuteProposal(proposal models.Proposal) error {
 	return nil
 }
 
-// executeTreasuryTransfer executes an on-chain SOL transfer from the treasury
-// wallet to the recipient specified in the governance proposal.
+// executeTreasuryTransfer queues a treasury transfer for custody review.
 //
-// D-G1: Governance decisions now trigger *actual* on-chain transactions rather
-// than creating a "pending" DB record and waiting for a manual operator step.
-// This removes the platform admin as an intermediary in treasury disbursements.
+// Automatic hot-wallet SendSOL from governance is disabled: a compromised
+// control-api/oracle must not be able to drain operational treasury via a
+// passed proposal. Records are created as pending_custody for multisig/ops.
 func (e *ProposalExecutor) executeTreasuryTransfer(proposal models.Proposal) error {
 	var transfer TreasuryTransfer
 	if err := json.Unmarshal([]byte(proposal.ExecutionData), &transfer); err != nil {
 		return fmt.Errorf("failed to parse treasury transfer data: %w", err)
 	}
 
-	logging.Info().
+	logging.Warn().
 		Str("recipient", transfer.Recipient).
 		Float64("amount", transfer.Amount).
 		Str("currency", transfer.Currency).
-		Msg("Executing on-chain treasury transfer")
+		Str("proposal_id", proposal.ID.String()).
+		Msg("Treasury auto-spend disabled — queuing pending_custody record")
 
-	// Create the record first so we have an audit trail even if on-chain fails.
 	txRecord := models.TreasuryTransaction{
 		ProposalID:  proposal.ID,
 		Recipient:   transfer.Recipient,
 		Amount:      transfer.Amount,
 		Currency:    transfer.Currency,
 		Description: transfer.Description,
-		Status:      "submitted",
+		Status:      "pending_custody",
 		CreatedAt:   time.Now(),
 	}
 	if err := db.DB.Create(&txRecord).Error; err != nil {
 		return fmt.Errorf("failed to create treasury transaction record: %w", err)
 	}
 
-	// Only SOL transfers are supported.  The Ethereum relayer was decommissioned
-	// (2026-04-01); all on-chain operations run exclusively via the Solana oracle.
-	// Governance proposals must specify SOL as the treasury transfer currency.
-	if transfer.Currency != "SOL" {
-		db.DB.Model(&txRecord).Update("status", "failed_unsupported_currency")
-		return fmt.Errorf("treasury transfers only support SOL; currency %q is not supported (Ethereum relayer decommissioned)", transfer.Currency)
-	}
-	if transfer.Currency == "SOL" {
-		oracle := solanaClient.GetOracleClient()
-		if oracle == nil {
-			db.DB.Model(&txRecord).Update("status", "failed_no_oracle")
-			return fmt.Errorf("oracle client not available — treasury transfer cannot proceed on-chain")
-		}
-
-		recipientKey, err := sol.PublicKeyFromBase58(transfer.Recipient)
-		if err != nil {
-			db.DB.Model(&txRecord).Update("status", "failed_invalid_address")
-			return fmt.Errorf("invalid recipient address %q: %w", transfer.Recipient, err)
-		}
-
-		lamports := uint64(transfer.Amount * 1e9) // SOL → lamports
-		txHash, err := oracle.SendSOL(e.ctx, recipientKey, lamports)
-		if err != nil {
-			db.DB.Model(&txRecord).Update("status", "failed_on_chain")
-			return fmt.Errorf("on-chain treasury transfer failed: %w", err)
-		}
-
-		db.DB.Model(&txRecord).Updates(map[string]interface{}{
-			"status":       "completed",
-			"tx_signature": txHash,
-		})
-		logging.Info().
-			Str("tx_hash", txHash).
-			Str("recipient", transfer.Recipient).
-			Float64("amount_sol", transfer.Amount).
-			Msg("Treasury transfer executed on-chain")
-	}
-
-	return nil
+	return ErrTreasuryAwaitingCustody
 }
 
 // executeParameterChange updates protocol parameters
@@ -264,7 +230,7 @@ func (e *ProposalExecutor) executeSlashing(proposal models.Proposal) error {
 	}
 
 	// slash_percentage of the provider's staked SOL → lamports
-	slashLamports := uint64(node.StakedAmountSOL * float64(slash.SlashPercentage) / 100.0 * 1e9)
+	slashLamports := models.SOLToLamports(node.StakedAmountSOL * float64(slash.SlashPercentage) / 100.0)
 	if slashLamports == 0 {
 		logging.Warn().Msg("Calculated slash amount is zero — skipping on-chain call")
 		return nil
@@ -334,6 +300,12 @@ func (e *ProposalExecutor) CheckAndExecutePassedProposals() error {
 
 	for _, proposal := range proposals {
 		if execErr := e.ExecuteProposal(proposal); execErr != nil {
+			if errors.Is(execErr, ErrTreasuryAwaitingCustody) {
+				logging.Info().
+					Str("proposal_id", proposal.ID.String()).
+					Msg("Treasury proposal left in passed — awaiting custody (no hot-wallet spend)")
+				continue
+			}
 			logging.Error(execErr).
 				Str("proposal_id", proposal.ID.String()).
 				Msg("Failed to execute proposal")
@@ -343,7 +315,9 @@ func (e *ProposalExecutor) CheckAndExecutePassedProposals() error {
 	return nil
 }
 
-// CheckAndCloseExpiredProposals closes voting on expired proposals
+// CheckAndCloseExpiredProposals closes voting on expired proposals.
+// Prefer on-chain finalize when a proposal PDA exists; otherwise close from DB
+// votes + quorum. Does not auto-spend treasury.
 func (e *ProposalExecutor) CheckAndCloseExpiredProposals() error {
 	var proposals []models.Proposal
 
@@ -353,21 +327,57 @@ func (e *ProposalExecutor) CheckAndCloseExpiredProposals() error {
 		return err
 	}
 
-	for _, proposal := range proposals {
-		// Determine outcome based on votes and quorum
-		passed := e.checkProposalOutcome(proposal)
+	oracle := solanaClient.GetOracleClient()
 
+	for _, proposal := range proposals {
+		if oracle != nil && proposal.OnChainPDA != "" {
+			pda, pdaErr := sol.PublicKeyFromBase58(proposal.OnChainPDA)
+			if pdaErr == nil {
+				if _, finErr := oracle.FinalizeProposalOnChain(e.ctx, pda); finErr == nil {
+					onChain, fetchErr := oracle.ReadGovernanceProposal(e.ctx, pda)
+					if fetchErr == nil && onChain != nil {
+						newStatus := models.ProposalRejected
+						if onChain.Status == 1 {
+							newStatus = models.ProposalPassed
+						} else if onChain.Status == 3 {
+							newStatus = models.ProposalExecuted
+						} else if onChain.Status == 0 {
+							// Not closed on-chain yet (slot still open) — skip DB force-close.
+							logging.Debug().
+								Str("proposal_id", proposal.ID.String()).
+								Msg("On-chain voting window still open; waiting for end_slot")
+							continue
+						}
+						db.DB.Model(&proposal).Updates(map[string]interface{}{
+							"status":    newStatus,
+							"yes_votes": float64(onChain.VoteYes),
+							"no_votes":  float64(onChain.VoteNo),
+						})
+						logging.Info().
+							Str("proposal_id", proposal.ID.String()).
+							Str("status", string(newStatus)).
+							Msg("Proposal closed via on-chain finalize")
+						continue
+					}
+				} else {
+					logging.Debug().Err(finErr).
+						Str("proposal_id", proposal.ID.String()).
+						Msg("On-chain finalize not ready; falling back to DB close if quorum met")
+				}
+			}
+		}
+
+		// DB fallback: wall-clock expiry + quorum (mirrors historical behavior).
+		passed := e.checkProposalOutcome(proposal)
 		newStatus := models.ProposalRejected
 		if passed {
 			newStatus = models.ProposalPassed
 		}
-
 		db.DB.Model(&proposal).Update("status", newStatus)
-
 		logging.Info().
 			Str("proposal_id", proposal.ID.String()).
 			Bool("passed", passed).
-			Msg("Proposal voting closed")
+			Msg("Proposal voting closed (DB fallback)")
 	}
 
 	return nil
@@ -410,7 +420,7 @@ func ScheduleProposalWorker(ctx context.Context) {
 					logging.Error(err).Msg("Failed to close expired proposals")
 				}
 
-				// Execute passed proposals
+				// Execute passed proposals (treasury stays pending_custody)
 				if err := executor.CheckAndExecutePassedProposals(); err != nil {
 					logging.Error(err).Msg("Failed to execute passed proposals")
 				}

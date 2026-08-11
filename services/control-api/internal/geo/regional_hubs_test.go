@@ -9,6 +9,17 @@ func TestResolveRegionalHubGhanaByCityName(t *testing.T) {
 	}
 }
 
+func TestResolveRegionalHubGhanaBibiani(t *testing.T) {
+	name, lat, lon, ok := ResolveRegionalHub("GH", "Bibiani", "Western North", 0, 0)
+	if !ok || name != "Bibiani" || lat != 6.4632 || lon != -2.3192 {
+		t.Fatalf("got %q %v %v ok=%v, want Bibiani", name, lat, lon, ok)
+	}
+	name, _, _, ok = ResolveRegionalHub("GH", "", "western north region", 0, 0)
+	if !ok || name != "Bibiani" {
+		t.Fatalf("got %q ok=%v, want Bibiani from western north alias", name, ok)
+	}
+}
+
 func TestResolveRegionalHubGhanaTakoradiAlias(t *testing.T) {
 	name, _, _, ok := ResolveRegionalHub("Ghana", "Sekondi-Takoradi", "", 0, 0)
 	if !ok || name != "Takoradi" {
@@ -32,7 +43,7 @@ func TestResolveRegionalHubGhanaAccraMetro(t *testing.T) {
 }
 
 func TestApplyMapCoordsUsesRegionalHub(t *testing.T) {
-	lat, lon, src := ApplyMapCoords(6.72, -1.61, "GH", "", "node:test")
+	lat, lon, src := ApplyMapCoords(6.72, -1.61, "GH", "", "", "node:test")
 	if src != "region_hub" || lat != 6.6885 {
 		t.Fatalf("got lat=%v lon=%v src=%q, want Kumasi region_hub", lat, lon, src)
 	}

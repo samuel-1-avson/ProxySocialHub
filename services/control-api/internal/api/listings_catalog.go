@@ -175,7 +175,6 @@ func getListingCollectionBySlug(c *gin.Context) {
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
-		listings[i].PricePerGB = CalculateFairPrice(listings[i])
 	}
 
 	apiListings := make([]models.ProxyListing, len(listings))

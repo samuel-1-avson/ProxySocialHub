@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strings"
+	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -93,6 +95,11 @@ func (c *OracleClient) GetGovernanceVotePDA(proposalPDA sol.PublicKey, voterWall
 // CreateProposalOnChain sends a create_proposal instruction.
 // Oracle pays rent. Returns the proposal PDA address and tx signature.
 func (c *OracleClient) CreateProposalOnChain(ctx context.Context, params CreateProposalParams) (sol.PublicKey, string, error) {
+	oraclePub := c.GetOraclePublicKey()
+	if oraclePub.IsZero() {
+		return sol.PublicKey{}, "", fmt.Errorf("oracle signer not configured (KMS/local key missing)")
+	}
+
 	proposalPDA, _, err := c.GetGovernanceProposalPDA(params.ProposalID)
 	if err != nil {
 		return sol.PublicKey{}, "", err
@@ -111,7 +118,7 @@ func (c *OracleClient) CreateProposalOnChain(ctx context.Context, params CreateP
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
+			{PublicKey: oraclePub, IsSigner: true, IsWritable: true},
 			{PublicKey: proposalPDA, IsSigner: false, IsWritable: true},
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
 			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
@@ -207,20 +214,52 @@ func (c *OracleClient) BuildGovernanceVoteTransaction(ctx context.Context, param
 
 // RelaySignedTransactionBase64 relays a fully signed client transaction
 // (base64 encoded) to Solana and returns the resulting transaction signature.
+//
+// Rate-limited public RPCs (e.g. OnFinality) often fail last in the pool and
+// would otherwise mask the real preflight error from the primary keyed RPC
+// (insufficient SOL, already processed, etc.). Prefer non-rate-limit errors.
 func (c *OracleClient) RelaySignedTransactionBase64(ctx context.Context, signedTxBase64 string) (string, error) {
-	var sig sol.Signature
-	if err := c.withFailover(ctx, func(client *rpc.Client) error {
-		var e error
-		sig, e = client.SendEncodedTransactionWithOpts(ctx, signedTxBase64, rpc.TransactionOpts{
+	var (
+		sig          sol.Signature
+		lastErr      error
+		preferredErr error
+	)
+	n := len(c.rpcClients)
+	if n == 0 {
+		return "", fmt.Errorf("RelaySignedTransactionBase64: no RPC clients configured")
+	}
+	for i := 0; i < n; i++ {
+		client := c.rpc()
+		var callErr error
+		sig, callErr = client.SendEncodedTransactionWithOpts(ctx, signedTxBase64, rpc.TransactionOpts{
 			SkipPreflight:       false,
 			PreflightCommitment: rpc.CommitmentConfirmed,
 		})
-		return e
-	}); err != nil {
-		return "", fmt.Errorf("RelaySignedTransactionBase64: %w", err)
+		if callErr == nil {
+			return sig.String(), nil
+		}
+		lastErr = callErr
+		if !isTransientRPCError(callErr) && preferredErr == nil {
+			preferredErr = callErr
+		}
+		backoff := 200 * time.Millisecond
+		if isTransientRPCError(callErr) {
+			backoff = time.Duration(400*(i+1)) * time.Millisecond
+		}
+		select {
+		case <-ctx.Done():
+			if preferredErr != nil {
+				return "", fmt.Errorf("RelaySignedTransactionBase64: %w", preferredErr)
+			}
+			return "", fmt.Errorf("RelaySignedTransactionBase64: %w", lastErr)
+		case <-time.After(backoff):
+		}
+		c.rotateRPC()
 	}
-
-	return sig.String(), nil
+	if preferredErr != nil {
+		return "", fmt.Errorf("RelaySignedTransactionBase64: %w", preferredErr)
+	}
+	return "", fmt.Errorf("RelaySignedTransactionBase64: %w", lastErr)
 }
 
 // ReadGovernanceProposal fetches and decodes the on-chain GovernanceProposal PDA.
@@ -287,9 +326,16 @@ func (c *OracleClient) ReadGovernanceVote(ctx context.Context, proposalPDA sol.P
 	var accountInfo *rpc.GetAccountInfoResult
 	if err := c.withFailover(ctx, func(client *rpc.Client) error {
 		var e error
-		accountInfo, e = client.GetAccountInfo(ctx, votePDA)
+		accountInfo, e = client.GetAccountInfoWithOpts(ctx, votePDA, &rpc.GetAccountInfoOpts{
+			Commitment: rpc.CommitmentConfirmed,
+		})
 		return e
 	}); err != nil {
+		// Some RPC providers surface missing accounts as errors — treat as not-found.
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "not found") || strings.Contains(msg, "could not find") {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("ReadGovernanceVote: %w", err)
 	}
 	if accountInfo == nil || accountInfo.Value == nil {

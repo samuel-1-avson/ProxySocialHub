@@ -2,6 +2,7 @@ package marketplace
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -253,3 +254,43 @@ func createActivationFixture(t *testing.T) (models.Order, models.Session, models
 func testContext() context.Context {
 	return context.Background()
 }
+
+func TestEnsureSessionCredentialsPlaintext_recoversAfterBeforeUpdateEncrypt(t *testing.T) {
+	prevEnc := models.CredentialEncryptFn
+	prevDec := models.CredentialDecryptFn
+	t.Cleanup(func() {
+		models.CredentialEncryptFn = prevEnc
+		models.CredentialDecryptFn = prevDec
+	})
+
+	models.CredentialEncryptFn = func(plaintext string) (string, error) {
+		return "cipher:" + plaintext, nil
+	}
+	models.CredentialDecryptFn = func(ciphertext string) (string, error) {
+		const prefix = "cipher:"
+		if len(ciphertext) < len(prefix) || ciphertext[:len(prefix)] != prefix {
+			return "", fmt.Errorf("bad ciphertext")
+		}
+		return ciphertext[len(prefix):], nil
+	}
+
+	session := &models.Session{
+		CredentialsUser: "plain-user",
+		CredentialsPass: "plain-pass",
+	}
+	// Simulate GORM Update hooks encrypting in-memory fields (BeforeSave).
+	if err := session.BeforeSave(nil); err != nil {
+		t.Fatalf("BeforeSave: %v", err)
+	}
+	if len(session.CredentialsUser) < 4 || session.CredentialsUser[:4] != "ENC:" {
+		t.Fatalf("expected encrypted user, got %q", session.CredentialsUser)
+	}
+
+	if err := ensureSessionCredentialsPlaintext(session); err != nil {
+		t.Fatalf("ensureSessionCredentialsPlaintext: %v", err)
+	}
+	if session.CredentialsUser != "plain-user" || session.CredentialsPass != "plain-pass" {
+		t.Fatalf("got user=%q pass=%q", session.CredentialsUser, session.CredentialsPass)
+	}
+}
+

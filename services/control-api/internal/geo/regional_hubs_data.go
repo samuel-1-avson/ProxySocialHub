@@ -12,6 +12,7 @@ var regionalHubsByCountry = map[string][]regionalHub{
 		mkHub("Accra", 5.6037, -0.1870, "greater accra", "greater accra region", "tema", "teshie", "madina", "east legon"),
 		mkHub("Kumasi", 6.6885, -1.6244, "ashanti", "ashanti region", "asante"),
 		mkHub("Takoradi", 4.8845, -1.7554, "sekondi", "sekondi-takoradi", "western", "western region"),
+		mkHub("Bibiani", 6.4632, -2.3192, "western north", "western north region", "sefwi", "sefwi-wiawso", "wiawso", "bibiani"),
 		mkHub("Cape Coast", 5.1053, -1.2466, "central", "central region"),
 		mkHub("Tamale", 9.4035, -0.8429, "northern", "northern region"),
 	},

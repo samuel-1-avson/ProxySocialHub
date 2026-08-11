@@ -52,6 +52,10 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
+	if err := middleware.ConfigureTrustedProxies(r); err != nil {
+		log.Fatalf("Failed to configure trusted proxies: %v", err)
+	}
+
 	// Security middleware stack (ORDER IS IMPORTANT)
 	setupSecurityMiddleware(r, cfg)
 
@@ -149,10 +153,10 @@ func setupRoutes(r *gin.Engine, cfg *config.SecureConfig) {
 		})
 	})
 
-	// Public routes
+	// Public routes (health/nodes* are admin-only — not registered here)
 	v1 := r.Group("/v1")
 	{
-		api.RegisterHealthRoutes(v1)
+		api.RegisterHealthRoutes(v1) // /health/system + /health/stats only
 		api.RegisterAuthRoutes(v1)
 
 		// Public listings

@@ -22,7 +22,7 @@ func ResolveRegionEndpoint(country, city, region string, lat, lon float64, ancho
 	city = strings.TrimSpace(city)
 	region = strings.TrimSpace(region)
 
-	outLat, outLon, src := geo.ApplyMapCoords(lat, lon, country, city, anchor)
+	outLat, outLon, src := geo.ApplyMapCoords(lat, lon, country, city, region, anchor)
 	if src == "unknown" {
 		return RegionEndpoint{}, false
 	}

@@ -28,6 +28,17 @@ func TestCityCentroidAccra(t *testing.T) {
 	}
 }
 
+func TestSanitizeMapPlaceDropsForeignHubCity(t *testing.T) {
+	country, city, region := SanitizeMapPlace("GH", "Chicago", "Western North")
+	if country != "GH" || city != "" || region != "Western North" {
+		t.Fatalf("got country=%q city=%q region=%q", country, city, region)
+	}
+	lat, lon, src := ApplyMapCoords(41.8781, -87.6298, "GH", "Chicago", "Western North", "node:x")
+	if src != "region_hub" || lat != 6.4632 || lon != -2.3192 {
+		t.Fatalf("expected Bibiani hub, got src=%q lat=%v lon=%v", src, lat, lon)
+	}
+}
+
 func TestApplyListingCoordsSnapsToRegionalHub(t *testing.T) {
 	lat, lon, ok := ApplyListingCoords(6.72, -1.61, "GH", "", "node:x")
 	if !ok || lat != 6.6885 {

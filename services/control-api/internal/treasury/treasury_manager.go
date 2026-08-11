@@ -123,8 +123,25 @@ func NewTreasuryManager() *TreasuryManager {
 	return &TreasuryManager{
 		watchtower:       NewWatchtower(),
 		liquidityManager: NewLiquidityManager(solana.GetOracleClient()),
-		oracle:           solana.GetOracleClient(),
+		// Prefer live GetOracleClient() via oracleClient() — KMS oracle is often
+		// RegisterOracleClient'd after GetManager() on gcp-testnet.
+		oracle: solana.GetOracleClient(),
 	}
+}
+
+// oracleClient returns the live Solana client. Do not rely solely on the
+// pointer captured at NewTreasuryManager — RegisterOracleClient may run later.
+func (tm *TreasuryManager) oracleClient() *solana.OracleClient {
+	if c := solana.GetOracleClient(); c != nil {
+		tm.oracle = c
+		return c
+	}
+	return tm.oracle
+}
+
+// RefreshOracle rebinds after RegisterOracleClient (startup ordering).
+func (tm *TreasuryManager) RefreshOracle() {
+	tm.oracle = solana.GetOracleClient()
 }
 
 // GetThresholds returns appropriate thresholds based on environment.
@@ -171,7 +188,8 @@ func (tm *TreasuryManager) StartAutoTopupMonitor(ctx context.Context) {
 // checkAndTopup checks treasury balance and initiates topup if needed.
 // Returns true when hot still needs replenish after this pass.
 func (tm *TreasuryManager) checkAndTopup(ctx context.Context) bool {
-	if tm.oracle == nil {
+	oracle := tm.oracleClient()
+	if oracle == nil {
 		logging.Warn().Msg("Oracle client not available for treasury check")
 		return false
 	}
@@ -179,7 +197,7 @@ func (tm *TreasuryManager) checkAndTopup(ctx context.Context) bool {
 	thresholds := tm.GetThresholds()
 	treasuryAddr := tm.getTreasuryAddress()
 
-	balance, err := tm.oracle.GetBalance(ctx, treasuryAddr)
+	balance, err := oracle.GetBalance(ctx, treasuryAddr)
 	if err != nil {
 		logging.Error(err).Msg("Failed to get treasury balance")
 		tm.watchtower.RecordEconomicRisk(ctx, "Treasury balance check failed", "treasury")
@@ -246,7 +264,7 @@ func (tm *TreasuryManager) checkAndTopup(ctx context.Context) bool {
 			Msg("Treasury balance below target, scheduled topup recommended")
 	}
 
-	if bal, err := tm.oracle.GetBalance(ctx, treasuryAddr); err == nil {
+	if bal, err := tm.oracleClient().GetBalance(ctx, treasuryAddr); err == nil {
 		return solana.LamportsToSOL(bal) < hotMinSOL
 	}
 	return needsReplenish
@@ -255,11 +273,11 @@ func (tm *TreasuryManager) checkAndTopup(ctx context.Context) bool {
 // EnsureHotLiquidity attempts an immediate vault→hot top-up so hot can cover needLamports.
 // Used by withdraw preflight (event-driven, not only the poller).
 func (tm *TreasuryManager) EnsureHotLiquidity(ctx context.Context, needLamports uint64) (string, error) {
-	if tm.oracle == nil {
+	if tm.oracleClient() == nil {
 		return "", fmt.Errorf("oracle not configured")
 	}
 	hot := tm.getTreasuryAddress()
-	bal, err := tm.oracle.GetBalance(ctx, hot)
+	bal, err := tm.oracleClient().GetBalance(ctx, hot)
 	if err != nil {
 		return "", err
 	}
@@ -543,7 +561,7 @@ func (tm *TreasuryManager) transferFromReserve(ctx context.Context, reserveKeyPa
 
 	treasuryAddr := tm.getTreasuryAddress()
 
-	reserveBalance, err := tm.oracle.GetBalance(ctx, reserveKey.PublicKey())
+	reserveBalance, err := tm.oracleClient().GetBalance(ctx, reserveKey.PublicKey())
 	if err != nil {
 		return fmt.Errorf("failed to check reserve balance: %w", err)
 	}
@@ -552,7 +570,7 @@ func (tm *TreasuryManager) transferFromReserve(ctx context.Context, reserveKeyPa
 		return fmt.Errorf("insufficient reserve balance: %d lamports", reserveBalance)
 	}
 
-	txHash, err := tm.oracle.SendSOL(ctx, treasuryAddr, amount)
+	txHash, err := tm.oracleClient().SendSOL(ctx, treasuryAddr, amount)
 	if err != nil {
 		return fmt.Errorf("transfer failed: %w", err)
 	}
@@ -581,7 +599,7 @@ func (tm *TreasuryManager) notifyManualTopupNeeded(amountSOL float64) {
 // TopUpHotFromVault withdraws SOL from the deposit vault PDA into the bound hot treasury.
 // Applies per-tx max, vault reserve floor, and daily caps.
 func (tm *TreasuryManager) TopUpHotFromVault(ctx context.Context, amountSOL float64) (string, error) {
-	if tm.oracle == nil {
+	if tm.oracleClient() == nil {
 		return "", fmt.Errorf("oracle not configured")
 	}
 	vaultPK := GetDepositVaultPubkey()
@@ -597,7 +615,7 @@ func (tm *TreasuryManager) TopUpHotFromVault(ctx context.Context, amountSOL floa
 		return "", err
 	}
 
-	bal, err := tm.oracle.GetBalance(ctx, vaultPK)
+	bal, err := tm.oracleClient().GetBalance(ctx, vaultPK)
 	if err != nil {
 		return "", fmt.Errorf("vault balance: %w", err)
 	}
@@ -623,7 +641,7 @@ func (tm *TreasuryManager) TopUpHotFromVault(ctx context.Context, amountSOL floa
 	}
 
 	hot := tm.getTreasuryAddress()
-	txHash, err := tm.oracle.WithdrawFromVault(ctx, solana.WithdrawFromVaultParams{
+	txHash, err := tm.oracleClient().WithdrawFromVault(ctx, solana.WithdrawFromVaultParams{
 		AmountLamports: need,
 		HotTreasury:    hot,
 	})
@@ -649,8 +667,8 @@ func (tm *TreasuryManager) getTreasuryAddress() sol.PublicKey {
 	if pk := GetHotTreasuryPubkey(); !pk.IsZero() {
 		return pk
 	}
-	if tm.oracle != nil {
-		return tm.oracle.GetOraclePublicKey()
+	if tm.oracleClient() != nil {
+		return tm.oracleClient().GetOraclePublicKey()
 	}
 	return sol.PublicKey{}
 }
@@ -693,10 +711,10 @@ func (tm *TreasuryManager) GetTreasuryStats(ctx context.Context) (*TreasuryStats
 	}
 
 	var hotBalance uint64
-	if tm.oracle == nil {
+	if tm.oracleClient() == nil {
 		stats.Status = "RPC_UNAVAILABLE"
 		stats.Hot.BalanceUnavailable = true
-	} else if bal, err := tm.oracle.GetBalance(ctx, hotAddr); err != nil {
+	} else if bal, err := tm.oracleClient().GetBalance(ctx, hotAddr); err != nil {
 		stats.Status = "RPC_UNAVAILABLE"
 		stats.Hot.BalanceUnavailable = true
 	} else {
@@ -712,8 +730,8 @@ func (tm *TreasuryManager) GetTreasuryStats(ctx context.Context) (*TreasuryStats
 	coldAddr := GetColdTreasuryPubkey()
 	if !coldAddr.IsZero() {
 		coldView := &WalletBalanceView{Address: coldAddr.String()}
-		if tm.oracle != nil {
-			if coldBalance, coldErr := tm.oracle.GetBalance(ctx, coldAddr); coldErr == nil {
+		if tm.oracleClient() != nil {
+			if coldBalance, coldErr := tm.oracleClient().GetBalance(ctx, coldAddr); coldErr == nil {
 				coldView.BalanceLamports = coldBalance
 				coldView.BalanceSOL = solana.LamportsToSOL(coldBalance)
 				stats.CombinedBalanceSOL = stats.Hot.BalanceSOL + coldView.BalanceSOL
@@ -737,8 +755,8 @@ func (tm *TreasuryManager) GetTreasuryStats(ctx context.Context) (*TreasuryStats
 	vaultAddr := GetDepositVaultPubkey()
 	if !vaultAddr.IsZero() {
 		vaultView := &WalletBalanceView{Address: vaultAddr.String()}
-		if tm.oracle != nil {
-			if vaultBal, vaultErr := tm.oracle.GetBalance(ctx, vaultAddr); vaultErr == nil {
+		if tm.oracleClient() != nil {
+			if vaultBal, vaultErr := tm.oracleClient().GetBalance(ctx, vaultAddr); vaultErr == nil {
 				vaultView.BalanceLamports = vaultBal
 				vaultView.BalanceSOL = solana.LamportsToSOL(vaultBal)
 				stats.CombinedBalanceSOL += vaultView.BalanceSOL

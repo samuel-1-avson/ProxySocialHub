@@ -180,11 +180,20 @@ func solanaPubkeyFromPEM(pemStr string) (sol.PublicKey, error) {
 	return pk, nil
 }
 
-// gcpKMSStrictEnv is true when KMS init must fail closed.
+// gcpKMSStrictEnv is true when oracle KMS init must fail closed.
 func gcpKMSStrictEnv() bool {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	if env == "production" || env == "prod" || env == "staging" || env == "testnet" {
 		return true
 	}
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_REQUIRE_GCP_KMS")), "true")
+}
+
+// gcpKMSHotStrictEnv is true when treasury-hot KMS init must fail closed (Sprint G).
+func gcpKMSHotStrictEnv() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_REQUIRE_GCP_KMS_HOT")), "true") {
+		return true
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	return env == "production" || env == "prod" || env == "staging" || env == "testnet"
 }

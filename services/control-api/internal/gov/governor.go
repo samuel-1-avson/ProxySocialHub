@@ -19,6 +19,8 @@ import (
 
 const (
 	ActionTreasuryWithdraw = "TREASURY_WITHDRAW"
+	ActionColdToHot        = "COLD_TO_HOT"
+	ActionHotToCold        = "HOT_TO_COLD"
 	ActionConfigUpdate     = "CONFIG_UPDATE"
 )
 
@@ -114,6 +116,116 @@ func (g *MultiSigGovernor) ProposeTreasuryWithdraw(target string, amountSOL floa
 	return id, nil
 }
 
+// ProposeColdToHot creates a 2-of-3 ops approval for moving SOL from cold→hot.
+// Crossing threshold marks the action APPROVED (ops still run the cold-key script);
+// control-api never signs cold custody.
+func (g *MultiSigGovernor) ProposeColdToHot(hotAddress string, amountSOL float64, proposedBy string) (uuid.UUID, error) {
+	if amountSOL <= 0 {
+		return uuid.Nil, fmt.Errorf("amount must be positive")
+	}
+	if _, err := sol.PublicKeyFromBase58(hotAddress); err != nil {
+		return uuid.Nil, fmt.Errorf("invalid hot destination address")
+	}
+	if proposedBy != "system" && !g.admins[proposedBy] {
+		return uuid.Nil, fmt.Errorf("unauthorized proposer")
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Dedupe: reuse an open COLD_TO_HOT for the same hot target.
+	for _, existing := range g.actions {
+		if existing.Type == ActionColdToHot && existing.Status == "PENDING" && existing.Target == hotAddress {
+			if amountSOL > existing.Amount {
+				existing.Amount = amountSOL
+			}
+			return existing.ID, nil
+		}
+	}
+
+	id := uuid.New()
+	action := &MultiSigAction{
+		ID:         id,
+		Type:       ActionColdToHot,
+		Target:     hotAddress,
+		Amount:     amountSOL,
+		Signatures: []string{},
+		SignerIDs:  []string{},
+		Threshold:  2,
+		Status:     "PENDING",
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(48 * time.Hour),
+	}
+	if proposedBy == "system" {
+		// System opens the proposal; two admins must still approve.
+	} else {
+		action.SignerIDs = []string{proposedBy}
+		action.Signatures = append(action.Signatures, g.generateSigHash(proposedBy))
+	}
+
+	g.actions[id] = action
+	logging.Info().
+		Str("action_id", id.String()).
+		Float64("amount_sol", amountSOL).
+		Str("hot", hotAddress).
+		Str("proposed_by", proposedBy).
+		Msg("Cold→hot multi-sig proposed")
+	return id, nil
+}
+
+// ProposeHotToCold creates a 2-of-3 approval to sweep excess SOL from hot→cold.
+// On threshold, control-api executes SendSOL from the hot payout key (cold stays receive-only).
+func (g *MultiSigGovernor) ProposeHotToCold(coldAddress string, amountSOL float64, proposedBy string) (uuid.UUID, error) {
+	if amountSOL <= 0 {
+		return uuid.Nil, fmt.Errorf("amount must be positive")
+	}
+	if _, err := sol.PublicKeyFromBase58(coldAddress); err != nil {
+		return uuid.Nil, fmt.Errorf("invalid cold destination address")
+	}
+	if proposedBy != "system" && !g.admins[proposedBy] {
+		return uuid.Nil, fmt.Errorf("unauthorized proposer")
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for _, existing := range g.actions {
+		if existing.Type == ActionHotToCold && existing.Status == "PENDING" && existing.Target == coldAddress {
+			if amountSOL > existing.Amount {
+				existing.Amount = amountSOL
+			}
+			return existing.ID, nil
+		}
+	}
+
+	id := uuid.New()
+	action := &MultiSigAction{
+		ID:         id,
+		Type:       ActionHotToCold,
+		Target:     coldAddress,
+		Amount:     amountSOL,
+		Signatures: []string{},
+		SignerIDs:  []string{},
+		Threshold:  2,
+		Status:     "PENDING",
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(48 * time.Hour),
+	}
+	if proposedBy != "system" {
+		action.SignerIDs = []string{proposedBy}
+		action.Signatures = append(action.Signatures, g.generateSigHash(proposedBy))
+	}
+
+	g.actions[id] = action
+	logging.Info().
+		Str("action_id", id.String()).
+		Float64("amount_sol", amountSOL).
+		Str("cold", coldAddress).
+		Str("proposed_by", proposedBy).
+		Msg("Hot→cold sweep multi-sig proposed")
+	return id, nil
+}
+
 // SignAndMaybeExecute adds an admin approval and executes treasury withdrawals when threshold is met.
 func (g *MultiSigGovernor) SignAndMaybeExecute(ctx context.Context, actionID uuid.UUID, adminID string) (*MultiSigAction, error) {
 	g.mu.Lock()
@@ -149,14 +261,31 @@ func (g *MultiSigGovernor) SignAndMaybeExecute(ctx context.Context, actionID uui
 		return &copy, nil
 	}
 
-	if action.Type == ActionTreasuryWithdraw {
+	switch action.Type {
+	case ActionTreasuryWithdraw:
 		if err := ExecuteTreasuryWithdraw(ctx, action); err != nil {
 			action.Status = "FAILED"
 			action.Error = err.Error()
 			copy := *action
 			return &copy, err
 		}
-	} else {
+	case ActionColdToHot:
+		// Never auto-move cold funds from control-api. Approval unlocks ops playbook.
+		action.Status = "APPROVED"
+		action.Error = "execute scripts/gcp-topup-hot-from-cold.sh with approved amount; cold key stays offline"
+		logging.Info().
+			Str("action_id", action.ID.String()).
+			Float64("amount_sol", action.Amount).
+			Str("hot", action.Target).
+			Msg("Cold→hot multi-sig approved — awaiting offline cold transfer")
+	case ActionHotToCold:
+		if err := ExecuteHotToColdSweep(ctx, action); err != nil {
+			action.Status = "FAILED"
+			action.Error = err.Error()
+			copy := *action
+			return &copy, err
+		}
+	default:
 		action.Status = "EXECUTED"
 	}
 
@@ -176,7 +305,7 @@ func ExecuteTreasuryWithdraw(ctx context.Context, action *MultiSigAction) error 
 		return fmt.Errorf("invalid recipient: %w", err)
 	}
 
-	lamports := uint64(action.Amount * float64(solana.LamportsPerSOL))
+	lamports := solana.SOLToLamports(action.Amount)
 	txHash, err := oracle.SendSOL(ctx, recipient, lamports)
 	if err != nil {
 		return err
@@ -185,7 +314,7 @@ func ExecuteTreasuryWithdraw(ctx context.Context, action *MultiSigAction) error 
 	action.TxHash = txHash
 	action.Status = "EXECUTED"
 
-	tm := treasury.NewTreasuryManager()
+	tm := treasury.GetManager()
 	_ = tm.RecordOutgoingTransfer(ctx, action.Amount)
 
 	logging.Info().
@@ -193,6 +322,61 @@ func ExecuteTreasuryWithdraw(ctx context.Context, action *MultiSigAction) error 
 		Str("tx_hash", txHash).
 		Float64("amount_sol", action.Amount).
 		Msg("Treasury multi-sig withdrawal executed")
+
+	return nil
+}
+
+// ExecuteHotToColdSweep sends SOL from hot payout wallet to cold after multi-sig approval.
+func ExecuteHotToColdSweep(ctx context.Context, action *MultiSigAction) error {
+	oracle := solana.GetOracleClient()
+	if oracle == nil {
+		return fmt.Errorf("oracle not configured")
+	}
+	cold := treasury.GetColdTreasuryPubkey()
+	if cold.IsZero() {
+		return fmt.Errorf("cold treasury not configured")
+	}
+	target, err := sol.PublicKeyFromBase58(action.Target)
+	if err != nil {
+		return fmt.Errorf("invalid cold destination: %w", err)
+	}
+	if !target.Equals(cold) {
+		return fmt.Errorf("sweep target %s does not match configured cold %s", action.Target, cold.String())
+	}
+
+	lamports := solana.SOLToLamports(action.Amount)
+	if lamports == 0 {
+		return fmt.Errorf("sweep amount rounds to zero")
+	}
+
+	// Re-check hot still covers the sweep (balance may have moved since propose).
+	hotPK := oracle.GetPayoutPublicKey()
+	bal, err := oracle.GetBalance(ctx, hotPK)
+	if err != nil {
+		return fmt.Errorf("hot balance: %w", err)
+	}
+	const feeHeadroom uint64 = 10_000
+	if bal < lamports+feeHeadroom {
+		return fmt.Errorf("hot underfunded for sweep: have %d need %d", bal, lamports+feeHeadroom)
+	}
+
+	txHash, err := oracle.SendSOL(ctx, cold, lamports)
+	if err != nil {
+		return err
+	}
+
+	action.TxHash = txHash
+	action.Status = "EXECUTED"
+
+	tm := treasury.GetManager()
+	_ = tm.RecordOutgoingTransfer(ctx, action.Amount)
+
+	logging.Info().
+		Str("action_id", action.ID.String()).
+		Str("tx_hash", txHash).
+		Float64("amount_sol", action.Amount).
+		Str("cold", cold.String()).
+		Msg("Hot→cold sweep executed")
 
 	return nil
 }
