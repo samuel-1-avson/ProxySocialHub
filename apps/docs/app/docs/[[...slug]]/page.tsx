@@ -2,6 +2,7 @@ import { DocsShell } from '@/components/docs-shell';
 import { Markdown } from '@/components/markdown';
 import { DocToc } from '@/components/doc-toc';
 import { DocPager } from '@/components/doc-pager';
+import { DocBreadcrumb } from '@/components/doc-breadcrumb';
 import { OpenApiReference } from '@/components/openapi-reference';
 import { getDoc, listDocSlugs, stripLeadingH1 } from '@/lib/content';
 import { extractToc } from '@/lib/toc';
@@ -49,19 +50,27 @@ export default async function DocPage(props: Props) {
   if (!doc) notFound();
 
   const path = '/docs' + (slug.length ? `/${slug.join('/')}` : '');
+  const isHome = slug.length === 0;
   const isApi = slug.join('/') === 'api' || (slug[0] === 'api' && slug.length === 1);
   const body = stripLeadingH1(doc.body);
-  const toc = isApi ? [] : extractToc(body);
+  const toc = isApi || isHome ? [] : extractToc(body);
 
   return (
     <DocsShell activePath={path}>
-      <div className={`doc-layout${toc.length ? ' has-toc' : ''}`}>
-        <article className="doc-article">
-          <h1>{doc.title}</h1>
-          {doc.description ? <p className="desc">{doc.description}</p> : null}
+      <div
+        className={`doc-layout${toc.length ? ' has-toc' : ''}${isHome ? ' is-home' : ''}${isApi ? ' is-api' : ''}`}
+      >
+        <article className={`doc-article${isHome ? ' home-article' : ''}`}>
+          <DocBreadcrumb path={path} />
+          {!isHome ? (
+            <>
+              <h1>{doc.title}</h1>
+              {doc.description ? <p className="desc">{doc.description}</p> : null}
+            </>
+          ) : null}
           <Markdown source={body} />
           {isApi ? <OpenApiReference /> : null}
-          <DocPager href={path} />
+          {!isHome ? <DocPager href={path} /> : null}
         </article>
         {toc.length ? <DocToc items={toc} /> : null}
       </div>
