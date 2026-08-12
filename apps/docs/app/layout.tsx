@@ -8,6 +8,7 @@ const sans = IBM_Plex_Sans({
   subsets: ['latin'],
   variable: '--font-sans',
   weight: ['400', '500', '600', '700'],
+  display: 'swap',
 });
 const mono = JetBrains_Mono({
   subsets: ['latin'],
