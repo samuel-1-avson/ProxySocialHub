@@ -42,6 +42,43 @@ function useTheme(): [Theme, (t: Theme) => void] {
   return [theme, setTheme];
 }
 
+const RECENT_KEY = 'phub-docs-recent';
+const JUMP_LINKS: Array<SearchDoc & { hit: string }> = [
+  {
+    href: '/docs/api',
+    title: 'API reference',
+    description: 'OpenAPI Try It',
+    section: 'Jump',
+    hit: 'Interactive OpenAPI',
+  },
+  {
+    href: '/docs/quickstart/buyer',
+    title: 'Buyer quickstart',
+    description: '5 min CONNECT',
+    section: 'Jump',
+    hit: 'First successful CONNECT',
+  },
+  {
+    href: '/docs/quickstart/provider',
+    title: 'Provider quickstart',
+    description: '10 min node online',
+    section: 'Jump',
+    hit: 'CLI doctor → tunnel',
+  },
+  {
+    href: '/docs/troubleshooting',
+    title: 'Troubleshooting',
+    description: '401 → 501',
+    section: 'Jump',
+    hit: 'Common proxy and API errors',
+  },
+];
+
+type SearchHit = SearchDoc & { hit: string };
+type SearchRow =
+  | { kind: 'group'; label: string; key: string }
+  | { kind: 'hit'; hit: SearchHit; index: number };
+
 function snippet(text: string, needle: string, max = 120): string {
   const lower = text.toLowerCase();
   const i = lower.indexOf(needle);
@@ -50,6 +87,41 @@ function snippet(text: string, needle: string, max = 120): string {
   const end = Math.min(text.length, i + needle.length + 60);
   const piece = text.slice(start, end).replace(/\s+/g, ' ');
   return `${start > 0 ? '…' : ''}${piece}${end < text.length ? '…' : ''}`;
+}
+
+function highlight(text: string, needle: string): ReactNode {
+  if (!needle.trim()) return text;
+  const lower = text.toLowerCase();
+  const n = needle.toLowerCase();
+  const i = lower.indexOf(n);
+  if (i < 0) return text;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="search-mark">{text.slice(i, i + n.length)}</mark>
+      {text.slice(i + n.length)}
+    </>
+  );
+}
+
+function readRecent(): SearchHit[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as SearchHit[];
+    return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecent(entry: SearchHit) {
+  try {
+    const next = [entry, ...readRecent().filter((e) => e.href !== entry.href)].slice(0, 5);
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
 }
 
 function SearchPalette({
@@ -64,6 +136,7 @@ function SearchPalette({
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [corpus, setCorpus] = useState<SearchDoc[] | null>(null);
+  const [recent, setRecent] = useState<SearchHit[]>([]);
   const listId = useId();
 
   useEffect(() => {
@@ -82,10 +155,26 @@ function SearchPalette({
     };
   }, [open, corpus]);
 
+  useEffect(() => {
+    if (!open) return;
+    setRecent(readRecent());
+  }, [open]);
+
   const results = useMemo(() => {
     const docs = corpus ?? SEARCH_INDEX;
     const needle = q.trim().toLowerCase();
-    if (!needle) return docs.slice(0, 8).map((d) => ({ ...d, hit: d.description }));
+    if (!needle) {
+      const out: SearchHit[] = [...JUMP_LINKS];
+      for (const r of recent) {
+        if (!out.some((e) => e.href === r.href)) out.push({ ...r, hit: r.hit || r.description });
+      }
+      for (const d of docs.slice(0, 6)) {
+        if (!out.some((e) => e.href === d.href)) {
+          out.push({ ...d, hit: d.description });
+        }
+      }
+      return out.slice(0, 12);
+    }
     return docs
       .map((e) => {
         const hay = `${e.title} ${e.description} ${e.section} ${e.text || ''}`.toLowerCase();
@@ -101,8 +190,35 @@ function SearchPalette({
       })
       .filter(Boolean)
       .sort((a, b) => (a!.score ?? 0) - (b!.score ?? 0))
-      .slice(0, 12) as Array<SearchDoc & { hit: string }>;
-  }, [q, corpus]);
+      .slice(0, 12) as SearchHit[];
+  }, [q, corpus, recent]);
+
+  const rows = useMemo(() => {
+    const needle = q.trim();
+    const grouped = new Map<string, SearchHit[]>();
+    for (const hit of results) {
+      const label = !needle
+        ? hit.section === 'Jump'
+          ? 'Jump to'
+          : recent.some((r) => r.href === hit.href)
+            ? 'Recent'
+            : hit.section || 'Docs'
+        : hit.section || 'Docs';
+      const list = grouped.get(label) ?? [];
+      list.push(hit);
+      grouped.set(label, list);
+    }
+    const out: SearchRow[] = [];
+    let index = 0;
+    for (const [label, hits] of grouped) {
+      out.push({ kind: 'group', label, key: label });
+      for (const hit of hits) {
+        out.push({ kind: 'hit', hit, index });
+        index += 1;
+      }
+    }
+    return out;
+  }, [results, q, recent]);
 
   useEffect(() => {
     setActive(0);
@@ -115,6 +231,21 @@ function SearchPalette({
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => window.clearTimeout(t);
   }, [open]);
+
+  const go = useCallback(
+    (hit: SearchHit) => {
+      pushRecent({
+        href: hit.href,
+        title: hit.title,
+        description: hit.description,
+        section: hit.section,
+        hit: hit.hit,
+      });
+      onClose();
+      router.push(hit.href);
+    },
+    [onClose, router],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -134,15 +265,16 @@ function SearchPalette({
       }
       if (e.key === 'Enter' && results[active]) {
         e.preventDefault();
-        onClose();
-        router.push(results[active].href);
+        go(results[active]);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose, results, active, router]);
+  }, [open, onClose, results, active, go]);
 
   if (!open) return null;
+
+  const needle = q.trim();
 
   return (
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="Search docs">
@@ -160,25 +292,37 @@ function SearchPalette({
         />
         <ul id={listId} className="search-results" role="listbox">
           {results.length === 0 ? (
-            <li className="search-empty">No matches — try “CONNECT”, “escrow”, or “pool”</li>
+            <li className="search-empty">
+              No matches for “{needle}”. Try CONNECT, escrow, pool, or JWT.
+            </li>
           ) : (
-            results.map((r, i) => (
-              <li key={r.href} role="option" aria-selected={i === active} id={`search-hit-${i}`}>
-                <button
-                  type="button"
-                  className={`search-hit${i === active ? ' active' : ''}`}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => {
-                    onClose();
-                    router.push(r.href);
-                  }}
+            rows.map((row) =>
+              row.kind === 'group' ? (
+                <li key={`g-${row.key}`} className="search-group" role="presentation">
+                  {row.label}
+                </li>
+              ) : (
+                <li
+                  key={`${row.hit.href}-${row.index}`}
+                  role="option"
+                  aria-selected={row.index === active}
+                  id={`search-hit-${row.index}`}
                 >
-                  <span className="search-hit-title">{r.title}</span>
-                  <span className="search-hit-meta">{r.section}</span>
-                  <span className="search-hit-desc">{r.hit || r.description}</span>
-                </button>
-              </li>
-            ))
+                  <button
+                    type="button"
+                    className={`search-hit${row.index === active ? ' active' : ''}`}
+                    onMouseEnter={() => setActive(row.index)}
+                    onClick={() => go(row.hit)}
+                  >
+                    <span className="search-hit-title">{highlight(row.hit.title, needle)}</span>
+                    <span className="search-hit-meta">{row.hit.section}</span>
+                    <span className="search-hit-desc">
+                      {highlight(row.hit.hit || row.hit.description, needle)}
+                    </span>
+                  </button>
+                </li>
+              ),
+            )
           )}
         </ul>
         <p className="search-hint">
