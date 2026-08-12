@@ -3,6 +3,7 @@ import { Markdown } from '@/components/markdown';
 import { DocToc } from '@/components/doc-toc';
 import { DocPager } from '@/components/doc-pager';
 import { DocBreadcrumb } from '@/components/doc-breadcrumb';
+import { ReadingChrome } from '@/components/reading-chrome';
 import { OpenApiReference } from '@/components/openapi-reference';
 import { getDoc, listDocSlugs, stripLeadingH1 } from '@/lib/content';
 import { extractToc } from '@/lib/toc';
@@ -54,6 +55,7 @@ export default async function DocPage(props: Props) {
   const isApi = slug.join('/') === 'api' || (slug[0] === 'api' && slug.length === 1);
   const body = stripLeadingH1(doc.body);
   const toc = isApi || isHome ? [] : extractToc(body);
+  const showReading = !isHome && !isApi;
 
   return (
     <DocsShell activePath={path}>
@@ -61,6 +63,7 @@ export default async function DocPage(props: Props) {
         className={`doc-layout${toc.length ? ' has-toc' : ''}${isHome ? ' is-home' : ''}${isApi ? ' is-api' : ''}`}
       >
         <article className={`doc-article${isHome ? ' home-article' : ''}`}>
+          {showReading ? <ReadingChrome title={doc.title} /> : null}
           <DocBreadcrumb path={path} />
           {!isHome ? (
             <>

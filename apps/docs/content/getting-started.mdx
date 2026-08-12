@@ -5,16 +5,18 @@ description: Environments, authentication, and the buyer vs provider mental mode
 
 ProxyHubb has two sides: **buyers** consume residential bandwidth through the edge gateway; **providers** run a node and earn from metered usage. Settlement is Solana-backed on public testnet (devnet).
 
+Press <KbdHint keys="/">to search</KbdHint> from any page.
+
 ## Environments (testnet)
 
-| Role | Value |
-|------|--------|
-| Web | `https://proxyhubb.com` |
-| Control API | `https://api.proxyhubb.com` |
-| Buyer CONNECT / SOCKS5 | `proxy.proxyhubb.com:8090` |
-| Provider tunnel | `proxy.proxyhubb.com:3128` |
-| Docs | `https://docs.proxyhubb.com` |
-| Solana | Devnet |
+<EnvTable caption="Testnet environments">
+  <EnvRow role="Web" value="https://proxyhubb.com" />
+  <EnvRow role="Control API" value="https://api.proxyhubb.com" />
+  <EnvRow role="Buyer CONNECT / SOCKS5" value="proxy.proxyhubb.com:8090" />
+  <EnvRow role="Provider tunnel" value="proxy.proxyhubb.com:3128" />
+  <EnvRow role="Docs" value="https://docs.proxyhubb.com" />
+  <EnvRow role="Solana" value="Devnet" />
+</EnvTable>
 
 Override the buyer endpoint locally with `PROXYHUBB_PROXY_ENDPOINT` or `NEXT_PUBLIC_PROXY_ENDPOINT`.
 
