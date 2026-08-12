@@ -6,6 +6,8 @@ import { Callout } from './callout';
 import { Step, Steps } from './steps';
 import { HomeStrip, PathCard, RoleGrid, StripLink } from './path-card';
 import { HomeHero } from './home-hero';
+import { EnvRow, EnvTable } from './env-table';
+import { KbdHint } from './kbd-hint';
 
 function heading(level: 2 | 3) {
   const Tag = `h${level}` as 'h2' | 'h3';
@@ -22,6 +24,28 @@ function heading(level: 2 | 3) {
   };
 }
 
+type PreProps = {
+  children?: ReactNode;
+  className?: string;
+  'data-language'?: string;
+  [key: string]: unknown;
+};
+
+function Pre(props: PreProps) {
+  const { children, className, ...rest } = props;
+  const fromData = typeof rest['data-language'] === 'string' ? rest['data-language'] : '';
+  const fromClass =
+    typeof className === 'string' ? className.match(/language-([^\s]+)/)?.[1] : undefined;
+  const language = fromData || fromClass || '';
+  return (
+    <CodeBlock language={language}>
+      <pre className={className} {...rest}>
+        {children}
+      </pre>
+    </CodeBlock>
+  );
+}
+
 export const mdxComponents: MDXComponents = {
   Callout,
   Steps,
@@ -31,7 +55,10 @@ export const mdxComponents: MDXComponents = {
   HomeStrip,
   StripLink,
   HomeHero,
+  EnvTable,
+  EnvRow,
+  KbdHint,
   h2: heading(2),
   h3: heading(3),
-  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+  pre: Pre,
 };

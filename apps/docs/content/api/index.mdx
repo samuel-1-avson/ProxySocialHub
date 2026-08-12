@@ -4,14 +4,14 @@ description: Interactive OpenAPI for Control API /v1 — auth, hosts, and Try It
 full: true
 ---
 
-Live contract for the Control API (`/v1`). The interactive viewer below loads from [`/openapi.yaml`](/openapi.yaml).
+Live contract for the Control API (`/v1`). The interactive viewer below loads from [`/openapi.yaml`](/openapi.yaml) — full-bleed Try It, theme-synced with docs.
 
 ## Hosts
 
-| Environment | Base URL |
-|-------------|----------|
-| Public testnet | `https://api.proxyhubb.com` |
-| Local | `http://localhost:8080` |
+<EnvTable caption="API hosts">
+  <EnvRow role="Public testnet" value="https://api.proxyhubb.com" />
+  <EnvRow role="Local" value="http://localhost:8080" />
+</EnvTable>
 
 Buyer traffic is **not** on this host — use `proxy.proxyhubb.com:8090` (CONNECT / SOCKS5). See [Buyer proxy](/docs/buyer/proxy).
 
