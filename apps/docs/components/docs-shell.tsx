@@ -280,8 +280,12 @@ function SearchPalette({
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="Search docs">
       <button type="button" className="search-backdrop" aria-label="Close search" onClick={onClose} />
       <div className="search-panel">
+        <label htmlFor={listId + '-q'} className="sr-only">
+          Search documentation
+        </label>
         <input
           ref={inputRef}
+          id={listId + '-q'}
           className="search-input"
           placeholder="Search docs…"
           value={q}
@@ -290,13 +294,13 @@ function SearchPalette({
           aria-autocomplete="list"
           aria-activedescendant={results[active] ? `search-hit-${active}` : undefined}
         />
+        {results.length === 0 ? (
+          <p className="search-empty" role="status">
+            No matches for “{needle}”. Try CONNECT, escrow, pool, or JWT.
+          </p>
+        ) : (
         <ul id={listId} className="search-results" role="listbox">
-          {results.length === 0 ? (
-            <li className="search-empty">
-              No matches for “{needle}”. Try CONNECT, escrow, pool, or JWT.
-            </li>
-          ) : (
-            rows.map((row) =>
+          {rows.map((row) =>
               row.kind === 'group' ? (
                 <li key={`g-${row.key}`} className="search-group" role="presentation">
                   {row.label}
@@ -322,9 +326,9 @@ function SearchPalette({
                   </button>
                 </li>
               ),
-            )
-          )}
+            )}
         </ul>
+        )}
         <p className="search-hint">
           <kbd>↑</kbd>
           <kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
@@ -354,6 +358,7 @@ function NavSection({
         <Link
           href={item.href}
           className={`nav-link top${current === item.href ? ' active' : ''}`}
+          aria-current={current === item.href ? 'page' : undefined}
         >
           <span className="nav-code" aria-hidden="true">
             {code}
@@ -387,6 +392,7 @@ function NavSection({
               key={child.href}
               href={child.href}
               className={`nav-link${current === child.href ? ' active' : ''}`}
+              aria-current={current === child.href ? 'page' : undefined}
             >
               {child.label}
             </Link>
@@ -466,9 +472,7 @@ export function DocsShell({
         <Link href="/docs" className="mobile-brand">
           ProxyHubb <span>Docs</span>
         </Link>
-        <button type="button" className="icon-btn" onClick={() => setSearchOpen(true)}>
-          Search
-        </button>
+        <span className="mobile-bar-spacer" aria-hidden="true" />
       </header>
 
       {navOpen ? (
@@ -480,7 +484,11 @@ export function DocsShell({
         />
       ) : null}
 
-      <aside id="docs-sidebar" className={`sidebar${navOpen ? ' open' : ''}`}>
+      <aside
+        id="docs-sidebar"
+        className={`sidebar${navOpen ? ' open' : ''}`}
+        aria-label="Docs navigation"
+      >
         <div className="brand-block">
           <Link href="/docs" className="brand">
             <span className="brand-mark" aria-hidden="true">
@@ -495,7 +503,7 @@ export function DocsShell({
         </div>
 
         <div className="sidebar-tools">
-          <button type="button" className="search-trigger" onClick={() => setSearchOpen(true)}>
+          <button type="button" className="search-trigger" onClick={() => setSearchOpen(true)} aria-label="Search documentation">
             <span>Search</span>
             <kbd>/</kbd>
           </button>
@@ -510,10 +518,10 @@ export function DocsShell({
         </div>
 
         <div className="topbar">
-          <a href="https://proxyhubb.com" target="_blank" rel="noreferrer">
+          <a href="https://proxyhubb.com" target="_blank" rel="noopener noreferrer">
             App
           </a>
-          <a href="https://api.proxyhubb.com" target="_blank" rel="noreferrer">
+          <a href="https://api.proxyhubb.com" target="_blank" rel="noopener noreferrer">
             API
           </a>
           <a href="/docs/changelog">Changelog</a>
@@ -540,6 +548,33 @@ export function DocsShell({
       <main id="doc-main" className="main" tabIndex={-1}>
         {children}
       </main>
+
+      <nav className="mobile-dock" aria-label="Quick actions">
+        <button
+          type="button"
+          className="dock-btn"
+          onClick={() => setSearchOpen(true)}
+          aria-label="Search documentation"
+        >
+          Search
+        </button>
+        <button
+          type="button"
+          className="dock-btn"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? 'Light' : 'Dark'}
+        </button>
+        <a
+          className="dock-btn"
+          href="https://proxyhubb.com"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          App
+        </a>
+      </nav>
 
       <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>

@@ -73,6 +73,7 @@ export function DocToc({ items }: { items: TocItem[] }) {
         className="toc-fab"
         aria-expanded={sheetOpen}
         aria-controls="toc-sheet"
+        aria-label="On this page"
         onClick={() => setSheetOpen(true)}
       >
         On this page

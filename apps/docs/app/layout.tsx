@@ -42,6 +42,15 @@ export const metadata: Metadata = {
   alternates: { canonical: SITE },
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#070b09' },
+    { media: '(prefers-color-scheme: light)', color: '#f3f6f4' },
+  ],
+};
+
 const themeBoot = `(function(){try{var t=localStorage.getItem('phub-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
 
 export default function Layout({ children }: { children: ReactNode }) {
