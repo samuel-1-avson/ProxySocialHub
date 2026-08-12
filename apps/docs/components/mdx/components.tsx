@@ -4,6 +4,8 @@ import { CodeBlock } from '@/components/code-block';
 import { extractText, slugify } from '@/lib/slug';
 import { Callout } from './callout';
 import { Step, Steps } from './steps';
+import { HomeStrip, PathCard, RoleGrid, StripLink } from './path-card';
+import { HomeHero } from './home-hero';
 
 function heading(level: 2 | 3) {
   const Tag = `h${level}` as 'h2' | 'h3';
@@ -24,6 +26,11 @@ export const mdxComponents: MDXComponents = {
   Callout,
   Steps,
   Step,
+  PathCard,
+  RoleGrid,
+  HomeStrip,
+  StripLink,
+  HomeHero,
   h2: heading(2),
   h3: heading(3),
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
