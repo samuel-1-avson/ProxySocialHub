@@ -35,9 +35,11 @@ Mixing these up is the most common integration mistake: **intent create requires
 
 1. **Quick Connect** — JWT → create intent → proxy with `session-intent` — [Python](/docs/sdks/python) / [Node](/docs/sdks/nodejs) / [Go](/docs/sdks/go)
 2. **Marketplace order** — buy → `get*OrderCredentials` → CONNECT username/password
-3. **Bulk pools** — API key → `createPool` → pool proxy URLs
+3. **Bulk pools** — API key → `createPool` → pool proxy URLs — [guide](/docs/buyer/pools)
 4. **Seller automation** — JWT or provider token → tokens / nodes / listings / earnings
 5. **Run a node** — [Provider CLI](/docs/provider/cli) (`npx @proxyhubb/provider` or binaries)
+
+Version pins: [Changelog & SDK matrix](/docs/changelog).
 
 ## Common errors (all SDKs)
 

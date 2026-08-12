@@ -1,0 +1,39 @@
+---
+title: Documentation
+description: Buyer proxy, SDKs, API reference, marketplace, and provider CLI for ProxyHubb.
+---
+
+ProxyHubb is a Solana-settled residential proxy marketplace. Buyers pull traffic through the edge gateway; providers run a tunnel daemon and earn from usage.
+
+| Surface | URL |
+|---------|-----|
+| App | [proxyhubb.com](https://proxyhubb.com) |
+| Control API | [api.proxyhubb.com](https://api.proxyhubb.com) |
+| Buyer proxy | `proxy.proxyhubb.com:8090` (HTTP CONNECT / SOCKS5) |
+| Docs | [docs.proxyhubb.com](https://docs.proxyhubb.com) |
+
+## Start here
+
+1. [Buyer quickstart (5 min)](/docs/quickstart/buyer) — first successful CONNECT request
+2. [Provider quickstart (10 min)](/docs/quickstart/provider) — node online with CLI
+3. [Concepts](/docs/concepts) — intents vs orders vs pools, escrow, metering
+4. [Wallet authentication](/docs/wallet/auth) — challenge → JWT
+5. [SDKs](/docs/sdks) — Python, Node.js, Go
+6. [API reference](/docs/api) — interactive OpenAPI
+7. [Troubleshooting](/docs/troubleshooting) — 401 / 403 / 407 / 501 / quota
+
+## What this site covers
+
+- Timed buyer and provider quickstarts
+- Concepts: access paths, escrow, metering, [architecture](/docs/architecture)
+- Wallet auth, deposit/withdraw, [bulk pools](/docs/buyer/pools)
+- Buyer Connect flows and the edge protocol
+- Official SDKs (`proxyhubb`, `@proxyhubb/sdk`, Go module)
+- Control API (`/v1`) via OpenAPI
+- Marketplace discovery, orders, B2B, [Access Passes](/docs/marketplace/subscriptions)
+- Provider node CLI
+- [Changelog & versions](/docs/changelog)
+
+Press `/` to search (full-text). Toggle light/dark from the sidebar.
+
+Internal audit and ops runbooks stay in the repository and are not published here.

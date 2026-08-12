@@ -1,0 +1,65 @@
+---
+title: Getting started
+description: Environments, authentication, and the buyer vs provider mental model.
+---
+
+ProxyHubb has two sides: **buyers** consume residential bandwidth through the edge gateway; **providers** run a node and earn from metered usage. Settlement is Solana-backed on public testnet (devnet).
+
+## Environments (testnet)
+
+| Role | Value |
+|------|--------|
+| Web | `https://proxyhubb.com` |
+| Control API | `https://api.proxyhubb.com` |
+| Buyer CONNECT / SOCKS5 | `proxy.proxyhubb.com:8090` |
+| Provider tunnel | `proxy.proxyhubb.com:3128` |
+| Docs | `https://docs.proxyhubb.com` |
+| Solana | Devnet |
+
+Override the buyer endpoint locally with `PROXYHUBB_PROXY_ENDPOINT` or `NEXT_PUBLIC_PROXY_ENDPOINT`.
+
+## Authentication
+
+| Credential | Header | Used for |
+|------------|--------|----------|
+| Dashboard JWT | `Authorization: Bearer <jwt>` | Session intents, marketplace orders, most UI APIs |
+| API key `phub_…` / `pk_…` | `X-API-Key` (or Bearer) | Bulk pools, partner B2B purchase (`orders:create`) |
+
+Mint API keys in the dashboard (**Settings → API keys**) or via `POST /v1/bulk/api-keys` with a JWT.
+
+Wallet login (challenge → signed login → refresh) is the public auth path — step-by-step: [Wallet authentication](/docs/wallet/auth). Email/password registration is not an active runtime flow.
+
+## Two buyer paths
+
+1. **Connect session intent** — dashboard JWT → `POST /v1/sessions/intent` → use `session-intent:<token>` at the buyer proxy. Best for rotating/sticky quick-start in [Connect](https://proxyhubb.com/dashboard/proxy).
+2. **Marketplace order** — create order → fund Solana escrow → `GET /v1/orders/:id/credentials` → username/password at the same buyer host.
+
+Bulk **pools** are a third path for partners who want many endpoints under one API key — see [Bulk pools](/docs/buyer/pools) and [Access paths](/docs/concepts/access-paths).
+
+## First request checklist
+
+1. Open [Connect](https://proxyhubb.com/dashboard/proxy) or mint a JWT via wallet auth.
+2. Create a rotating intent (UI or SDK).
+3. Smoke-test: `curl -x "http://session-intent:TOKEN@proxy.proxyhubb.com:8090" https://httpbin.org/ip`
+4. For longer-lived access, place a marketplace order and fetch [credentials](/docs/buyer/credentials).
+
+## Common errors
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `401` on Control API | Missing/expired JWT or wrong API key | Refresh session or mint a new key |
+| `403` on intent create | Using API key instead of JWT | Session intents require a dashboard JWT |
+| Proxy `407` / auth failed | Bad username/password or expired intent | Re-issue intent or re-fetch order credentials |
+| Proxy `501` | Absolute-URI forward proxy (no CONNECT) | Use HTTP CONNECT or SOCKS5 — see [Buyer proxy](/docs/buyer/proxy) |
+| Order credentials `409` | Escrow/session not active yet | Wait for funding + activation, then retry |
+
+## Next steps
+
+- [Buyer quickstart (5 min)](/docs/quickstart/buyer)
+- [Provider quickstart (10 min)](/docs/quickstart/provider)
+- [Concepts](/docs/concepts) · [Architecture](/docs/architecture)
+- [Buyer proxy protocol](/docs/buyer/proxy)
+- [Install an SDK](/docs/sdks)
+- [Browse the API](/docs/api)
+- [Troubleshooting](/docs/troubleshooting)
+- [Changelog & versions](/docs/changelog)

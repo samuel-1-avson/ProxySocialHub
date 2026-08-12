@@ -1,0 +1,94 @@
+---
+title: Troubleshooting
+description: Common Control API and buyer-proxy errors — 401, 403, 407, 409, 501, and quota.
+---
+
+Use this index when a request fails. Most guides also include local error tables; this page is the cross-cutting map.
+
+## Quick triage
+
+| Symptom | Likely layer | Start here |
+|---------|--------------|------------|
+| `401` from `api.proxyhubb.com` | Control API auth | [Auth](#401-unauthorized) |
+| `403` on session intent | Wrong credential type | [403](#403-forbidden) |
+| Proxy `407` | Buyer proxy auth | [407](#407-proxy-authentication-required) |
+| Proxy `501` | Client proxy mode | [501](#501-only-connect-supported) |
+| Credentials `409` | Order / escrow not ready | [409](#409-conflict) |
+| `plan_bandwidth_quota` | Entitlement limits | [Quota](#plan_bandwidth_quota) |
+| Provider node offline | Tunnel / config | [Provider](#provider-node-offline) |
+
+## 401 Unauthorized
+
+**Meaning:** missing, expired, or invalid JWT / API key on the Control API.
+
+**Fix:**
+
+- Refresh the dashboard session or re-run wallet login (`/v1/auth/wallet/*` → refresh)
+- Confirm `Authorization: Bearer <access_token>` (or `X-API-Key` for partner routes)
+- Mint a new key under Settings → API keys if the key was revoked
+
+See [Wallet authentication](/docs/wallet/auth) and [Getting started](/docs/getting-started).
+
+## 403 Forbidden
+
+**Meaning:** authenticated, but not allowed for this route.
+
+Common cases:
+
+- Creating a **session intent** with an API key → intents need a **dashboard JWT**
+- Calling seller/provider routes with a buyer `phub_` / `pk_` key
+- Moderator-only or scope-gated routes
+
+**Fix:** use the credential type documented for that path ([API reference](/docs/api), [Session intents](/docs/buyer/connect)).
+
+## 407 Proxy Authentication Required
+
+**Meaning:** the buyer edge (`proxy.proxyhubb.com:8090`) rejected username/password or session-intent auth.
+
+**Fix:**
+
+- Marketplace: re-fetch `GET /v1/orders/:id/credentials` and use those exact values
+- Connect: username must be `session-intent`, password = intent `token`
+- Watch for URL-encoding issues with special characters — prefer SDK helpers
+
+See [Buyer proxy](/docs/buyer/proxy) and [Order credentials](/docs/buyer/credentials).
+
+## 501 Only CONNECT supported
+
+**Meaning:** the client used classic absolute-URI forward-proxy HTTP (`GET http://…`) instead of **HTTP CONNECT** or **SOCKS5**.
+
+**Fix:** configure an HTTPS / CONNECT proxy (e.g. `curl -x` against an `https://` target) or SOCKS5. Details: [Buyer proxy protocol](/docs/buyer/proxy).
+
+## 409 Conflict
+
+**Meaning:** usually order credentials requested before escrow/session is active.
+
+**Fix:** wait for funding + activation, then retry credentials. Dev-only activate flags must never be relied on in production. See [Orders](/docs/marketplace/orders).
+
+## `plan_bandwidth_quota`
+
+**Meaning:** buyer entitlement (legacy plan or Access Pass) is out of bandwidth / concurrency budget — typically **403** on intent create or order paths.
+
+**Fix:**
+
+- Check `GET /v1/passes/me` or `GET /v1/subscriptions/my`
+- Buy capacity / wait for period reset / lower concurrency
+
+See [Subscriptions](/docs/marketplace/subscriptions).
+
+## Provider node offline
+
+**Checklist:**
+
+1. `proxyhubb-cli doctor --config provider.toml`
+2. Confirm tunnel host/port is **`proxy.proxyhubb.com:3128`** (not `:8090`)
+3. Do not re-`join` after the wizard without `--node-id` (duplicate nodes)
+4. Align `provider_signing_key` if usage shows as unsigned
+
+See [Provider quickstart](/docs/quickstart/provider) and [Provider CLI](/docs/provider/cli).
+
+## Still stuck?
+
+- Interactive contract: [API reference](/docs/api) (`/openapi.yaml`)
+- Buyer 5-minute path: [Buyer quickstart](/docs/quickstart/buyer)
+- Environments table: [Getting started](/docs/getting-started)

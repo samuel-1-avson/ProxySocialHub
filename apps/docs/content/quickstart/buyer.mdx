@@ -1,0 +1,66 @@
+---
+title: Buyer quickstart (5 min)
+description: Get a working CONNECT proxy request through ProxyHubb with a session intent.
+---
+
+Goal: by the end of this page you have a successful `curl` through `proxy.proxyhubb.com:8090` that returns an IP JSON payload.
+
+<Callout type="tip" title="Success criteria">
+A `200` response from `https://httpbin.org/ip` via CONNECT, with JSON containing an `origin` field.
+</Callout>
+
+## Prerequisites
+
+- A ProxyHubb account with wallet login at [proxyhubb.com](https://proxyhubb.com)
+- Dashboard access to [Connect](https://proxyhubb.com/dashboard/proxy) (or a JWT from wallet auth)
+- `curl` available locally
+
+<Steps>
+<Step title="Create a rotating session intent">
+
+**UI path (fastest):** open Connect → create a **rotating** intent → copy the intent token.
+
+**API path:** with a dashboard JWT:
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/sessions/intent \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"rotating","target_geo":"US"}'
+```
+
+Save the `token` from the response. Session intents require a **JWT**, not an API key.
+
+</Step>
+<Step title="Smoke-test through the buyer proxy">
+
+Replace `INTENT_TOKEN` and run:
+
+```bash
+curl -sS -x "http://session-intent:INTENT_TOKEN@proxy.proxyhubb.com:8090" \
+  https://httpbin.org/ip
+```
+
+**Success looks like:** HTTP 200 and JSON with an `origin` IP, for example:
+
+```json
+{ "origin": "203.0.113.10" }
+```
+
+</Step>
+</Steps>
+
+## Verify failure modes (optional)
+
+| Test | Expect |
+|------|--------|
+| Omit credentials | Proxy `407` |
+| Absolute-URI HTTP proxy (no CONNECT) | Proxy `501` — see [Buyer proxy](/docs/buyer/proxy) |
+| API key on intent create | Control API `403` |
+
+## Next steps
+
+- Sticky sessions: [Session intents](/docs/buyer/connect)
+- Longer-lived access: marketplace [order credentials](/docs/buyer/credentials)
+- SDKs: [Python](/docs/sdks/python) · [Node.js](/docs/sdks/nodejs) · [Go](/docs/sdks/go)
+- Stuck? [Troubleshooting](/docs/troubleshooting)

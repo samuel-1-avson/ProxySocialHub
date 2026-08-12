@@ -1,0 +1,73 @@
+---
+title: Provider quickstart (10 min)
+description: Join with a provider token, start the tunnel, and confirm the node is online.
+---
+
+Goal: a provider node shows **online** in the dashboard and passes `proxyhubb-cli doctor`.
+
+Do **not** confuse provider tunnel port **3128** with buyer CONNECT port **8090**.
+
+## Prerequisites
+
+- Provider access in the app ([Become a provider / My nodes](https://proxyhubb.com))
+- Ability to download CLI binaries (dashboard **CLI Tools** or GitHub Releases)
+- Outbound reachability to `proxy.proxyhubb.com:3128`
+
+## 1. Complete the in-app wizard
+
+1. Finish the provider setup wizard in the dashboard.
+2. Download **CLI + `provider.toml`** from CLI Tools for your OS/arch.
+3. Prefer this config over a fresh `join` so you do not create a duplicate node.
+
+If you must enroll from CLI only:
+
+```bash
+proxyhubb-cli join \
+  --api-url https://api.proxyhubb.com \
+  --key PROVIDER_TOKEN \
+  --gateway proxy.proxyhubb.com:3128 \
+  --node-id NODE_UUID
+```
+
+Use `--node-id` when the dashboard already created the node.
+
+## 2. Doctor check
+
+```bash
+proxyhubb-cli doctor --config provider.toml
+```
+
+**Success looks like:** config valid, control API reachable, gateway address resolved — no fatal errors.
+
+## 3. Start the tunnel
+
+```bash
+proxyhubb-cli start --config provider.toml
+```
+
+Or run the daemon directly:
+
+```bash
+./provider-node --config provider.toml
+```
+
+## 4. Confirm online
+
+1. Open **My nodes** in the dashboard.
+2. Confirm the node status is **online** (browser “ping” alone is not a tunnel).
+3. Keep `provider.toml` private — it holds auth and the usage **proof signing** key.
+
+## Common blockers
+
+| Symptom | Fix |
+|---------|-----|
+| Stays offline | Re-run `doctor`; check `:3128` egress / firewall |
+| Accidental second node | Reuse wizard config / `--node-id`; do not re-`join` blindly |
+| Unsigned usage / “Fix proof” | Align `provider_signing_key` with the registered key |
+
+## Next steps
+
+- Full command reference: [Provider CLI](/docs/provider/cli)
+- Heartbeats and leases: [Provider nodes](/docs/provider/nodes)
+- Create listings after the node is healthy (marketplace seller flow)
+- Stuck? [Troubleshooting](/docs/troubleshooting)

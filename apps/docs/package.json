@@ -1,0 +1,32 @@
+{
+  "name": "docs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/sync-openapi.mjs && node scripts/build-search-index.mjs && node scripts/vendor-scalar.mjs",
+    "dev": "next dev -H 0.0.0.0 -p 3010",
+    "prebuild": "node scripts/sync-openapi.mjs && node scripts/build-search-index.mjs && node scripts/vendor-scalar.mjs",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3010",
+    "sync:openapi": "node scripts/sync-openapi.mjs",
+    "index:search": "node scripts/build-search-index.mjs",
+    "vendor:scalar": "node scripts/vendor-scalar.mjs"
+  },
+  "dependencies": {
+    "gray-matter": "4.0.3",
+    "next": "15.5.22",
+    "next-mdx-remote": "5.0.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "rehype-pretty-code": "0.14.1",
+    "remark-gfm": "4.0.1",
+    "shiki": "3.23.0"
+  },
+  "devDependencies": {
+    "@types/mdx": "2.0.13",
+    "@types/node": "22.15.30",
+    "@types/react": "19.1.6",
+    "@types/react-dom": "19.1.6",
+    "typescript": "5.8.3"
+  }
+}
