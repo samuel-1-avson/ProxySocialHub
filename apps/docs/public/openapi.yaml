@@ -1,0 +1,6574 @@
+openapi: 3.1.0
+info:
+  title: ProxyHub Control API
+  description: |
+    API for wallet-authenticated proxy access, session intent routing, wallet operations, and settlement telemetry in the ProxyHub residential proxy network.
+    
+    ## Authentication
+    Protected endpoints accept either:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    or partner API keys:
+    ```
+    X-API-Key: phub_<hex>
+    ```
+    (also `Authorization: Bearer phub_…` / `pk_…`).
+
+    Mint purchase keys with JWT via `POST /v1/bulk/api-keys` using scope `orders:create`.
+    See `docs/B2B_SANDBOX_PURCHASE.md` for the mocked sandbox buy flow.
+
+    Public auth is wallet-first:
+    - `POST /v1/auth/wallet/challenge`
+    - `POST /v1/auth/wallet/login`
+    - `POST /v1/auth/refresh`
+    - `GET /v1/auth/me`
+
+    Email/password registration and login are not active runtime flows.
+    
+    ## Rate Limiting
+    - 100 requests per minute per user/IP (general)
+    - API keys with `orders:create` default to **20/min** (per key)
+    - Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+
+    ## Authority Headers
+    The API emits authority metadata headers so operators can distinguish
+    chain-authoritative and DB-authoritative paths at runtime:
+    - `X-ProxyHubb-Authority-Mode`
+    - `X-ProxyHubb-Authority-Chain-Scope`
+    - `X-ProxyHubb-Authority-DB-Role`
+
+    ## Public Testnet Settlement Semantics
+    Session-intent lifecycle and settlement are currently hybrid:
+    - `ledger_committed` means off-chain ledger state is persisted.
+    - `batched` means usage was included in a settlement batch.
+    - `chain_committed` means the batch root was committed on-chain.
+    - Public testnet does not claim full on-chain proof verification for every batch.
+  version: 1.0.0
+  contact:
+    name: ProxyHub Support
+    email: support@proxyhubb.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.proxyhubb.com
+    description: Public testnet / production Control API
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Wallet-first authentication and session refresh
+  - name: Sessions
+    description: Proxy session management
+  - name: Provider
+    description: Provider gateway admission and capability lease management
+  - name: Wallet
+    description: Wallet and payments
+  - name: Usage
+    description: Usage tracking and analytics
+  - name: KYC
+    description: Identity verification
+  - name: Circles
+    description: Provider groups and pools
+  - name: Analytics
+    description: Usage analytics and charts
+  - name: Geo
+    description: Geo-targeting
+  - name: Services
+    description: Marketplace discovery and intelligent routing matches
+  - name: Listings
+    description: Marketplace listing browse, management, search, and bookmarks
+  - name: Catalog
+    description: |
+      Seller catalog products and offer linkage (Phase 3A).
+      Architecture: docs/adr/0005-marketplace-catalog-layer.md
+      Backfill: docs/MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md
+      Discovery embed (?include=product): docs/MARKETPLACE_DISCOVERY_API.md
+  - name: Crypto
+    description: Treasury, batch settlement, and chain-operation controls
+  - name: Trustless
+    description: Bilaterally signed usage proofs and verification flows
+  - name: Reputation
+    description: Batch-settlement and on-chain reputation telemetry
+  - name: Explorer
+    description: |
+      Public Solana proxy-chain explorer (indexed telemetry). No auth required.
+      May return 503 when full decentralization gate is active.
+      Metric semantics: see ExplorerMetrics schema field descriptions.
+  - name: Community
+    description: Forum, activity feed, direct messages, and realtime websocket tickets
+paths:
+  # ==================== Auth ====================
+  /v1/auth/wallet/challenge:
+    post:
+      tags: [Auth]
+      summary: Request a wallet login challenge
+      operationId: getWalletChallenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletChallengeRequest'
+            example:
+              address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+      responses:
+        '200':
+          description: Challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletChallengeResponse'
+              example:
+                nonce: 9f3c2a1b0e8d7c6a
+                message: "ProxyHubb login\nAddress: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV\nNonce: 9f3c2a1b0e8d7c6a"
+                blockhash_backed: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/auth/wallet/login:
+    post:
+      tags: [Auth]
+      summary: Login with wallet signature
+      operationId: walletLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletLoginRequest'
+            example:
+              address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+              signature: 5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjFvzjvY
+              nonce: 9f3c2a1b0e8d7c6a
+      responses:
+        '200':
+          description: Wallet login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
+                expires_in: 3600
+                user:
+                  id: 11111111-2222-3333-4444-555555555555
+                  role: buyer
+                  status: active
+                  wallet_address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+                  trust_tier: standard
+                  verified: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+            example:
+              refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh2
+                expires_in: 3600
+
+  /v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the current authenticated user
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 11111111-2222-3333-4444-555555555555
+                role: buyer
+                status: active
+                display_name: alice
+                wallet_address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+                trust_tier: standard
+                verified: false
+                created_at: "2026-07-01T12:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==================== Sessions ====================
+  /v1/sessions:
+    get:
+      tags: [Sessions]
+      summary: List user sessions with current bandwidth usage
+      operationId: listSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Defaults to `active`. Pass `all` to include session history.
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+
+    post:
+      tags: [Sessions]
+      summary: Create a routed proxy session
+      operationId: createSession
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionResponse'
+
+  /v1/sessions/instant:
+    post:
+      tags: [Sessions]
+      summary: Create an instant pay-as-you-go universal session
+      operationId: createInstantSession
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInstantSessionRequest'
+      responses:
+        '201':
+          description: Instant session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstantSessionResponse'
+
+  /v1/sessions/from-listing:
+    post:
+      tags: [Sessions]
+      summary: Create a session from a specific marketplace listing
+      operationId: createSessionFromListing
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionFromListingRequest'
+      responses:
+        '201':
+          description: Listing-backed session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingSessionResponse'
+
+  /v1/sessions/intent:
+    post:
+      tags: [Sessions]
+      summary: Issue a signed V2 session intent token
+      operationId: createSessionIntent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionIntentRequest'
+            example:
+              type: rotating
+              target_geo: US
+              max_price_per_gb: 2.5
+      responses:
+        '200':
+          description: Session intent issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionIntentResponse'
+              example:
+                token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.intent.example
+                expires_at: "2026-08-04T18:30:00Z"
+                lifecycle_state: authorized
+                intent:
+                  intent_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                  session_type: rotating
+                  target_geo: US
+
+  /v1/sessions/intents:
+    get:
+      tags: [Sessions]
+      summary: List recent V2 session intents for the current user
+      operationId: listSessionIntents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Recent session intents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionIntentStatusResponse'
+
+  /v1/sessions/intents/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get lifecycle state for a signed V2 session intent
+      operationId: getSessionIntentStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session intent status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionIntentStatusResponse'
+
+  /v1/sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get session details
+      operationId: getSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetailResponse'
+
+    delete:
+      tags: [Sessions]
+      summary: Terminate a session
+      operationId: terminateSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminateSessionResponse'
+
+  /v1/sessions/{id}/terminate:
+    post:
+      tags: [Sessions]
+      summary: Terminate a session via explicit mutation route
+      operationId: terminateSessionExplicit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminateSessionResponse'
+
+  /v1/provider/lease:
+    post:
+      tags: [Provider]
+      summary: Issue a short-lived provider capability lease for gateway admission
+      operationId: issueProviderLease
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueProviderLeaseRequest'
+      responses:
+        '200':
+          description: Provider lease issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderLeaseResponse'
+
+  /v1/provider/earnings:
+    get:
+      tags: [Provider]
+      summary: List provider earnings ledger rows
+      operationId: getProviderEarnings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Provider earnings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderEarningsListResponse'
+
+  /v1/provider/earnings/summary:
+    get:
+      tags: [Provider]
+      summary: Get aggregate provider earnings summary
+      operationId: getProviderEarningsSummary
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Provider earnings summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderEarningsSummary'
+
+  /v1/provider/earnings/history:
+    get:
+      tags: [Provider]
+      summary: Get completed provider payouts with transaction hashes
+      operationId: getProviderPayoutHistory
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Provider payout history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPayoutHistoryResponse'
+
+  /v1/provider/nodes:
+    get:
+      tags: [Provider]
+      summary: List provider nodes owned by the authenticated user
+      operationId: getMyProviderNodes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Provider nodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNodeListResponse'
+    post:
+      tags: [Provider]
+      summary: Create a provider node and auto-publish a marketplace listing
+      operationId: createProviderNode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProviderNodeRequest'
+      responses:
+        '201':
+          description: Provider node created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNode'
+        '409':
+          description: A node with the same IP address is already registered to the account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNodeConflictResponse'
+
+  /v1/provider/nodes/{id}:
+    put:
+      tags: [Provider]
+      summary: Update a provider node owned by the authenticated user
+      operationId: updateProviderNode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProviderNodeRequest'
+      responses:
+        '200':
+          description: Provider node updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNode'
+    delete:
+      tags: [Provider]
+      summary: Delete a provider node owned by the authenticated user
+      operationId: deleteProviderNode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Provider node deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDeletedResponse'
+
+  /v1/provider/nodes/{id}/uptime:
+    get:
+      tags: [Provider]
+      summary: Get 24-hour uptime and bandwidth history for a provider node
+      operationId: getProviderNodeUptime
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Provider node uptime statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNodeUptimeResponse'
+
+  /v1/provider/nodes/{id}/heartbeat:
+    post:
+      tags: [Provider]
+      summary: Mark a provider node online and submit recent telemetry
+      operationId: heartbeatProviderNode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderNodeHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNodeHeartbeatResponse'
+
+  # ==================== Wallet ====================
+  /v1/wallet:
+    get:
+      tags: [Wallet]
+      summary: Get wallet balance, linked wallet state, and recent transactions
+      operationId: getWallet
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Wallet details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+
+  /v1/wallet/deposit/crypto:
+    post:
+      tags: [Wallet]
+      summary: Verify an on-chain deposit and credit the internal SOL wallet
+      operationId: verifyCryptoDeposit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CryptoDepositRequest'
+      responses:
+        '200':
+          description: Wallet credited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletCreditResponse'
+
+  /v1/wallet/link:
+    post:
+      tags: [Wallet]
+      summary: Link an external wallet to the authenticated profile
+      operationId: linkWallet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletLinkRequest'
+      responses:
+        '200':
+          description: Wallet linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletMutationResponse'
+
+    delete:
+      tags: [Wallet]
+      summary: Unlink an external wallet from the authenticated profile
+      operationId: unlinkWallet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletLinkRequest'
+      responses:
+        '200':
+          description: Wallet unlinked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletMutationResponse'
+
+  /v1/wallet/transfer:
+    post:
+      tags: [Wallet]
+      summary: Transfer SOL between platform wallets
+      operationId: transferP2P
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/P2PTransferRequest'
+      responses:
+        '200':
+          description: Transfer completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransferResponse'
+
+  /v1/wallet/withdraw/sol:
+    post:
+      tags: [Wallet]
+      summary: Withdraw SOL to the linked external wallet
+      operationId: withdrawSOL
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawSOLRequest'
+      responses:
+        '200':
+          description: Withdrawal submitted and settled on-chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawSOLResponse'
+
+  /v1/wallet/limits:
+    get:
+      tags: [Wallet]
+      summary: Get current spending limits and window usage
+      operationId: getSpendingLimits
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Spending limits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpendingLimitsEnvelope'
+
+    put:
+      tags: [Wallet]
+      summary: Update spending limits within trust-tier caps
+      operationId: updateSpendingLimits
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSpendingLimitsRequest'
+      responses:
+        '200':
+          description: Spending limits updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpendingLimitsUpdateResponse'
+
+  /v1/wallet/limits/reset:
+    post:
+      tags: [Wallet]
+      summary: Reset spending limits to trust-tier defaults
+      operationId: resetSpendingLimits
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Spending limits reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpendingLimitsUpdateResponse'
+
+  # ==================== Usage ====================
+  /v1/gateway/usage/report:
+    post:
+      tags: [Usage, Gateway]
+      summary: Accept edge-gateway usage reports for settlement coordination
+      description: |
+        Metering ingest is gateway-auth only (`X-Gateway-Auth`).
+        JWT callers cannot inflate usage. Signatures are required unless
+        `ALLOW_UNSIGNED_USAGE=true` in non-production.
+      operationId: reportUsage
+      security:
+        - gatewayAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/UsageReportRequest'
+                - $ref: '#/components/schemas/BatchUsageRequest'
+      responses:
+        '200':
+          description: Usage reports processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReportResponse'
+        '401':
+          description: Missing or invalid X-Gateway-Auth
+
+  /v1/usage/sign:
+    post:
+      tags: [Usage]
+      summary: Sign a provider usage claim for downstream settlement
+      operationId: signUsageClaim
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUsageRequest'
+      responses:
+        '200':
+          description: Usage claim signed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedUsageClaim'
+
+  /v1/usage/session/{session_id}:
+    get:
+      tags: [Usage]
+      summary: Get usage statistics for a specific session credential
+      operationId: getSessionUsage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionUsageResponse'
+
+  /v1/usage/me:
+    get:
+      tags: [Usage]
+      summary: Get user's usage statistics
+      operationId: getUserUsage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Defaults to `active`. Pass `all` to include historical sessions.
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUsage'
+
+  # ==================== Analytics ====================
+  /v1/analytics/overview:
+    get:
+      tags: [Analytics]
+      summary: Get analytics overview
+      operationId: getAnalyticsOverview
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsOverview'
+
+  /v1/analytics/usage/daily:
+    get:
+      tags: [Analytics]
+      summary: Get daily usage chart data
+      operationId: getDailyUsage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+            minimum: 1
+            maximum: 90
+      responses:
+        '200':
+          description: Daily usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageResponse'
+
+  /v1/analytics/usage/hourly:
+    get:
+      tags: [Analytics]
+      summary: Get hourly usage data for the current day
+      operationId: getHourlyUsage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Hourly usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HourlyUsageResponse'
+
+  /v1/analytics/geo:
+    get:
+      tags: [Analytics]
+      summary: Get top geo usage aggregates
+      operationId: getGeoAnalytics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Geo analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoStatsResponse'
+
+  /v1/analytics/top-destinations:
+    get:
+      tags: [Analytics]
+      summary: Get top destination hosts by request volume
+      operationId: getTopDestinations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Destination analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationStatsResponse'
+
+  /v1/analytics/performance/benchmarks:
+    get:
+      tags: [Analytics]
+      summary: Get benchmark engine metrics and latency distribution
+      operationId: getZkBenchmarks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Benchmark metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZkBenchmarkResponse'
+
+  /v1/analytics/earnings/export:
+    get:
+      tags: [Analytics]
+      summary: Export provider earnings as CSV
+      operationId: exportProviderEarnings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            default: csv
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  # ==================== Geo ====================
+  /v1/geo/regions:
+    get:
+      tags: [Geo]
+      summary: Get available regions
+      operationId: getAvailableRegions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Available regions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionInfoResponse'
+
+  /v1/geo/providers:
+    get:
+      tags: [Geo]
+      summary: List healthy providers filtered by geo attributes
+      operationId: getProvidersByRegion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: isp
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provider list for the requested geo filters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderListResponse'
+
+  # ==================== Services (deprecated — use /v1/listings) ====================
+  /v1/services:
+    get:
+      deprecated: true
+      tags: [Services]
+      summary: Discover active marketplace services with filters (deprecated)
+      description: Deprecated. Use GET /v1/listings. Sunset 2026-09-01. See docs/MARKETPLACE_DISCOVERY_API.md.
+      operationId: discoverServices
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: protocols
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: target_countries
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: min_quality_score
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: max_price_per_gb
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_success_rate
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_uptime_percent
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_bandwidth_mbps
+          in: query
+          schema:
+            type: integer
+        - name: priority_tier
+          in: query
+          schema:
+            type: string
+        - name: require_captcha_solving
+          in: query
+          schema:
+            type: boolean
+        - name: require_js_rendering
+          in: query
+          schema:
+            type: boolean
+        - name: require_browser_fingerprint
+          in: query
+          schema:
+            type: boolean
+        - name: require_sticky_session
+          in: query
+          schema:
+            type: boolean
+        - name: require_auto_rotation
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Matching active listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDiscoveryResponse'
+
+  /v1/services/filters:
+    get:
+      deprecated: true
+      tags: [Services]
+      summary: Get available service discovery filter values (deprecated)
+      operationId: getAvailableFilters
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Discovery filter options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilterOptions'
+
+  /v1/services/routing-profiles:
+    get:
+      deprecated: true
+      tags: [Services]
+      summary: List active routing profiles used for intelligent matching (deprecated)
+      operationId: getRoutingProfiles
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Routing profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingProfileListResponse'
+
+  /v1/services/geo-coverage:
+    get:
+      deprecated: true
+      tags: [Services]
+      summary: Get marketplace geo coverage aggregates (deprecated)
+      operationId: getGeoCoverage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Geo coverage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoCoverageResponse'
+
+  /v1/services/match:
+    post:
+      deprecated: true
+      tags: [Services]
+      summary: Match services using a routing profile or use-case hints (deprecated)
+      operationId: matchServices
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRequest'
+      responses:
+        '200':
+          description: Ranked service matches
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceMatchResponse'
+
+  # ==================== Catalog (Phase 3A) ====================
+  /v1/catalog/products/my:
+    get:
+      tags: [Catalog]
+      summary: List the authenticated seller's catalog products
+      operationId: listMyCatalogProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated seller products with offers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CatalogProduct'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+        '401':
+          description: Authentication required
+
+  /v1/catalog/products:
+    post:
+      tags: [Catalog]
+      summary: Create a catalog product
+      operationId: createCatalogProduct
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '400':
+          description: Validation error
+        '401':
+          description: Authentication required
+        '409':
+          description: Slug already taken for this seller
+
+  /v1/catalog/products/{id}:
+    get:
+      tags: [Catalog]
+      summary: Get a catalog product by id
+      description: Active products are public. Draft/archived are visible only to the owning seller.
+      operationId: getCatalogProductById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product with offers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogProductView'
+        '404':
+          description: Product not found or not visible
+    put:
+      tags: [Catalog]
+      summary: Update a catalog product (full/partial fields)
+      operationId: putCatalogProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogProductRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '401':
+          description: Authentication required
+        '404':
+          description: Product not found for seller
+    patch:
+      tags: [Catalog]
+      summary: Partially update a catalog product
+      operationId: patchCatalogProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogProductRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product:
+                    $ref: '#/components/schemas/CatalogProduct'
+        '401':
+          description: Authentication required
+        '404':
+          description: Product not found for seller
+
+  /v1/catalog/products/{id}/offers:
+    post:
+      tags: [Catalog]
+      summary: Link a seller-owned listing as a catalog offer
+      operationId: linkCatalogOffer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkCatalogOfferRequest'
+      responses:
+        '201':
+          description: Offer linked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offer:
+                    $ref: '#/components/schemas/CatalogOffer'
+        '403':
+          description: Listing not owned by seller or already linked to another product
+        '404':
+          description: Product not found for seller
+
+  /v1/catalog/products/{id}/offers/{offer_id}:
+    delete:
+      tags: [Catalog]
+      summary: Unlink a catalog offer from a product
+      operationId: unlinkCatalogOffer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: offer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Offer unlinked
+        '404':
+          description: Product or offer not found
+
+  /v1/catalog/sellers/{seller_id}/products/{slug}:
+    get:
+      tags: [Catalog]
+      summary: Public product lookup by seller id and slug
+      operationId: getCatalogProductBySellerSlug
+      parameters:
+        - name: seller_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active product with offers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogProductView'
+        '404':
+          description: Product not found or not active
+
+  # ==================== Listings ====================
+  /v1/listings:
+    get:
+      tags: [Listings]
+      summary: Browse marketplace listings (canonical discovery API)
+      description: Primary buyer discovery surface. Replaces deprecated GET /v1/services for new integrations.
+      operationId: getListings
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: proxy_type
+          in: query
+          schema:
+            type: string
+            enum: [residential, mobile, datacenter]
+        - name: protocol
+          in: query
+          schema:
+            type: string
+        - name: protocols
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Filters by service_configurations protocol flags (http, https, socks5, ssh)
+        - name: min_quality_score
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_success_rate
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_uptime_percent
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_bandwidth_mbps
+          in: query
+          schema:
+            type: integer
+        - name: min_rating
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: min_price
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: max_price
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: seller_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: country
+          in: query
+          schema:
+            type: string
+          example: US
+        - name: isp
+          in: query
+          schema:
+            type: string
+          example: Comcast
+        - name: rotation_type
+          in: query
+          schema:
+            type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+        - name: include
+          in: query
+          description: |
+            Optional embeds. Use `product` (aliases `catalog`, `catalog_product`) to attach
+            `catalog_product` when a catalog offer links the listing. Comma-separated values allowed.
+            Responses with product include bypass the short listings cache.
+          schema:
+            type: string
+            example: product
+      responses:
+        '200':
+          description: Listings page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionResponse'
+              example:
+                listings:
+                  - id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                    title: US residential rotating
+                    country: US
+                    proxy_type: residential
+                    price_per_gb: 1.25
+                    quality_score: 0.94
+                total: 42
+                page: 1
+                limit: 20
+    post:
+      tags: [Listings]
+      summary: Create a new proxy marketplace listing
+      operationId: createListing
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingRequest'
+      responses:
+        '201':
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishedListing'
+
+  /v1/listings/featured:
+    get:
+      tags: [Listings]
+      summary: Get featured active listings ranked by quality and priority
+      operationId: getFeaturedListings
+      parameters:
+        - name: include
+          in: query
+          description: Optional `product` embed for `catalog_product` on each listing
+          schema:
+            type: string
+            example: product
+      responses:
+        '200':
+          description: Featured listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingSummaryCollectionResponse'
+
+  /v1/listings/facets:
+    get:
+      tags: [Listings]
+      summary: Aggregated browse dimensions (countries, proxy types, ISPs, price bands)
+      operationId: getListingFacets
+      responses:
+        '200':
+          description: Facet buckets for active listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingFacetsResponse'
+
+  /v1/listings/collections:
+    get:
+      tags: [Listings]
+      summary: Curated collection summaries with active listing counts
+      operationId: getListingCollections
+      responses:
+        '200':
+          description: Collection catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionsIndexResponse'
+
+  /v1/listings/collections/{slug}:
+    get:
+      tags: [Listings]
+      summary: Paginated listings in a curated collection
+      operationId: getListingCollectionBySlug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [featured, verified, editors-pick]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: include
+          in: query
+          description: Optional `product` embed (see GET /v1/listings include docs)
+          schema:
+            type: string
+            example: product
+      responses:
+        '200':
+          description: Collection page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionPageResponse'
+        '404':
+          description: Unknown collection slug
+
+  /v1/marketplace/funnel-events:
+    post:
+      tags: [Marketplace]
+      summary: Ingest client marketplace funnel events (listing_view, buy_modal_open)
+      operationId: ingestMarketplaceFunnelEvent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event]
+              properties:
+                event:
+                  type: string
+                  enum: [listing_view, buy_modal_open]
+                schema_version:
+                  type: string
+                  default: marketplace.funnel.v1
+                listing_id:
+                  type: string
+                  format: uuid
+                order_id:
+                  type: string
+                  format: uuid
+                surface:
+                  type: string
+                meta:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Event accepted
+        '400':
+          description: Invalid event or body
+
+  /v1/moderation/marketplace/funnel:
+    get:
+      tags: [Moderation]
+      summary: Marketplace funnel analytics (platform moderator)
+      operationId: getAdminMarketplaceFunnel
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+          description: Inclusive start date (YYYY-MM-DD). Default 30 days ago.
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+          description: Inclusive end date (YYYY-MM-DD). Default today.
+        - name: collection
+          in: query
+          schema:
+            type: string
+            enum: [featured, verified, editors-pick]
+        - name: country
+          in: query
+          schema: { type: string }
+          description: Filter by listing country (case-insensitive)
+      responses:
+        '200':
+          description: Funnel step counts and conversion rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceFunnelSummary'
+        '400':
+          description: Invalid filters
+        '401':
+          description: Unauthorized
+        '403':
+          description: Moderator access required
+
+  /v1/analytics/marketplace/funnel:
+    get:
+      tags: [Analytics]
+      summary: Seller-scoped marketplace funnel analytics
+      operationId: getSellerMarketplaceFunnel
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: collection
+          in: query
+          schema:
+            type: string
+            enum: [featured, verified, editors-pick]
+        - name: country
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Funnel step counts for the authenticated seller's listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceFunnelSummary'
+        '400':
+          description: Invalid filters
+        '401':
+          description: Unauthorized
+        '403':
+          description: Provider access required
+
+  /v1/passes/catalog:
+    get:
+      tags: [AccessPasses]
+      summary: List Access Pass tiers (NFT entitlements)
+      operationId: getPassCatalog
+      responses:
+        '200':
+          description: Pass catalog with mints, prices, and benefits
+
+  /v1/passes/me:
+    get:
+      tags: [AccessPasses]
+      summary: Current Access Pass tier for the authenticated user
+      operationId: getMyPass
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tier, holds, quota, and legacy grace metadata
+        '401':
+          description: Unauthorized
+
+  /v1/passes/migration:
+    get:
+      tags: [AccessPasses]
+      summary: Legacy Pro/Scale → Silver/Gold migration status
+      operationId: getPassMigration
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Grace window and airdrop eligibility
+        '401':
+          description: Unauthorized
+
+  /v1/passes/prepare-purchase:
+    post:
+      tags: [AccessPasses]
+      summary: Prepare primary-sale SOL transfer for an Access Pass
+      operationId: preparePassPurchase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier: { type: string, enum: [bronze, silver, gold] }
+                idempotency_key: { type: string }
+      responses:
+        '200':
+          description: Treasury destination and lamports (or external purchase URL)
+        '400':
+          description: Missing wallet or invalid tier
+
+  /v1/passes/confirm-purchase:
+    post:
+      tags: [AccessPasses]
+      summary: Confirm on-chain SOL payment for an Access Pass
+      operationId: confirmPassPurchase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tx_signature]
+              properties:
+                purchase_id: { type: string, format: uuid }
+                tier: { type: string, enum: [bronze, silver, gold] }
+                tx_signature: { type: string }
+      responses:
+        '200':
+          description: Purchase confirmed (receipt grace until NFT held)
+        '400':
+          description: Verification failed
+
+  /v1/subscriptions/plans:
+    get:
+      tags: [Subscriptions]
+      summary: List legacy buyer subscription plans (deprecated)
+      description: Custodial plans are deprecated. Prefer GET /v1/passes/catalog.
+      operationId: getSubscriptionPlans
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Active plans (free, pro, scale) — legacy read-only
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionPlan'
+
+  /v1/subscriptions/my:
+    get:
+      tags: [Subscriptions]
+      summary: Current entitlement (legacy subscription or Access Pass)
+      operationId: getMySubscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscription (nullable) and current_plan from pass resolver
+        '401':
+          description: Unauthorized
+
+  /v1/subscriptions:
+    post:
+      tags: [Subscriptions]
+      summary: Retired — custodial subscribe disabled
+      description: Returns 410 Gone. Mint an Access Pass via /v1/passes/*.
+      operationId: subscribeToPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, billing_cycle]
+              properties:
+                plan_id: { type: string, format: uuid }
+                billing_cycle: { type: string, enum: [monthly, yearly] }
+      responses:
+        '410':
+          description: Custodial subscriptions retired
+    put:
+      tags: [Subscriptions]
+      summary: Retired — custodial plan change disabled
+      operationId: changeSubscriptionPlan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_plan_id]
+              properties:
+                new_plan_id: { type: string, format: uuid }
+      responses:
+        '410':
+          description: Custodial plan changes retired
+    delete:
+      tags: [Subscriptions]
+      summary: Cancel legacy subscription (access until period end)
+      operationId: cancelSubscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cancelled; entitlements until access_until
+
+  /v1/bulk/pools:
+    post:
+      tags: [Bulk, B2B]
+      summary: Create a bulk proxy pool
+      operationId: createBulkPool
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                size: { type: integer, minimum: 1, maximum: 100, default: 10 }
+                session_type: { type: string, enum: [rotating, sticky], default: rotating }
+                description: { type: string }
+                bytes_limit: { type: integer, default: 0, description: 0 = unlimited }
+            example:
+              name: scrapers
+              size: 5
+              session_type: rotating
+              description: Partner scrape pool
+              bytes_limit: 0
+      responses:
+        '200':
+          description: Pool created
+          content:
+            application/json:
+              example:
+                id: 22222222-3333-4444-5555-666666666666
+                name: scrapers
+                size: 5
+                session_type: rotating
+                status: active
+        '401':
+          description: Unauthorized
+    get:
+      tags: [Bulk, B2B]
+      summary: List bulk proxy pools
+      operationId: listBulkPools
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Pools for the authenticated account
+          content:
+            application/json:
+              example:
+                pools:
+                  - id: 22222222-3333-4444-5555-666666666666
+                    name: scrapers
+                    size: 5
+                    session_type: rotating
+                    status: active
+
+  /v1/bulk/pools/{pool_id}:
+    delete:
+      tags: [Bulk, B2B]
+      summary: Soft-delete a bulk proxy pool
+      operationId: revokeBulkPool
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: pool_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found
+
+  /v1/bulk/pools/{pool_id}/endpoints:
+    get:
+      tags: [Bulk, B2B]
+      summary: List endpoints for a bulk proxy pool
+      operationId: getBulkPoolEndpoints
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: pool_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Endpoints (host, port, username, password)
+
+  /v1/sdks/languages:
+    get:
+      tags: [SDKs]
+      summary: List supported SDK snippet languages
+      operationId: listSDKLanguages
+      responses:
+        '200':
+          description: Language catalog for Integration Matrices / code gen
+
+  /v1/sdks/{language}/examples:
+    get:
+      tags: [SDKs]
+      summary: Example snippets for a language
+      operationId: getSDKExamples
+      parameters:
+        - name: language
+          in: path
+          required: true
+          schema: { type: string, example: python }
+      responses:
+        '200':
+          description: Examples
+
+  /v1/sdks/generate-code:
+    post:
+      tags: [SDKs]
+      summary: Generate a proxy client snippet
+      operationId: generateSDKCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [language, use_case]
+              properties:
+                language: { type: string }
+                use_case: { type: string, description: basic, rotating, sticky, scraping }
+                session_id: { type: string }
+                proxy_host: { type: string }
+                proxy_port: { type: integer }
+      responses:
+        '200':
+          description: Generated code
+
+  /v1/bulk/api-keys:
+    post:
+      tags: [Bulk, B2B]
+      summary: Create partner API key (JWT session only)
+      operationId: createBulkAPIKey
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                scopes:
+                  type: string
+                  description: Comma-separated. Allowed proxy:read, proxy:write, orders:create
+                  example: orders:create
+                expires_at:
+                  type: string
+                  format: date-time
+            example:
+              name: partner-sandbox
+              scopes: orders:create
+      responses:
+        '201':
+          description: Key created (plaintext returned once)
+          content:
+            application/json:
+              example:
+                id: 33333333-4444-5555-6666-777777777777
+                name: partner-sandbox
+                key: phub_0123456789abcdef0123456789abcdef
+                scopes: orders:create
+                created_at: "2026-08-04T17:00:00Z"
+        '400':
+          description: Invalid scopes or max keys reached
+        '401':
+          description: Unauthorized
+        '403':
+          description: API key auth cannot mint keys
+    get:
+      tags: [Bulk, B2B]
+      summary: List active partner API keys
+      operationId: listBulkAPIKeys
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Key metadata (no plaintext)
+
+  /v1/bulk/api-keys/{key_id}:
+    delete:
+      tags: [Bulk, B2B]
+      summary: Revoke partner API key
+      operationId: revokeBulkAPIKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: Not found
+
+  /v1/orders:
+    post:
+      tags: [Orders, B2B]
+      summary: Create marketplace order (JWT or API key with orders:create)
+      operationId: createOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listing_id, bandwidth_gb]
+              properties:
+                listing_id: { type: string, format: uuid }
+                bandwidth_gb: { type: number }
+                session_type:
+                  type: string
+                  enum: [rotating, sticky]
+            example:
+              listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              bandwidth_gb: 1
+              session_type: rotating
+      responses:
+        '201':
+          description: Order created (pending escrow unless sandbox flow)
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                  status: pending
+                  bandwidth_gb: 1
+                session:
+                  id: 55555555-6666-7777-8888-999999999999
+                  status: disabled
+        '400':
+          description: Validation or insufficient wallet balance
+        '401':
+          description: Unauthorized
+        '403':
+          description: Missing orders:create scope
+
+  /v1/orders/sandbox-buy:
+    post:
+      tags: [Orders, B2B]
+      summary: Sandbox mocked buy (create + activate-dev in one call)
+      description: |
+        Requires PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true. Skips wallet SOL preflight.
+        See docs/B2B_SANDBOX_PURCHASE.md.
+      operationId: sandboxBuyOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listing_id, bandwidth_gb]
+              properties:
+                listing_id: { type: string, format: uuid }
+                bandwidth_gb: { type: number }
+            example:
+              listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              bandwidth_gb: 1
+      responses:
+        '201':
+          description: Order active with proxy_credentials
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  status: active
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
+                sandbox: true
+                dev_escrow: true
+        '404':
+          description: Sandbox buy not enabled
+
+  /v1/orders/{id}/activate-dev:
+    post:
+      tags: [Orders, B2B]
+      summary: Simulate escrow confirmation (dev/sandbox only)
+      operationId: activateDevOrder
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          example: 44444444-5555-6666-7777-888888888888
+      responses:
+        '200':
+          description: Order activated with credentials
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  status: active
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
+        '404':
+          description: Dev activate not enabled
+
+  /v1/orders/{id}/credentials:
+    get:
+      tags: [Orders, B2B]
+      summary: Fetch proxy credentials after escrow activation
+      operationId: getOrderCredentials
+      security:
+        - bearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          example: 44444444-5555-6666-7777-888888888888
+      responses:
+        '200':
+          description: Credentials
+          content:
+            application/json:
+              example:
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
+        '409':
+          description: Order not yet active
+          content:
+            application/json:
+              example:
+                error: order_not_ready
+                message: Escrow or session is not active yet
+                retryable: true
+
+  /v1/moderation/listings/pending:
+    get:
+      tags: [Moderation]
+      summary: Paginated listings awaiting moderation (platform moderator JWT)
+      operationId: getPendingListingsModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Pending listings
+        '403':
+          description: Requires admin, moderator, or superadmin role
+
+  /v1/moderation/listings/{id}/approve:
+    post:
+      tags: [Moderation]
+      summary: Approve a pending_review listing (sets active)
+      operationId: approveListingModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing approved
+        '404':
+          description: Listing not found or not pending
+
+  /v1/moderation/listings/{id}/reject:
+    post:
+      tags: [Moderation]
+      summary: Reject a pending_review listing (sets deleted)
+      operationId: rejectListingModeration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Listing rejected
+
+  /v1/listings/search:
+    get:
+      tags: [Listings]
+      summary: Search active listings by full-text or fallback keyword matching
+      operationId: searchListings
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          example: residential US
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingSummaryCollectionResponse'
+              example:
+                listings:
+                  - id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                    title: US residential rotating
+                    country: US
+                    proxy_type: residential
+                total: 1
+
+  /v1/listings/{id}:
+    get:
+      tags: [Listings]
+      summary: Get a single listing and whether the current user has saved it
+      operationId: getListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include
+          in: query
+          description: Optional `product` embed for `catalog_product` on the listing
+          schema:
+            type: string
+            example: product
+      responses:
+        '200':
+          description: Listing detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingDetailResponse'
+    patch:
+      tags: [Listings]
+      summary: Update a listing owned by the authenticated seller
+      operationId: updateListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListingRequest'
+      responses:
+        '200':
+          description: Listing updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyListing'
+    delete:
+      tags: [Listings]
+      summary: Soft-delete a listing owned by the authenticated seller
+      operationId: deleteListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingActionResponse'
+
+  /v1/listings/{id}/save:
+    post:
+      tags: [Listings]
+      summary: Save a listing to the authenticated user's bookmarks
+      operationId: saveListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingActionResponse'
+    delete:
+      tags: [Listings]
+      summary: Remove a listing from the authenticated user's bookmarks
+      operationId: unsaveListing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Listing unsaved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingActionResponse'
+
+  /v1/saved:
+    get:
+      tags: [Listings]
+      summary: List saved marketplace listings for the authenticated user
+      operationId: getSavedListings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Saved listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedListingsResponse'
+
+  /v1/my:
+    get:
+      tags: [Listings]
+      summary: List marketplace listings owned by the authenticated user
+      operationId: getMyListings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Seller-owned listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingCollectionResponse'
+
+  /v1/suggest-price:
+    get:
+      tags: [Listings]
+      summary: Suggest a listing price by country and proxy type
+      operationId: suggestListingPrice
+      parameters:
+        - name: country
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: proxy_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [residential, mobile, datacenter]
+      responses:
+        '200':
+          description: Suggested marketplace price
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceSuggestion'
+
+  # ==================== Crypto ====================
+  /v1/crypto/deposit/verify:
+    post:
+      tags: [Crypto]
+      summary: Verify an external on-chain deposit and credit the internal wallet
+      operationId: verifyCryptoDepositRoute
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CryptoDepositRequest'
+      responses:
+        '200':
+          description: Deposit verified and wallet credited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletCreditResponse'
+
+  /v1/crypto/batch-settle:
+    post:
+      tags: [Crypto]
+      summary: Submit a multi-escrow settlement batch through the configured multisig oracle
+      operationId: settleBatchEscrows
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchSettlementRequest'
+      responses:
+        '200':
+          description: Batch settlement submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSettlementResponse'
+
+  /v1/crypto/emergency-pause:
+    post:
+      tags: [Crypto]
+      summary: Trigger emergency pause for chain-backed operations
+      operationId: emergencyPause
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyPauseRequest'
+      responses:
+        '200':
+          description: Emergency pause activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyPauseResponse'
+
+  /v1/crypto/treasury:
+    get:
+      tags: [Crypto]
+      summary: Get the configured treasury address
+      operationId: getTreasuryAddress
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Treasury address metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TreasuryAddressResponse'
+
+  /v1/crypto/multisig-status:
+    get:
+      tags: [Crypto]
+      summary: Get the current multisig oracle signer set and local authority status
+      operationId: getMultiSigStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Multisig status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultiSigStatusResponse'
+
+  /v1/crypto/settlement-telemetry:
+    get:
+      tags: [Crypto]
+      summary: Get in-memory settlement-path telemetry snapshot
+      operationId: getSettlementTelemetry
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Settlement telemetry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementTelemetryResponse'
+
+  # ==================== Trustless ====================
+  /v1/trustless/usage-proofs:
+    post:
+      tags: [Trustless]
+      summary: Create a pending bilateral usage proof for a session
+      operationId: createUsageProof
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUsageProofRequest'
+      responses:
+        '201':
+          description: Usage proof created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofResponse'
+
+    get:
+      tags: [Trustless]
+      summary: List usage proofs for the current user
+      operationId: listUsageProofs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [buyer, provider]
+      responses:
+        '200':
+          description: Usage proofs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UsageProof'
+
+  /v1/trustless/usage-proofs/{id}:
+    get:
+      tags: [Trustless]
+      summary: Get a single usage proof and its canonical message
+      operationId: getUsageProof
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage proof
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofResponse'
+
+  /v1/trustless/usage-proofs/session/{sessionId}:
+    get:
+      tags: [Trustless]
+      summary: List usage proofs associated with a specific session
+      operationId: getSessionUsageProofs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session usage proofs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofListEnvelope'
+
+  /v1/trustless/usage-proofs/{id}/sign:
+    post:
+      tags: [Trustless]
+      summary: Attach and verify a buyer or provider signature for a usage proof
+      operationId: signUsageProof
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUsageProofPayload'
+      responses:
+        '200':
+          description: Usage proof signature saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofResponse'
+
+  /v1/trustless/usage-proofs/{id}/submit:
+    post:
+      tags: [Trustless]
+      summary: Submit a fully signed usage proof to the blockchain flow
+      operationId: submitUsageProofOnChain
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage proof submitted on-chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofSubmissionResponse'
+
+  /v1/trustless/verify-signature:
+    post:
+      tags: [Trustless]
+      summary: Verify a base58-encoded Ed25519 signature
+      operationId: verifySignature
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifySignatureRequest'
+      responses:
+        '200':
+          description: Signature verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifySignatureResponse'
+
+  /v1/trustless/message/{proofId}:
+    get:
+      tags: [Trustless]
+      summary: Get the canonical message and hash for a usage proof
+      operationId: getMessageToSign
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: proofId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Canonical proof message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProofMessageResponse'
+
+  # ==================== Reputation ====================
+  /v1/zk/batch/submit:
+    post:
+      tags: [Reputation]
+      summary: Accept a signed usage batch and queue it for on-chain settlement
+      operationId: submitZkBatch
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitZkBatchRequest'
+      responses:
+        '202':
+          description: Batch accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitZkBatchResponse'
+
+  /v1/zk/batch/{root}:
+    get:
+      tags: [Reputation]
+      summary: Get batch settlement status by Merkle root
+      operationId: getZkBatch
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: root
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ZK batch status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZkBatch'
+
+  /v1/reputation/telemetry:
+    get:
+      tags: [Reputation]
+      summary: Get on-chain settled proof telemetry for the current user
+      operationId: getReputationTelemetry
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Reputation telemetry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationTelemetryResponse'
+
+  # ==================== Explorer (public) ====================
+  /v1/explorer/metrics:
+    get:
+      tags: [Explorer]
+      summary: Explorer dashboard metrics
+      operationId: getExplorerMetrics
+      parameters:
+        - name: chain
+          in: query
+          schema:
+            type: string
+            default: all
+          description: Chain filter; `all` resolves to `solana` for the proxy indexer.
+      responses:
+        '200':
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplorerMetrics'
+        '503':
+          description: Full decentralization gate active
+
+  /v1/explorer/stats:
+    get:
+      tags: [Explorer]
+      summary: Network statistics summary
+      operationId: getExplorerNetworkStats
+      responses:
+        '200':
+          description: Network stats
+
+  /v1/explorer/transactions:
+    get:
+      tags: [Explorer]
+      summary: List indexed transactions
+      operationId: listExplorerTransactions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Transaction list
+
+  /v1/explorer/transactions/{hash}:
+    get:
+      tags: [Explorer]
+      summary: Transaction detail by hash
+      operationId: getExplorerTransaction
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/wallets/{address}:
+    get:
+      tags: [Explorer]
+      summary: Wallet summary
+      operationId: getExplorerWallet
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wallet details
+
+  /v1/explorer/wallets/{address}/transactions:
+    get:
+      tags: [Explorer]
+      summary: Wallet transaction history
+      operationId: getExplorerWalletTransactions
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Wallet transactions
+
+  /v1/explorer/blocks:
+    get:
+      tags: [Explorer]
+      summary: List indexed blocks
+      operationId: listExplorerBlocks
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Block list
+
+  /v1/explorer/blocks/{identifier}:
+    get:
+      tags: [Explorer]
+      summary: Block by hash or number
+      operationId: getExplorerBlock
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Block detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/nodes:
+    get:
+      tags: [Explorer]
+      summary: List explorer nodes
+      operationId: listExplorerNodes
+      responses:
+        '200':
+          description: Node list
+
+  /v1/marketplace/map:
+    get:
+      tags: [Marketplace]
+      summary: Unified marketplace map points (listings + optional live nodes)
+      operationId: getMarketplaceMap
+      description: |
+        Returns map-ready listing and optional node points with hub/centroid-snapped coordinates.
+        Prefer this over deprecated /v1/listings/geo. BBox is applied in SQL (padded) then
+        refined after coordinate snapping. Proof fields are omitted unless include_proofs=true.
+      parameters:
+        - name: country
+          in: query
+          schema: { type: string }
+        - name: proxy_type
+          in: query
+          schema: { type: string }
+        - name: protocol
+          in: query
+          schema: { type: string }
+        - name: min_price
+          in: query
+          schema: { type: number }
+        - name: max_price
+          in: query
+          schema: { type: number }
+        - name: min_uptime
+          in: query
+          schema: { type: number }
+        - name: max_latency
+          in: query
+          schema: { type: integer }
+        - name: purchasable_only
+          in: query
+          schema: { type: boolean, default: true }
+        - name: include_nodes
+          in: query
+          schema: { type: boolean, default: false }
+        - name: active_nodes_only
+          in: query
+          schema: { type: boolean, default: false }
+        - name: validator
+          in: query
+          schema: { type: boolean, default: false }
+        - name: bbox
+          in: query
+          description: west,south,east,north
+          schema: { type: string }
+        - name: include_catalog
+          in: query
+          schema: { type: boolean, default: false }
+        - name: include_proofs
+          in: query
+          description: When true, include listing offer and heartbeat proof fields
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Marketplace map points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        kind: { type: string, enum: [listing, node] }
+                        lat: { type: number }
+                        lon: { type: number }
+                        title: { type: string }
+                        purchasable: { type: boolean }
+                        listing_id: { type: string }
+                        node_id: { type: string }
+                        price_per_gb: { type: number }
+                        geo_source: { type: string }
+                  total: { type: integer }
+                  listing_count: { type: integer }
+                  node_count: { type: integer }
+                  bbox_applied: { type: boolean }
+                  generated_at: { type: string, format: date-time }
+
+  /v1/map/points:
+    get:
+      tags: [Marketplace]
+      summary: Alias for GET /v1/marketplace/map
+      operationId: getMapPoints
+      description: Same contract as /v1/marketplace/map.
+      responses:
+        '200':
+          description: Marketplace map points
+
+  /v1/explorer/nodes/geo:
+    get:
+      tags: [Explorer]
+      summary: Geo distribution of active nodes
+      operationId: getExplorerNodesGeo
+      description: Large payload; rate-limited to 20 req/min per IP.
+      responses:
+        '200':
+          description: Geo nodes
+
+  /v1/explorer/nodes/{id}:
+    get:
+      tags: [Explorer]
+      summary: Node detail
+      operationId: getExplorerNode
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Node detail
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/explorer/validators:
+    get:
+      tags: [Explorer]
+      summary: List validators
+      operationId: listExplorerValidators
+      responses:
+        '200':
+          description: Validators
+
+  /v1/explorer/contracts:
+    get:
+      tags: [Explorer]
+      summary: List indexed contracts
+      operationId: listExplorerContracts
+      responses:
+        '200':
+          description: Contracts
+
+  /v1/explorer/contracts/{address}:
+    get:
+      tags: [Explorer]
+      summary: Contract detail
+      operationId: getExplorerContract
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contract detail
+
+  /v1/explorer/bandwidth:
+    get:
+      tags: [Explorer]
+      summary: Bandwidth usage for a period
+      operationId: getExplorerBandwidth
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+      responses:
+        '200':
+          description: Bandwidth stats (period-scoped usage_records sum)
+
+  /v1/explorer/network/health:
+    get:
+      tags: [Explorer]
+      summary: Network health snapshot
+      operationId: getExplorerNetworkHealth
+      responses:
+        '200':
+          description: Health status
+
+  /v1/explorer/decentralization/status:
+    get:
+      tags: [Explorer]
+      summary: Decentralization gate status
+      operationId: getExplorerDecentralizationStatus
+      responses:
+        '200':
+          description: Writer quorum and gate state
+
+  /v1/explorer/decentralization/writers:
+    get:
+      tags: [Explorer]
+      summary: Active decentralization writers
+      operationId: getExplorerDecentralizationWriters
+      responses:
+        '200':
+          description: Writer registry snapshot
+
+  /v1/explorer/analytics:
+    get:
+      tags: [Explorer]
+      summary: Time-series analytics
+      operationId: getExplorerAnalytics
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Analytics series
+
+  /v1/explorer/leaderboard:
+    get:
+      tags: [Explorer]
+      summary: Node leaderboard
+      operationId: getExplorerLeaderboard
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [uptime, bandwidth, sessions]
+            default: uptime
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+          description: Filters bandwidth (usage_records) and sessions rankings; uptime uses indexed counters (see period_applied).
+      responses:
+        '200':
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplorerLeaderboard'
+
+  /v1/explorer/sessions:
+    get:
+      tags: [Explorer]
+      summary: Public session explorer (optional)
+      description: Requires EXPLORER_PUBLIC_SESSIONS_ENABLED=true on the server.
+      operationId: listExplorerSessions
+      responses:
+        '200':
+          description: Sessions
+        '404':
+          description: Feature disabled
+
+  /v1/explorer/earnings:
+    get:
+      tags: [Explorer]
+      summary: Provider earnings explorer (optional)
+      description: Requires EXPLORER_PUBLIC_EARNINGS_ENABLED=true on the server.
+      operationId: getExplorerProviderEarnings
+      responses:
+        '200':
+          description: Earnings
+        '404':
+          description: Feature disabled
+
+  /v1/explorer/health/history:
+    get:
+      tags: [Explorer]
+      summary: Network health history
+      operationId: getExplorerHealthHistory
+      responses:
+        '200':
+          description: Health history
+
+  /v1/explorer/ws:
+    get:
+      tags: [Explorer]
+      summary: Explorer WebSocket (real-time)
+      description: |
+        Upgrades to WebSocket. Server sends JSON envelopes `{ "type", "data", "timestamp" }`.
+
+        **Server → client types**
+        - `initial` — snapshot: `{ transactions[], blocks[], nodes[] }` on connect
+        - `new_transaction` — `{ tx_hash, from, to, amount, currency, tx_type }`
+        - `new_block` — `{ block_number, block_hash, transaction_count }`
+        - `node_update` — node geo/status patch for map markers
+
+        **Client → server**
+        - `{ "type": "subscribe", "topics": ["transactions", "blocks", "nodes"] }` — optional topic filter
+
+        Idle connections receive WebSocket ping every 30s. Per-IP connection caps apply.
+      responses:
+        '101':
+          description: Switching Protocols
+        '429':
+          description: Too many WebSocket connections
+
+  # ==================== Community ====================
+  /v1/forum/categories:
+    get:
+      tags: [Community]
+      summary: List forum categories
+      operationId: listForumCategories
+      responses:
+        '200':
+          description: Categories with thread counts
+
+  /v1/forum/categories/{slug}/threads:
+    get:
+      tags: [Community]
+      summary: List threads in a category
+      operationId: listForumCategoryThreads
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Threads (hidden content omitted for non-moderators)
+        '404':
+          description: Category not found
+
+  /v1/forum/threads/{id}:
+    get:
+      tags: [Community]
+      summary: Get forum thread with posts
+      operationId: getForumThread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Thread envelope with posts
+        '404':
+          description: Not found or hidden
+
+  /v1/forum/threads:
+    post:
+      tags: [Community]
+      summary: Create forum thread
+      operationId: createForumThread
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_slug, title, content]
+              properties:
+                category_slug: { type: string }
+                title: { type: string, minLength: 5, maxLength: 200 }
+                content: { type: string, minLength: 10, maxLength: 20000 }
+      responses:
+        '201':
+          description: Created
+        '403':
+          description: Category locked (non-moderators)
+
+  /v1/forum/threads/{id}/posts:
+    post:
+      tags: [Community]
+      summary: Reply to a forum thread
+      operationId: createForumPost
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 10000 }
+                parent_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Created
+        '403':
+          description: Thread locked
+
+  /v1/forum/posts/{id}/solution:
+    post:
+      tags: [Community]
+      summary: Mark or unmark a post as the solution
+      operationId: markForumPostSolution
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_solution: { type: boolean }
+      responses:
+        '200':
+          description: Updated post
+        '403':
+          description: Only thread author or moderator
+
+  /v1/forum/search:
+    get:
+      tags: [Community]
+      summary: Search forum threads
+      operationId: searchForum
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Matching threads
+
+  /v1/feed:
+    get:
+      tags: [Community]
+      summary: Activity feed for the authenticated user
+      operationId: getActivityFeed
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Feed events
+
+  /v1/discover:
+    get:
+      tags: [Community]
+      summary: Discover providers
+      operationId: discoverProviders
+      responses:
+        '200':
+          description: Provider suggestions
+
+  /v1/trending:
+    get:
+      tags: [Community]
+      summary: Trending listings
+      operationId: getTrendingListings
+      responses:
+        '200':
+          description: Trending listings
+
+  /v1/conversations:
+    get:
+      tags: [Community]
+      summary: List direct-message conversations
+      operationId: listConversations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversations
+    post:
+      tags: [Community]
+      summary: Start or fetch a conversation
+      operationId: createConversation
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversation
+
+  /v1/conversations/{id}/messages:
+    get:
+      tags: [Community]
+      summary: List messages in a conversation
+      operationId: listConversationMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Messages
+    post:
+      tags: [Community]
+      summary: Send a message
+      operationId: sendConversationMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Message created (also pushes new_message over /v1/ws)
+
+  /v1/ws/ticket:
+    post:
+      tags: [Community]
+      summary: Mint a single-use WebSocket ticket
+      description: |
+        Returns a short-lived ticket for authenticating `GET /v1/ws` without putting the JWT in the URL.
+        Preferred by the web client; falls back to `?token=` if unavailable.
+      operationId: issueWsTicket
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket: { type: string }
+                  expires_in: { type: integer }
+
+  /v1/ws:
+    get:
+      tags: [Community]
+      summary: Authenticated realtime WebSocket
+      description: |
+        Upgrade with `?ticket=` (preferred) or `?token=`. Server envelopes are `{ type, data, timestamp }`.
+        Community-relevant types include `new_message`, `notification`, `new_follower`.
+      operationId: communityRealtimeWs
+      responses:
+        '101':
+          description: Switching Protocols
+        '401':
+          description: Missing/invalid ticket or token
+
+  /v1/moderation/forum/reports:
+    get:
+      tags: [Community]
+      summary: List forum reports (moderator)
+      operationId: listForumReports
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, resolved, dismissed, all] }
+      responses:
+        '200':
+          description: Report queue
+        '403':
+          description: Moderator required
+
+  /v1/moderation/forum/reports/{id}:
+    patch:
+      tags: [Community]
+      summary: Resolve forum report with optional enforcement
+      description: |
+        When `status=resolved`, `action` may be `none|hide|lock|hide_and_lock|delete`.
+      operationId: patchForumReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [pending, resolved, dismissed] }
+                action: { type: string, enum: [none, hide, lock, hide_and_lock, delete] }
+      responses:
+        '200':
+          description: Updated
+        '403':
+          description: Moderator required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    gatewayAuth:
+      type: apiKey
+      in: header
+      name: X-Gateway-Auth
+      description: Shared secret for edge-gateway → control-api control-plane calls (`GATEWAY_SHARED_SECRET`).
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Partner API key (`phub_…`). Create with JWT via POST /v1/bulk/api-keys.
+
+  headers:
+    ProxyHubbAuthorityMode:
+      description: Runtime authority model for the endpoint.
+      schema:
+        type: string
+        enum: [chain_authoritative, db_authoritative, hybrid_async_chain]
+    ProxyHubbAuthorityChainScope:
+      description: Chain interaction scope for this response.
+      schema:
+        type: string
+        examples: [none, read_only_balance_check, write, async_write, async_write_attestation, async_write_settlement, required]
+    ProxyHubbAuthorityDBRole:
+      description: Role of the DB in the response path.
+      schema:
+        type: string
+        examples: [source_of_truth, mirror, none]
+
+  schemas:
+    MarketplaceFunnelSummary:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        filters:
+          type: object
+          properties:
+            collection: { type: string }
+            country: { type: string }
+            seller_id: { type: string, format: uuid }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              event_name: { type: string }
+              count: { type: integer, format: int64 }
+        conversion:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Ratios such as view_to_order, order_to_escrow_confirmed, view_to_escrow_confirmed
+        countries:
+          type: array
+          items: { type: string }
+          description: Distinct listing countries present in the filtered window
+
+    SubscriptionPlan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: pro }
+        description: { type: string }
+        price_monthly: { type: number }
+        price_yearly: { type: number }
+        features:
+          type: object
+          properties:
+            api_access: { type: boolean }
+            analytics: { type: boolean }
+            custom_pricing: { type: boolean }
+            team_members: { type: integer, description: "-1 = unlimited" }
+            dedicated_support: { type: boolean }
+        bandwidth_limit_gb:
+          type: integer
+          nullable: true
+          description: NULL = unlimited
+        listing_limit:
+          type: integer
+          description: 0 = unlimited
+        priority_support: { type: boolean }
+        is_active: { type: boolean }
+
+    WalletChallengeRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+          description: Wallet address to challenge. Current backend flow verifies Solana Ed25519 signatures.
+          example: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+
+    WalletChallengeResponse:
+      type: object
+      properties:
+        nonce:
+          type: string
+        message:
+          type: string
+        blockhash_backed:
+          type: boolean
+
+    WalletLoginRequest:
+      type: object
+      required: [address, signature, nonce]
+      properties:
+        address:
+          type: string
+        signature:
+          type: string
+        nonce:
+          type: string
+
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: Synthetic or profile email. Wallet login is the primary auth mechanism.
+        role:
+          type: string
+        status:
+          type: string
+        display_name:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        wallet_address:
+          type: string
+          nullable: true
+        trust_tier:
+          type: string
+        verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+          nullable: true
+        listing_id:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          type: string
+          enum: [rotating, sticky, universal]
+        status:
+          type: string
+          enum: [active, terminated]
+        strategy:
+          type: string
+        max_price:
+          type: number
+          format: float
+        bandwidth_limit:
+          type: integer
+          format: int64
+        bytes_used:
+          type: integer
+          format: int64
+        credentials_user:
+          type: string
+        credentials_pass:
+          type: string
+        config:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [rotating, sticky]
+          default: rotating
+        bandwidth_limit:
+          type: integer
+          format: int64
+        target_geo:
+          type: string
+          description: Target country code (ISO 3166-1 alpha-2)
+        target_isp:
+          type: string
+        routing_profile:
+          type: string
+        allowed_domains:
+          type: array
+          items:
+            type: string
+        blocked_domains:
+          type: array
+          items:
+            type: string
+        rotation_type:
+          type: string
+        rotation_interval_seconds:
+          type: integer
+        time_limit_minutes:
+          type: integer
+        preferred_tier:
+          type: string
+
+    CreateInstantSessionRequest:
+      type: object
+      required: [strategy]
+      properties:
+        strategy:
+          type: string
+          enum: [fastest, cheapest, random, country]
+        max_price:
+          type: number
+          format: float
+        target_country:
+          type: string
+        bandwidth_limit:
+          type: integer
+          format: int64
+
+    CreateSessionFromListingRequest:
+      type: object
+      required: [listing_id]
+      properties:
+        listing_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [rotating, sticky]
+        bandwidth_limit:
+          type: integer
+          format: int64
+
+    SessionProxyCredentials:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        protocol:
+          type: string
+        endpoint:
+          type: string
+
+    SessionLimits:
+      type: object
+      properties:
+        bandwidth_limit_bytes:
+          type: integer
+          format: int64
+        bandwidth_limit_gb:
+          type: number
+          format: float
+        trust_tier:
+          type: string
+        max_concurrency:
+          type: integer
+
+    SessionListItem:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        bandwidth_used:
+          type: integer
+          format: int64
+        bandwidth_limit:
+          type: integer
+          format: int64
+
+    SessionListResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionListItem'
+        count:
+          type: integer
+
+    CreateSessionResponse:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        proxy_credentials:
+          $ref: '#/components/schemas/SessionProxyCredentials'
+        limits:
+          $ref: '#/components/schemas/SessionLimits'
+        redis_warning:
+          type: string
+
+    InstantSessionResponse:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        proxy_credentials:
+          $ref: '#/components/schemas/SessionProxyCredentials'
+        strategy:
+          type: string
+        warning:
+          type: string
+
+    ProviderSelection:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        listing_title:
+          type: string
+        price_per_gb:
+          type: number
+          format: float
+        proxy_type:
+          type: string
+        country:
+          type: string
+        quality_score:
+          type: number
+          format: float
+
+    ListingSessionInfo:
+      type: object
+      properties:
+        type:
+          type: string
+        bandwidth_limit_gb:
+          type: number
+          format: float
+        min_cost_sol:
+          type: number
+          format: float
+        node_latency_ms:
+          type: integer
+
+    ListingSessionResponse:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        proxy_credentials:
+          $ref: '#/components/schemas/SessionProxyCredentials'
+        provider:
+          $ref: '#/components/schemas/ProviderSelection'
+        session_info:
+          $ref: '#/components/schemas/ListingSessionInfo'
+        redis_warning:
+          type: string
+
+    SessionDetailResponse:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        bandwidth_used:
+          type: integer
+          format: int64
+        bandwidth_limit:
+          type: integer
+          format: int64
+        percent_used:
+          type: number
+          format: float
+
+    TerminateSessionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: terminated
+
+    CreateSessionIntentRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [rotating, sticky]
+          default: rotating
+          example: rotating
+        listing_id:
+          type: string
+          format: uuid
+          example: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+        bandwidth_limit:
+          type: integer
+          description: Requested bandwidth limit in bytes. The server caps this to the user's trust-tier allowance.
+          example: 1073741824
+        target_geo:
+          type: string
+          description: Preferred target country code (ISO 3166-1 alpha-2)
+          example: US
+        target_isp:
+          type: string
+          example: Comcast
+        routing_profile:
+          type: string
+        allowed_domains:
+          type: array
+          items:
+            type: string
+          example: [httpbin.org, example.com]
+        blocked_domains:
+          type: array
+          items:
+            type: string
+        rotation_type:
+          type: string
+        rotation_interval_seconds:
+          type: integer
+        time_limit_minutes:
+          type: integer
+        preferred_tier:
+          type: string
+        max_price_per_gb:
+          type: number
+          format: float
+          example: 2.5
+
+    SessionIntentResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        lifecycle_state:
+          type: string
+          enum: [authorized, routed, active, closing, ledger_committed, batched, chain_committed, archived, expired]
+          description: On public testnet, `chain_committed` means the batch root was committed on-chain. It does not imply full on-chain proof verification for every batch.
+        intent:
+          $ref: '#/components/schemas/SessionIntent'
+
+    SessionIntentStatusResponse:
+      type: object
+      properties:
+        lifecycle_state:
+          type: string
+          enum: [authorized, routed, active, closing, ledger_committed, batched, chain_committed, archived, expired]
+          description: On public testnet, `chain_committed` means the settlement batch root was committed on-chain after off-chain aggregation.
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        routed_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: string
+          format: date-time
+        closing_at:
+          type: string
+          format: date-time
+        ledger_committed_at:
+          type: string
+          format: date-time
+        batched_at:
+          type: string
+          format: date-time
+        chain_committed_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+        expired_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        last_metered_at:
+          type: string
+          format: date-time
+        usage_snapshot:
+          $ref: '#/components/schemas/SessionIntentUsageSnapshot'
+        billing_snapshot:
+          $ref: '#/components/schemas/SessionIntentBillingSnapshot'
+        intent:
+          $ref: '#/components/schemas/SessionIntent'
+
+    SessionIntentUsageSnapshot:
+      type: object
+      properties:
+        total_bytes:
+          type: integer
+          format: int64
+        total_bytes_up:
+          type: integer
+          format: int64
+        total_bytes_down:
+          type: integer
+          format: int64
+        last_bytes_up_delta:
+          type: integer
+          format: int64
+        last_bytes_down_delta:
+          type: integer
+          format: int64
+        total_gb:
+          type: number
+          format: float
+        percent_used:
+          type: number
+          format: float
+        bytes_remaining:
+          type: integer
+          format: int64
+        unlimited:
+          type: boolean
+
+    SessionIntentBillingSnapshot:
+      type: object
+      properties:
+        currency:
+          type: string
+        price_source:
+          type: string
+        unit_price_usd_per_gb:
+          type: number
+          format: float
+        unit_price_sol_per_gb:
+          type: number
+          format: float
+        estimated_cost_usd:
+          type: number
+          format: float
+        estimated_cost_sol:
+          type: number
+          format: float
+        projected_full_limit_cost_usd:
+          type: number
+          format: float
+        projected_full_limit_cost_sol:
+          type: number
+          format: float
+
+    SessionIntent:
+      type: object
+      properties:
+        intent_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        session_type:
+          type: string
+          enum: [rotating, sticky]
+        trust_tier:
+          type: string
+        bandwidth_limit:
+          type: integer
+        target_geo:
+          type: string
+        target_isp:
+          type: string
+        routing_profile:
+          type: string
+        allowed_domains:
+          type: array
+          items:
+            type: string
+        blocked_domains:
+          type: array
+          items:
+            type: string
+        rotation_type:
+          type: string
+        rotation_interval_seconds:
+          type: integer
+        time_limit_minutes:
+          type: integer
+        preferred_tier:
+          type: string
+        requests_per_minute:
+          type: integer
+        max_concurrency:
+          type: integer
+        max_price_per_gb:
+          type: number
+          format: float
+        lifecycle_state:
+          type: string
+          enum: [authorized, routed, active, closing, ledger_committed, batched, chain_committed, archived, expired]
+        authority_mode:
+          type: string
+          description: Runtime authority classification for the settlement path backing this intent.
+        billing_price_per_gb_usd:
+          type: number
+          format: float
+        billing_price_source:
+          type: string
+        provider_node_id:
+          type: string
+        target_host:
+          type: string
+        total_bytes_up:
+          type: integer
+          format: int64
+        total_bytes_down:
+          type: integer
+          format: int64
+        last_bytes_up_delta:
+          type: integer
+          format: int64
+        last_bytes_down_delta:
+          type: integer
+          format: int64
+        usage_update_count:
+          type: integer
+
+    IssueProviderLeaseRequest:
+      type: object
+      required: [connection_type, max_connections, max_bandwidth_mbps]
+      properties:
+        connection_type:
+          type: string
+        available_ports:
+          type: array
+          items:
+            type: integer
+        max_connections:
+          type: integer
+        max_bandwidth_mbps:
+          type: integer
+        uplink_speed_kbps:
+          type: integer
+        downlink_speed_kbps:
+          type: integer
+        cpu_cores:
+          type: integer
+        memory_mb:
+          type: integer
+        os:
+          type: string
+        client_version:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+
+    ProviderLeaseResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        expires_in:
+          type: integer
+        renew_after_secs:
+          type: integer
+        lease:
+          $ref: '#/components/schemas/ProviderLease'
+
+    ProviderLease:
+      type: object
+      properties:
+        lease_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        connection_type:
+          type: string
+        available_ports:
+          type: array
+          items:
+            type: integer
+        max_connections:
+          type: integer
+        max_bandwidth_mbps:
+          type: integer
+        uplink_speed_kbps:
+          type: integer
+        downlink_speed_kbps:
+          type: integer
+        cpu_cores:
+          type: integer
+        memory_mb:
+          type: integer
+        os:
+          type: string
+        client_version:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+
+    WalletTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        amount:
+          type: number
+          format: float
+        description:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Wallet:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+          format: uuid
+        balance_sol:
+          type: number
+          format: float
+        available_sol:
+          type: number
+          format: float
+        on_chain_sol:
+          type: number
+          format: float
+        linked_solana_address:
+          type: string
+          nullable: true
+        solana_network:
+          type: string
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletTransaction'
+
+    CryptoDepositRequest:
+      type: object
+      required: [tx_hash, amount, chain]
+      properties:
+        tx_hash:
+          type: string
+        amount:
+          type: number
+          format: float
+        chain:
+          type: string
+          description: "solana is supported. ethereum currently returns not implemented."
+
+    WalletCreditResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        credited:
+          type: number
+          format: float
+        currency:
+          type: string
+        new_balance:
+          type: number
+          format: float
+
+    WalletLinkRequest:
+      type: object
+      required: [chain]
+      properties:
+        wallet_address:
+          type: string
+        chain:
+          type: string
+          enum: [solana, ethereum]
+        signature:
+          type: string
+        message:
+          type: string
+
+    WalletMutationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+
+    P2PTransferRequest:
+      type: object
+      required: [recipient, amount]
+      properties:
+        recipient:
+          type: string
+          description: Recipient email or username.
+        amount:
+          type: number
+          format: float
+
+    WalletTransferResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        reference:
+          type: string
+
+    WithdrawSOLRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          format: float
+
+    WithdrawSOLResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        tx_hash:
+          type: string
+        amount_sol:
+          type: number
+          format: float
+        destination:
+          type: string
+        new_balance:
+          type: number
+          format: float
+
+    SpendingLimitBucket:
+      type: object
+      properties:
+        limit:
+          type: number
+          format: float
+        spent:
+          type: number
+          format: float
+
+    SpendingLimits:
+      type: object
+      properties:
+        daily:
+          $ref: '#/components/schemas/SpendingLimitBucket'
+        weekly:
+          $ref: '#/components/schemas/SpendingLimitBucket'
+        monthly:
+          $ref: '#/components/schemas/SpendingLimitBucket'
+
+    SpendingLimitsEnvelope:
+      type: object
+      properties:
+        limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        window_start:
+          type: string
+          format: date-time
+
+    UpdateSpendingLimitsRequest:
+      type: object
+      properties:
+        daily:
+          type: number
+          format: float
+        weekly:
+          type: number
+          format: float
+        monthly:
+          type: number
+          format: float
+
+    SpendingLimitsUpdateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        limits:
+          type: object
+          additionalProperties: true
+
+    UserUsage:
+      type: object
+      properties:
+        user_id:
+          type: string
+        total_bytes:
+          type: integer
+          format: int64
+        total_gb:
+          type: number
+          format: float
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageSessionStat'
+        count:
+          type: integer
+        filter:
+          type: string
+
+    UsageSessionStat:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        status:
+          type: string
+        bytes_used:
+          type: integer
+          format: int64
+
+    UsageReportRequest:
+      type: object
+      required: [session_username]
+      properties:
+        session_username:
+          type: string
+        bytes_up:
+          type: integer
+          format: int64
+        bytes_down:
+          type: integer
+          format: int64
+        signature:
+          type: string
+        nonce:
+          type: integer
+          format: int64
+
+    BatchUsageRequest:
+      type: object
+      required: [reports]
+      properties:
+        reports:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/UsageReportRequest'
+
+    UsageReportResponse:
+      type: object
+      properties:
+        processed:
+          type: integer
+        total:
+          type: integer
+
+    SessionUsageResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        bytes_used:
+          type: integer
+          format: int64
+        bytes_limit:
+          type: integer
+          format: int64
+        percent_used:
+          type: number
+          format: float
+        gb_used:
+          type: number
+          format: float
+        cost_sol:
+          type: number
+          format: float
+        last_updated_at:
+          type: string
+          format: date-time
+
+    SignUsageRequest:
+      type: object
+      required: [buyer_address]
+      properties:
+        buyer_address:
+          type: string
+
+    SignedUsageClaim:
+      type: object
+      properties:
+        signature:
+          type: string
+        buyer:
+          type: string
+        provider:
+          type: string
+        bytes_used:
+          type: integer
+          format: int64
+        nonce:
+          type: integer
+          format: int64
+        token_address:
+          type: string
+
+    AnalyticsOverview:
+      type: object
+      properties:
+        total_requests:
+          type: integer
+          format: int64
+        total_bandwidth_gb:
+          type: number
+          format: float
+        success_rate:
+          type: number
+          format: float
+        avg_latency_ms:
+          type: integer
+        active_sessions:
+          type: integer
+          format: int64
+        unique_destinations:
+          type: integer
+        top_country:
+          type: string
+        top_isp:
+          type: string
+        total_nodes:
+          type: integer
+        total_earnings_sol:
+          type: number
+          format: float
+        avg_quality_score:
+          type: integer
+        active_payouts:
+          type: integer
+
+    DailyUsagePoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        bytes_used:
+          type: integer
+          format: int64
+        gb_used:
+          type: number
+          format: float
+        requests:
+          type: integer
+        cost_sol:
+          type: number
+          format: float
+
+    DailyUsageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsagePoint'
+        period:
+          type: integer
+
+    HourlyUsagePoint:
+      type: object
+      properties:
+        hour:
+          type: integer
+        bytes_used:
+          type: integer
+          format: int64
+        requests:
+          type: integer
+
+    HourlyUsageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/HourlyUsagePoint'
+        date:
+          type: string
+          format: date
+
+    GeoStats:
+      type: object
+      properties:
+        country_code:
+          type: string
+        country_name:
+          type: string
+        request_count:
+          type: integer
+        bytes_used:
+          type: integer
+          format: int64
+        success_rate:
+          type: number
+          format: float
+
+    GeoStatsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeoStats'
+
+    DestinationStats:
+      type: object
+      properties:
+        domain:
+          type: string
+        request_count:
+          type: integer
+        bytes_used:
+          type: integer
+          format: int64
+        avg_latency_ms:
+          type: integer
+
+    DestinationStatsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DestinationStats'
+
+    RegionInfo:
+      type: object
+      properties:
+        country_code:
+          type: string
+        country_name:
+          type: string
+        region:
+          type: string
+          nullable: true
+        provider_count:
+          type: integer
+        avg_latency_ms:
+          type: integer
+        is_available:
+          type: boolean
+
+    RegionInfoResponse:
+      type: object
+      properties:
+        regions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegionInfo'
+        count:
+          type: integer
+
+    ProviderInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        country_code:
+          type: string
+        region:
+          type: string
+        city:
+          type: string
+        isp:
+          type: string
+        latency_ms:
+          type: integer
+        success_rate:
+          type: number
+          format: float
+        quality_score:
+          type: number
+          format: float
+
+    ProviderListResponse:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderInfo'
+        count:
+          type: integer
+        filters:
+          type: object
+          properties:
+            country:
+              type: string
+            region:
+              type: string
+            isp:
+              type: string
+
+    ZkBenchmarkResponse:
+      type: object
+      properties:
+        metrics:
+          type: object
+          additionalProperties: true
+        distribution:
+          type: object
+          additionalProperties: true
+
+    SettlementItem:
+      type: object
+      required: [escrow_pda, buyer, seller, bandwidth_used_gb]
+      properties:
+        escrow_pda:
+          type: string
+        buyer:
+          type: string
+        seller:
+          type: string
+        bandwidth_used_gb:
+          type: integer
+          format: int64
+
+    BatchSettlementRequest:
+      type: object
+      required: [settlements]
+      properties:
+        settlements:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/SettlementItem'
+
+    BatchSettlementResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        tx_hash:
+          type: string
+        count:
+          type: integer
+        settled_at:
+          type: integer
+          format: int64
+
+    EmergencyPauseRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    EmergencyPauseResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+
+    TreasuryAddressResponse:
+      type: object
+      properties:
+        treasury_address:
+          type: string
+        chain:
+          type: string
+        network:
+          type: string
+
+    MultiSigStatusResponse:
+      type: object
+      properties:
+        threshold:
+          type: integer
+        total_signers:
+          type: integer
+        signers:
+          type: array
+          items:
+            type: string
+        is_authority:
+          type: boolean
+
+    SettlementTelemetryResponse:
+      type: object
+      properties:
+        settlement_paths:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        count:
+          type: integer
+        captured_at:
+          type: string
+          format: date-time
+
+    UsageProof:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        buyer_wallet:
+          type: string
+        provider_wallet:
+          type: string
+        bytes_uploaded:
+          type: integer
+          format: int64
+        bytes_downloaded:
+          type: integer
+          format: int64
+        total_bytes:
+          type: integer
+          format: int64
+        request_count:
+          type: integer
+          format: int64
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        message_hash:
+          type: string
+        buyer_signature:
+          type: string
+        provider_signature:
+          type: string
+        buyer_signed_at:
+          type: string
+          format: date-time
+          nullable: true
+        provider_signed_at:
+          type: string
+          format: date-time
+          nullable: true
+        on_chain_tx_hash:
+          type: string
+        on_chain_slot:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [pending, signed, settling_confidential, on_chain, disputed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateUsageProofRequest:
+      type: object
+      required: [session_id, period_start, period_end]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        bytes_uploaded:
+          type: integer
+          format: int64
+        bytes_downloaded:
+          type: integer
+          format: int64
+        request_count:
+          type: integer
+          format: int64
+        period_start:
+          type: integer
+          format: int64
+        period_end:
+          type: integer
+          format: int64
+
+    UsageProofResponse:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/UsageProof'
+        - type: object
+          properties:
+            message_to_sign:
+              type: string
+            buyer_verified:
+              type: boolean
+            provider_verified:
+              type: boolean
+
+    UsageProofListEnvelope:
+      type: object
+      properties:
+        proofs:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageProof'
+
+    SignUsageProofPayload:
+      type: object
+      required: [signature]
+      properties:
+        signature:
+          type: string
+
+    UsageProofSubmissionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        tx_hash:
+          type: string
+        slot:
+          type: integer
+          format: int64
+        proof_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        bytes_used:
+          type: integer
+          format: int64
+
+    VerifySignatureRequest:
+      type: object
+      required: [public_key, message, signature]
+      properties:
+        public_key:
+          type: string
+        message:
+          type: string
+        signature:
+          type: string
+
+    VerifySignatureResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        public_key:
+          type: string
+        message:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+
+    UsageProofMessageResponse:
+      type: object
+      properties:
+        proof_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+        message_hash:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        total_bytes:
+          type: integer
+          format: int64
+
+    ZkProofLeafInput:
+      type: object
+      required: [session_id, total_bytes, period_start, period_end, buyer_sig, provider_sig]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        total_bytes:
+          type: integer
+          format: int64
+        period_start:
+          type: integer
+          format: int64
+        period_end:
+          type: integer
+          format: int64
+        buyer_sig:
+          type: string
+        provider_sig:
+          type: string
+
+    SubmitZkBatchRequest:
+      type: object
+      required: [proofs]
+      properties:
+        proofs:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ZkProofLeafInput'
+
+    SubmitZkBatchResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        batch_root:
+          type: string
+        session_count:
+          type: integer
+        total_bytes:
+          type: integer
+          format: int64
+        status:
+          type: string
+
+    ZkBatch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        batch_root:
+          type: string
+        session_count:
+          type: integer
+        total_bytes:
+          type: integer
+          format: int64
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        on_chain_tx_sig:
+          type: string
+        on_chain_slot:
+          type: integer
+          format: int64
+        proof_bytes:
+          type: string
+          format: byte
+        status:
+          type: string
+          enum: [pending, submitted, confirmed, failed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ReputationTelemetryResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        settled_proof_count:
+          type: integer
+        total_bytes_settled:
+          type: integer
+          format: int64
+        proofs:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageProof'
+
+    ListingSellerSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        verified:
+          type: boolean
+
+    BulkDiscount:
+      type: object
+      properties:
+        min_gb:
+          type: number
+          format: float
+        price_per_gb:
+          type: number
+          format: float
+
+    ProxyListing:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        proxy_type:
+          type: string
+          enum: [residential, mobile, datacenter]
+        protocol:
+          type: string
+        rotation_type:
+          type: string
+        circle_id:
+          type: string
+          format: uuid
+          nullable: true
+        country:
+          type: string
+        isp:
+          type: string
+        price_per_gb:
+          type: number
+          format: float
+        min_purchase_gb:
+          type: number
+          format: float
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkDiscount'
+        available_bandwidth_gb:
+          type: number
+          format: float
+        max_concurrency:
+          type: integer
+        avg_latency_ms:
+          type: integer
+        uptime_percent:
+          type: number
+          format: float
+        success_rate:
+          type: number
+          format: float
+        quality_score:
+          type: number
+          format: float
+        current_tier:
+          type: string
+        views_count:
+          type: integer
+        saves_count:
+          type: integer
+        orders_count:
+          type: integer
+        active_sessions_count:
+          type: integer
+        allow_direct_message:
+          type: boolean
+        status:
+          type: string
+          enum: [active, paused, sold_out, deleted]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        seller:
+          $ref: '#/components/schemas/ListingSellerSummary'
+        catalog_product:
+          allOf:
+            - $ref: '#/components/schemas/CatalogProductSummary'
+          nullable: true
+          description: Present when requested via include=product and an offer links this listing
+
+    CatalogProductSummary:
+      type: object
+      description: Lightweight catalog projection embedded on listings
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    CreateListingRequest:
+      type: object
+      required: [title, proxy_type, protocol, price_per_gb, available_bandwidth_gb]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        proxy_type:
+          type: string
+          enum: [residential, mobile, datacenter]
+        protocol:
+          type: string
+        rotation_type:
+          type: string
+        country:
+          type: string
+        isp:
+          type: string
+        price_per_gb:
+          type: number
+          format: float
+        min_purchase_gb:
+          type: number
+          format: float
+        available_bandwidth_gb:
+          type: number
+          format: float
+        max_concurrency:
+          type: integer
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkDiscount'
+
+    UpdateListingRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        price_per_gb:
+          type: number
+          format: float
+        min_purchase_gb:
+          type: number
+          format: float
+        available_bandwidth_gb:
+          type: number
+          format: float
+        max_concurrency:
+          type: integer
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkDiscount'
+        status:
+          type: string
+          enum: [active, paused]
+
+    PublishedListing:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        proxy_type:
+          type: string
+          enum: [residential, mobile, datacenter]
+        protocol:
+          type: string
+        country:
+          type: string
+        isp:
+          type: string
+        price_per_gb:
+          type: number
+          format: float
+        min_purchase_gb:
+          type: number
+          format: float
+        available_bandwidth_gb:
+          type: number
+          format: float
+        status:
+          type: string
+          enum: [active, paused, sold_out, deleted]
+        quality_score:
+          type: number
+          format: float
+        avg_latency_ms:
+          type: integer
+        uptime_percent:
+          type: number
+          format: float
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ListingCollectionResponse:
+      type: object
+      properties:
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    FacetBucket:
+      type: object
+      properties:
+        value:
+          type: string
+        count:
+          type: integer
+          format: int64
+
+    PriceBucket:
+      type: object
+      properties:
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        count:
+          type: integer
+          format: int64
+
+    ListingFacetsResponse:
+      type: object
+      properties:
+        countries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        proxy_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        isps:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetBucket'
+        price_buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceBucket'
+
+    ListingCollectionSummary:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        count:
+          type: integer
+          format: int64
+
+    ListingCollectionsIndexResponse:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListingCollectionSummary'
+
+    ListingCollectionPageResponse:
+      type: object
+      properties:
+        collection:
+          type: object
+          properties:
+            slug:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    ListingSummaryCollectionResponse:
+      type: object
+      properties:
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        total:
+          type: integer
+          format: int64
+
+    ListingDetailResponse:
+      type: object
+      properties:
+        listing:
+          $ref: '#/components/schemas/ProxyListing'
+        is_saved:
+          type: boolean
+
+    SavedListing:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        listing:
+          $ref: '#/components/schemas/ProxyListing'
+
+    SavedListingsResponse:
+      type: object
+      properties:
+        saved:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedListing'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    ListingActionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    PriceSuggestion:
+      type: object
+      properties:
+        suggested_price:
+          type: number
+          format: float
+        min_market_price:
+          type: number
+          format: float
+        max_market_price:
+          type: number
+          format: float
+        confidence_score:
+          type: number
+          format: float
+
+    ProviderEarning:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_user_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        bandwidth_gb:
+          type: number
+          format: float
+        gross_amount_sol:
+          type: number
+          format: float
+        platform_fee_sol:
+          type: number
+          format: float
+        net_amount_sol:
+          type: number
+          format: float
+        earnings_multiplier:
+          type: number
+          format: float
+        price_per_gb:
+          type: number
+          format: float
+        status:
+          type: string
+        payout_batch_id:
+          type: string
+          format: uuid
+          nullable: true
+        tx_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProviderEarningsSummary:
+      type: object
+      properties:
+        total_earned_sol:
+          type: number
+          format: float
+        pending_sol:
+          type: number
+          format: float
+        paid_sol:
+          type: number
+          format: float
+        total_sessions:
+          type: integer
+          format: int64
+        total_bandwidth_gb:
+          type: number
+          format: float
+        last_30_days_sol:
+          type: number
+          format: float
+        last_7_days_sol:
+          type: number
+          format: float
+
+    ProviderEarningsListResponse:
+      type: object
+      properties:
+        earnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderEarning'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    ProviderPayoutHistoryResponse:
+      type: object
+      properties:
+        payouts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderEarning'
+
+    CreateProviderNodeRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        ip_address:
+          type: string
+        country:
+          type: string
+        city:
+          type: string
+        connection_type:
+          type: string
+          description: Used on create to derive the default marketplace listing type.
+          enum: [residential, mobile, datacenter, fiber]
+
+    ProviderNode:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ip_address:
+          type: string
+        country:
+          type: string
+        city:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, maintenance]
+        total_bandwidth_gb:
+          type: number
+          format: float
+        quality_score:
+          type: number
+          format: float
+        base_price_per_gb:
+          type: number
+          format: float
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        is_registered_on_chain:
+          type: boolean
+        net_uid:
+          type: integer
+        hotkey:
+          type: string
+        staked_amount_sol:
+          type: number
+          format: float
+        stake_pda:
+          type: string
+        stake_status:
+          type: string
+        wallet_address:
+          type: string
+        tier:
+          type: string
+        tier_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        tier_score:
+          type: number
+          format: float
+        uptime_percent:
+          type: number
+          format: float
+        total_sessions_served:
+          type: integer
+        avg_latency_ms:
+          type: integer
+        dispute_count:
+          type: integer
+        demotion_warnings:
+          type: integer
+
+    ProviderNodeListResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderNode'
+
+    ProviderNodeConflictResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        existing_node_id:
+          type: string
+          format: uuid
+
+    UptimeCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+        is_up:
+          type: boolean
+        latency_ms:
+          type: integer
+        checked_at:
+          type: string
+          format: date-time
+
+    ProviderNodeBandwidthPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        upload:
+          type: integer
+          format: int64
+        download:
+          type: integer
+          format: int64
+
+    ProviderNodeUptimeHistory:
+      type: object
+      properties:
+        uptime:
+          type: array
+          items:
+            $ref: '#/components/schemas/UptimeCheck'
+        bandwidth:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderNodeBandwidthPoint'
+
+    ProviderNodeUptimeResponse:
+      type: object
+      properties:
+        node_id:
+          type: string
+          format: uuid
+        uptime_percent:
+          type: number
+          format: float
+        avg_latency_ms:
+          type: number
+          format: float
+        checks_24h:
+          type: integer
+        current_status:
+          type: string
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        history:
+          $ref: '#/components/schemas/ProviderNodeUptimeHistory'
+
+    ProviderNodeHeartbeatRequest:
+      type: object
+      properties:
+        latency_ms:
+          type: integer
+        active_connections:
+          type: integer
+        uptime_percent:
+          type: number
+          format: float
+
+    ProviderNodeHeartbeatResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        server_time:
+          type: integer
+          format: int64
+
+    NodeDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    FilterOptions:
+      type: object
+      properties:
+        protocols:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        cities:
+          type: array
+          items:
+            type: string
+        isps:
+          type: array
+          items:
+            type: string
+        proxy_types:
+          type: array
+          items:
+            type: string
+        rotation_types:
+          type: array
+          items:
+            type: string
+        priority_tiers:
+          type: array
+          items:
+            type: string
+
+    RoutingProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        use_case:
+          type: string
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+        speed_weight:
+          type: number
+          format: float
+        stability_weight:
+          type: number
+          format: float
+        price_weight:
+          type: number
+          format: float
+        location_weight:
+          type: number
+          format: float
+        auto_rotation:
+          type: boolean
+        rotation_interval_seconds:
+          type: integer
+        auto_failover:
+          type: boolean
+        max_retries:
+          type: integer
+        recommended_protocols:
+          type: array
+          items:
+            type: string
+        recommended_tier:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RoutingProfileListResponse:
+      type: object
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutingProfile'
+
+    GeoCoverage:
+      type: object
+      properties:
+        country:
+          type: string
+        node_count:
+          type: integer
+        avg_quality:
+          type: number
+          format: float
+        avg_price:
+          type: number
+          format: float
+        has_residential:
+          type: boolean
+        has_mobile:
+          type: boolean
+        has_datacenter:
+          type: boolean
+
+    GeoCoverageResponse:
+      type: object
+      properties:
+        coverage:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeoCoverage'
+
+    MatchRequest:
+      type: object
+      properties:
+        use_case:
+          type: string
+        routing_profile_id:
+          type: string
+        target_countries:
+          type: array
+          items:
+            type: string
+        required_protocols:
+          type: array
+          items:
+            type: string
+        min_quality:
+          type: number
+          format: float
+        max_price:
+          type: number
+          format: float
+        count:
+          type: integer
+
+    ServiceDiscoveryResponse:
+      type: object
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    CatalogProduct:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        offers:
+          type: array
+          description: Present when preloaded (seller list endpoint)
+          items:
+            $ref: '#/components/schemas/CatalogOffer'
+
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        display_name:
+          type: string
+        is_primary:
+          type: boolean
+        sort_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CatalogProductView:
+      type: object
+      properties:
+        product:
+          $ref: '#/components/schemas/CatalogProduct'
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogOffer'
+
+    CreateCatalogProductRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        slug:
+          type: string
+          maxLength: 120
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    UpdateCatalogProductRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        slug:
+          type: string
+          maxLength: 120
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    LinkCatalogOfferRequest:
+      type: object
+      required: [listing_id]
+      properties:
+        listing_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          maxLength: 64
+        display_name:
+          type: string
+          maxLength: 200
+        is_primary:
+          type: boolean
+        sort_order:
+          type: integer
+
+    ServiceMatchResponse:
+      type: object
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyListing'
+        profile:
+          $ref: '#/components/schemas/RoutingProfile'
+        count:
+          type: integer
+
+    ExplorerMetrics:
+      type: object
+      description: Public explorer dashboard metrics (see docs/EXPLORER_REFRESH_STRATEGY.md).
+      properties:
+        chain:
+          type: string
+        total_transactions:
+          type: integer
+          format: int64
+        total_volume:
+          type: number
+          format: double
+        active_wallets:
+          type: integer
+          format: int64
+          description: Distinct from/to addresses on confirmed non-orphaned txs in the last 24h.
+        active_nodes:
+          type: integer
+          format: int64
+        block_height:
+          type: integer
+          format: int64
+        avg_block_time_ms:
+          type: number
+          format: double
+        total_bandwidth_gb:
+          type: number
+          format: double
+          description: Sum of active nodes' lifetime total_bandwidth counters (not period usage).
+        transactions_per_second:
+          type: number
+          format: double
+          description: Confirmed non-orphaned txs in the last 24h divided by 86400.
+        tps_window_hours:
+          type: integer
+          description: Hours used for transactions_per_second (always 24 on current indexer).
+        region_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+        last_updated:
+          type: string
+          format: date-time
+        data_source:
+          type: string
+          enum: [aggregated, live]
+        time_series_available:
+          type: boolean
+        metrics_aggregator_enabled:
+          type: boolean
+          description: True when EXPLORER_METRICS_ENABLED is not false; charts need rollup rows in explorer_metrics.
+
+    ExplorerLeaderboard:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              node_id:
+                type: string
+              uptime_percent:
+                type: number
+              bandwidth_gb:
+                type: number
+              active_sessions:
+                type: integer
+              quality_score:
+                type: number
+        category:
+          type: string
+        period:
+          type: string
+          description: Time window for bandwidth and sessions categories.
+        data_source:
+          type: string
+          example: usage_records
+        period_applied:
+          type: boolean
+          description: true when category rankings use the selected period window.
+        note:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    Unauthorized:
+      description: Authentication required
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    NotFound:
+      description: Resource not found
+      headers:
+        X-ProxyHubb-Authority-Mode:
+          $ref: '#/components/headers/ProxyHubbAuthorityMode'
+        X-ProxyHubb-Authority-Chain-Scope:
+          $ref: '#/components/headers/ProxyHubbAuthorityChainScope'
+        X-ProxyHubb-Authority-DB-Role:
+          $ref: '#/components/headers/ProxyHubbAuthorityDBRole'
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string

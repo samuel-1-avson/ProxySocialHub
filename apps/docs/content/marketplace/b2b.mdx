@@ -1,0 +1,88 @@
+---
+title: B2B sandbox purchase
+description: Partner API keys with orders:create for automated purchase flows.
+---
+
+Partner clients buy listings with `phub_` keys scoped to **`orders:create`**, without driving the dashboard UI.
+
+## Mint a purchase key (JWT)
+
+```http
+POST /v1/bulk/api-keys
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "partner-sandbox",
+  "scopes": "orders:create"
+}
+```
+
+Plaintext key is returned **once**. Keys with `orders:create` default to ~**20 req/min**.
+
+### Scopes
+
+| Scope | Allows |
+|-------|--------|
+| `orders:create` | Create/list orders, pay/confirm, credentials, sandbox-buy, activate-dev |
+| `proxy:read` / `proxy:write` | Bulk pools only — **not** marketplace purchase |
+
+## Authenticate
+
+```http
+X-API-Key: phub_<hex>
+```
+
+`Authorization: Bearer phub_<hex>` is also accepted for API keys.
+
+## Live purchase
+
+Same FSM as [Orders & escrow](/docs/marketplace/orders):
+
+1. `POST /v1/orders` — `{ "listing_id", "bandwidth_gb" }`
+2. `POST /v1/orders/{id}/pay/solana` → fund escrow in wallet
+3. `POST /v1/orders/{id}/confirm-escrow` when needed
+4. `GET /v1/orders/{id}/credentials`
+5. CONNECT to `proxy.proxyhubb.com:8090`
+
+## Sandbox mocked buy
+
+Requires `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` on control-api (compose default is off — not for production).
+
+### One-shot
+
+```http
+POST /v1/orders/sandbox-buy
+X-API-Key: phub_<hex>
+Content-Type: application/json
+
+{
+  "listing_id": "<uuid>",
+  "bandwidth_gb": 1
+}
+```
+
+**201** returns `{ "order", "proxy_credentials", "sandbox": true, "dev_escrow": true }`.
+
+If the flag is off → **404** `"sandbox buy is not enabled on this environment"`.
+
+### Multi-step (same flag)
+
+1. `POST /v1/orders`
+2. `POST /v1/orders/{id}/activate-dev`
+3. `GET /v1/orders/{id}/credentials`
+
+## Bulk pools (related, not purchase)
+
+Pools use `proxy:read` / `proxy:write` keys via `/v1/bulk/pools` — separate from marketplace buy. See [SDKs](/docs/sdks).
+
+## Common errors
+
+| Code | Cause | Fix |
+|------|-------|-----|
+| `401` | Bad/missing API key | Re-mint / check header |
+| `403` | Key lacks `orders:create` | Mint with correct scopes |
+| `404` on sandbox-buy | Dev escrow activate disabled | Enable flag on testnet only |
+| Rate limit | > ~20/min on purchase keys | Back off; check `X-RateLimit-*` |
+
+Repo deep dive: `docs/B2B_SANDBOX_PURCHASE.md`.

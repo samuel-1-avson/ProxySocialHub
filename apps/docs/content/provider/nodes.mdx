@@ -1,0 +1,92 @@
+---
+title: Provider nodes
+description: Registration, heartbeats, capability lease, listings, and tunnel health.
+---
+
+After the CLI / daemon is running, the control plane tracks the node via registration, heartbeats, and an optional **capability lease**. Listings should only be sold when infrastructure is healthy.
+
+## Lifecycle
+
+1. Install CLI / download config
+2. Enroll — provider token → auth → register node (or reuse `node_id`)
+3. Open tunnel to gateway **`:3128`** (yamux)
+4. Fetch / renew capability lease when required
+5. Heartbeats keep status **online**
+6. Publish listings tied to the healthy node
+
+## Control API (authenticated provider)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/v1/provider/auth` | Exchange provider token → JWT (`{ "token" }`) |
+| POST | `/v1/provider/gateway-token` | Edge gateway JWT |
+| POST | `/v1/provider/nodes` | Create node (may auto-draft a listing) |
+| GET/PUT/DELETE | `/v1/provider/nodes`, `/v1/provider/nodes/{id}` | CRUD |
+| POST | `/v1/provider/nodes/{id}/heartbeat` | Heartbeat |
+| GET | `/v1/provider/nodes/{id}/connect` | Connect metadata |
+| GET/POST/… | `/v1/provider/tokens*` | Mint / rotate / revoke tokens |
+| POST | `/v1/provider/lease` | Capability lease for tunnel AUTH frames |
+
+### Create node body
+
+```json
+{
+  "name": "home-fiber-1",
+  "ip_address": "203.0.113.10",
+  "country": "US",
+  "city": "Austin",
+  "connection_type": "residential"
+}
+```
+
+**409** if the same IP is already registered for the user.
+
+### Capability lease
+
+```http
+POST /v1/provider/lease
+Authorization: Bearer <provider-jwt>
+Content-Type: application/json
+
+{
+  "connection_type": "residential",
+  "max_connections": 500,
+  "max_bandwidth_mbps": 100,
+  "available_ports": [80, 443],
+  "client_version": "1.0.0",
+  "features": []
+}
+```
+
+Response includes `token`, `expires_at`, `expires_in`, `renew_after_secs`, and a `lease` object. The agent attaches the lease to tunnel capability frames.
+
+When `REQUIRE_PROVIDER_LEASE=true` (typical production), nodes without a valid lease are not admitted to serve traffic.
+
+## Checklist
+
+| Step | Where |
+|------|--------|
+| Token | Provider → Tokens |
+| Setup / config download | Provider → Setup / CLI |
+| Start tunnel | Local `proxyhubb-cli start` / `provider-node` |
+| Online status | [Provider → Nodes](https://proxyhubb.com/dashboard/provider/nodes) |
+| Listings | Marketplace → Manage |
+| Earnings / claims | Provider dashboard |
+
+## Ports
+
+| Role | Endpoint |
+|------|----------|
+| Provider tunnel | `proxy.proxyhubb.com:3128` |
+| Buyer CONNECT / SOCKS5 | `proxy.proxyhubb.com:8090` |
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| Offline after start | Heartbeat failing — check daemon logs, API URL, token |
+| `409` on create node | IP already registered — reuse `node_id` |
+| Admitted but no traffic | Listing unpublished / unhealthy; check lease if required |
+| Lease rejected | Refresh via `POST /v1/provider/lease`; bump `client_version` |
+
+Install details: [Provider CLI](/docs/provider/cli).

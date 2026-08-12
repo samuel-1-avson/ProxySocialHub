@@ -1,0 +1,60 @@
+---
+title: Metering and settlement
+description: How the edge measures bytes, how usage reaches the ledger, and what buyers/providers can observe.
+---
+
+ProxyHubb meters **bytes at the edge gateway**, then records usage in the control plane for billing, provider earnings, and (eventually) on-chain settlement batches.
+
+## Mental model
+
+```text
+Buyer CONNECT (:8090)
+    → edge session + byte counters
+    → signed usage reports (gateway → control-api)
+    → ledger / session usage
+    → settlement batches on Solana (when committed)
+```
+
+Provider tunnels (`:3128`) carry the upstream leg; usage proofs / signing keys on the provider side must stay consistent with registration (see [Provider CLI](/docs/provider/cli)).
+
+## What is public vs internal
+
+| Surface | Audience | Notes |
+|---------|----------|-------|
+| `GET /v1/usage/me`, session usage, analytics | Buyers (JWT) | Observe your own consumption |
+| Provider earnings / unsigned-usage fixes | Providers | Dashboard + CLI doctor / signing key |
+| `POST /v1/gateway/usage/report` | Edge only | Requires `X-Gateway-Auth` — **not** for apps |
+| Trustless / ZK batch routes | Advanced / JWT | Batch status — do not over-claim “ZK proves traffic” |
+
+Apps and SDKs should **never** send gateway usage reports. The edge is the byte source of truth.
+
+## Buyer-visible lifecycle (session intents)
+
+High-level states you may see in telemetry or support contexts:
+
+| State | Meaning |
+|-------|---------|
+| `ledger_committed` | Control plane accepted metered usage |
+| `batched` | Included in a settlement batch |
+| `chain_committed` | Batch reflected on-chain |
+
+Exact field names vary by endpoint — prefer [API reference](/docs/api) for schemas.
+
+## Quotas vs metering
+
+- **Metering** = bytes observed on the wire
+- **Entitlements** (Access Pass / legacy plan) = caps that can block **new** intents/orders with `plan_bandwidth_quota`
+
+See [Access Passes](/docs/marketplace/subscriptions) and [Troubleshooting](/docs/troubleshooting).
+
+## Honest constraints
+
+- Edge metering remains authoritative for bytes
+- Public docs do **not** claim that ZK or bilateral proofs replace edge measurement
+- Unsigned provider usage usually means a **signing key mismatch**, not “free traffic”
+
+## Related
+
+- [Architecture](/docs/architecture)
+- [Escrow & orders](/docs/concepts/escrow)
+- [Provider nodes](/docs/provider/nodes)

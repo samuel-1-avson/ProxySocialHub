@@ -1,0 +1,44 @@
+---
+title: API reference
+description: Interactive OpenAPI for Control API /v1 — auth, hosts, and Try It.
+full: true
+---
+
+Live contract for the Control API (`/v1`). The interactive viewer below loads from [`/openapi.yaml`](/openapi.yaml).
+
+## Hosts
+
+| Environment | Base URL |
+|-------------|----------|
+| Public testnet | `https://api.proxyhubb.com` |
+| Local | `http://localhost:8080` |
+
+Buyer traffic is **not** on this host — use `proxy.proxyhubb.com:8090` (CONNECT / SOCKS5). See [Buyer proxy](/docs/buyer/proxy).
+
+## Authentication
+
+| Scheme | Header | Use for |
+|--------|--------|---------|
+| Bearer JWT | `Authorization: Bearer <access_token>` | Session intents, marketplace, wallet UI flows |
+| API key | `X-API-Key: phub_…` (or Bearer `phub_…` / `pk_…`) | Bulk pools, B2B `orders:create` |
+| Gateway | `X-Gateway-Auth` | Edge → control-plane only (not for apps) |
+
+Mint partner keys with a JWT via `POST /v1/bulk/api-keys`. Public login is wallet-first (`/v1/auth/wallet/*`).
+
+## Suggested first calls
+
+1. `GET /v1/auth/me` — confirm JWT
+2. `POST /v1/sessions/intent` — rotating Connect token
+3. `GET /v1/listings?country=US` — browse supply
+4. `POST /v1/orders` → credentials after escrow
+5. `POST /v1/bulk/api-keys` / `POST /v1/bulk/pools` — partner paths
+
+In Scalar, set **Auth** to Bearer JWT (or API key) before using **Try Request**. Request/response examples are populated for auth, intents, listings, orders, sandbox-buy, credentials, and bulk pools/keys. Default server should be `https://api.proxyhubb.com`.
+
+## Rate limits
+
+- General: ~100 req/min per user/IP
+- `orders:create` keys: default **20/min**
+- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+
+Interactive viewer:

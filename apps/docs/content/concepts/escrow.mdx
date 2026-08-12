@@ -1,0 +1,49 @@
+---
+title: Escrow and orders
+description: Marketplace order FSM — pending, pay/solana, confirm-escrow, credentials, and terminal states.
+---
+
+Marketplace purchases lock buyer SOL in a Solana escrow PDA until the order is active (and later settled). Credentials for CONNECT are issued only when the order **and** session are ready.
+
+## Happy path
+
+```text
+POST /v1/orders
+    → pending
+POST /v1/orders/{id}/pay/solana
+    → pending_payment  (+ program_id, escrow_pda, amount_lamports)
+Buyer signs & submits on-chain escrow fund
+POST /v1/orders/{id}/confirm-escrow
+    → active  (session active)
+GET /v1/orders/{id}/credentials
+    → username / password for proxy.proxyhubb.com:8090
+```
+
+`pay/solana` may return **402** if the buyer cannot fund. Credentials before ready → **409** with `order_not_ready` (`retryable: true` when applicable).
+
+## Status machine (simplified)
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Order created; not funded |
+| `pending_payment` | Awaiting / confirming on-chain escrow |
+| `active` | Escrow confirmed; session usable; credentials available |
+| `completed` | Usage finished / settled path |
+| `disputed` | Dispute open |
+| `cancelled` / `refunded` | Terminal without (or after) refund path |
+
+Credentials are available when status is in `{active, completed}` **and** the linked session is active. Details: [Orders](/docs/marketplace/orders).
+
+## What buyers should know
+
+- Escrow amounts are in **lamports / SOL** on Solana **devnet** for public testnet
+- Confirm may take `{ tx_signature }` or rely on a chain listener — always poll status if UX is async
+- Dev-only shortcuts (`activate-dev`, sandbox) require `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` and must not be assumed in production
+
+## Related
+
+- [Orders guide](/docs/marketplace/orders)
+- [Order credentials](/docs/buyer/credentials)
+- [B2B sandbox purchase](/docs/marketplace/b2b)
+- [Access paths](/docs/concepts/access-paths)
+- Interactive contract: [API reference](/docs/api)

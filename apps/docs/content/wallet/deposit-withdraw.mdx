@@ -1,0 +1,90 @@
+---
+title: Deposit and withdraw
+description: Link a Solana wallet, credit SOL deposits, and withdraw with rate limits and safety checks.
+---
+
+Platform balances are **SOL-only** on public testnet (devnet). Ethereum deposit chain values are **not** implemented.
+
+All routes below require a dashboard **JWT** unless noted.
+
+## Link a wallet
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/wallet/link \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"address":"YOUR_SOLANA_ADDRESS","chain":"solana"}'
+```
+
+Unlink with `DELETE /v1/wallet/link` (see [API reference](/docs/api) for body). Destination changes may impose a **cooldown / whitelist** window before withdrawals.
+
+## Inspect balance
+
+```bash
+curl -sS https://api.proxyhubb.com/v1/wallet \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+## Deposit (crypto)
+
+1. Send SOL on-chain to the platform deposit vault / treasury address shown in the app
+2. Notify Control API with the transaction hash
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/wallet/deposit/crypto \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tx_hash":"SOLANA_TX_SIGNATURE",
+    "amount":1.5,
+    "chain":"solana"
+  }'
+```
+
+**Constraints (enforced server-side):**
+
+- `chain` must be `solana` for credits today
+- Sender must match the **linked** wallet
+- Tx must hit the configured deposit vault / treasury
+- Single-deposit amount cap (default max **10000** SOL — see live limits)
+- Route rate limit about **5/min**
+
+## Withdraw SOL
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/wallet/withdraw/sol \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":0.5}'
+```
+
+**Constraints:**
+
+- Linked Solana wallet required
+- Rate limit about **5/min**
+- Large withdrawals may require an extra signed challenge (`nonce` + `signature`; default threshold around **10 SOL**)
+- Message format for signed withdraw challenges: `withdraw:{nonce}:{amount:.6f}`
+
+Also available: `POST /v1/wallet/transfer` (P2P, amount bounds apply), `GET/PUT /v1/wallet/limits`.
+
+## Spending limits
+
+| Path | Purpose |
+|------|---------|
+| `GET /v1/wallet/limits` | Current windows |
+| `PUT /v1/wallet/limits` | Update (policy permitting) |
+| `POST /v1/wallet/limits/reset` | Reset toward trust-tier defaults |
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| Deposit not credited | Wrong chain, tx not to vault, or sender ≠ linked wallet |
+| Withdraw rejected | Cooldown after address change, over limit, or missing large-withdraw signature |
+| `401` | Refresh JWT via [wallet auth](/docs/wallet/auth) |
+
+## Related
+
+- [Wallet authentication](/docs/wallet/auth)
+- [Escrow & orders](/docs/concepts/escrow) (marketplace funds escrow separately from wallet withdraw)
+- [API reference](/docs/api)

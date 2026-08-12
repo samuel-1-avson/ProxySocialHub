@@ -1,0 +1,85 @@
+---
+title: Access Passes
+description: Buy and confirm Access Passes, check entitlements, and migrate off legacy subscription mutate routes.
+---
+
+Buyers hold **entitlements** that gate concurrency and bandwidth for session intents and marketplace usage. For new integrations, use **Access Passes**. Classic subscription create/update routes are retired (**410 Gone**).
+
+## What an Access Pass does
+
+- Defines limits (concurrency, bandwidth, RPM) for buyer traffic paths
+- Feeds trust / tier configuration when issuing session intents
+- When exhausted, Control API returns **`plan_bandwidth_quota`** (typically **403**) on intent create or order paths
+
+Manage in the app: [Subscriptions / passes](https://proxyhubb.com/dashboard/subscriptions).
+
+## Purchase flow
+
+```text
+GET  /v1/passes/catalog          → tiers (e.g. bronze / silver / gold)
+POST /v1/passes/prepare-purchase → { tier, idempotency_key? }
+     → pay on-chain as instructed by the response / UI
+POST /v1/passes/confirm-purchase → { tx_signature, purchase_id?, tier? }
+GET  /v1/passes/me               → current entitlement
+```
+
+### Catalog and current pass
+
+```bash
+curl -sS https://api.proxyhubb.com/v1/passes/catalog \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+curl -sS https://api.proxyhubb.com/v1/passes/me \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+### Prepare + confirm
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/passes/prepare-purchase \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"tier":"silver","idempotency_key":"optional-unique-key"}'
+```
+
+After the Solana payment succeeds:
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/passes/confirm-purchase \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"tx_signature":"SOLANA_TX","tier":"silver"}'
+```
+
+Optional migration helper for legacy Pro/Scale → pass tiers: `GET /v1/passes/migration`.
+
+## Legacy subscription API
+
+Still readable for entitlement status; **mutations are gone**.
+
+| Method | Path | Status |
+|--------|------|--------|
+| GET | `/v1/subscriptions/plans` | **200** — often `{ plans, legacy: true, … }` pointing to Access Passes |
+| GET | `/v1/subscriptions/my` | **200** — current entitlement (legacy or pass-backed) |
+| POST | `/v1/subscriptions` | **410 Gone** |
+| PUT | `/v1/subscriptions` | **410 Gone** |
+| DELETE | `/v1/subscriptions` | Cancel legacy; access may continue until `current_period_end` |
+
+Historical SKU names (`free` / `pro` / `scale`) may not match live catalog pricing — always prefer `/v1/passes/catalog`.
+
+## When quota hits
+
+| Symptom | Fix |
+|---------|-----|
+| `plan_bandwidth_quota` | Wait for period reset, purchase a higher / additional pass, or lower concurrency |
+| `410` on POST/PUT `/v1/subscriptions` | Switch to Access Passes prepare/confirm |
+| Intent create fails after heavy use | Check `/v1/passes/me` or `/v1/subscriptions/my` |
+
+See [Troubleshooting](/docs/troubleshooting).
+
+## Related
+
+- [Concepts](/docs/concepts) — how entitlements fit the mental model
+- [Session intents](/docs/buyer/connect)
+- [Wallet auth](/docs/wallet/auth) (JWT required)
+- [API reference](/docs/api)

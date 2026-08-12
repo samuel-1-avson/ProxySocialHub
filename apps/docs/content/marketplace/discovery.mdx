@@ -1,0 +1,67 @@
+---
+title: Discovery API
+description: Canonical listings discovery — browse, search, facets, collections, map.
+---
+
+Canonical buyer discovery is **`GET /v1/listings`** (plus related `/v1/listings/*` helpers). Prefer these over deprecated `GET /v1/services`.
+
+## Browse
+
+```http
+GET /v1/listings?page=1&limit=20&country=US&sort_by=price&sort_order=asc
+Authorization: Bearer <jwt>
+```
+
+### Common query params
+
+| Param | Notes |
+|-------|--------|
+| `page`, `limit` | Defaults `1` / `20` |
+| `proxy_type`, `protocol`, `protocols[]` | Supply filters |
+| `rotation_type` | e.g. rotating vs sticky inventory |
+| `country`, `isp` | Geo / ISP |
+| `min_price`, `max_price` | Price bounds |
+| `min_rating`, `min_quality_score`, `min_success_rate`, `min_uptime_percent`, `min_bandwidth_mbps` | Quality gates |
+| `seller_id` | Filter by provider |
+| `sort_by`, `sort_order` | Sort |
+| `include` | `product` \| `catalog` \| `catalog_product` — embed catalog product |
+
+### Response shape
+
+```json
+{
+  "listings": [ /* ProxyListing (+ optional catalog_product) */ ],
+  "total": 42,
+  "page": 1,
+  "limit": 20
+}
+```
+
+## Related routes
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/v1/listings/featured` | Featured shelf |
+| GET | `/v1/listings/search?q=…` | Keyword search |
+| GET | `/v1/listings/facets` | Facet buckets for filters UI |
+| GET | `/v1/listings/collections` | Collection index |
+| GET | `/v1/listings/collections/{slug}` | `featured` \| `verified` \| `editors-pick` |
+| GET | `/v1/listings/{id}` | Detail |
+| GET | `/v1/marketplace/map` | Map points (`include_catalog=true` or `include=product`) |
+
+`GET /v1/listings/geo` is deprecated — use `/v1/marketplace/map`.
+
+## Catalog product embed
+
+```http
+GET /v1/listings?include=product
+Authorization: Bearer <jwt>
+```
+
+Each listing may include `catalog_product` when catalog data is linked.
+
+## After you pick a listing
+
+Continue with [Orders & escrow](/docs/marketplace/orders) using the listing UUID.
+
+Interactive params: [API reference](/docs/api).

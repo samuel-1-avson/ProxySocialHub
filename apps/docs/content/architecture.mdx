@@ -1,0 +1,74 @@
+---
+title: Architecture
+description: Control API, edge gateway ports, and Solana settlement — how a request flows through ProxyHubb.
+---
+
+ProxyHubb splits into three planes: **control**, **data**, and **settlement**.
+
+<Callout type="warning" title="Ports">
+Buyers use <code>proxy.proxyhubb.com:8090</code>. Providers use tunnel <code>:3128</code>. Mixing them is the most common ops mistake.
+</Callout>
+
+## Ports and hosts
+
+| Surface | Address | Plane |
+|---------|---------|-------|
+| Web app | `https://proxyhubb.com` | Control (UI) |
+| Control API | `https://api.proxyhubb.com` (`/v1`) | Control |
+| Buyer CONNECT / SOCKS5 | `proxy.proxyhubb.com:8090` | Data |
+| Provider tunnel | `proxy.proxyhubb.com:3128` | Data |
+| Docs | `https://docs.proxyhubb.com` | — |
+| Solana | Devnet (public testnet) | Settlement |
+
+**Remember:** buyers use **8090**; providers use **3128**. Mixing them is the most common ops mistake.
+
+## Request flow (buyer)
+
+```text
+Buyer app / SDK
+    │  JWT or API key → create intent / order credentials / pool endpoints
+    ▼
+Control API  (api.proxyhubb.com)
+    │  returns token or username/password
+    ▼
+Edge gateway :8090  (HTTP CONNECT or SOCKS5)
+    │  tunneled bytes ↔ upstream / provider path
+    ▼
+Edge meters usage → signed reports → Control API ledger → settlement batches
+```
+
+## Planes
+
+### Control API
+
+Go service behind `api.proxyhubb.com`. Owns:
+
+- Wallet auth and `/v1/auth/*`
+- Marketplace listings, orders, escrow confirmations
+- Access Passes / entitlements
+- Bulk pools and API keys
+- Usage ledger reads and settlement orchestration
+
+### Edge gateway
+
+Rust data plane. Owns:
+
+- Buyer listeners on **`:8090`** (CONNECT + SOCKS5 only — no absolute-URI forward proxy)
+- Provider tunnel on **`:3128`**
+- Session binding and byte metering
+- Signed usage reports to control (`X-Gateway-Auth`)
+
+### Settlement
+
+Solana program + custody paths for marketplace escrow and batch settlement. Buyers interact mainly via `pay/solana` + wallet confirm; providers earn from metered, accepted usage.
+
+## Where to read next
+
+| Topic | Page |
+|-------|------|
+| Intents vs orders vs pools | [Access paths](/docs/concepts/access-paths) |
+| Escrow FSM | [Escrow](/docs/concepts/escrow) |
+| Bytes → ledger → chain | [Metering](/docs/concepts/metering) |
+| Protocol constraints | [Buyer proxy](/docs/buyer/proxy) |
+| Provider join/start | [Provider CLI](/docs/provider/cli) |
+| OpenAPI | [API reference](/docs/api) |
