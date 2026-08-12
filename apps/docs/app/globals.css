@@ -7,7 +7,7 @@
   --border-strong: #2f4238;
   --text: #e7eee9;
   --text-body: #b7c7be;
-  --muted: #7f9589;
+  --muted: #93aa9e;
   --accent: #3d9b6e;
   --accent-soft: rgba(61, 155, 110, 0.14);
   --accent-text: #9fecc4;
@@ -21,6 +21,7 @@
   --radius: 0.4rem;
   --sidebar-w: 292px;
   --focus: #3d9b6e;
+  color-scheme: dark;
 }
 
 [data-theme='light'] {
@@ -31,7 +32,7 @@
   --border-strong: #b4c4ba;
   --text: #101a15;
   --text-body: #2a3a32;
-  --muted: #5c6f64;
+  --muted: #3f5349;
   --accent: #1f7a52;
   --accent-soft: rgba(31, 122, 82, 0.1);
   --accent-text: #145c3c;
@@ -41,6 +42,7 @@
   --shadow: 0 18px 40px rgba(16, 30, 22, 0.1);
   --rail: #eef3f0;
   --focus: #1f7a52;
+  color-scheme: light;
 }
 
 * {
@@ -56,6 +58,7 @@ body {
   font-family: var(--font-sans);
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
 }
 
 body.nav-lock {
@@ -91,6 +94,15 @@ a {
 a:hover {
   text-decoration: underline;
   text-underline-offset: 0.15em;
+}
+
+.main p a,
+.main li a,
+.main td a,
+.main .desc a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
 }
 
 kbd {
@@ -134,6 +146,10 @@ kbd {
   color: var(--muted);
   font-weight: 500;
 }
+.mobile-bar-spacer {
+  width: 44px;
+  flex: 0 0 44px;
+}
 .mobile-brand:hover {
   text-decoration: none;
 }
@@ -144,6 +160,8 @@ kbd {
   color: var(--text);
   border-radius: var(--radius);
   padding: 0.4rem 0.7rem;
+  min-height: 44px;
+  min-width: 44px;
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
@@ -239,9 +257,10 @@ kbd {
   gap: 0.4rem;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  color: var(--muted);
+  color: var(--text-body);
   border-radius: var(--radius);
   padding: 0.42rem 0.6rem;
+  min-height: 44px;
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
@@ -254,9 +273,10 @@ kbd {
 .theme-toggle {
   border: 1px solid var(--border);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-body);
   border-radius: var(--radius);
   padding: 0.42rem 0.65rem;
+  min-height: 44px;
   font: inherit;
   font-size: 0.72rem;
   cursor: pointer;
@@ -1265,6 +1285,48 @@ kbd {
 
   .main {
     padding-top: 1.35rem;
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-dock {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 36;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    backdrop-filter: blur(12px);
+    padding: 0.35rem 0.4rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  body.nav-lock .mobile-dock,
+  body.toc-sheet-open .mobile-dock {
+    display: none;
+  }
+
+  .dock-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    cursor: pointer;
+    border-radius: var(--radius);
+  }
+  .dock-btn:hover {
+    background: var(--accent-soft);
+    text-decoration: none;
+    color: var(--text);
   }
 
   .doc-layout.has-toc {
@@ -1279,7 +1341,7 @@ kbd {
     display: inline-flex;
     position: fixed;
     right: 1rem;
-    bottom: 1.15rem;
+    bottom: calc(4.65rem + env(safe-area-inset-bottom, 0px));
     z-index: 35;
     border: 1px solid var(--border-strong);
     background: var(--bg-elevated);
@@ -1315,7 +1377,7 @@ kbd {
     bottom: 0;
     max-height: min(70vh, 520px);
     overflow: auto;
-    padding: 1rem 1.1rem 1.4rem;
+    padding: 1rem 1.1rem calc(1.4rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--border);
     border-radius: 0.85rem 0.85rem 0 0;
     background: var(--bg-elevated);
@@ -1394,4 +1456,8 @@ kbd {
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   color: var(--accent-text) !important;
   text-decoration: none !important;
+}
+
+.mobile-dock {
+  display: none;
 }
