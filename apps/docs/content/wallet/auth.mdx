@@ -1,0 +1,76 @@
+---
+title: Wallet authentication
+description: Solana wallet challenge → sign → login → refresh for Control API JWTs.
+---
+
+Public auth is **wallet-first**. Email/password registration is not an active runtime flow. Session intents, marketplace orders, and most UI APIs expect a dashboard **JWT**.
+
+## Sequence
+
+```text
+1. POST /v1/auth/wallet/challenge  { address }
+      → { nonce, message, blockhash_backed }
+2. Sign `message` with the Solana wallet (Ed25519)
+3. POST /v1/auth/wallet/login  { address, signature, nonce }
+      → AuthResponse { access_token, refresh_token, expires_in, … }
+4. Authorization: Bearer <access_token>
+5. Before expiry: POST /v1/auth/refresh  { refresh_token }
+```
+
+Verify the session with `GET /v1/auth/me`.
+
+## Challenge
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/auth/wallet/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"address":"YOUR_SOLANA_ADDRESS"}'
+```
+
+Sign the exact `message` string returned by the API (do not invent a custom payload).
+
+## Login
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/auth/wallet/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "address":"YOUR_SOLANA_ADDRESS",
+    "signature":"BASE58_OR_API_FORMAT_SIGNATURE",
+    "nonce":"NONCE_FROM_CHALLENGE"
+  }'
+```
+
+Store `access_token` and `refresh_token` securely. Typical `expires_in` is on the order of **3600** seconds — always read the response field.
+
+## Refresh
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token":"YOUR_REFRESH_TOKEN"}'
+```
+
+## JWT vs API keys
+
+| Credential | Header | Use |
+|------------|--------|-----|
+| Access JWT | `Authorization: Bearer …` | Intents, orders, wallet, passes, minting API keys |
+| API key `phub_…` / `pk_…` | `X-API-Key` (or Bearer) | Bulk pools; B2B `orders:create` when scoped |
+
+Mint keys: dashboard **Settings → API keys** or `POST /v1/bulk/api-keys` **with a JWT** (keys cannot mint keys).
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| `401` on Control API | Expired/missing JWT — refresh or re-login |
+| Intent create `403` with API key | Use wallet JWT for session intents |
+| Challenge/login fails | Wrong address, stale nonce, or signature over a modified message |
+
+## Next
+
+- [Deposit & withdraw](/docs/wallet/deposit-withdraw)
+- [Buyer quickstart](/docs/quickstart/buyer)
+- [Getting started](/docs/getting-started)
+- [API reference](/docs/api)

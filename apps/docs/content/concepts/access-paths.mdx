@@ -1,0 +1,60 @@
+---
+title: Access paths
+description: Session intents, marketplace order credentials, and bulk pools — when to use each.
+---
+
+All three paths terminate on the same buyer edge: **`proxy.proxyhubb.com:8090`** (HTTP CONNECT or SOCKS5). What changes is **how you authenticate** and **how capacity is billed / gated**.
+
+## Comparison
+
+| | Session intent | Marketplace order | Bulk pool |
+|--|----------------|-------------------|-----------|
+| **Create with** | Dashboard JWT | Dashboard JWT (or B2B `orders:create`) | JWT or API key (`proxy:write`) |
+| **Proxy user** | `session-intent` | `proxy_credentials.username` | `pool-{id8}-{nnn}` |
+| **Proxy password** | Intent `token` | `proxy_credentials.password` | Endpoint password from API |
+| **Lifecycle** | Short-lived Connect token | Escrow → active session → credentials | Long-lived pool endpoints |
+| **Escrow** | No | Yes (SOL) | No |
+| **Typical UI** | [Connect](https://proxyhubb.com/dashboard/proxy) | Marketplace checkout | Partner / API automation |
+
+## Session intents
+
+1. `POST /v1/sessions/intent` with JWT (`rotating` or `sticky`)
+2. CONNECT with username `session-intent` and the returned token
+3. Entitlements (Access Pass / plan) still apply — quota errors possible
+
+Guides: [Buyer quickstart](/docs/quickstart/buyer) · [Session intents](/docs/buyer/connect)
+
+**Do not** create intents with a buyer API key — expect **403**.
+
+## Marketplace orders
+
+1. `POST /v1/orders` → `pending`
+2. `POST /v1/orders/{id}/pay/solana` → fund escrow on-chain
+3. `POST /v1/orders/{id}/confirm-escrow` → `active`
+4. `GET /v1/orders/{id}/credentials` → CONNECT username/password
+
+Credentials before activation → **409** (`order_not_ready`, often retryable).
+
+Guides: [Escrow](/docs/concepts/escrow) · [Orders](/docs/marketplace/orders) · [Credentials](/docs/buyer/credentials)
+
+## Bulk pools
+
+1. Mint API key (`POST /v1/bulk/api-keys`, JWT only) with `proxy:read` / `proxy:write`
+2. `POST /v1/bulk/pools` → size + `rotating` / `sticky`
+3. `GET /v1/bulk/pools/{id}/endpoints` → host/port/user/pass for each slot
+4. CONNECT each endpoint on `:8090`
+
+Scopes: **`proxy:*` ≠ purchase**. Buying listings needs marketplace JWT or `orders:create` (B2B).
+
+Guide: [Bulk pools](/docs/buyer/pools)
+
+## Choosing a path
+
+| If you need… | Use |
+|--------------|-----|
+| Fastest first request in the dashboard | Session intent |
+| Paid listing bandwidth with on-chain escrow | Marketplace order |
+| Many stable endpoints for scrapers / partners | Bulk pool |
+| Sandbox partner purchase without UI | [B2B sandbox](/docs/marketplace/b2b) |
+
+Protocol details (CONNECT-only, 501): [Buyer proxy](/docs/buyer/proxy).

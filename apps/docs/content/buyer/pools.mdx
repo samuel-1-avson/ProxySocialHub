@@ -1,0 +1,96 @@
+---
+title: Bulk pools
+description: Partner API keys, create pools, fetch CONNECT endpoints, and scrape with many stable proxies.
+---
+
+Bulk pools give partners **many buyer-proxy endpoints** under one API key — without marketplace escrow. Traffic still uses **`proxy.proxyhubb.com:8090`** (CONNECT / SOCKS5).
+
+## Scopes (important)
+
+| Scope | Can |
+|-------|-----|
+| `proxy:read` / `proxy:write` | List/create/delete pools and read endpoints |
+| `orders:create` | B2B purchase paths — **not** the same as pools |
+| Dashboard JWT | Mint API keys, also call pool APIs |
+
+Buyer `phub_…` / `pk_…` keys **cannot** mint other keys. Mint with JWT:
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/bulk/api-keys \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"scrapers","scopes":["proxy:read","proxy:write"]}'
+```
+
+## Create a pool
+
+```bash
+curl -sS -X POST https://api.proxyhubb.com/v1/bulk/pools \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"scrapers",
+    "size":5,
+    "session_type":"rotating"
+  }'
+```
+
+| Field | Notes |
+|-------|--------|
+| `name` | Required label |
+| `size` | Endpoint count, **1–100** (default often 10) |
+| `session_type` | `rotating` or `sticky` |
+| `bytes_limit` | Optional; `0` = unlimited (policy permitting) |
+
+## Fetch endpoints
+
+```bash
+curl -sS https://api.proxyhubb.com/v1/bulk/pools/POOL_UUID/endpoints \
+  -H "X-API-Key: $API_KEY"
+```
+
+Each endpoint includes roughly:
+
+| Field | Value |
+|-------|--------|
+| `host` / `port` | Buyer edge (`proxy.proxyhubb.com` / `8090`) |
+| `username` | `pool-{first8}-{index}` e.g. `pool-22222222-001` |
+| `password` | Server-derived secret |
+| `session_type` | `rotating` / `sticky` |
+
+## Smoke-test one endpoint
+
+```bash
+curl -sS -x "http://USER:PASS@proxy.proxyhubb.com:8090" \
+  https://httpbin.org/ip
+```
+
+SDK helpers: [Python](/docs/sdks/python) · [Node.js](/docs/sdks/nodejs) · [Go](/docs/sdks/go) (`create_pool` / `createPool`).
+
+## Lifecycle
+
+| Method | Path |
+|--------|------|
+| GET | `/v1/bulk/pools` |
+| DELETE | `/v1/bulk/pools/{pool_id}` (soft-delete) |
+| GET/DELETE | `/v1/bulk/api-keys` / `{key_id}` (JWT for create/delete keys) |
+
+## Pools vs other paths
+
+| Need | Path |
+|------|------|
+| Quick dashboard Connect | [Session intents](/docs/buyer/connect) |
+| Escrow-backed listing bandwidth | [Orders](/docs/marketplace/orders) |
+| Partner sandbox buy | [B2B](/docs/marketplace/b2b) |
+| Many automation endpoints | **Bulk pools (this page)** |
+
+See also [Access paths](/docs/concepts/access-paths).
+
+## Common errors
+
+| Symptom | Fix |
+|---------|-----|
+| `401` / `403` on pools | Missing `proxy:read`/`proxy:write` on the key |
+| Intent create with pool key | Intents need JWT — wrong path |
+| `501` from proxy | Client not using CONNECT — [Buyer proxy](/docs/buyer/proxy) |
+| Key cannot create keys | Use JWT for `POST /v1/bulk/api-keys` |

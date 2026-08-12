@@ -1,0 +1,47 @@
+---
+title: Concepts
+description: Mental model for buyers, providers, settlement, and the three ways to pull traffic.
+---
+
+ProxyHubb is a **Solana-settled residential proxy marketplace**. Buyers consume bandwidth through the edge gateway; providers run a tunnel daemon and earn from metered usage.
+
+## Roles
+
+| Role | What they do |
+|------|----------------|
+| **Buyer** | Authenticate (wallet JWT or API key), obtain proxy credentials, send CONNECT/SOCKS5 traffic to `:8090` |
+| **Provider** | Run `provider-node` against tunnel `:3128`, keep proof signing keys safe, list supply |
+| **Platform** | Control API (orders, wallet, entitlements) + edge gateway (sessions, metering) + Solana settlement |
+
+## Three buyer access paths
+
+| Path | Credential at `:8090` | Best for |
+|------|----------------------|----------|
+| **Session intent** | `session-intent` / intent token | Quick Connect, rotating/sticky trials |
+| **Marketplace order** | Order username / password | Escrow-backed bandwidth purchase |
+| **Bulk pool** | Pool endpoint username / password | Partners automating many endpoints under one API key |
+
+Deep dive: [Access paths](/docs/concepts/access-paths).
+
+## Planes
+
+| Plane | Components | Public surface |
+|-------|------------|----------------|
+| **Control** | Control API (`api.proxyhubb.com`) | Auth, listings, orders, wallet, passes, pools |
+| **Data** | Edge gateway | Buyer `:8090`, provider tunnel `:3128` |
+| **Settlement** | Solana program + custody | Escrow fund/confirm, batch settlement |
+
+See [Architecture](/docs/architecture) and [Metering](/docs/concepts/metering).
+
+## Entitlements
+
+Concurrency and bandwidth for intents/orders are gated by **Access Passes** (preferred) or legacy subscription entitlements. Exhausted quota returns `plan_bandwidth_quota` (typically **403**).
+
+See [Access Passes](/docs/marketplace/subscriptions).
+
+## Next
+
+1. [Access paths](/docs/concepts/access-paths) — intents vs orders vs pools
+2. [Escrow & orders](/docs/concepts/escrow) — marketplace lifecycle
+3. [Metering](/docs/concepts/metering) — how bytes become settlement
+4. [Architecture](/docs/architecture) — ports and request flow

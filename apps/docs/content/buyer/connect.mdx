@@ -1,0 +1,62 @@
+---
+title: Connect session intents
+description: Rotating and sticky intents for the Connect dashboard and SDKs.
+---
+
+Connect ([/dashboard/proxy](https://proxyhubb.com/dashboard/proxy)) issues a signed **session intent** instead of minting long-lived credentials up front. Intents are short-lived tokens you present at the buyer proxy.
+
+## Create
+
+```http
+POST /v1/sessions/intent
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "type": "rotating",
+  "target_geo": "US"
+}
+```
+
+`type` must be `rotating` or `sticky`. Optional fields include `listing_id`, `bandwidth_limit`, `target_isp` (best-effort preference — not a guaranteed ISP filter), `routing_profile`, `max_price_per_gb`, and domain allow/block lists.
+
+## Response
+
+```json
+{
+  "token": "<jwt-like-token>",
+  "expires_at": "...",
+  "lifecycle_state": "authorized",
+  "intent": { "intent_id": "...", "session_type": "rotating" }
+}
+```
+
+## Use the proxy
+
+```bash
+curl -x "http://session-intent:TOKEN@proxy.proxyhubb.com:8090" https://httpbin.org/ip
+```
+
+Do not put the token in the username field. Username is literally `session-intent`; password is the token.
+
+## SDKs
+
+| Language | Create | Proxy helper |
+|----------|--------|--------------|
+| Python | `create_session_intent(...)` | `as_requests_proxy_from_intent` |
+| Node | `createSessionIntent` | `sessionIntentProxyUrl` |
+| Go | `CreateSessionIntent` | `SessionIntentProxyURL` |
+
+Requires a **dashboard JWT**. API keys alone cannot create intents today.
+
+## Common errors
+
+| Code / symptom | Cause | Fix |
+|----------------|-------|-----|
+| `401` | JWT missing or expired | Sign in again / refresh token |
+| `403` | API key used for intent create | Switch to Bearer JWT |
+| `400` invalid type | `type` not `rotating` or `sticky` | Fix the request body |
+| Proxy auth fails after success | Intent expired (`expires_at`) | Create a new intent |
+| Empty exit IP / flaky routing | Capacity or geo constraint | Retry, widen geo, or try sticky with a listing |
+
+Full interactive contract: [API reference](/docs/api).

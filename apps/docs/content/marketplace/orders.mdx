@@ -1,0 +1,116 @@
+---
+title: Orders and escrow
+description: Create orders, fund on-chain escrow, activate sessions, fetch credentials.
+---
+
+Marketplace orders bind a buyer to a listing, escrow SOL on Solana, activate a session, then expose CONNECT credentials.
+
+## Typical live flow
+
+1. `POST /v1/orders` — create (`pending`)
+2. `POST /v1/orders/{id}/pay/solana` — escrow intent (`pending_payment`)
+3. Buyer signs the on-chain escrow init in wallet
+4. `POST /v1/orders/{id}/confirm-escrow` — optional `{ "tx_signature" }` (or wait for chain listener)
+5. When status is `active` (or `completed`) and session is active → `GET /v1/orders/{id}/credentials`
+6. CONNECT to `proxy.proxyhubb.com:8090` with returned username/password
+
+## Create
+
+```http
+POST /v1/orders
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "listing_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "bandwidth_gb": 1,
+  "session_type": "rotating"
+}
+```
+
+`session_type` is optional: `rotating` or `sticky`.
+
+**201** returns `{ "order", "session?" }`. New orders start `pending`; the linked session often starts `disabled` until escrow activates.
+
+Partners with `orders:create` may use `X-API-Key` instead of JWT — see [B2B](/docs/marketplace/b2b).
+
+## Pay (Solana)
+
+```http
+POST /v1/orders/{id}/pay/solana
+Authorization: Bearer <jwt>
+```
+
+Response includes escrow fields such as `program_id`, `escrow_pda`, `amount_lamports` for the wallet transaction. Insufficient balance → **402**.
+
+## Confirm escrow
+
+```http
+POST /v1/orders/{id}/confirm-escrow
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "tx_signature": "<optional-signature>" }
+```
+
+Call this after the buyer signs so control-api can activate the session if the async chain listener has not already.
+
+## Credentials
+
+```http
+GET /v1/orders/{id}/credentials
+Authorization: Bearer <jwt>
+```
+
+```json
+{
+  "proxy_credentials": {
+    "username": "...",
+    "password": "...",
+    "host": "proxy.proxyhubb.com",
+    "port": 8090,
+    "protocol": "http",
+    "endpoint": "proxy.proxyhubb.com:8090"
+  }
+}
+```
+
+`protocol: "http"` means **HTTP CONNECT** (not absolute-URI forward proxy). Details: [Order credentials](/docs/buyer/credentials).
+
+## Order status FSM
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Created, not paid |
+| `pending_payment` | Escrow intent issued |
+| `active` | Funded / session usable |
+| `completed` | Finished successfully |
+| `disputed` | Dispute open |
+| `refunded` | Refunded |
+| `cancelled` | Cancelled |
+
+Credentials require status ∈ `{active, completed}` and an **active** linked session. Otherwise expect **409** with `retryable: true`.
+
+## Other routes
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/v1/orders`, `/v1/orders/{id}` | List / detail |
+| POST | `/v1/orders/{id}/cancel` | Cancel when allowed |
+| POST | `/v1/orders/{id}/activate-dev` | Testnet only when enabled |
+| GET | `/v1/sales` | Seller sales (JWT) |
+
+## Common errors
+
+| Code | Cause | Fix |
+|------|-------|-----|
+| `400` | Validation / `linked_wallet_required` | Fix body; link Solana wallet |
+| `402` | Insufficient SOL on `pay/solana` | Fund wallet |
+| `403` | Missing scope or `plan_bandwidth_quota` | Use `orders:create` key / upgrade entitlement |
+| `404` | Unknown listing or order | Check UUIDs |
+| `409` | Listing not purchasable, or credentials not ready | Pick another listing / wait for activation |
+| `503` | No provider node for listing | Retry later or choose another listing |
+
+## Dev activate
+
+Testnet may expose `POST /v1/orders/{id}/activate-dev` when `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true`. Never rely on this in production. Prefer [sandbox-buy](/docs/marketplace/b2b) for one-shot partner tests.

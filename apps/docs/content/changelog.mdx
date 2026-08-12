@@ -1,0 +1,63 @@
+---
+title: Changelog and versions
+description: SDK version matrix, OpenAPI contract, and where to find release notes.
+---
+
+ProxyHubb publishes client libraries and CLI binaries with Git tags. This page tracks the **docs-aligned** versions and where to find release artifacts.
+
+## SDK version matrix
+
+| Package | Version | Install | Notes |
+|---------|---------|---------|-------|
+| Python `proxyhubb` | **0.3.0** | `pip install proxyhubb` | Intents, credentials, pools, seller APIs |
+| Node `@proxyhubb/sdk` | **0.3.0** | `npm install @proxyhubb/sdk` | Same shared surface |
+| Go module | **v0.3.0** | `go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.3.0` | Pin the semver tag |
+| Provider helpers | **0.1.2** | `@proxyhubb/provider` / `proxyhubb-provider` | CLI wrappers — see [Provider CLI](/docs/provider/cli) |
+
+Shared surface at **v0.3+**: session intents, order credentials, bulk pools, provider tokens/nodes/listings/earnings.
+
+Defaults: Control API `https://api.proxyhubb.com`, buyer proxy `proxy.proxyhubb.com:8090` (`PROXYHUBB_PROXY_ENDPOINT` override).
+
+## Control API contract
+
+| Artifact | Location |
+|----------|----------|
+| Interactive docs | [API reference](/docs/api) |
+| Raw OpenAPI | [/openapi.yaml](/openapi.yaml) |
+| Repo source of truth | `docs/openapi.yaml` (synced into the docs app on deploy) |
+
+OpenAPI `info.version` is independent of SDK semver — treat SDKs and the HTTP contract as separately versioned.
+
+## Release channels
+
+| Channel | How to find it |
+|---------|----------------|
+| SDK npm / PyPI | Tags like `sdk-v0.3.0` → publish workflow |
+| Go SDK | Git tag `sdks/go/v0.3.0` |
+| Provider SDK | Tags `provider-sdk-v*` |
+| CLI / node binaries | GitHub Releases (auto release notes) |
+
+Prefer GitHub Releases for CLI changelog text. SDK package registries for installable versions.
+
+## Docs site (recent)
+
+| Change | Notes |
+|--------|-------|
+| Phase 1–2 platform | SEO (sitemap/robots/OG), Shiki + copy, full-text search, TOC, prev/next |
+| Quickstarts | Buyer 5-min, Provider 10-min, troubleshooting index |
+| Phase 3 coverage | Concepts, architecture, wallet, bulk pools, Access Passes narrative, this page |
+| Phase 4 platform | Real MDX components (`Callout`, `Steps`), self-hosted/version-pinned Scalar (theme sync), optional Plausible via `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` |
+
+## Deprecated / avoid
+
+| Item | Use instead |
+|------|-------------|
+| Legacy `POST/PUT /v1/subscriptions` | [Access Passes](/docs/marketplace/subscriptions) |
+| Private legacy Node package `proxyhubb@0.1.0` under old paths | `@proxyhubb/sdk@0.3.0` |
+| Absolute-URI HTTP forward proxy | CONNECT or SOCKS5 on `:8090` |
+
+## Related
+
+- [Official SDKs](/docs/sdks)
+- [Getting started](/docs/getting-started)
+- [Architecture](/docs/architecture)
