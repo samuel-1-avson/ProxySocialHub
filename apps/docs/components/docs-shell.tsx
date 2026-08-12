@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { NAV, SEARCH_INDEX } from '@/lib/nav';
+import { NAV, SEARCH_INDEX, navGroupActive, type NavItem } from '@/lib/nav';
 
 type Theme = 'dark' | 'light';
 
@@ -62,6 +62,7 @@ function SearchPalette({
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
+  const [active, setActive] = useState(0);
   const [corpus, setCorpus] = useState<SearchDoc[] | null>(null);
   const listId = useId();
 
@@ -104,8 +105,13 @@ function SearchPalette({
   }, [q, corpus]);
 
   useEffect(() => {
+    setActive(0);
+  }, [q, results.length]);
+
+  useEffect(() => {
     if (!open) return;
     setQ('');
+    setActive(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -113,11 +119,28 @@ function SearchPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive((i) => Math.min(i + 1, Math.max(results.length - 1, 0)));
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive((i) => Math.max(i - 1, 0));
+      }
+      if (e.key === 'Enter' && results[active]) {
+        e.preventDefault();
+        onClose();
+        router.push(results[active].href);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, results, active, router]);
 
   if (!open) return null;
 
@@ -133,16 +156,18 @@ function SearchPalette({
           onChange={(e) => setQ(e.target.value)}
           aria-controls={listId}
           aria-autocomplete="list"
+          aria-activedescendant={results[active] ? `search-hit-${active}` : undefined}
         />
-        <ul id={listId} className="search-results">
+        <ul id={listId} className="search-results" role="listbox">
           {results.length === 0 ? (
-            <li className="search-empty">No matches</li>
+            <li className="search-empty">No matches — try “CONNECT”, “escrow”, or “pool”</li>
           ) : (
-            results.map((r) => (
-              <li key={r.href}>
+            results.map((r, i) => (
+              <li key={r.href} role="option" aria-selected={i === active} id={`search-hit-${i}`}>
                 <button
                   type="button"
-                  className="search-hit"
+                  className={`search-hit${i === active ? ' active' : ''}`}
+                  onMouseEnter={() => setActive(i)}
                   onClick={() => {
                     onClose();
                     router.push(r.href);
@@ -157,9 +182,73 @@ function SearchPalette({
           )}
         </ul>
         <p className="search-hint">
-          <kbd>Esc</kbd> close · <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd> open
+          <kbd>↑</kbd>
+          <kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
         </p>
       </div>
+    </div>
+  );
+}
+
+function NavSection({
+  item,
+  current,
+  open,
+  onToggle,
+}: {
+  item: NavItem;
+  current: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const active = navGroupActive(item, current);
+  const code = item.code ?? '••';
+
+  if (!item.children?.length) {
+    return (
+      <div className={`nav-section${active ? ' is-active' : ''}`}>
+        <Link
+          href={item.href}
+          className={`nav-link top${current === item.href ? ' active' : ''}`}
+        >
+          <span className="nav-code" aria-hidden="true">
+            {code}
+          </span>
+          <span>{item.label}</span>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`nav-section${active || open ? ' is-open' : ''}${active ? ' is-active' : ''}`}>
+      <button
+        type="button"
+        className="nav-group-btn"
+        aria-expanded={open || active}
+        onClick={onToggle}
+      >
+        <span className="nav-code" aria-hidden="true">
+          {code}
+        </span>
+        <span className="nav-group-label">{item.label}</span>
+        <span className="nav-chevron" aria-hidden="true">
+          {(open || active) ? '−' : '+'}
+        </span>
+      </button>
+      {(open || active) && (
+        <div className="nav-children">
+          {item.children.map((child) => (
+            <Link
+              key={child.href}
+              href={child.href}
+              className={`nav-link${current === child.href ? ' active' : ''}`}
+            >
+              {child.label}
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -176,10 +265,21 @@ export function DocsShell({
   const [theme, setTheme] = useTheme();
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const item of NAV) {
+      if (item.children && navGroupActive(item, current)) {
+        next[item.label] = true;
+      }
+    }
+    setOpenGroups((prev) => ({ ...prev, ...next }));
+  }, [current]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -205,6 +305,10 @@ export function DocsShell({
 
   return (
     <div className="shell">
+      <a href="#doc-main" className="skip-link">
+        Skip to content
+      </a>
+
       <header className="mobile-bar">
         <button
           type="button"
@@ -233,10 +337,24 @@ export function DocsShell({
       ) : null}
 
       <aside id="docs-sidebar" className={`sidebar${navOpen ? ' open' : ''}`}>
-        <div className="brand-row">
+        <div className="brand-block">
           <Link href="/docs" className="brand">
-            ProxyHubb <span>Docs</span>
+            <span className="brand-mark" aria-hidden="true">
+              PH
+            </span>
+            <span className="brand-text">
+              ProxyHubb
+              <span className="brand-sub">Docs</span>
+            </span>
           </Link>
+          <p className="brand-tag">Control plane manual</p>
+        </div>
+
+        <div className="sidebar-tools">
+          <button type="button" className="search-trigger" onClick={() => setSearchOpen(true)}>
+            <span>Search</span>
+            <kbd>/</kbd>
+          </button>
           <button
             type="button"
             className="theme-toggle"
@@ -254,41 +372,30 @@ export function DocsShell({
           <a href="https://api.proxyhubb.com" target="_blank" rel="noreferrer">
             API
           </a>
-          <button type="button" className="search-trigger" onClick={() => setSearchOpen(true)}>
-            Search <kbd>/</kbd>
-          </button>
+          <a href="/docs/changelog">Changelog</a>
         </div>
 
-        <nav aria-label="Documentation">
+        <nav aria-label="Documentation" className="nav-rail">
           {NAV.map((item) => (
-            <div key={item.href + item.label} className="nav-section">
-              {item.children ? (
-                <>
-                  <span className="nav-label">{item.label}</span>
-                  {item.children.map((child) => (
-                    <Link
-                      key={child.href}
-                      href={child.href}
-                      className={`nav-link${current === child.href ? ' active' : ''}`}
-                    >
-                      {child.label}
-                    </Link>
-                  ))}
-                </>
-              ) : (
-                <Link
-                  href={item.href}
-                  className={`nav-link${current === item.href ? ' active' : ''}`}
-                >
-                  {item.label}
-                </Link>
-              )}
-            </div>
+            <NavSection
+              key={item.label + item.href}
+              item={item}
+              current={current}
+              open={Boolean(openGroups[item.label])}
+              onToggle={() =>
+                setOpenGroups((prev) => ({
+                  ...prev,
+                  [item.label]: !prev[item.label],
+                }))
+              }
+            />
           ))}
         </nav>
       </aside>
 
-      <main className="main">{children}</main>
+      <main id="doc-main" className="main" tabIndex={-1}>
+        {children}
+      </main>
 
       <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
