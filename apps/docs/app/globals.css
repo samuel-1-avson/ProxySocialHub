@@ -16,8 +16,8 @@
   --overlay: rgba(0, 0, 0, 0.62);
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   --rail: #121a17;
-  --font-sans: var(--font-sans), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono), 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --radius: 0.4rem;
   --sidebar-w: 328px;
   --focus: #5dca8f;
