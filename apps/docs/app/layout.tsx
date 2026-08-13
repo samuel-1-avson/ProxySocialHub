@@ -1,19 +1,18 @@
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
-import { IBM_Plex_Sans, JetBrains_Mono } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 import { DocsAnalytics } from '@/components/analytics';
 import './globals.css';
 
-const sans = IBM_Plex_Sans({
+const sans = Geist({
   subsets: ['latin'],
-  variable: '--font-sans',
-  weight: ['400', '500', '600', '700'],
+  variable: '--font-geist-sans',
   display: 'swap',
 });
-const mono = JetBrains_Mono({
+const mono = Geist_Mono({
   subsets: ['latin'],
-  variable: '--font-mono',
-  weight: ['400', '500', '600'],
+  variable: '--font-geist-mono',
+  display: 'swap',
 });
 
 const SITE = 'https://docs.proxyhubb.com';
@@ -58,7 +57,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${sans.className} ${sans.variable} ${mono.variable}`}
       data-theme="dark"
       suppressHydrationWarning
     >
