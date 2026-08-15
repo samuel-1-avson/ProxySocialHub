@@ -1,0 +1,184 @@
+# Redis HA (M2) — Sentinel + HAProxy master gateway for compose.
+#
+# Survives Redis *container* death via automatic failover. Same-VM SPOF remains
+# (PHASE-A); Memorystore is the managed cross-VM upgrade when budget allows.
+#
+# Usage (gcp-testnet):
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.testnet.yml \
+#     -f docker-compose.gcp-testnet.yml \
+#     -f docker-compose.redis-ha.yml \
+#     up -d
+#
+# Then point REDIS_URL at the proxy (password unchanged):
+#   REDIS_URL=redis://:${REDIS_PASSWORD}@redis-proxy:6379
+
+services:
+  redis:
+    # Keep container PID namespace alive after SHUTDOWN so Compose DNS name `redis`
+    # remains resolvable (Sentinel resolve-hostnames + no TILT during chaos).
+    command: >
+      sh -c 'redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --requirepass $${REDIS_PASSWORD}
+      --masterauth $${REDIS_PASSWORD}
+      --protected-mode yes
+      --maxmemory 384mb
+      --maxmemory-policy allkeys-lru
+      --repl-diskless-sync yes
+      ; echo redis-exited; exec sleep infinity'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    mem_limit: 512m
+
+  # Route all app Redis traffic through the HA proxy (stable across failover).
+  control-api:
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-proxy:6379
+    depends_on:
+      redis-proxy:
+        condition: service_started
+        required: false
+
+  edge-gateway:
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-proxy:6379
+    depends_on:
+      redis-proxy:
+        condition: service_started
+        required: false
+
+  db-migrate:
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-proxy:6379
+
+  redis-replica:
+    image: redis:7-alpine
+    command: >
+      sh -c 'redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass $${REDIS_PASSWORD}
+      --masterauth $${REDIS_PASSWORD}
+      --replicaof redis 6379
+      --protected-mode yes
+      --maxmemory 384mb
+      --maxmemory-policy allkeys-lru
+      --repl-diskless-sync yes
+      ; echo redis-replica-exited; exec sleep infinity'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    volumes:
+      - redis_replica_data:/data
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  redis-sentinel-1:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - cp /etc/redis/sentinel.conf.tpl /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf
+    volumes:
+      - ./infra/redis/sentinel-1.conf:/etc/redis/sentinel.conf.tpl:ro
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - cp /etc/redis/sentinel.conf.tpl /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf
+    volumes:
+      - ./infra/redis/sentinel-2.conf:/etc/redis/sentinel.conf.tpl:ro
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - cp /etc/redis/sentinel.conf.tpl /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf
+    volumes:
+      - ./infra/redis/sentinel-3.conf:/etc/redis/sentinel.conf.tpl:ro
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+
+  # Single stable endpoint for apps (control-api / edge / exporters).
+  redis-proxy:
+    image: haproxy:2.9-alpine
+    volumes:
+      - ./infra/redis/haproxy-redis-ha.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - backend
+    depends_on:
+      - redis
+      - redis-replica
+      - redis-sentinel-1
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+
+  # Point exporter / app defaults at the HA proxy when this overlay is used.
+  redis-exporter:
+    environment:
+      - REDIS_ADDR=redis://redis-proxy:6379
+    depends_on:
+      - redis-proxy
+
+volumes:
+  redis_replica_data:

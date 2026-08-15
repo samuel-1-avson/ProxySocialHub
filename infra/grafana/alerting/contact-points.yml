@@ -1,18 +1,10 @@
 apiVersion: 1
 
-# Provision default notification targets for edge-gateway alerts.
-# Configure delivery via GF_SMTP_* (email) or edit the webhook URL below.
+# Grafana → control-api → Slack/PD (same channels as treasury/journal alerts).
+# Token must match INTERNAL_ALERT_WEBHOOK_TOKEN (or GATEWAY_SHARED_SECRET fallback)
+# on control-api. Set the header value in Grafana UI after first boot if needed;
+# provisioning cannot safely embed live secrets here.
 contactPoints:
-  - orgId: 1
-    name: edge-gateway-ops-email
-    receivers:
-      - uid: edge-gateway-ops-email
-        type: email
-        disableResolveMessage: false
-        settings:
-          addresses: ops-alerts@proxyhubb.local
-        secureSettings: {}
-
   - orgId: 1
     name: edge-gateway-ops-webhook
     receivers:
@@ -23,4 +15,6 @@ contactPoints:
           url: http://control-api:8080/internal/alerts/webhook
           httpMethod: POST
           maxAlerts: 10
+          # Operators: after enable, set Authorization header in Grafana UI to
+          # Bearer <INTERNAL_ALERT_WEBHOOK_TOKEN>, or recreate contact point.
         secureSettings: {}
