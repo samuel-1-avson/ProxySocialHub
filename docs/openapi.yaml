@@ -53,10 +53,10 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
+  - url: https://api.proxyhubb.com
+    description: Public testnet / production Control API
   - url: http://localhost:8080
     description: Local development
-  - url: https://api.proxyhubb.com
-    description: Production
 
 tags:
   - name: Auth
@@ -113,6 +113,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WalletChallengeRequest'
+            example:
+              address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
       responses:
         '200':
           description: Challenge issued
@@ -120,6 +122,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WalletChallengeResponse'
+              example:
+                nonce: 9f3c2a1b0e8d7c6a
+                message: "ProxyHubb login\nAddress: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV\nNonce: 9f3c2a1b0e8d7c6a"
+                blockhash_backed: true
         '400':
           $ref: '#/components/responses/BadRequest'
 
@@ -134,6 +140,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WalletLoginRequest'
+            example:
+              address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+              signature: 5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjFvzjvY
+              nonce: 9f3c2a1b0e8d7c6a
       responses:
         '200':
           description: Wallet login successful
@@ -141,6 +151,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
+                expires_in: 3600
+                user:
+                  id: 11111111-2222-3333-4444-555555555555
+                  role: buyer
+                  status: active
+                  wallet_address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+                  trust_tier: standard
+                  verified: false
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -155,6 +176,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RefreshTokenRequest'
+            example:
+              refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
       responses:
         '200':
           description: Token refreshed
@@ -162,6 +185,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh2
+                expires_in: 3600
 
   /v1/auth/me:
     get:
@@ -177,6 +204,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+              example:
+                id: 11111111-2222-3333-4444-555555555555
+                role: buyer
+                status: active
+                display_name: alice
+                wallet_address: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
+                trust_tier: standard
+                verified: false
+                created_at: "2026-07-01T12:00:00Z"
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -277,6 +313,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSessionIntentRequest'
+            example:
+              type: rotating
+              target_geo: US
+              max_price_per_gb: 2.5
       responses:
         '200':
           description: Session intent issued
@@ -284,6 +324,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionIntentResponse'
+              example:
+                token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.intent.example
+                expires_at: "2026-08-04T18:30:00Z"
+                lifecycle_state: authorized
+                intent:
+                  intent_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                  session_type: rotating
+                  target_geo: US
 
   /v1/sessions/intents:
     get:
@@ -1537,10 +1585,12 @@ paths:
           in: query
           schema:
             type: string
+          example: US
         - name: isp
           in: query
           schema:
             type: string
+          example: Comcast
         - name: rotation_type
           in: query
           schema:
@@ -1565,6 +1615,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListingCollectionResponse'
+              example:
+                listings:
+                  - id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                    title: US residential rotating
+                    country: US
+                    proxy_type: residential
+                    price_per_gb: 1.25
+                    quality_score: 0.94
+                total: 42
+                page: 1
+                limit: 20
     post:
       tags: [Listings]
       summary: Create a new proxy marketplace listing
@@ -1966,9 +2027,23 @@ paths:
                 session_type: { type: string, enum: [rotating, sticky], default: rotating }
                 description: { type: string }
                 bytes_limit: { type: integer, default: 0, description: 0 = unlimited }
+            example:
+              name: scrapers
+              size: 5
+              session_type: rotating
+              description: Partner scrape pool
+              bytes_limit: 0
       responses:
         '200':
           description: Pool created
+          content:
+            application/json:
+              example:
+                id: 22222222-3333-4444-5555-666666666666
+                name: scrapers
+                size: 5
+                session_type: rotating
+                status: active
         '401':
           description: Unauthorized
     get:
@@ -1981,6 +2056,15 @@ paths:
       responses:
         '200':
           description: Pools for the authenticated account
+          content:
+            application/json:
+              example:
+                pools:
+                  - id: 22222222-3333-4444-5555-666666666666
+                    name: scrapers
+                    size: 5
+                    session_type: rotating
+                    status: active
 
   /v1/bulk/pools/{pool_id}:
     delete:
@@ -2086,9 +2170,20 @@ paths:
                 expires_at:
                   type: string
                   format: date-time
+            example:
+              name: partner-sandbox
+              scopes: orders:create
       responses:
         '201':
           description: Key created (plaintext returned once)
+          content:
+            application/json:
+              example:
+                id: 33333333-4444-5555-6666-777777777777
+                name: partner-sandbox
+                key: phub_0123456789abcdef0123456789abcdef
+                scopes: orders:create
+                created_at: "2026-08-04T17:00:00Z"
         '400':
           description: Invalid scopes or max keys reached
         '401':
@@ -2144,9 +2239,24 @@ paths:
                 session_type:
                   type: string
                   enum: [rotating, sticky]
+            example:
+              listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              bandwidth_gb: 1
+              session_type: rotating
       responses:
         '201':
           description: Order created (pending escrow unless sandbox flow)
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                  status: pending
+                  bandwidth_gb: 1
+                session:
+                  id: 55555555-6666-7777-8888-999999999999
+                  status: disabled
         '400':
           description: Validation or insufficient wallet balance
         '401':
@@ -2175,9 +2285,27 @@ paths:
               properties:
                 listing_id: { type: string, format: uuid }
                 bandwidth_gb: { type: number }
+            example:
+              listing_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              bandwidth_gb: 1
       responses:
         '201':
           description: Order active with proxy_credentials
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  status: active
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
+                sandbox: true
+                dev_escrow: true
         '404':
           description: Sandbox buy not enabled
 
@@ -2194,9 +2322,23 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+          example: 44444444-5555-6666-7777-888888888888
       responses:
         '200':
           description: Order activated with credentials
+          content:
+            application/json:
+              example:
+                order:
+                  id: 44444444-5555-6666-7777-888888888888
+                  status: active
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
         '404':
           description: Dev activate not enabled
 
@@ -2213,11 +2355,28 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+          example: 44444444-5555-6666-7777-888888888888
       responses:
         '200':
           description: Credentials
+          content:
+            application/json:
+              example:
+                proxy_credentials:
+                  username: order_user_abc
+                  password: order_pass_xyz
+                  host: proxy.proxyhubb.com
+                  port: 8090
+                  protocol: http
+                  endpoint: proxy.proxyhubb.com:8090
         '409':
           description: Order not yet active
+          content:
+            application/json:
+              example:
+                error: order_not_ready
+                message: Escrow or session is not active yet
+                retryable: true
 
   /v1/moderation/listings/pending:
     get:
@@ -2303,6 +2462,7 @@ paths:
           required: true
           schema:
             type: string
+          example: residential US
       responses:
         '200':
           description: Search results
@@ -2310,6 +2470,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListingSummaryCollectionResponse'
+              example:
+                listings:
+                  - id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+                    title: US residential rotating
+                    country: US
+                    proxy_type: residential
+                total: 1
 
   /v1/listings/{id}:
     get:
@@ -3719,6 +3886,7 @@ components:
         address:
           type: string
           description: Wallet address to challenge. Current backend flow verifies Solana Ed25519 signatures.
+          example: 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV
 
     WalletChallengeResponse:
       type: object
@@ -4058,23 +4226,29 @@ components:
           type: string
           enum: [rotating, sticky]
           default: rotating
+          example: rotating
         listing_id:
           type: string
           format: uuid
+          example: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
         bandwidth_limit:
           type: integer
           description: Requested bandwidth limit in bytes. The server caps this to the user's trust-tier allowance.
+          example: 1073741824
         target_geo:
           type: string
           description: Preferred target country code (ISO 3166-1 alpha-2)
+          example: US
         target_isp:
           type: string
+          example: Comcast
         routing_profile:
           type: string
         allowed_domains:
           type: array
           items:
             type: string
+          example: [httpbin.org, example.com]
         blocked_domains:
           type: array
           items:
@@ -4090,6 +4264,7 @@ components:
         max_price_per_gb:
           type: number
           format: float
+          example: 2.5
 
     SessionIntentResponse:
       type: object
