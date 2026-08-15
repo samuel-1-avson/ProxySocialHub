@@ -10,17 +10,22 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 )
 
 var (
 	discCreateProposal     = anchorDiscriminator("create_proposal")
 	discCastGovernanceVote = anchorDiscriminator("cast_governance_vote")
 	discFinalizeProposal   = anchorDiscriminator("finalize_proposal")
+	discExecuteProposal    = anchorDiscriminator("execute_proposal")
+	discEmergencyPause     = anchorDiscriminator("emergency_pause")
+	discEmergencyResume    = anchorDiscriminator("emergency_resume")
 )
 
 // CreateProposalParams holds parameters for creating a governance proposal.
@@ -355,4 +360,82 @@ func (c *OracleClient) ReadGovernanceVote(ctx context.Context, proposalPDA sol.P
 	v.VotingPower = binary.LittleEndian.Uint64(body[65:73])
 	v.VotedAt = int64(binary.LittleEndian.Uint64(body[73:81]))
 	return v, nil
+}
+
+// ExecuteProposalOnChain flips a passed proposal to executed after the on-chain
+// timelock. It does NOT move SOL — treasury spends stay pending_custody (W4.4).
+func (c *OracleClient) ExecuteProposalOnChain(ctx context.Context, proposalPDA sol.PublicKey) (string, error) {
+	admin := c.GetOraclePublicKey()
+	if admin.IsZero() {
+		return "", fmt.Errorf("ExecuteProposalOnChain: oracle/admin signer missing")
+	}
+	statePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
+	if err != nil {
+		return "", err
+	}
+	data := make([]byte, 8)
+	copy(data[0:8], discExecuteProposal[:])
+	ix := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: proposalPDA, IsSigner: false, IsWritable: true},
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
+			{PublicKey: admin, IsSigner: true, IsWritable: false},
+		},
+		data: data,
+	}
+	return c.sendInstructionAsPayer(ctx, ix, admin)
+}
+
+// EmergencyPauseOnChain invokes program emergency_pause. Wave 4.4: refused
+// unless PROXYHUB_OPS_ONCHAIN_PAUSE=true AND CONFIRM_ONCHAIN_PAUSE=1.
+func (c *OracleClient) EmergencyPauseOnChain(ctx context.Context) (string, error) {
+	if !decentralization.OpsOnchainPauseEnabled() {
+		return "", fmt.Errorf("on-chain pause disabled (PROXYHUB_OPS_ONCHAIN_PAUSE=false)")
+	}
+	if strings.TrimSpace(os.Getenv("CONFIRM_ONCHAIN_PAUSE")) != "1" {
+		return "", fmt.Errorf("on-chain pause requires CONFIRM_ONCHAIN_PAUSE=1")
+	}
+	admin := c.GetOraclePublicKey()
+	statePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
+	if err != nil {
+		return "", err
+	}
+	data := make([]byte, 8)
+	copy(data[0:8], discEmergencyPause[:])
+	ix := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: statePDA, IsSigner: false, IsWritable: true},
+			{PublicKey: admin, IsSigner: true, IsWritable: false},
+		},
+		data: data,
+	}
+	return c.sendInstructionAsPayer(ctx, ix, admin)
+}
+
+// EmergencyResumeOnChain resumes after on-chain pause (same confirm gates).
+func (c *OracleClient) EmergencyResumeOnChain(ctx context.Context) (string, error) {
+	if !decentralization.OpsOnchainPauseEnabled() {
+		return "", fmt.Errorf("on-chain resume disabled (PROXYHUB_OPS_ONCHAIN_PAUSE=false)")
+	}
+	if strings.TrimSpace(os.Getenv("CONFIRM_ONCHAIN_PAUSE")) != "1" {
+		return "", fmt.Errorf("on-chain resume requires CONFIRM_ONCHAIN_PAUSE=1")
+	}
+	admin := c.GetOraclePublicKey()
+	statePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
+	if err != nil {
+		return "", err
+	}
+	data := make([]byte, 8)
+	copy(data[0:8], discEmergencyResume[:])
+	ix := &GenericInstruction{
+		programID: c.programID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: statePDA, IsSigner: false, IsWritable: true},
+			{PublicKey: admin, IsSigner: true, IsWritable: false},
+		},
+		data: data,
+	}
+	return c.sendInstructionAsPayer(ctx, ix, admin)
 }

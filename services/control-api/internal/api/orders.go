@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/prices"
+	"github.com/proxyhubb/control-api/internal/proofs"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
@@ -625,9 +626,57 @@ func getOrderCredentials(c *gin.Context) {
 		Surface:   "api",
 	})
 
-	c.JSON(http.StatusOK, gin.H{
+	if err := session.DecryptCredentialsForGateway(); err != nil {
+		logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("credentials: decrypt for response")
+	}
+
+	resp := gin.H{
 		"proxy_credentials": buildProxyCredentialsResponse(&session),
-	})
+	}
+	if decentralization.CredentialProofEnabled() {
+		if art := proofs.BuildOrderCredentialArtifact(proofs.OrderCredentialPayload{
+			OrderID:      order.ID,
+			SessionID:    session.ID,
+			BuyerID:      order.BuyerID,
+			ListingID:    order.ListingID,
+			UsernameHash: proofs.HashCredentialsUsername(session.CredentialsUser),
+			IssuedAt:     time.Now().UTC().Unix(),
+			ExpiresAt:    time.Now().UTC().Add(24 * time.Hour).Unix(),
+		}, decentralization.CredentialProofMode()); art != nil {
+			resp["credential_proof"] = art
+			note := "platform HMAC over order/session/username_hash; Access Pass NFT unchanged"
+			switch decentralization.CredentialProofMode() {
+			case "enforce":
+				note += "; enforced at edge CONNECT for marketplace Redis sessions"
+			default:
+				note += "; observe-only (not enforced at CONNECT)"
+			}
+			resp["credential_proof_note"] = note
+		}
+	}
+	if decentralization.SessionCapabilityEnabled() {
+		var listing models.ProxyListing
+		_ = db.DB.First(&listing, "id = ?", order.ListingID)
+		wire, capErr := marketplacepkg.IssueSessionCapabilityToken(&order, &session, &listing)
+		if capErr != nil {
+			logging.Warn().Err(capErr).Str("order_id", order.ID.String()).Msg("credentials: session capability token")
+			if decentralization.SessionCapabilityEnforce() {
+				resp["session_capability_error"] = capErr.Error()
+			}
+		} else if wire != "" {
+			resp["session_capability"] = wire
+			resp["session_capability_note"] = "W7.C: present as CONNECT password (phubb1.…). Edge verifies locally; Redis session: optional. Remaining SPOF is the token issuer."
+			if decentralization.SessionCapabilityEnforce() {
+				if creds, ok := resp["proxy_credentials"].(gin.H); ok {
+					creds["legacy_password"] = session.CredentialsPass
+					creds["password"] = wire
+					resp["proxy_credentials"] = creds
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // getMyOrders returns the current user's purchases

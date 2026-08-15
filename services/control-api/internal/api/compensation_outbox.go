@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -140,6 +141,44 @@ func EnqueueEscrowSettleUsage(order *models.Order, source string, bandwidthUsedG
 		Msg("escrow settle outbox: enqueued after on-chain settle failure")
 }
 
+// EnqueueEscrowRefund records EmergencyRefund retry for jury buyer-wins (W1.2).
+func EnqueueEscrowRefund(order *models.Order, source, reason string) {
+	if order == nil || order.EscrowPDA == "" || order.BuyerWallet == "" {
+		return
+	}
+	ref := "escrow_refund:" + order.ID.String()
+	meta, _ := json.Marshal(escrowSettleMeta{
+		OrderID:     order.ID.String(),
+		EscrowPDA:   order.EscrowPDA,
+		BuyerWallet: order.BuyerWallet,
+		SellerWallet: order.SellerWallet,
+		Source:      source,
+	})
+	errMsg := reason
+	entry := models.CompensationOutbox{
+		Kind:        models.CompensationKindEscrowRefund,
+		UserID:      order.BuyerID,
+		AmountSOL:   order.AmountLockedSOL,
+		ReferenceID: ref,
+		Metadata:    string(meta),
+		Status:      models.CompensationStatusPending,
+		NextRetryAt: time.Now().UTC(),
+		LastError:   &errMsg,
+	}
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "kind"}, {Name: "reference_id"}},
+		DoNothing: true,
+	}).Create(&entry).Error; err != nil {
+		logging.Error(err).Str("order_id", order.ID.String()).Msg("escrow refund outbox: enqueue failed")
+		return
+	}
+	logging.Warn().
+		Str("order_id", order.ID.String()).
+		Str("escrow_pda", order.EscrowPDA).
+		Str("source", source).
+		Msg("escrow refund outbox: enqueued after jury buyer-wins on-chain failure")
+}
+
 // EnqueueP2PSettle records a durable forward on-chain settle after ledger commit (BE-10).
 func EnqueueP2PSettle(amountSOL float64, ref string, senderUserID, recipientUserID, senderWalletID, recipientWalletID uuid.UUID, senderAddr, recipientAddr string) {
 	if amountSOL <= 0 || ref == "" || senderAddr == "" || recipientAddr == "" {
@@ -190,6 +229,8 @@ func ApplyCompensationOutboxEntry(entry *models.CompensationOutbox) error {
 		return applyP2PSettle(entry)
 	case models.CompensationKindEscrowSettle:
 		return applyEscrowSettle(entry)
+	case models.CompensationKindEscrowRefund:
+		return applyEscrowRefund(entry)
 	default:
 		return fmt.Errorf("unknown compensation kind %q", entry.Kind)
 	}
@@ -282,6 +323,63 @@ func applyEscrowSettle(entry *models.CompensationOutbox) error {
 		}
 		return fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, "outbox.escrow_settle", map[string]interface{}{
 			"tx_signature": settleTxHash,
+		})
+	})
+}
+
+// applyEscrowRefund retries EmergencyRefund for jury buyer-wins (W1.2).
+func applyEscrowRefund(entry *models.CompensationOutbox) error {
+	var meta escrowSettleMeta
+	if err := json.Unmarshal([]byte(entry.Metadata), &meta); err != nil {
+		return fmt.Errorf("escrow_refund metadata: %w", err)
+	}
+	orderID, err := uuid.Parse(meta.OrderID)
+	if err != nil {
+		return fmt.Errorf("order_id: %w", err)
+	}
+	var order models.Order
+	if err := db.DB.First(&order, "id = ?", orderID).Error; err != nil {
+		return err
+	}
+	if order.Status == models.OrderStatusRefunded && order.TxSignature != "" {
+		return nil
+	}
+	oracle := solanaClient.GetOracle()
+	if oracle == nil {
+		return fmt.Errorf("oracle client not available")
+	}
+	if order.EscrowPDA == "" {
+		order.EscrowPDA = meta.EscrowPDA
+	}
+	if order.BuyerWallet == "" {
+		order.BuyerWallet = meta.BuyerWallet
+	}
+	buyerPub, err := sol.PublicKeyFromBase58(order.BuyerWallet)
+	if err != nil {
+		return fmt.Errorf("buyer wallet: %w", err)
+	}
+	escrowPDA, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	if err != nil {
+		return fmt.Errorf("escrow pda: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	txHash, txErr := oracle.EmergencyRefund(ctx, solanaClient.RefundEscrowParams{
+		Buyer:     buyerPub,
+		EscrowPDA: escrowPDA,
+	})
+	if txErr != nil {
+		return txErr
+	}
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&order, "id = ?", orderID).Error; err != nil {
+			return err
+		}
+		if order.Status == models.OrderStatusRefunded {
+			return tx.Model(&order).Update("tx_signature", txHash).Error
+		}
+		return fsm.TransitionOrder(tx, &order, models.OrderStatusRefunded, "outbox.escrow_refund", map[string]interface{}{
+			"tx_hash": txHash,
 		})
 	})
 }

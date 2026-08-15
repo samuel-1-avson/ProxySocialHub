@@ -97,3 +97,41 @@ func TestGetExpiredMiss(t *testing.T) {
 		t.Fatal("expected expired miss")
 	}
 }
+
+func TestDeleteExpired(t *testing.T) {
+	setupCacheTestDB(t)
+	now := time.Now().UTC()
+	raw, _ := json.Marshal(&redisClient.SessionData{SessionID: uuid.New().String(), Status: "active"})
+	expired := models.SessionGatewayCache{
+		CredentialsUserHash: HashUsername("reap-me"),
+		SessionID:           uuid.New(),
+		Payload:             datatypes.JSON(raw),
+		ExpiresAt:           now.Add(-time.Hour),
+		UpdatedAt:           now,
+	}
+	live := models.SessionGatewayCache{
+		CredentialsUserHash: HashUsername("keep-me"),
+		SessionID:           uuid.New(),
+		Payload:             datatypes.JSON(raw),
+		ExpiresAt:           now.Add(time.Hour),
+		UpdatedAt:           now,
+	}
+	if err := db.DB.Create(&expired).Error; err != nil {
+		t.Fatalf("create expired: %v", err)
+	}
+	if err := db.DB.Create(&live).Error; err != nil {
+		t.Fatalf("create live: %v", err)
+	}
+	n, err := DeleteExpired(now, 100)
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteExpired: n=%d err=%v", n, err)
+	}
+	if _, _, err := GetByUsername("keep-me"); err != nil {
+		t.Fatalf("live row should remain: %v", err)
+	}
+	var count int64
+	db.DB.Model(&models.SessionGatewayCache{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 row left, got %d", count)
+	}
+}

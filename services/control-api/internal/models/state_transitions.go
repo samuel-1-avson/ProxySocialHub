@@ -46,6 +46,10 @@ func (s ListingStatus) IsTerminal() bool {
 	return s == ListingStatusDeleted
 }
 
+func (s ListingStatus) IsPubliclyBrowsable() bool {
+	return s == ListingStatusActive
+}
+
 func CanTransitionListingStatus(from, to ListingStatus) bool {
 	if from == to {
 		return !from.IsTerminal()
@@ -54,13 +58,18 @@ func CanTransitionListingStatus(from, to ListingStatus) bool {
 	case "":
 		return to == ListingStatusActive || to == ListingStatusPendingReview || to == ListingStatusPaused
 	case ListingStatusPendingReview:
-		return to == ListingStatusActive || to == ListingStatusDeleted
+		// Wave 3.5: reject → delisted (appealable). Legacy deleted still allowed for force paths.
+		return to == ListingStatusActive || to == ListingStatusDelisted || to == ListingStatusDeleted
 	case ListingStatusActive:
-		return to == ListingStatusPaused || to == ListingStatusSoldOut || to == ListingStatusDeleted
+		return to == ListingStatusPaused || to == ListingStatusSoldOut || to == ListingStatusDelisted || to == ListingStatusDeleted
 	case ListingStatusPaused:
-		return to == ListingStatusActive || to == ListingStatusDeleted
+		return to == ListingStatusActive || to == ListingStatusDelisted || to == ListingStatusDeleted
 	case ListingStatusSoldOut:
-		return to == ListingStatusActive || to == ListingStatusDeleted
+		return to == ListingStatusActive || to == ListingStatusDelisted || to == ListingStatusDeleted
+	case ListingStatusDelisted:
+		return to == ListingStatusUnderAppeal || to == ListingStatusDeleted || to == ListingStatusActive
+	case ListingStatusUnderAppeal:
+		return to == ListingStatusActive || to == ListingStatusDeleted || to == ListingStatusDelisted
 	default:
 		return false
 	}

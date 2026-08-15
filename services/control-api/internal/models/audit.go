@@ -63,6 +63,10 @@ const (
 	AuditAdminAction          AuditEventType = "admin.action"
 	AuditAdminListingApproved AuditEventType = "admin.listing_approved"
 	AuditAdminListingRejected AuditEventType = "admin.listing_rejected"
+	AuditAdminListingDelisted AuditEventType = "admin.listing_delisted"
+	AuditListingAppealOpened  AuditEventType = "listing.appeal_opened"
+	AuditListingAppealUpheld  AuditEventType = "listing.appeal_upheld"
+	AuditListingAppealDenied  AuditEventType = "listing.appeal_denied"
 	AuditDisputeResolved      AuditEventType = "admin.dispute_resolved"
 
 	// Financial Events — P2-13: Comprehensive financial audit trail.

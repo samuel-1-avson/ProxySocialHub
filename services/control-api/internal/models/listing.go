@@ -16,6 +16,8 @@ const (
 	ListingStatusPendingReview ListingStatus = "pending_review"
 	ListingStatusPaused        ListingStatus = "paused"
 	ListingStatusSoldOut       ListingStatus = "sold_out"
+	ListingStatusDelisted      ListingStatus = "delisted"       // Wave 3.5 — rejected/delisted, appealable
+	ListingStatusUnderAppeal   ListingStatus = "under_appeal"   // Wave 3.5 — seller appeal open
 	ListingStatusDeleted       ListingStatus = "deleted"
 )
 
@@ -52,6 +54,12 @@ type ProxyListing struct {
 	ListingOfferVerified          bool       `gorm:"default:false" json:"listing_offer_verified"`
 	ListingOfferVerificationError string     `gorm:"type:text" json:"listing_offer_verification_error,omitempty"`
 	ListingOfferNonce             string     `gorm:"type:varchar(128)" json:"listing_offer_nonce,omitempty"`
+
+	// Wave 5.C.5 — on-chain listing commitment PDA mirror (offer-hash anchor; not full catalog).
+	ListingCommitmentPDA     string     `gorm:"type:varchar(64);not null;default:''" json:"listing_commitment_pda,omitempty"`
+	ListingCommitmentOnChain bool       `gorm:"not null;default:false;index" json:"listing_commitment_on_chain"`
+	ListingCommitmentTx      string     `gorm:"type:varchar(128);not null;default:''" json:"listing_commitment_tx,omitempty"`
+	ListingCommitmentAt      *time.Time `json:"listing_commitment_at,omitempty"`
 
 	// Targeting & Location
 	Country string `gorm:"size:50" json:"country"`
@@ -91,6 +99,12 @@ type ProxyListing struct {
 
 	// Optional catalog projection (API-only; set when include=product)
 	CatalogProduct *CatalogProductSummary `gorm:"-" json:"catalog_product,omitempty"`
+
+	// Wave 3.2 / DISC-01 discovery honesty (API-only enrich)
+	ProviderRegisteredOnChain *bool  `gorm:"-" json:"provider_registered_on_chain,omitempty"`
+	ProviderHasHotkey         *bool  `gorm:"-" json:"provider_has_hotkey,omitempty"`
+	RegistryLive              *bool  `gorm:"-" json:"registry_live,omitempty"`
+	RegistryHeartbeatAgeSecs  *int64 `gorm:"-" json:"registry_heartbeat_age_secs,omitempty"`
 }
 
 // TableName sets the table name for ProxyListing

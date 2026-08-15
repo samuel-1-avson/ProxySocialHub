@@ -114,3 +114,34 @@ func TestMerkleRoot_Deterministic(t *testing.T) {
 		t.Error("Merkle root is not deterministic for the same inputs")
 	}
 }
+
+func TestLeavesHash_DigestV2(t *testing.T) {
+	leaves := []ProofLeaf{
+		{SessionID: [16]byte{1}, TotalBytes: 100, BuyerSig: []byte("a"), ProviderSig: []byte("b")},
+		{SessionID: [16]byte{2}, TotalBytes: 200, BuyerSig: []byte("c"), ProviderSig: []byte("d")},
+	}
+	p := NewProver()
+	batch, err := p.GenerateBatchProof(leaves)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, err := LeavesHash(batch.LeafHashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum == ([32]byte{}) {
+		t.Fatal("zero leaves_hash")
+	}
+	// Order-sensitive: reverse must differ for distinct leaves.
+	rev := [][32]byte{batch.LeafHashes[1], batch.LeafHashes[0]}
+	sum2, err := LeavesHash(rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum == sum2 {
+		t.Fatal("leaves_hash should depend on order")
+	}
+	if _, err := LeavesHash(nil); err == nil {
+		t.Fatal("expected error for empty leaves")
+	}
+}

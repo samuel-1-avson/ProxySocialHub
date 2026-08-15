@@ -23,6 +23,8 @@ const (
 	ListingPendingReview ListingStatus = "pending_review"
 	ListingPaused        ListingStatus = "paused"
 	ListingSoldOut       ListingStatus = "sold_out"
+	ListingDelisted      ListingStatus = "delisted"
+	ListingUnderAppeal   ListingStatus = "under_appeal"
 	ListingDeleted       ListingStatus = "deleted"
 )
 
@@ -74,6 +76,10 @@ type ListingEntity struct {
 	ListingOfferVerified bool
 	ListingOfferVerificationError string
 	ListingOfferNonce    string
+	ListingCommitmentPDA     string
+	ListingCommitmentOnChain bool
+	ListingCommitmentTx      string
+	ListingCommitmentAt      *time.Time
 	Title                string
 	Description          string
 	ProxyType            ProxyType

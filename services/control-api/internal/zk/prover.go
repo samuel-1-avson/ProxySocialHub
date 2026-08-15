@@ -29,6 +29,7 @@ package zk
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -171,4 +172,31 @@ func merkleRoot(hashes [][32]byte) [32]byte {
 		level = next
 	}
 	return level[0]
+}
+
+// LeavesHash is SHA256(leaf_0 ‖ … ‖ leaf_n-1) for Wave 5.A Groth16 digest-v2.
+// Order must match BatchProof.LeafHashes / aggregator leaf construction.
+func LeavesHash(leafHashes [][32]byte) ([32]byte, error) {
+	if len(leafHashes) == 0 {
+		return [32]byte{}, fmt.Errorf("LeavesHash: empty leaf set")
+	}
+	h := sha256.New()
+	for _, leaf := range leafHashes {
+		h.Write(leaf[:])
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	if out == ([32]byte{}) {
+		return out, fmt.Errorf("LeavesHash: unexpected zero hash")
+	}
+	return out, nil
+}
+
+// LeavesHashHex returns hex-encoded LeavesHash for prover HTTP APIs.
+func LeavesHashHex(leafHashes [][32]byte) (string, error) {
+	sum, err := LeavesHash(leafHashes)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum[:]), nil
 }
