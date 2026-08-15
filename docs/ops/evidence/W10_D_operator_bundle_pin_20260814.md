@@ -29,6 +29,12 @@ operator_org_diversity=same_org
 Postgres remains the merchandising catalog. The pin is a reconstruct cache,
 not global discovery.
 
+## Follow-up
+
+The rows pinned here were **unsigned** (`verify` failed, `list` worked).
+Signed 2026-08-15:
+[`W6_B_operator_manifest_signed_20260815.md`](W6_B_operator_manifest_signed_20260815.md).
+
 ## Non-claims
 
 - Host-B still `same_org` (not W7.D)

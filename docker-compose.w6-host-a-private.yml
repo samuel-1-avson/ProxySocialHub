@@ -19,6 +19,10 @@ services:
       - GATEWAY_OP_A_PEER_URLS=${GATEWAY_OP_A_PEER_URLS:-}
       - GATEWAY_OP_B_PEER_URLS=${GATEWAY_OP_B_PEER_URLS:-edge-a@http://edge-gateway-a:8090}
       - PROXYHUB_OPERATOR_MANIFEST=${PROXYHUB_OPERATOR_MANIFEST:-observe}
+      # Seeds live only in the host .env. Without them the seeded rows are
+      # unsigned and the pinned discovery bundle cannot be verified offline.
+      - GATEWAY_OP_A_SIGNING_KEY=${GATEWAY_OP_A_SIGNING_KEY:-}
+      - GATEWAY_OP_B_SIGNING_KEY=${GATEWAY_OP_B_SIGNING_KEY:-}
 
   redis:
     ports:

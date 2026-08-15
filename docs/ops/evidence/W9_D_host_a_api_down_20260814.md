@@ -49,6 +49,10 @@ unsigned W10.D pin. Trap restored the API. Script then **lists** the pin
 (count≥1) and **verifies** listing + settlement only. Slash env was not
 touched. `live_economic_slash` stays false.
 
+The pin was signed on 2026-08-15
+([`W6_B_operator_manifest_signed_20260815.md`](W6_B_operator_manifest_signed_20260815.md)),
+so a re-run of this soak can now `verify` the operator bundle too.
+
 ## Honesty
 
 `catalog_source=bundle` for CLI reconstruct  
