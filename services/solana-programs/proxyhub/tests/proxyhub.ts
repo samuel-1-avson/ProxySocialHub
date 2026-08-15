@@ -322,6 +322,92 @@ describe("proxyhub", () => {
       const mso = await programAccounts.multiSigOracle.fetch(msoPda);
       expect(mso.threshold).to.equal(2);
     });
+
+    // BC-06: settle bumps multisig.nonce so settlement messages cannot be replayed.
+    it("bumps multisig nonce after settle_escrow_multisig (BC-06)", async () => {
+      const [msoPda] = findMultiSigOracle();
+      const [programStatePda] = findProgramState();
+      const [priceOraclePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("price_oracle")],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .initializePriceOracle(new BN(1), new BN(1), new BN(1))
+          .accounts({
+            priceOracle: priceOraclePda,
+            authority: admin.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch {
+        // already initialized by another suite
+      }
+
+      const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+      const [escrowPda] = findEscrow(buyer.publicKey, seller.publicKey, expiresAt);
+      const amount = new BN(0.05 * LAMPORTS_PER_SOL);
+      const limitGb = new BN(10);
+
+      await program.methods
+        .initializeEscrowMultisig(amount, limitGb, new BN(expiresAt))
+        .accounts({
+          escrow: escrowPda,
+          buyer: buyer.publicKey,
+          seller: seller.publicKey,
+          programState: programStatePda,
+          priceOracle: priceOraclePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer])
+        .rpc();
+
+      const before = await programAccounts.multiSigOracle.fetch(msoPda);
+      const nonceBefore = before.nonce.toNumber();
+      const usage = 10;
+
+      const msg = Buffer.from(
+        `settle:${escrowPda.toBase58()}:${buyer.publicKey.toBase58()}:${seller.publicKey.toBase58()}:${usage}:${nonceBefore}`
+      );
+      const edIx1 = Ed25519Program.createInstructionWithPrivateKey({
+        privateKey: oracle1.secretKey,
+        message: msg,
+      });
+      const edIx2 = Ed25519Program.createInstructionWithPrivateKey({
+        privateKey: oracle2.secretKey,
+        message: msg,
+      });
+
+      const nonceBuf = Buffer.alloc(8);
+      nonceBuf.writeBigUInt64LE(BigInt(nonceBefore));
+      const [oracleSigPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("oracle_sig"), escrowPda.toBuffer(), nonceBuf],
+        program.programId
+      );
+
+      await program.methods
+        .settleEscrowMultisig(new BN(usage), [oracle1.publicKey, oracle2.publicKey])
+        .accounts({
+          escrow: escrowPda,
+          buyer: buyer.publicKey,
+          seller: seller.publicKey,
+          multisigOracle: msoPda,
+          oracleSignature: oracleSigPda,
+          payer: admin.publicKey,
+          programState: programStatePda,
+          systemProgram: SystemProgram.programId,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .preInstructions([edIx1, edIx2])
+        .rpc();
+
+      const after = await programAccounts.multiSigOracle.fetch(msoPda);
+      expect(after.nonce.toNumber()).to.equal(nonceBefore + 1);
+
+      const escrow = await programAccounts.escrow.fetch(escrowPda);
+      expect(escrow.status).to.deep.include({ settled: {} });
+    });
   });
 
   // =========================================================================
@@ -382,12 +468,12 @@ describe("proxyhub", () => {
         .rpc();
 
       const proposal = await programAccounts.governanceProposal.fetch(proposalPda);
-      expect(proposal.voteYes.toNumber()).to.equal(1000);
+      expect(proposal.voteYes.toNumber()).to.equal(1);
       expect(proposal.voteNo.toNumber()).to.equal(0);
 
       const vote = await programAccounts.governanceVote.fetch(votePda);
       expect(vote.voteYes).to.be.true;
-      expect(vote.votingPower.toNumber()).to.equal(1000);
+      expect(vote.votingPower.toNumber()).to.equal(1);
     });
 
     it("casts a no vote from different voter", async () => {
@@ -407,8 +493,8 @@ describe("proxyhub", () => {
         .rpc();
 
       const proposal = await programAccounts.governanceProposal.fetch(proposalPda);
-      expect(proposal.voteYes.toNumber()).to.equal(1000);
-      expect(proposal.voteNo.toNumber()).to.equal(500);
+      expect(proposal.voteYes.toNumber()).to.equal(1);
+      expect(proposal.voteNo.toNumber()).to.equal(1);
     });
 
     it("prevents duplicate votes from same voter", async () => {
@@ -559,12 +645,38 @@ describe("proxyhub", () => {
           attestation: attestPda,
           oracle: admin.publicKey,
           systemProgram: SystemProgram.programId,
+          programState: programStatePda,
         })
         .rpc();
 
       const attest = await programAccounts.kycAttestation.fetch(attestPda);
       expect(attest.trustTier).to.equal(1);
       expect(attest.kycStatus).to.equal(2);
+    });
+
+    it("rejects non-admin oracle (BC-05)", async () => {
+      const impostor = Keypair.generate();
+      await airdrop(impostor.publicKey, 2);
+
+      const target = Keypair.generate().publicKey;
+      const [attestPda] = findKYCAttestation(target);
+      const [programStatePda] = findProgramState();
+
+      try {
+        await program.methods
+          .writeKycAttestation(target, 1, 2)
+          .accounts({
+            attestation: attestPda,
+            oracle: impostor.publicKey,
+            systemProgram: SystemProgram.programId,
+            programState: programStatePda,
+          })
+          .signers([impostor])
+          .rpc();
+        expect.fail("Should have failed - non-admin cannot write KYC attestation");
+      } catch (err: any) {
+        expect(err.toString()).to.match(/AddressConstraint|ConstraintAddress|Unauthorized|0x7d2|custom program error/i);
+      }
     });
   });
 
@@ -635,6 +747,38 @@ describe("proxyhub", () => {
 
       const proof = await programAccounts.usageProofRecord.fetch(proofPda);
       expect(proof.totalBytes.toNumber()).to.equal(500_000_000);
+    });
+
+    it("rejects non-admin oracle (BC-05)", async () => {
+      const impostor = Keypair.generate();
+      await airdrop(impostor.publicKey, 2);
+
+      const [programStatePda] = findProgramState();
+      const dummyEscrow = Keypair.generate();
+      const [proofPda] = findUsageProof(dummyEscrow.publicKey, 1);
+
+      try {
+        await program.methods
+          .submitUsageProof(
+            1,
+            new BN(1000),
+            new BN(1700000000),
+            new BN(1700001800)
+          )
+          .accounts({
+            oracle: impostor.publicKey,
+            escrow: dummyEscrow.publicKey,
+            usageProof: proofPda,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+            systemProgram: SystemProgram.programId,
+            programState: programStatePda,
+          })
+          .signers([impostor])
+          .rpc();
+        expect.fail("Should have failed - non-admin cannot submit usage proof");
+      } catch (err: any) {
+        expect(err.toString()).to.match(/AddressConstraint|ConstraintAddress|Unauthorized|0x7d2|custom program error/i);
+      }
     });
   });
 });

@@ -1,6 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
+#[cfg(feature = "onchain-groth16")]
+mod groth16_batch;
+#[cfg(feature = "onchain-groth16")]
+mod groth16_vk_generated;
+
 declare_id!("AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu");
 
 // =============================================================================
@@ -63,6 +68,18 @@ pub enum EscrowError {
     InvalidVaultDestination,
     #[msg("Deposit vault hot treasury cannot be default pubkey")]
     InvalidHotTreasury,
+    /// Program built without Cargo feature `onchain-groth16`.
+    #[msg("On-chain Groth16 batch submit is disabled (build without onchain-groth16)")]
+    OnchainGroth16Disabled,
+    /// Reserved: legacy fail-closed stub (BC-11-B now verifies when feature is on).
+    #[msg("Groth16 on-chain verifier not ready — refusing to write ZKBatchPDA")]
+    Groth16VerifierNotReady,
+    #[msg("Groth16 proof verification failed")]
+    Groth16VerificationFailed,
+    #[msg("Groth16 verifying-key hash mismatch")]
+    Groth16VkHashMismatch,
+    #[msg("Groth16 proof account must be 256 bytes (A||B||C)")]
+    Groth16InvalidProofAccount,
 }
 
 // =============================================================================
@@ -507,6 +524,33 @@ impl ProviderRegistry {
         1 +  // is_active
         8 +  // registered_at
         8 +  // last_heartbeat
+        1;   // bump
+}
+
+/// ListingCommitment — on-chain anchor of an off-chain Ed25519 listing offer hash.
+///
+/// PDA seeds: ["listing-commitment", provider_pubkey, offer_hash]
+///
+/// This is **not** a full on-chain catalog. Merchandising (title/media/search)
+/// remains Postgres. The PDA only proves the offer hash was registered on-chain.
+#[account]
+#[derive(Default)]
+pub struct ListingCommitment {
+    pub provider: Pubkey,
+    pub offer_hash: [u8; 32],
+    pub listing_id: [u8; 16],
+    pub is_active: bool,
+    pub registered_at: i64,
+    pub bump: u8,
+}
+
+impl ListingCommitment {
+    pub const LEN: usize = 8 + // discriminator
+        32 + // provider
+        32 + // offer_hash
+        16 + // listing_id
+        1 +  // is_active
+        8 +  // registered_at
         1;   // bump
 }
 
@@ -1042,6 +1086,21 @@ pub struct ProviderHeartbeatEvent {
     pub provider: Pubkey,
     pub quality_score: u8,
     pub last_heartbeat: i64,
+}
+
+#[event]
+pub struct ListingCommitmentRegistered {
+    pub commitment: Pubkey,
+    pub provider: Pubkey,
+    pub offer_hash: [u8; 32],
+    pub listing_id: [u8; 16],
+}
+
+#[event]
+pub struct ListingCommitmentDeactivated {
+    pub commitment: Pubkey,
+    pub provider: Pubkey,
+    pub offer_hash: [u8; 32],
 }
 
 #[event]
@@ -2598,6 +2657,70 @@ pub mod proxyhub {
     }
 
     // =========================================================================
+    // LISTING COMMITMENT (Wave 5.C.5)
+    //
+    // Anchors an off-chain listing_offer_hash on-chain. Not a full catalog PDA.
+    // PDA seeds: ["listing-commitment", provider_pubkey, offer_hash].
+    // Oracle pays rent (same pattern as ProviderRegistry).
+    // =========================================================================
+
+    /// Register a listing offer-hash commitment PDA.
+    pub fn register_listing_commitment(
+        ctx: Context<RegisterListingCommitment>,
+        provider: Pubkey,
+        offer_hash: [u8; 32],
+        listing_id: [u8; 16],
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
+        require!(offer_hash != [0u8; 32], EscrowError::InvalidStatus);
+
+        let commitment = &mut ctx.accounts.listing_commitment;
+        let clock = Clock::get()?;
+
+        commitment.provider = provider;
+        commitment.offer_hash = offer_hash;
+        commitment.listing_id = listing_id;
+        commitment.is_active = true;
+        commitment.registered_at = clock.unix_timestamp;
+        commitment.bump = ctx.bumps.listing_commitment;
+
+        emit!(ListingCommitmentRegistered {
+            commitment: commitment.key(),
+            provider,
+            offer_hash,
+            listing_id,
+        });
+
+        msg!("Listing commitment registered for provider {}", provider);
+        Ok(())
+    }
+
+    /// Mark a listing commitment inactive (delist / supersede). Does not close the account.
+    pub fn deactivate_listing_commitment(
+        ctx: Context<DeactivateListingCommitment>,
+        _provider: Pubkey,
+        _offer_hash: [u8; 32],
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
+
+        let commitment = &mut ctx.accounts.listing_commitment;
+        commitment.is_active = false;
+
+        emit!(ListingCommitmentDeactivated {
+            commitment: commitment.key(),
+            provider: commitment.provider,
+            offer_hash: commitment.offer_hash,
+        });
+
+        msg!("Listing commitment deactivated");
+        Ok(())
+    }
+
+    // =========================================================================
     // KYC ATTESTATION
     // =========================================================================
 
@@ -3255,6 +3378,110 @@ pub mod proxyhub {
     }
 
     // =========================================================================
+    // ZK BATCH — Groth16 on-chain path (BC-11-B)
+    //
+    // With Cargo feature `onchain-groth16`:
+    //   1. Require vk_hash == embedded batch VK hash
+    //   2. Bind public input = Fr(SHA256(root‖count‖bytes‖window))
+    //   3. Verify BN254 Groth16 via alt_bn128 (groth16-solana)
+    //   4. Init ZKBatchPDA (same seeds as submit_zk_batch)
+    //
+    // Without the feature: always errors (OnchainGroth16Disabled).
+    // Control-api still gates live sends behind PROXYHUB_ZK_ONCHAIN_GROTH16_READY.
+    // See docs/ops/BC11_GROTH16_PATH.md.
+    // =========================================================================
+    pub fn submit_zk_batch_groth16(
+        ctx: Context<SubmitZKBatchGroth16>,
+        batch_root: [u8; 32],
+        session_count: u32,
+        total_bytes: u64,
+        period_start: i64,
+        period_end: i64,
+        leaves_hash: [u8; 32],
+        proof_hash: [u8; 32],
+        vk_hash: [u8; 32],
+        proof: [u8; 256],
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.oracle.key() == state.admin, EscrowError::Unauthorized);
+        require!(session_count > 0, EscrowError::InsufficientFunds);
+        require!(total_bytes > 0, EscrowError::InsufficientFunds);
+        require!(batch_root != [0u8; 32], EscrowError::InvalidStatus);
+        require!(leaves_hash != [0u8; 32], EscrowError::InvalidStatus);
+        require!(proof_hash != [0u8; 32], EscrowError::InvalidSignatureVerification);
+
+        #[cfg(not(feature = "onchain-groth16"))]
+        {
+            let _ = (period_start, period_end, leaves_hash, vk_hash, proof, &ctx);
+            msg!("submit_zk_batch_groth16: DISABLED (build without onchain-groth16)");
+            return err!(EscrowError::OnchainGroth16Disabled);
+        }
+
+        #[cfg(feature = "onchain-groth16")]
+        {
+            require!(
+                vk_hash == groth16_batch::expected_vk_hash(),
+                EscrowError::Groth16VkHashMismatch
+            );
+            let vk_acct = ctx.accounts.groth16_vk.try_borrow_data()?;
+            // Exact 32-byte pin account only — longer accounts (e.g. program_state
+            // used as a inert placeholder) are ignored; ix vk_hash still binds.
+            if vk_acct.len() == 32 {
+                require!(
+                    vk_acct[..] == groth16_batch::expected_vk_hash(),
+                    EscrowError::Groth16VkHashMismatch
+                );
+            }
+            drop(vk_acct);
+
+            // Prefer ix `proof` bytes; fall back to 256-byte proof account data.
+            let proof_bytes: [u8; 256] = {
+                let acct = ctx.accounts.groth16_proof.try_borrow_data()?;
+                if acct.len() == groth16_batch::PROOF_LEN {
+                    let mut b = [0u8; 256];
+                    b.copy_from_slice(&acct);
+                    b
+                } else {
+                    proof
+                }
+            };
+
+            let public_input = groth16_batch::batch_digest_public_input(
+                &batch_root,
+                session_count,
+                total_bytes,
+                period_start,
+                period_end,
+                &leaves_hash,
+            );
+            groth16_batch::verify_batch_proof(&proof_bytes, &public_input)
+                .map_err(|_| error!(EscrowError::Groth16VerificationFailed))?;
+
+            let batch = &mut ctx.accounts.zk_batch;
+            let clock = Clock::get()?;
+            batch.batch_root = batch_root;
+            batch.session_count = session_count;
+            batch.total_bytes = total_bytes;
+            batch.period_start = period_start;
+            batch.period_end = period_end;
+            batch.submitted_at = clock.unix_timestamp;
+            batch.proof_hash = proof_hash;
+            batch.bump = ctx.bumps.zk_batch;
+
+            msg!(
+                "submit_zk_batch_groth16: OK root={:?} sessions={} bytes={} window=[{},{}]",
+                batch_root,
+                session_count,
+                total_bytes,
+                period_start,
+                period_end
+            );
+            Ok(())
+        }
+    }
+
+    // =========================================================================
     // STATE CHANNEL — Layer 2 groundwork
     //
     // open_channel:  buyer locks SOL into a PDA vault for off-chain micropayments.
@@ -3563,6 +3790,42 @@ pub struct DeregisterProvider<'info> {
     )]
     pub provider_registry: Account<'info, ProviderRegistry>,
     /// Oracle must be the current program admin.
+    #[account(address = program_state.admin)]
+    pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// Listing commitment contexts — oracle signs mutations.
+// PDA seeds: ["listing-commitment", provider_pubkey, offer_hash]
+
+#[derive(Accounts)]
+#[instruction(provider: Pubkey, offer_hash: [u8; 32])]
+pub struct RegisterListingCommitment<'info> {
+    #[account(
+        init,
+        payer = oracle,
+        space = ListingCommitment::LEN,
+        seeds = [b"listing-commitment", provider.as_ref(), offer_hash.as_ref()],
+        bump
+    )]
+    pub listing_commitment: Account<'info, ListingCommitment>,
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider: Pubkey, offer_hash: [u8; 32])]
+pub struct DeactivateListingCommitment<'info> {
+    #[account(
+        mut,
+        seeds = [b"listing-commitment", provider.as_ref(), offer_hash.as_ref()],
+        bump = listing_commitment.bump,
+    )]
+    pub listing_commitment: Account<'info, ListingCommitment>,
     #[account(address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
@@ -4262,6 +4525,30 @@ pub struct SubmitZKBatch<'info> {
     /// CHECK: Instructions sysvar account for precompile verification
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions: AccountInfo<'info>,
+}
+
+/// BC-11-B Groth16 submit accounts.
+/// Proof verify runs in the handler; on success `zk_batch` is initialized.
+/// Without feature `onchain-groth16` the handler errors (tx rolls back init).
+#[derive(Accounts)]
+#[instruction(batch_root: [u8; 32])]
+pub struct SubmitZKBatchGroth16<'info> {
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+    #[account(
+        init, payer = oracle,
+        space = ZKBatchPDA::LEN,
+        seeds = [b"zk_batch", batch_root.as_ref()],
+        bump
+    )]
+    pub zk_batch: Account<'info, ZKBatchPDA>,
+    pub system_program: Program<'info, System>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    /// CHECK: optional 256-byte proof account; if len!=256, ix `proof` arg is used.
+    pub groth16_proof: AccountInfo<'info>,
+    /// CHECK: optional 32-byte VK_HASH pin (else inert placeholder).
+    pub groth16_vk: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]

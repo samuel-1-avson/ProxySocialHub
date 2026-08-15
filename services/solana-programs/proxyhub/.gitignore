@@ -1,6 +1,7 @@
 .anchor
 .DS_Store
 target
+target-linux-w9a
 **/*.rs.bk
 node_modules
 test-ledger
