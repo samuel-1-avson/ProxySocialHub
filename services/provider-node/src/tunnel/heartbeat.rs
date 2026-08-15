@@ -257,25 +257,29 @@ impl HeartbeatManager {
         let timestamp = chrono_timestamp();
         let latency_ms = snap.latency_ms.min(i32::MAX as u64) as i32;
         let uptime_percent = 100.0_f64;
-        let proof = self.provider_signer.as_ref().and_then(|signer| {
-            if self.api_node_id.trim().is_empty() {
-                return None;
-            }
-            Some(signer.sign_heartbeat(HeartbeatPayload {
-                provider_node_id: &self.api_node_id,
+        // Prefer Control API UUID; fall back to gateway runtime id so signed
+        // heartbeats are not skipped when provider.toml omits node_id (enforce mode).
+        let provider_node_id = if self.api_node_id.trim().is_empty() {
+            self.node_id.as_str()
+        } else {
+            self.api_node_id.as_str()
+        };
+        let proof = self.provider_signer.as_ref().map(|signer| {
+            signer.sign_heartbeat(HeartbeatPayload {
+                provider_node_id,
                 gateway_node_id: &self.node_id,
                 latency_ms,
                 active_connections: self.stats.active_connections(),
                 uptime_percent,
                 issued_at: timestamp,
-            }))
+            })
         });
 
         HeartbeatMessage {
             node_id: self.node_id.clone(),
             provider_run_id: self.provider_run_id.clone(),
             timestamp,
-            provider_node_id: self.api_node_id.clone(),
+            provider_node_id: provider_node_id.to_string(),
             latency_ms,
             active_connections: self.stats.active_connections(),
             bandwidth_usage: BandwidthUsage {
