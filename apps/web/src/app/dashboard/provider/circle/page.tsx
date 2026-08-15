@@ -5,22 +5,22 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     CircleDot,
-    Wifi,
     Coins,
     Users,
-    TrendingUp,
     Plus,
-    Minus,
     Loader2,
     AlertCircle,
     CheckCircle,
     PieChart,
     ArrowRight,
-    ChevronDown,
     Zap,
     ShieldCheck,
     Globe,
-    Activity
+    Activity,
+    Search,
+    Lock,
+    X,
+    Compass,
 } from "lucide-react";
 import {
     getCircles,
@@ -29,11 +29,15 @@ import {
     claimCircleRevenue,
     contributeBandwidth,
     circlePoolingKeys,
-    getUtilizationColor,
     getUtilizationLabel,
     type CirclePoolStatus,
-    type Circle,
 } from "@/lib/api/circlePooling";
+import {
+    getCircles as getBrowsableCircles,
+    createCircle,
+    joinCircle,
+    type Circle as BrowsableCircle,
+} from "@/lib/api/circles";
 import { useNotificationStore } from "@/stores";
 import { GlassCard } from "@/components/ui/glass-card";
 
@@ -62,6 +66,7 @@ export default function CirclePoolingPage() {
     const queryClient = useQueryClient();
     const [selectedCircleId, setSelectedCircleId] = useState<string | null>(null);
     const [contributeModalOpen, setContributeModalOpen] = useState(false);
+    const [browseModalOpen, setBrowseModalOpen] = useState(false);
 
     // Fetch user's circles
     const { data: circles = [], isLoading: circlesLoading } = useQuery({
@@ -133,6 +138,12 @@ export default function CirclePoolingPage() {
         },
     });
 
+    const handleCircleReady = (circleId: string) => {
+        setSelectedCircleId(circleId);
+        setBrowseModalOpen(false);
+        queryClient.invalidateQueries({ queryKey: circlePoolingKeys.circles() });
+    };
+
     const loading = circlesLoading || poolLoading || revenueLoading;
 
     if (loading && circles.length === 0) {
@@ -153,17 +164,30 @@ export default function CirclePoolingPage() {
                 className="space-y-8 pb-20"
             >
                 <motion.div variants={itemVariants} className="text-center py-20">
-                    <GlassCard className="inline-block p-16 border-dashed border-white/10 opacity-50">
+                    <GlassCard className="inline-block p-16 border-dashed border-border">
                         <CircleDot size={48} className="mx-auto mb-6 text-muted-foreground animate-pulse" />
                         <h3 className="text-[11px] font-black font-mono uppercase mb-2">No Active Circles Detected</h3>
-                        <p className="text-[9px] font-mono uppercase max-w-xs mx-auto font-black leading-relaxed mb-8">
+                        <p className="text-[9px] font-mono uppercase max-w-xs mx-auto font-black leading-relaxed mb-8 text-muted-foreground">
                             Join a cryptographic pooling circle to start distributing enterprise bandwidth.
                         </p>
-                        <button className="px-8 py-3 bg-primary text-primary-foreground rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 mx-auto">
-                            <Plus size={14} /> Browse Circles
+                        <button
+                            onClick={() => setBrowseModalOpen(true)}
+                            className="px-8 py-3 bg-primary text-primary-foreground rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 mx-auto"
+                        >
+                            <Compass size={14} /> Browse Circles
                         </button>
                     </GlassCard>
                 </motion.div>
+
+                <AnimatePresence>
+                    {browseModalOpen && (
+                        <CircleBrowseModal
+                            onClose={() => setBrowseModalOpen(false)}
+                            existingCircleIds={circles.map((c) => c.id)}
+                            onCircleReady={handleCircleReady}
+                        />
+                    )}
+                </AnimatePresence>
             </motion.div>
         );
     }
@@ -176,7 +200,7 @@ export default function CirclePoolingPage() {
             className="space-y-12 pb-20"
         >
             {/* Header Section */}
-            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
+            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border pb-8">
                 <div>
                     <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
                         <Activity size={12} className="animate-pulse" /> Revenue Distribution Network
@@ -187,20 +211,26 @@ export default function CirclePoolingPage() {
                 </div>
                 <div className="flex flex-wrap gap-4">
                     {circles.length > 1 && (
-                        <div className="bg-white/5 p-1 rounded-xl border border-white/10 flex items-center">
+                        <div className="bg-muted p-1 rounded-xl border border-border flex items-center">
                             <select
                                 value={selectedCircleId || ""}
                                 onChange={(e) => setSelectedCircleId(e.target.value)}
                                 className="bg-transparent border-0 outline-none px-4 py-2 font-mono text-[10px] font-black uppercase tracking-widest"
                             >
                                 {circles.map((circle) => (
-                                    <option key={circle.id} value={circle.id} className="bg-[#09090b]">
+                                    <option key={circle.id} value={circle.id} className="bg-background text-foreground">
                                         {circle.name}
                                     </option>
                                 ))}
                             </select>
                         </div>
                     )}
+                    <button
+                        onClick={() => setBrowseModalOpen(true)}
+                        className="px-6 py-3 bg-muted border border-border rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:bg-muted-foreground/10 transition-all flex items-center gap-2"
+                    >
+                        <Compass size={14} /> Browse Circles
+                    </button>
                     <button
                         onClick={() => setContributeModalOpen(true)}
                         className="px-6 py-3 bg-primary text-primary-foreground rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
@@ -445,6 +475,13 @@ export default function CirclePoolingPage() {
                         poolStatus={poolStatus}
                     />
                 )}
+                {browseModalOpen && (
+                    <CircleBrowseModal
+                        onClose={() => setBrowseModalOpen(false)}
+                        existingCircleIds={circles.map((c) => c.id)}
+                        onCircleReady={handleCircleReady}
+                    />
+                )}
             </AnimatePresence>
         </motion.div>
     );
@@ -522,6 +559,254 @@ function ContributeModal({ onClose, onSubmit, isSubmitting, poolStatus }: Contri
                             </button>
                         </div>
                     </div>
+                </GlassCard>
+            </motion.div>
+        </motion.div>
+    );
+}
+
+interface CircleBrowseModalProps {
+    onClose: () => void;
+    existingCircleIds: string[];
+    onCircleReady: (circleId: string) => void;
+}
+
+function CircleBrowseModal({ onClose, existingCircleIds, onCircleReady }: CircleBrowseModalProps) {
+    const { addNotification } = useNotificationStore();
+    const [tab, setTab] = useState<"browse" | "create">("browse");
+    const [form, setForm] = useState({ name: "", description: "", visibility: "public" as "public" | "private" });
+
+    const { data: browsableCircles = [], isLoading: browseLoading, error: browseError } = useQuery({
+        queryKey: ["circles-browse-public"],
+        queryFn: getBrowsableCircles,
+    });
+
+    const joinMutation = useMutation({
+        mutationFn: (circleId: string) => joinCircle(circleId),
+        onSuccess: (_data, circleId) => {
+            addNotification({
+                type: "success",
+                title: "CIRCLE JOINED",
+                message: "You now have access to this pool.",
+            });
+            onCircleReady(circleId);
+        },
+        onError: (error: Error) => {
+            addNotification({ type: "error", title: "JOIN FAILED", message: error.message });
+        },
+    });
+
+    const createMutation = useMutation({
+        mutationFn: () =>
+            createCircle({
+                name: form.name.trim(),
+                description: form.description.trim(),
+                visibility: form.visibility,
+            }),
+        onSuccess: (circle) => {
+            addNotification({
+                type: "success",
+                title: "CIRCLE CREATED",
+                message: `${circle.name} is ready to receive contributions.`,
+            });
+            onCircleReady(circle.id);
+        },
+        onError: (error: Error) => {
+            addNotification({ type: "error", title: "CREATE FAILED", message: error.message });
+        },
+    });
+
+    const existingSet = new Set(existingCircleIds);
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-2xl"
+            >
+                <GlassCard className="p-8 border-primary/30 shadow-[0_0_50px_rgba(59,130,246,0.1)] max-h-[85vh] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-primary/10 rounded-2xl border border-primary/30 text-primary">
+                                <Compass size={22} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black font-mono uppercase text-foreground tracking-tighter">Circle Directory</h3>
+                                <p className="text-[9px] font-mono uppercase text-muted-foreground tracking-widest">Browse or launch a pooling circle</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label="Close"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="flex gap-2 mb-6 bg-muted p-1 rounded-xl border border-border w-fit">
+                        <button
+                            onClick={() => setTab("browse")}
+                            className={`px-5 py-2 rounded-lg text-[10px] font-mono font-black uppercase tracking-widest transition-all ${
+                                tab === "browse" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                            Browse
+                        </button>
+                        <button
+                            onClick={() => setTab("create")}
+                            className={`px-5 py-2 rounded-lg text-[10px] font-mono font-black uppercase tracking-widest transition-all ${
+                                tab === "create" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                            Create Circle
+                        </button>
+                    </div>
+
+                    {tab === "browse" ? (
+                        <div className="space-y-3">
+                            {browseLoading ? (
+                                <div className="py-16 flex flex-col items-center gap-3 text-muted-foreground">
+                                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                                    <p className="text-[10px] font-mono font-black uppercase tracking-widest">Scanning public circles...</p>
+                                </div>
+                            ) : browseError ? (
+                                <div className="py-16 flex flex-col items-center gap-3 text-center">
+                                    <AlertCircle className="w-8 h-8 text-rose-400" />
+                                    <p className="text-[10px] font-mono font-black uppercase text-rose-400">
+                                        {(browseError as Error).message || "Failed to load circles"}
+                                    </p>
+                                </div>
+                            ) : browsableCircles.length === 0 ? (
+                                <div className="py-16 flex flex-col items-center gap-3 text-center text-muted-foreground">
+                                    <Search className="w-8 h-8 opacity-40" />
+                                    <p className="text-[10px] font-mono font-black uppercase tracking-widest">No public circles available yet</p>
+                                    <button
+                                        onClick={() => setTab("create")}
+                                        className="text-[10px] font-mono font-black uppercase text-primary hover:underline"
+                                    >
+                                        Create the first one
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {browsableCircles.map((circle: BrowsableCircle) => {
+                                        const alreadyMember = existingSet.has(circle.id);
+                                        return (
+                                            <div
+                                                key={circle.id}
+                                                className="p-4 bg-muted/40 border border-border rounded-2xl flex items-center justify-between gap-4"
+                                            >
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-[11px] font-black font-mono uppercase truncate">{circle.name}</p>
+                                                        <span className="px-1.5 py-0.5 rounded bg-background border border-border text-[8px] font-black uppercase tracking-tighter text-muted-foreground flex items-center gap-1">
+                                                            {circle.visibility === "private" ? <Lock size={8} /> : <Globe size={8} />}
+                                                            {circle.visibility}
+                                                        </span>
+                                                    </div>
+                                                    {circle.description && (
+                                                        <p className="text-[9px] font-mono text-muted-foreground truncate mt-1">{circle.description}</p>
+                                                    )}
+                                                    <div className="flex items-center gap-3 mt-1.5 text-[9px] font-mono font-black uppercase tracking-tighter text-muted-foreground">
+                                                        <span className="flex items-center gap-1"><Users size={10} /> {circle.member_count}</span>
+                                                        <span className="flex items-center gap-1"><Globe size={10} /> {circle.bandwidth_pool_gb?.toFixed?.(0) ?? 0} GB</span>
+                                                    </div>
+                                                </div>
+                                                {alreadyMember ? (
+                                                    <span className="shrink-0 px-4 py-2 rounded-xl text-[9px] font-black font-mono uppercase tracking-widest text-emerald-500 border border-emerald-500/30 bg-emerald-500/10 flex items-center gap-1.5">
+                                                        <CheckCircle size={12} /> Joined
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => joinMutation.mutate(circle.id)}
+                                                        disabled={joinMutation.isPending}
+                                                        className="shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-[9px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                                    >
+                                                        {joinMutation.isPending && joinMutation.variables === circle.id ? (
+                                                            <Loader2 size={12} className="animate-spin" />
+                                                        ) : (
+                                                            <Plus size={12} />
+                                                        )}
+                                                        Join
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!form.name.trim()) return;
+                                createMutation.mutate();
+                            }}
+                            className="space-y-5"
+                        >
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground">Circle Name</label>
+                                <input
+                                    type="text"
+                                    value={form.name}
+                                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                                    placeholder="e.g. West Coast Pool"
+                                    required
+                                    className="w-full bg-muted border border-border rounded-xl p-3 font-mono text-sm outline-none focus:border-primary/50 transition-all"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground">Description</label>
+                                <textarea
+                                    value={form.description}
+                                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                                    placeholder="What is this circle for?"
+                                    rows={3}
+                                    className="w-full bg-muted border border-border rounded-xl p-3 font-mono text-sm outline-none focus:border-primary/50 transition-all resize-none"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black font-mono uppercase tracking-[0.2em] text-muted-foreground">Visibility</label>
+                                <div className="flex bg-muted p-1.5 rounded-xl border border-border gap-2">
+                                    {(["public", "private"] as const).map((v) => (
+                                        <button
+                                            type="button"
+                                            key={v}
+                                            onClick={() => setForm((f) => ({ ...f, visibility: v }))}
+                                            className={`flex-1 py-2.5 rounded-lg text-[9px] font-mono font-black uppercase transition-all flex items-center justify-center gap-1.5 ${
+                                                form.visibility === v
+                                                    ? "bg-primary text-primary-foreground shadow"
+                                                    : "text-muted-foreground hover:bg-muted-foreground/10"
+                                            }`}
+                                        >
+                                            {v === "private" ? <Lock size={12} /> : <Globe size={12} />}
+                                            {v}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={createMutation.isPending || !form.name.trim()}
+                                className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus size={14} />}
+                                Launch Circle
+                            </button>
+                        </form>
+                    )}
                 </GlassCard>
             </motion.div>
         </motion.div>

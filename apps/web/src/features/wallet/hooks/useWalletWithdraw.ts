@@ -77,12 +77,18 @@ export function useWalletWithdraw(opts: {
       }
       const res = await withdrawWallet(amt, '', '', opts);
       const txRef = res.tx_hash || res.reference;
+      const processing = res.status === 'processing';
       setResult({
         success: true,
-        message: txRef
-          ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
-          : 'Withdrawal submitted',
-        solscanUrl: res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
+        message: processing
+          ? res.message ||
+            'Withdrawal submitted — usually completes in under a few minutes'
+          : txRef
+            ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
+            : 'Withdrawal submitted',
+        solscanUrl: processing
+          ? undefined
+          : res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
       });
       setWithdrawAmount('');
       queryClient.invalidateQueries({ queryKey: ['wallet'] });

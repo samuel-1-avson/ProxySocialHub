@@ -40,7 +40,7 @@ const SDK_MATRIX = [
         icon: 'Py',
         bg: 'hover:bg-blue-500/10',
         install: 'pip install proxyhubb',
-        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/python',
+        docs: 'https://docs.proxyhubb.com/docs/sdks/python',
         registry: 'https://pypi.org/project/proxyhubb/',
     },
     {
@@ -49,7 +49,7 @@ const SDK_MATRIX = [
         icon: 'JS',
         bg: 'hover:bg-emerald-500/10',
         install: 'npm install @proxyhubb/sdk',
-        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/nodejs',
+        docs: 'https://docs.proxyhubb.com/docs/sdks/nodejs',
         registry: 'https://www.npmjs.com/package/@proxyhubb/sdk',
     },
     {
@@ -58,7 +58,7 @@ const SDK_MATRIX = [
         icon: 'Go',
         bg: 'hover:bg-cyan-500/10',
         install: 'go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.2.0',
-        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/tree/main/sdks/go',
+        docs: 'https://docs.proxyhubb.com/docs/sdks/go',
         registry: 'https://pkg.go.dev/github.com/samuel-1-avson/ProxySocialHub/sdks/go',
     },
     {
@@ -67,8 +67,8 @@ const SDK_MATRIX = [
         icon: 'API',
         bg: 'hover:bg-primary/10',
         install: 'GET https://api.proxyhubb.com/v1/sdks/languages',
-        docs: 'https://github.com/samuel-1-avson/ProxySocialHub/blob/main/docs/buyer-proxy.md',
-        registry: 'https://github.com/samuel-1-avson/ProxySocialHub/blob/main/docs/openapi.yaml',
+        docs: 'https://docs.proxyhubb.com/docs/api',
+        registry: 'https://docs.proxyhubb.com/openapi.yaml',
     },
 ] as const;
 const terminalIntentStates = new Set<SessionIntentLifecycle>([
@@ -98,10 +98,10 @@ export default function ProxyPage() {
     const [sdkGuide, setSdkGuide] = useState<(typeof SDK_MATRIX)[number]['id'] | null>(null);
 
     const tiers = [
-        { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-white/5', bg: 'bg-white/5' },
+        { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-border', bg: 'bg-muted' },
         { id: 'Bronze', name: 'Bronze', icon: Shield, color: 'text-orange-400', border: 'border-orange-500/20', bg: 'bg-orange-500/10' },
         { id: 'Silver', name: 'Silver', icon: CheckCircle, color: 'text-slate-300', border: 'border-slate-500/20', bg: 'bg-slate-500/10' },
-        { id: 'Gold', name: 'Gold', icon: Zap, color: 'text-amber-400', border: 'border-amber-500/20', bg: 'bg-amber-500/10' },
+        { id: 'Gold', name: 'Gold', icon: Zap, color: 'text-amber-700 dark:text-amber-400', border: 'border-amber-500/20', bg: 'bg-amber-500/10' },
     ];
 
     const { data: allSessions = [], isLoading: loading } = useQuery({
@@ -248,7 +248,7 @@ export default function ProxyPage() {
             className="space-y-10 pb-20"
         >
             {/* Header */}
-            <motion.div variants={itemVariants} className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-white/5 pb-8">
+            <motion.div variants={itemVariants} className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border pb-8">
                 <div className="space-y-1">
                     <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em]">
                         <Hexagon size={12} className="animate-spin-slow" /> Decentralized Access Activated
@@ -276,28 +276,28 @@ export default function ProxyPage() {
             {/* Connection Telemetry */}
             <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Endpoint Card */}
-                <GlassCard className="p-6 bg-white/2 border-white/5 group relative overflow-hidden">
+                <GlassCard className="p-6 bg-muted border-border group relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
                         <Terminal size={60} className="text-primary" />
                     </div>
-                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground/40 mb-3 block tracking-[0.2em]">Gateway Endpoint</label>
-                    <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground mb-3 block tracking-[0.2em]">Gateway Endpoint</label>
+                    <div className="flex items-center gap-3 bg-card p-3 rounded-xl border border-border">
                         <code className="text-primary font-mono text-xs font-black flex-1 truncate">{PROXY_ENDPOINT}</code>
                         <button
                             onClick={() => copyToClipboard(PROXY_ENDPOINT, 'endpoint')}
-                            className="w-8 h-8 flex items-center justify-center glass-card border-white/10 hover:border-primary/50 text-muted-foreground hover:text-primary transition-all rounded-lg"
+                            className="w-8 h-8 flex items-center justify-center glass-card border-border hover:border-primary/50 text-muted-foreground hover:text-primary transition-all rounded-lg"
                         >
                             {copied === 'endpoint' ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
                         </button>
                     </div>
-                    <p className="mt-2 text-[9px] font-mono text-muted-foreground/50 uppercase tracking-wide">
+                    <p className="mt-2 text-[9px] font-mono text-muted-foreground uppercase tracking-wide">
                         HTTP CONNECT / SOCKS5 only — see docs/buyer-proxy.md
                     </p>
                 </GlassCard>
 
                 {/* Status Card */}
-                <GlassCard className="p-6 bg-white/2 border-white/5 relative overflow-hidden">
-                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground/40 mb-3 block tracking-[0.2em]">Signal Integrity</label>
+                <GlassCard className="p-6 bg-muted border-border relative overflow-hidden">
+                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground mb-3 block tracking-[0.2em]">Signal Integrity</label>
                     <div className="flex items-center gap-4 py-1.5">
                         {connectionStatus === 'online' && (
                             <>
@@ -306,7 +306,7 @@ export default function ProxyPage() {
                                 </div>
                                 <div>
                                     <span className="text-emerald-500 font-mono text-xl font-black uppercase tracking-tighter">Synchronized</span>
-                                    <p className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest">Minimal jitter detected</p>
+                                    <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Minimal jitter detected</p>
                                 </div>
                             </>
                         )}
@@ -328,24 +328,24 @@ export default function ProxyPage() {
                         )}
                         {connectionStatus === 'idle' && (
                             <>
-                                <div className="p-3 bg-white/5 rounded-xl border border-white/5">
-                                    <Activity className="text-muted-foreground/40" size={24} />
+                                <div className="p-3 bg-muted rounded-xl border border-border">
+                                    <Activity className="text-muted-foreground" size={24} />
                                 </div>
-                                <span className="text-muted-foreground/40 font-mono text-xl font-black uppercase tracking-tighter">Standby</span>
+                                <span className="text-muted-foreground font-mono text-xl font-black uppercase tracking-tighter">Standby</span>
                             </>
                         )}
                     </div>
                 </GlassCard>
 
                 {/* Active Stream Card */}
-                <GlassCard className="p-6 bg-white/2 border-white/5 relative overflow-hidden group">
+                <GlassCard className="p-6 bg-muted border-border relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
                         <Zap size={60} className="text-primary" />
                     </div>
-                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground/40 mb-3 block tracking-[0.2em]">Active Channels</label>
+                    <label className="text-[9px] font-mono font-black uppercase text-muted-foreground mb-3 block tracking-[0.2em]">Active Channels</label>
                     <div className="flex items-end justify-between">
                         <div className="text-4xl font-mono font-black text-foreground tracking-tighter">{sessions.length + (activeIntent ? 1 : 0)}</div>
-                        <Link href="/dashboard/sessions" className="group flex items-center gap-2 p-2 px-4 glass-card border-white/10 hover:border-primary/50 text-[9px] font-black font-mono uppercase tracking-widest text-muted-foreground hover:text-primary transition-all rounded-xl shadow-lg">
+                        <Link href="/dashboard/sessions" className="group flex items-center gap-2 p-2 px-4 glass-card border-border hover:border-primary/50 text-[9px] font-black font-mono uppercase tracking-widest text-muted-foreground hover:text-primary transition-all rounded-xl shadow-lg">
                             Manage Streams <ChevronRight size={12} className="group-hover:translate-x-1 transition-transform" />
                         </Link>
                     </div>
@@ -364,7 +364,7 @@ export default function ProxyPage() {
                                 <div className="bg-black/50 rounded-2xl border border-white/5 p-4 font-mono text-[11px] break-all text-white/70">
                                     {sessionIntent.token}
                                 </div>
-                                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                                     State: {formatIntentLifecycleLabel(persistedIntentStatus?.lifecycle_state ?? sessionIntent.lifecycle_state).toUpperCase()} | Expires: {new Date((persistedIntentStatus?.expires_at ?? sessionIntent.expires_at)).toLocaleTimeString()}
                                 </p>
                             </div>
@@ -404,18 +404,18 @@ export default function ProxyPage() {
                                 className={`p-6 glass-card border flex flex-col items-center gap-3 transition-all rounded-3xl relative overflow-hidden group ${
                                     selectedTier === tier.id 
                                         ? `${tier.border} ${tier.bg} ring-2 ring-primary/20` 
-                                        : 'border-white/5 bg-white/2 hover:bg-white/5'
+                                        : 'border-border bg-muted hover:bg-surface-hover'
                                 }`}
                             >
-                                <div className={`p-3 rounded-xl bg-black/40 border border-white/5 ${selectedTier === tier.id ? tier.color : 'text-muted-foreground/40'}`}>
+                                <div className={`p-3 rounded-xl bg-card border border-border ${selectedTier === tier.id ? tier.color : 'text-muted-foreground'}`}>
                                     <tier.icon size={20} />
                                 </div>
                                 <div className="text-center">
-                                    <div className={`text-[10px] font-black font-mono uppercase tracking-widest ${selectedTier === tier.id ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+                                    <div className={`text-[10px] font-black font-mono uppercase tracking-widest ${selectedTier === tier.id ? 'text-foreground' : 'text-muted-foreground'}`}>
                                         {tier.name}
                                     </div>
                                     {tier.id === 'Gold' && (
-                                        <div className="text-[8px] font-mono font-bold text-amber-500/60 uppercase mt-1 tracking-tighter">Premium QoS</div>
+                                        <div className="text-[8px] font-mono font-bold text-amber-700 dark:text-amber-400 uppercase mt-1 tracking-tighter">Premium QoS</div>
                                     )}
                                 </div>
                                 {selectedTier === tier.id && (
@@ -480,7 +480,7 @@ export default function ProxyPage() {
                                     <span className="text-emerald-500 font-mono text-lg font-black uppercase tracking-tighter">
                                         {activeIntent ? 'Intent Authorized' : 'Session Authorized'}
                                     </span>
-                                    <p className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
+                                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
                                         ID: {liveIdentifier} | Protocol: {liveProtocol}
                                     </p>
                                 </div>
@@ -537,7 +537,7 @@ export default function ProxyPage() {
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleQuickStart('rotating')}
                             disabled={creating}
-                            className="group p-8 glass-card border-white/5 bg-white/2 hover:bg-white/5 hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
+                            className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
                         >
                             <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:rotate-12 duration-700">
                                 <Globe size={180} className="text-primary" />
@@ -560,7 +560,7 @@ export default function ProxyPage() {
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleQuickStart('sticky')}
                             disabled={creating}
-                            className="group p-8 glass-card border-white/5 bg-white/2 hover:bg-white/5 hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
+                            className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
                         >
                             <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:-rotate-12 duration-700">
                                 <Shield size={180} className="text-blue-500" />
@@ -582,14 +582,14 @@ export default function ProxyPage() {
             </motion.div>
 
             {/* Network Analytics Preview */}
-            <motion.div variants={itemVariants} className="glass-card p-8 bg-white/2 border-white/5 relative overflow-hidden">
+            <motion.div variants={itemVariants} className="glass-card p-8 bg-muted border-border relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 -mr-32 -mt-32 rounded-full blur-3xl"></div>
 
                 <div className="flex items-center justify-between mb-10 relative z-10">
                     <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em] flex items-center gap-3">
                         <Activity size={18} className="text-primary/70" /> Real-time Telemetry
                     </h2>
-                    <Link href="/dashboard/usage" className="text-[10px] font-black font-mono uppercase tracking-[0.3em] text-primary hover:text-emerald-400 transition-all flex items-center gap-2 px-4 py-2 glass-card border-white/10">
+                    <Link href="/dashboard/usage" className="text-[10px] font-black font-mono uppercase tracking-[0.3em] text-primary hover:text-emerald-400 transition-all flex items-center gap-2 px-4 py-2 glass-card border-border">
                         ANALYTICS VAULT <ExternalLink size={12} />
                     </Link>
                 </div>
@@ -598,7 +598,7 @@ export default function ProxyPage() {
                     <div className="text-center py-12">
                         <div className="text-4xl mb-4 opacity-20">📊</div>
                         <p className="text-sm text-muted-foreground mb-2">No telemetry data yet</p>
-                        <p className="text-xs text-muted-foreground/60">Create a session above to start tracking your proxy usage</p>
+                        <p className="text-xs text-muted-foreground">Create a session above to start tracking your proxy usage</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
@@ -608,13 +608,13 @@ export default function ProxyPage() {
                             { label: "Avg Latency", value: `${analytics?.avg_latency_ms || "0"}ms`, color: "text-foreground" },
                             { label: "Success Rate", value: `${analytics?.success_rate || "0"}%`, color: "text-emerald-500" },
                         ].map((stat, i) => (
-                            <div key={i} className="p-6 glass-card bg-white/5 border-white/5 rounded-2xl group hover:bg-white/10 transition-all">
+                            <div key={i} className="p-6 glass-card bg-muted border-border rounded-2xl group hover:bg-surface-hover transition-all">
                                 {analyticsLoading ? (
-                                    <div className="h-10 w-20 bg-white/5 animate-pulse rounded mb-2" />
+                                    <div className="h-10 w-20 bg-secondary animate-pulse rounded mb-2" />
                                 ) : (
                                     <div className={`text-3xl font-mono font-black tracking-tighter mb-2 ${stat.color}`}>{stat.value}</div>
                                 )}
-                                <div className="text-[9px] font-mono font-black uppercase text-muted-foreground/30 tracking-widest">{stat.label}</div>
+                                <div className="text-[9px] font-mono font-black uppercase text-muted-foreground tracking-widest">{stat.label}</div>
                             </div>
                         ))}
                     </div>
@@ -622,9 +622,9 @@ export default function ProxyPage() {
             </motion.div>
 
             {/* Integration Matrices */}
-            <motion.div variants={itemVariants} className="glass-card p-8 bg-white/2 border-white/5">
+            <motion.div variants={itemVariants} className="glass-card p-8 bg-muted border-border">
                 <h2 className="text-sm font-black font-mono uppercase tracking-[0.2em] mb-4 flex items-center gap-3 relative z-10">
-                    <Settings size={18} className="text-muted-foreground/60" /> Integration Matrices
+                    <Settings size={18} className="text-muted-foreground" /> Integration Matrices
                 </h2>
                 <p className="text-xs text-muted-foreground mb-8 relative z-10 max-w-2xl">
                     Official SDKs for Connect session intents and marketplace credentials. Install a client, then use the quick-start snippets above.
@@ -635,11 +635,11 @@ export default function ProxyPage() {
                             key={guide.id}
                             type="button"
                             onClick={() => setSdkGuide((prev) => (prev === guide.id ? null : guide.id))}
-                            className={`p-6 glass-card border-white/10 ${guide.bg} transition-all rounded-2xl text-center group active:scale-95 ${
+                            className={`p-6 glass-card border-border ${guide.bg} transition-all rounded-2xl text-center group active:scale-95 ${
                                 sdkGuide === guide.id ? 'border-primary/40 ring-1 ring-primary/30' : ''
                             }`}
                         >
-                            <div className="text-lg font-black font-mono mb-4 text-muted-foreground/50 group-hover:text-foreground transition-colors tracking-tight">
+                            <div className="text-lg font-black font-mono mb-4 text-muted-foreground group-hover:text-foreground transition-colors tracking-tight">
                                 {guide.icon}
                             </div>
                             <div className="text-[10px] font-black font-mono uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">
@@ -658,7 +658,7 @@ export default function ProxyPage() {
                                 initial={{ opacity: 0, y: 8 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: 4 }}
-                                className="mt-6 relative z-10 rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4"
+                                className="mt-6 relative z-10 rounded-2xl border border-border bg-card p-5 space-y-4"
                             >
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                     <div className="text-xs font-black font-mono uppercase tracking-widest text-foreground">
@@ -683,12 +683,12 @@ export default function ProxyPage() {
                                         </a>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                                <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2.5">
                                     <code className="flex-1 text-xs font-mono text-emerald-400/90 break-all">{selected.install}</code>
                                     <button
                                         type="button"
                                         onClick={() => copyToClipboard(selected.install, `sdk-${selected.id}`)}
-                                        className="shrink-0 p-1.5 rounded-lg hover:bg-white/5 text-muted-foreground"
+                                        className="shrink-0 p-1.5 rounded-lg hover:bg-surface-hover text-muted-foreground"
                                         aria-label="Copy install command"
                                     >
                                         {copied === `sdk-${selected.id}` ? (

@@ -110,7 +110,7 @@ export default function UsagePage() {
             className="space-y-12 pb-20"
         >
             {/* Header Section */}
-            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
+            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border pb-8">
                 <div>
                     <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
                         <Activity size={12} className="animate-pulse" /> Telemetry Stream Alpha
@@ -123,7 +123,7 @@ export default function UsagePage() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={fetchData} 
-                    className="flex items-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:bg-white/10 hover:border-primary/50 transition-all text-muted-foreground hover:text-foreground group"
+                    className="flex items-center gap-2 px-6 py-3 bg-secondary border border-border rounded-xl text-[10px] font-mono font-black uppercase tracking-widest hover:bg-surface-hover hover:border-primary/50 transition-all text-muted-foreground hover:text-foreground group"
                 >
                     <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" /> 
                     Synchronize Data
@@ -135,16 +135,16 @@ export default function UsagePage() {
                 {[
                     { label: "Total Data Flow", value: `${Number(totalUsage.gb || 0).toFixed(3)}`, unit: "GB", icon: Database, color: "text-primary", bg: "bg-primary/5" },
                     { label: "Accrued Settlement", value: `${Number(totalUsage.cost || 0).toFixed(6)} SOL`, icon: Coins, color: "text-emerald-400", bg: "bg-emerald-400/5" },
-                    { label: "Active Connections", value: activeSessionsCount, icon: Server, color: "text-amber-400", bg: "bg-amber-400/5" },
+                    { label: "Active Connections", value: activeSessionsCount, icon: Server, color: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-400/5" },
                 ].map((stat, i) => (
                     <motion.div key={i} variants={itemVariants} whileHover={{ y: -5 }}>
-                        <GlassCard className={`p-8 border-white/5 hover:border-white/10 transition-all group overflow-hidden relative ${stat.bg}`}>
+                        <GlassCard className={`p-8 border-border hover:border-border-strong transition-all group overflow-hidden relative ${stat.bg}`}>
                             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                                 <stat.icon size={80} />
                             </div>
                             <div className="flex justify-between items-center mb-6">
                                 <p className="text-[10px] font-mono font-black text-muted-foreground uppercase tracking-widest">{stat.label}</p>
-                                <div className={`w-8 h-8 rounded-lg ${stat.bg} flex items-center justify-center border border-white/5`}>
+                                <div className={`w-8 h-8 rounded-lg ${stat.bg} flex items-center justify-center border border-border`}>
                                     <TrendingUp size={14} className={stat.color} />
                                 </div>
                             </div>
@@ -169,7 +169,7 @@ export default function UsagePage() {
                 </div>
 
                 {sessions.length === 0 ? (
-                    <GlassCard className="p-20 text-center border-dashed border-white/10 opacity-50">
+                    <GlassCard className="p-20 text-center border-dashed border-border">
                         <p className="text-[10px] font-mono font-black uppercase tracking-[0.5em] text-muted-foreground">
                             No telemetry data detected in current sector.
                         </p>
@@ -187,7 +187,7 @@ export default function UsagePage() {
                                         animate={{ opacity: 1, x: 0 }}
                                         transition={{ delay: idx * 0.05 }}
                                     >
-                                        <GlassCard className="group hover:bg-white/5 border-white/5 p-6 flex flex-col md:flex-row items-center gap-8 group">
+                                        <GlassCard className="group hover:bg-surface-hover border-border p-6 flex flex-col md:flex-row items-center gap-8 group">
                                             {/* ID & Type */}
                                             <div className="w-full md:w-1/4 space-y-1">
                                                 <div className="flex items-center gap-2">
@@ -219,7 +219,7 @@ export default function UsagePage() {
                                                         {Number(usage?.gb_used || 0).toFixed(3)} GB / {((Number(usage?.bytes_limit || 0)) / (1024 * 1024 * 1024)).toFixed(1)} GB
                                                     </span>
                                                 </div>
-                                                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
+                                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden border border-border p-[1px]">
                                                     <motion.div 
                                                         initial={{ width: 0 }}
                                                         animate={{ width: `${Math.min(percentUsed, 100)}%` }}
@@ -263,7 +263,7 @@ export default function UsagePage() {
                                     <tip.icon size={14} className="text-primary" />
                                     <h3 className="text-[10px] font-black font-mono uppercase text-foreground">{tip.title}</h3>
                                 </div>
-                                <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed uppercase font-bold">
+                                <p className="text-[10px] font-mono text-muted-foreground leading-relaxed uppercase font-bold">
                                     {tip.desc}
                                 </p>
                             </div>

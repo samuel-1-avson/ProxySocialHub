@@ -59,8 +59,8 @@ function NodeColumn({ node, idx, isLoading }: { node: NodeDetail | null; idx: nu
     if (isLoading) {
         return (
             <div className={`rounded-[2rem] border ${border} ${bg} p-6 animate-pulse`}>
-                <div className="h-4 bg-white/5 rounded mb-3 w-3/4" />
-                <div className="h-3 bg-white/5 rounded w-1/2" />
+                <div className="h-4 bg-muted rounded mb-3 w-3/4" />
+                <div className="h-3 bg-muted rounded w-1/2" />
             </div>
         );
     }
@@ -84,7 +84,7 @@ function NodeColumn({ node, idx, isLoading }: { node: NodeDetail | null; idx: nu
                         className={`font-mono text-[11px] font-black ${color} hover:opacity-80 transition-opacity break-all`}>
                         {node.node_id?.slice(0, 16)}...
                     </Link>
-                    {node.name && <div className="text-[9px] text-white/30 mt-0.5">{node.name}</div>}
+                    {node.name && <div className="text-[9px] text-muted-foreground mt-0.5">{node.name}</div>}
                 </div>
                 <div className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${node.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
             </div>
@@ -101,12 +101,12 @@ function NodeColumn({ node, idx, isLoading }: { node: NodeDetail | null; idx: nu
                 )}
             </div>
             {/* Location */}
-            <div className="flex items-center gap-2 text-[10px] text-white/40">
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                 <MapPin size={10} />
                 {[node.city, node.country, node.region].filter(Boolean).join(', ') || '—'}
             </div>
             {/* Last heartbeat */}
-            <div className="text-[8px] font-black text-white/20 uppercase tracking-wider">
+            <div className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">
                 {node.last_heartbeat
                     ? `Last seen ${formatDistanceToNow(new Date(node.last_heartbeat), { addSuffix: true })}`
                     : 'No heartbeat'}
@@ -137,9 +137,9 @@ function CompareContent() {
     if (ids.length === 0) {
         return (
             <div className="py-24 text-center">
-                <Server size={48} className="text-white/10 mx-auto mb-4" />
-                <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">No nodes selected</p>
-                <p className="text-[9px] text-white/10 mb-6">Select 2–3 nodes from the node list to compare them here.</p>
+                <Server size={48} className="text-muted-foreground mx-auto mb-4" />
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">No nodes selected</p>
+                <p className="text-[9px] text-muted-foreground mb-6">Select 2–3 nodes from the node list to compare them here.</p>
                 <Link href="/explorer/nodes" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all">
                     ← Back to Nodes
                 </Link>
@@ -150,16 +150,16 @@ function CompareContent() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer/nodes" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer/nodes" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Nodes
                 </Link>
                 <div>
                     <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Nodes</div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                         <BarChart2 className="text-primary" size={32} /> Node Comparison
                     </h1>
-                    <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                    <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                         Side-by-side performance analysis for {ids.length} node{ids.length > 1 ? 's' : ''}
                     </p>
                 </div>
@@ -176,15 +176,15 @@ function CompareContent() {
             {/* Metric comparison table */}
             {!isAnyLoading && nodes.some(Boolean) && (
                 <motion.section variants={itemVariants} data-testid="explorer-node-compare-metrics">
-                    <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
-                        <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3">
+                    <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
+                        <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                             <Activity size={14} className="text-primary" />
-                            <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Metric Comparison</span>
+                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Metric Comparison</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>
-                                    <tr className="bg-white/5 text-white/40 text-[9px] uppercase tracking-[0.2em] font-black">
+                                    <tr className="bg-muted text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
                                         <th className="px-6 py-3 text-left w-40">Metric</th>
                                         {ids.map((_, i) => (
                                             <th key={i} className={`px-6 py-3 text-right ${COLUMN_COLORS[i]}`}>
@@ -193,15 +193,15 @@ function CompareContent() {
                                         ))}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-white/[0.04]">
+                                <tbody className="divide-y divide-border">
                                     {METRICS.map(metric => {
                                         const bestIdx = metric.highlight
                                             ? getBestIndex(nodes, metric.key, metric.highlight)
                                             : -1;
                                         return (
-                                            <tr key={metric.key} className="hover:bg-white/[0.02] transition-colors">
+                                            <tr key={metric.key} className="hover:bg-surface-hover transition-colors">
                                                 <td className="px-6 py-3">
-                                                    <span className="text-[9px] font-black text-white/40 uppercase tracking-wider">{metric.label}</span>
+                                                    <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">{metric.label}</span>
                                                 </td>
                                                 {ids.map((_, i) => {
                                                     const node = nodes[i];
@@ -209,7 +209,7 @@ function CompareContent() {
                                                     const isBest = bestIdx === i && nodes.filter(Boolean).length > 1;
                                                     return (
                                                         <td key={i} className="px-6 py-3 text-right">
-                                                            <span className={`font-mono text-[11px] font-black ${isBest ? COLUMN_COLORS[i] : 'text-white/60'}`}>
+                                                            <span className={`font-mono text-[11px] font-black ${isBest ? COLUMN_COLORS[i] : 'text-muted-foreground'}`}>
                                                                 {val}
                                                             </span>
                                                             {isBest && (
@@ -237,7 +237,7 @@ export default function ComparePage() {
     return (
         <Suspense fallback={
             <div className="py-24 text-center">
-                <div className="text-[10px] font-black text-white/20 uppercase tracking-widest animate-pulse">Loading comparison...</div>
+                <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading comparison...</div>
             </div>
         }>
             <CompareContent />

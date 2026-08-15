@@ -41,6 +41,7 @@
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-surface-hover: var(--surface-hover);
 
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
@@ -73,7 +74,8 @@
   --secondary-foreground: #0a0e14;
 
   --muted: #eef1f5;
-  --muted-foreground: #3d4654;
+  /* Stronger secondary text for AA on white / #f7f8fa */
+  --muted-foreground: #2f3744;
 
   /* Accent = subtle surface (shadcn-compatible); signal color is --primary */
   --accent: #eef1f5;
@@ -89,9 +91,10 @@
   --info: #1d4ed8;
 
   --border: #d8dde4;
-  --border-strong: #a8b0bd;
+  --border-strong: #8b94a3;
   --input: #d8dde4;
   --ring: #0a6e4e;
+  --surface-hover: #e6eaef;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -112,7 +115,7 @@
 
   /* Legacy glass aliases — map to flat surfaces during migration */
   --glass-bg: #ffffff;
-  --glass-border: #e4e6ea;
+  --glass-border: #d8dde4;
   --glass-blur: 0px;
   --glass-shadow: var(--shadow-sm);
 }
@@ -156,6 +159,7 @@
   --border-strong: #3a4354;
   --input: #232a36;
   --ring: #34d399;
+  --surface-hover: rgb(255 255 255 / 0.06);
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
   --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.35);

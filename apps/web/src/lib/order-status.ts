@@ -48,7 +48,7 @@ export function orderStatusDescription(status: string): string {
         case 'pending_payment':
             return 'Escrow intent recorded. Waiting for on-chain payment confirmation.';
         case 'active':
-            return 'Escrow confirmed. Proxy credentials are available.';
+            return 'Escrow confirmed. Provisioning proxy credentials…';
         case 'completed':
             return 'Order settled. Credentials may still be available for review.';
         case 'disputed':

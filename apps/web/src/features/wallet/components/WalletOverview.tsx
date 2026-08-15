@@ -164,9 +164,9 @@ export function WalletOverview({
 
       <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] text-muted-foreground/80 leading-relaxed">
         <span className="font-black uppercase tracking-widest text-white/50">Rails · </span>
-        Deposit credits <strong className="text-white/70">platform balance</strong>. Marketplace
-        buys and Access Passes spend from your <strong className="text-white/70">linked wallet</strong>{' '}
-        (escrow / treasury). Withdraw moves platform balance back to the linked address.
+        Primary path: marketplace buys fund <strong className="text-white/70">on-chain escrow</strong> from your{' '}
+        <strong className="text-white/70">linked wallet</strong>. Platform deposit is optional (staking / referrals /
+        dust). Withdraw moves platform balance back to the linked address.
       </div>
 
       {!wallet?.linked_solana_address && (

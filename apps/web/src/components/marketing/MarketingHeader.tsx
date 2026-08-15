@@ -8,7 +8,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 const LINKS = [
   { href: ROUTES.marketplace, label: "Marketplace" },
   { href: ROUTES.explorer, label: "Explorer" },
-  { href: ROUTES.help, label: "Docs" },
+  { href: ROUTES.docs, label: "Docs", external: true },
 ] as const;
 
 /**
@@ -31,15 +31,27 @@ export function MarketingHeader() {
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">
-          {LINKS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {item.label}
-            </Link>
-          ))}
+          {LINKS.map((item) =>
+            "external" in item && item.external ? (
+              <a
+                key={item.href}
+                href={item.href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {item.label}
+              </a>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {item.label}
+              </Link>
+            ),
+          )}
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">

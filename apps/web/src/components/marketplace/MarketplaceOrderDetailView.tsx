@@ -48,7 +48,8 @@ export function MarketplaceOrderDetailView({
             return response.proxy_credentials as MarketplaceProxyCredentials;
         },
         enabled: isAuthenticated && Boolean(orderId) && credentialsEligible,
-        retry: false,
+        retry: 2,
+        refetchInterval: (query) => (query.state.error && !query.state.data ? 3000 : false),
     });
 
     if (!isAuthenticated) {
@@ -107,7 +108,11 @@ export function MarketplaceOrderDetailView({
                         <p className="text-sm text-muted-foreground">
                             {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
                         </p>
-                        <p className="text-xs text-muted-foreground">{orderStatusDescription(order.status)}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {credentialsQuery.data
+                                ? 'Escrow confirmed. Proxy credentials are available.'
+                                : orderStatusDescription(order.status)}
+                        </p>
                     </div>
 
                     {credentialsEligible && credentialsQuery.isLoading && (

@@ -75,7 +75,7 @@ export default function MarketplaceMapPage() {
         max_latency: maxLatency || undefined,
         purchasable_only: true,
         include_nodes: true,
-        active_nodes_only: false,
+        active_nodes_only: true,
         bbox: bboxParam,
     }), [bboxParam, country, maxLatency, maxPrice, minPrice, minUptime, protocol, proxyType]);
 
@@ -202,11 +202,10 @@ export default function MarketplaceMapPage() {
                 protocol: pin.protocol ?? 'http',
                 status: pin.status ?? 'active',
                 country: pin.country,
-                isp: pin.isp,
                 uptime_percent: pin.uptime_percent ?? 0,
-                avg_latency_ms: 0,
-                success_rate: 100,
-                quality_score: 100,
+                avg_latency_ms: pin.latency_ms ?? 0,
+                success_rate: pin.success_rate ?? 100,
+                quality_score: pin.quality_score ?? 100,
                 views_count: 0,
                 saves_count: 0,
                 orders_count: 0,
@@ -217,9 +216,6 @@ export default function MarketplaceMapPage() {
                 is_priority: false,
                 created_at: new Date().toISOString(),
                 listing_offer_verified: pin.listing_offer_verified,
-                listing_offer_signer: pin.listing_offer_signer,
-                listing_offer_signed_at: pin.listing_offer_signed_at,
-                listing_offer_verification_error: pin.listing_offer_verification_error,
             });
         } finally {
             setBuyLoading(false);
@@ -467,7 +463,7 @@ export default function MarketplaceMapPage() {
                                         >
                                             <span className="block truncate text-white">{p.title}</span>
                                             <span className="text-white/35">
-                                                {p.price_per_gb.toFixed(6)} SOL · {(p.uptime_percent || 0).toFixed(1)}% up
+                                                ${p.price_per_gb.toFixed(4)}/GB · {(p.uptime_percent || 0).toFixed(1)}% up
                                             </span>
                                         </button>
                                     </li>
@@ -504,10 +500,22 @@ export default function MarketplaceMapPage() {
                                         </span>
                                     </span>
                                 </div>
+                                {selectedPin.network_class && (
+                                    <div className="flex justify-between">
+                                        <span className="text-white/30">Network</span>
+                                        <span className="text-white capitalize">{selectedPin.network_class}</span>
+                                    </div>
+                                )}
+                                {selectedPin.trust_label && (
+                                    <div className="flex justify-between">
+                                        <span className="text-white/30">Trust</span>
+                                        <span className="text-cyan-300">{selectedPin.trust_label}</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between">
                                     <span className="text-white/30">Price</span>
                                     <span className="text-emerald-400 font-black">
-                                        {selectedPin.price_per_gb.toFixed(6)} SOL/GB
+                                        ${selectedPin.price_per_gb.toFixed(4)}/GB
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
@@ -525,34 +533,24 @@ export default function MarketplaceMapPage() {
                                         )}
                                     </span>
                                 </div>
+                                {selectedPin.quality_score != null && (
+                                    <div className="flex justify-between">
+                                        <span className="text-white/30">Quality</span>
+                                        <span className="text-white">{selectedPin.quality_score.toFixed(0)}</span>
+                                    </div>
+                                )}
+                                {selectedPin.success_rate != null && (
+                                    <div className="flex justify-between">
+                                        <span className="text-white/30">Success</span>
+                                        <span className="text-white">{selectedPin.success_rate.toFixed(0)}%</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between">
                                     <span className="text-white/30">Offer proof</span>
                                     <span className={selectedPin.listing_offer_verified ? 'text-cyan-300' : 'text-white/40'}>
                                         {selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}
                                     </span>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Heartbeat proof</span>
-                                    <span className={selectedPin.heartbeat_verified ? 'text-emerald-300' : 'text-white/40'}>
-                                        {selectedPin.heartbeat_verified ? 'Provider signed' : 'Unsigned'}
-                                    </span>
-                                </div>
-                                {selectedPin.heartbeat_signer && (
-                                    <div className="flex justify-between gap-3">
-                                        <span className="text-white/30">Heartbeat signer</span>
-                                        <span className="text-white/50 text-right truncate max-w-[160px]" title={selectedPin.heartbeat_signer}>
-                                            {selectedPin.heartbeat_signer}
-                                        </span>
-                                    </div>
-                                )}
-                                {selectedPin.listing_offer_signer && (
-                                    <div className="flex justify-between gap-3">
-                                        <span className="text-white/30">Signer</span>
-                                        <span className="text-white/50 text-right truncate max-w-[160px]" title={selectedPin.listing_offer_signer}>
-                                            {selectedPin.listing_offer_signer}
-                                        </span>
-                                    </div>
-                                )}
                                 {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 && (
                                     <div className="flex justify-between">
                                         <span className="text-white/30">Latency</span>
@@ -614,8 +612,10 @@ export default function MarketplaceMapPage() {
                                     ✕
                                 </button>
                             </div>
-                            <h2 className="text-sm font-black text-white leading-tight break-all">
-                                {selectedNode.node_id.slice(0, 24)}…
+                            <h2 className="text-sm font-black text-white leading-tight">
+                                {selectedNode.title
+                                    || [selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ')
+                                    || 'Network node'}
                             </h2>
                             <div className="space-y-1 text-[9px]">
                                 <div className="flex justify-between gap-3">
@@ -625,19 +625,28 @@ export default function MarketplaceMapPage() {
                                     </span>
                                 </div>
                                 <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Type</span>
-                                    <span className="text-white">{selectedNode.is_validator ? 'Validator' : 'Proxy node'}</span>
+                                    <span className="text-white/30">Trust</span>
+                                    <span className="text-white">
+                                        {selectedNode.trust_label
+                                            || (selectedNode.is_validator ? 'High quality' : 'Standard')}
+                                    </span>
                                 </div>
+                                {selectedNode.network_class && (
+                                    <div className="flex justify-between gap-3">
+                                        <span className="text-white/30">Network</span>
+                                        <span className="text-white capitalize">{selectedNode.network_class}</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between gap-3">
                                     <span className="text-white/30">Location</span>
                                     <span className="text-white text-right">
                                         {[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || '—'}
                                     </span>
                                 </div>
-                                {selectedNode.isp && (
+                                {selectedNode.quality_score != null && (
                                     <div className="flex justify-between gap-3">
-                                        <span className="text-white/30">ISP</span>
-                                        <span className="text-white text-right truncate max-w-[140px]">{selectedNode.isp}</span>
+                                        <span className="text-white/30">Quality</span>
+                                        <span className="text-white">{selectedNode.quality_score.toFixed(0)}</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between gap-3">
@@ -649,14 +658,8 @@ export default function MarketplaceMapPage() {
                                     <span className="text-white">{selectedNode.active_sessions || 0}</span>
                                 </div>
                             </div>
-                            <Link
-                                href={`/explorer/nodes/${selectedNode.node_id}`}
-                                className="block w-full text-center py-2 rounded-xl bg-primary/15 border border-primary/35 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary/25 transition-all"
-                            >
-                                Node details →
-                            </Link>
                             <p className="text-[8px] text-white/25 uppercase tracking-widest leading-relaxed">
-                                Node markers show network availability. Select an emerald price marker to buy bandwidth.
+                                Approximate hub location only. Select an emerald price marker to buy bandwidth.
                             </p>
                         </GlassCard>
                     ) : (
@@ -691,7 +694,7 @@ export default function MarketplaceMapPage() {
                                         <span className="text-white/30">
                                             {[p.city, p.country].filter(Boolean).join(', ') || p.country || '—'}
                                             {' · '}
-                                            {p.price_per_gb.toFixed(6)} SOL
+                                            ${p.price_per_gb.toFixed(4)}/GB
                                         </span>
                                     </button>
                                 </li>

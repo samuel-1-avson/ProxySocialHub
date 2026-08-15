@@ -18,7 +18,7 @@ export const verifiedMapPoint = {
     title: 'Verified Austin Residential',
     country: 'US',
     city: 'Austin',
-    isp: 'ProxyHubb Test ISP',
+    network_class: 'residential',
     status: 'active',
     purchasable: true,
     proxy_type: 'residential',
@@ -27,6 +27,10 @@ export const verifiedMapPoint = {
     available_bandwidth_gb: 50,
     uptime_percent: 99.7,
     latency_ms: 42,
+    quality_score: 98,
+    success_rate: 99,
+    trust_badge: 'high_quality',
+    trust_label: 'High quality',
     sla_source: 'gateway',
     geo_source: 'gateway',
     geo: {
@@ -35,9 +39,6 @@ export const verifiedMapPoint = {
         estimated: false,
     },
     listing_offer_verified: true,
-    listing_offer_signer: 'GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF',
-    heartbeat_verified: true,
-    heartbeat_signer: 'GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF',
     catalog_product: mockCatalogProduct,
 };
 

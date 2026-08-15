@@ -182,29 +182,25 @@ test.describe('explorer', () => {
     test('node map shows listings layer toggle and marketplace map data', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-        await expect(page.getByRole('heading', { name: /network wide map|network 3d map/i })).toBeVisible({
+        await expect(page.getByRole('heading', { name: /network wide map/i })).toBeVisible({
             timeout: 30_000,
         });
         await expect(page.getByText('Marketplace listings')).toBeVisible();
+        await expect(page.getByRole('button', { name: /3D/i })).toHaveCount(0);
 
         await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
-        const tilt3d = page.getByRole('button', { name: '3D Map' }).first();
-        await tilt3d.scrollIntoViewIfNeeded();
-        await tilt3d.click({ force: true });
-        await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByRole('heading', { name: 'Network 3D Map' })).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '3d');
+        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '2d');
         await expect(page.getByTestId('explorer-map-stat-listings')).toHaveText('1');
     });
 
-    test('3D map mode toggles tilt view without satellite controls', async ({ page }) => {
+    test('map stays 2D-only with no satellite or 3D controls', async ({ page }) => {
         await stubExplorerApis(page);
         await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
         await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 30_000 });
-        await page.getByRole('button', { name: '3D Map' }).first().click();
-        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '3d');
+        await expect(page.getByTestId('proxy-map-canvas')).toHaveAttribute('data-map-view', '2d');
         await expect(page.getByText(/no satellite imagery/i)).toBeVisible();
         await expect(page.getByRole('button', { name: 'Satellite' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /3D/i })).toHaveCount(0);
 
         const austinRow = page.locator('tbody tr').filter({ hasText: 'Austin' }).first();
         await austinRow.click();

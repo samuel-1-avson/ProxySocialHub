@@ -14,10 +14,7 @@ test.describe('globe topology (Phase 5 — legacy globe)', () => {
     test.setTimeout(300_000);
 
     test.beforeEach(() => {
-        test.skip(
-            !legacyGlobeEnabled,
-            'Legacy globe retired from primary UX; set NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=1 to run',
-        );
+        test.skip(true, '3D explorer globe removed from product');
     });
 
     test.describe('flag off (default dev:e2e)', () => {

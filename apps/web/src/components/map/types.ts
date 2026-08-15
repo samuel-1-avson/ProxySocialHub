@@ -1,9 +1,11 @@
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 
-export type MapViewMode = '2d' | '3d';
+export type MapViewMode = '2d';
 
 export interface MapNodeUpdate {
     node_id: string;
+    /** Stable opaque id matching GET /v1/marketplace/map node_id (preferred for map marker lookup). */
+    opaque_node_id?: string;
     is_active: boolean;
     uptime_percent: number;
     active_sessions: number;
@@ -49,6 +51,6 @@ export interface ProxyMapCanvasProps {
     onBuyListing?: (pin: ExplorerListingPin) => void;
     selectedListingId?: string;
     onBoundsChange?: (bounds: MapViewportBounds) => void;
-    /** Google Maps camera: 2d = flat roadmap, 3d = tilted vector roadmap (no satellite). */
+    /** Google Maps camera — flat roadmap only (3D globe removed). */
     viewMode?: MapViewMode;
 }

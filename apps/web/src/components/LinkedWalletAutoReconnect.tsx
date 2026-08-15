@@ -4,11 +4,15 @@ import { useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState } from "@solana/wallet-adapter-base";
 import { useAuth } from "@/lib/auth";
+import {
+  clearManualSolanaWalletDisconnect,
+  isManualSolanaWalletDisconnectActive,
+} from "@/lib/solana-wallet-session";
 
 /**
- * After JWT auth, try to restore the wallet-adapter session when a profile
- * wallet is linked. Relies on WalletProvider autoConnect + select/connect.
- * Declines stay silent — UnlockWalletPrompt handles UX.
+ * After JWT auth, try once to restore a wallet-adapter session when a profile
+ * wallet is linked. Never fight a manual disconnect, and never keep retrying
+ * after a wrong-account connect (user must switch in Phantom then reconnect).
  */
 export function LinkedWalletAutoReconnect() {
   const { user } = useAuth();
@@ -22,8 +26,25 @@ export function LinkedWalletAutoReconnect() {
   }, [expected]);
 
   useEffect(() => {
-    if (!expected || connecting || attempted.current) return;
-    if (connected && publicKey) return;
+    if (!expected || connecting) return;
+
+    if (isManualSolanaWalletDisconnectActive()) {
+      return;
+    }
+
+    if (connected && publicKey) {
+      const pk = publicKey.toBase58();
+      if (pk === expected) {
+        clearManualSolanaWalletDisconnect();
+        attempted.current = true;
+        return;
+      }
+      // Wrong account already connected — stop auto-reconnect so Disconnect sticks.
+      attempted.current = true;
+      return;
+    }
+
+    if (attempted.current) return;
 
     const installed = wallets.filter(
       (w) =>

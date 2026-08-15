@@ -24,6 +24,7 @@ type WalletDepositProps = {
   isLocalSolanaRpc: boolean;
   isDevnet: boolean;
   treasuryAddress: string | null | undefined;
+  destinationKind?: string | null;
   onCopyTreasury: () => void;
   onInitiateDeposit: () => void;
   onVerifyDeposit: () => void;
@@ -48,6 +49,7 @@ export function WalletDeposit({
   isLocalSolanaRpc,
   isDevnet,
   treasuryAddress,
+  destinationKind,
   onCopyTreasury,
   onInitiateDeposit,
   onVerifyDeposit,
@@ -64,7 +66,8 @@ export function WalletDeposit({
           <ArrowDownLeft size={14} /> Deposit SOL
         </p>
         <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
-          Transfer SOL from your linked wallet to the platform treasury. We credit your{' '}
+          Transfer SOL from your linked wallet to the platform{' '}
+          {destinationKind === 'vault' ? 'deposit vault' : 'treasury'}. We credit your{' '}
           <span className="text-white/70">platform balance</span> after confirmation.
         </p>
         <MoneyRailHint rail="platform" />

@@ -198,11 +198,63 @@ export default function GlobeScene({
         g.pointOfView({ lat: (swLat + neLat) / 2, lng: (swLon + neLon) / 2, altitude: 1.6 }, 1200);
     }, [focusBounds]);
 
+    // Face the plotted nodes — default Africa POV leaves US/Asia pins on the far side.
+    const plottedFocusKey = useMemo(() => {
+        const lats: number[] = [];
+        const lons: number[] = [];
+        for (const n of displayNodes) {
+            if (!isValidGlobeCoord(n.lat, n.lon)) continue;
+            lats.push(n.lat);
+            lons.push(n.lon);
+        }
+        for (const p of listingPins) {
+            if (!isValidGlobeCoord(p.lat, p.lon)) continue;
+            lats.push(p.lat);
+            lons.push(p.lon);
+        }
+        if (lats.length === 0) return '';
+        const lat = lats.reduce((sum, v) => sum + v, 0) / lats.length;
+        const lon = lons.reduce((sum, v) => sum + v, 0) / lons.length;
+        return `${lat.toFixed(2)},${lon.toFixed(2)},${lats.length}`;
+    }, [displayNodes, listingPins]);
+
     useEffect(() => {
         const g = globeRef.current;
         if (!g || focusBounds !== null) return;
-        g.pointOfView({ lat: 20, lng: 0, altitude: 2.2 }, 1200);
-    }, [focusBounds]);
+        if (!plottedFocusKey) {
+            g.pointOfView({ lat: 20, lng: 0, altitude: 2.2 }, 1200);
+            return;
+        }
+        const [latStr, lonStr] = plottedFocusKey.split(',');
+        const lat = Number(latStr);
+        const lon = Number(lonStr);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        try {
+            const controls = g.controls() as { autoRotate?: boolean };
+            if (controls) controls.autoRotate = false;
+        } catch {
+            /* ignore */
+        }
+        g.pointOfView({ lat, lng: lon, altitude: 1.75 }, 1100);
+    }, [focusBounds, plottedFocusKey]);
+
+    // Soft rings on every plotted point so nodes stay visible while rotating.
+    const presenceRings = useMemo(() => {
+        const rings: { lat: number; lng: number; color: string }[] = [];
+        for (const n of displayNodes) {
+            if (!isValidGlobeCoord(n.lat, n.lon)) continue;
+            rings.push({
+                lat: n.lat,
+                lng: n.lon,
+                color: n.is_active ? '#10b981' : '#ef4444',
+            });
+        }
+        for (const p of listingPins) {
+            if (!isValidGlobeCoord(p.lat, p.lon)) continue;
+            rings.push({ lat: p.lat, lng: p.lon, color: '#10b981' });
+        }
+        return rings;
+    }, [displayNodes, listingPins]);
 
     const handlePointClick = useCallback(
         (point: object) => {
@@ -304,16 +356,20 @@ export default function GlobeScene({
                 pointLabel={(p: object) => globePointLabel(p as GlobePoint)}
                 onPointClick={handlePointClick}
                 pointsMerge={false}
-                ringsData={ringTarget ? [ringTarget] : []}
+                ringsData={
+                    ringTarget
+                        ? [{ lat: ringTarget.lat, lng: ringTarget.lng, color: selectedListing ? '#10b981' : '#f59e0b' }]
+                        : presenceRings
+                }
                 ringLat="lat"
                 ringLng="lng"
-                ringColor={() => (selectedListing ? '#10b981' : '#f59e0b')}
-                ringMaxRadius={0.4}
-                ringPropagationSpeed={2.5}
-                ringRepeatPeriod={900}
-                ringAltitude={0.025}
+                ringColor={(d: object) => (d as { color?: string }).color || '#10b981'}
+                ringMaxRadius={ringTarget ? 0.55 : 0.7}
+                ringPropagationSpeed={2.2}
+                ringRepeatPeriod={ringTarget ? 900 : 1400}
+                ringAltitude={0.03}
                 hexBinPointsData={showHeatmap ? validNodes : []}
-                hexBinPointWeight={(n: object) => (n as NodeGeoPoint).active_sessions + 1}
+                hexBinPointWeight={(n: object) => (Number((n as NodeGeoPoint).active_sessions) || 0) + 1}
                 hexAltitude={(d: object) => Math.min((d as { sumWeight: number }).sumWeight * 0.005, 0.25)}
                 hexBinResolution={4}
                 hexTopColor={() => 'rgba(99,102,241,0.88)'}

@@ -202,7 +202,10 @@ export default function UnifiedWalletPage() {
                       }
                       isLocalSolanaRpc={isLocalSolanaRpc}
                       isDevnet={isDevnet}
-                      treasuryAddress={treasuryConfig?.treasury_solana}
+                      treasuryAddress={
+                        treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana
+                      }
+                      destinationKind={treasuryConfig?.destination_kind}
                       onCopyTreasury={deposit.copyTreasuryAddress}
                       onInitiateDeposit={deposit.initiateDeposit}
                       onVerifyDeposit={deposit.handleDepositVerify}

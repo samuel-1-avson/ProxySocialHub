@@ -68,7 +68,14 @@ export async function withdrawWallet(
     phone: string,
     network: string,
     opts?: { nonce?: string; signature?: string }
-): Promise<{ status: string; reference: string; tx_hash?: string; solscan_url?: string; new_balance: number }> {
+): Promise<{
+    status: string;
+    reference: string;
+    tx_hash?: string;
+    solscan_url?: string;
+    new_balance: number;
+    message?: string;
+}> {
     void phone;
     void network;
 
@@ -81,10 +88,11 @@ export async function withdrawWallet(
     const data = await response.json();
     return {
         status: data.status,
-        reference: data.tx_hash || '',
+        reference: data.reference || data.tx_hash || '',
         tx_hash: data.tx_hash,
         solscan_url: data.solscan_url,
         new_balance: data.new_balance,
+        message: data.message,
     };
 }
 

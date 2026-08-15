@@ -455,6 +455,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     clearStoredAuth();
     setUser(null);
+    try {
+      const { clearSolanaWalletAdapterSession } = await import('@/lib/solana-wallet-session');
+      clearSolanaWalletAdapterSession();
+      window.dispatchEvent(new CustomEvent('proxyhubb:auth-logout'));
+    } catch {
+      // ignore
+    }
     router.push('/login');
   };
 
