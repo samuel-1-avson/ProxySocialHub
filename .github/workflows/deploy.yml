@@ -1,3 +1,13 @@
+# ProxyHubb deploy — GHCR build/push only.
+#
+# Canonical live path is GCP Phase A Compose on the GCE VM, NOT EKS/kustomize:
+#   IMAGE_TAG=<tag> ./scripts/gcp-compose-pull-deploy.sh
+# See docs/GCP_TESTNET_PHASE_A.md and infra/k8s/README.md.
+#
+# This workflow intentionally does NOT kubectl-apply. The previous EKS jobs
+# targeted missing infra/k8s/overlays/{staging,production} and the wrong
+# GHCR owner (proxyhubb vs samuel-1-avson).
+
 name: Deploy
 
 on:
@@ -6,23 +16,19 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
+      image_tag:
+        description: 'Optional explicit image tag (default: git tag or sha)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: proxyhubb
+  # Live compose pulls ghcr.io/<owner>/{control-api,edge-gateway,web}
+  IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
-  # ==================== Build & Push Images ====================
   build:
-    name: Build Images
+    name: Build & Push GHCR Images
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,11 +63,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.service.name }}
           tags: |
             type=ref,event=tag
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -73,146 +80,33 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
 
-  # ==================== Deploy to Staging ====================
-  deploy-staging:
-    name: Deploy Staging
+  announce-vm-roll:
+    name: Announce VM Roll Instructions
     needs: build
-    if: github.event.inputs.environment == 'staging' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: https://staging.proxyhubb.com
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name proxyhubb-staging
-
-      - name: Deploy to Staging
-        run: |
-          # Update image tags
-          kustomize build infra/k8s/overlays/staging | \
-            sed "s|IMAGE_TAG|${{ github.sha }}|g" | \
-            kubectl apply -f -
-          
-          # Wait for rollout
-          kubectl rollout status deployment/control-api -n staging
-          kubectl rollout status deployment/edge-gateway -n staging
-          kubectl rollout status deployment/web -n staging
-
-      - name: Run Smoke Tests
-        run: |
-          sleep 30
-          curl -f https://api.staging.proxyhubb.com/health || exit 1
-          curl -f https://staging.proxyhubb.com/api/health || exit 1
-
-  # ==================== Deploy to Production ====================
-  deploy-production:
-    name: Deploy Production
-    needs: [build, deploy-staging]
-    if: github.event.inputs.environment == 'production' || (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc'))
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://proxyhubb.com
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name proxyhubb-production
-
-      - name: Deploy to Production
-        run: |
-          # Update image tags
-          kustomize build infra/k8s/overlays/production | \
-            sed "s|IMAGE_TAG|${{ github.ref_name }}|g" | \
-            kubectl apply -f -
-          
-          # Wait for rollout
-          kubectl rollout status deployment/control-api -n production
-          kubectl rollout status deployment/edge-gateway -n production
-          kubectl rollout status deployment/web -n production
-
-      - name: Run Smoke Tests
-        run: |
-          sleep 30
-          curl -f https://api.proxyhubb.com/health || exit 1
-          curl -f https://proxyhubb.com/api/health || exit 1
-
-      - name: Notify Slack
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          channel: '#deployments'
-          text: 'Production deployment ${{ job.status }}: ${{ github.ref_name }}'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        if: always()
-
-  # ==================== Database Migrations ====================
-  migrate-database:
-    name: Run Database Migrations
-    needs: deploy-production
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-
-      - name: Run Migrations
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      - name: Print canonical deploy path
         run: |
-          cd services/control-api
-          go run main.go migrate up
+          set -euo pipefail
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              TAG="${{ github.ref_name }}"
+            else
+              TAG="sha-${GITHUB_SHA::7}"
+            fi
+          fi
+          OWNER="${{ env.IMAGE_OWNER }}"
+          cat <<EOF
+          ✅ Images pushed to ghcr.io/${OWNER}/{control-api,edge-gateway,web}
 
-  # ==================== Create Release ====================
-  release:
-    name: Create Release
-    needs: deploy-production
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          Canonical live deploy (on proxyhubb-testnet GCE VM):
+            IMAGE_TAG=${TAG} GHCR_OWNER=${OWNER} ./scripts/gcp-compose-pull-deploy.sh
 
-      - name: Generate Release Notes
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-          files: |
-            docs/openapi.yaml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          Web-only:
+            IMAGE_TAG=${TAG} ./scripts/gcp-deploy-web.sh
+
+          Docs: docs/GCP_TESTNET_PHASE_A.md
+          EOF

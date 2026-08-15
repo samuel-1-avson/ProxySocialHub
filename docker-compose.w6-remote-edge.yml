@@ -1,0 +1,77 @@
+# Wave 6 — remote operator-B edge (second host)
+#
+# Run on a **distinct VM** from proxyhubb-testnet. Shares control-api / Redis
+# over a private path (VPC / SSH tunnel / stunnel). Do **not** publish Redis
+# on 0.0.0.0.
+#
+# On host-B:
+#   export CONTROL_API_URL=http://<host-a-private>:8080
+#   export REDIS_URL=redis://:<pass>@<host-a-private-or-tunnel>:6379
+#   export EDGE_PEER_URLS=edge-a@http://<host-a-public-or-private>:8090
+#   docker compose -f docker-compose.w6-remote-edge.yml up -d
+#
+# On host-A control-api env (then restart control-api so seed upserts):
+#   GATEWAY_OP_B_HOST_ID=<host-b-id>
+#   GATEWAY_OP_B_TUNNEL=<host-b-public>:3128
+#   GATEWAY_OP_B_BUYER_URL=http://<host-b-public>:8090
+#   GATEWAY_OP_B_HEALTH_URL=http://<host-b-public>:8090/health
+#   GATEWAY_OP_B_PEER_URLS=edge-a@http://edge-gateway-a:8090
+#   GATEWAY_OP_A_HOST_ID=<host-a-id>
+#
+# Honest claim: two-host data plane; shared control-plane SPOF remains. Not DePIN.
+
+services:
+  edge-gateway-b:
+    image: ${EDGE_GATEWAY_IMAGE:-ghcr.io/proxyhubb/edge-gateway:testnet}
+    hostname: edge-b
+    ports:
+      - "${EDGE_B_BUYER_PORT:-8090}:8090"
+      - "${EDGE_B_TUNNEL_PORT:-3128}:3128"
+      - "${EDGE_B_TUNNEL_UDP_PORT:-3128}:3128/udp"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - HOST=0.0.0.0
+      - PORT=8090
+      - METRICS_PORT=9090
+      - TUNNEL_PORT=3128
+      - REDIS_URL=${REDIS_URL:?REDIS_URL must reach host-A writable Redis (private path)}
+      - NATS_URL=${NATS_URL:-}
+      - CONTROL_API_URL=${CONTROL_API_URL:?CONTROL_API_URL must reach host-A control-api}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must match host-A}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?must match host-A}
+      - SESSION_SECRET=${SESSION_SECRET:?must match host-A}
+      - REQUIRE_PROVIDER_LEASE=${REQUIRE_PROVIDER_LEASE:-false}
+      - TLS_CERT_PATH=/app/certs/server.crt
+      - TLS_KEY_PATH=/app/certs/server.key
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
+      - PROXYHUB_CREDENTIAL_PROOF=${PROXYHUB_CREDENTIAL_PROOF:-enforce}
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
+      - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-true}
+      - EDGE_MODE=colocated
+      - EDGE_POD_ID=${EDGE_POD_ID:-edge-b}
+      - EDGE_PEER_URLS=${EDGE_PEER_URLS:?EDGE_PEER_URLS must point at host-A edge-a}
+      - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./geoip:/app/geoip:ro
+    restart: unless-stopped
+    mem_limit: 1024m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:8090/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s

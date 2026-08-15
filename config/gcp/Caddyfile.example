@@ -58,8 +58,24 @@ api.proxyhubb.com {
 # synced from this host into /opt/proxyhubb/certs for edge-gateway.
 # Buyer CONNECT remains on :8090 (not this vhost).
 proxy.proxyhubb.com {
-	respond "ProxyHubb edge — CONNECT :8090 · provider tunnel :3128 (TLS) · failover :8443" 200
+	respond "ProxyHubb edge — CONNECT :8090 · provider tunnel :3128/:3129 (TLS) · failover :8443" 200
 }
+
+# Wave 2.1 / Sprint J2 — sticky buyer CONNECT across edge-a / edge-b (same VM).
+# Publish host :8090 via Caddy → loopback buyer ports from docker-compose.j2-multipod.yml.
+# Cookie affinity keeps reconnects on the same pod; providers still dial one tunnel port.
+#
+# :8090 {
+# 	reverse_proxy 127.0.0.1:18090 127.0.0.1:18091 {
+# 		lb_policy cookie edge_pod
+# 		health_uri /health
+# 		health_interval 10s
+# 	}
+# }
+#
+# Provider tunnels remain direct DNS → :3128 (edge-a) or :3129 (edge-b).
+# Do not claim multi-region HA or multi-operator gateways.
+
 
 docs.proxyhubb.com {
 	encode gzip

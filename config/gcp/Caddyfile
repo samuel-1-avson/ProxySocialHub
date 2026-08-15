@@ -1,0 +1,13 @@
+proxyhubb.com, www.proxyhubb.com, app.proxyhubb.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+api.proxyhubb.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+proxy.proxyhubb.com {
+	respond "ProxyHubb edge gateway active" 200
+}
