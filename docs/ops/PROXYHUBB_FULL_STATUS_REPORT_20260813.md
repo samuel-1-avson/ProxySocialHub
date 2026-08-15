@@ -2,10 +2,36 @@
 
 | Field | Value |
 |-------|--------|
-| **Snapshot date** | 2026-08-13 |
+| **Snapshot date** | 2026-08-13, **revised 2026-08-15** |
 | **Purpose** | One place to remember what shipped, what improved, how decentralized the product actually is, and what is still open |
 | **Environment** | Live GCP Compose on Solana **devnet** (not mainnet) |
 | **Stance** | Federated hybrid marketplace. **Not DePIN.** `programs/session` stays undeployed. |
+
+## Revision 2026-08-15 — what changed since the 2026-08-13 snapshot
+
+Phase 0 leftovers closed. Score moves ~3.2 → **~3.4 / 5**. Still not DePIN.
+
+| Then (08-13) | Now (08-15) | Evidence |
+|--------------|-------------|----------|
+| W9.A upgrade **BLOCKED** on RPC | **PASS** — throttled 800-byte writer landed the ELF, live PDA registered | [`W9_A_listing_commitment_live_20260813.md`](evidence/W9_A_listing_commitment_live_20260813.md), [`W9_A_listing_commitment_pda_live_20260813.md`](evidence/W9_A_listing_commitment_pda_live_20260813.md) |
+| `gateway-bond` **localnet only** | **devnet deployed**, one tiny bond, one full accuse → 3600s → release | [`W8_D_gateway_bond_devnet_observe_20260814.md`](evidence/W8_D_gateway_bond_devnet_observe_20260814.md), [`W11_C_gateway_bond_release_soak_20260814.md`](evidence/W11_C_gateway_bond_release_soak_20260814.md) |
+| W9.D local only | **live on Host-A** with control-api stopped | [`W9_D_host_a_api_down_20260814.md`](evidence/W9_D_host_a_api_down_20260814.md) |
+| Capability restored **off** after soak | `observe` on a fleet since 08-14, decision due **2026-08-21** | [`W10_A_capability_observe_started_20260814.md`](evidence/W10_A_capability_observe_started_20260814.md) |
+| Operator bundle pinned but **unsigned** | pin is **signed**, `verified=2 failed=0` on both hosts and the public endpoint | [`W6_B_operator_manifest_signed_20260815.md`](evidence/W6_B_operator_manifest_signed_20260815.md) |
+| Helius key exposed in a CLI log | rotated, SM v2 enabled / v1 disabled | [`HELIUS_ROTATE_20260814.md`](evidence/HELIUS_ROTATE_20260814.md) |
+
+Added in-repo (not live): operator-minted capability issuers (W11.A),
+permissionless join runbook (W12.B), usage-challenge slice 1 (W12.A).
+
+**Live binary drift (measured 2026-08-15).** The running Host-A control-api
+was built 2026-08-14 and does **not** contain `listing_commitment_sync`,
+the W11.A `operators_and_control_api` issuer label, or the
+`bonded_gateway_program` honesty field. Treat those three as in-repo only
+until a roll is evidenced. Probe:
+`scripts/gcp-host-a-control-api-drift-probe.sh`.
+
+Unchanged and still true: one org, one control plane, HMAC + Redis
+admission, Postgres shop, edge-attested bytes, `live_economic_slash=false`.
 
 This report is a **tracking snapshot**, not a marketing claim. Slice-level proof lives under [`evidence/`](evidence/). Wave plans are the source of exit criteria. If this file and an evidence pack disagree, **believe the evidence pack**.
 
@@ -21,9 +47,9 @@ ProxyHubb is a **working Solana-devnet marketplace** (listings, escrow, CONNECT/
 |----------|----------------|
 | Can buyers browse, pay, and CONNECT on testnet? | **Yes**, on a scripted, monitored, limited-audience Testnet. |
 | Is it HA / mainnet / investor-grade books? | **No.** Single control-plane, treasury alerts have fired, accounting is sandbox-grade. |
-| How decentralized is it? | **Federated hybrid ~3.2 / 5.** Two hosts, on-chain registry/Groth16/escrow, reconstructible bundles. Default CONNECT still HMAC + Redis. Catalog merchandising still Postgres. Same GCP org. Live slash **false**. |
+| How decentralized is it? | **Federated hybrid ~3.4 / 5** (was ~3.2 on 08-13). Two hosts, on-chain registry/Groth16/escrow/listing-commitment/bond, signed reconstructible bundles. Default CONNECT still HMAC + Redis. Catalog merchandising still Postgres. Same GCP org. Live slash **false**. |
 | Is it DePIN? | **No.** Do not say DePIN, trustless residential egress, or on-chain store. |
-| Biggest leftover for marketplace autonomy | Live **ListingCommitment** program upgrade (W9.A) plus a **foreign-org** operator (W7.D). |
+| Biggest leftover for marketplace autonomy | A **foreign-org** operator (W7.D) and the **2026-08-21** capability decision. W9.A landed. |
 
 **Bottom line:** A lot of real protocol and ops work landed. The product is a **company-coordinated federated proxy marketplace with cryptographic receipts**, not an ownerless network. Default live flags after soaks go **back to off**. That is intentional.
 
@@ -54,9 +80,9 @@ Shared SoT on Host-A: Postgres, Redis, NATS, control-api. Host-B is a **second m
 
 | Program | ID | Live status |
 |---------|-----|-------------|
-| `proxyhub` (escrow, registry, Groth16, BC-05/06) | `AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu` | **Deployed on devnet.** Last successful *bytecode* is Groth16/BC-06. ListingCommitment ix **absent** on the dumped ELF. Data account was **extended** to 1,160,552 bytes during a failed W9.A write. |
+| `proxyhub` (escrow, registry, Groth16, BC-05/06, ListingCommitment) | `AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu` | **Deployed on devnet.** ListingCommitment ix **present** since 2026-08-13 (slot 483571293, ELF sha256 `4DC0D0A5…925B`). One live commitment PDA `Ci1FqUWEdMZ8AtYjeoLrn3k9hkyW7rXR4zLb7RHZYC8R`. GCP mode stays `off`. |
 | Reputation | `EnVE6ehKA2dYi69B3Lo8wt2wyDgzLw4tdtSEKoMYe5bF` | Deployed / consume + enforce (Wave 4.2). |
-| Gateway bond (Wave 8) | `7nvrNVaNWcG4DzcPygEyXoVC3k19ePUAncGE25dUEyi5` | **Localnet soak only.** Not a public-cluster slash. |
+| Gateway bond (Wave 8) | `7nvrNVaNWcG4DzcPygEyXoVC3k19ePUAncGE25dUEyi5` | **Devnet, observe.** One 1_000_000-lamport bond; one accuse → 3600s → `resolve_release` (2026-08-14). No slash. `live_economic_slash=false`. |
 | `programs/session` | `8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb` | **Unsafe — do not deploy.** Unconstrained `slash_gateway`. |
 
 ### Custody (from S7 / Aug 8 inventory; still the live split)
@@ -73,23 +99,33 @@ Shared SoT on Host-A: Postgres, Redis, NATS, control-api. Host-B is a **second m
 
 ## 3. Default live honesty (after soaks restored off)
 
-Public config after Wave 7 restore (`https://api.proxyhubb.com/v1/system/config/public`):
+Public config (`https://api.proxyhubb.com/v1/system/config/public`), measured
+2026-08-15:
 
 ```
-session_capability_mode=off
+session_capability_mode=observe        # W10.A soak until 2026-08-21
 session_mint=control_api_hmac
+session_capability_issuer=control_api  # W11.A not on this binary
 redis_optional_connect=false
 remaining_spof=control_api_hmac_and_redis
 operator_org_diversity=same_org
-discovery_sot=postgres
+operator_host_diversity=two_hosts
+operator_manifest_mode=observe
+discovery_sot=postgres_cache
 listing_commitment_mode=off
 live_economic_slash=false
+programs_session=unsafe_do_not_deploy
 zk_onchain_groth16_ready=true
 ```
 
-Capability issuer pubkey is left configured but unused while mode is off: `GG9tJqK1ZM2nSFruCWxuanLECvjJbveAWXrmvCiG8y8p`.
+Capability issuer pubkey: `GG9tJqK1ZM2nSFruCWxuanLECvjJbveAWXrmvCiG8y8p`.
+There is no `bonded_gateway_program` field on this binary, so the public
+config does **not** yet reflect the devnet bond. That is conservative, not a
+claim.
 
-**How to read this:** soaks proved *capability*. Production defaults stay conservative. Claiming “sessions are decentralized” while this JSON says `off` would be false.
+**How to read this:** soaks proved *capability*. Production defaults stay
+conservative. `observe` attaches a capability token but HMAC + Redis still
+gate CONNECT, so claiming “sessions are decentralized” today would be false.
 
 ---
 
@@ -191,9 +227,9 @@ Replaced the forbidden session `slash_gateway` with `programs/gateway-bond`: sta
 | Slice | Status |
 |-------|--------|
 | W8.A–C | Code + dual-gate API + ADR 0014 |
-| W8.D | `W8D_BOND_SLASH_OK` **localnet** |
+| W8.D | `W8D_BOND_SLASH_OK` **localnet**, then `W8_DEVNET_DEPLOY_OK` + `W8_DEVNET_SOAK_OK` on **devnet** 2026-08-14 |
 | GCP execute | **Unclaimed.** `live_economic_slash=false` |
-| Public-cluster `.so` | Unclaimed (Windows cannot emit BPF easily; soak used native `solana-program-test`) |
+| Public-cluster `.so` | **Built and deployed** via Docker SBF (317928 bytes, sha256 `538027b2…85186`) |
 
 ### 4.10 Wave 9 — Catalog/settlement copies (in progress 2026-08-13)
 
@@ -201,12 +237,30 @@ Goal: Postgres is not the **only** listing-commitment set or settlement receipt.
 
 | Slice | Status |
 |-------|--------|
-| W9.A | **Local SBF soak PASS** (`W9A_LISTING_COMMITMENT_SOAK_OK`). Laptop `.so` has ListingCommitment **and** Groth16 (sha256 `4DC0D0A5…925B`). Live ELF still Groth16-only. Devnet upgrade **blocked** on RPC buffer writes (public RPC + Helius 429). Program data **resized** to 1,160,552; executable bytes **not** replaced. |
-| W9.B | Unit PASS — signed listing-commitment bundle; `GET /v1/listings/commitments/bundle`; CLI verify |
-| W9.C | Unit PASS — portable settlement receipt; `WouldBroadcast()` always false |
-| W9.D | Local PASS (`W9D_API_DOWN_RECONSTRUCT_OK`) with API down. GCP `docker stop` of control-api **unclaimed**. |
+| W9.A | **PASS live** (`W9A_PROXYHUB_UPGRADE_DONE` + `W9A_LISTING_COMMITMENT_LIVE_OK`). Throttled 800-byte writer completed the ~1.16MB copy in ~44 min after burst writes 429'd. Live ELF sha256 `4DC0D0A5…925B`; PDA `Ci1FqUWEdMZ8AtYjeoLrn3k9hkyW7rXR4zLb7RHZYC8R`. |
+| W9.B | Unit PASS, then `W9B_ON_CHAIN_TRUE` with the live PDA |
+| W9.C | Unit PASS — portable settlement receipt; `WouldBroadcast()` always false. Auditor export claimed in W10.C |
+| W9.D | Local PASS 08-13, then **live on Host-A** 08-14 (`CONFIRM_W9D_STOP_API=1`) |
 
-Without live PDAs, W9.B is a **signed dump of Wave 3.2 offer hashes** (`on_chain=false`).
+W9.B now carries **one** `on_chain=true` row — the soak PDA, not the
+merchandised catalog. `listing_commitment_mode` stays `off` on GCP and the
+live binary has no `listing_commitment_sync`, so shop listings are still
+Ed25519 offer hashes only.
+
+### 4.11 Waves 10–12 (2026-08-14 → 08-15)
+
+| Slice | Status |
+|-------|--------|
+| W10.A | Capability `observe` on Host-A J2 edge-b + Host-B since 08-14; week-1 kill-API CONNECT PASS; decision **2026-08-21** |
+| W10.B | Browse honesty observe PASS, restored **off** |
+| W10.C | Settlement receipt auditor export PASS (`settlement_sot=escrow_pda`) |
+| W10.D | Operator bundle pinned on three nodes; rows **signed** 08-15 |
+| W11.A | Operator issuers **in-repo**; live binary does not have it |
+| W11.B | Not started — needs org 2 and org 3 |
+| W11.C | **PASS live** — accuse → 3600s → `resolve_release`, stake untouched |
+| W12.A | Usage-challenge slice 1 **in-repo**; live accuse in progress 08-15 |
+| W12.B | Permissionless join runbook PASS **as a runbook**; no foreign operator joined |
+| W12.C | Not started |
 
 ---
 
@@ -251,10 +305,10 @@ That is an enhancement: **the product can describe its own SPOFs**.
 
 | Artifact | Verify without live API? | Notes |
 |----------|---------------------------|--------|
-| Operator discovery bundle (W7.B) | Yes (CLI) | HTTP export not live |
-| Listing-commitment bundle (W9.B) | Yes (CLI + local W9.D) | Hashes; PDAs mostly `on_chain=false` |
-| Settlement receipt (W9.C) | Yes (CLI) | Observe-only; no broadcast |
-| Capability CONNECT (W7.A/C) | Yes **when mode on** | Default **off** after soak |
+| Operator discovery bundle (W7.B) | Yes (CLI + HTTP) | Rows **signed** 08-15; `verified=2 failed=0` |
+| Listing-commitment bundle (W9.B) | Yes (CLI + Host-A W9.D) | One `on_chain=true` row (soak PDA) |
+| Settlement receipt (W9.C) | Yes (CLI + auditor export) | Observe-only; no broadcast |
+| Capability CONNECT (W7.A/C) | Yes **when mode enforce** | Fleet is `observe`; HMAC still gates |
 
 Title, media, search, delist, new orders, merchandising: still the API/Postgres.
 
@@ -266,33 +320,38 @@ Title, media, search, delist, new orders, merchandising: still the API/Postgres.
 
 Think in **layers**. Waves moved some layers; others are still a company.
 
-| Layer | Then (≈ Aug 8) | Now (Aug 13) | Still centralized? |
+| Layer | Then (≈ Aug 8) | Now (Aug 15) | Still centralized? |
 |-------|----------------|--------------|---------------------|
 | TLS / public API | One Caddy + control-api | Same | Yes — Host-A |
 | Control plane | One VM | Same Postgres/Redis/NATS/API | Yes |
 | Edge processes | One gateway | J2 multipod + Host-B | Partially — two machines, one org |
-| Session mint | HMAC + Redis only | Capability **exists**; default HMAC + Redis | Yes in default |
-| Session verify | Redis required | Can be capability-only (soak) | Default still Redis |
+| Session mint | HMAC + Redis only | Capability `observe` on a fleet; HMAC still admits | Yes in default |
+| Session verify | Redis required | Can be capability-only (enforce soak) | Default still Redis |
 | Provider selection | Platform DB | Registry **enforce** + browse filter | Hybrid |
 | Catalog index | Postgres | Postgres + signed hash bundle | Yes for shop UX |
-| Listing commitments on-chain | Code | Local PDA soak; live ELF missing ix | Yes (live) |
+| Listing commitments on-chain | Code | **Live ix + one PDA**; mode `off`, no sync on live binary | Yes for the catalog |
 | Usage bytes | Edge attested | Same + stronger batch digest | Yes (ADR 0010) |
 | Usage batch on-chain | Oracle Merkle / Groth16 path | Groth16 live + digest-v2 | Hybrid |
-| Settlement copy | Postgres + chain push | Portable receipt (observe) | Postgres still working copy |
-| Gateway stake/slash | Audit rows `tx_hash=""` | Localnet bonded program | Live slash false |
-| Operator identity | Platform | Same org Host-A/B | `same_org` |
+| Settlement copy | Postgres + chain push | Portable receipt + auditor export | Postgres still working copy |
+| Gateway stake/slash | Audit rows `tx_hash=""` | **Devnet bond + one release cycle** | Live slash false |
+| Usage dispute | None | Petition + protocol accuse (slice 1, in-repo) | Accuser is ProxyHubb |
+| Operator identity | Platform | Same org Host-A/B, **signed** manifests | `same_org` |
 | Governance / treasury | Ops + gated hot wallet | Dual-gated execute exists | Not a DAO CPI |
 | `programs/session` | Unsafe | Still undeployed | N/A (correct) |
 
 **Numeric (for tracking only, not a press score):**
 
-| Scale | Aug 8 report | Aug 13 this snapshot |
-|-------|----------------|----------------------|
-| Testnet readiness | ~6.4 / 10 controlled Testnet | ~6.8 / 10 — more soaks, still not HA |
-| Decentralization | ~2.5 / 5 hybrid | **~3.2 / 5 federated hybrid** |
-| Wave-ladder marketing (W3–W4 docs said ~4.2–4.5) | Inflated vs audit | **Do not use wave-ladder numbers in public** |
+| Scale | Aug 8 report | Aug 13 | Aug 15 |
+|-------|----------------|--------|--------|
+| Testnet readiness | ~6.4 / 10 | ~6.8 / 10 | ~7.0 / 10 — more live soaks, still not HA |
+| Decentralization | ~2.5 / 5 hybrid | ~3.2 / 5 | **~3.4 / 5 federated hybrid** |
+| Wave-ladder marketing (W3–W4 docs said ~4.2–4.5) | Inflated vs audit | — | **Do not use wave-ladder numbers in public** |
 
-~3.2 means: cryptographic receipts and a second host exist; **killing Host-A control-api still kills new orders, default sessions, merchandising, and in-flight workers**. Capability CONNECT is a **gated soak**, not the default product.
+~3.4 means: the commitments, receipts, operator set, and bond are all real
+and verifiable off-box; **killing Host-A control-api still kills new orders,
+default sessions, merchandising, and in-flight workers**. Capability CONNECT
+is an `observe` soak, not the default product. Reaching ~4.0–4.2 needs the
+2026-08-21 decision to make capability the actual admission path.
 
 ### 6.2 Remaining SPOFs (the actual backlog)
 
@@ -333,39 +392,38 @@ Ordered by “stops us claiming the next honest milestone,” not by excitement.
 - Never deploy `programs/session`.
 - Never claim DePIN, trustless metering, or on-chain catalog.
 - Keep dual-gates on SOL sends; gcp slash execute off.
-- Rotate the Helius key that Solana CLI printed into a local deploy log (2026-08-13); update Secret Manager `proxyhubb-testnet-solana-rpc-url` and Host-A `.env`.
 - Upgrade authority stays on the **laptop**, not the app VM.
+- ~~Rotate the Helius key~~ done 2026-08-14. **Open operator action:** disable
+  every Helius dashboard key except Collarheather.
 
-### P1 — Finish Wave 9.A live (marketplace copy on-chain)
+### P1 — Roll Host-A control-api (closes the biggest doc/reality gap)
 
-Blocker: **keyed RPC that can write ~1.1MB program buffers** (current Helius key 429s on `program deploy`; public devnet timed out).
+The running binary was built 2026-08-14 and is missing
+`listing_commitment_sync`, the W11.A `operators_and_control_api` label, and
+the `bonded_gateway_program` honesty field. Until it is rolled, those three
+are **in-repo only** no matter what a wave checkbox says.
 
-Then, in order:
-
-1. `CONFIRM_W9A_UPGRADE=1` on **devnet only** with the ListingCommitment+Groth16 `.so` (`4DC0D0A5…925B`). Confirm dumped ELF greps `Listing commitment registered` **and** `Groth16`.
-2. `CONFIRM_W9A_LIVE=1` register soak → PDA + optional PG `listing_commitment_on_chain`.
-3. gcp default may stay/return **off**.
-4. Re-emit W9.B bundles with `on_chain=true` where PDAs exist.
-
-Laptop artifact is already rebuilt. Program data account is already **large enough**.
+Roll must keep all five overlays (`docker-compose.yml` + `testnet` +
+`gcp-testnet` + `w6-host-a-private` + `w10-observe`), never
+`--remove-orphans`, and must not flip capability mode before 2026-08-21.
 
 ### P2 — Wave 7 leftovers (federation that is not the same company)
 
-- Live **foreign VPS** (`CONFIRM_W7D_EXTERNAL_VPS=1`) so `operator_org_diversity=multi_org`.
-- Apply live DB migration `000151` (`org_id`) if CLI reconstruct should match production schema.
-- HTTP operator `/bundle` on control-api.
-- Roll **Host-B** to the Wave 7 edge binary (today it does not count as W7).
+- Live **foreign VPS** (`CONFIRM_W7D_EXTERNAL_VPS=1`) so `operator_org_diversity=multi_org`. **Still the top structural blocker.**
+- ~~migration `000151`~~, ~~HTTP `/bundle`~~, ~~Host-B Wave 7 roll~~ — done 2026-08-13.
 
-### P3 — Wave 8 live slash (economics, still not DePIN)
+### P3 — Wave 8 / 11.C (economics, still not DePIN)
 
-- Build/deploy `gateway-bond` `.so` on a public cluster (not session).
-- Observe-only on GCP until an explicit execute soak.
-- Keep `live_economic_slash=false` until that soak is evidenced.
+- ~~Build/deploy `gateway-bond` on a public cluster~~ done 2026-08-14 (devnet).
+- ~~One accuse → window → release~~ done 2026-08-14.
+- A **slash** soak is a separate claim and needs an accuser that is not also
+  the operator. Keep `live_economic_slash=false` until then.
 
 ### P4 — Wave 9.D / ops soaks
 
-- Gated `CONFIRM_W9D_STOP_API=1` on Host-A (do not confuse with “shop works without ProxyHubb”).
-- Keep C in parallel: settlement receipts remain observe-only.
+- ~~Gated `CONFIRM_W9D_STOP_API=1` on Host-A~~ done 2026-08-14. Still not
+  “shop works without ProxyHubb”.
+- Settlement receipts remain observe-only.
 
 ### P5 — Product / money hygiene (from Aug 8, re-verify)
 
@@ -382,13 +440,18 @@ Laptop artifact is already rebuilt. Program data account is already **large enou
 
 ---
 
-## 8. Suggested next implementation order (already agreed)
+## 8. Suggested next implementation order
 
-Wave 9: **A → B → D, with C in parallel after A.**
+Wave 9 is done (A → B → D live, C observe). Wave 8 devnet bond and the W11.C
+release cycle are done. Current order:
 
-A is the live program upgrade. B and D are already unit/local PASS but tell the truth (`on_chain=false`) until A lands. C is observe-only and can stay that way.
+1. **Roll Host-A control-api** so the live binary matches the repo (P1).
+2. **2026-08-21**: second kill-API CONNECT, then the written capability
+   decision. Only then W11.A live and any enforce work.
+3. **Foreign org** — blocks W11.B, `multi_org`, and any permissionless claim.
+4. W12.A slice 2 (buyer-signed open) and W12.C.
 
-Wave 8 already points at Wave 9 for catalog/money copies. W7.D and W8 public-cluster slash remain **open ops**, not Wave 9 exit.
+W7.D remains the single structural blocker that no amount of code removes.
 
 ---
 
@@ -406,10 +469,11 @@ Wave 8 already points at Wave 9 for catalog/money copies. W7.D and W8 public-clu
 | 0012 | Independent gateway operators | Host vs org diversity |
 | 0013 | Federated session mint | Capability vs HMAC |
 | 0014 | Bonded gateway slash | Safe slash; not session |
+| 0015 | Usage challenge | Dispute the claim, not the packets |
 
 ---
 
-## 10. Evidence index (2026-08-08 → 2026-08-13)
+## 10. Evidence index (2026-08-08 → 2026-08-15)
 
 Security / custody / E2E: `S3_*`, `S7_*`, `S8_*`, `BC05_*`, `BC06_*`, `BC08_*`, `BC11_*`, `KEYED_RPC_SETTLE_*`, `E2E_*`, `M1_*`, `M2_*`, `TRIAGE01_*`.
 
@@ -419,7 +483,9 @@ Waves 5–6: `W5_A_*`, `W5_B_*`, `W5_C_*`, `W6_A_*` … `W6_D_*`.
 
 Waves 7–9: `W7_CLAIMED_*`, `W7_A_*` … `W7_D_*`, `W8_A_*`, `W8_D_*`, `W9_A_*`, `W9_B_*`, `W9_C_*`, `W9_D_*`.
 
-W9.A live upgrade attempts: [`W9_A_listing_commitment_soak_20260813.md`](evidence/W9_A_listing_commitment_soak_20260813.md) (local PASS), [`W9_A_upgrade_rpc_blocked_20260813.md`](evidence/W9_A_upgrade_rpc_blocked_20260813.md) (live BLOCKED).
+Waves 10–12: `W10_A_*` … `W10_D_*`, `W11_A_*`, `W11_C_*`, `W12_A_*`, `W12_B_*`, `W6_B_operator_manifest_signed_*`, `HELIUS_ROTATE_*`.
+
+W9.A live upgrade: [`W9_A_upgrade_rpc_blocked_20260813.md`](evidence/W9_A_upgrade_rpc_blocked_20260813.md) (BLOCKED) → [`W9_A_listing_commitment_live_20260813.md`](evidence/W9_A_listing_commitment_live_20260813.md) (PASS, throttled writer) → [`W9_A_listing_commitment_pda_live_20260813.md`](evidence/W9_A_listing_commitment_pda_live_20260813.md) (live PDA).
 
 ---
 
@@ -431,19 +497,24 @@ SHIPPED LIVE (devnet Testnet)
   Groth16 lane + digest-v2
   ProviderRegistry enforce + browse filter
   J2 multipod + Host-B second machine (same org)
-  Wave 7 A–C soaks (then flags restored off)
+  Wave 7 A-C soaks (then flags restored off)
+  ListingCommitment ix + one live PDA
+  gateway-bond on devnet: bond, accuse, 3600s window, release
+  API-down reconstruct on Host-A
+  signed operator manifests; pinned bundle verifies offline
+  capability observe on a fleet (until 2026-08-21)
 
-SHIPPED IN-REPO / LOCALNET ONLY
-  capability session (default off)
-  signed operator + listing + settlement bundles
-  gateway-bond slash with 3600s window
-  ListingCommitment .so + ProgramTest PDA
+SHIPPED IN-REPO ONLY (live binary does not have these)
+  operator-minted capability issuers (W11.A)
+  usage-challenge petition + accuse CLI (W12.A slice 1)
+  permissionless join runbook (W12.B)
+  listing_commitment_sync
 
 NOT SHIPPED / DO NOT CLAIM
-  live ListingCommitment PDA
-  foreign-org operator
+  foreign-org operator          <- top blocker
   live economic slash
-  Host-B Wave 7 roll
+  capability as the admission path
+  on-chain catalog / on-chain search
   programs/session
   DePIN / trustless bytes / on-chain store
   mainnet
@@ -451,11 +522,13 @@ NOT SHIPPED / DO NOT CLAIM
 
 When someone asks “are we decentralized yet?” the accurate sentence is:
 
-> ProxyHubb is a federated hybrid marketplace on Solana devnet: two hosts in one org, on-chain registry and Groth16 batches, reconstructible signed receipts, and optional capability CONNECT. Default production still mints HMAC sessions through one control-api. It is not a DePIN.
+> ProxyHubb is a federated hybrid marketplace on Solana devnet: two hosts in one org, on-chain registry, Groth16 batches, listing commitments and a bonded gateway with a real challenge window, plus signed receipts anyone can verify offline. Default production still mints HMAC sessions through one control-api. It is not a DePIN.
 
 ---
 
-*End of snapshot 2026-08-13. Update this file when W9.A live, W7.D foreign VPS, or W8 public-cluster slash changes a row above.*
+*Snapshot 2026-08-13, revised 2026-08-15. Update this file when the W10.A
+capability decision, a W7.D foreign org, a Host-A control-api roll, or a
+slash soak changes a row above.*
 
 Roadmap toward a decentralized marketplace and a DePIN **gate** (not a claim):
 [`WAVE10_DEPIN_AND_MARKETPLACE_ROADMAP.md`](WAVE10_DEPIN_AND_MARKETPLACE_ROADMAP.md).
