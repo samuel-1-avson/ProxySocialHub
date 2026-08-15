@@ -500,6 +500,8 @@ func (rs *ReconciliationService) ReconcileUserWallets(ctx context.Context) error
 // 1) every journal's lines sum to 0
 // 2) Σ(2100 liability lines) + Σ(wallets.balance_lamports) ≈ 0
 //    (credits are negative; liability credits increase with deposits)
+// W1.5 / M4: when PROXYHUB_JOURNAL_AS_SOT or PROXYHUB_JOURNAL_SHADOW_READ is on,
+// this path is the shadow read gate (alert-only until cutover).
 func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
 	// Skip quietly if journal tables are not migrated yet.
 	var exists bool

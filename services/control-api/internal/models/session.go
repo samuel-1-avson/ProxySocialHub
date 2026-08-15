@@ -61,11 +61,13 @@ type Session struct {
 	ReviewPromptedAt *time.Time `json:"review_prompted_at,omitempty"`
 
 	// Phase 1b prepaid session escrow
-	SessionPDA     string `gorm:"size:64" json:"session_pda,omitempty"`
-	PaymentMethod  string `gorm:"size:50" json:"payment_method,omitempty"` // "solana_session_escrow"
-	BuyerWallet    string `gorm:"size:64" json:"buyer_wallet,omitempty"`
-	SellerWallet   string `gorm:"size:64" json:"seller_wallet,omitempty"`
-	AmountLockedSOL float64 `json:"amount_locked_sol,omitempty"`
+	SessionPDA          string     `gorm:"size:64" json:"session_pda,omitempty"`
+	PaymentMethod       string     `gorm:"size:50" json:"payment_method,omitempty"` // "solana_session_escrow" after confirm
+	BuyerWallet         string     `gorm:"size:64" json:"buyer_wallet,omitempty"`
+	SellerWallet        string     `gorm:"size:64" json:"seller_wallet,omitempty"`
+	AmountLockedSOL     float64    `json:"amount_locked_sol,omitempty"`
+	EscrowConfirmedAt   *time.Time `json:"escrow_confirmed_at,omitempty"`
+
 
 	// Preloaded relations
 	Conversation *Conversation `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`

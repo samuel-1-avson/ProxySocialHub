@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/incentives"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
 )
@@ -170,6 +171,14 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 	if err := db.DB.Create(&earning).Error; err != nil {
 		return
 	}
+
+	// Wave 4.3/5.C.4: observe ledger; settle mode may dual-gate provider-share SendSOL.
+	_ = incentives.ObserveSettlement(incentives.SettlementInput{
+		SessionID:      session.ID,
+		ProviderUserID: node.UserID,
+		NodeID:         node.ID,
+		GrossSOL:       grossSOL,
+	})
 
 	// If escrow-backed, anchorUsageProofAndSettle handles the SOL transfer — skip
 	// the batch-payout queue to avoid paying the provider twice.

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	geo "github.com/proxyhubb/control-api/internal/geo"
 	"github.com/proxyhubb/control-api/internal/logging"
 	catalogsvc "github.com/proxyhubb/control-api/internal/marketplace/catalog"
@@ -41,9 +42,12 @@ type MarketplaceGeoPin struct {
 	GeoResolved          bool    `json:"geo_resolved"`
 	Purchasable          bool    `json:"purchasable"`
 	ListingOfferVerified bool    `json:"listing_offer_verified"`
+	ListingOfferHash     string  `json:"listing_offer_hash,omitempty"`
 	ListingOfferSigner   string  `json:"listing_offer_signer,omitempty"`
 	ListingOfferSignedAt string  `json:"listing_offer_signed_at,omitempty"`
 	ListingOfferError    string  `json:"listing_offer_verification_error,omitempty"`
+	ProviderRegisteredOnChain bool `json:"provider_registered_on_chain,omitempty"`
+	ProviderHasHotkey    bool    `json:"provider_has_hotkey,omitempty"`
 	HeartbeatVerified    bool    `json:"heartbeat_verified,omitempty"`
 	HeartbeatSigner      string  `json:"heartbeat_signer,omitempty"`
 	HeartbeatSignedAt    string  `json:"heartbeat_signed_at,omitempty"`
@@ -63,8 +67,9 @@ func RegisterMarketplaceGeoRoutes(rg *gin.RouterGroup) {
 
 // MarketplaceGeoResponse is returned by GET /v1/listings/geo.
 type MarketplaceGeoResponse struct {
-	Pins  []MarketplaceGeoPin `json:"pins"`
-	Total int                 `json:"total"`
+	Pins      []MarketplaceGeoPin `json:"pins"`
+	Total     int                 `json:"total"`
+	Discovery DiscoveryHonesty    `json:"discovery"`
 }
 
 // MarketplaceMapPoint is the unified map payload used by marketplace-first map views.
@@ -100,6 +105,8 @@ type MarketplaceMapPoint struct {
 	GeoSource            string                        `json:"geo_source"`
 	Geo                  *geo.MapGeoMeta               `json:"geo,omitempty"`
 	ListingOfferVerified bool                          `json:"listing_offer_verified,omitempty"`
+	ListingOfferHash     string                        `json:"listing_offer_hash,omitempty"`
+	ProviderRegisteredOnChain bool                     `json:"provider_registered_on_chain,omitempty"`
 	CatalogProduct       *models.CatalogProductSummary `json:"catalog_product,omitempty"`
 }
 
@@ -111,6 +118,7 @@ type MarketplaceMapResponse struct {
 	NodeCount    int                   `json:"node_count"`
 	BBoxApplied  bool                  `json:"bbox_applied"`
 	GeneratedAt  time.Time             `json:"generated_at"`
+	Discovery    DiscoveryHonesty      `json:"discovery"`
 }
 
 type marketplaceMapFilters struct {
@@ -153,9 +161,12 @@ type marketplaceGeoRow struct {
 	SLASource            string     `gorm:"column:sla_source"`
 	GeoResolved          bool       `gorm:"column:geo_resolved"`
 	ListingOfferVerified bool       `gorm:"column:listing_offer_verified"`
+	ListingOfferHash     string     `gorm:"column:listing_offer_hash"`
 	ListingOfferSigner   string     `gorm:"column:listing_offer_signer"`
 	ListingOfferSignedAt *time.Time `gorm:"column:listing_offer_signed_at"`
 	ListingOfferError    string     `gorm:"column:listing_offer_verification_error"`
+	ProviderRegisteredOnChain bool  `gorm:"column:provider_registered_on_chain"`
+	ProviderHasHotkey    bool       `gorm:"column:provider_has_hotkey"`
 	HeartbeatVerified    bool       `gorm:"column:heartbeat_verified"`
 	HeartbeatSigner      string     `gorm:"column:heartbeat_signer"`
 	HeartbeatSignedAt    *time.Time `gorm:"column:heartbeat_signed_at"`
@@ -298,6 +309,7 @@ func getMarketplaceGeo(c *gin.Context) {
 		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
 			var resp MarketplaceGeoResponse
 			if err := json.Unmarshal([]byte(cached), &resp); err == nil {
+				resp.Discovery = discoveryHonestyMeta()
 				c.JSON(http.StatusOK, resp)
 				return
 			}
@@ -342,9 +354,12 @@ SELECT
         OR COALESCE(pl.country, '') <> ''
     ) AS geo_resolved,
     COALESCE(pl.listing_offer_verified, false) AS listing_offer_verified,
+    COALESCE(pl.listing_offer_hash, '') AS listing_offer_hash,
     COALESCE(pl.listing_offer_signer, '') AS listing_offer_signer,
     pl.listing_offer_signed_at AS listing_offer_signed_at,
     COALESCE(pl.listing_offer_verification_error, '') AS listing_offer_verification_error,
+    COALESCE(pn.is_registered_on_chain, false) AS provider_registered_on_chain,
+    COALESCE(pn.provider_has_hotkey, false) AS provider_has_hotkey,
     COALESCE(pn.latest_heartbeat_verified, false) AS heartbeat_verified,
     COALESCE(pn.latest_heartbeat_signer, '') AS heartbeat_signer,
     pn.latest_heartbeat_signed_at AS heartbeat_signed_at,
@@ -362,6 +377,8 @@ LEFT JOIN LATERAL (
         pn.country,
         pn.region,
         pn.isp,
+        COALESCE(pn.is_registered_on_chain, false) AS is_registered_on_chain,
+        (COALESCE(TRIM(pn.hotkey), '') <> '') AS provider_has_hotkey,
         pn.latest_heartbeat_verified,
         pn.latest_heartbeat_signer,
         pn.latest_heartbeat_signed_at,
@@ -427,6 +444,12 @@ WHERE pl.status = 'active'
 		args = append(args, proxyType)
 		argN++
 	}
+	if decentralization.BrowseRegistryFilterEnforce() {
+		query += " AND COALESCE(pn.is_registered_on_chain, false) = true"
+	}
+	if decentralization.ListingCommitmentEnforce() {
+		query += " AND COALESCE(pl.listing_commitment_on_chain, false) = true"
+	}
 	west, south, east, north, hasBBox := parseBBox(bboxRaw)
 	query += " ORDER BY pl.created_at DESC LIMIT 5000"
 
@@ -468,9 +491,12 @@ WHERE pl.status = 'active'
 			GeoResolved:          geoResolved || r.GeoResolved,
 			Purchasable:          purchasable,
 			ListingOfferVerified: r.ListingOfferVerified,
+			ListingOfferHash:     r.ListingOfferHash,
 			ListingOfferSigner:   r.ListingOfferSigner,
 			ListingOfferSignedAt: proofTimeString(r.ListingOfferSignedAt),
 			ListingOfferError:    r.ListingOfferError,
+			ProviderRegisteredOnChain: r.ProviderRegisteredOnChain,
+			ProviderHasHotkey:    r.ProviderHasHotkey,
 			HeartbeatVerified:    r.HeartbeatVerified,
 			HeartbeatSigner:      r.HeartbeatSigner,
 			HeartbeatSignedAt:    proofTimeString(r.HeartbeatSignedAt),
@@ -478,7 +504,7 @@ WHERE pl.status = 'active'
 		})
 	}
 
-	resp := MarketplaceGeoResponse{Pins: pins, Total: len(pins)}
+	resp := MarketplaceGeoResponse{Pins: pins, Total: len(pins), Discovery: discoveryHonestyMeta()}
 	cacheResponse(c, cacheKey, resp, 30*time.Second)
 	c.JSON(http.StatusOK, resp)
 }
@@ -492,6 +518,7 @@ func getMarketplaceMap(c *gin.Context) {
 		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
 			var resp MarketplaceMapResponse
 			if err := json.Unmarshal([]byte(cached), &resp); err == nil {
+				resp.Discovery = discoveryHonestyMeta()
 				c.JSON(http.StatusOK, resp)
 				return
 			}
@@ -536,9 +563,12 @@ SELECT
         OR COALESCE(pl.country, '') <> ''
     ) AS geo_resolved,
     COALESCE(pl.listing_offer_verified, false) AS listing_offer_verified,
+    COALESCE(pl.listing_offer_hash, '') AS listing_offer_hash,
     COALESCE(pl.listing_offer_signer, '') AS listing_offer_signer,
     pl.listing_offer_signed_at AS listing_offer_signed_at,
     COALESCE(pl.listing_offer_verification_error, '') AS listing_offer_verification_error,
+    COALESCE(pn.is_registered_on_chain, false) AS provider_registered_on_chain,
+    COALESCE(pn.provider_has_hotkey, false) AS provider_has_hotkey,
     COALESCE(pn.latest_heartbeat_verified, false) AS heartbeat_verified,
     COALESCE(pn.latest_heartbeat_signer, '') AS heartbeat_signer,
     pn.latest_heartbeat_signed_at AS heartbeat_signed_at,
@@ -556,6 +586,8 @@ LEFT JOIN LATERAL (
         pn.country,
         pn.region,
         pn.isp,
+        COALESCE(pn.is_registered_on_chain, false) AS is_registered_on_chain,
+        (COALESCE(TRIM(pn.hotkey), '') <> '') AS provider_has_hotkey,
         pn.latest_heartbeat_verified,
         pn.latest_heartbeat_signer,
         pn.latest_heartbeat_signed_at,
@@ -648,6 +680,12 @@ WHERE pl.status <> 'deleted'`
 		args = append(args, *filters.MaxLatency)
 		argN++
 	}
+	if decentralization.BrowseRegistryFilterEnforce() {
+		query += " AND COALESCE(pn.is_registered_on_chain, false) = true"
+	}
+	if decentralization.ListingCommitmentEnforce() {
+		query += " AND COALESCE(pl.listing_commitment_on_chain, false) = true"
+	}
 
 	west, south, east, north, hasBBox := parseBBox(filters.BBoxRaw)
 	if hasBBox {
@@ -722,6 +760,8 @@ WHERE pl.status <> 'deleted'`
 			GeoSource:            listingGeoSource,
 			Geo:                  &listingGeoMeta,
 			ListingOfferVerified: r.ListingOfferVerified,
+			ListingOfferHash:     r.ListingOfferHash,
+			ProviderRegisteredOnChain: r.ProviderRegisteredOnChain,
 		}
 		points = append(points, pt)
 	}
@@ -751,6 +791,7 @@ WHERE pl.status <> 'deleted'`
 		NodeCount:    nodeCount,
 		BBoxApplied:  hasBBox,
 		GeneratedAt:  time.Now().UTC(),
+		Discovery:    discoveryHonestyMeta(),
 	}
 	cacheResponse(c, cacheKey, resp, 30*time.Second)
 	c.JSON(http.StatusOK, resp)

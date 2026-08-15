@@ -7,7 +7,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
+	marketplacepkg "github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/providergate"
 )
 
 var (
@@ -78,6 +81,22 @@ func SmartMatch(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to find providers: " + err.Error()})
 		return
+	}
+
+	if decentralization.ProviderRegistryGateEnforce() {
+		filtered := results[:0]
+		for _, r := range results {
+			listing := r.ProxyListing
+			node, nerr := marketplacepkg.ResolveListingProviderNode(&listing)
+			if nerr != nil {
+				continue
+			}
+			if gerr := providergate.Check(c.Request.Context(), node); gerr != nil {
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		results = filtered
 	}
 
 	// Build response items

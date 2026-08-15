@@ -13,6 +13,8 @@ const (
 	// CompensationKindEscrowSettle retries marketplace/session escrow SettleEscrow
 	// after a transient on-chain failure (roadmap 2.5 / M5).
 	CompensationKindEscrowSettle = "escrow_settle"
+	// CompensationKindEscrowRefund retries EmergencyRefund after jury buyer-wins failure (W1.2).
+	CompensationKindEscrowRefund = "escrow_refund"
 
 	CompensationStatusPending         = "pending"
 	CompensationStatusSucceeded       = "succeeded"

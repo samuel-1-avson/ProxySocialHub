@@ -281,6 +281,7 @@ func supportsMissingFromCompiled(instructionNames ...string) []string {
 		"submit_review_attestation": {},
 		"write_kyc_attestation":     {},
 		"submit_zk_batch":           {},
+		"submit_zk_batch_groth16":   {},
 		"write_admin_attestation":   {},
 		"lock_session_commitment":   {},
 		"initialize_session_escrow": {},

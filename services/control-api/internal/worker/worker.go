@@ -16,6 +16,7 @@ func StartAll(queue events.EventQueue) {
 	StartSessionReaper()
 	StartSessionActivationRetryWorker()
 	StartSessionIntentExpireWorker()
+	StartSessionGatewayCacheReaper() // Wave 2.2 — expire session_gateway_cache spill
 	StartSubscriptionRenewalWorker()
 	StartTelemetryWorker()
 	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine

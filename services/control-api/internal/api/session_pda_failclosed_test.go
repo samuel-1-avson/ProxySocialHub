@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -35,6 +36,38 @@ func TestBlockDirectSessionWhenRequireSessionPDA(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["code"] != "session_pda_required" {
 		t.Fatalf("code=%v", body["code"])
+	}
+}
+
+func TestIntentRequiresFundedSessionPDA_FundWithoutConfirm(t *testing.T) {
+	t.Setenv("PROXYHUB_REQUIRE_SESSION_PDA", "true")
+	rec := &models.SessionIntentRecord{
+		ID:            uuid.New(),
+		SessionPDA:    "SomePDA111111111111111111111111111111111111",
+		PaymentMethod: paymentMethodSessionEscrowPending,
+	}
+	if !intentRequiresFundedSessionPDA(rec) {
+		t.Fatal("fund-without-confirm must still require escrow")
+	}
+
+	// Legacy hole: payment_method already session_escrow but no confirm timestamp.
+	rec.PaymentMethod = paymentMethodSessionEscrow
+	if !intentRequiresFundedSessionPDA(rec) {
+		t.Fatal("missing escrow_confirmed_at must still require escrow")
+	}
+
+	now := time.Now().UTC()
+	rec.EscrowConfirmedAt = &now
+	if intentRequiresFundedSessionPDA(rec) {
+		t.Fatal("confirmed escrow must allow Active")
+	}
+}
+
+func TestIntentRequiresFundedSessionPDA_FlagOff(t *testing.T) {
+	t.Setenv("PROXYHUB_REQUIRE_SESSION_PDA", "false")
+	rec := &models.SessionIntentRecord{ID: uuid.New()}
+	if intentRequiresFundedSessionPDA(rec) {
+		t.Fatal("flag off must not require session PDA")
 	}
 }
 

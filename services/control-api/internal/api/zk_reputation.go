@@ -20,8 +20,10 @@ import (
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/zk"
 )
 
@@ -197,11 +199,22 @@ func getReputationTelemetry(c *gin.Context) {
 		"settled_proof_count": len(proofs),
 		"total_bytes_settled": totalBytes,
 		"proofs":              proofs,
-		// BC-11 honesty: batches are oracle-attested Merkle anchors; on-chain
-		// Groth16 / trustless ZK reputation is not live (Sprint B).
-		"verification_mode":          "oracle_attested_merkle",
-		"onchain_groth16":            false,
-		"onchain_zk_verify_available": false,
-		"reputation_program":         "oracle_gated_stub_not_deployed",
+		// BC-11 / Wave 4.1 honesty: batches are oracle-attested Merkle anchors
+		// unless Groth16 on-chain verify is ready (it is not yet).
+		"verification_mode":             zkVerificationMode(),
+		"onchain_groth16":               decentralization.ZKOnchainGroth16Enabled(),
+		"onchain_groth16_ready":         decentralization.ZKOnchainGroth16Ready(),
+		"onchain_zk_verify_available":   decentralization.ZKOnchainGroth16Ready(),
+		"reputation":                    solana.ReputationStatusMeta(),
 	})
+}
+
+func zkVerificationMode() string {
+	if decentralization.ZKOnchainGroth16Ready() {
+		return "onchain_groth16_bn254"
+	}
+	if decentralization.ZKOnchainGroth16Enabled() {
+		return "groth16_flagged_not_ready_fail_closed"
+	}
+	return "oracle_attested_merkle"
 }

@@ -38,6 +38,8 @@ func RegisterGatewayRoutes(rg *gin.RouterGroup, cfg *config.Config) {
 		gateway.POST("/session-intents/:id/usage", updateGatewaySessionIntentUsage)
 		// Sprint J0: edge Redis-miss hydrate from PG dual-write cache
 		gateway.GET("/sessions/hydrate", hydrateGatewaySession)
+		// Wave 5.B: honeytoken → observe-only slash audit (no on-chain slash)
+		gateway.POST("/slash-audit", recordGatewaySlashAudit)
 		RegisterGatewayUsageRoutes(gateway)
 	}
 }

@@ -58,3 +58,50 @@ func TestGetPublicSystemConfig_FallsBackToEnvTreasury(t *testing.T) {
 		t.Fatal("expected treasury_configured=true when env is set")
 	}
 }
+
+func TestGetPublicSystemConfig_ListingCommitmentObserveHonesty(t *testing.T) {
+	t.Setenv("PROXYHUB_LISTING_COMMITMENT", "observe")
+	t.Setenv("PROXYHUB_LISTING_BUNDLE_PATH", "")
+	t.Setenv("PROXYHUB_LISTING_BUNDLE_URL", "")
+	t.Setenv("PROXYHUB_LISTING_BUNDLE_CID", "")
+
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+
+	cm := config.NewConfigManager(redis.Client, db.DB)
+	if GetConfigManager() == nil {
+		InitConfigManager(cm)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/system/config/public", getPublicSystemConfig)
+
+	req := httptest.NewRequest(http.MethodGet, "/system/config/public", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	disc, _ := body["discovery"].(map[string]interface{})
+	if disc == nil {
+		t.Fatalf("missing discovery: %s", w.Body.String())
+	}
+	if got, _ := disc["listing_commitment_mode"].(string); got != "observe" {
+		t.Fatalf("listing_commitment_mode=%q", got)
+	}
+	if got, _ := disc["listing_commitments"].(string); got != "ed25519_offer_hash+listing_commitment_pda" {
+		t.Fatalf("listing_commitments=%q", got)
+	}
+	if got, _ := disc["catalog_source"].(string); got != "postgres" {
+		t.Fatalf("catalog_source=%q (must stay postgres; not a catalog)", got)
+	}
+	if got, _ := disc["delist_authority"].(string); got != "platform_moderation" {
+		t.Fatalf("delist_authority=%q", got)
+	}
+}
