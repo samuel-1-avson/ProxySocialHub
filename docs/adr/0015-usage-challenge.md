@@ -1,7 +1,8 @@
 # ADR 0015 — Usage challenge (Wave 12.A)
 
 - **Status:** Accepted. Slice 1 **client** exists (`cmd/w12a-usage-challenge`);
-  no new program. Live usage accuse on the public-cluster bond is unclaimed.
+  no new program. Live usage **release** soak claimed 2026-08-15
+  (`W12_A_usage_challenge_soak_20260815.md`). Slash soak unclaimed.
 - **Date:** 2026-08-14 (design); slice 1 client 2026-08-15
 - **Related:** ADR 0010, ADR 0014, `WAVE10_DEPIN_AND_MARKETPLACE_ROADMAP.md` W12.A,
   `GATEWAY_OPERATOR_SLASH.md`
