@@ -1,0 +1,8 @@
+# Reviewed false positives, by gitleaks fingerprint.
+# Add an entry only after confirming the match is not credential material,
+# and say why. Do not add paths here to silence a real finding.
+
+# CamelCase Go symbol list in a W4.1 evidence pack
+# ("Control-api: GateOnchainGroth16Settlement, ...") scored as a generic
+# API key on entropy alone. It is an identifier, not a secret.
+docs/ops/evidence/W4_1_groth16_fail_closed_20260811.md:generic-api-key:14

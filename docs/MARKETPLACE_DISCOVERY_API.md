@@ -4,6 +4,39 @@ Canonical buyer discovery surface: **`GET /v1/listings`** (and related listing r
 
 `GET /v1/services` remains a deprecated thin adapter; new clients should use listings.
 
+## Wave 3.2 — Discovery honesty (DISC-01)
+
+Browse and map responses include a top-level `discovery` object:
+
+```json
+{
+  "discovery": {
+    "catalog_source": "postgres",
+    "delist_authority": "platform_moderation",
+    "registry_gate_mode": "off|observe|enforce",
+    "browse_registry_filter": "off|observe|enforce",
+    "listing_commitment_mode": "off|observe|enforce",
+    "listing_commitments": "ed25519_offer_hash|ed25519_offer_hash+listing_commitment_pda",
+    "note": "..."
+  }
+}
+```
+
+Listing rows may also expose:
+
+| Field | Meaning |
+|-------|---------|
+| `listing_offer_hash` | Off-chain Ed25519 offer commitment |
+| `listing_commitment_pda` | On-chain ListingCommitment PDA (W5.C.5 mirror) |
+| `listing_commitment_on_chain` | PG mirror: offer hash registered on-chain |
+| `provider_registered_on_chain` | PG mirror of hotkey `register_provider` |
+| `provider_has_hotkey` | Node has a bound Solana hotkey |
+| `registry_live` | Only when `include=registry` on **single** listing GET (one RPC) |
+
+**Honest limits:** Delist/reject remains platform moderation. Merchandising catalog stays Postgres. `PROXYHUB_PROVIDER_REGISTRY_GATE` affects session activation / smart-match (W3.1). `PROXYHUB_BROWSE_REGISTRY_FILTER=enforce` (W5.C.1) hard-filters by provider registry mirror. `PROXYHUB_LISTING_COMMITMENT=observe|enforce` (W5.C.5 / ADR 0011) anchors offer hashes as `ListingCommitment` PDAs — **not** a full on-chain catalog index. `GET /v1/listings/commitments/bundle` exports a signed offer-hash set (Wave 9.B). `catalog_source` becomes `postgres_cache` when `PROXYHUB_LISTING_BUNDLE_PATH|URL|CID` is pinned. Verify without the API: `w9b-listing-bundle verify <file>`.
+
+Also on `/v1/system/config/public`: `discovery` + `provider_registry_gate`.
+
 ## Phase 3A: optional catalog product embed
 
 Listings stay the fulfillment/supply record. Merchandising lives in `catalog_products` / `catalog_offers` (see [MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md](./MARKETPLACE_CATALOG_BACKFILL_RUNBOOK.md)).

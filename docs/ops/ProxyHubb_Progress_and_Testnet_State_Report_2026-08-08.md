@@ -215,7 +215,7 @@ Baseline blended score from the morning audit: **~5.1 / 10**.
 
 ## 7. Recommended next moves (priority order)
 
-1. **Finish S3** — set `SLACK_ALERT_WEBHOOK_URL` (and optional PagerDuty); re-run `scripts/gcp-s3-enable-observability.sh`.
+1. **Finish S3** — platform-native alerts (`ops_alerts` + NATS + Grafana internal webhook). **Do not** wire Slack/PagerDuty.
 2. **Triage money alerts** — reconcile wallet `fe793802-…` and treasury deficit before broad Testnet invites.
 3. **S8** — IMAGE_TAG rollback + backup restore drill; file evidence beside S3/S7.
 4. **Phase B** — BC-06 / BC-08 / BC-13 closed. **BC-11 Phase-1** landed (submit wiring + FE de-claim); full on-chain Halo2 verify remains XL.
