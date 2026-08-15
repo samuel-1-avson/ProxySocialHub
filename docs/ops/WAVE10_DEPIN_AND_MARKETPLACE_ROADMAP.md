@@ -224,6 +224,10 @@ cannot decentralize if the default product is the SPOF.
 
 - [x] Pin operator bundle on edges (`PROXYHUB_OPERATOR_BUNDLE_*`)
       ([`evidence/W10_D_operator_bundle_pin_20260814.md`](evidence/W10_D_operator_bundle_pin_20260814.md))
+- [x] Pinned rows are **signed** and verify offline (2026-08-15;
+      [`evidence/W6_B_operator_manifest_signed_20260815.md`](evidence/W6_B_operator_manifest_signed_20260815.md);
+      `W6B_MANIFEST_SIGNED_OK`; `verified=2 failed=0` on both hosts and on the
+      public bundle endpoint. Platform holds both keys — still `same_org`)
 - [x] `discovery_sot=postgres_cache` on the soak fleet
 - [x] HTTP operator bundle export claimed
 
