@@ -30,6 +30,27 @@ impl Default for RotationConfig {
     }
 }
 
+/// Build a RotationConfig from session-intent / Redis session JWT claims.
+pub fn config_from_session_claims(rotation_type: &str, interval_secs: u32) -> RotationConfig {
+    let mut cfg = RotationConfig::default();
+    let t = rotation_type.trim().to_ascii_lowercase();
+    cfg.strategy = match t.as_str() {
+        "none" | "sticky" => RotationStrategy::None,
+        "per-request" | "request" | "request-based" | "request_based" => {
+            RotationStrategy::RequestBased
+        }
+        "time-based" | "time" | "time_based" | "interval" => RotationStrategy::TimeBased,
+        "hybrid" => RotationStrategy::Hybrid,
+        "smart" => RotationStrategy::Smart,
+        // Empty / unknown: keep Smart default for rotating sessions.
+        _ => RotationStrategy::Smart,
+    };
+    if interval_secs > 0 {
+        cfg.time_interval_secs = u64::from(interval_secs);
+    }
+    cfg
+}
+
 /// Available rotation strategies
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -289,5 +310,28 @@ mod tests {
         // Triggering errors
         assert!(!state.record_failure(403));
         assert!(state.record_failure(429)); // 2nd failure triggers
+    }
+
+    #[test]
+    fn test_config_from_session_claims() {
+        let none = config_from_session_claims("none", 0);
+        assert_eq!(none.strategy, RotationStrategy::None);
+
+        let per_req = config_from_session_claims("per-request", 0);
+        assert_eq!(per_req.strategy, RotationStrategy::RequestBased);
+
+        let timed = config_from_session_claims("time-based", 120);
+        assert_eq!(timed.strategy, RotationStrategy::TimeBased);
+        assert_eq!(timed.time_interval_secs, 120);
+
+        let hybrid = config_from_session_claims("hybrid", 60);
+        assert_eq!(hybrid.strategy, RotationStrategy::Hybrid);
+        assert_eq!(hybrid.time_interval_secs, 60);
+
+        let smart = config_from_session_claims("smart", 0);
+        assert_eq!(smart.strategy, RotationStrategy::Smart);
+
+        let unknown = config_from_session_claims("", 0);
+        assert_eq!(unknown.strategy, RotationStrategy::Smart);
     }
 }

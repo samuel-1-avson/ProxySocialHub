@@ -55,12 +55,14 @@ use moka::future::Cache;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyAuthSource {
     LegacySession,
     SessionIntent,
+    SessionCapability,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +130,219 @@ pub struct SessionData {
     pub price_per_gb: f64,
     #[serde(default)]
     pub credential_password_hash: String,
+
+    // W5.C.2 — marketplace order credential HMAC bound at activation.
+    #[serde(default)]
+    pub order_id: String,
+    #[serde(default)]
+    pub credential_proof_username_hash: String,
+    #[serde(default)]
+    pub credential_proof_payload_hash: String,
+    #[serde(default)]
+    pub credential_proof_signature: String,
+    #[serde(default)]
+    pub credential_proof_issued_at: i64,
+    #[serde(default)]
+    pub credential_proof_expires_at: i64,
+
+    // W7.A — Ed25519 session capability (verify locally; Redis is a cache).
+    #[serde(default)]
+    pub capability_version: String,
+    #[serde(default)]
+    pub capability_offer_hash: String,
+    #[serde(default)]
+    pub capability_buyer_id: String,
+    #[serde(default)]
+    pub capability_expires_at: i64,
+    #[serde(default)]
+    pub capability_bandwidth_limit: i64,
+    #[serde(default)]
+    pub capability_operator_pubkey: String,
+    #[serde(default)]
+    pub capability_username_hash: String,
+    #[serde(default)]
+    pub capability_issued_at: i64,
+    #[serde(default)]
+    pub capability_signature: String,
+    #[serde(default)]
+    pub capability_issuer_pubkey: String,
+    #[serde(default)]
+    pub capability_token: String,
+}
+
+/// PROXYHUB_CREDENTIAL_PROOF: off | observe | enforce (default off).
+pub fn credential_proof_mode() -> &'static str {
+    match std::env::var("PROXYHUB_CREDENTIAL_PROOF")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "enforce" | "1" | "true" | "yes" | "on" => "enforce",
+        "observe" => "observe",
+        _ => "off",
+    }
+}
+
+pub fn credential_proof_enforce() -> bool {
+    credential_proof_mode() == "enforce"
+}
+
+/// PROXYHUB_SESSION_CAPABILITY: off | observe | enforce (default off).
+pub fn session_capability_mode() -> &'static str {
+    match std::env::var("PROXYHUB_SESSION_CAPABILITY")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "enforce" => "enforce",
+        "observe" | "1" | "true" | "yes" | "on" => "observe",
+        _ => "off",
+    }
+}
+
+pub fn session_capability_enforce() -> bool {
+    session_capability_mode() == "enforce"
+}
+
+fn session_capability_issuer_allowlist() -> Vec<String> {
+    let mut keys: Vec<String> = std::env::var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    for pk in crate::operator_bundle::snapshot().verified_issuer_pubkeys() {
+        if !keys.iter().any(|e| e == &pk) {
+            keys.push(pk);
+        }
+    }
+    keys
+}
+
+const SESSION_CAPABILITY_TOKEN_PREFIX: &str = "phubb1.";
+
+/// Wire object packed as `phubb1.` + base64url(JSON) (W7.C CONNECT password).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CapabilityTokenWire {
+    #[serde(default, rename = "v")]
+    version: String,
+    session_id: String,
+    offer_hash: String,
+    buyer_id: String,
+    expires_at: i64,
+    bandwidth_limit: i64,
+    operator_pubkey: String,
+    username_hash: String,
+    issued_at: i64,
+    signature: String,
+    issuer_pubkey: String,
+}
+
+fn looks_like_capability_token(password: &str) -> bool {
+    password.trim().starts_with(SESSION_CAPABILITY_TOKEN_PREFIX)
+}
+
+fn parse_capability_password(password: &str) -> Option<SessionData> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    let rest = password.trim().strip_prefix(SESSION_CAPABILITY_TOKEN_PREFIX)?;
+    if rest.is_empty() {
+        return None;
+    }
+    let raw = URL_SAFE_NO_PAD.decode(rest.as_bytes()).ok()?;
+    let tok: CapabilityTokenWire = serde_json::from_slice(&raw).ok()?;
+    if !tok.version.is_empty() && tok.version != "1" {
+        return None;
+    }
+    Some(SessionData::from_capability_token(&tok))
+}
+
+/// Admit from a self-contained `phubb1.` password. Does not read Redis `session:`.
+fn admit_capability_token(username: &str, password: &str) -> Option<SessionData> {
+    let session = parse_capability_password(password)?;
+    if session.session_capability_valid(username) {
+        Some(session)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+fn encode_capability_token(tok: &CapabilityTokenWire) -> Option<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    let raw = serde_json::to_vec(tok).ok()?;
+    Some(format!(
+        "{SESSION_CAPABILITY_TOKEN_PREFIX}{}",
+        URL_SAFE_NO_PAD.encode(raw)
+    ))
+}
+
+fn canonical_session_capability_bytes(
+    session_id: &str,
+    offer_hash: &str,
+    buyer_id: &str,
+    expires_at: i64,
+    bandwidth_limit: i64,
+    operator_pubkey: &str,
+    username_hash: &str,
+    issued_at: i64,
+) -> Vec<u8> {
+    format!(
+        "PROXYHUB_SESSION_CAPABILITY:v1:{session_id}|{offer_hash}|{buyer_id}|{expires_at}|{bandwidth_limit}|{operator_pubkey}|{username_hash}|{issued_at}"
+    )
+    .into_bytes()
+}
+
+fn verify_ed25519_b58(pubkey_b58: &str, message: &[u8], signature_b58: &str) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let pk = match bs58::decode(pubkey_b58.trim()).into_vec() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let sig = match bs58::decode(signature_b58.trim()).into_vec() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let vk = match VerifyingKey::try_from(pk.as_slice()) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let signature = match Signature::try_from(sig.as_slice()) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    vk.verify(message, &signature).is_ok()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+fn hash_order_credential_payload(
+    order_id: &str,
+    session_id: &str,
+    buyer_id: &str,
+    listing_id: &str,
+    username_hash: &str,
+    issued_at: i64,
+    expires_at: i64,
+) -> String {
+    let canonical = format!(
+        "PROXYHUB_ORDER_CREDENTIAL_V1|1|{order_id}|{session_id}|{buyer_id}|{listing_id}|{username_hash}|{issued_at}|{expires_at}"
+    );
+    sha256_hex(canonical.as_bytes())
+}
+
+fn verify_credential_proof_hmac(payload_hash: &str, signature_hex: &str, secret: &str) -> bool {
+    use ring::hmac;
+    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    let tag = hmac::sign(&key, payload_hash.as_bytes());
+    let want = hex::encode(tag.as_ref());
+    constant_time_eq(want.as_bytes(), signature_hex.as_bytes())
 }
 
 fn verify_credential_password(expected_hex: &str, password: &str) -> bool {
@@ -156,6 +371,8 @@ pub struct SessionAuthenticator {
     cache: Cache<String, SessionData>,
     cache_ttl: Duration,
     cache_max_size: usize,
+    /// Sprint J0: optional control-api client for PG hydrate on Redis miss.
+    control_api: Option<Arc<crate::control_api::ControlApiClient>>,
 }
 
 impl SessionAuthenticator {
@@ -180,12 +397,19 @@ impl SessionAuthenticator {
                 .build(),
             cache_ttl,
             cache_max_size: effective_size,
+            control_api: None,
         };
 
         // Start background task to report cache metrics
         authenticator.start_metrics_task();
 
         Ok(authenticator)
+    }
+
+    /// Attach control-api hydrate client (Sprint J0).
+    pub fn with_control_api(mut self, client: Arc<crate::control_api::ControlApiClient>) -> Self {
+        self.control_api = Some(client);
+        self
     }
 
     /// P0-A2: Start background task to periodically report cache metrics
@@ -238,43 +462,97 @@ impl SessionAuthenticator {
             metrics::record_session_cache_miss();
         }
 
-        // Fetch from Redis
-        let mut con = self.conn_pool.get().await?;
+        // Fetch from Redis. On pool/GET failure, attempt PG hydrate (EV-05 lite)
+        // before fail-closed — covers Redis down, not only key miss.
         let key = redis_keys::session(username);
-        let data: Option<String> = con.get(&key).await?;
-
-        match data {
-            Some(json_str) => {
-                let mut session_data: SessionData = serde_json::from_str(&json_str)?;
-
-                // Check if session is active
-                if session_data.status != "active" {
-                    return Ok(None);
-                }
-
-                let used = self
-                    .fetch_usage_bytes(username)
-                    .await
-                    .unwrap_or(session_data.bandwidth_used);
-                merge_live_usage(&mut session_data, used);
-
-                // A non-positive bandwidth limit means unlimited. Positive limits are hard caps.
-                if !session_data.has_remaining_bandwidth() {
-                    return Ok(None);
-                }
-
-                if !session_data.session_within_time_limit() {
-                    return Ok(None);
-                }
-
-                self.cache
-                    .insert(username.to_string(), session_data.clone())
-                    .await;
-
-                Ok(Some(session_data))
-            }
-            None => Ok(None),
+        let data: Result<Option<String>, _> = async {
+            let mut con = self.conn_pool.get().await?;
+            let v: Option<String> = con.get(&key).await?;
+            Ok::<_, Box<dyn Error + Send + Sync>>(v)
         }
+        .await;
+
+        let json_str = match data {
+            Ok(Some(json_str)) => json_str,
+            Ok(None) => {
+                // Sprint J0: Redis miss → hydrate from control-api PG dual-write cache.
+                match self.hydrate_and_rewarm(username).await? {
+                    Some(session_data) => {
+                        return self.admit_loaded_session(username, session_data).await;
+                    }
+                    None => return Ok(None),
+                }
+            }
+            Err(redis_err) => {
+                match self.hydrate_and_rewarm(username).await {
+                    Ok(Some(session_data)) => {
+                        return self.admit_loaded_session(username, session_data).await;
+                    }
+                    Ok(None) => return Err(redis_err),
+                    Err(hydrate_err) => return Err(hydrate_err),
+                }
+            }
+        };
+
+        let session_data: SessionData = serde_json::from_str(&json_str)?;
+        self.admit_loaded_session(username, session_data).await
+    }
+
+    async fn admit_loaded_session(
+        &self,
+        username: &str,
+        mut session_data: SessionData,
+    ) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
+        if session_data.status != "active" {
+            return Ok(None);
+        }
+
+        let used = self
+            .fetch_usage_bytes(username)
+            .await
+            .unwrap_or(session_data.bandwidth_used);
+        merge_live_usage(&mut session_data, used);
+
+        if !session_data.has_remaining_bandwidth() {
+            return Ok(None);
+        }
+
+        if !session_data.session_within_time_limit() {
+            return Ok(None);
+        }
+
+        self.cache
+            .insert(username.to_string(), session_data.clone())
+            .await;
+
+        Ok(Some(session_data))
+    }
+
+    async fn hydrate_and_rewarm(
+        &self,
+        username: &str,
+    ) -> Result<Option<SessionData>, Box<dyn Error + Send + Sync>> {
+        let Some(client) = self.control_api.as_ref() else {
+            return Ok(None);
+        };
+        let Some(session_data) = client.hydrate_session(username).await.map_err(|e| {
+            Box::new(std::io::Error::other(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?
+        else {
+            return Ok(None);
+        };
+
+        // Best-effort rewarm Redis so subsequent CONNECT hits the hot path.
+        if let Ok(json) = serde_json::to_string(&session_data) {
+            if let Ok(mut con) = self.conn_pool.get().await {
+                let key = redis_keys::session(username);
+                let _: Result<(), _> = con
+                    .set_ex::<_, _, ()>(&key, json, self.cache_ttl.as_secs().max(60))
+                    .await;
+            }
+        }
+
+        Ok(Some(session_data))
     }
 
     /// Live usage counter written by `report_usage` (and control-api IncrementUsage).
@@ -330,12 +608,67 @@ impl SessionAuthenticator {
             }));
         }
 
+        // W7.C: token-first. Password phubb1.… is a self-contained capability.
+        // Redis session: is not consulted (admission). Usage WAL is best-effort.
+        if session_capability_enforce() && looks_like_capability_token(password) {
+            match admit_capability_token(username, password) {
+                Some(mut session) => {
+                    let used = self.fetch_usage_bytes(username).await.unwrap_or(0);
+                    merge_live_usage(&mut session, used);
+                    if !session.has_remaining_bandwidth() || !session.session_within_time_limit() {
+                        return Ok(None);
+                    }
+                    self.cache
+                        .insert(username.to_string(), session.clone())
+                        .await;
+                    return Ok(Some(ResolvedProxySession {
+                        username: username.to_string(),
+                        session,
+                        source: ProxyAuthSource::SessionCapability,
+                    }));
+                }
+                None => {
+                    tracing::warn!("Rejected CONNECT: session capability token invalid (Redis not consulted)");
+                    return Ok(None);
+                }
+            }
+        }
+
         let session = match self.validate_session(username, false).await? {
             Some(session) => session,
             None => return Ok(None),
         };
 
         if !session.legacy_credentials_match(password) {
+            return Ok(None);
+        }
+
+        // W7.A: marketplace sessions may be admitted by a local Ed25519 capability
+        // (no CONTROL_API_URL). When capability enforce is on, HMAC is not required.
+        if session_capability_enforce()
+            && !session.listing_id.trim().is_empty()
+            && !session.session_capability_valid(username)
+        {
+            tracing::warn!(
+                session_id = %session.session_id,
+                listing_id = %session.listing_id,
+                "Rejected CONNECT: session capability enforce failed"
+            );
+            return Ok(None);
+        }
+
+        // W5.C.2: marketplace sessions (listing_id set) must carry a valid HMAC proof
+        // unless W7.A capability enforce already authorized the CONNECT.
+        if credential_proof_enforce()
+            && !session_capability_enforce()
+            && !session.listing_id.trim().is_empty()
+            && !session.credential_proof_valid(username, intent_secret)
+        {
+            tracing::warn!(
+                session_id = %session.session_id,
+                listing_id = %session.listing_id,
+                "Rejected CONNECT: credential proof enforce failed"
+            );
             return Ok(None);
         }
 
@@ -495,8 +828,44 @@ impl SessionData {
         }
     }
 
+    fn from_capability_token(tok: &CapabilityTokenWire) -> Self {
+        let version = if tok.version.trim().is_empty() {
+            "1".to_string()
+        } else {
+            tok.version.clone()
+        };
+        Self {
+            user_id: tok.buyer_id.clone(),
+            session_id: tok.session_id.clone(),
+            session_type: "sticky".to_string(),
+            status: "active".to_string(),
+            bandwidth_limit: tok.bandwidth_limit,
+            bandwidth_used: 0,
+            listing_id: tok.offer_hash.clone(),
+            created_at: DateTime::from_timestamp(tok.issued_at, 0),
+            expires_at: DateTime::from_timestamp(tok.expires_at, 0),
+            auth_source: "session_capability".to_string(),
+            capability_version: version,
+            capability_offer_hash: tok.offer_hash.clone(),
+            capability_buyer_id: tok.buyer_id.clone(),
+            capability_expires_at: tok.expires_at,
+            capability_bandwidth_limit: tok.bandwidth_limit,
+            capability_operator_pubkey: tok.operator_pubkey.clone(),
+            capability_username_hash: tok.username_hash.clone(),
+            capability_issued_at: tok.issued_at,
+            capability_signature: tok.signature.clone(),
+            capability_issuer_pubkey: tok.issuer_pubkey.clone(),
+            capability_token: String::new(),
+            ..Default::default()
+        }
+    }
+
     pub fn is_session_intent(&self) -> bool {
         self.auth_source == "session_intent"
+    }
+
+    pub fn is_session_capability(&self) -> bool {
+        self.auth_source == "session_capability"
     }
 
     pub fn has_remaining_bandwidth(&self) -> bool {
@@ -506,6 +875,97 @@ impl SessionData {
     fn legacy_credentials_match(&self, password: &str) -> bool {
         !self.credential_password_hash.trim().is_empty()
             && verify_credential_password(&self.credential_password_hash, password)
+    }
+
+    /// Verify bound order-credential HMAC (control-api SESSION_SECRET / intent secret).
+    pub fn credential_proof_valid(&self, username: &str, secret: &str) -> bool {
+        if self.credential_proof_signature.trim().is_empty()
+            || self.credential_proof_payload_hash.trim().is_empty()
+            || secret.trim().is_empty()
+        {
+            return false;
+        }
+        if self.credential_proof_expires_at > 0 {
+            let now = Utc::now().timestamp();
+            if now > self.credential_proof_expires_at {
+                return false;
+            }
+        }
+        let username_hash = sha256_hex(username.trim().as_bytes());
+        if !constant_time_eq(
+            username_hash.as_bytes(),
+            self.credential_proof_username_hash.as_bytes(),
+        ) {
+            return false;
+        }
+        let recomputed = hash_order_credential_payload(
+            self.order_id.trim(),
+            self.session_id.trim(),
+            self.user_id.trim(),
+            self.listing_id.trim(),
+            self.credential_proof_username_hash.trim(),
+            self.credential_proof_issued_at,
+            self.credential_proof_expires_at,
+        );
+        if !constant_time_eq(
+            recomputed.as_bytes(),
+            self.credential_proof_payload_hash.as_bytes(),
+        ) {
+            return false;
+        }
+        verify_credential_proof_hmac(
+            &self.credential_proof_payload_hash,
+            &self.credential_proof_signature,
+            secret,
+        )
+    }
+
+    /// Verify Wave 7.A Ed25519 capability with the configured issuer allowlist.
+    /// Does not call control-api.
+    pub fn session_capability_valid(&self, username: &str) -> bool {
+        if self.capability_signature.trim().is_empty() {
+            return false;
+        }
+        if self.capability_expires_at > 0 {
+            let now = Utc::now().timestamp();
+            if now > self.capability_expires_at {
+                return false;
+            }
+        } else {
+            return false;
+        }
+        let username_hash = sha256_hex(username.trim().as_bytes());
+        if !constant_time_eq(
+            username_hash.as_bytes(),
+            self.capability_username_hash.as_bytes(),
+        ) {
+            return false;
+        }
+        let allowlist = session_capability_issuer_allowlist();
+        if allowlist.is_empty() {
+            return false;
+        }
+        let issuer = self.capability_issuer_pubkey.trim();
+        if issuer.is_empty() || !allowlist.iter().any(|k| k == issuer) {
+            return false;
+        }
+        if let Ok(local_op) = std::env::var("PROXYHUB_SESSION_CAPABILITY_LOCAL_OPERATOR_PUBKEY") {
+            let local_op = local_op.trim();
+            if !local_op.is_empty() && local_op != self.capability_operator_pubkey.trim() {
+                return false;
+            }
+        }
+        let message = canonical_session_capability_bytes(
+            self.session_id.trim(),
+            self.capability_offer_hash.trim(),
+            self.capability_buyer_id.trim(),
+            self.capability_expires_at,
+            self.capability_bandwidth_limit,
+            self.capability_operator_pubkey.trim(),
+            self.capability_username_hash.trim(),
+            self.capability_issued_at,
+        );
+        verify_ed25519_b58(issuer, &message, &self.capability_signature)
     }
 
     pub fn intent_still_valid(&self) -> bool {
@@ -526,6 +986,12 @@ impl SessionData {
 
         if self.is_session_intent() && !self.intent_still_valid() {
             return false;
+        }
+
+        if self.is_session_capability() {
+            if self.capability_expires_at <= 0 || now.timestamp() > self.capability_expires_at {
+                return false;
+            }
         }
 
         if let Some(expires_at) = self.expires_at {
@@ -562,8 +1028,10 @@ pub async fn revalidate_live_session(
         return false;
     }
 
-    if session.is_session_intent() {
-        if !session.intent_still_valid() {
+    // Intent JWTs and W7.C capability tokens are self-contained. Do not Redis GET
+    // `session:` (that would kill a live CONNECT when the blob is missing).
+    if session.is_session_intent() || session.is_session_capability() {
+        if session.is_session_intent() && !session.intent_still_valid() {
             return false;
         }
         if session.bandwidth_limit <= 0 {
@@ -623,6 +1091,18 @@ pub struct CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static CAPABILITY_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_operator_bundle() {
+        crate::operator_bundle::store_for_test(crate::operator_bundle::LoadedBundle {
+            discovery_sot: "none".into(),
+            source: String::new(),
+            operators: vec![],
+            error: String::new(),
+        });
+    }
 
     #[test]
     fn merge_live_usage_takes_max() {
@@ -649,6 +1129,344 @@ mod tests {
         let hash = hex::encode(hasher.finalize());
         assert!(verify_credential_password(&hash, password));
         assert!(!verify_credential_password(&hash, "wrong"));
+    }
+
+    #[test]
+    fn credential_proof_valid_matches_control_api_hmac() {
+        let secret = "test-session-secret";
+        let username = "buyer-cred-user";
+        let order_id = "11111111-1111-1111-1111-111111111111";
+        let session_id = "22222222-2222-2222-2222-222222222222";
+        let buyer_id = "33333333-3333-3333-3333-333333333333";
+        let listing_id = "44444444-4444-4444-4444-444444444444";
+        let issued_at = Utc::now().timestamp() - 60;
+        let expires_at = issued_at + 3600;
+        let username_hash = sha256_hex(username.as_bytes());
+        let payload_hash = hash_order_credential_payload(
+            order_id,
+            session_id,
+            buyer_id,
+            listing_id,
+            &username_hash,
+            issued_at,
+            expires_at,
+        );
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
+        let signature = hex::encode(ring::hmac::sign(&key, payload_hash.as_bytes()).as_ref());
+
+        let session = SessionData {
+            user_id: buyer_id.to_string(),
+            session_id: session_id.to_string(),
+            listing_id: listing_id.to_string(),
+            order_id: order_id.to_string(),
+            credential_proof_username_hash: username_hash,
+            credential_proof_payload_hash: payload_hash,
+            credential_proof_signature: signature,
+            credential_proof_issued_at: issued_at,
+            credential_proof_expires_at: expires_at,
+            ..Default::default()
+        };
+        assert!(session.credential_proof_valid(username, secret));
+        assert!(!session.credential_proof_valid(username, "wrong-secret"));
+        assert!(!session.credential_proof_valid("other-user", secret));
+    }
+
+    #[test]
+    fn canonical_session_capability_matches_control_api() {
+        let got = canonical_session_capability_bytes(
+            "22222222-2222-2222-2222-222222222222",
+            "aabb",
+            "33333333-3333-3333-3333-333333333333",
+            1700086400,
+            1024,
+            "opk",
+            "uh",
+            1700000000,
+        );
+        let want = b"PROXYHUB_SESSION_CAPABILITY:v1:22222222-2222-2222-2222-222222222222|aabb|33333333-3333-3333-3333-333333333333|1700086400|1024|opk|uh|1700000000";
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn session_capability_valid_local_ed25519() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_operator_bundle();
+        let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
+        let issuer = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
+        let username = "buyer-cred-user";
+        let username_hash = sha256_hex(username.as_bytes());
+        let session_id = "22222222-2222-2222-2222-222222222222";
+        let offer_hash = "aabb";
+        let buyer_id = "33333333-3333-3333-3333-333333333333";
+        let issued_at = Utc::now().timestamp() - 60;
+        let expires_at = issued_at + 3600;
+        let bandwidth = 1024i64;
+        let message = canonical_session_capability_bytes(
+            session_id,
+            offer_hash,
+            buyer_id,
+            expires_at,
+            bandwidth,
+            &issuer,
+            &username_hash,
+            issued_at,
+        );
+        let signature = bs58::encode(signing_key.sign(&message).to_bytes()).into_string();
+
+        std::env::set_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY", &issuer);
+        let session = SessionData {
+            session_id: session_id.to_string(),
+            listing_id: "listing-1".to_string(),
+            capability_offer_hash: offer_hash.to_string(),
+            capability_buyer_id: buyer_id.to_string(),
+            capability_expires_at: expires_at,
+            capability_bandwidth_limit: bandwidth,
+            capability_operator_pubkey: issuer.clone(),
+            capability_username_hash: username_hash,
+            capability_issued_at: issued_at,
+            capability_signature: signature,
+            capability_issuer_pubkey: issuer,
+            ..Default::default()
+        };
+        assert!(session.session_capability_valid(username));
+        assert!(!session.session_capability_valid("other-user"));
+        std::env::set_var(
+            "PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY",
+            "11111111111111111111111111111111",
+        );
+        assert!(!session.session_capability_valid(username));
+        std::env::remove_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY");
+    }
+
+    #[test]
+    fn session_capability_valid_bundle_operator_issuer() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_operator_bundle();
+        let signing_key = SigningKey::from_bytes(&[13_u8; 32]);
+        let operator = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
+        let username = "buyer-cred-user";
+        let username_hash = sha256_hex(username.as_bytes());
+        let session_id = "22222222-2222-2222-2222-222222222222";
+        let offer_hash = "aabb";
+        let buyer_id = "33333333-3333-3333-3333-333333333333";
+        let issued_at = Utc::now().timestamp() - 60;
+        let expires_at = issued_at + 3600;
+        let bandwidth = 1024i64;
+        let message = canonical_session_capability_bytes(
+            session_id,
+            offer_hash,
+            buyer_id,
+            expires_at,
+            bandwidth,
+            &operator,
+            &username_hash,
+            issued_at,
+        );
+        let signature = bs58::encode(signing_key.sign(&message).to_bytes()).into_string();
+        let session = SessionData {
+            session_id: session_id.to_string(),
+            listing_id: "listing-1".to_string(),
+            capability_offer_hash: offer_hash.to_string(),
+            capability_buyer_id: buyer_id.to_string(),
+            capability_expires_at: expires_at,
+            capability_bandwidth_limit: bandwidth,
+            capability_operator_pubkey: operator.clone(),
+            capability_username_hash: username_hash,
+            capability_issued_at: issued_at,
+            capability_signature: signature,
+            capability_issuer_pubkey: operator.clone(),
+            ..Default::default()
+        };
+
+        std::env::set_var(
+            "PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY",
+            "11111111111111111111111111111111",
+        );
+        crate::operator_bundle::store_for_test(crate::operator_bundle::LoadedBundle {
+            discovery_sot: "bundle".into(),
+            source: "test".into(),
+            operators: vec![crate::operator_bundle::VerifiedOperator {
+                slug: "edge-ext".into(),
+                host_id: "vps-1".into(),
+                org_id: "ext-operator-org-1".into(),
+                buyer_base_url: String::new(),
+                pubkey: operator,
+                verified: true,
+                reason: String::new(),
+            }],
+            error: String::new(),
+        });
+        assert!(
+            session.session_capability_valid(username),
+            "verified bundle pubkey must be an accepted issuer"
+        );
+
+        crate::operator_bundle::store_for_test(crate::operator_bundle::LoadedBundle {
+            discovery_sot: "bundle".into(),
+            source: "test".into(),
+            operators: vec![crate::operator_bundle::VerifiedOperator {
+                slug: "edge-ext".into(),
+                host_id: "vps-1".into(),
+                org_id: "ext-operator-org-1".into(),
+                buyer_base_url: String::new(),
+                pubkey: session.capability_issuer_pubkey.clone(),
+                verified: false,
+                reason: "unsigned".into(),
+            }],
+            error: String::new(),
+        });
+        assert!(
+            !session.session_capability_valid(username),
+            "unverified bundle pubkey must not be an issuer"
+        );
+
+        reset_operator_bundle();
+        std::env::remove_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY");
+    }
+
+    fn mint_w7c_token(username: &str) -> (String, String) {
+        use ed25519_dalek::{Signer, SigningKey};
+        let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+        let issuer = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
+        let username_hash = sha256_hex(username.trim().as_bytes());
+        let session_id = "22222222-2222-2222-2222-222222222222";
+        let offer_hash = "aabb";
+        let buyer_id = "33333333-3333-3333-3333-333333333333";
+        let issued_at = Utc::now().timestamp() - 60;
+        let expires_at = issued_at + 3600;
+        let bandwidth = 1024i64;
+        let message = canonical_session_capability_bytes(
+            session_id,
+            offer_hash,
+            buyer_id,
+            expires_at,
+            bandwidth,
+            &issuer,
+            &username_hash,
+            issued_at,
+        );
+        let signature = bs58::encode(signing_key.sign(&message).to_bytes()).into_string();
+        let tok = CapabilityTokenWire {
+            version: "1".to_string(),
+            session_id: session_id.to_string(),
+            offer_hash: offer_hash.to_string(),
+            buyer_id: buyer_id.to_string(),
+            expires_at,
+            bandwidth_limit: bandwidth,
+            operator_pubkey: issuer.clone(),
+            username_hash,
+            issued_at,
+            signature,
+            issuer_pubkey: issuer.clone(),
+        };
+        let wire = encode_capability_token(&tok).expect("encode");
+        (issuer, wire)
+    }
+
+    #[test]
+    fn capability_token_roundtrip_admits_without_redis() {
+        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_operator_bundle();
+        let username = "w7c-buyer";
+        let (issuer, wire) = mint_w7c_token(username);
+        assert!(looks_like_capability_token(&wire));
+        assert!(looks_like_capability_token(&format!("  {wire}")));
+        std::env::set_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY", &issuer);
+
+        let session = admit_capability_token(username, &wire).expect("admit");
+        assert!(session.is_session_capability());
+        assert_eq!(session.session_id, "22222222-2222-2222-2222-222222222222");
+        assert_eq!(session.listing_id, "aabb");
+        assert_eq!(session.user_id, "33333333-3333-3333-3333-333333333333");
+        assert_eq!(session.bandwidth_limit, 1024);
+        assert!(session.session_capability_valid(username));
+        assert!(session.session_within_time_limit());
+        assert!(admit_capability_token("other-user", &wire).is_none());
+
+        std::env::remove_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY");
+    }
+
+    #[test]
+    fn capability_token_admits_verified_bundle_issuer() {
+        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_operator_bundle();
+        let username = "w7c-buyer";
+        let (issuer, wire) = mint_w7c_token(username);
+        std::env::set_var(
+            "PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY",
+            "11111111111111111111111111111111",
+        );
+        crate::operator_bundle::store_for_test(crate::operator_bundle::LoadedBundle {
+            discovery_sot: "bundle".into(),
+            source: "test".into(),
+            operators: vec![crate::operator_bundle::VerifiedOperator {
+                slug: "edge-ext".into(),
+                host_id: "vps-1".into(),
+                org_id: "ext-operator-org-1".into(),
+                buyer_base_url: String::new(),
+                pubkey: issuer.clone(),
+                verified: true,
+                reason: String::new(),
+            }],
+            error: String::new(),
+        });
+        assert!(
+            admit_capability_token(username, &wire).is_some(),
+            "phubb1 token from a verified bundle issuer must admit without the platform env key"
+        );
+
+        crate::operator_bundle::store_for_test(crate::operator_bundle::LoadedBundle {
+            discovery_sot: "bundle".into(),
+            source: "test".into(),
+            operators: vec![crate::operator_bundle::VerifiedOperator {
+                slug: "edge-ext".into(),
+                host_id: "vps-1".into(),
+                org_id: "ext-operator-org-1".into(),
+                buyer_base_url: String::new(),
+                pubkey: issuer,
+                verified: false,
+                reason: "unsigned".into(),
+            }],
+            error: String::new(),
+        });
+        assert!(admit_capability_token(username, &wire).is_none());
+        reset_operator_bundle();
+        std::env::remove_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY");
+    }
+
+    #[test]
+    fn capability_token_bad_prefix_and_payload_rejected() {
+        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_operator_bundle();
+        assert!(!looks_like_capability_token("legacy-password"));
+        assert!(looks_like_capability_token("phubb1.not-valid-base64"));
+        assert!(admit_capability_token("u", "phubb1.").is_none());
+        assert!(admit_capability_token("u", "phubb1.%%%%").is_none());
+
+        let username = "w7c-buyer";
+        let (issuer, wire) = mint_w7c_token(username);
+        std::env::set_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY", &issuer);
+        let mut bad = wire.clone();
+        // Flip a character in the payload so decode may succeed but sig fails,
+        // or decode fails — either way admission is denied.
+        let last = bad.pop().unwrap_or('A');
+        bad.push(if last == 'A' { 'B' } else { 'A' });
+        assert!(admit_capability_token(username, &bad).is_none());
+        std::env::remove_var("PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY");
+    }
+
+    #[test]
+    fn capability_token_unsupported_version_rejected() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        let raw = br#"{"v":"2","session_id":"s","offer_hash":"o","buyer_id":"b","expires_at":1,"bandwidth_limit":1,"operator_pubkey":"p","username_hash":"h","issued_at":1,"signature":"s","issuer_pubkey":"p"}"#;
+        let wire = format!(
+            "{SESSION_CAPABILITY_TOKEN_PREFIX}{}",
+            URL_SAFE_NO_PAD.encode(raw)
+        );
+        assert!(parse_capability_password(&wire).is_none());
     }
 
     #[test]

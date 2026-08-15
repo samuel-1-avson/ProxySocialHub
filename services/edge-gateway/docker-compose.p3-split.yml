@@ -38,7 +38,8 @@ x-health-http: &health_http
         "wget",
         "--no-verbose",
         "--tries=1",
-        "--spider",
+        "-O",
+        "/dev/null",
         "http://127.0.0.1:8090/health",
       ]
     interval: 5s

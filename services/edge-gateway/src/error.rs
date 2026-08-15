@@ -45,6 +45,9 @@ pub enum Error {
 
     /// Timeout
     Timeout(String),
+
+    /// Session intent Active blocked: prepaid SessionEscrow not confirmed (W1.1).
+    SessionEscrowRequired(String),
 }
 
 impl fmt::Display for Error {
@@ -69,6 +72,9 @@ impl fmt::Display for Error {
             Error::Serialization(msg) => write!(f, "Serialization error: {}", msg),
             Error::Network(msg) => write!(f, "Network error: {}", msg),
             Error::Timeout(msg) => write!(f, "Timeout: {}", msg),
+            Error::SessionEscrowRequired(msg) => {
+                write!(f, "Session escrow required: {}", msg)
+            }
         }
     }
 }

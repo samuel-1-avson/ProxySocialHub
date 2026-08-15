@@ -199,6 +199,21 @@ async fn handle_request(
         } else {
             Some(resolved.session.node_id.as_str())
         };
+        let target_isp = if resolved.session.target_isp.is_empty() {
+            None
+        } else {
+            Some(resolved.session.target_isp.as_str())
+        };
+        let rotation_type = if resolved.session.rotation_type.is_empty() {
+            None
+        } else {
+            Some(resolved.session.rotation_type.as_str())
+        };
+        let rotation_interval_seconds = if resolved.session.rotation_interval_seconds == 0 {
+            None
+        } else {
+            Some(resolved.session.rotation_interval_seconds)
+        };
         let route = provider_selection::select_provider_route(
             state.clone(),
             &resolved.session.session_id,
@@ -207,6 +222,9 @@ async fn handle_request(
             target_geo,
             Some(dest_host),
             pinned_node_id,
+            target_isp,
+            rotation_type,
+            rotation_interval_seconds,
         )
         .await?;
 
