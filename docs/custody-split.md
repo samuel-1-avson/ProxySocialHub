@@ -126,6 +126,7 @@ Dev may still fall back to the local oracle keypair.
 - Compose: **no oracle/hot private key JSON mounts** on gcp-testnet (`volumes: !override`)
 - App VM: quarantine + `treasury-cold-keypair.json` + root `oracle`/`treasury` JSON **shredded**; backups in Secret Manager / KMS (`SPRINT_06_KEYS_OFFBOX_OK`)
 - Backlog **0.6**: **FIXED on app VM** (no oracle/hot/cold private JSON under `/opt/proxyhubb`); workstation/CI scrub still unverified. Still **not** mainnet-ready.
+- **W1.4 (2026-08-11):** `docker-compose.prod.yml` matches KMS-only policy (no oracle/hot file mounts). Scrub runbook: `docs/ops/BC09_WORKSTATION_SCRUB.md`. Cosigner host JSON on gcp-testnet remains residual.
 - Do **not** claim mainnet-ready
 
 **Prior Sprint G note:** hot KMS was live while file mounts could remain for rollback.

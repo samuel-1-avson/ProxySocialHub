@@ -4,7 +4,7 @@ ref,item,phase,component,complexity,depends_on,status,acceptance,tests
 0.3,On-chain payout binding,0,proxyhub program,S,-,DONE-source,wrong-recipient fails,cargo check PASS
 0.4,Redeploy program + unify IDs,0,chain/ops,M,0.3,DONE (devnet deploy + live settle smoke PASS),devnet e2e passes,live_escrow_settle_smoke.ts ✅
 0.5,Session program Config PDA,0,session program,L,-,OPEN,unauthorized slash/complete fail,session.ts adversarial
-0.6,Rotate/vault keys KMS cold treasury,0,ops/chain,M,-,OPEN (Sprint E: oracle KMS fail-closed on testnet; hot still file keypair; not mainnet-ready),no keys on disk + hot via KMS,ops smoke
+0.6,Rotate/vault keys KMS cold treasury,0,ops/chain,M,-,FIXED (app VM: oracle+hot Cloud KMS; key JSON shredded/off-box to SM — SPRINT_06_KEYS_OFFBOX_OK; workstation/CI scrub unverified; not mainnet-ready),no keys on disk,ops smoke
 0.7,k8s data-store credentials,0,infra,S,-,OPEN,unauth fails,cluster smoke
 0.8,Compose loopback + dev flags off,0,infra,S,-,DONE,ports not exposed,config validation PASS
 0.9,FE e2e wallet prod guard,0,web,S,-,DONE,prod build clean,tsc PASS
@@ -24,9 +24,9 @@ ref,item,phase,component,complexity,depends_on,status,acceptance,tests
 1.9,TEST-01 order authority header,1,control-api,S,-,DONE (test wiring),CI green,3/3 ✅
 1.10,Provider leases required,1,gateway/provider,S,-,DONE (explicit prod=true dev=false),unleased rejected,compose config ✅
 1.11,HTTP forward proxy or docs,1,gateway+docs,M,-,DONE (CONNECT-only docs + real 501),documented; non-CONNECT→501,docs/buyer-proxy.md + gateway 501
-2.1,Double-entry ledger + immutability,2,control-api+DB,XL,1.1,PARTIAL (immutability/000116 done; double-entry still OPEN),balanced journal always,ledger invariant tests
-2.2,Integer lamports end-to-end,2,control-api+DB,L,2.1,PARTIAL (dual-write + orders/escrow/passes/session/P2P write paths),no float money,migration tests
-2.3,Redis HA + WAL PG fallback,2,infra,M,-,OPEN,session survives Redis loss,failover test
+2.1,Double-entry ledger + immutability,2,control-api+DB,XL,1.1,PARTIAL↑ (immutability done; dual-write 2100 consistent + skip allowlist 2026-08-09; journal-as-SoT M4 still OPEN),balanced journal always,ledger invariant tests
+2.2,Integer lamports end-to-end,2,control-api+DB,L,2.1,PARTIAL (Sprint I: int64 write helpers + billing cost lamports + wallet GET balance_lamports; float API retained),no float money,migration tests
+2.3,Redis HA + WAL PG fallback,2,infra,M,-,PARTIAL↑ (H spill + J0 session_gateway_cache hydrate; Redis still SPOF for hot path),session survives Redis loss,failover test
 2.4,DLQ + retries + lag metrics,2,messaging,M,0.10,OPEN,poison isolated,consumer tests
 2.5,Outbox for P2P settle + retry queue,2,control-api,M,-,FIXED (p2p_settle in compensation_outbox 000139),no silent settle loss,outbox tests
 2.6,Finalized deposits,2,control-api,S,-,FIXED (gcp-testnet REQUIRE_FINALIZED=true),no reorg credit,reorg test
