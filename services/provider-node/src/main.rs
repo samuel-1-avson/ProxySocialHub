@@ -430,7 +430,11 @@ async fn main() -> anyhow::Result<()> {
             if gateway_addr.ends_with(":3128") {
                 gateway_addrs.push(format!("{host}:8443"));
             }
-            let use_tls = host != "localhost" && host != "127.0.0.1";
+            // J2 / production tunnel listeners are TLS (TLS_CERT_PATH). Loopback is
+            // still TLS with a self-signed cert — do not force plaintext for 127.0.0.1
+            // or yamux AUTH dies with decode EOF during the TLS handshake.
+            let use_tls = true;
+            let tls_skip_verify = host == "localhost" || host == "127.0.0.1";
             // Preserve existing hotkey on --force unless the file has none.
             let signing_key = if force && config_path.exists() {
                 match config::Config::load(config_path.to_str().unwrap_or("")) {
@@ -452,7 +456,7 @@ async fn main() -> anyhow::Result<()> {
                 connection_type: "residential".to_string(),
                 provider_signing_key: signing_key,
                 use_tls,
-                tls_skip_verify: false,
+                tls_skip_verify,
                 ..config::Config::default()
             };
             cfg.save(&config_path)?;
@@ -463,7 +467,7 @@ async fn main() -> anyhow::Result<()> {
             println!("╚══════════════════════════════════════════════════════════╝");
             println!();
             println!("Node ID: {node_id}");
-            println!("Gateway: {gateway_addr} (TLS={use_tls})");
+            println!("Gateway: {gateway_addr} (TLS={use_tls}, skip_verify={tls_skip_verify})");
             if !cfg.provider_signing_key.is_empty() {
                 let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
                 println!("Provider hotkey: {}", signer.public_key());
