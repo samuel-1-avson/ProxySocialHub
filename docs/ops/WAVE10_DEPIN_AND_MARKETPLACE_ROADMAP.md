@@ -298,10 +298,12 @@ physics” and “you join if we seed you.”
 
 - [x] Buyer or protocol accuser can open a challenge on a settlement window
       / leaf set (reuse Wave 8 window pattern, **not** session slash) —
-      **slice 1 in-repo**: off-chain petition + protocol `accuse`
-      ([`W12_USAGE_CHALLENGE.md`](W12_USAGE_CHALLENGE.md);
-      ADR [`0015`](../adr/0015-usage-challenge.md)). Live usage accuse
-      unclaimed. Not permissionless buyer-to-chain (slice 2).
+      **slice 1 live release soak** 2026-08-15
+      ([`evidence/W12_A_usage_challenge_soak_20260815.md`](evidence/W12_A_usage_challenge_soak_20260815.md);
+      accuse `rpyuDgpc4KsTSHFGasGNQk3xm6o9HdeZxWxQVBgoVdhQQt3moti1NZoLTarqjvoR4bKsBEaVANdRWUKbLJ7FjAa`;
+      release `3Esiubh7SzRCxgXhduffcURbYckrcnh3szWGQcyn8WtGYbcAWzWJHVNFzoVHTQWnUypUfVwBnFWoEKpmcu4PKGni`;
+      stake still 1_000_000; `slashed=false`). Not permissionless
+      buyer-to-chain (slice 2).
 - [x] Resolve after window: **release** via existing `w8-gateway-bond`
       `resolve-release`. Slash bond and escrow clawback stay dual-gated
       off (`WouldBroadcast` false; `resolve_slash` is not a CLI command).

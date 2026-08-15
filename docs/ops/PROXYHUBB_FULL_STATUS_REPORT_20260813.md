@@ -19,9 +19,11 @@ Phase 0 leftovers closed. Score moves ~3.2 → **~3.4 / 5**. Still not DePIN.
 | Capability restored **off** after soak | `observe` on a fleet since 08-14, decision due **2026-08-21** | [`W10_A_capability_observe_started_20260814.md`](evidence/W10_A_capability_observe_started_20260814.md) |
 | Operator bundle pinned but **unsigned** | pin is **signed**, `verified=2 failed=0` on both hosts and the public endpoint | [`W6_B_operator_manifest_signed_20260815.md`](evidence/W6_B_operator_manifest_signed_20260815.md) |
 | Helius key exposed in a CLI log | rotated, SM v2 enabled / v1 disabled | [`HELIUS_ROTATE_20260814.md`](evidence/HELIUS_ROTATE_20260814.md) |
+| W12.A usage challenge **in-repo only** | **live release soak** on the tiny bond (petition → accuse → 3600s → release) | [`W12_A_usage_challenge_soak_20260815.md`](evidence/W12_A_usage_challenge_soak_20260815.md) |
 
 Added in-repo (not live): operator-minted capability issuers (W11.A),
-permissionless join runbook (W12.B), usage-challenge slice 1 (W12.A).
+permissionless join runbook (W12.B). W12.A slice 1 now has a live **release**
+soak; slash soak and buyer-to-chain (slice 2) stay unclaimed.
 
 **Live binary drift (measured 2026-08-15).** The running Host-A control-api
 was built 2026-08-14 and does **not** contain `listing_commitment_sync`,
