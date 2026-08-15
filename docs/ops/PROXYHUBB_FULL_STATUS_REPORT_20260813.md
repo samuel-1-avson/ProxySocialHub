@@ -403,9 +403,11 @@ The running binary was built 2026-08-14 and is missing
 the `bonded_gateway_program` honesty field. Until it is rolled, those three
 are **in-repo only** no matter what a wave checkbox says.
 
-Roll must keep all five overlays (`docker-compose.yml` + `testnet` +
-`gcp-testnet` + `w6-host-a-private` + `w10-observe`), never
-`--remove-orphans`, and must not flip capability mode before 2026-08-21.
+Runbook: [`HOST_A_CONTROL_API_ROLL.md`](HOST_A_CONTROL_API_ROLL.md).
+Scheduled **after** the 2026-08-21 decision so the observe window is not
+disturbed. Roll must keep all five overlays (`docker-compose.yml` +
+`testnet` + `gcp-testnet` + `w6-host-a-private` + `w10-observe`), never
+`--remove-orphans`, and must not flip capability mode.
 
 ### P2 — Wave 7 leftovers (federation that is not the same company)
 
