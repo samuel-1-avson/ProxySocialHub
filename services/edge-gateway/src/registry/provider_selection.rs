@@ -3,6 +3,7 @@
 use crate::auth::SessionAuthenticator;
 use crate::config::EdgeMode;
 use crate::registry::lockfree::LockFreeNodeRegistry;
+use crate::rotation::config_from_session_claims;
 use crate::state::AppState;
 use std::sync::Arc;
 use tracing::Instrument;
@@ -31,6 +32,8 @@ pub async fn select_provider_route(
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
     target_isp: Option<&str>,
+    rotation_type: Option<&str>,
+    rotation_interval_seconds: Option<u32>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let span = crate::observability::provider_select_span(session_id, target_domain);
     select_provider_route_inner(
@@ -42,6 +45,8 @@ pub async fn select_provider_route(
         target_domain,
         pinned_node_id,
         target_isp,
+        rotation_type,
+        rotation_interval_seconds,
     )
     .instrument(span)
     .await
@@ -56,6 +61,8 @@ async fn select_provider_route_inner(
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
     target_isp: Option<&str>,
+    rotation_type: Option<&str>,
+    rotation_interval_seconds: Option<u32>,
 ) -> std::io::Result<Option<ProviderTarget>> {
     let node_id = match select_provider_node_id(
         state.clone(),
@@ -66,6 +73,8 @@ async fn select_provider_route_inner(
         target_domain,
         pinned_node_id,
         target_isp,
+        rotation_type,
+        rotation_interval_seconds,
     )
     .await?
     {
@@ -253,6 +262,8 @@ async fn select_provider_node_id(
     target_domain: Option<&str>,
     pinned_node_id: Option<&str>,
     target_isp: Option<&str>,
+    rotation_type: Option<&str>,
+    rotation_interval_seconds: Option<u32>,
 ) -> std::io::Result<Option<String>> {
     if let Some(pinned) = pinned_node_id.filter(|id| !id.is_empty()) {
         if pinned_node_available(state.clone(), pinned).await? {
@@ -267,13 +278,16 @@ async fn select_provider_node_id(
     }
 
     let sticky_ttl_secs = state.config.sticky_ttl_secs;
+    let rot_type = rotation_type.unwrap_or("");
+    let rot_interval = rotation_interval_seconds.unwrap_or(0);
 
     let needs_rotation = if !is_sticky && !session_id.is_empty() {
         state
             .rotation
             .lock()
             .map(|mut mgr| {
-                let rot = mgr.get_or_create(session_id);
+                let cfg = config_from_session_claims(rot_type, rot_interval);
+                let rot = mgr.create_with_config(session_id, cfg);
                 let _ = rot.record_request();
                 rot.should_rotate()
             })
@@ -295,6 +309,7 @@ async fn select_provider_node_id(
         None
     };
 
+    let mut sticky_rebound = false;
     let node_id = if let Some(ref bound_node_id) = sticky_node_id {
         if state.registry.get_by_id(bound_node_id).is_some() {
             Some(bound_node_id.clone())
@@ -309,12 +324,24 @@ async fn select_provider_node_id(
             {
                 Some(bound_node_id.clone())
             } else {
+                sticky_rebound = true;
+                tracing::warn!(
+                    dead_node = %bound_node_id,
+                    session_id = %session_id,
+                    "sticky binding node unavailable — selecting replacement"
+                );
                 state
                     .registry
                     .get_best_for(target_geo, None)
                     .map(|(_, id)| id)
             }
         } else {
+            sticky_rebound = true;
+            tracing::warn!(
+                dead_node = %bound_node_id,
+                session_id = %session_id,
+                "sticky binding node unavailable — selecting replacement"
+            );
             state
                 .registry
                 .get_best_for(target_geo, None)
@@ -366,6 +393,11 @@ async fn select_provider_node_id(
                 );
                 None
             } else {
+                // ISP override may change the sticky node — refresh binding below.
+                sticky_rebound = sticky_node_id
+                    .as_ref()
+                    .map(|bound| candidates.first().map(|c| c != bound).unwrap_or(true))
+                    .unwrap_or(sticky_rebound);
                 tracing::info!(%isp, count = candidates.len(), "ISP-filtered candidates");
                 candidates.into_iter().next()
             }
@@ -375,7 +407,18 @@ async fn select_provider_node_id(
     };
 
     if let Some(ref id) = node_id {
-        if is_sticky && sticky_node_id.is_none() && !session_id.is_empty() {
+        // Always refresh sticky TTL and rebind when the selected node differs
+        // from a dead prior binding (P1-2).
+        if is_sticky && !session_id.is_empty() {
+            if sticky_rebound || sticky_node_id.as_ref() != Some(id) {
+                tracing::info!(
+                    session_id = %session_id,
+                    node_id = %id,
+                    prior = ?sticky_node_id,
+                    rebound = sticky_rebound,
+                    "sticky session bound/rebound"
+                );
+            }
             if let Err(e) = authenticator
                 .set_sticky_node(session_id, id, sticky_ttl_secs)
                 .await
@@ -383,9 +426,11 @@ async fn select_provider_node_id(
                 tracing::error!("Failed to set sticky binding: {}", e);
             }
         }
-        if needs_rotation {
+        if !is_sticky && !session_id.is_empty() {
             if let Ok(mut mgr) = state.rotation.lock() {
-                mgr.get_or_create(session_id).assign_node(id.clone());
+                let cfg = config_from_session_claims(rot_type, rot_interval);
+                mgr.create_with_config(session_id, cfg)
+                    .assign_node(id.clone());
             }
         }
     }
@@ -413,6 +458,8 @@ pub async fn attribution_node_id(
         target_domain,
         pinned_node_id,
         None,
+        None,
+        None,
     )
     .await
     .ok()
@@ -422,7 +469,11 @@ pub async fn attribution_node_id(
 /// GW-04: does this node verifiably match the buyer's requested ISP?
 /// Unknown ISP on the node side counts as non-match — an explicit ISP request
 /// must not silently land on an unverified exit.
-pub fn node_matches_isp(registry: &LockFreeNodeRegistry, node_id: &str, target_isp: &str) -> bool {
+pub fn node_matches_isp(
+    registry: &LockFreeNodeRegistry,
+    node_id: &str,
+    target_isp: &str,
+) -> bool {
     match registry.get_node_info(node_id) {
         Some(info) => !info.isp.is_empty() && info.isp.eq_ignore_ascii_case(target_isp),
         None => false,
@@ -484,7 +535,9 @@ fn filter_node_infos(
                 .unwrap_or(true)
         })
         .filter(|n| match target_isp {
-            Some(isp) if !isp.is_empty() => !n.isp.is_empty() && n.isp.eq_ignore_ascii_case(isp),
+            Some(isp) if !isp.is_empty() => {
+                !n.isp.is_empty() && n.isp.eq_ignore_ascii_case(isp)
+            }
             _ => true,
         })
         .map(|n| (n.quality_score, n.latency_ms, n.node_id))
@@ -503,14 +556,7 @@ mod filter_tests {
     use super::*;
     use crate::state::NodeInfo;
 
-    fn info(
-        id: &str,
-        country: &str,
-        isp: &str,
-        healthy: bool,
-        score: f64,
-        latency: u32,
-    ) -> NodeInfo {
+    fn info(id: &str, country: &str, isp: &str, healthy: bool, score: f64, latency: u32) -> NodeInfo {
         let mut n = NodeInfo::new(id.to_string(), "1.2.3.4".to_string(), None);
         n.country_code = country.to_string();
         n.isp = isp.to_string();

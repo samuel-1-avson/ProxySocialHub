@@ -602,9 +602,8 @@ impl AppState {
             None
         };
         #[cfg(feature = "legacy-zk")]
-        let solana_program_id = env::var("SOLANA_PROGRAM_ID")
-            .or_else(|_| env::var("REPUTATION_PROGRAM_ID"))
-            .unwrap_or_default();
+        // Legacy edge settlement targets proxyhub — never fall back to REPUTATION_PROGRAM_ID.
+        let solana_program_id = env::var("SOLANA_PROGRAM_ID").unwrap_or_default();
         #[cfg(feature = "legacy-zk")]
         let solana_relayer = Arc::new(crate::billing::solana::SolanaRelayer::new(
             &solana_program_id,

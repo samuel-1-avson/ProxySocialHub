@@ -272,22 +272,21 @@ where
     }
 
     info!("🔗 WS bridge: {} → {} via {}", username, target, node_id);
-    crate::sync_session_intent_lifecycle(
+    if let Err(err) = crate::ensure_session_intent_may_activate(
         state.clone(),
         &session_data,
-        "routed",
         Some(&node_id),
         Some(target),
     )
-    .await;
-    crate::sync_session_intent_lifecycle(
-        state.clone(),
-        &session_data,
-        "active",
-        Some(&node_id),
-        Some(target),
-    )
-    .await;
+    .await
+    {
+        if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("session_escrow_required: {}", err),
+            ));
+        }
+    }
     metrics::connection_started();
 
     // Split WS into independent sink + stream halves
@@ -364,7 +363,7 @@ where
             if !crate::auth::revalidate_live_session(&authenticator, username, &session_data).await
             {
                 if session_data.is_session_intent() {
-                    crate::sync_session_intent_lifecycle(
+                    let _ = crate::sync_session_intent_lifecycle(
                         state.clone(),
                         &session_data,
                         "closing",
