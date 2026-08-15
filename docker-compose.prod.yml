@@ -65,10 +65,18 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
-      # Solana
-      - SOLANA_ORACLE_KEYPAIR=/run/secrets/oracle-keypair.json
-      # BC-08: payout wallet MUST differ from oracle signing key
-      - SOLANA_TREASURY_HOT_KEYPAIR=/run/secrets/treasury-hot-keypair.json
+      # Solana — BC-09: KMS-only in production (no file keypair mounts)
+      - SOLANA_ORACLE_KEYPAIR=${SOLANA_ORACLE_KEYPAIR:-}
+      - SOLANA_TREASURY_HOT_KEYPAIR=${SOLANA_TREASURY_HOT_KEYPAIR:-}
+      - USE_GCP_KMS=${USE_GCP_KMS:-true}
+      - GCP_KMS_KEY_NAME=${GCP_KMS_KEY_NAME:?GCP_KMS_KEY_NAME required when USE_GCP_KMS=true}
+      - GCP_KMS_PUBLIC_KEY=${GCP_KMS_PUBLIC_KEY:-}
+      - PROXYHUB_REQUIRE_GCP_KMS=${PROXYHUB_REQUIRE_GCP_KMS:-true}
+      - USE_GCP_KMS_HOT=${USE_GCP_KMS_HOT:-true}
+      - GCP_KMS_HOT_KEY_NAME=${GCP_KMS_HOT_KEY_NAME:?GCP_KMS_HOT_KEY_NAME required when USE_GCP_KMS_HOT=true}
+      - GCP_KMS_HOT_PUBLIC_KEY=${GCP_KMS_HOT_PUBLIC_KEY:-}
+      - PROXYHUB_REQUIRE_GCP_KMS_HOT=${PROXYHUB_REQUIRE_GCP_KMS_HOT:-true}
+      - USE_AWS_KMS=${USE_AWS_KMS:-false}
       - SOLANA_RPC_ENDPOINT=${SOLANA_RPC_ENDPOINT:?SOLANA_RPC_ENDPOINT must be set}
       - SOLANA_RPC_ENDPOINTS=${SOLANA_RPC_ENDPOINTS}
       - SOLANA_WS_ENDPOINT=${SOLANA_WS_ENDPOINT}
@@ -77,6 +85,18 @@ services:
       - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS:?SOLANA_TREASURY_ADDRESS must be set}
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:?SOLANA_TREASURY_HOT_ADDRESS must be set and must differ from oracle}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
+      - SOLANA_TREASURY_HOT_MIN_BALANCE=${SOLANA_TREASURY_HOT_MIN_BALANCE:-100}
+      - SOLANA_TREASURY_HOT_MAX_BALANCE=${SOLANA_TREASURY_HOT_MAX_BALANCE:-500}
+      - SOLANA_TREASURY_REPLENISH_AMOUNT=${SOLANA_TREASURY_REPLENISH_AMOUNT:-200}
+      - SOLANA_VAULT_TOPUP_MAX_SOL=${SOLANA_VAULT_TOPUP_MAX_SOL:-200}
+      - SOLANA_VAULT_DAILY_TOPUP_CAP_SOL=${SOLANA_VAULT_DAILY_TOPUP_CAP_SOL:-2000}
+      - SOLANA_VAULT_RESERVE_FLOOR_SOL=${SOLANA_VAULT_RESERVE_FLOOR_SOL:-0.01}
+      - SOLANA_DEPOSIT_VAULT_ADDRESS=${SOLANA_DEPOSIT_VAULT_ADDRESS:-}
+      # BC-07: require finalized commitment for deposit credits (default true via APP_ENV=production)
+      - PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=${PROXYHUB_DEPOSIT_REQUIRE_FINALIZED:-true}
+      - PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED=${PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED:-true}
+      - PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT=${PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT:-false}
+      - PROXYHUB_REQUIRE_ESCROW_PDA=${PROXYHUB_REQUIRE_ESCROW_PDA:-false}
       # PHB_TOKEN_MINT: platform SPL token mint address for wallet balance display
       - PHB_TOKEN_MINT=${PHB_TOKEN_MINT}
       # Price feeds
@@ -95,7 +115,7 @@ services:
       # --- Provider proofs (production default: enforce when unset) ---
       - PROVIDER_SIGNATURE_MODE=${PROVIDER_SIGNATURE_MODE:-enforce}
       # --- Alert Channels ---
-      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
       # --- Oracle Velocity Guard ---
       - ORACLE_MAX_SINGLE_TRANSFER_SOL=${ORACLE_MAX_SINGLE_TRANSFER_SOL:-50}
@@ -128,8 +148,7 @@ services:
       - DB_MAX_OPEN_CONNS=${DB_MAX_OPEN_CONNS:-30}
       - DB_MAX_IDLE_CONNS=${DB_MAX_IDLE_CONNS:-5}
     volumes:
-      - ./oracle-keypair.json:/run/secrets/oracle-keypair.json:ro
-      - ./treasury-hot-keypair.json:/run/secrets/treasury-hot-keypair.json:ro
+      # BC-09: do not mount oracle/hot keypair JSON — use Cloud KMS (or AWS KMS).
       - ./cli-dist:/app/cli-dist:ro
     depends_on:
       db-migrate:
@@ -205,7 +224,7 @@ services:
     networks:
       - proxyhubb
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8090/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8090/health"]
       interval: 30s
       timeout: 10s
       start_period: 60s

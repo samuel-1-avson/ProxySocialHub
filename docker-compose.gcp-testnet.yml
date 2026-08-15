@@ -14,14 +14,53 @@
 # HA lite recovery notes: docs/ops/GCP_HA_LITE.md
 
 services:
+  # Local Kubo for governance proposal metadata (real CIDs without Pinata).
+  # Prefer PINATA_JWT when set; otherwise control-api uses IPFS_NODE_URL.
+  ipfs:
+    image: ipfs/kubo:v0.32.1
+    restart: unless-stopped
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs_data:/data/ipfs
+    # API + gateway only on the compose backend network (not public).
+    expose:
+      - "5001"
+      - "8080"
+    networks:
+      - backend
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs --api=/ip4/127.0.0.1/tcp/5001 id >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   control-api:
     # zk-prover is profile-gated below; do not hard-require it on lean GCP testnet.
     depends_on:
       zk-prover:
         condition: service_healthy
         required: false
+      ipfs:
+        condition: service_healthy
+        required: false
     environment:
       - APP_ENV=staging
+      # Host WAN must never geolocate provider pins (GCE Midwest → Chicago).
+      - CONTROL_PLANE_PUBLIC_IPS=${CONTROL_PLANE_PUBLIC_IPS:-}
+      # Real IPFS via Kubo on this overlay (stub off). Pinata still wins if PINATA_JWT is set.
+      - IPFS_NODE_URL=${IPFS_NODE_URL:-http://ipfs:5001}
+      - IPFS_GATEWAY=${IPFS_GATEWAY:-http://ipfs:8080/ipfs/}
+      - GOVERNANCE_IPFS_STUB=${GOVERNANCE_IPFS_STUB:-0}
+      - PINATA_JWT=${PINATA_JWT:-}
       - HALO2_PROVER_REQUIRED=${HALO2_PROVER_REQUIRED:-false}
       - PROXYHUB_ALLOW_DEV_LISTING_SIGN=${PROXYHUB_ALLOW_DEV_LISTING_SIGN:-false}
       - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-true}
@@ -29,17 +68,42 @@ services:
       - PROXYHUB_REQUIRE_ESCROW_PDA=${PROXYHUB_REQUIRE_ESCROW_PDA:-true}
       # PAYG prepaid session PDAs (enable after smoke)
       - PROXYHUB_REQUIRE_SESSION_PDA=${PROXYHUB_REQUIRE_SESSION_PDA:-true}
+      # Wave 3.1 / DISC-01 — enforce registry gate on gcp-testnet (selection/activation).
+      - PROXYHUB_PROVIDER_REGISTRY_GATE=${PROXYHUB_PROVIDER_REGISTRY_GATE:-enforce}
+      # Wave 5.C — hard-filter browse/map by PG is_registered_on_chain (not listing PDA index).
+      - PROXYHUB_BROWSE_REGISTRY_FILTER=${PROXYHUB_BROWSE_REGISTRY_FILTER:-enforce}
+      # Wave 5.C.5 / W10.B — ListingCommitment PDA (default off; observe soak is gated).
+      # observe: honesty listing_commitments=ed25519_offer_hash+listing_commitment_pda
+      # and best-effort register_listing_commitment (sends SOL on listing publish/update).
+      - PROXYHUB_LISTING_COMMITMENT=${PROXYHUB_LISTING_COMMITMENT:-off}
+      # Wave 5.C.2 — credential_proof HMAC bound at activation; edge CONNECT enforce for marketplace sessions.
+      - PROXYHUB_CREDENTIAL_PROOF=${PROXYHUB_CREDENTIAL_PROOF:-enforce}
+      # Wave 7.A — Ed25519 session capability (default off; issuer still control-api at mint).
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY=${PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY:-}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
       # Deposit vault cutover: credit vault, advertise vault UI, freeze legacy EOA credit
       - PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED=${PROXYHUB_DEPOSIT_VAULT_CREDIT_ENABLED:-true}
       - PROXYHUB_DEPOSIT_VAULT_UI=${PROXYHUB_DEPOSIT_VAULT_UI:-true}
       - PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT=${PROXYHUB_DEPOSIT_LEGACY_TREASURY_CREDIT:-false}
       - PROXYHUB_DEPOSIT_REQUIRE_FINALIZED=${PROXYHUB_DEPOSIT_REQUIRE_FINALIZED:-true}
+      # BC-05: refuse escrow settle when on-chain usage proof anchoring fails
+      - PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE=${PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE:-true}
+      # Phase B: buyer hold / challenge window before escrow auto-release (days)
+      - PROXYHUB_ESCROW_CHALLENGE_DAYS=${PROXYHUB_ESCROW_CHALLENGE_DAYS:-7}
+      # BC-06: threshold multisig settle for large escrows
+      - PROXYHUB_MULTISIG_SETTLE_ENABLED=${PROXYHUB_MULTISIG_SETTLE_ENABLED:-true}
+      - PROXYHUB_MULTISIG_SETTLE_AMOUNT_LAMPORTS=${PROXYHUB_MULTISIG_SETTLE_AMOUNT_LAMPORTS:-100000000}
+      - PROXYHUB_MULTISIG_COSIGNER_KEYPAIR=${PROXYHUB_MULTISIG_COSIGNER_KEYPAIR:-/opt/proxyhubb/secrets/multisig-cosigner.json}
       - SOLANA_DEPOSIT_VAULT_ADDRESS=${SOLANA_DEPOSIT_VAULT_ADDRESS:-}
       - INDEXER_INDEX_ALL=${INDEXER_INDEX_ALL:-false}
       - EXPLORER_PUBLIC_SESSIONS_ENABLED=${EXPLORER_PUBLIC_SESSIONS_ENABLED:-false}
       - EXPLORER_PUBLIC_EARNINGS_ENABLED=${EXPLORER_PUBLIC_EARNINGS_ENABLED:-false}
-      # BC-08: distinct payout wallet (required for APP_ENV=staging)
-      - SOLANA_TREASURY_HOT_KEYPAIR=/run/secrets/treasury-hot-keypair.json
+      # BC-08: payout pubkey (KMS hot); file path unset on gcp-testnet (Sprint H quarantine)
+      - SOLANA_TREASURY_HOT_KEYPAIR=${SOLANA_TREASURY_HOT_KEYPAIR:-}
       - SOLANA_TREASURY_HOT_ADDRESS=${SOLANA_TREASURY_HOT_ADDRESS:?SOLANA_TREASURY_HOT_ADDRESS must be set}
       - SOLANA_TREASURY_ADDRESS=${SOLANA_TREASURY_ADDRESS:?SOLANA_TREASURY_ADDRESS must be set}
       - SOLANA_TREASURY_COLD_ADDRESS=${SOLANA_TREASURY_COLD_ADDRESS:-}
@@ -52,16 +116,27 @@ services:
       - SOLANA_VAULT_RESERVE_FLOOR_SOL=${SOLANA_VAULT_RESERVE_FLOOR_SOL:-0.01}
       - SOLANA_TREASURY_SWEEP_ENABLED=${SOLANA_TREASURY_SWEEP_ENABLED:-true}
       # GCP Cloud KMS oracle signer (preferred over file keypair when enabled)
-      # Sprint E: fail-closed oracle KMS on GCP testnet (hot payouts remain file keypair)
+      # Sprint E: fail-closed oracle KMS on GCP testnet
       - USE_GCP_KMS=${USE_GCP_KMS:-true}
       - GCP_KMS_KEY_NAME=${GCP_KMS_KEY_NAME:-}
       - GCP_KMS_PUBLIC_KEY=${GCP_KMS_PUBLIC_KEY:-}
       - PROXYHUB_REQUIRE_GCP_KMS=${PROXYHUB_REQUIRE_GCP_KMS:-true}
+      # Sprint G: treasury-hot SendSOL via Cloud KMS (file mount optional for rollback)
+      - USE_GCP_KMS_HOT=${USE_GCP_KMS_HOT:-true}
+      - GCP_KMS_HOT_KEY_NAME=${GCP_KMS_HOT_KEY_NAME:-}
+      - GCP_KMS_HOT_PUBLIC_KEY=${GCP_KMS_HOT_PUBLIC_KEY:-}
+      - PROXYHUB_REQUIRE_GCP_KMS_HOT=${PROXYHUB_REQUIRE_GCP_KMS_HOT:-true}
       - USE_AWS_KMS=${USE_AWS_KMS:-false}
+      # Sprint H: no private key JSON mounts when Cloud KMS is required
+      - SOLANA_ORACLE_KEYPAIR=${SOLANA_ORACLE_KEYPAIR:-}
     ports:
       - "127.0.0.1:8080:8080"
-    volumes:
-      - ./secrets/treasury-hot-keypair.json:/run/secrets/treasury-hot-keypair.json:ro
+    # Replace base volumes so oracle/hot key JSON are not mounted into the container.
+    # Cosigner (BC-06 2-of-N): prefer Secret Manager / sealed path; host JSON is
+    # temporary until PROXYHUB_MULTISIG_COSIGNER_KMS is wired (W1.4 residual).
+    volumes: !override
+      - ./cli-dist:/app/cli-dist:ro
+      - ${PROXYHUB_MULTISIG_COSIGNER_HOST_PATH:-./secrets/multisig-cosigner.json}:${PROXYHUB_MULTISIG_COSIGNER_KEYPAIR:-/opt/proxyhubb/secrets/multisig-cosigner.json}:ro
     # HA lite: keep one replica; caps avoid noisy-neighbor OOM on e2-standard-4
     mem_limit: 1536m
     cpus: 1.5
@@ -83,11 +158,22 @@ services:
         max-file: "3"
 
   edge-gateway:
+    environment:
+      # Sprint H: oracle file not required when legacy edge ZK is off + control-api KMS
+      - SOLANA_KEYPAIR_PATH=${SOLANA_KEYPAIR_PATH:-}
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
     ports:
       - "${EDGE_GATEWAY_PORT:-8090}:8090"
       - "${EDGE_GATEWAY_TUNNEL_PORT:-3128}:3128"
       - "${EDGE_GATEWAY_TUNNEL_ALT_PORT:-8443}:3128"
       - "${EDGE_GATEWAY_TUNNEL_UDP_PORT:-3128}:3128/udp"
+    volumes: !override
+      - ./certs:/app/certs:ro
+      - ./geoip:/app/geoip:ro
     mem_limit: 1536m
     cpus: 1.5
     ulimits:
@@ -126,12 +212,21 @@ services:
 
   redis-exporter:
     profiles: [observability]
+    ports: !override
+      - "127.0.0.1:9121:9121"
 
   prometheus:
     profiles: [observability]
+    ports: !override
+      - "127.0.0.1:9091:9090"
 
   grafana:
     profiles: [observability]
+    ports: !override
+      - "127.0.0.1:3001:3000"
 
   zk-prover:
     profiles: [zk]
+
+volumes:
+  ipfs_data:

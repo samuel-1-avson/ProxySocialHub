@@ -1,0 +1,14 @@
+# Wave 10.A/C/D — Host-A control-api observe + pinned bundle + settlement signing.
+# Do not include slash dual-gates. Listing commitment stays off.
+# Recreate MUST keep docker-compose.w6-host-a-private.yml.
+
+services:
+  control-api:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=observe
+      - PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY=${PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY:?signing key required}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:?issuer pubkey required}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=/etc/proxyhubb/operators-bundle.json
+      - PROXYHUB_SETTLEMENT_BUNDLE_SIGNING_KEY=${PROXYHUB_SETTLEMENT_BUNDLE_SIGNING_KEY:?settlement signing key required}
+    volumes:
+      - /opt/proxyhubb/ops/operators-bundle.json:/etc/proxyhubb/operators-bundle.json:ro

@@ -1,0 +1,29 @@
+groups:
+  - name: nats_jetstream_lag
+    rules:
+      - alert: NATSConsumerLagHigh
+        expr: nats_consumer_num_pending > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: JetStream consumer lag high
+          description: "{{ $labels.stream }}/{{ $labels.consumer }} has {{ $value }} pending messages for 5m."
+
+      - alert: NATSConsumerAckPendingHigh
+        expr: nats_consumer_num_ack_pending > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: JetStream ack-pending high
+          description: "{{ $labels.stream }}/{{ $labels.consumer }} has {{ $value }} ack-pending messages for 5m."
+
+      - alert: NATSLagScrapeErrors
+        expr: increase(nats_lag_scrape_errors_total[15m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: NATS lag scraper errors
+          description: control-api failed to scrape JetStream lag in the last 15m.

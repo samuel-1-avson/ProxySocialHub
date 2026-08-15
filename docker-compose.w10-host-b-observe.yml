@@ -1,0 +1,11 @@
+# Wave 10.A/D — Host-B edge observe + pinned operator bundle.
+# Do not start control-api on Host-B. Do not arm slash gates.
+
+services:
+  edge-gateway-b:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=observe
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:?issuer pubkey required}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=/etc/proxyhubb/operators-bundle.json
+    volumes:
+      - /opt/proxyhubb/ops/operators-bundle.json:/etc/proxyhubb/operators-bundle.json:ro

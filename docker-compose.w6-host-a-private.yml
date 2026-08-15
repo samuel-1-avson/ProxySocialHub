@@ -1,0 +1,25 @@
+# Wave 6.A — publish control-api + Redis on host-A INTERNAL IP only.
+# Used with docker-compose.gcp-testnet.yml. Do not bind these to 0.0.0.0.
+#
+#   HOST_A_INTERNAL_IP=10.128.0.36 docker compose ... -f docker-compose.w6-host-a-private.yml up -d
+#
+# Firewall: allow-proxyhubb-w6-private-cp (source tag proxyhubb-w6-edge-b).
+
+services:
+  control-api:
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "${HOST_A_INTERNAL_IP:?HOST_A_INTERNAL_IP required}:8080:8080"
+    environment:
+      - GATEWAY_OP_A_HOST_ID=${GATEWAY_OP_A_HOST_ID:-gce-proxyhubb-testnet}
+      - GATEWAY_OP_B_HOST_ID=${GATEWAY_OP_B_HOST_ID:-gce-w6-operator-b}
+      - GATEWAY_OP_B_TUNNEL=${GATEWAY_OP_B_TUNNEL:-}
+      - GATEWAY_OP_B_BUYER_URL=${GATEWAY_OP_B_BUYER_URL:-}
+      - GATEWAY_OP_B_HEALTH_URL=${GATEWAY_OP_B_HEALTH_URL:-}
+      - GATEWAY_OP_A_PEER_URLS=${GATEWAY_OP_A_PEER_URLS:-}
+      - GATEWAY_OP_B_PEER_URLS=${GATEWAY_OP_B_PEER_URLS:-edge-a@http://edge-gateway-a:8090}
+      - PROXYHUB_OPERATOR_MANIFEST=${PROXYHUB_OPERATOR_MANIFEST:-observe}
+
+  redis:
+    ports:
+      - "${HOST_A_INTERNAL_IP:?HOST_A_INTERNAL_IP required}:6379:6379"

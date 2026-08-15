@@ -1,0 +1,11 @@
+# Wave 10.A/D — Host-A J2 edge-b observe + pinned operator bundle.
+# Use with docker-compose.j2-multipod.yml (provides image/build).
+
+services:
+  edge-gateway-b:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=observe
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:?issuer pubkey required}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=/etc/proxyhubb/operators-bundle.json
+    volumes:
+      - /opt/proxyhubb/ops/operators-bundle.json:/etc/proxyhubb/operators-bundle.json:ro

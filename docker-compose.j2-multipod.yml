@@ -1,0 +1,234 @@
+# Sprint J2 / Wave 2.1 — multipod edge lite (same VM OK)
+#
+# Usage (on gcp-testnet VM):
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.testnet.yml \
+#     -f docker-compose.gcp-testnet.yml \
+#     -f docker-compose.j2-multipod.yml \
+#     up -d
+#
+# Optional Redis HA-lite in front:
+#   ... -f docker-compose.redis-ha.yml ...
+#
+# Buyer CONNECT (sticky): host :8090 → Caddy/hash → edge-a:8090 or edge-b:8090
+#   Direct lab ports: edge-a :18090, edge-b :18091
+# Provider tunnels: edge-a :3128, edge-b :3129 (providers pick one; sticky)
+#
+# Honest claim: same-VM multipod + Wave 5.B logical operator discovery — not multi-region DePIN.
+
+services:
+  # Hide the single-process edge from this stack (ports conflict otherwise).
+  edge-gateway:
+    profiles: ["j2-single-edge-disabled"]
+
+  edge-gateway-a:
+    build:
+      context: ./services/edge-gateway
+      dockerfile: Dockerfile
+      args:
+        ENABLE_OTEL: ${EDGE_GATEWAY_ENABLE_OTEL:-0}
+    hostname: edge-a
+    ports:
+      # Keep public buyer CONNECT on :8090 (edge-a) so DNS does not break without Caddy sticky.
+      - "${EDGE_GATEWAY_PORT:-8090}:8090"
+      - "127.0.0.1:${EDGE_A_BUYER_PORT:-18090}:8090"
+      - "${EDGE_A_TUNNEL_PORT:-3128}:3128"
+      - "${EDGE_A_TUNNEL_ALT_PORT:-8443}:3128"
+      - "${EDGE_A_TUNNEL_UDP_PORT:-3128}:3128/udp"
+      - "127.0.0.1:${EDGE_A_METRICS_PORT:-19092}:9090"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - HOST=0.0.0.0
+      - PORT=8090
+      - METRICS_PORT=9090
+      - TUNNEL_PORT=3128
+      - ENABLE_SOCKS5=${ENABLE_SOCKS5:-0}
+      - SOCKS5_PORT=1080
+      - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
+      - PROVIDER_TRANSPORT=${PROVIDER_TRANSPORT:-yamux}
+      # Prefer writable Redis. With redis-ha failover, `redis` may become a replica —
+      # set J2_REDIS_URL=redis://:${REDIS_PASSWORD}@redis-replica:6379 (or Sentinel URL).
+      - REDIS_URL=${J2_REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379}
+      - NATS_URL=nats://nats:4222
+      - CONTROL_API_URL=http://control-api:8080
+      - JWT_SECRET=${JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - REQUIRE_PROVIDER_LEASE=${REQUIRE_PROVIDER_LEASE:-false}
+      - TLS_CERT_PATH=/app/certs/server.crt
+      - TLS_KEY_PATH=/app/certs/server.key
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
+      - SESSION_CACHE_SIZE=${SESSION_CACHE_SIZE:-100000}
+      - SESSION_CACHE_TTL_SECS=${SESSION_CACHE_TTL_SECS:-300}
+      - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
+      - LEGACY_EDGE_ZK_SUBMISSION_ENABLED=${LEGACY_EDGE_ZK_SUBMISSION_ENABLED:-false}
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-true}
+      - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-false}
+      - PROXYHUB_CREDENTIAL_PROOF=${PROXYHUB_CREDENTIAL_PROOF:-enforce}
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
+      - SOLANA_KEYPAIR_PATH=${SOLANA_KEYPAIR_PATH:-}
+      # J2 multipod
+      - EDGE_MODE=colocated
+      - EDGE_POD_ID=edge-a
+      - EDGE_PEER_URLS=edge-b@http://edge-gateway-b:8090
+      - PROVIDER_DIRECTORY_TTL_SECS=${PROVIDER_DIRECTORY_TTL_SECS:-120}
+      - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./geoip:/app/geoip:ro
+    depends_on:
+      control-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - backend
+    mem_limit: 1024m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:8090/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  edge-gateway-b:
+    build:
+      context: ./services/edge-gateway
+      dockerfile: Dockerfile
+      args:
+        ENABLE_OTEL: ${EDGE_GATEWAY_ENABLE_OTEL:-0}
+    hostname: edge-b
+    ports:
+      - "127.0.0.1:${EDGE_B_BUYER_PORT:-18091}:8090"
+      - "${EDGE_B_TUNNEL_PORT:-3129}:3128"
+      - "127.0.0.1:${EDGE_B_METRICS_PORT:-19093}:9090"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - HOST=0.0.0.0
+      - PORT=8090
+      - METRICS_PORT=9090
+      - TUNNEL_PORT=3128
+      - ENABLE_SOCKS5=${ENABLE_SOCKS5:-0}
+      - SOCKS5_PORT=1080
+      - YAMUX_CONNS_PER_NODE=${YAMUX_CONNS_PER_NODE:-1}
+      - PROVIDER_TRANSPORT=${PROVIDER_TRANSPORT:-yamux}
+      # Same as edge-a: set J2_REDIS_URL to writable master when redis-ha has failed over.
+      - REDIS_URL=${J2_REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379}
+      - NATS_URL=nats://nats:4222
+      - CONTROL_API_URL=http://control-api:8080
+      - JWT_SECRET=${JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - REQUIRE_PROVIDER_LEASE=${REQUIRE_PROVIDER_LEASE:-false}
+      - TLS_CERT_PATH=/app/certs/server.crt
+      - TLS_KEY_PATH=/app/certs/server.key
+      - PROVIDER_PRIVATE_KEY=${PROVIDER_PRIVATE_KEY:?PROVIDER_PRIVATE_KEY must be set}
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
+      - SESSION_CACHE_SIZE=${SESSION_CACHE_SIZE:-100000}
+      - SESSION_CACHE_TTL_SECS=${SESSION_CACHE_TTL_SECS:-300}
+      - PROXY_CONNECT_TIMEOUT_SECS=${PROXY_CONNECT_TIMEOUT_SECS:-10}
+      - LEGACY_EDGE_ZK_SUBMISSION_ENABLED=${LEGACY_EDGE_ZK_SUBMISSION_ENABLED:-false}
+      - FULL_DECENTRALIZATION=${FULL_DECENTRALIZATION:-true}
+      - PROXYHUB_REQUIRE_SIGNED_HEARTBEATS=${PROXYHUB_REQUIRE_SIGNED_HEARTBEATS:-false}
+      - PROXYHUB_CREDENTIAL_PROOF=${PROXYHUB_CREDENTIAL_PROOF:-enforce}
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
+      - SOLANA_KEYPAIR_PATH=${SOLANA_KEYPAIR_PATH:-}
+      - EDGE_MODE=colocated
+      - EDGE_POD_ID=edge-b
+      - EDGE_PEER_URLS=edge-a@http://edge-gateway-a:8090
+      - PROVIDER_DIRECTORY_TTL_SECS=${PROVIDER_DIRECTORY_TTL_SECS:-120}
+      - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./geoip:/app/geoip:ro
+    depends_on:
+      control-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - backend
+    mem_limit: 1024m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:8090/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  control-api:
+    environment:
+      # Advertise both tunnel endpoints for provider CLI / docs.
+      - PROVIDER_TUNNEL_PUBLIC_ADDRS=${PROVIDER_TUNNEL_PUBLIC_ADDRS:-${PROVIDER_TUNNEL_PUBLIC_ADDR},:3129}
+      - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway-a:8090}
+      - EDGE_GATEWAY_BUYER_PORT=${EDGE_GATEWAY_BUYER_PORT:-8090}
+      # Wave 5.B: seed logical operators (edge-a / edge-b); health via docker DNS.
+      - PROXYHUB_SEED_GATEWAY_OPERATORS=${PROXYHUB_SEED_GATEWAY_OPERATORS:-1}
+      - PROXYHUB_GATEWAY_OPERATOR_BOND_ENFORCE=${PROXYHUB_GATEWAY_OPERATOR_BOND_ENFORCE:-off}
+      - PROXYHUB_OPERATOR_MANIFEST=${PROXYHUB_OPERATOR_MANIFEST:-off}
+      - PROXYHUB_SESSION_CAPABILITY=${PROXYHUB_SESSION_CAPABILITY:-off}
+      - PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY=${PROXYHUB_SESSION_CAPABILITY_SIGNING_KEY:-}
+      - PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY=${PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY:-}
+      - PROXYHUB_OPERATOR_BUNDLE_PATH=${PROXYHUB_OPERATOR_BUNDLE_PATH:-}
+      - PROXYHUB_OPERATOR_BUNDLE_URL=${PROXYHUB_OPERATOR_BUNDLE_URL:-}
+      - PROXYHUB_OPERATOR_BUNDLE_CID=${PROXYHUB_OPERATOR_BUNDLE_CID:-}
+      - GATEWAY_OP_A_HOST_ID=${GATEWAY_OP_A_HOST_ID:-primary-loopback}
+      - GATEWAY_OP_B_HOST_ID=${GATEWAY_OP_B_HOST_ID:-primary-loopback}
+      - GATEWAY_OP_A_BUYER_URL=${GATEWAY_OP_A_BUYER_URL:-http://127.0.0.1:18090}
+      - GATEWAY_OP_B_BUYER_URL=${GATEWAY_OP_B_BUYER_URL:-http://127.0.0.1:18091}
+      - GATEWAY_OP_A_HEALTH_URL=${GATEWAY_OP_A_HEALTH_URL:-http://edge-gateway-a:8090/health}
+      - GATEWAY_OP_B_HEALTH_URL=${GATEWAY_OP_B_HEALTH_URL:-http://edge-gateway-b:8090/health}
