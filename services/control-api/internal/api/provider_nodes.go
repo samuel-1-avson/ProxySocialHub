@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/core/domain"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/gateways"
 	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -21,6 +22,11 @@ import (
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 )
+
+// registryTunnelAddrs is a thin wrapper so tests can stub registry merge.
+var registryTunnelAddrs = func() []string {
+	return gateways.RegistryTunnelAddrs()
+}
 
 // RegisterProviderNodeRoutes registers provider node management routes
 func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
@@ -471,8 +477,9 @@ func providerPublicTunnelAddr() string {
 }
 
 // providerPublicTunnelAddrs returns failover tunnel endpoints (primary first).
+// Wave 5.B: prefer gateway operator registry addrs when present, then env CSV.
 func providerPublicTunnelAddrs(primary string) []string {
-	out := make([]string, 0, 4)
+	out := make([]string, 0, 8)
 	add := func(a string) {
 		a = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(a, "https://"), "http://"))
 		if a == "" {
@@ -486,6 +493,9 @@ func providerPublicTunnelAddrs(primary string) []string {
 		out = append(out, a)
 	}
 	add(primary)
+	for _, a := range registryTunnelAddrs() {
+		add(a)
+	}
 	if raw := os.Getenv("PROVIDER_TUNNEL_PUBLIC_ADDRS"); raw != "" {
 		for _, part := range strings.Split(raw, ",") {
 			add(part)

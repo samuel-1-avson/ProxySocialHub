@@ -153,12 +153,13 @@ func fundSessionSolana(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"payment_method":    "solana_session_escrow",
-		"session_pda":       pda.String(),
-		"buyer_wallet":      buyerWallet.Address,
-		"seller_wallet":     sellerAddr,
-		"amount_locked_sol": amountSOL,
-		"max_price":         pricePerGB,
+		"payment_method":      "solana_session_escrow_pending",
+		"session_pda":         pda.String(),
+		"buyer_wallet":        buyerWallet.Address,
+		"seller_wallet":       sellerAddr,
+		"amount_locked_sol":   amountSOL,
+		"max_price":           pricePerGB,
+		"escrow_confirmed_at": nil,
 	}
 	if err := db.DB.Model(&session).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
@@ -259,12 +260,13 @@ func confirmSessionEscrow(c *gin.Context) {
 	}
 
 	if err := db.DB.Model(&session).Updates(map[string]interface{}{
-		"status":            models.SessionActive,
-		"session_pda":       pda.String(),
-		"payment_method":    "solana_session_escrow",
-		"amount_locked_sol": float64(escrow.Amount) / 1e9,
-		"buyer_wallet":      escrow.Buyer.String(),
-		"seller_wallet":     escrow.Seller.String(),
+		"status":              models.SessionActive,
+		"session_pda":         pda.String(),
+		"payment_method":      "solana_session_escrow",
+		"amount_locked_sol":   float64(escrow.Amount) / 1e9,
+		"buyer_wallet":        escrow.Buyer.String(),
+		"seller_wallet":       escrow.Seller.String(),
+		"escrow_confirmed_at": time.Now().UTC(),
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate session"})
 		return

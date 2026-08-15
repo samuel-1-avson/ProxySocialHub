@@ -348,7 +348,22 @@ func createEscrowDispute(c *gin.Context) {
 		return
 	}
 
-	// Create dispute
+	// Create dispute + jury together. Quorum is required (W1.2) — no admin fallback.
+	jurorIDs, juryErr := models.SelectJurors(db.DB, escrow.BuyerID, escrow.SellerID, 3)
+	if juryErr != nil || len(jurorIDs) < 3 {
+		available := 0
+		if juryErr == nil {
+			available = len(jurorIDs)
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":     "Not enough validators available to convene a jury",
+			"available": available,
+			"required":  3,
+			"code":      "jury_quorum_unavailable",
+		})
+		return
+	}
+
 	dispute := models.EscrowDispute{
 		EscrowID:    escrow.ID,
 		OrderID:     orderID,
@@ -358,54 +373,52 @@ func createEscrowDispute(c *gin.Context) {
 		Status:      models.DisputeOpen,
 	}
 
-	if err := db.DB.Create(&dispute).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create dispute"})
+	// DisputeID on DisputeJury is the order UUID (same as /disputes/jury/create)
+	// so settleDisputeOnChain can load the order. Do not use EscrowDispute.ID.
+	jury := models.DisputeJury{
+		DisputeID:      orderID,
+		EscrowID:       escrow.ID,
+		BuyerID:        escrow.BuyerID,
+		SellerID:       escrow.SellerID,
+		Juror1ID:       jurorIDs[0],
+		Juror2ID:       jurorIDs[1],
+		Juror3ID:       jurorIDs[2],
+		DisputeReason:  string(req.Reason),
+		DisputedAmount: escrow.Amount,
+		Status:         models.JuryVoting,
+	}
+	if len(jurorIDs) >= 4 {
+		jury.Juror4ID = &jurorIDs[3]
+	}
+	if len(jurorIDs) >= 5 {
+		jury.Juror5ID = &jurorIDs[4]
+	}
+
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&dispute).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&jury).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&escrow).Update("status", models.EscrowDisputed).Error; err != nil {
+			return err
+		}
+		return fsm.TransitionOrder(tx, &order, models.OrderStatusDisputed, "api.escrow.dispute", nil)
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open dispute with jury", "detail": err.Error()})
 		return
 	}
 
-	// Update escrow + order status
-	db.DB.Model(&escrow).Update("status", models.EscrowDisputed)
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusDisputed, "api.escrow.dispute", nil); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// D-E1: Automatically convene a 3-juror jury from reputation-weighted
-	// validators, excluding the two parties.  If fewer than 3 validators are
-	// available the dispute falls back to admin resolution.
-	juryConvened := false
-	jurorIDs, juryErr := models.SelectJurors(db.DB, escrow.BuyerID, escrow.SellerID, 3)
-	if juryErr == nil && len(jurorIDs) >= 3 {
-		jury := models.DisputeJury{
-			DisputeID:      dispute.ID,
-			EscrowID:       escrow.ID,
-			BuyerID:        escrow.BuyerID,
-			SellerID:       escrow.SellerID,
-			Juror1ID:       jurorIDs[0],
-			Juror2ID:       jurorIDs[1],
-			Juror3ID:       jurorIDs[2],
-			DisputeReason:  string(req.Reason),
-			DisputedAmount: escrow.Amount,
-			Status:         models.JuryVoting,
-		}
-		if len(jurorIDs) >= 4 {
-			jury.Juror4ID = &jurorIDs[3]
-		}
-		if len(jurorIDs) >= 5 {
-			jury.Juror5ID = &jurorIDs[4]
-		}
-		if createErr := db.DB.Create(&jury).Error; createErr == nil {
-			juryConvened = true
-			// Notify each juror
-			for _, jid := range jurorIDs[:3] {
-				ws.BroadcastToUser(jid.String(), ws.MsgTypeOrderUpdate, gin.H{
-					"type":       "jury_assigned",
-					"dispute_id": dispute.ID,
-					"escrow_id":  escrow.ID,
-					"message":    "You have been selected as a juror. Please review and cast your vote within 48 hours.",
-				})
-			}
-		}
+	for _, jid := range jurorIDs[:3] {
+		ws.BroadcastToUser(jid.String(), ws.MsgTypeOrderUpdate, gin.H{
+			"type":       "jury_assigned",
+			"dispute_id": dispute.ID,
+			"jury_id":    jury.ID,
+			"order_id":   orderID,
+			"escrow_id":  escrow.ID,
+			"message":    "You have been selected as a juror. Please review and cast your vote within 48 hours.",
+		})
 	}
 
 	// Notify counterparty
@@ -417,12 +430,13 @@ func createEscrowDispute(c *gin.Context) {
 		"order_id":      orderID,
 		"message":       "Dispute opened on order",
 		"type":          "dispute_opened",
-		"jury_convened": juryConvened,
+		"jury_convened": true,
 	})
 
 	c.JSON(http.StatusCreated, gin.H{
 		"dispute":       dispute,
-		"jury_convened": juryConvened,
+		"jury":          jury,
+		"jury_convened": true,
 	})
 }
 

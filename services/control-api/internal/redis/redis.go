@@ -88,6 +88,27 @@ type SessionData struct {
 
 	// SHA-256 hex of proxy password — edge-gateway validates Basic auth when set.
 	CredentialPasswordHash string `json:"credential_password_hash,omitempty"`
+
+	// Wave 3.3 / W5.C.2 — platform HMAC order credential bound into the session blob.
+	OrderID                       string `json:"order_id,omitempty"`
+	CredentialProofUsernameHash   string `json:"credential_proof_username_hash,omitempty"`
+	CredentialProofPayloadHash    string `json:"credential_proof_payload_hash,omitempty"`
+	CredentialProofSignature      string `json:"credential_proof_signature,omitempty"`
+	CredentialProofIssuedAt       int64  `json:"credential_proof_issued_at,omitempty"`
+	CredentialProofExpiresAt      int64  `json:"credential_proof_expires_at,omitempty"`
+
+	// Wave 7.A — Ed25519 session capability (Redis is a cache; edge verifies locally).
+	CapabilityVersion         string `json:"capability_version,omitempty"`
+	CapabilityOfferHash       string `json:"capability_offer_hash,omitempty"`
+	CapabilityBuyerID         string `json:"capability_buyer_id,omitempty"`
+	CapabilityExpiresAt       int64  `json:"capability_expires_at,omitempty"`
+	CapabilityBandwidthLimit  int64  `json:"capability_bandwidth_limit,omitempty"`
+	CapabilityOperatorPubkey  string `json:"capability_operator_pubkey,omitempty"`
+	CapabilityUsernameHash    string `json:"capability_username_hash,omitempty"`
+	CapabilityIssuedAt        int64  `json:"capability_issued_at,omitempty"`
+	CapabilitySignature       string `json:"capability_signature,omitempty"`
+	CapabilityIssuerPubkey    string `json:"capability_issuer_pubkey,omitempty"`
+	CapabilityToken           string `json:"capability_token,omitempty"`
 }
 
 func Init() error {

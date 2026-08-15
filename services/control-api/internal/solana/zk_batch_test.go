@@ -41,6 +41,59 @@ func TestEncodeSubmitZKBatchDataLayout(t *testing.T) {
 	}
 }
 
+func TestEncodeSubmitZKBatchGroth16DataLayout(t *testing.T) {
+	var root, proof, vk, leaves [32]byte
+	root[0], proof[0], vk[0], leaves[0] = 0xAA, 0xDD, 0xEE, 0xCC
+	data := EncodeSubmitZKBatchGroth16Data(ZKBatchGroth16Params{
+		ZKBatchParams: ZKBatchParams{
+			BatchRoot:    root,
+			SessionCount: 3,
+			TotalBytes:   100,
+			PeriodStart:  1,
+			PeriodEnd:    2,
+			ProofHash:    proof,
+		},
+		LeavesHash: leaves,
+		VKHash:     vk,
+	})
+	if len(data) != 420 {
+		t.Fatalf("len=%d want 420", len(data))
+	}
+	if data[68] != 0xCC {
+		t.Fatalf("leaves_hash[0]=%x want CC", data[68])
+	}
+	if data[132] != 0xEE {
+		t.Fatalf("vk_hash[0]=%x want EE", data[132])
+	}
+	oracleDisc := EncodeSubmitZKBatchData(ZKBatchParams{})
+	same := true
+	for i := 0; i < 8; i++ {
+		if data[i] != oracleDisc[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("groth16 discriminator must differ from submit_zk_batch")
+	}
+}
+
+func TestBatchGroth16VKHash(t *testing.T) {
+	h := BatchGroth16VKHash()
+	if h == ([32]byte{}) {
+		t.Fatal("VK hash must be non-zero")
+	}
+	data := EncodeSubmitZKBatchGroth16Data(ZKBatchGroth16Params{
+		ZKBatchParams: ZKBatchParams{BatchRoot: [32]byte{1}, SessionCount: 1, TotalBytes: 1, ProofHash: [32]byte{2}},
+		LeavesHash:    [32]byte{3},
+	})
+	for i := 0; i < 32; i++ {
+		if data[132+i] != h[i] {
+			t.Fatalf("zero VKHash should default to BatchGroth16VKHash at offset %d", i)
+		}
+	}
+}
+
 func TestProofHashFromBytes(t *testing.T) {
 	empty := ProofHashFromBytes(nil)
 	if empty != ([32]byte{}) {

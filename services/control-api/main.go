@@ -24,17 +24,20 @@ import (
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
+	"github.com/proxyhubb/control-api/internal/gateways"
 	"github.com/proxyhubb/control-api/internal/gov"
 	"github.com/proxyhubb/control-api/internal/governance"
 	"github.com/proxyhubb/control-api/internal/health"
 	"github.com/proxyhubb/control-api/internal/indexer"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/ops"
 	"github.com/proxyhubb/control-api/internal/pricing"
+	"github.com/proxyhubb/control-api/internal/providergate"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/sessioncache"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
@@ -155,6 +158,13 @@ func main() {
 	models.CredentialDecryptFn = cryptoPkg.Decrypt
 	log.Println("Session credential encryption hooks registered")
 
+	// Wave 5.B: seed J2 logical gateway operators into discovery registry.
+	if err := gateways.SeedFromEnv(); err != nil {
+		log.Printf("Warning: gateway operator seed failed: %v", err)
+	} else {
+		log.Println("Gateway operator discovery seed checked (ADR-0007)")
+	}
+
 	// --- Wire provider token hashing into the ProviderToken model ---
 	// Uses HMAC-SHA256 keyed by TOKEN_HMAC_SECRET so hashes are useless without the key.
 	tokenHMACSecret := os.Getenv("TOKEN_HMAC_SECRET")
@@ -247,6 +257,8 @@ func main() {
 			logging.Warn().Err(err).Str("username", username).Msg("session_gateway_cache delete failed")
 		}
 	}
+	// Wave 3.1 / DISC-01: on-chain ProviderRegistry gate for session activation.
+	marketplace.ProviderRegistryGateHook = providergate.Check
 	api.LogRateLimitBackend()
 
 	// Initialize Config Manager (Redis + DB Sync)
@@ -549,6 +561,7 @@ func main() {
 		solanaClient.RegisterPublicRoutes(v1)          // Oracle/RPC health (no auth)
 		api.RegisterNetworkRoutes(v1)                  // Public network aggregate (dashboard + landing)
 		api.RegisterPassPublicRoutes(v1)               // Access Pass catalog (NFT entitlements)
+		api.RegisterGatewayOperatorPublicRoutes(v1)    // Wave 5.B: gateway operator discovery
 	}
 
 	// Public Routes (No Authentication Required)
@@ -580,6 +593,7 @@ func main() {
 
 		api.RegisterBuyerRelationshipRoutes(protected)
 		api.RegisterDisputeRoutes(protected)
+		api.RegisterListingAppealRoutes(protected)
 		api.RegisterCLIDistributionRoutes(v1) // Public CLI downloads
 		api.RegisterGatewayTokenRoute(v1)     // Public: exchange provider token → gateway JWT
 		api.RegisterSessionRoutes(protected)
@@ -663,6 +677,7 @@ func main() {
 		api.RegisterAdminDisputeRoutes(adminProtected)
 		api.RegisterAdminOnboardingRoutes(adminProtected)
 		api.RegisterAdminListingModerationRoutes(adminProtected)
+		api.RegisterModerationAppealRoutes(adminProtected.Group("/listings"))
 		api.RegisterAdminForumModerationRoutes(adminProtected)
 		api.RegisterAdminPayoutRoutes(adminProtected)
 		api.RegisterAdminNodeHealthRoutes(adminProtected)

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -42,9 +43,15 @@ func CreditWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTy
 
 // CreditWalletLockedLamports credits an exact lamports delta (Sprint I / DB-02 lite).
 // BalanceSOL is derived from BalanceLamports for legacy float columns only.
+// When PROXYHUB_JOURNAL_AS_SOT=true, journal posts first (fail-closed); wallet is cache.
 func CreditWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entryType, referenceID, description string, opts LedgerOpts) error {
 	if lamports <= 0 {
 		return fmt.Errorf("credit lamports must be positive")
+	}
+	if decentralization.JournalAsSoTEnabled() {
+		if err := postCreditJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind); err != nil {
+			return fmt.Errorf("journal-as-sot credit journal: %w", err)
+		}
 	}
 	wallet.CreditLamports(lamports)
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
@@ -68,7 +75,12 @@ func CreditWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, ent
 	if err := tx.Create(&entry).Error; err != nil {
 		return err
 	}
-	return postCreditJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind)
+	if !decentralization.JournalAsSoTEnabled() {
+		if err := postCreditJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind); err != nil {
+			return fmt.Errorf("dual-write credit journal: %w", err)
+		}
+	}
+	return nil
 }
 
 // DebitWalletLocked debits amount using lamports math, appends a ledger row, and dual-writes journal.
@@ -82,11 +94,20 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 }
 
 // DebitWalletLockedLamports debits an exact lamports delta (Sprint I / DB-02 lite).
+// When PROXYHUB_JOURNAL_AS_SOT=true, journal posts first (fail-closed); wallet is cache.
 func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entryType, referenceID, description string, opts LedgerOpts) error {
 	if lamports <= 0 {
 		return fmt.Errorf("debit lamports must be positive")
 	}
 	have := wallet.EffectiveBalanceLamports()
+	if have < lamports {
+		return fmt.Errorf("insufficient SOL balance: have %d lamports, need %d", have, lamports)
+	}
+	if decentralization.JournalAsSoTEnabled() {
+		if err := postDebitJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind); err != nil {
+			return fmt.Errorf("journal-as-sot debit journal: %w", err)
+		}
+	}
 	if !wallet.DebitLamports(lamports) {
 		return fmt.Errorf("insufficient SOL balance: have %d lamports, need %d", have, lamports)
 	}
@@ -111,7 +132,12 @@ func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entr
 	if err := tx.Create(&entry).Error; err != nil {
 		return err
 	}
-	return postDebitJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind)
+	if !decentralization.JournalAsSoTEnabled() {
+		if err := postDebitJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind); err != nil {
+			return fmt.Errorf("dual-write debit journal: %w", err)
+		}
+	}
+	return nil
 }
 
 // TransferP2PLocked debits sender and credits recipient with one balanced P2P journal.

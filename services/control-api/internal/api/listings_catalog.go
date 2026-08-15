@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/cache"
+	"github.com/proxyhubb/control-api/internal/catalog"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/marketplace/collections"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -49,6 +50,7 @@ func RegisterListingCatalogRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings/facets", getListingFacets)
 	rg.GET("/listings/collections", getListingCollections)
 	rg.GET("/listings/collections/:slug", getListingCollectionBySlug)
+	rg.GET("/listings/commitments/bundle", exportListingCommitmentBundle)
 }
 
 func getListingFacets(c *gin.Context) {
@@ -188,4 +190,35 @@ func getListingCollectionBySlug(c *gin.Context) {
 		"page":       page,
 		"limit":      limit,
 	})
+}
+
+// exportListingCommitmentBundle is Wave 9.B: signed offer-hash set (optional PDAs).
+// Registered before /listings/:id. Not a merchandising catalog.
+func exportListingCommitmentBundle(c *gin.Context) {
+	secret := catalog.SigningKey()
+	if secret == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "listing bundle signing key not configured",
+			"honesty": gin.H{"catalog_source": catalog.Source(), "not_a_catalog": true},
+		})
+		return
+	}
+	if db.DB == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "database unavailable"})
+		return
+	}
+	var listings []models.ProxyListing
+	q := db.DB.Where("COALESCE(TRIM(listing_offer_hash), '') <> ''").
+		Order("updated_at DESC").
+		Limit(500)
+	if err := q.Find(&listings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load listing commitments"})
+		return
+	}
+	bundle, err := catalog.BuildBundle(listings, secret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, bundle)
 }

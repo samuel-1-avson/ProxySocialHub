@@ -447,6 +447,24 @@ type forceResolveRequest struct {
 }
 
 func adminForceResolveDispute(c *gin.Context) {
+	// W1.2: under full decentralization, admin cannot override jury settlement.
+	if decentralization.FullModeEnabled() {
+		setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+		c.JSON(http.StatusGone, gin.H{
+			"error": "Admin force-resolve is disabled when FULL_DECENTRALIZATION is on. Use jury settlement.",
+			"code":  "admin_dispute_force_resolve_disabled",
+		})
+		return
+	}
+	if !decentralization.AllowAdminDisputeForceResolve() {
+		setAuthorityHeaders(c, authorityModeChainAuthoritative, "required", "none")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Admin force-resolve requires PROXYHUB_ALLOW_ADMIN_DISPUTE_FORCE_RESOLVE=true (escape hatch).",
+			"code":  "admin_dispute_force_resolve_gated",
+		})
+		return
+	}
+
 	disputeID := c.Param("id")
 	adminUsername := c.GetString("adminUsername")
 
@@ -457,9 +475,9 @@ func adminForceResolveDispute(c *gin.Context) {
 	}
 
 	result := db.DB.Model(&models.DisputeJury{}).Where("id = ?", disputeID).Updates(map[string]interface{}{
-		"status":     "admin_resolved",
-		"verdict":    req.Resolution,
-		"updated_at": time.Now(),
+		"status":           models.JuryResolved,
+		"resolution_notes": "admin_force:" + req.Resolution + " — " + req.Reason,
+		"updated_at":       time.Now(),
 	})
 
 	if result.RowsAffected == 0 {

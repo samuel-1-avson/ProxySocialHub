@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/marketplace/moderation"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -20,6 +21,7 @@ func RegisterAdminListingModerationRoutes(rg *gin.RouterGroup) {
 		listings.GET("/pending", getPendingListingsForModeration)
 		listings.POST("/:id/approve", approvePendingListing)
 		listings.POST("/:id/reject", rejectPendingListing)
+		listings.POST("/:id/delist", delistActiveListing)
 	}
 }
 
@@ -31,7 +33,9 @@ func RegisterPlatformListingModerationRoutes(rg *gin.RouterGroup) {
 		mod.GET("/listings/pending", getPendingListingsForModeration)
 		mod.POST("/listings/:id/approve", approvePendingListing)
 		mod.POST("/listings/:id/reject", rejectPendingListing)
+		mod.POST("/listings/:id/delist", delistActiveListing)
 		mod.GET("/marketplace/funnel", getAdminMarketplaceFunnel)
+		RegisterModerationAppealRoutes(mod)
 	}
 	RegisterPlatformForumModerationRoutes(rg)
 }
@@ -143,25 +147,71 @@ func rejectPendingListing(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Listing is not pending review"})
 		return
 	}
-	if err := models.ValidateListingStatusTransition(listing.Status, models.ListingStatusDeleted); err != nil {
+	// Wave 3.5: reject → delisted (appealable), not immediate deleted.
+	if err := models.ValidateListingStatusTransition(listing.Status, models.ListingStatusDelisted); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := db.DB.Model(&listing).Update("status", models.ListingStatusDeleted).Error; err != nil {
+	if err := db.DB.Model(&listing).Update("status", models.ListingStatusDelisted).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject listing"})
 		return
 	}
 
 	invalidateMarketplaceReadModels()
-	listing.Status = models.ListingStatusDeleted
+	listing.Status = models.ListingStatusDelisted
 	audit.Log(c, models.AuditAdminListingRejected, "listing", listingID.String(),
-		"Listing rejected from moderation queue", map[string]interface{}{
+		"Listing rejected to delisted (appealable)", map[string]interface{}{
 			"reason": body.Reason,
 		})
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Listing rejected",
-		"listing": listing,
+		"message":           "Listing rejected (delisted; seller may appeal)",
+		"listing":           listing,
+		"appeal_window_days": decentralization.ListingAppealDays(),
+	})
+}
+
+type delistListingRequest struct {
+	Reason string `json:"reason"`
+}
+
+func delistActiveListing(c *gin.Context) {
+	listingID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing ID"})
+		return
+	}
+	var body delistListingRequest
+	_ = c.ShouldBindJSON(&body)
+
+	var listing models.ProxyListing
+	if err := db.DB.First(&listing, "id = ?", listingID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+		return
+	}
+	switch listing.Status {
+	case models.ListingStatusActive, models.ListingStatusPaused, models.ListingStatusSoldOut:
+		// ok
+	default:
+		c.JSON(http.StatusConflict, gin.H{"error": "Listing cannot be delisted from current status", "status": listing.Status})
+		return
+	}
+	if err := models.ValidateListingStatusTransition(listing.Status, models.ListingStatusDelisted); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.DB.Model(&listing).Update("status", models.ListingStatusDelisted).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delist listing"})
+		return
+	}
+	invalidateMarketplaceReadModels()
+	listing.Status = models.ListingStatusDelisted
+	audit.Log(c, models.AuditAdminListingDelisted, "listing", listingID.String(),
+		"Listing delisted by moderator", map[string]interface{}{"reason": body.Reason})
+	c.JSON(http.StatusOK, gin.H{
+		"message":            "Listing delisted (seller may appeal)",
+		"listing":            listing,
+		"appeal_window_days": decentralization.ListingAppealDays(),
 	})
 }

@@ -36,6 +36,7 @@ func RegisterUsageRoutes(r *gin.RouterGroup) {
 		usage.POST("/sign", signUsageClaim) // New endpoint for providers
 		usage.GET("/session/:session_id", getSessionUsage)
 		usage.GET("/me", getUserUsage) // Use authenticated user
+		usage.GET("/settlement-receipts/:window_key", exportSettlementReceipt)
 	}
 }
 

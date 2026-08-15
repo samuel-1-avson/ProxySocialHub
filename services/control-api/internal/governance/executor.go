@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
@@ -107,38 +109,120 @@ func (e *ProposalExecutor) ExecuteProposal(proposal models.Proposal) error {
 	return nil
 }
 
-// executeTreasuryTransfer queues a treasury transfer for custody review.
+// executeTreasuryTransfer queues pending_custody by default, or dual-gated hot-wallet SendSOL (W5.C.3).
 //
-// Automatic hot-wallet SendSOL from governance is disabled: a compromised
-// control-api/oracle must not be able to drain operational treasury via a
-// passed proposal. Records are created as pending_custody for multisig/ops.
+// Live spend requires PROXYHUB_GOV_TREASURY_AUTO_SPEND + PROXYHUB_GOV_TREASURY_EXECUTE_CONFIRM=1.
+// This is still hot-wallet attestation — not on-chain proposal→treasury PDA CPI.
 func (e *ProposalExecutor) executeTreasuryTransfer(proposal models.Proposal) error {
 	var transfer TreasuryTransfer
 	if err := json.Unmarshal([]byte(proposal.ExecutionData), &transfer); err != nil {
 		return fmt.Errorf("failed to parse treasury transfer data: %w", err)
 	}
 
-	logging.Warn().
-		Str("recipient", transfer.Recipient).
-		Float64("amount", transfer.Amount).
-		Str("currency", transfer.Currency).
-		Str("proposal_id", proposal.ID.String()).
-		Msg("Treasury auto-spend disabled — queuing pending_custody record")
+	currency := strings.ToUpper(strings.TrimSpace(transfer.Currency))
+	if currency == "" {
+		currency = "SOL"
+	}
+	transfer.Currency = currency
 
+	if !decentralization.GovTreasuryHotWalletExecuteArmed() {
+		logging.Warn().
+			Str("recipient", transfer.Recipient).
+			Float64("amount", transfer.Amount).
+			Str("currency", transfer.Currency).
+			Str("proposal_id", proposal.ID.String()).
+			Bool("auto_spend", decentralization.GovTreasuryAutoSpendEnabled()).
+			Bool("execute_confirm", decentralization.GovTreasuryExecuteConfirm()).
+			Msg("Treasury spend not dual-gated — queuing pending_custody record")
+
+		txRecord := models.TreasuryTransaction{
+			ProposalID:  proposal.ID,
+			Recipient:   transfer.Recipient,
+			Amount:      transfer.Amount,
+			Currency:    transfer.Currency,
+			Description: transfer.Description,
+			Status:      "pending_custody",
+			CreatedAt:   time.Now(),
+		}
+		if err := db.DB.Create(&txRecord).Error; err != nil {
+			return fmt.Errorf("failed to create treasury transaction record: %w", err)
+		}
+		return ErrTreasuryAwaitingCustody
+	}
+
+	return e.executeTreasuryHotWalletTransfer(proposal, transfer)
+}
+
+func (e *ProposalExecutor) executeTreasuryHotWalletTransfer(proposal models.Proposal, transfer TreasuryTransfer) error {
+	if transfer.Currency != "SOL" {
+		return fmt.Errorf("treasury hot-wallet execute only supports SOL (got %s)", transfer.Currency)
+	}
+	if transfer.Amount <= 0 {
+		return fmt.Errorf("treasury transfer amount must be positive")
+	}
+
+	recipient, err := sol.PublicKeyFromBase58(strings.TrimSpace(transfer.Recipient))
+	if err != nil {
+		return fmt.Errorf("invalid treasury recipient: %w", err)
+	}
+	lamports := solanaClient.SOLToLamports(transfer.Amount)
+	if lamports == 0 {
+		return fmt.Errorf("treasury transfer amount rounds to zero lamports")
+	}
+
+	now := time.Now()
 	txRecord := models.TreasuryTransaction{
 		ProposalID:  proposal.ID,
 		Recipient:   transfer.Recipient,
 		Amount:      transfer.Amount,
 		Currency:    transfer.Currency,
 		Description: transfer.Description,
-		Status:      "pending_custody",
-		CreatedAt:   time.Now(),
+		Status:      "pending_send",
+		CreatedAt:   now,
 	}
 	if err := db.DB.Create(&txRecord).Error; err != nil {
 		return fmt.Errorf("failed to create treasury transaction record: %w", err)
 	}
 
-	return ErrTreasuryAwaitingCustody
+	oracle := solanaClient.GetOracleClient()
+	if oracle == nil {
+		_ = db.DB.Model(&txRecord).Updates(map[string]interface{}{
+			"status": "failed",
+		}).Error
+		return fmt.Errorf("treasury hot-wallet execute: oracle client unavailable")
+	}
+
+	logging.Warn().
+		Str("proposal_id", proposal.ID.String()).
+		Str("recipient", transfer.Recipient).
+		Float64("amount_sol", transfer.Amount).
+		Uint64("lamports", lamports).
+		Msg("Executing dual-gated treasury hot-wallet SendSOL")
+
+	txHash, sendErr := oracle.SendSOL(e.ctx, recipient, lamports)
+	if sendErr != nil {
+		_ = db.DB.Model(&txRecord).Updates(map[string]interface{}{
+			"status": "failed",
+		}).Error
+		return fmt.Errorf("treasury hot-wallet SendSOL failed: %w", sendErr)
+	}
+
+	executedAt := time.Now()
+	if err := db.DB.Model(&txRecord).Updates(map[string]interface{}{
+		"status":      "executed",
+		"tx_hash":     txHash,
+		"executed_at": executedAt,
+	}).Error; err != nil {
+		return fmt.Errorf("treasury send succeeded (%s) but DB update failed: %w", txHash, err)
+	}
+
+	logging.Info().
+		Str("proposal_id", proposal.ID.String()).
+		Str("tx_hash", txHash).
+		Float64("amount_sol", transfer.Amount).
+		Msg("Treasury hot-wallet transfer executed (W5.C.3 dual-gated)")
+
+	return nil
 }
 
 // executeParameterChange updates protocol parameters

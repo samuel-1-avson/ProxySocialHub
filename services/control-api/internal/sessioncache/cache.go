@@ -92,3 +92,29 @@ func GetByUsername(username string) (*redisClient.SessionData, time.Time, error)
 	}
 	return &data, row.ExpiresAt, nil
 }
+
+// DeleteExpired removes session_gateway_cache rows past expires_at.
+// Wave 2.2 — keeps the hydrate spill table from unbounded growth; Redis remains hot path.
+func DeleteExpired(now time.Time, limit int) (int64, error) {
+	if db.DB == nil {
+		return 0, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if limit <= 0 {
+		limit = 500
+	}
+	var hashes []string
+	if err := db.DB.Model(&models.SessionGatewayCache{}).
+		Where("expires_at <= ?", now).
+		Limit(limit).
+		Pluck("credentials_user_hash", &hashes).Error; err != nil {
+		return 0, err
+	}
+	if len(hashes) == 0 {
+		return 0, nil
+	}
+	res := db.DB.Where("credentials_user_hash IN ?", hashes).Delete(&models.SessionGatewayCache{})
+	return res.RowsAffected, res.Error
+}

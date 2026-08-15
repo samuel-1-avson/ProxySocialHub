@@ -17,6 +17,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
 	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
@@ -54,10 +55,11 @@ func RegisterListingRoutes(rg *gin.RouterGroup) {
 
 // ListingsResponse is the cached response structure
 type ListingsResponse struct {
-	Listings []models.ProxyListing `json:"listings"`
-	Total    int64                 `json:"total"`
-	Page     int                   `json:"page"`
-	Limit    int                   `json:"limit"`
+	Listings  []models.ProxyListing `json:"listings"`
+	Total     int64                 `json:"total"`
+	Page      int                   `json:"page"`
+	Limit     int                   `json:"limit"`
+	Discovery DiscoveryHonesty      `json:"discovery"`
 }
 
 // getListings returns marketplace listings with filters
@@ -71,6 +73,7 @@ func getListings(c *gin.Context) {
 	var cachedResponse ListingsResponse
 	if useCache {
 		if found, _ := cache.Get(cacheKey, &cachedResponse); found {
+			cachedResponse.Discovery = discoveryHonestyMeta()
 			c.JSON(http.StatusOK, cachedResponse)
 			return
 		}
@@ -96,13 +99,21 @@ func getListings(c *gin.Context) {
 	}
 
 	enrichListingsSLA(apiListings)
+	enrichListingsDiscoveryHints(apiListings)
+	beforeFilter := len(apiListings)
+	apiListings = filterListingsByBrowseRegistry(apiListings)
+	apiListings = filterListingsByListingCommitment(apiListings)
+	if dropped := beforeFilter - len(apiListings); dropped > 0 && total >= int64(dropped) {
+		total -= int64(dropped)
+	}
 	maybeEnrichListingsWithCatalog(c, apiListings)
 
 	response := ListingsResponse{
-		Listings: apiListings,
-		Total:    total,
-		Page:     getPageParam(c, 1),
-		Limit:    getLimitParam(c, 20),
+		Listings:  apiListings,
+		Total:     total,
+		Page:      getPageParam(c, 1),
+		Limit:     getLimitParam(c, 20),
+		Discovery: discoveryHonestyMeta(),
 	}
 
 	// Cache result (60 seconds)
@@ -160,7 +171,7 @@ func listingCacheKey(filters map[string]interface{}) string {
 	for _, key := range keys {
 		values.Set(key, fmt.Sprint(filters[key]))
 	}
-	return "listings:sla:v2:" + values.Encode()
+	return "listings:sla:v3:brf=" + decentralization.BrowseRegistryFilterMode() + ":" + values.Encode()
 }
 
 func sellerProfileToModel(p *domain.SellerPublicProfile) *models.User {
@@ -208,6 +219,10 @@ func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
 		ListingOfferVerified: e.ListingOfferVerified,
 		ListingOfferVerificationError: e.ListingOfferVerificationError,
 		ListingOfferNonce:    e.ListingOfferNonce,
+		ListingCommitmentPDA:     e.ListingCommitmentPDA,
+		ListingCommitmentOnChain: e.ListingCommitmentOnChain,
+		ListingCommitmentTx:      e.ListingCommitmentTx,
+		ListingCommitmentAt:      e.ListingCommitmentAt,
 		Title:                e.Title,
 		Description:          e.Description,
 		PricePerGB:           e.PricePerGB,
@@ -302,7 +317,25 @@ func getListing(c *gin.Context) {
 
 	listing := listingEntityToModel(detail.Listing)
 	listing.Seller = sellerProfileToModel(detail.Seller)
-	enrichListingsSLA([]models.ProxyListing{listing})
+	hintBatch := []models.ProxyListing{listing}
+	enrichListingsSLA(hintBatch)
+	enrichListingsDiscoveryHints(hintBatch)
+	listing = hintBatch[0]
+	if !listingPassesBrowseRegistryFilter(&listing) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":     "listing_not_found",
+			"discovery": discoveryHonestyMeta(),
+		})
+		return
+	}
+	if !listingPassesListingCommitmentFilter(&listing) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":     "listing_not_found",
+			"discovery": discoveryHonestyMeta(),
+		})
+		return
+	}
+	maybeEnrichListingRegistryLive(c.Request.Context(), c.Query("include"), &listing)
 
 	sentry := privacy.NewZKMetadataSentry()
 	sentry.SanitizeListing(&listing)
@@ -312,8 +345,9 @@ func getListing(c *gin.Context) {
 	listing = batch[0]
 
 	c.JSON(http.StatusOK, gin.H{
-		"listing":  listing,
-		"is_saved": detail.IsSaved,
+		"listing":   listing,
+		"is_saved":  detail.IsSaved,
+		"discovery": discoveryHonestyMeta(),
 	})
 }
 
@@ -454,6 +488,14 @@ func createListing(c *gin.Context) {
 	}
 	invalidateMarketplaceReadModels()
 	publishNewListingFeedEvent(userID, *published)
+
+	if published.ListingOfferVerified && published.ListingOfferHash != "" {
+		signer := published.ListingOfferSigner
+		if signer == "" && hasProofContext {
+			signer = proofContext.Hotkey
+		}
+		maybeRegisterListingCommitmentAsync(published.ID, published.ListingOfferHash, signer)
+	}
 
 	c.JSON(http.StatusCreated, listingEntityToModel(*published))
 }
@@ -667,6 +709,10 @@ func updateListing(c *gin.Context) {
 	}
 	if listingUpdateHasChanges(updates) {
 		invalidateMarketplaceReadModels()
+	}
+	if updated.ListingOfferVerified && updated.ListingOfferHash != "" {
+		signer := updated.ListingOfferSigner
+		maybeRegisterListingCommitmentAsync(updated.ID, updated.ListingOfferHash, signer)
 	}
 
 	c.JSON(http.StatusOK, listingEntityToModel(*updated))

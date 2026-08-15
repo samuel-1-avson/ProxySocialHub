@@ -10,8 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/decentralization"
+	"github.com/proxyhubb/control-api/internal/gateways"
 	"github.com/proxyhubb/control-api/internal/geoip"
+	"github.com/proxyhubb/control-api/internal/incentives"
 	"github.com/proxyhubb/control-api/internal/map/topology"
+	"github.com/proxyhubb/control-api/internal/proofs"
+	"github.com/proxyhubb/control-api/internal/settlement"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 )
@@ -129,15 +133,59 @@ func getPublicSystemConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"treasury_solana":              val,
-		"deposit_address":              val,
-		"destination_kind":             kind,
-		"vault_address":                solana.GetDepositVaultAddress(),
-		"legacy_treasury":              solana.GetTreasuryAddress(),
-		"treasury_configured":          val != "",
-		"sol_price_usd":                billing.GetSOLPriceUSD(),
-		"large_withdraw_threshold_sol": getLargeWithdrawalThresholdSOL(),
+		"treasury_solana":               val,
+		"deposit_address":               val,
+		"destination_kind":              kind,
+		"vault_address":                 solana.GetDepositVaultAddress(),
+		"legacy_treasury":               solana.GetTreasuryAddress(),
+		"treasury_configured":           val != "",
+		"sol_price_usd":                 billing.GetSOLPriceUSD(),
+		"large_withdraw_threshold_sol":  getLargeWithdrawalThresholdSOL(),
+		"discovery":                     discoveryHonestyMeta(),
+		"provider_registry_gate":        decentralization.ProviderRegistryGateMode(),
+		"zk_onchain_groth16":            decentralization.ZKOnchainGroth16Enabled(),
+		"zk_onchain_groth16_ready":      decentralization.ZKOnchainGroth16Ready(),
+		"zk_verification_mode":          zkVerificationMode(),
+		"reputation":                    solana.ReputationStatusMeta(),
+		"protocol_incentives":           incentives.StatusMeta(),
+		"governance":                    decentralization.GovernanceAutonomyMeta(),
+		"gateway_operator_bond_enforce": gateways.BondEnforceEnabled(),
+		"gateway_operator_bond_mode":    gateways.BondEnforceMode(),
+		"operator_manifest_mode":        gateways.ManifestMode(),
+		"gateway_operators":             operatorDiscoveryPublicMeta(),
+		"session_capability":            sessionCapabilityPublicMeta(),
+		"settlement":                    settlementHonestyPublicMeta(),
 	})
+}
+
+func operatorDiscoveryPublicMeta() gin.H {
+	rows, err := gateways.ListActive(false)
+	if err != nil {
+		return gin.H{
+			"operator_host_diversity": "unknown",
+			"operator_org_diversity":  gateways.OrgDiversitySame,
+			"control_plane":           "shared",
+		}
+	}
+	return gin.H(gateways.HonestyMeta(rows))
+}
+
+func sessionCapabilityPublicMeta() gin.H {
+	meta := decentralization.SessionCapabilityMeta()
+	if pub := proofs.SessionCapabilityIssuerPubkey(); pub != "" {
+		meta["session_capability_issuer_pubkey"] = pub
+	}
+	return gin.H(meta)
+}
+
+func settlementHonestyPublicMeta() gin.H {
+	return gin.H{
+		"settlement_sot":      settlement.ReceiptSoT(""),
+		"settlement_execute":  settlement.ExecuteMode(),
+		"would_broadcast":     settlement.WouldBroadcast(),
+		"programs_session":    "unsafe_do_not_deploy",
+		"note":                "Portable signed settlement receipts. Chain tx is SoT when present. Not trustless metering.",
+	}
 }
 
 // getFederatedGateways returns a list of active, staked gateway nodes

@@ -434,14 +434,17 @@ func submitSellerEvidence(c *gin.Context) {
 	c.JSON(http.StatusOK, jury)
 }
 
-// settleDisputeOnChain submits the jury resolution to the Solana blockchain.
-// It is always called in a goroutine ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â failures are logged but do not affect the HTTP response.
+// settleDisputeOnChain submits the jury resolution to Solana.
+//
+// W1.2 note: Go oracle uses EmergencyRefund / SettleEscrow as the intentional
+// settlement shortcut. Anchor ExecuteJuryVerdict is not wired in control-api yet;
+// payout accounts are still bound by BC-01/02 constraints on SettleEscrow.
+// Failures enqueue durable compensation_outbox retries (not fire-and-forget-only).
 func settleDisputeOnChain(jury models.DisputeJury) {
 	ctx := context.Background()
 
-	// Fetch the related order to get escrow details.
-	var order models.Order
-	if err := db.DB.Where("id = ?", jury.DisputeID).First(&order).Error; err != nil {
+	order, err := loadOrderForJurySettlement(jury)
+	if err != nil {
 		logging.Error(err).Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: order not found")
 		return
 	}
@@ -473,7 +476,8 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 
 	oracle := solana.GetOracle()
 	if oracle == nil {
-		logging.Warn().Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: oracle not configured, skipping blockchain call")
+		logging.Warn().Str("dispute_id", jury.DisputeID.String()).Msg("dispute settlement: oracle not configured, enqueueing outbox")
+		enqueueJurySettlementRetry(&order, decision, "oracle_nil")
 		return
 	}
 
@@ -496,13 +500,11 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 	var txHash string
 	switch decision {
 	case models.VoteBuyerWins:
-		// Return all locked SOL to buyer.
 		txHash, err = oracle.EmergencyRefund(ctx, solana.RefundEscrowParams{
 			Buyer:     buyerPubKey,
 			EscrowPDA: escrowPDA,
 		})
 	case models.VoteSellerWins:
-		// Release full escrow to seller (bandwidth_used = bandwidth_limit).
 		txHash, err = oracle.SettleEscrow(ctx, "api.dispute_jury.seller_wins", solana.SettleEscrowParams{
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
@@ -510,7 +512,6 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 			BandwidthUsedGB: order.BandwidthLimitGB,
 		})
 	case models.VoteSplitFunds:
-		// Settle at 50% usage so funds split proportionally.
 		txHash, err = oracle.SettleEscrow(ctx, "api.dispute_jury.split_funds", solana.SettleEscrowParams{
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
@@ -520,7 +521,8 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 	}
 
 	if err != nil {
-		logging.Error(err).Str("jury_id", jury.ID.String()).Msg("dispute settlement: blockchain call failed")
+		logging.Error(err).Str("jury_id", jury.ID.String()).Msg("dispute settlement: blockchain call failed; enqueueing outbox")
+		enqueueJurySettlementRetry(&order, decision, err.Error())
 		return
 	}
 	extras := map[string]interface{}{}
@@ -531,11 +533,46 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 		logging.Error(err).Str("order_id", order.ID.String()).Msg("dispute settlement: failed to persist final transition")
 		return
 	}
+	_ = db.DB.Model(&models.DisputeJury{}).Where("id = ?", jury.ID).Updates(map[string]interface{}{
+		"on_chain_tx_hash": txHash,
+	}).Error
 
 	logging.Info().
 		Str("jury_id", jury.ID.String()).
 		Str("tx_hash", txHash).
 		Msg("dispute settlement: blockchain settlement submitted")
+}
+
+func loadOrderForJurySettlement(jury models.DisputeJury) (models.Order, error) {
+	var order models.Order
+	if err := db.DB.Where("id = ?", jury.DisputeID).First(&order).Error; err == nil {
+		return order, nil
+	}
+	// Legacy auto-jury rows used EscrowDispute.ID as DisputeID — resolve via escrow dispute.
+	var ed models.EscrowDispute
+	if err := db.DB.Where("id = ?", jury.DisputeID).First(&ed).Error; err != nil {
+		return models.Order{}, err
+	}
+	if err := db.DB.Where("id = ?", ed.OrderID).First(&order).Error; err != nil {
+		return models.Order{}, err
+	}
+	return order, nil
+}
+
+func enqueueJurySettlementRetry(order *models.Order, decision models.JuryVote, reason string) {
+	if order == nil {
+		return
+	}
+	switch decision {
+	case models.VoteSellerWins:
+		EnqueueEscrowSettleUsage(order, "api.dispute_jury.seller_wins_outbox", order.BandwidthLimitGB)
+	case models.VoteSplitFunds:
+		EnqueueEscrowSettleUsage(order, "api.dispute_jury.split_funds_outbox", order.BandwidthLimitGB/2)
+	case models.VoteBuyerWins:
+		EnqueueEscrowRefund(order, "api.dispute_jury.buyer_wins_outbox", reason)
+	default:
+		logging.Warn().Int("decision", int(decision)).Msg("dispute settlement: no outbox mapping for decision")
+	}
 }
 
 // @Summary Get jury voting status

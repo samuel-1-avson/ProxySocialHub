@@ -696,12 +696,16 @@ func settleBatchEscrows(c *gin.Context) {
 	})
 }
 
-// EmergencyPauseRequest triggers emergency pause on the Solana program
+// EmergencyPauseRequest triggers app-level emergency pause (Redis watchtower).
+// On-chain program pause is NOT invoked from this API by default (Wave 4.4).
 type EmergencyPauseRequest struct {
-	Reason string `json:"reason" binding:"required"`
+	Reason        string `json:"reason" binding:"required"`
+	OnchainPause  bool   `json:"onchain_pause"` // ignored unless PROXYHUB_OPS_ONCHAIN_PAUSE=true
 }
 
-// emergencyPause triggers the emergency pause on the Solana program
+// emergencyPause triggers the Redis/app emergency breaker.
+// Wave 4.4: JWT admin cannot halt the Solana program alone — on-chain pause
+// requires OpsOnchainPauseEnabled + CONFIRM_ONCHAIN_PAUSE via ops tooling.
 func emergencyPause(c *gin.Context) {
 	// Only admin can trigger emergency pause
 	userRole, _ := c.Get("userRole")
@@ -716,17 +720,9 @@ func emergencyPause(c *gin.Context) {
 		return
 	}
 
-	// Attempt to trigger emergency pause via Solana program
-	oracle := solana.GetOracleClient()
-	if oracle == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Oracle not initialized"})
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	// Call the watchtower to trigger emergency pause
 	wt := treasury.NewWatchtower()
 	if err := wt.TriggerEmergencyPause(ctx, req.Reason); err != nil {
 		logging.Error(err).
@@ -737,15 +733,38 @@ func emergencyPause(c *gin.Context) {
 		return
 	}
 
+	onchainSig := ""
+	onchainSkipped := "app_level_only"
+	if req.OnchainPause {
+		if !decentralization.OpsOnchainPauseEnabled() {
+			onchainSkipped = "PROXYHUB_OPS_ONCHAIN_PAUSE=false"
+		} else if oracle := solana.GetOracleClient(); oracle != nil {
+			if sig, err := oracle.EmergencyPauseOnChain(ctx); err != nil {
+				logging.Warn().Err(err).Msg("on-chain pause refused or failed")
+				onchainSkipped = err.Error()
+			} else {
+				onchainSig = sig
+				onchainSkipped = ""
+			}
+		} else {
+			onchainSkipped = "oracle_unavailable"
+		}
+	}
+
 	logging.Error(nil).
 		Str("reason", req.Reason).
 		Str("triggered_by", c.GetString("user_id")).
-		Msg("EMERGENCY PAUSE TRIGGERED")
+		Str("onchain_sig", onchainSig).
+		Msg("EMERGENCY PAUSE TRIGGERED (app-level)")
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "paused",
-		"reason":  req.Reason,
-		"message": "Emergency pause activated - all operations halted",
+		"status":           "paused",
+		"scope":            "app_level_redis",
+		"reason":           req.Reason,
+		"onchain_sig":      onchainSig,
+		"onchain_skipped":  onchainSkipped,
+		"governance":       decentralization.GovernanceAutonomyMeta(),
+		"message":          "App-level emergency pause activated. On-chain program pause requires separate ops confirm.",
 	})
 }
 

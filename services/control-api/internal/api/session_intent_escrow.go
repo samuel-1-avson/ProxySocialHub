@@ -14,7 +14,10 @@ import (
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
-const paymentMethodSessionEscrow = "solana_session_escrow"
+const (
+	paymentMethodSessionEscrow        = "solana_session_escrow"
+	paymentMethodSessionEscrowPending = "solana_session_escrow_pending"
+)
 
 // fundSessionIntentSolana records SessionEscrow PDA params for a gateway intent (mirrors Phase 1b).
 func fundSessionIntentSolana(c *gin.Context) {
@@ -143,13 +146,15 @@ func fundSessionIntentSolana(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"payment_method":           paymentMethodSessionEscrow,
+		// Pending until confirm-escrow proves on-chain SessionEscrow (W1.1).
+		"payment_method":           paymentMethodSessionEscrowPending,
 		"session_pda":              pda.String(),
 		"buyer_wallet":             buyerWallet.Address,
 		"seller_wallet":            sellerAddr,
 		"amount_locked_sol":        amountSOL,
 		"billing_price_per_gb_usd": pricePerGB,
 		"bandwidth_limit":          bw,
+		"escrow_confirmed_at":      nil,
 	}
 	if err := db.DB.Model(&intent).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session intent"})
@@ -232,7 +237,14 @@ func confirmSessionIntentEscrow(c *gin.Context) {
 		return
 	}
 
-	_ = db.DB.Model(&intent).Update("payment_method", paymentMethodSessionEscrow).Error
+	now := time.Now().UTC()
+	if err := db.DB.Model(&intent).Updates(map[string]interface{}{
+		"payment_method":      paymentMethodSessionEscrow,
+		"escrow_confirmed_at": now,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark session intent escrow confirmed"})
+		return
+	}
 	_ = db.DB.Where("id = ?", intentID).First(&intent)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -243,9 +255,20 @@ func confirmSessionIntentEscrow(c *gin.Context) {
 	})
 }
 
+// intentRequiresFundedSessionPDA is true when Active must be blocked because
+// PROXYHUB_REQUIRE_SESSION_PDA is on and confirm-escrow has not succeeded.
 func intentRequiresFundedSessionPDA(intent *models.SessionIntentRecord) bool {
 	if intent == nil || !decentralization.RequireSessionPDAEnabled() {
 		return false
 	}
-	return intent.SessionPDA == "" || intent.PaymentMethod != paymentMethodSessionEscrow
+	if intent.EscrowConfirmedAt == nil {
+		return true
+	}
+	if intent.SessionPDA == "" {
+		return true
+	}
+	if intent.PaymentMethod != paymentMethodSessionEscrow {
+		return true
+	}
+	return false
 }
