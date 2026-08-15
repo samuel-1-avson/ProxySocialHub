@@ -30,6 +30,7 @@ mod metrics;
 mod multiregion;
 mod net_listen;
 mod observability;
+mod operator_bundle;
 mod pod_drain;
 mod policy;
 mod pool;
@@ -89,9 +90,9 @@ pub(crate) async fn sync_session_intent_lifecycle(
     lifecycle_state: &str,
     provider_node_id: Option<&str>,
     target_host: Option<&str>,
-) {
+) -> Result<(), crate::error::Error> {
     if !session.is_session_intent() {
-        return;
+        return Ok(());
     }
 
     if let Err(err) = state
@@ -104,14 +105,57 @@ pub(crate) async fn sync_session_intent_lifecycle(
         )
         .await
     {
+        // W1.1: Active without confirmed SessionEscrow must abort CONNECT/bridge.
+        if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
+            error!(
+                intent_id = %session.session_id,
+                lifecycle_state = %lifecycle_state,
+                error = %err,
+                "Refusing session intent lifecycle (session escrow required)"
+            );
+            return Err(err);
+        }
         warn!(
             intent_id = %session.session_id,
             lifecycle_state = %lifecycle_state,
             error = %err,
             "Failed to sync session intent lifecycle"
         );
+        // Soft-fail non-escrow errors for routed/closing; Active still soft-fails
+        // only when not SessionEscrowRequired (already returned above).
+        if lifecycle_state == "active" {
+            // Prefer fail-closed for hard 4xx-class escrow; other Active failures
+            // remain best-effort so transient control-api blips do not drop tunnels
+            // that already passed escrow confirm.
+            return Ok(());
+        }
+        return Ok(());
     }
+    Ok(())
 }
+
+/// Preflight Active transition before opening provider data path (W1.1).
+pub(crate) async fn ensure_session_intent_may_activate(
+    state: Arc<AppState>,
+    session: &crate::auth::SessionData,
+    provider_node_id: Option<&str>,
+    target_host: Option<&str>,
+) -> Result<(), crate::error::Error> {
+    if !session.is_session_intent() {
+        return Ok(());
+    }
+    // routed is best-effort; Active is fail-closed when escrow missing.
+    let _ = sync_session_intent_lifecycle(
+        state.clone(),
+        session,
+        "routed",
+        provider_node_id,
+        target_host,
+    )
+    .await;
+    sync_session_intent_lifecycle(state, session, "active", provider_node_id, target_host).await
+}
+
 
 pub(crate) async fn sync_session_intent_usage(
     state: Arc<AppState>,
@@ -168,7 +212,8 @@ pub(crate) async fn finalize_session_intent_ledger(
         provider_node_id,
         target_host,
     )
-    .await;
+    .await
+    .ok();
     sync_session_intent_usage(
         state.clone(),
         session,
@@ -178,7 +223,7 @@ pub(crate) async fn finalize_session_intent_ledger(
         bytes_down_delta,
     )
     .await;
-    sync_session_intent_lifecycle(
+    let _ = sync_session_intent_lifecycle(
         state,
         session,
         "ledger_committed",
@@ -215,26 +260,33 @@ async fn metrics_handler(state: &AppState) -> Result<Response<Full<Bytes>>, hype
 }
 
 /// Health check endpoint — liveness only (process is up).
-async fn health_handler(draining: bool) -> Result<Response<Full<Bytes>>, hyper::Error> {
+async fn health_handler(
+    draining: bool,
+    edge_pod_id: &str,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
     if draining {
         let body = format!(
-            r#"{{"status":"draining","uptime_seconds":{}}}"#,
-            metrics::uptime_seconds()
+            r#"{{"status":"draining","uptime_seconds":{},"edge_pod_id":"{}"}}"#,
+            metrics::uptime_seconds(),
+            edge_pod_id
         );
         let response = Response::builder()
             .status(StatusCode::SERVICE_UNAVAILABLE)
             .header("Content-Type", "application/json")
+            .header("X-Edge-Pod-Id", edge_pod_id)
             .body(Full::new(Bytes::from(body)))
             .unwrap();
         return Ok(response);
     }
     let health = format!(
-        r#"{{"status":"healthy","uptime_seconds":{}}}"#,
-        metrics::uptime_seconds()
+        r#"{{"status":"healthy","uptime_seconds":{},"edge_pod_id":"{}"}}"#,
+        metrics::uptime_seconds(),
+        edge_pod_id
     );
     let response = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
+        .header("X-Edge-Pod-Id", edge_pod_id)
         .body(Full::new(Bytes::from(health)))
         .unwrap();
     Ok(response)
@@ -435,15 +487,26 @@ async fn proxy(
         return metrics_handler(&state).await;
     }
 
-    // Handle health endpoint (liveness)
-    if path == "/health" && method == Method::GET {
+    // Handle health endpoint (liveness). Accept HEAD for compose/k8s probes
+    // that use wget --spider (HEAD); GET-only previously returned 501 and
+    // marked the container unhealthy despite a live process.
+    if path == "/health" && (method == Method::GET || method == Method::HEAD) {
         trace!("serving health");
-        return health_handler(pod_drain::is_draining(&state)).await;
+        let mut resp =
+            health_handler(pod_drain::is_draining(&state), &state.config.edge_pod_id).await?;
+        if method == Method::HEAD {
+            *resp.body_mut() = Full::new(Bytes::new());
+        }
+        return Ok(resp);
     }
 
     // Handle readiness endpoint (Redis ping + optional provider count)
-    if path == "/ready" && method == Method::GET {
-        return ready_handler(&state, &authenticator).await;
+    if path == "/ready" && (method == Method::GET || method == Method::HEAD) {
+        let mut resp = ready_handler(&state, &authenticator).await?;
+        if method == Method::HEAD {
+            *resp.body_mut() = Full::new(Bytes::new());
+        }
+        return Ok(resp);
     }
 
     // Handle ML stats export endpoint (Debug only)
@@ -493,6 +556,17 @@ async fn proxy(
         trace!("serving node list debug");
         let nodes = state.registry.list_nodes();
         let json = serde_json::to_string(&nodes).unwrap_or_default();
+        let mut resp = Response::new(Full::new(Bytes::from(json)));
+        resp.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        return Ok(resp);
+    }
+
+    if config::debug_routes_enabled() && path == "/debug/operators" && method == Method::GET {
+        let snap = crate::operator_bundle::snapshot();
+        let json = serde_json::to_string(&snap).unwrap_or_else(|_| "{}".to_string());
         let mut resp = Response::new(Full::new(Bytes::from(json)));
         resp.headers_mut().insert(
             hyper::header::CONTENT_TYPE,
@@ -960,15 +1034,13 @@ async fn proxy(
                             return Ok(resp);
                         }
                         Err(e) => {
-                            error!("Session RPM check backend error for {}: {}", username, e);
-                            let mut resp = Response::new(Full::new(Bytes::from(
-                                "Rate limit service temporarily unavailable",
-                            )));
-                            *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-                            metrics::REQUEST_LATENCY_SECONDS
-                                .with_label_values(&[method.as_str(), "429"])
-                                .observe(start_time.elapsed().as_secs_f64());
-                            return Ok(resp);
+                            // EV-05: fail-open on Redis/transport errors so a blip
+                            // does not force unforced 429s. Hard deny only when the
+                            // counter is known to exceed the limit (Ok(false)).
+                            error!(
+                                "Session RPM check backend error for {}: {} — fail-open",
+                                username, e
+                            );
                         }
                     }
                 }
@@ -1064,6 +1136,20 @@ async fn proxy(
                     Some(session.target_isp.as_str())
                 }
             });
+            let rotation_type = session_data.as_ref().and_then(|session| {
+                if session.rotation_type.is_empty() {
+                    None
+                } else {
+                    Some(session.rotation_type.as_str())
+                }
+            });
+            let rotation_interval_seconds = session_data.as_ref().and_then(|session| {
+                if session.rotation_interval_seconds == 0 {
+                    None
+                } else {
+                    Some(session.rotation_interval_seconds)
+                }
+            });
 
             // 2.6 Security: Honeytokens (P4-W13)
             if let Some(token_type) = state.honeytoken.check(dest_host) {
@@ -1093,7 +1179,30 @@ async fn proxy(
                 metrics::record_policy_block("honeytoken_hit");
                 metrics::record_honeytoken_hit(attribution_label);
 
-                // Phase 8: Trigger On-Chain Slash (requires `legacy-zk` feature)
+                // Wave 5.B: observe-only slash audit via control-api (no on-chain slash).
+                {
+                    let control = state.control_api.clone();
+                    let provider_cloned = provider_id.to_string();
+                    let session_cloned = session_id.clone();
+                    let token_type_cloned = format!("{:?}", token_type);
+                    let dest_cloned = dest_host.to_string();
+                    tokio::spawn(async move {
+                        let req = crate::control_api::SlashAuditRequest {
+                            gateway_address: std::env::var("EDGE_POD_ID")
+                                .unwrap_or_else(|_| "edge".into()),
+                            provider_id: provider_cloned,
+                            session_id: session_cloned,
+                            reason: "honeytoken_hit".into(),
+                            token_type: token_type_cloned,
+                            evidence: dest_cloned,
+                        };
+                        if let Err(e) = control.report_slash_audit(&req).await {
+                            warn!("honeytoken slash-audit failed: {}", e);
+                        }
+                    });
+                }
+
+                // Phase 8: Trigger On-Chain Slash (requires `legacy-zk` feature) — design-only.
                 #[cfg(feature = "legacy-zk")]
                 {
                     let state_cloned = state.clone();
@@ -1112,7 +1221,7 @@ async fn proxy(
                 }
                 #[cfg(not(feature = "legacy-zk"))]
                 warn!(
-                    "Honeytoken hit but edge-gateway was built without `legacy-zk`; on-chain slash skipped"
+                    "Honeytoken hit: observe audit posted; on-chain slash skipped (no legacy-zk)"
                 );
 
                 // MALICIOUS SINK: Instead of selecting a real provider, we bridge to the sink.
@@ -1151,6 +1260,8 @@ async fn proxy(
                     Some(dest_host),
                     pinned_node_id,
                     target_isp,
+                    rotation_type,
+                    rotation_interval_seconds,
                 )
                 .await
             }
@@ -1709,22 +1820,22 @@ async fn bridge_established(
     {
         debug!(node_id = %node_id, target = %addr_for_log, "connected to provider");
         if let Some(ref session) = session_data {
-            sync_session_intent_lifecycle(
+            // Active already preflighted in bridge_to_provider_inner; re-assert fail-closed.
+            if let Err(err) = ensure_session_intent_may_activate(
                 state.clone(),
                 session,
-                "routed",
                 Some(&node_id),
                 Some(target_domain),
             )
-            .await;
-            sync_session_intent_lifecycle(
-                state.clone(),
-                session,
-                "active",
-                Some(&node_id),
-                Some(target_domain),
-            )
-            .await;
+            .await
+            {
+                if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        format!("session_escrow_required: {}", err),
+                    ));
+                }
+            }
         }
         // Record success in ML feature cache (P3-W12)
         state
@@ -1801,7 +1912,7 @@ async fn bridge_established(
                             return true;
                         }
                         if session.is_session_intent() {
-                            crate::sync_session_intent_lifecycle(
+                            let _ = crate::sync_session_intent_lifecycle(
                                 state,
                                 session,
                                 "closing",
@@ -1925,6 +2036,24 @@ async fn bridge_to_provider_inner(
     bandwidth_cap: u32,
 ) -> std::io::Result<(u64, u64)> {
     debug!(node_id = %node_id, target = %addr, "routing CONNECT to provider");
+    let target_domain = policy::target_host_from_endpoint(&addr);
+    if let Some(ref session) = session_data {
+        if let Err(err) = ensure_session_intent_may_activate(
+            state.clone(),
+            session,
+            Some(&node_id),
+            Some(target_domain),
+        )
+        .await
+        {
+            if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("session_escrow_required: {}", err),
+                ));
+            }
+        }
+    }
     let stream = try_open_provider_stream(&state, control, &node_id, &addr).await?;
     bridge_established(
         upgraded,
@@ -2047,7 +2176,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             config.session_cache_size,
             config.session_cache_ttl_secs,
         )
-        .await?,
+        .await?
+        .with_control_api(Arc::new(crate::control_api::ControlApiClient::new(
+            &config.control_api_url,
+            &config.gateway_shared_secret,
+        ))),
     );
     info!(
         "Session cache initialized: size={}, ttl={}s",
@@ -2123,6 +2256,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         provider_directory,
         usage_tracker,
     ));
+
+    crate::operator_bundle::load_from_env().await;
+    {
+        let snap = crate::operator_bundle::snapshot();
+        info!(
+            discovery_sot = %snap.discovery_sot,
+            source = %snap.source,
+            operators = snap.operators.len(),
+            error = %snap.error,
+            "Operator discovery bundle"
+        );
+    }
 
     // Start heartbeat monitor background task (monitor is owned by state)
     state

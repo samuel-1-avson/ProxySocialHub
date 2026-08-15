@@ -278,6 +278,10 @@ pub(crate) async fn handle_provider_mux_io<S>(
                     Ok(token_data) => {
                         if let Err(reason) = validate_tunnel_claims(&token_data.claims) {
                             error!("Handshake: AUTH rejected for {}: {}", peer_addr, reason);
+                            let _ = auth_stream
+                                .write_all(format!("ERR {reason}\n").as_bytes())
+                                .await;
+                            let _ = auth_stream.flush().await;
                             return;
                         }
                         let _ = auth_stream.write_all(b"OK\n").await;
@@ -286,11 +290,17 @@ pub(crate) async fn handle_provider_mux_io<S>(
                     }
                     Err(e) => {
                         error!("Handshake: AUTH failed for {}: {}", peer_addr, e);
+                        let _ = auth_stream
+                            .write_all(format!("ERR invalid_jwt: {e}\n").as_bytes())
+                            .await;
+                        let _ = auth_stream.flush().await;
                         return;
                     }
                 }
             } else {
                 error!("Handshake: Expected AUTH from {}", peer_addr);
+                let _ = auth_stream.write_all(b"ERR expected_AUTH\n").await;
+                let _ = auth_stream.flush().await;
                 return;
             }
         }

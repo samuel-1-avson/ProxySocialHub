@@ -202,6 +202,16 @@ async fn handle_connection(
         } else {
             Some(auth.session.target_isp.as_str())
         };
+        let rotation_type = if auth.session.rotation_type.is_empty() {
+            None
+        } else {
+            Some(auth.session.rotation_type.as_str())
+        };
+        let rotation_interval_seconds = if auth.session.rotation_interval_seconds == 0 {
+            None
+        } else {
+            Some(auth.session.rotation_interval_seconds)
+        };
         let route = match provider_selection::select_provider_route(
             state.clone(),
             &auth.session.session_id,
@@ -211,6 +221,8 @@ async fn handle_connection(
             Some(dest_host),
             pinned_node_id,
             target_isp,
+            rotation_type,
+            rotation_interval_seconds,
         )
         .await
         {

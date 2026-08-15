@@ -16,6 +16,15 @@ pub struct ControlApiClient {
     gateway_auth_secret: String,
 }
 
+/// Response from GET /v1/gateway/sessions/hydrate (Sprint J0).
+#[derive(Debug, Deserialize)]
+pub struct SessionHydrateResponse {
+    pub username: String,
+    #[serde(default)]
+    pub source: String,
+    pub session: crate::auth::SessionData,
+}
+
 /// Node registration request
 #[derive(Debug, Clone, Serialize)]
 pub struct RegisterNodeRequest {
@@ -90,6 +99,17 @@ pub struct SessionIntentUsageRequest {
     pub target_host: Option<String>,
     pub bytes_up_delta: i64,
     pub bytes_down_delta: i64,
+}
+
+/// Wave 5.B observe-only slash audit (no on-chain slash).
+#[derive(Debug, Serialize)]
+pub struct SlashAuditRequest {
+    pub gateway_address: String,
+    pub provider_id: String,
+    pub session_id: String,
+    pub reason: String,
+    pub token_type: String,
+    pub evidence: String,
 }
 
 impl ControlApiClient {
@@ -278,7 +298,16 @@ impl ControlApiClient {
             );
             Ok(())
         } else {
+            let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            // W1.1: prepaid SessionEscrow not confirmed — fail closed on Active.
+            if status.as_u16() == 402 || text.contains("session_escrow_required") {
+                warn!(
+                    "Session intent {} Active blocked (escrow required): {}",
+                    intent_id, text
+                );
+                return Err(Error::SessionEscrowRequired(text));
+            }
             warn!(
                 "Session intent state update failed for {} ({}): {}",
                 intent_id, lifecycle_state, text
@@ -341,6 +370,91 @@ impl ControlApiClient {
             )))
         }
     }
+
+    /// Sprint J0: load session auth blob from control-api PG cache when Redis misses.
+    pub async fn hydrate_session(
+        &self,
+        username: &str,
+    ) -> Result<Option<crate::auth::SessionData>> {
+        let url = format!(
+            "{}/v1/gateway/sessions/hydrate?username={}",
+            self.base_url,
+            encode_query_component(username)
+        );
+        let response = self
+            .client
+            .get(&url)
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|e| {
+                warn!("session hydrate request failed for {}: {}", username, e);
+                Error::Internal(format!("hydrate HTTP error: {e}"))
+            })?;
+
+        let status = response.status();
+        if status.as_u16() == 404 {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let text = response.text().await.unwrap_or_default();
+            warn!(
+                "session hydrate rejected for {} ({}): {}",
+                username, status, text
+            );
+            return Ok(None);
+        }
+
+        let body = response
+            .json::<SessionHydrateResponse>()
+            .await
+            .map_err(|e| Error::Internal(format!("hydrate parse error: {e}")))?;
+        debug!(
+            username = %username,
+            source = %body.source,
+            "hydrated session from control-api"
+        );
+        Ok(Some(body.session))
+    }
+
+    /// Wave 5.B: record honeytoken hit as control-api slashing_events audit (observe only).
+    pub async fn report_slash_audit(&self, req: &SlashAuditRequest) -> Result<()> {
+        let url = format!("{}/v1/gateway/slash-audit", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
+            .json(req)
+            .send()
+            .await
+            .map_err(|e| Error::Internal(format!("slash-audit HTTP error: {e}")))?;
+        let status = response.status();
+        if status.is_success() {
+            debug!("slash-audit recorded (observe-only)");
+            Ok(())
+        } else {
+            let text = response.text().await.unwrap_or_default();
+            warn!("slash-audit failed ({}): {}", status, text);
+            Err(Error::Internal(format!(
+                "slash-audit failed: HTTP {status} - {text}"
+            )))
+        }
+    }
+}
+
+fn encode_query_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

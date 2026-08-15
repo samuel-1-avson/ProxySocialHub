@@ -59,29 +59,39 @@ impl UsageTracker {
 
     /// Record usage for a session.
     /// Writes to Redis WAL first (B-02) so data survives a crash before the next flush.
+    /// On Redis failure, spills to control-api Postgres (EV-05 lite) instead of memory-only loss.
     pub async fn record(&self, session_username: &str, bytes_up: u64, bytes_down: u64) {
         // 1. Persist to Redis WAL (durable)
+        let mut wal_ok = false;
         if let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await {
             let wal_key = format!("metering:wal:{}", session_username);
-            let _: Result<(), _> = redis::cmd("HINCRBY")
+            let up_res: Result<(), _> = redis::cmd("HINCRBY")
                 .arg(&wal_key)
                 .arg("bytes_up")
                 .arg(bytes_up)
                 .query_async(&mut conn)
                 .await;
-            let _: Result<(), _> = redis::cmd("HINCRBY")
+            let down_res: Result<(), _> = redis::cmd("HINCRBY")
                 .arg(&wal_key)
                 .arg("bytes_down")
                 .arg(bytes_down)
                 .query_async(&mut conn)
                 .await;
-            // TTL: 1 hour — stale WAL entries expire automatically
             let _: Result<(), _> = conn.expire(&wal_key, 3600).await;
-        } else {
+            wal_ok = up_res.is_ok() && down_res.is_ok();
+        }
+        if !wal_ok {
             eprintln!(
-                "[Metering] WAL write failed for {} — data only in memory",
+                "[Metering] WAL write failed for {} — spilling to control-api",
                 session_username
             );
+            let spilled = self
+                .spill_to_control_api(session_username, bytes_up, bytes_down, None, "redis_wal_fail")
+                .await;
+            if spilled {
+                // Spill owns durability; skip in-memory accumulate to avoid double flush→report.
+                return;
+            }
         }
 
         // 2. Accumulate in memory for batch flush
@@ -89,6 +99,61 @@ impl UsageTracker {
         let entry = usage.entry(session_username.to_string()).or_insert((0, 0));
         entry.0 += bytes_up;
         entry.1 += bytes_down;
+    }
+
+    /// Persist spill bytes to control-api when Redis WAL/pending cannot be written.
+    /// Returns true when control-api accepted the spill (2xx/202).
+    async fn spill_to_control_api(
+        &self,
+        username: &str,
+        bytes_up: u64,
+        bytes_down: u64,
+        seq: Option<u64>,
+        source: &str,
+    ) -> bool {
+        if bytes_up + bytes_down == 0 {
+            return false;
+        }
+        let url = format!("{}/v1/gateway/metering/spill", self.control_api_url);
+        let body = MeteringSpillRequest {
+            session_username: username.to_string(),
+            bytes_up: bytes_up as i64,
+            bytes_down: bytes_down as i64,
+            seq: seq.map(|s| s as i64),
+            source: source.to_string(),
+        };
+        let client = reqwest::Client::new();
+        match client
+            .post(&url)
+            .header("X-Gateway-Auth", &self.gateway_auth_secret)
+            .json(&body)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 202 => {
+                eprintln!(
+                    "[Metering] spill accepted for {} ({}+{} bytes, source={})",
+                    username, bytes_up, bytes_down, source
+                );
+                true
+            }
+            Ok(resp) => {
+                eprintln!(
+                    "[Metering] spill rejected for {} HTTP {} — data only in memory",
+                    username,
+                    resp.status()
+                );
+                false
+            }
+            Err(e) => {
+                eprintln!(
+                    "[Metering] spill request failed for {}: {} — data only in memory",
+                    username, e
+                );
+                false
+            }
+        }
     }
 
     /// Start background task that flushes usage every 30 seconds.
@@ -172,6 +237,7 @@ impl UsageTracker {
 
     /// Persist the exact (nonce, bytes) snapshot BEFORE first send so any retry
     /// or crash replay is byte-identical and deduplicates server-side.
+    /// Returns false when Redis write fails (caller should spill).
     async fn save_pending(
         &self,
         conn: &mut redis::aio::MultiplexedConnection,
@@ -179,15 +245,16 @@ impl UsageTracker {
         seq: u64,
         bytes_up: u64,
         bytes_down: u64,
-    ) {
+    ) -> bool {
         let key = format!("metering:pending:{}", username);
         let fields: [(String, String); 3] = [
             ("seq".to_string(), seq.to_string()),
             ("bytes_up".to_string(), bytes_up.to_string()),
             ("bytes_down".to_string(), bytes_down.to_string()),
         ];
-        let _: Result<(), _> = conn.hset_multiple(&key, &fields).await;
+        let set_ok: Result<(), _> = conn.hset_multiple(&key, &fields).await;
         let _: Result<(), _> = conn.expire(&key, 3600).await;
+        set_ok.is_ok()
     }
 
     /// After a successful (or deduplicated) ack: drop the pending snapshot and
@@ -275,7 +342,29 @@ impl UsageTracker {
         let mut conn = match self.redis_client.get_multiplexed_async_connection().await {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[Metering] flush skipped, no Redis connection: {}", e);
+                eprintln!(
+                    "[Metering] flush: no Redis ({}) — spilling in-memory usage",
+                    e
+                );
+                let snapshots: Vec<(String, u64, u64)>;
+                {
+                    let mut usage = self.usage.write().await;
+                    snapshots = usage
+                        .drain()
+                        .filter(|(_, (up, down))| up + down > 0)
+                        .map(|(u, (up, down))| (u, up, down))
+                        .collect();
+                }
+                for (username, bytes_up, bytes_down) in snapshots {
+                    self.spill_to_control_api(
+                        &username,
+                        bytes_up,
+                        bytes_down,
+                        None,
+                        "redis_flush_unavailable",
+                    )
+                    .await;
+                }
                 return;
             }
         };
@@ -334,8 +423,31 @@ impl UsageTracker {
             }
             match self.alloc_seq(&mut conn, &username).await {
                 Ok(seq) => {
-                    self.save_pending(&mut conn, &username, seq, bytes_up, bytes_down)
-                        .await;
+                    if !self
+                        .save_pending(&mut conn, &username, seq, bytes_up, bytes_down)
+                        .await
+                    {
+                        eprintln!(
+                            "[Metering] pending write failed for {} — spilling",
+                            username
+                        );
+                        if self
+                            .spill_to_control_api(
+                                &username,
+                                bytes_up,
+                                bytes_down,
+                                Some(seq),
+                                "redis_pending_fail",
+                            )
+                            .await
+                        {
+                            self.clear_pending_advance(
+                                &mut conn, &username, bytes_up, bytes_down,
+                            )
+                            .await;
+                        }
+                        continue;
+                    }
                     self.deliver_pending(&mut conn, &username, seq, bytes_up, bytes_down)
                         .await;
                 }
@@ -377,7 +489,26 @@ impl UsageTracker {
                 }
                 match self.alloc_seq(&mut conn, &username).await {
                     Ok(seq) => {
-                        self.save_pending(&mut conn, &username, seq, up, down).await;
+                        if !self.save_pending(&mut conn, &username, seq, up, down).await {
+                            eprintln!(
+                                "[Metering] pending write failed for WAL {} — spilling",
+                                username
+                            );
+                            if self
+                                .spill_to_control_api(
+                                    &username,
+                                    up,
+                                    down,
+                                    Some(seq),
+                                    "redis_pending_fail",
+                                )
+                                .await
+                            {
+                                self.clear_pending_advance(&mut conn, &username, up, down)
+                                    .await;
+                            }
+                            continue;
+                        }
                         self.deliver_pending(&mut conn, &username, seq, up, down)
                             .await;
                     }
@@ -466,6 +597,16 @@ struct UsageReport {
 #[derive(serde::Serialize)]
 struct BatchUsageReport {
     reports: Vec<UsageReport>,
+}
+
+#[derive(serde::Serialize)]
+struct MeteringSpillRequest {
+    session_username: String,
+    bytes_up: i64,
+    bytes_down: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seq: Option<i64>,
+    source: String,
 }
 
 #[cfg(test)]
@@ -620,7 +761,10 @@ mod exactly_once_tests {
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        tracker.save_pending(&mut conn, &user, 7, 500, 700).await;
+        assert!(
+            tracker.save_pending(&mut conn, &user, 7, 500, 700).await,
+            "pending write should succeed"
+        );
         tracker
             .clear_pending_advance(&mut conn, &user, 500, 700)
             .await;
