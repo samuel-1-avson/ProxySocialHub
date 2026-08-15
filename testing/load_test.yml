@@ -1,5 +1,9 @@
-# ProxyHubb Load Testing Configuration
-# Usage: artillery run load_test.yml
+# ProxyHubb Load Testing Configuration (Solana RPC only — legacy OPS-08)
+# For product API + CONNECT SLOs use:
+#   k6 run testing/product_load.k6.js
+#   artillery run testing/product_load.artillery.yml
+#
+# Usage: artillery run testing/load_test.yml
 
 config:
   target: "https://api.devnet.solana.com"
