@@ -195,6 +195,10 @@ cannot decentralize if the default product is the SPOF.
       ([`evidence/W10_A_capability_observe_started_20260814.md`](evidence/W10_A_capability_observe_started_20260814.md))
 - [ ] `PROXYHUB_SESSION_CAPABILITY=observe` for that fleet for ≥7 days
       (**started 2026-08-14**; due **2026-08-21**; not restored off)
+- [ ] Host-A control-api roll is queued behind that decision
+      ([`HOST_A_CONTROL_API_ROLL.md`](HOST_A_CONTROL_API_ROLL.md)); the live
+      binary lacks W11.A labels, `listing_commitment_sync`, and
+      `bonded_gateway_program`
 - [x] Honesty while observe: `session_mint=control_api_hmac`,
       `remaining_spof=control_api_hmac_and_redis` (enforce’s `token_issuer`
       label is not used until capability is admission)
