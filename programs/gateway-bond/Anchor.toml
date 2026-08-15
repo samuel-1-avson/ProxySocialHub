@@ -1,0 +1,23 @@
+[toolchain]
+package_manager = "yarn"
+anchor_version = "0.30.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+proxy_gateway_bond = "7nvrNVaNWcG4DzcPygEyXoVC3k19ePUAncGE25dUEyi5"
+
+[programs.devnet]
+proxy_gateway_bond = "7nvrNVaNWcG4DzcPygEyXoVC3k19ePUAncGE25dUEyi5"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = '~/.config/solana/id.json'
+
+[scripts]
+test = "echo \"gateway-bond: cargo test --manifest-path programs/gateway-bond/Cargo.toml\""

@@ -1,0 +1,23 @@
+[toolchain]
+package_manager = "yarn"
+anchor_version = "0.30.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+proxy_reputation = "EnVE6ehKA2dYi69B3Lo8wt2wyDgzLw4tdtSEKoMYe5bF"
+
+[programs.devnet]
+proxy_reputation = "EnVE6ehKA2dYi69B3Lo8wt2wyDgzLw4tdtSEKoMYe5bF"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = '~/.config/solana/id.json'
+
+[scripts]
+test = "echo \"reputation tests: use cargo test / anchor test when suite lands\""
